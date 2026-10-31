@@ -46,7 +46,7 @@ export async function pushLive(
     snapshots = {};
     const head = await github.head();
     requireAccess(await permissions(github, head), user, ['maintainer', 'editor']);
-    const { facts, aliases, weaponTypeLabels } = await catalog(github.env);
+    const { facts, aliases } = await catalog(github.env);
     const canonicalHashes = [...new Set(hashes.map((hash) => resolveAlias(hash, aliases)))];
     const tooltips: Tooltip[] = [];
     for (const hash of canonicalHashes) {
@@ -68,7 +68,8 @@ export async function pushLive(
     }
     // A malformed marker is reported by the marker step below; here it just means "all changed".
     const pushed =
-      pushedSchema.safeParse((await github.requiredFile('live/pushed.json', head)).value).data ?? {};
+      pushedSchema.safeParse((await github.requiredFile('live/pushed.json', head)).value).data ??
+      {};
     const changed = new Set(
       canonicalHashes.filter((hash) => pushed[hash] !== exportedHashes[hash]),
     );
@@ -83,8 +84,6 @@ export async function pushLive(
         file.sha,
         {
           ...live,
-          // Every other setting stays exactly as live has it.
-          databaseSettings: { ...live.databaseSettings, weaponTypeLabels },
           perks: { ...live.perks, ...entries },
         },
         user,

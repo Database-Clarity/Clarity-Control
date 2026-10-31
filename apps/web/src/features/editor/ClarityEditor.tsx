@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { autocompletion, completionKeymap } from '@codemirror/autocomplete';
 import {
   defaultKeymap,
@@ -16,18 +16,11 @@ import {
   highlightActiveLine,
   drawSelection,
 } from '@codemirror/view';
-import {
-  hasOldWeaponTypeSyntax,
-  markupLanguage,
-  validateText,
-  type Lang,
-  type MarkupGlobals,
-} from '@clarity/core';
+import { markupLanguage, validateText, type Lang, type MarkupGlobals } from '@clarity/core';
 import { clarityCompletions } from './completion';
 import { clarityHighlighting, clarityLanguage } from './language';
 import { tableFormattingTransaction } from './formatTable';
 import { validationDiagnostics } from './diagnostics';
-import { planWeaponSyntaxConversion } from './weaponSyntax';
 import styles from './ClarityEditor.module.scss';
 
 export interface ClarityEditorProps {
@@ -77,8 +70,6 @@ export function ClarityEditor({
   const initial = useRef({ value, lang, globals, readOnly, requireEnglish });
   const config = useRef(new Compartment());
   const extensions = useRef<Extension[]>([]);
-  // Why the last conversion attempt changed nothing; it applies to the text it was tried on.
-  const [conversionNote, setConversionNote] = useState<{ value: string; message: string }>();
   const issues = useMemo(
     () => validateText(value, lang, globals, requireEnglish),
     [value, lang, globals, requireEnglish],
@@ -168,31 +159,9 @@ export function ClarityEditor({
     editor.focus();
   }, [highlightLine]);
 
-  const convertWeaponSyntax = () => {
-    const editor = view.current;
-    if (!editor) return;
-    const { change, diagnostic } = planWeaponSyntaxConversion(editor.state);
-    // The update listener reports the new text, so the draft is updated like any other edit.
-    if (change) editor.dispatch(change);
-    else if (diagnostic)
-      setConversionNote({ value: editor.state.doc.toString(), message: diagnostic });
-  };
   return (
     <div className={styles.editor}>
       <div ref={host} />
-      {!readOnly && hasOldWeaponTypeSyntax(value) && (
-        <div className={styles.convert} role="status">
-          <span>This text uses the old weapon-type syntax.</span>
-          <button type="button" onClick={convertWeaponSyntax}>
-            Convert old weapon-type syntax
-          </button>
-          {conversionNote?.value === value && (
-            <span className={styles.convertNote} role="alert">
-              {conversionNote.message}
-            </span>
-          )}
-        </div>
-      )}
       <details className={styles.help}>
         <summary>{issues.length ? `${issues.length} markup issue(s)` : 'Markup help'}</summary>
         <p>

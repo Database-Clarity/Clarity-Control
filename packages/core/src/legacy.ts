@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { langSchema } from './languages.js';
 import { legacyStatsSchema } from './legacyStats.js';
-import { weaponTypeLabelsSchema } from './markup/specialize.js';
 
 export const hashSchema = z.number().int().min(0).max(0xffffffff);
 export const trackerEntrySchema = z.object({
@@ -44,7 +43,8 @@ export const legacyDatabaseSchema = z.object({
     enhancedPerks: z.record(z.string(), z.object({
       name: z.string(), linkedWith: hashSchema,
     }).strict()),
-    weaponTypeLabels: weaponTypeLabelsSchema.optional(),
+    // Accept retired settings as inert input; malformed labels cannot block migration.
+    weaponTypeLabels: z.unknown().optional(),
   }).strict(),
 }).strict().superRefine(({ perks }, context) => {
   for (const [hash, perk] of Object.entries(perks)) {
@@ -56,8 +56,5 @@ export const legacyDatabaseSchema = z.object({
 export type LegacyPerk = z.infer<typeof legacyPerkSchema>;
 export type LegacyDatabase = z.infer<typeof legacyDatabaseSchema>;
 export type LegacyMetadata = z.infer<typeof legacyMetadataSchema>;
-/** `weaponTypes` is intermediate-only: the converter consumes it, published output never carries it. */
-export type LegacyFacts = Pick<LegacyPerk, 'name' | 'type' | 'itemHash' | 'itemName'> & {
-  weaponTypes?: string[];
-};
+export type LegacyFacts = Pick<LegacyPerk, 'name' | 'type' | 'itemHash' | 'itemName'>;
 export type LegacyCatalog = Record<string, LegacyFacts>;

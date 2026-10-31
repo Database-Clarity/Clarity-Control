@@ -8,7 +8,8 @@ test('exports main into both editor fields, including explicitly empty text', ()
   value.text.de = { ...value.text.en!, text: '' };
   const result = exportCanonical([value], 123);
   expect(result['42'].editor).toEqual({
-    en: { main: 'English', secondary: 'English' }, de: { main: '', secondary: '' },
+    en: { main: 'English', secondary: 'English' },
+    de: { main: '', secondary: '' },
   });
   expect(result['42'].lastUpload).toBe(123);
 });
@@ -20,7 +21,9 @@ test.each([
   const value = tooltip();
   const englishTime = Date.parse(value.text.en!.updatedAt);
   value.text.de = {
-    text: 'Deutsch', updatedBy: 'bob', updatedAt: value.text.en!.updatedAt,
+    text: 'Deutsch',
+    updatedBy: 'bob',
+    updatedAt: value.text.en!.updatedAt,
     sourceUpdatedAt: new Date(englishTime - age).toISOString(),
   };
   const exported = exportCanonical([value], englishTime);
@@ -38,23 +41,31 @@ test('unknown source age or missing English never discards translation', () => {
   expect(exportCanonical([value], 0)['42'].editor.de?.main).toBe('Deutsch');
 });
 test('catalog restores manifest facts without storing them in Tooltip', () => {
-  expect(exportLegacy([tooltip()], 0, {
-    '42': { name: 'Perk', type: 'Weapon Perk', itemHash: 12, itemName: 'Weapon' },
-  })['42']).toMatchObject({ name: 'Perk', type: 'Weapon Perk', itemHash: 12, itemName: 'Weapon' });
+  expect(
+    exportLegacy([tooltip()], 0, {
+      '42': { name: 'Perk', type: 'Weapon Perk', itemHash: 12, itemName: 'Weapon' },
+    })['42'],
+  ).toMatchObject({ name: 'Perk', type: 'Weapon Perk', itemHash: 12, itemName: 'Weapon' });
   expect(() => exportLegacy([tooltip()], 0, {})).toThrow('Missing manifest facts');
 });
-test('weaponTypes facts reach canonical entries and alias stubs', () => {
+test('retired weapon facts are stripped from canonical entries and alias stubs', () => {
   const catalog = {
     '42': { name: 'Frame', type: 'Weapon Frame', weaponTypes: ['Bow', 'Sniper'] },
     '43': { name: 'Frame', type: 'Weapon Frame', weaponTypes: ['Bow'] },
     '44': { name: 'Sandbox', type: 'Weapon Perk' },
   };
-  const aliases = { 43: { to: 42, kind: 'frame' as const }, 44: { to: 42, kind: 'sandbox' as const } };
+  const aliases = {
+    43: { to: 42, kind: 'frame' as const },
+    44: { to: 42, kind: 'sandbox' as const },
+  };
   const result = exportLegacy([tooltip()], 0, catalog, aliases);
-  expect(result['42']).toMatchObject({ weaponTypes: ['Bow', 'Sniper'] });
-  expect(result['43']).toMatchObject({ aliasOf: 42, weaponTypes: ['Bow'] });
+  expect(result['42']).not.toHaveProperty('weaponTypes');
+  expect(result['43']).toMatchObject({ aliasOf: 42 });
+  expect(result['43']).not.toHaveProperty('weaponTypes');
   expect(result['44']).not.toHaveProperty('weaponTypes');
-  expect(exportLegacy([tooltip()], 0, { '42': { name: 'P', type: 'T' } })['42']).not.toHaveProperty('weaponTypes');
+  expect(exportLegacy([tooltip()], 0, { '42': { name: 'P', type: 'T' } })['42']).not.toHaveProperty(
+    'weaponTypes',
+  );
 });
 test('rejects duplicate hashes and invalid export times', () => {
   expect(() => exportLegacy([tooltip(), tooltip()], 0)).toThrow('Duplicate');
@@ -66,7 +77,8 @@ test('preserves historical tracker authorship even when that language has no edi
     updateTracker: { descriptions: { ko: { lastUpdate: 1000, updatedBy: 'translator' } } },
   };
   expect(exportCanonical([value], 0)['42'].updateTracker?.descriptions.ko).toEqual({
-    lastUpdate: 1000, updatedBy: 'translator',
+    lastUpdate: 1000,
+    updatedBy: 'translator',
   });
   expect(exportCanonical([value], 0)['42'].editor.ko).toBeUndefined();
 });
@@ -95,8 +107,14 @@ test('associated keeps authored order, deduplicated to first occurrence, and is 
   expect(exportCanonical([value], 0)['42']).not.toHaveProperty('associated');
   expect(JSON.stringify(exportCanonical([value], 0)['42'])).not.toContain('associated');
   value.associated = [900, 7, 100, 43, 44, 42];
-  const aliases = { 43: { to: 7, kind: 'frame' as const }, 44: { to: 42, kind: 'sandbox' as const } };
-  expect(exportLegacy([value], 0, undefined, aliases)['42']).toHaveProperty('associated', [900, 7, 100]);
+  const aliases = {
+    43: { to: 7, kind: 'frame' as const },
+    44: { to: 42, kind: 'sandbox' as const },
+  };
+  expect(exportLegacy([value], 0, undefined, aliases)['42']).toHaveProperty(
+    'associated',
+    [900, 7, 100],
+  );
   expect(exportCanonical([value], 0)['42'].associated).toEqual([900, 7, 100, 43, 44]);
   value.associated = [44];
   expect(exportLegacy([value], 0, undefined, aliases)['42']).not.toHaveProperty('associated');

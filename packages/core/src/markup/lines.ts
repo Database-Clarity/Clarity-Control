@@ -4,15 +4,9 @@ import {
   markupIcons,
   markupLineClasses,
   markupTableClasses,
-  markupWeaponTypes,
 } from './syntax.js';
 import type { MarkupLine, MarkupSpan } from './types.js';
-import { canonicalWeaponType, hasWeaponTags, joinLines, scanWeaponSections } from './weapons.js';
-
-/** Counts weapon blocks so labelled output can tell where each block begins. */
-interface BlockCounter {
-  next: number;
-}
+import { weaponSectionHeadings } from './weaponHeadings.js';
 
 function lineClasses(line: string, allowed: string[]) {
   const classNames = allowed.filter((name) => line.includes(`<${name}/>`));
@@ -83,32 +77,8 @@ function tableRow(line: string, titles: Record<string, MarkupLine[]>) {
   };
 }
 
-export function parseLines(
-  text: string,
-  titles: Record<string, MarkupLine[]>,
-  counter: BlockCounter = { next: 0 },
-): MarkupLine[] {
-  if (!hasWeaponTags(text)) return parseBlocks(text, titles, counter);
-  return scanWeaponSections(text).segments.flatMap((segment): MarkupLine[] => {
-    const body = joinLines(segment.lines);
-    if (segment.kind === 'text') return parseBlocks(body, titles, counter);
-    const weaponBlock = counter.next++;
-    return parseBlocks(body, titles, counter).map((line) => ({
-      ...line,
-      weaponTypes: segment.types,
-      weaponBlock,
-      ...(segment.other && { weaponOther: true }),
-    }));
-  });
-}
-
-function parseBlocks(
-  text: string,
-  titles: Record<string, MarkupLine[]>,
-  counter: BlockCounter,
-): MarkupLine[] {
-  const blocks =
-    text.match(/(< table [^]+?\n<\$>\n?|< weapon type [^]+?\n<\$\$>\n?)|(.+\n?|\n)/g) ?? [];
+export function parseLines(text: string, titles: Record<string, MarkupLine[]>): MarkupLine[] {
+  const blocks = weaponSectionHeadings(text).match(/(< table [^]+?\n<\$>\n?)|(.+\n?|\n)/g) ?? [];
   return blocks.flatMap((block): MarkupLine[] => {
     block = block.trimEnd();
     if (block.startsWith('< table ')) {
@@ -125,28 +95,6 @@ function parseBlocks(
           isFormula: names?.includes('formula'),
         },
       ];
-    }
-    if (block.startsWith('< weapon type ')) {
-      const groups = block.match(/(< (weapon type )?\([^]+?\) >\n[^]*?)(?=(< \(|<\$\$>))/g) ?? [];
-      let remaining = [...markupWeaponTypes];
-      return groups.flatMap((group) => {
-        const lines = group.split('\n');
-        const types = lines[0]
-          .replace(/< (weapon type )?\(\s*|\s*\) >/g, '')
-          .split(',')
-          .map((type) => type.trim())
-          .flatMap((name) =>
-            name === 'other' ? ['other'] : (canonicalWeaponType(name, true) ?? []),
-          );
-        remaining = remaining.filter((type) => !types.includes(type));
-        const weaponBlock = counter.next++;
-        return parseBlocks(lines.slice(1).join('\n'), titles, counter).map((line) => ({
-          weaponTypes: types.includes('other') ? remaining : types,
-          weaponBlock,
-          ...(types.includes('other') && { weaponOther: true }),
-          ...line,
-        }));
-      });
     }
     if (!block.trim()) return [{ classNames: ['spacer'] }];
     const { classNames, cleanLine } = lineClasses(block, markupLineClasses);

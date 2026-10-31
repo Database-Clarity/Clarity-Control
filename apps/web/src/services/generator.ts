@@ -1,11 +1,6 @@
 import { z } from 'zod';
-import {
-  aliasesSchema,
-  completeWeaponTypeLabels,
-  hashSchema,
-  weaponTypeLabelsSchema,
-} from '@clarity/core';
-import { fetchJson, fetchOptionalJson } from './http';
+import { aliasesSchema, hashSchema } from '@clarity/core';
+import { fetchJson } from './http';
 
 const source =
   'https://raw.githubusercontent.com/Database-Clarity/Description-data-generator/v2/templates/v2';
@@ -28,8 +23,6 @@ export const itemSchema = z.object({
   enhancedHashes: z.array(hashSchema).optional(),
   baseHash: hashSchema.optional(),
   sandboxPerkHashes: z.array(hashSchema).optional(),
-  /** Weapon types the item appears on (optional generator fact). */
-  weaponTypes: z.array(z.string()).optional(),
   /** All owning exotic items; present only for perks shared by two or more exotics. */
   owners: z.array(hashSchema).optional(),
 });
@@ -43,17 +36,14 @@ export type Category = z.infer<typeof categorySchema>;
 export type Item = z.infer<typeof itemSchema>;
 
 export async function loadGenerator(signal?: AbortSignal) {
-  const [categories, items, aliases, weaponTypeLabels] = await Promise.all([
+  const [categories, items, aliases] = await Promise.all([
     fetchJson(`${source}/categories.json`, z.array(categorySchema), { signal }),
     fetchJson(`${source}/items.json`, itemsSchema, { signal }),
     fetchJson(`${source}/aliases.json`, aliasesSchema, { signal }),
-    // Optional: absent until the generator emits it; English defaults then apply.
-    fetchOptionalJson(`${source}/weaponTypes.json`, weaponTypeLabelsSchema, { signal }),
   ]);
   return {
     categories,
     items,
     aliases,
-    weaponTypeLabels: completeWeaponTypeLabels(weaponTypeLabels),
   };
 }

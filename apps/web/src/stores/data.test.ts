@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDataStore } from './data';
 import { loadBundle } from '../services/bundle';
-import { englishWeaponTypeLabels } from '@clarity/core';
 import { loadGenerator } from '../services/generator';
 
 vi.mock('../services/bundle', () => ({ loadBundle: vi.fn() }));
@@ -17,7 +16,6 @@ describe('editor data loading', () => {
       categories: [],
       items: {},
       aliases: {},
-      weaponTypeLabels: englishWeaponTypeLabels,
     };
     const bundle = {
       sourceCommit: 'abc',
@@ -51,7 +49,6 @@ describe('editor data loading', () => {
       categories: [],
       items: {},
       aliases: {},
-      weaponTypeLabels: englishWeaponTypeLabels,
     });
     vi.mocked(loadBundle).mockRejectedValueOnce(new Error('bundle HTTP404'));
     await useDataStore.getState().load();

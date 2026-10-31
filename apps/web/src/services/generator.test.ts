@@ -1,8 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { completeWeaponTypeLabels } from '@clarity/core';
 import { loadGenerator } from './generator';
 
-const item = { hash: 1, name: 'Perk', icon: '', categoryId: 'perk', inGameDescription: '' };
+const item = {
+  hash: 1,
+  name: 'Perk',
+  icon: '',
+  categoryId: 'perk',
+  inGameDescription: '',
+  owners: [2, 3],
+  weaponTypes: ['Sword'],
+};
 
 function stubFetch(weaponTypes: () => Response) {
   const urls: string[] = [];
@@ -25,27 +32,19 @@ function stubFetch(weaponTypes: () => Response) {
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe('generator catalog weapon-type labels', () => {
-  it('uses the English defaults when weaponTypes.json is absent (404)', async () => {
-    const urls = stubFetch(() => new Response('Not Found', { status: 404 }));
+describe('generator catalog', () => {
+  it.each([
+    () => new Response('missing', { status: 404 }),
+    () => new Response('failure', { status: 500 }),
+    () => Response.json({ Sword: { de: 'malformed retired labels' } }),
+  ])('never requests the retired label service', async (labels) => {
+    const urls = stubFetch(labels);
     const catalog = await loadGenerator();
-    expect(urls.some((url) => url.endsWith('/templates/v2/weaponTypes.json'))).toBe(true);
-    expect(catalog.weaponTypeLabels).toEqual(completeWeaponTypeLabels());
-    expect(catalog.weaponTypeLabels['Hand Cannon']).toEqual({ en: 'Hand Cannon' });
+    expect(urls).toHaveLength(3);
+    expect(urls.some((url) => url.endsWith('/weaponTypes.json'))).toBe(false);
+    expect(catalog).not.toHaveProperty('weaponTypeLabels');
     expect(Object.keys(catalog.items)).toEqual(['1']);
-  });
-
-  it('merges a present table over the defaults', async () => {
-    stubFetch(() => Response.json({ 'Hand Cannon': { en: 'Hand Cannon', de: 'Handfeuerwaffe' } }));
-    const { weaponTypeLabels } = await loadGenerator();
-    expect(weaponTypeLabels['Hand Cannon']).toEqual({ en: 'Hand Cannon', de: 'Handfeuerwaffe' });
-    expect(weaponTypeLabels.Sword).toEqual({ en: 'Sword' });
-  });
-
-  it('fails like the other catalog files on other errors and on a malformed table', async () => {
-    stubFetch(() => new Response('boom', { status: 500 }));
-    await expect(loadGenerator()).rejects.toThrow('HTTP 500');
-    stubFetch(() => Response.json({ Sword: { de: 'Schwert' } }));
-    await expect(loadGenerator()).rejects.toThrow();
+    expect(catalog.items[1].owners).toEqual([2, 3]);
+    expect(catalog.items[1]).not.toHaveProperty('weaponTypes');
   });
 });

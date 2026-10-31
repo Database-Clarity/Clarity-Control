@@ -37,7 +37,6 @@ const item = (hash: number) => ({
 function fixture(): EditorData {
   return {
     categories: [],
-    weaponTypeLabels: {},
     items: { 100: item(100), 101: item(101), 102: item(102) },
     aliases: { 101: { to: 100, kind: 'frame' } },
     bundle: {
