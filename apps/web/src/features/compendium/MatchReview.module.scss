@@ -139,6 +139,16 @@
   letter-spacing: 0.04em;
   color: #a9b9d0;
 }
+.manifestItem {
+  font-size: 0.9rem;
+  small {
+    color: #a9b9d0;
+  }
+  pre {
+    margin: 0.2rem 0 0.6rem;
+    line-height: 1.4;
+  }
+}
 .sourceText {
   white-space: pre-wrap;
   font-size: 0.95rem;

@@ -3,6 +3,7 @@ import { researchSuggestions } from './researchSuggestions';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { CompendiumData, Tooltip } from '@clarity/core';
+import { groupManifestItems } from './manifestItems';
 import { apiUrl } from '../../services/api';
 import { bundleUrl } from '../../services/bundle';
 import { compendiumDataUrl } from '../../services/compendium';
@@ -106,6 +107,10 @@ export function ReviewQueue({
     [editor, source, drafts, fingerprint],
   );
   const entries = useMemo(() => applyReviewProgress(evidence, progress), [evidence, progress]);
+  const manifest = useMemo(
+    () => groupManifestItems(editor.items, editor.aliases),
+    [editor.items, editor.aliases],
+  );
   const { proposals, loading: matching, error: proposalError } = useProposals(editor, source);
   const filtered = entries.filter(
     (entry) =>
@@ -194,14 +199,12 @@ export function ReviewQueue({
       setMessage('Cannot undo: this link or saved data changed. Inspect the draft first.');
       return;
     }
-    useDraftStore
-      .getState()
-      .updateDrafts(
-        undo.links.map(({ base, before, after }) => ({
-          base,
-          update: (next) => restoreLink(next, before, after)!,
-        })),
-      );
+    useDraftStore.getState().updateDrafts(
+      undo.links.map(({ base, before, after }) => ({
+        base,
+        update: (next) => restoreLink(next, before, after)!,
+      })),
+    );
     update(() => undo.progress);
     setUndo(undefined);
     setPicker(false);
@@ -217,14 +220,12 @@ export function ReviewQueue({
         after: proposals.get(entry.hash)!.link,
       })),
     );
-    useDraftStore
-      .getState()
-      .updateDrafts(
-        bulkEntries.map((entry) => ({
-          base: entry.base,
-          update: (next) => ({ ...next, compendium: proposals.get(entry.hash)!.link }),
-        })),
-      );
+    useDraftStore.getState().updateDrafts(
+      bulkEntries.map((entry) => ({
+        base: entry.base,
+        update: (next) => ({ ...next, compendium: proposals.get(entry.hash)!.link }),
+      })),
+    );
     update((state) =>
       bulkEntries.reduce(
         (next, entry) => recordDecision(next, entry.hash, entry.evidence, 'open', undefined),
@@ -375,11 +376,17 @@ export function ReviewQueue({
               {selected.stale && <p>Source evidence changed; review again.</p>}
               <h3>Current English</h3>
               <pre>{selected.next.text.en?.text || 'No English text yet.'}</pre>
-              <h3>In-game description</h3>
-              <pre>
-                {editor.items[selected.hash]?.inGameDescription ||
-                  'No in-game description available.'}
-              </pre>
+              <h3>Manifest</h3>
+              {(manifest.get(selected.hash) ?? []).length ? (
+                manifest.get(selected.hash)!.map((item) => (
+                  <div key={item.hash} className={styles.manifestItem}>
+                    <strong>{item.name || 'Unnamed item'}</strong> <small>· {item.hash}</small>
+                    <pre>{item.inGameDescription || 'No manifest description available.'}</pre>
+                  </div>
+                ))
+              ) : (
+                <p>No manifest item available.</p>
+              )}
               {importContext(
                 selected.next.text.en?.text ?? '',
                 editor.bundle.tooltips,
