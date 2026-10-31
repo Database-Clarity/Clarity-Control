@@ -160,6 +160,23 @@ describe('weapon-type syntax in the editor', () => {
     expect(planWeaponSyntaxConversion(EditorState.create({ doc: 'Plain text' }))).toEqual({});
   });
 
+  test.each(['// #open', '/* #open */'])(
+    'a variable inside %s refuses conversion without an editor change',
+    (comment) => {
+      const text = `<weapons other>\n</weapons>\n${comment}\n< weapon type ( Sword ) >\nOld sword\n/* close */\n< ( other ) >\nOld fallback\n<$$>`;
+      const state = EditorState.create({
+        doc: text,
+        selection: { anchor: text.indexOf('Old fallback') },
+      });
+      const plan = planWeaponSyntaxConversion(state);
+      expect(plan.change).toBeUndefined();
+      expect(plan.diagnostic).toMatch(/variable.*cannot be safely verified/);
+      expect(weaponSyntaxConversion(state)).toBeUndefined();
+      expect(state.doc.toString()).toBe(text);
+      expect(state.selection.main.head).toBe(text.indexOf('Old fallback'));
+    },
+  );
+
   test('the old-syntax warning and conversion button appear only for editable old text', () => {
     const props = { lang: 'en' as const, globals, onChange: () => undefined };
     const old = '< weapon type (HC) >\nx\n<$$>';

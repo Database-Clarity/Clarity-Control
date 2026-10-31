@@ -2,6 +2,24 @@ import { evaluateMarkupMath } from './arithmetic.js';
 import { extractBlocks, extractVariables } from './syntax.js';
 import type { MarkupDiagnostic, MarkupGlobals } from './types.js';
 
+/** Dependencies are recognised before comments are removed, exactly as production expands them. */
+export function markupVariableReferences(text: string): string[] {
+  return text.match(/#[a-zA-Z0-9]+/g) ?? [];
+}
+
+export function markupImports(text: string): string[] {
+  return [
+    ...(text.match(/^import [A-z0-9 ]+? from (\d+|global) *?$/gm) ?? []),
+    ...(text.match(/^import self *?$/gm) ?? []),
+  ];
+}
+
+export const markupConditions = [
+  ['enhanced', 'Weapon Trait Enhanced'],
+  ['catalyst', 'Weapon Catalyst Exotic'],
+  ['exotic perk', 'Weapon Perk Exotic'],
+] as const;
+
 /** The production comment semantics, shared by preparation and lossless conversion checks. */
 export function removeMarkupComments(text: string): string {
   return text
@@ -32,10 +50,7 @@ function resolveImports(
   diagnostics: MarkupDiagnostic[],
 ): string {
   for (let pass = 0; pass < 5; pass++) {
-    const imports = [
-      ...(text.match(/^import [A-z0-9 ]+? from (\d+|global) *?$/gm) ?? []),
-      ...(text.match(/^import self *?$/gm) ?? []),
-    ];
+    const imports = markupImports(text);
     if (!imports.length) return text;
     for (const line of imports) {
       const visible = removeUnusedText(text, false).includes(line.trim());
@@ -80,12 +95,7 @@ export function prepareMarkup(
   diagnostics: MarkupDiagnostic[],
 ) {
   text = resolveImports(text, globals, diagnostics);
-  const conditions = [
-    ['enhanced', 'Weapon Trait Enhanced'],
-    ['catalyst', 'Weapon Catalyst Exotic'],
-    ['exotic perk', 'Weapon Perk Exotic'],
-  ];
-  for (const [keyword, type] of conditions) {
+  for (const [keyword, type] of markupConditions) {
     const pattern = new RegExp(`^${keyword} \\([\\s\\S]*?\\n\\)$`, 'gm');
     if (pattern.test(text) && globals.type !== type) {
       text = text.replace(pattern, '');
@@ -93,14 +103,14 @@ export function prepareMarkup(
     }
   }
   // Preserve the converter's one-pass, declaration-order expansion and global precedence.
-  for (const variable of text.match(/#[a-zA-Z0-9]+/g) ?? []) {
+  for (const variable of markupVariableReferences(text)) {
     const variables = { ...extractVariables(text), ...extractVariables(globals.variables) };
     const value = variables[variable.slice(1)];
     if (value !== undefined) text = text.replaceAll(variable, value);
   }
   text = evaluateMarkupMath(text);
   const cleanText = removeUnusedText(text.trim());
-  for (const variable of new Set(cleanText.match(/#[a-zA-Z0-9]+/g) ?? [])) {
+  for (const variable of new Set(markupVariableReferences(cleanText))) {
     diagnostics.push({ severity: 'warning', message: `Unknown variable ${variable}.` });
   }
   return {

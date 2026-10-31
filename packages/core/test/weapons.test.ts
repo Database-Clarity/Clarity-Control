@@ -444,6 +444,41 @@ describe('lossless conversion', () => {
     }
   });
 
+  test.each(['// #open', '/* #open */'])(
+    'refuses externally expanded variables inside %s before comment removal',
+    (comment) => {
+      const source = `<weapons other>\n</weapons>\n${comment}\n< weapon type ( Sword ) >\nOld sword\n/* close */\n< ( other ) >\nOld fallback\n<$$>`;
+      const globals = { variables: 'var open = /*', titles: '' };
+      const before = parseMarkup(source, globals);
+      expect(before.diagnostics).toEqual([]);
+      expect(texts(specializeWeaponTypes(before.lines, { type: 'Sword' }))).toContain(
+        'Old fallback',
+      );
+      const result = convertWeaponTypeSyntax(source);
+      expect(result.text).toBe(source);
+      expect(result.diagnostic).toMatch(/variable.*cannot be safely verified/);
+      const after = parseMarkup(result.text, globals);
+      expect(after.diagnostics).toEqual([]);
+      for (const type of markupWeaponTypes) {
+        expect(specializeWeaponTypes(after.lines, { type })).toEqual(
+          specializeWeaponTypes(before.lines, { type }),
+        );
+      }
+      expect(specializeWeaponTypes(after.lines, { labelled: {} })).toEqual(
+        specializeWeaponTypes(before.lines, { labelled: {} }),
+      );
+    },
+  );
+
+  test('refuses imports even when empty-context preparation hides them in comments', () => {
+    const source = '/*\nimport main from 123\n*/\n< weapon type ( Sword ) >\nSword\n<$$>';
+    const result = convertWeaponTypeSyntax(source);
+    expect(result.text).toBe(source);
+    expect(result.diagnostic).toMatch(/import.*cannot be safely verified/);
+    const globals = { variables: '', titles: '', imports: { '123': '*/' } };
+    expect(parseMarkup(result.text, globals)).toEqual(parseMarkup(source, globals));
+  });
+
   test('refuses to delete comments embedded in either header', () => {
     for (const old of [
       '< weapon type ( Sword /* authored header note */ ) >\nSword body\n<$$>',
