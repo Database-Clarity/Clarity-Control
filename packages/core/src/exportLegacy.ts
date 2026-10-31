@@ -3,12 +3,21 @@ import type { LegacyCatalog, LegacyFacts, LegacyMetadata, LegacyPerk } from './l
 import { tooltipSchema, type Tooltip } from './schemas.js';
 import { resolveAlias, type Aliases } from './aliases.js';
 
+function exportFacts(facts: LegacyFacts | undefined): Partial<LegacyFacts> {
+  if (!facts) return {};
+  return {
+    name: facts.name,
+    type: facts.type,
+    ...(facts.itemHash === undefined ? {} : { itemHash: facts.itemHash }),
+    ...(facts.itemName === undefined ? {} : { itemName: facts.itemName }),
+  };
+}
+
 export const translationMaxAge = 90 * 24 * 60 * 60 * 1000;
 export type LegacyEntry = LegacyMetadata &
   Pick<LegacyPerk, 'hash' | 'editor'> &
   Partial<Pick<LegacyPerk, 'name' | 'type' | 'itemHash' | 'itemName'>> & {
     associated?: number[];
-    weaponTypes?: string[];
   };
 /** An alias references its canonical tooltip; it carries only its own catalog facts, if any. */
 export type LegacyAliasStub = Partial<LegacyFacts> & {
@@ -68,11 +77,10 @@ export function exportLegacy(
     if (catalog && !facts) throw new Error(`Missing manifest facts for tooltip ${tooltip.hash}`);
     const associated = [
       ...new Set(tooltip.associated.map((hash) => resolveAlias(hash, aliases))),
-    ]
-      .filter((hash) => hash !== tooltip.hash);
+    ].filter((hash) => hash !== tooltip.hash);
     canonical[tooltip.hash] = entries[tooltip.hash] = {
       ...tooltip.legacy,
-      ...facts,
+      ...exportFacts(facts),
       hash: tooltip.hash,
       ...(associated.length ? { associated } : {}),
       editor,
@@ -90,7 +98,12 @@ export function exportLegacy(
     if (catalog && kind === 'frame' && !facts) {
       throw new Error(`Missing manifest facts for frame alias ${alias}`);
     }
-    entries[alias] = { hash: Number(alias), aliasOf: target, aliasKind: kind, ...facts };
+    entries[alias] = {
+      hash: Number(alias),
+      aliasOf: target,
+      aliasKind: kind,
+      ...exportFacts(facts),
+    };
   }
   return entries;
 }

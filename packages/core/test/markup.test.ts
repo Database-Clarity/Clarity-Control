@@ -4,7 +4,7 @@ import {
   type IntermediatePerk,
 } from '@icemourne/description-converter';
 import { describe, expect, test } from 'vitest';
-import { canonicalWeaponType, parseMarkup } from '../src/markup/index.js';
+import { parseMarkup } from '../src/markup/index.js';
 import { evaluateMarkupMath } from '../src/markup/arithmetic.js';
 import { database } from './helpers.js';
 
@@ -35,25 +35,6 @@ function withoutStats(lines: DescriptionLine[] | undefined): unknown {
   );
 }
 
-/**
- * The published converter names weapon types by abbreviation; v2 uses canonical names and also
- * records block identity. Compare everything else exactly.
- */
-function comparable(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(comparable);
-  if (value === null || typeof value !== 'object') return value;
-  return Object.fromEntries(
-    Object.entries(value)
-      .filter(([key]) => key !== 'weaponBlock' && key !== 'weaponOther')
-      .map(([key, entry]) => [
-        key,
-        key === 'weaponTypes' && Array.isArray(entry)
-          ? entry.map((name: string) => canonicalWeaponType(name, true) ?? name).sort()
-          : comparable(entry),
-      ]),
-  );
-}
-
 describe.each(['live', 'intermediate'])('%s real-tooltip converter golden parity', (source) => {
   const raw = database(source);
   // The legacy oracle's narrow type is safe here: these are schema-validated real legacy fixtures.
@@ -64,8 +45,9 @@ describe.each(['live', 'intermediate'])('%s real-tooltip converter golden parity
     }
   }
   const importCatalogs = new Map<string, Record<string, string>>();
-  test('every hash and every stored language match the published converter, except removed stat formulas', () => {
+  test('untagged descriptions match the published converter, except removed stat formulas', () => {
     let compared = 0;
+    const scoped: string[] = [];
     for (const perk of Object.values(perks)) {
       for (const language of Object.keys(perk.editor)) {
         const lang = language as keyof typeof perk.editor;
@@ -78,6 +60,16 @@ describe.each(['live', 'intermediate'])('%s real-tooltip converter golden parity
           );
         }
         const text = perk.editor[lang]?.main ?? '';
+        // Scoped descriptions intentionally differ: all bodies now have ordinary headings.
+        if (/< weapon type|<weapons/i.test(text)) {
+          scoped.push(`${perk.hash}/${lang}`);
+          const lines = JSON.stringify(parseMarkup(text).lines);
+          for (const label of ['Auto Rifle', 'Glaive', 'Other weapons'])
+            expect(lines).toContain(label);
+          expect(lines.match(/Apply this text/g)).toHaveLength(3);
+          expect(lines).not.toContain('weaponTypes');
+          continue;
+        }
         const actual = parseMarkup(text, {
           variables: perks[2].editor[lang]?.main ?? '',
           titles: perks[3].editor[lang]?.main ?? '',
@@ -91,14 +83,14 @@ describe.each(['live', 'intermediate'])('%s real-tooltip converter golden parity
           hash: perk.hash,
           database: perks,
         });
-        expect(
-          comparable(JSON.parse(JSON.stringify(actual.lines))),
-          `${source}/${perk.hash}/${lang}`,
-        ).toEqual(comparable(JSON.parse(JSON.stringify(withoutStats(expected)))));
+        expect(JSON.parse(JSON.stringify(actual.lines)), `${source}/${perk.hash}/${lang}`).toEqual(
+          JSON.parse(JSON.stringify(withoutStats(expected))),
+        );
         compared++;
       }
     }
-    expect(compared).toBe(2761);
+    expect(scoped).toEqual(['0/en']);
+    expect(compared).toBe(2760);
   }, 30_000);
 });
 

@@ -128,25 +128,3 @@ export function navigationGroups(data: EditorData, query: string): CategoryGroup
   }
   return [...groups.values()];
 }
-
-const weaponTypeIndex = new WeakMap<EditorData, Map<number, Set<string>>>();
-/**
- * Weapon types a tooltip can be shown on: the `weaponTypes` facts of its own item and of every
- * alias that resolves to it (frame groups list the types of all their members).
- */
-export function weaponTypesFor(hash: number, data: EditorData): string[] {
-  let index = weaponTypeIndex.get(data);
-  if (!index) {
-    const built = new Map<number, Set<string>>();
-    for (const item of Object.values(data.items)) {
-      if (!item.weaponTypes?.length) continue;
-      const target = canonicalHash(item.hash, data);
-      const known = built.get(target) ?? new Set<string>();
-      for (const type of item.weaponTypes) known.add(type);
-      built.set(target, known);
-    }
-    weaponTypeIndex.set(data, built);
-    index = built;
-  }
-  return [...(index.get(hash) ?? [])].sort();
-}

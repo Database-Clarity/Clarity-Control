@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react';
+import { useId, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
   markupLanguage,
@@ -7,12 +7,9 @@ import {
   type MarkupGlobals,
   type MarkupLine,
   type MarkupSpan,
-  type WeaponTypeLabels,
   resolveAlias,
-  weaponTypeLabel,
 } from '@clarity/core';
 import { useDataStore } from '../../stores/data';
-import { allLabelled, hasWeaponSections, previewLines, weaponChoices } from './weaponChoices';
 import { useDraftStore } from '../../stores/drafts';
 import { canonicalHash, itemFor, tooltipFor } from '../navigation/catalog';
 import styles from './TooltipPreview.module.scss';
@@ -25,12 +22,6 @@ export interface TooltipPreviewProps {
   categoryLabel?: string;
   globals: MarkupGlobals;
   tooltipHash?: number;
-  /** Weapon types the tooltip can appear on (from generator facts); all types when absent. */
-  weaponTypes?: readonly string[];
-  /** Localized singular weapon-type labels (English names when absent). */
-  weaponTypeLabels?: WeaponTypeLabels;
-  /** Initial picker value: a weapon type name, or "*" for all sections labelled. */
-  initialWeapon?: string;
 }
 
 function classNames(names?: (string | undefined)[]) {
@@ -109,23 +100,8 @@ export function TooltipPreview({
   categoryLabel,
   globals,
   tooltipHash,
-  weaponTypes,
-  weaponTypeLabels,
-  initialWeapon,
 }: TooltipPreviewProps) {
   const parsed = useMemo(() => parseMarkup(text, globals), [text, globals]);
-  const sections = useMemo(() => hasWeaponSections(parsed.lines), [parsed.lines]);
-  const choices = useMemo(
-    () => weaponChoices(parsed.lines, weaponTypes),
-    [parsed.lines, weaponTypes],
-  );
-  const [picked, setWeapon] = useState(initialWeapon ?? choices[0]);
-  // The tooltip or its facts can change under the picker; fall back to the first type.
-  const weapon = picked === allLabelled || choices.includes(picked) ? picked : choices[0];
-  const shown = useMemo(
-    () => previewLines(parsed.lines, weapon, weaponTypes, weaponTypeLabels, lang),
-    [parsed.lines, weapon, weaponTypes, weaponTypeLabels, lang],
-  );
   const iconUrl = icon?.startsWith('/common/') ? `https://www.bungie.net${icon}` : icon;
   return (
     <section className={styles.preview} lang={markupLanguage(lang)} aria-label={`${name} preview`}>
@@ -136,25 +112,8 @@ export function TooltipPreview({
           {categoryLabel && <div className={styles.category}>{categoryLabel}</div>}
         </div>
       </header>
-      {sections && (
-        <label className={styles.weapon}>
-          Weapon type{' '}
-          <select
-            aria-label="Preview weapon type"
-            value={weapon}
-            onChange={(event) => setWeapon(event.target.value)}
-          >
-            {choices.map((type) => (
-              <option key={type} value={type}>
-                {weaponTypeLabel(weaponTypeLabels, type, lang)}
-              </option>
-            ))}
-            <option value={allLabelled}>All (labelled)</option>
-          </select>
-        </label>
-      )}
       <div className={styles.description}>
-        <Lines lines={shown} />
+        <Lines lines={parsed.lines} />
       </div>
       {parsed.diagnostics.length > 0 && (
         <details className={styles.diagnostics}>
@@ -211,7 +170,6 @@ function AssociatedTooltips({
                 lang={lang}
                 name={name}
                 icon={item?.icon}
-                weaponTypeLabels={data.weaponTypeLabels}
                 categoryLabel={category?.label}
                 globals={{ ...globals, type: category?.legacyType }}
               />

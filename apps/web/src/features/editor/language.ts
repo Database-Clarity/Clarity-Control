@@ -36,12 +36,7 @@ export const clarityLanguage = StreamLanguage.define({
     if (stream.sol() && stream.match(/^\)/)) return 'keyword';
     if (stream.match(/#[a-zA-Z0-9]+/)) return 'variableName';
     if (stream.match(/\$\{[^}]*\}?/)) return 'number';
-    if (
-      stream.match(textTag) ||
-      stream.match(/<\/?weapons(?=[\s>])[^>]*>/i) ||
-      stream.match(/< table .*?>|< (?:weapon type )?\(.*?>|<\$\$?>|\|[bchr\d-]*/)
-    )
-      return 'typeName';
+    if (stream.match(textTag) || stream.match(/< table .*?>|<\$>|\|[bchr\d-]*/)) return 'typeName';
     if (stream.match(emptyTag) || stream.match(/<(?:title|link) |<\/?|\/>|\[[^\]]*\]/))
       return 'tagName';
     stream.next();

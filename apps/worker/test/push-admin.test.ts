@@ -45,7 +45,7 @@ describe('push-live', () => {
       123: await publishableHash(tooltip()),
     });
   });
-  it('passes weaponTypes to canonical entries and stubs and never writes owners', async () => {
+  it('ignores retired weapon facts and never writes owners', async () => {
     fixture.aliases = { 456: { to: 123, kind: 'frame' } };
     fixture.canonicalFacts = { weaponTypes: ['Bow', 'Sniper'], owners: [1, 2] };
     fixture.extraItems = {
@@ -59,9 +59,17 @@ describe('push-live', () => {
     };
     expect((await fixture.request('/push-live', 'POST', { hashes: [123] })).status).toBe(200);
     const published = (fixture.live as { perks: Record<string, unknown> }).perks;
-    expect(published['123']).toMatchObject({ weaponTypes: ['Bow', 'Sniper'] });
-    expect(published['456']).toMatchObject({ aliasOf: 123, weaponTypes: ['Bow'] });
+    expect(published['123']).not.toHaveProperty('weaponTypes');
+    expect(published['456']).toMatchObject({ aliasOf: 123 });
+    expect(published['456']).not.toHaveProperty('weaponTypes');
     expect(JSON.stringify(fixture.live)).not.toContain('owners');
+  });
+  it('publishes without the retired label service and preserves existing settings', async () => {
+    fixture.weaponTypeStatus = 500;
+    const settings = { folders: { custom: [] }, weaponTypeLabels: { broken: true } };
+    fixture.live = { ...(fixture.live as object), databaseSettings: settings };
+    expect((await fixture.request('/push-live', 'POST', { hashes: [123] })).status).toBe(200);
+    expect(fixture.live).toMatchObject({ databaseSettings: settings });
   });
   it('writes associations as a sorted canonical list and omits it otherwise', async () => {
     fixture.moveData({ 'tooltips/123.json': { ...tooltip(), associated: [900, 200, 456] } });

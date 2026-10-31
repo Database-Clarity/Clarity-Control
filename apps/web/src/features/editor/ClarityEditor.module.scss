@@ -54,18 +54,3 @@
   text-decoration: underline dotted #f2ce7e;
   text-underline-offset: 3px;
 }
-.convert {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  padding: 6px 10px;
-  border-top: 1px solid #454545;
-  background: #3a3320;
-  color: #f2ce7e;
-  font-size: 12px;
-}
-
-.convertNote {
-  flex-basis: 100%;
-}

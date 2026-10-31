@@ -1,5 +1,5 @@
 import type { Lang } from '../languages.js';
-import { parseMarkup, validateWeaponSections } from '../markup/index.js';
+import { parseMarkup } from '../markup/index.js';
 import { prepareMarkup } from '../markup/prepare.js';
 import type { MarkupGlobals } from '../markup/types.js';
 import type { Tooltip } from '../schemas.js';
@@ -36,20 +36,6 @@ export function validateText(
   for (const diagnostic of parseMarkup(text, globals).diagnostics) {
     const token = diagnostic.message.match(/Unknown variable (#[a-zA-Z0-9]+)/)?.[1];
     add(diagnostic.severity, diagnostic.message, token);
-  }
-  const lineStarts = [0];
-  for (let at = text.indexOf('\n'); at >= 0; at = text.indexOf('\n', at + 1)) {
-    lineStarts.push(at + 1);
-  }
-  for (const issue of validateWeaponSections(text)) {
-    const from = lineStarts[issue.line - 1] ?? 0;
-    const lineEnd = lineStarts[issue.line] ?? text.length + 1;
-    issues.push({
-      severity: issue.severity,
-      message: `Line ${issue.line}: ${issue.message}`,
-      from,
-      to: Math.max(from, Math.min(text.length, lineEnd - 1)),
-    });
   }
   const prepared = prepareMarkup(text, globals, []);
   for (const match of prepared.text.matchAll(/<title [^>\n]*?\[([^\]\n]+)\] \/>/g)) {

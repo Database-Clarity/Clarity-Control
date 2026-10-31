@@ -23,12 +23,6 @@ export interface MarkupLine {
   classNames?: (string | undefined)[];
   linesContent?: MarkupSpan[];
   table?: { classNames?: (string | undefined)[]; rowContent?: MarkupCell[] }[];
-  /** Canonical weapon type names this line is scoped to; absent for text shared by every type. */
-  weaponTypes?: string[];
-  /** Index of the `<weapons>` block the line belongs to (consecutive lines of a block share it). */
-  weaponBlock?: number;
-  /** True when the block was `<weapons other>`; its `weaponTypes` is the resolved complement. */
-  weaponOther?: boolean;
   isFormula?: boolean;
 }
 

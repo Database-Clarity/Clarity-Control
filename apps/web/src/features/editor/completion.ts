@@ -5,7 +5,6 @@ import {
   markupColors,
   markupEmpty,
   markupIcons,
-  markupWeaponTypes,
   type MarkupGlobals,
 } from '@clarity/core';
 
@@ -20,7 +19,6 @@ export function clarityCompletions(globals: MarkupGlobals) {
     const titles = { ...extractBlocks(text, 'title'), ...extractBlocks(globals.titles, 'title') };
     let options: Completion[] = [];
     let match: RegExpMatchArray | null;
-    let replaceLength: number | undefined;
     if ((match = before.match(/#[a-zA-Z0-9]*$/))) {
       options = Object.entries(variables).map(([name, value]) => ({
         label: `#${name}`,
@@ -50,16 +48,7 @@ export function clarityCompletions(globals: MarkupGlobals) {
       options.push(
         { label: '<title', apply: '<title Text [Name] />', type: 'keyword' },
         { label: '<link', apply: '<link Text [https://example.com] />', type: 'keyword' },
-        { label: '<weapons', apply: '<weapons ', type: 'keyword', detail: 'weapon-type section' },
       );
-    } else if ((match = before.match(/^\s*<weapons\s+(?:[^,>]*,\s*)*([A-Za-z ]*)$/i))) {
-      replaceLength = match[1].length;
-      options = [...markupWeaponTypes, 'other'].map((label) => ({ label, type: 'enum' }));
-    } else if (before.match(/^\s*<\/[a-z]*$/i)) {
-      match = before.match(/<\/[a-z]*$/i);
-      options = [{ label: '</weapons>', type: 'keyword' }];
-    } else if ((match = before.match(/(?<=< (?:weapon type )?\([^)]*)[A-Za-z ]*$/))) {
-      options = [...markupWeaponTypes, 'other'].map((label) => ({ label, type: 'enum' }));
     } else if (context.explicit) {
       match = before.match(/\w*$/);
       options = [
@@ -77,7 +66,7 @@ export function clarityCompletions(globals: MarkupGlobals) {
       }));
     } else return null;
     return {
-      from: context.pos - (replaceLength ?? match?.[0].length ?? 0),
+      from: context.pos - (match?.[0].length ?? 0),
       options,
       validFor: /^[#<A-z0-9 ]*$/,
     };

@@ -34,8 +34,10 @@ npx tsc --noEmit
   Missing imports/variables produce visible diagnostics. Browser languages use
   `markupLanguage(lang)` to map legacy Chinese keys to BCP-47.
   The MIT-attributed port is checked against pinned converter 1.0.55 on every
-  stored language of all 2,761 tooltips in **both** real database fixtures (5,522
-  comparisons), normalizing only secondary := main and stat-formula removal.
+  stored language of 2,760 untagged entries in **both** real database fixtures
+  (5,520 comparisons), normalizing only secondary := main and stat-formula removal.
+  Reserved help tooltip 0 deliberately differs: its three scoped bodies all render
+  under ordinary headings, checked separately in the same fixture test.
 
 - `tooltipSchema`, `langTextSchema`, `permissionsSchema`, `pushedSchema` and
   their inferred types validate persisted data without silently stripping fields.
@@ -197,3 +199,24 @@ The golden tests therefore:
 Schemas and unit tests additionally prove removed stat fields (including optional
 `duration` and `activationCondition`) cannot persist in v2 or leak into export,
 and cover synthetic translations including the exact 90-day boundary.
+
+## Retired weapon sections
+
+Perks show their entire description everywhere. `MarkupLine` has no `weaponTypes`,
+`weaponBlock` or `weaponOther`; specialization, scoped validation and scoped-syntax
+conversion APIs have been removed. Existing `<weapons Name>` / `</weapons>` and
+`< weapon type (HC) >` / `< (other) >` / `<$$>` delimiters remain readable input.
+The parser emits ordinary bold headings in source order and retains every body,
+including fallback blocks, unknown names, imported text and nested titles/tables.
+Legacy abbreviations expand for readable headings; `other` becomes `Other weapons`.
+Normal category conditionals, comments and import rules still apply.
+
+`weaponSectionHeadings` is the compatibility rewrite used on prepared parser text;
+it does not edit stored descriptions. The read-only inventory tool in
+`scripts/weapon-section-inventory` proposes raw-source heading changes for review.
+`exportLegacy` continues exporting raw authored main text into both fields; the
+matching converter change is required to render all bodies in published output.
+Catalog facts and alias stubs exclude retired weapon facts and editor-only owners.
+Existing legacy database label settings are accepted as inert input and push-live
+preserves live settings without loading or rewriting labels. The unrelated legacy
+stats schema retains its historical weapon-type keys for migration compatibility.

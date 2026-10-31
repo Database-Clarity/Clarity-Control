@@ -63,7 +63,7 @@ Both accept raw `text[lang].text` and the core `MarkupGlobals` shape:
 all tooltips in `imports` (keyed by hash; hash 1 contains global exports) and
 the category's `legacyType` as `type`. No component fetches data.
 The core parser drives validation and rendering; title popovers work by hover
-and keyboard focus, and weapon-specific sections have a preview selector.
+and keyboard focus. Retired weapon-specific blocks display all sections as ordinary headings.
 
 CodeMirror has native `spellcheck="true"` and a BCP-47 `lang` on its editable
 content (Chinese `zh-chs`/`zh-cht` map to `zh-Hans`/`zh-Hant`). Native underlines
