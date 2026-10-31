@@ -407,6 +407,43 @@ describe('lossless conversion', () => {
     }
   });
 
+  test.each([
+    ['space', ' title sample ('],
+    ['tab', '\ttitle sample ('],
+    ['BOM', '\uFEFFtitle sample ('],
+    ['blank line and spaces', '\n  title sample ('],
+    ['variable expansion', 'var hdr = title sample (\n#hdr'],
+  ])(
+    'refuses %s-generated reusable content, including later table consumption',
+    (_name, header) => {
+      const source = `${header}\n<weapons other>\nNew fallback\n</weapons>\n< weapon type ( Sword ) >\nOld sword\n< ( other ) >\nOld fallback\n<$$>\n)`;
+      const result = convertWeaponTypeSyntax(source);
+      expect(result.text).toBe(source);
+      expect(result.diagnostic).toMatch(/cannot be safely verified/);
+      // References are deliberately added AFTER conversion: definitions are reusable even when
+      // the current document never shows them. Exercise both production consumer paths.
+      for (const consumer of [
+        '\n<title Details [sample] />',
+        '\n< table wide >\n| <title Details [sample] /> | Other\n<$>',
+      ]) {
+        const view = (text: string) =>
+          specializeWeaponTypes(parseMarkup(text + consumer).lines, { type: 'Sword' });
+        expect(JSON.stringify(view(source))).toContain('New fallback');
+        expect(JSON.stringify(view(source))).toContain('Old sword');
+        expect(view(result.text)).toEqual(view(source));
+      }
+    },
+  );
+
+  test('fails closed on unresolved evaluation and retained public export definitions', () => {
+    for (const prefix of ['#unknown\n', 'export sample (inline\n']) {
+      const source = `${prefix}< weapon type ( Sword ) >\nSword\n<$$>\n)`;
+      const result = convertWeaponTypeSyntax(source);
+      expect(result.text).toBe(source);
+      expect(result.diagnostic).toMatch(/cannot be safely verified/);
+    }
+  });
+
   test('refuses to delete comments embedded in either header', () => {
     for (const old of [
       '< weapon type ( Sword /* authored header note */ ) >\nSword body\n<$$>',

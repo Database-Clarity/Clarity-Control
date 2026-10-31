@@ -1,6 +1,8 @@
 import { parseMarkup } from './parse.js';
+import { normalizeMarkupWhitespace, prepareMarkup, removeMarkupComments } from './prepare.js';
 import { specializeWeaponTypes } from './specialize.js';
-import { markupWeaponTypes } from './syntax.js';
+import { extractBlocks, markupWeaponTypes } from './syntax.js';
+import type { MarkupDiagnostic } from './types.js';
 import {
   hasOldWeaponTypeSyntax,
   hasWeaponsOther,
@@ -34,8 +36,28 @@ function renderings(text: string): Map<string, string> {
   return shown;
 }
 
+/**
+ * Prove the default rendering covers all authored content. Use the actual evaluator, not a
+ * second recogniser for headers: any expansion/removal beyond comments and whitespace normalisation
+ * is opaque to the visible-view comparison and must be refused. Extracted reusable definitions
+ * also fail closed, including definitions retained verbatim in the prepared text.
+ */
+function hasOpaqueContent(text: string): boolean {
+  const diagnostics: MarkupDiagnostic[] = [];
+  const prepared = prepareMarkup(text, { variables: '', titles: '' }, diagnostics);
+  return (
+    diagnostics.length > 0 ||
+    prepared.text !== normalizeMarkupWhitespace(removeMarkupComments(text.trim())) ||
+    Object.keys(prepared.titles).length > 0 ||
+    Object.keys(extractBlocks(text, 'export')).length > 0 ||
+    Object.keys(extractBlocks(prepared.text, 'export')).length > 0
+  );
+}
+
 /** The first way `candidate` differs from `source`, or undefined when they render alike. */
 function difference(source: string, candidate: string): string | undefined {
+  if (hasOpaqueContent(source) || hasOpaqueContent(candidate))
+    return 'conditional, exported, title or expanded content cannot be safely verified';
   const error = validateWeaponSections(candidate).find((issue) => issue.severity === 'error');
   const comments = (text: string) => text.match(/\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g) ?? [];
   if (JSON.stringify(comments(source)) !== JSON.stringify(comments(candidate)))
@@ -67,16 +89,6 @@ export function convertWeaponTypeSyntax(text: string): WeaponConversion {
       mixed ? ' Mixed old and new fallback: this text already has a <weapons other> block.' : ''
     } Edit the text by hand to use <weapons …> blocks.`,
   });
-  // Preparation can hide authored blocks, so their equivalence cannot be proved here.
-  const uncommented = text
-    .replace(/\r/g, '')
-    .replace(/\/\*[^]*\*\/\n?/g, '')
-    .replace(/^ *?\/\/.*$\n?| +\/\/.*$/gm, '');
-  if (
-    /^(?:enhanced|catalyst|exotic perk|export(?: hidden)? .+|title .+) \(/m.test(text) ||
-    /^(?:enhanced|catalyst|exotic perk|export(?: hidden)? .+|title .+) \(/m.test(uncommented)
-  )
-    return fail('conditional, exported or title content cannot be safely verified');
   let reason = '';
   // Trailing comments stay in place when that renders the same, else move to their own line.
   for (const ownLines of [false, true]) {
@@ -87,7 +99,11 @@ export function convertWeaponTypeSyntax(text: string): WeaponConversion {
         'no complete old block was found; each needs a header like "< weapon type ( … ) >" and a closing <$$> line',
       );
     }
-    reason = difference(text, rewrite.text) ?? '';
+    try {
+      reason = difference(text, rewrite.text) ?? '';
+    } catch {
+      return fail('the markup evaluator could not prove that all content is preserved');
+    }
     if (!reason) return { text: rewrite.text };
   }
   return fail(reason, hasWeaponsOther(text));

@@ -2,21 +2,28 @@ import { evaluateMarkupMath } from './arithmetic.js';
 import { extractBlocks, extractVariables } from './syntax.js';
 import type { MarkupDiagnostic, MarkupGlobals } from './types.js';
 
-export function removeUnusedText(text: string, removeTitles = true): string {
-  text = text
+/** The production comment semantics, shared by preparation and lossless conversion checks. */
+export function removeMarkupComments(text: string): string {
+  return text
     .replace(/\r/g, '')
     .replace(/\/\*[^]*\*\/\n?/g, '')
-    .replace(/^ *?\/\/.*$\n?| +\/\/.*$/gm, '')
+    .replace(/^ *?\/\/.*$\n?| +\/\/.*$/gm, '');
+}
+
+/** Production blank-line and boundary-whitespace normalisation; does not discard authored text. */
+export function normalizeMarkupWhitespace(text: string): string {
+  return text.replace(/\n\n\n+/gm, '\n\n').trim();
+}
+
+export function removeUnusedText(text: string, removeTitles = true): string {
+  text = removeMarkupComments(text)
     .replace(/^export hidden .* \([^]*?\n\)$/gm, '')
     .replace(/^export .* \( *$\n/gm, '')
     .replace(/^enhanced \($\n/gm, '');
   if (removeTitles) {
     text = text.replace(/\n?^title .+ \([^]*?\n\)$/gm, '').replace(/\n^\) *$/gm, '');
   }
-  return text
-    .replace(/^var .* = .+$\n?/gm, '')
-    .replace(/\n\n\n+/gm, '\n\n')
-    .trim();
+  return normalizeMarkupWhitespace(text.replace(/^var .* = .+$\n?/gm, ''));
 }
 
 function resolveImports(
