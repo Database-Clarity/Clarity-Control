@@ -7,7 +7,9 @@ import {
   type MarkupGlobals,
   type MarkupLine,
   type MarkupSpan,
+  type WeaponTypeLabels,
   resolveAlias,
+  weaponTypeLabel,
 } from '@clarity/core';
 import { useDataStore } from '../../stores/data';
 import { allLabelled, hasWeaponSections, previewLines, weaponChoices } from './weaponChoices';
@@ -25,6 +27,8 @@ export interface TooltipPreviewProps {
   tooltipHash?: number;
   /** Weapon types the tooltip can appear on (from generator facts); all types when absent. */
   weaponTypes?: readonly string[];
+  /** Localized singular weapon-type labels (English names when absent). */
+  weaponTypeLabels?: WeaponTypeLabels;
   /** Initial picker value: a weapon type name, or "*" for all sections labelled. */
   initialWeapon?: string;
 }
@@ -106,6 +110,7 @@ export function TooltipPreview({
   globals,
   tooltipHash,
   weaponTypes,
+  weaponTypeLabels,
   initialWeapon,
 }: TooltipPreviewProps) {
   const parsed = useMemo(() => parseMarkup(text, globals), [text, globals]);
@@ -118,8 +123,8 @@ export function TooltipPreview({
   // The tooltip or its facts can change under the picker; fall back to the first type.
   const weapon = picked === allLabelled || choices.includes(picked) ? picked : choices[0];
   const shown = useMemo(
-    () => previewLines(parsed.lines, weapon, weaponTypes),
-    [parsed.lines, weapon, weaponTypes],
+    () => previewLines(parsed.lines, weapon, weaponTypes, weaponTypeLabels, lang),
+    [parsed.lines, weapon, weaponTypes, weaponTypeLabels, lang],
   );
   const iconUrl = icon?.startsWith('/common/') ? `https://www.bungie.net${icon}` : icon;
   return (
@@ -141,7 +146,7 @@ export function TooltipPreview({
           >
             {choices.map((type) => (
               <option key={type} value={type}>
-                {type}
+                {weaponTypeLabel(weaponTypeLabels, type, lang)}
               </option>
             ))}
             <option value={allLabelled}>All (labelled)</option>

@@ -1,37 +1,69 @@
+import { z } from 'zod';
+import { markupWeaponTypes } from './syntax.js';
 import type { MarkupCell, MarkupLine, MarkupSpan } from './types.js';
 
-/** Plural English labels used when a tooltip shows every weapon type's section at once. */
-export const englishWeaponTypeLabels: Readonly<Record<string, string>> = {
-  'Auto Rifle': 'Auto Rifles',
-  'Combat Bow': 'Combat Bows',
-  'Fusion Rifle': 'Fusion Rifles',
-  Glaive: 'Glaives',
-  'Grenade Launcher': 'Grenade Launchers',
-  'Hand Cannon': 'Hand Cannons',
-  'Linear Fusion Rifle': 'Linear Fusion Rifles',
-  'Machine Gun': 'Machine Guns',
-  'Pulse Rifle': 'Pulse Rifles',
-  'Rocket Launcher': 'Rocket Launchers',
-  'Scout Rifle': 'Scout Rifles',
-  Shotgun: 'Shotguns',
-  Sidearm: 'Sidearms',
-  'Sniper Rifle': 'Sniper Rifles',
-  'Submachine Gun': 'Submachine Guns',
-  Sword: 'Swords',
-  'Trace Rifle': 'Trace Rifles',
-  Grenade: 'Grenades',
-  Melee: 'Melee',
-  Super: 'Supers',
-  'Heavy Grenade Launcher': 'Heavy Grenade Launchers',
-  other: 'Other',
-};
+/**
+ * Singular localized weapon-type labels: `{ "<canonical name>": { "<lang>": "<label>" } }`, the
+ * shape of the generator's `templates/v2/weaponTypes.json`. `en` is always present; other
+ * languages may be missing (consumers fall back to English).
+ */
+export const weaponTypeLabelsSchema = z.record(
+  z.string(),
+  z.record(z.string(), z.string()).refine((labels) => typeof labels.en === 'string', {
+    message: 'Weapon type labels need an English entry',
+  }),
+);
+export type WeaponTypeLabels = Readonly<Record<string, Readonly<Record<string, string>>>>;
+
+/** English singular labels, equal to the canonical names ("Hand Cannon"). */
+export const englishWeaponTypeLabels: WeaponTypeLabels = Object.fromEntries(
+  markupWeaponTypes.map((name) => [name, { en: name }]),
+);
+
+/** Label for a canonical weapon type: the language, else English, else the name itself. */
+export function weaponTypeLabel(
+  table: WeaponTypeLabels | undefined,
+  name: string,
+  language: string,
+): string {
+  const labels = table?.[name];
+  return labels?.[language] ?? labels?.en ?? name;
+}
+
+/**
+ * The full table: English defaults for every markup weapon type merged under the given table.
+ * Keys are ordered deterministically (defaults, then any other names sorted; `en`, then other
+ * languages sorted), so the same table always serialises to the same bytes.
+ */
+export function completeWeaponTypeLabels(table?: WeaponTypeLabels): WeaponTypeLabels {
+  const merged = new Map<string, Record<string, string>>();
+  for (const name of markupWeaponTypes) merged.set(name, { en: name });
+  for (const [name, labels] of Object.entries(table ?? {})) {
+    merged.set(name, { ...merged.get(name), ...labels });
+  }
+  const extra = [...merged.keys()].filter((name) => !markupWeaponTypes.includes(name)).sort();
+  return Object.fromEntries(
+    [...markupWeaponTypes, ...extra].map((name) => {
+      const labels = merged.get(name)!;
+      const others = Object.keys(labels)
+        .filter((language) => language !== 'en')
+        .sort();
+      return [
+        name,
+        Object.fromEntries(['en', ...others].map((language) => [language, labels[language]])),
+      ];
+    }),
+  );
+}
 
 export type WeaponTypeChoice =
   /** One weapon type: shared lines plus that type's sections, all untagged. */
   | { type: string }
   | {
-      /** Display label per canonical name (merged over the English defaults). */
-      labelled: Readonly<Record<string, string>>;
+      /** Label table (merged over the English defaults); `{}` means English defaults. */
+      labelled: WeaponTypeLabels;
+      /** Language of the labels; English when omitted. */
+      language?: string;
       /**
        * Weapon types the tooltip actually applies to. A block's label then names only the
        * types it covers among these (so an `other` block lists the remaining ones).
@@ -73,21 +105,24 @@ function mapNested(line: MarkupLine, apply: Apply): MarkupLine {
 
 function labelFor(
   line: MarkupLine,
-  labels: Readonly<Record<string, string>>,
+  labels: WeaponTypeLabels,
+  language: string,
   among: readonly string[] | undefined,
 ): string | undefined {
   const types = line.weaponTypes ?? [];
   const relevant = among ? types.filter((type) => among.includes(type)) : types;
-  if (line.weaponOther && !relevant.length) return labels.other;
-  if (line.weaponOther && !among) return labels.other;
+  if (line.weaponOther && (!relevant.length || !among))
+    return labels.other?.[language] ?? labels.other?.en ?? 'Other';
   const shown = relevant.length ? relevant : types;
-  return shown.length ? shown.map((type) => labels[type] ?? type).join(', ') : undefined;
+  return shown.length
+    ? shown.map((type) => weaponTypeLabel(labels, type, language)).join(', ')
+    : undefined;
 }
 
 /**
  * Turns parsed lines with weapon-type sections into plain lines.
  * `{ type }` keeps shared lines and that type's sections. `{ labelled }` keeps everything and
- * prefixes each section's first line with its label (e.g. "Swords: ").
+ * prefixes each section's first line with its label (e.g. "Sword: ").
  */
 export function specializeWeaponTypes(
   lines: readonly MarkupLine[],
@@ -100,7 +135,8 @@ export function specializeWeaponTypes(
         .map((line) => mapNested(strip(line), keep));
     return keep([...lines]);
   }
-  const labels = { ...englishWeaponTypeLabels, ...choice.labelled };
+  const labels = completeWeaponTypeLabels(choice.labelled);
+  const language = choice.language ?? 'en';
   const label: Apply = (input) => {
     const output: MarkupLine[] = [];
     let previous: number | undefined;
@@ -108,7 +144,7 @@ export function specializeWeaponTypes(
       const mapped = mapNested(strip(line), label);
       const first = line.weaponBlock !== undefined && line.weaponBlock !== previous;
       previous = line.weaponBlock;
-      const text = first ? labelFor(line, labels, choice.among) : undefined;
+      const text = first ? labelFor(line, labels, language, choice.among) : undefined;
       if (text === undefined) output.push(mapped);
       else if (mapped.linesContent && !mapped.table) {
         output.push({ ...mapped, linesContent: [{ text: `${text}: ` }, ...mapped.linesContent] });

@@ -1,3 +1,4 @@
+import { completeWeaponTypeLabels } from '@clarity/core';
 import { describe, expect, it } from 'vitest';
 import type { EditorData } from '../../stores/data';
 import { associationCandidates, moveAssociation } from './associations';
@@ -18,6 +19,7 @@ const data: EditorData = {
     99: item(99, 'Alias scorch'),
   },
   aliases: { 99: { to: 20, kind: 'sandbox' }, 100: { to: 99, kind: 'frame' } },
+  weaponTypeLabels: completeWeaponTypeLabels(),
   bundle: {
     sourceCommit: 'test',
     generatedAt: '2026-10-27T00:00:00Z',

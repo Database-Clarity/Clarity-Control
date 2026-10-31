@@ -54,9 +54,42 @@ describe('weapon-type picker', () => {
     expect(pulse).not.toContain('Blade or cannon.');
     const all = render({ weaponTypes: ['Hand Cannon', 'Pulse Rifle'], initialWeapon: allLabelled });
     const plain = all.replace(/<[^>]+>/g, '');
-    expect(plain).toContain('Hand Cannons: Blade or cannon.');
-    expect(plain).toContain('Pulse Rifles: Everything else.');
+    expect(plain).toContain('Hand Cannon: Blade or cannon.');
+    expect(plain).toContain('Pulse Rifle: Everything else.');
     expect(all).toContain('Shared line.');
+  });
+
+  describe('localized weapon-type labels', () => {
+    const labels = {
+      'Hand Cannon': { en: 'Hand Cannon', de: 'Handfeuerwaffe' },
+      'Pulse Rifle': { en: 'Pulse Rifle' },
+    };
+    const facts = ['Hand Cannon', 'Pulse Rifle'];
+
+    test('the labelled view uses the preview language, falling back to English', () => {
+      const html = render({
+        lang: 'de',
+        weaponTypes: facts,
+        weaponTypeLabels: labels,
+        initialWeapon: allLabelled,
+      });
+      const plain = html.replace(/<[^>]+>/g, '');
+      expect(plain).toContain('Handfeuerwaffe: Blade or cannon.');
+      expect(plain).toContain('Pulse Rifle: Everything else.');
+      const english = render({
+        weaponTypes: facts,
+        weaponTypeLabels: labels,
+        initialWeapon: allLabelled,
+      }).replace(/<[^>]+>/g, '');
+      expect(english).toContain('Hand Cannon: Blade or cannon.');
+    });
+
+    test('the picker shows localized labels but keeps canonical values', () => {
+      const html = render({ lang: 'de', weaponTypes: facts, weaponTypeLabels: labels });
+      expect(options(html)).toEqual(['Hand Cannon', 'Pulse Rifle', allLabelled]);
+      expect(html).toContain('>Handfeuerwaffe</option>');
+      expect(html).toContain('>Pulse Rifle</option>');
+    });
   });
 
   test('an unavailable initial choice falls back to the first type', () => {

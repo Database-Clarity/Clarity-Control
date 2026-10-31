@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { StaticRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Tooltip } from '@clarity/core';
+import { completeWeaponTypeLabels, type Tooltip } from '@clarity/core';
 import { TooltipPage } from './TooltipPage';
 import { ClarityEditor, type ClarityEditorProps } from '../editor';
 import { TooltipPreview, type TooltipPreviewProps } from '../preview';
@@ -91,6 +91,7 @@ const data: EditorData = {
     },
   },
   aliases: {},
+  weaponTypeLabels: completeWeaponTypeLabels(),
   bundle: {
     sourceCommit: 'abc',
     generatedAt: '2026-10-27T00:00:00Z',

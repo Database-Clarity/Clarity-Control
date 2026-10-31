@@ -28,7 +28,7 @@ const pushSchema = z
 const liveSchema = z
   .object({
     perks: z.record(z.string(), z.unknown()),
-    databaseSettings: z.unknown(),
+    databaseSettings: z.record(z.string(), z.unknown()),
   })
   .passthrough();
 
@@ -46,7 +46,7 @@ export async function pushLive(
     snapshots = {};
     const head = await github.head();
     requireAccess(await permissions(github, head), user, ['maintainer', 'editor']);
-    const { facts, aliases } = await catalog(github.env);
+    const { facts, aliases, weaponTypeLabels } = await catalog(github.env);
     const canonicalHashes = [...new Set(hashes.map((hash) => resolveAlias(hash, aliases)))];
     const tooltips: Tooltip[] = [];
     for (const hash of canonicalHashes) {
@@ -81,7 +81,12 @@ export async function pushLive(
     try {
       liveCommit = await github.putLive(
         file.sha,
-        { ...live, perks: { ...live.perks, ...entries } },
+        {
+          ...live,
+          // Every other setting stays exactly as live has it.
+          databaseSettings: { ...live.databaseSettings, weaponTypeLabels },
+          perks: { ...live.perks, ...entries },
+        },
         user,
       );
       break;

@@ -1,3 +1,4 @@
+import { completeWeaponTypeLabels } from '@clarity/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EditorData } from '../../stores/data';
 import { canonicalHash, navigationGroups, sharedPerkLabel, variantHashes } from './catalog';
@@ -54,6 +55,7 @@ const data: EditorData = {
     20: { hash: 20, name: 'Armor', icon: '', categoryId: 'first', inGameDescription: '' },
   },
   aliases: { 99: { to: 11, kind: 'sandbox' } },
+  weaponTypeLabels: completeWeaponTypeLabels(),
   bundle: {
     sourceCommit: 'abc',
     generatedAt: '2026-10-27T00:00:00Z',

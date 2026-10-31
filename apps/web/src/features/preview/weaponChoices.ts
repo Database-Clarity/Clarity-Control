@@ -3,6 +3,7 @@ import {
   weaponTypeNames,
   type MarkupLine,
   type MarkupSpan,
+  type WeaponTypeLabels,
 } from '@clarity/core';
 
 /** Select value for the labelled view; no weapon type name can collide with it. */
@@ -49,9 +50,15 @@ export function previewLines(
   lines: readonly MarkupLine[],
   choice: string,
   facts: readonly string[] | undefined,
+  labels: WeaponTypeLabels = {},
+  language = 'en',
 ): MarkupLine[] {
   if (!hasWeaponSections(lines)) return [...lines];
   return choice === allLabelled
-    ? specializeWeaponTypes(lines, { labelled: {}, among: facts?.length ? facts : undefined })
+    ? specializeWeaponTypes(lines, {
+        labelled: labels,
+        language,
+        among: facts?.length ? facts : undefined,
+      })
     : specializeWeaponTypes(lines, { type: choice });
 }

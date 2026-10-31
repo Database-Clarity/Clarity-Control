@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { langSchema } from './languages.js';
 import { legacyStatsSchema } from './legacyStats.js';
+import { weaponTypeLabelsSchema } from './markup/specialize.js';
 
 export const hashSchema = z.number().int().min(0).max(0xffffffff);
 export const trackerEntrySchema = z.object({
@@ -43,6 +44,7 @@ export const legacyDatabaseSchema = z.object({
     enhancedPerks: z.record(z.string(), z.object({
       name: z.string(), linkedWith: hashSchema,
     }).strict()),
+    weaponTypeLabels: weaponTypeLabelsSchema.optional(),
   }).strict(),
 }).strict().superRefine(({ perks }, context) => {
   for (const [hash, perk] of Object.entries(perks)) {

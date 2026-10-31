@@ -123,6 +123,7 @@ export function TooltipPage() {
                 globals={globals}
                 tooltipHash={variant}
                 weaponTypes={weaponTypesFor(variant, data)}
+                weaponTypeLabels={data.weaponTypeLabels}
               />
             </div>
             <AssociationsPanel hash={variant} />

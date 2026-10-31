@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   convertWeaponTypeSyntax,
+  completeWeaponTypeLabels,
   englishWeaponTypeLabels,
   hasOldWeaponTypeSyntax,
   markupWeaponTypes,
@@ -9,6 +10,8 @@ import {
   specializeWeaponTypes,
   validateText,
   validateWeaponSections,
+  weaponTypeLabel,
+  weaponTypeLabelsSchema,
   weaponTypeNames,
 } from '../src/index.js';
 
@@ -31,7 +34,49 @@ describe('canonical vocabulary', () => {
     expect(markupWeaponTypes).toEqual(
       expect.arrayContaining(['Grenade', 'Melee', 'Super', 'Heavy Grenade Launcher']),
     );
-    for (const name of weaponTypeNames) expect(englishWeaponTypeLabels[name]).toBeTruthy();
+    for (const name of markupWeaponTypes)
+      expect(englishWeaponTypeLabels[name]).toEqual({ en: name });
+  });
+});
+
+describe('weapon type labels', () => {
+  const table = {
+    'Hand Cannon': { en: 'Hand Cannon', de: 'Handfeuerwaffe' },
+    Sword: { en: 'Sword' },
+  };
+
+  test('resolver falls back from language to English to the canonical name', () => {
+    expect(weaponTypeLabel(table, 'Hand Cannon', 'de')).toBe('Handfeuerwaffe');
+    expect(weaponTypeLabel(table, 'Hand Cannon', 'fr')).toBe('Hand Cannon');
+    expect(weaponTypeLabel(table, 'Sword', 'ja')).toBe('Sword');
+    expect(weaponTypeLabel(table, 'Glaive', 'de')).toBe('Glaive');
+    expect(weaponTypeLabel(undefined, 'Glaive', 'de')).toBe('Glaive');
+    expect(weaponTypeLabel({ Glaive: { en: 'Glaive' } }, 'Glaive', 'en')).toBe('Glaive');
+  });
+
+  test('the schema requires English and accepts partial languages', () => {
+    expect(weaponTypeLabelsSchema.safeParse(table).success).toBe(true);
+    expect(weaponTypeLabelsSchema.safeParse({ Sword: { de: 'Schwert' } }).success).toBe(false);
+    expect(weaponTypeLabelsSchema.safeParse({ Sword: 'Sword' }).success).toBe(false);
+  });
+
+  test('the complete table adds every default and orders keys deterministically', () => {
+    const complete = completeWeaponTypeLabels({
+      Sword: { fr: 'Épée', en: 'Sword', de: 'Schwert' },
+      Zebra: { en: 'Zebra' },
+      'Hand Cannon': { en: 'Hand Cannon' },
+    });
+    expect(Object.keys(complete)).toEqual([...markupWeaponTypes, 'Zebra']);
+    expect(Object.keys(complete.Sword)).toEqual(['en', 'de', 'fr']);
+    expect(complete.Glaive).toEqual({ en: 'Glaive' });
+    expect(JSON.stringify(completeWeaponTypeLabels(completeWeaponTypeLabels(table)))).toBe(
+      JSON.stringify(
+        completeWeaponTypeLabels({ Sword: table.Sword, 'Hand Cannon': table['Hand Cannon'] }),
+      ),
+    );
+    expect(JSON.stringify(completeWeaponTypeLabels())).toBe(
+      JSON.stringify(englishWeaponTypeLabels),
+    );
   });
 });
 
@@ -636,19 +681,46 @@ describe('specializeWeaponTypes', () => {
     });
     expect(texts(labelled)).toEqual([
       'Shared.',
-      'Swords: Melee and cannons.',
-      'Pulse Rifles: Everything else.',
+      'Sword: Melee and cannons.',
+      'Pulse Rifle: Everything else.',
     ]);
     expect(labelled.every((line) => line.weaponTypes === undefined)).toBe(true);
   });
 
   test('labelled uses custom labels, joins multi-type blocks and labels other without among', () => {
-    const labelled = specializeWeaponTypes(lines, { labelled: { Sword: 'Schwerter' } });
+    const labelled = specializeWeaponTypes(lines, {
+      labelled: { Sword: { en: 'Sword', de: 'Schwert' } },
+    });
     expect(texts(labelled)).toEqual([
       'Shared.',
-      'Schwerter, Hand Cannons: Melee and cannons.',
+      'Sword, Hand Cannon: Melee and cannons.',
       'Other: Everything else.',
     ]);
+  });
+
+  test('labelled resolves labels for the language with English fallback', () => {
+    const labels = {
+      Sword: { en: 'Sword', de: 'Schwert' },
+      'Pulse Rifle': { en: 'Pulse Rifle' },
+    };
+    const german = specializeWeaponTypes(lines, {
+      labelled: labels,
+      language: 'de',
+      among: ['Sword', 'Pulse Rifle'],
+    });
+    expect(texts(german)).toEqual([
+      'Shared.',
+      'Schwert: Melee and cannons.',
+      'Pulse Rifle: Everything else.',
+    ]);
+    expect(
+      texts(
+        specializeWeaponTypes(lines, {
+          labelled: { other: { en: 'Other', de: 'Übrige' } },
+          language: 'de',
+        }),
+      ),
+    ).toEqual(['Shared.', 'Sword, Hand Cannon: Melee and cannons.', 'Übrige: Everything else.']);
   });
 
   test('labelled prefixes only the first line and adds a label line before a table', () => {
@@ -656,7 +728,7 @@ describe('specializeWeaponTypes', () => {
       '<weapons Sword>\nOne\nTwo\n</weapons>\n<weapons Glaive>\n< table >\n|b A | B\n<$>\n</weapons>',
     ).lines;
     const labelled = specializeWeaponTypes(parsed, { labelled: {} });
-    expect(texts(labelled)).toEqual(['Swords: One', 'Two', 'Glaives:', '[table]']);
+    expect(texts(labelled)).toEqual(['Sword: One', 'Two', 'Glaive:', '[table]']);
   });
 
   test('specialises titles nested in lines', () => {

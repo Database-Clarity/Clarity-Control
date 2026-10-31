@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDataStore } from './data';
 import { loadBundle } from '../services/bundle';
+import { englishWeaponTypeLabels } from '@clarity/core';
 import { loadGenerator } from '../services/generator';
 
 vi.mock('../services/bundle', () => ({ loadBundle: vi.fn() }));
@@ -12,7 +13,12 @@ describe('editor data loading', () => {
     useDataStore.setState({ status: 'idle', data: null, error: null });
   });
   it('exposes loading and ready only after both sources finish, deduplicating in-flight loads', async () => {
-    const catalog = { categories: [], items: {}, aliases: {} };
+    const catalog = {
+      categories: [],
+      items: {},
+      aliases: {},
+      weaponTypeLabels: englishWeaponTypeLabels,
+    };
     const bundle = {
       sourceCommit: 'abc',
       generatedAt: '2026-10-27T00:00:00Z',
@@ -41,7 +47,12 @@ describe('editor data loading', () => {
     });
   });
   it('surfaces source errors instead of showing an empty success and allows retry', async () => {
-    vi.mocked(loadGenerator).mockResolvedValue({ categories: [], items: {}, aliases: {} });
+    vi.mocked(loadGenerator).mockResolvedValue({
+      categories: [],
+      items: {},
+      aliases: {},
+      weaponTypeLabels: englishWeaponTypeLabels,
+    });
     vi.mocked(loadBundle).mockRejectedValueOnce(new Error('bundle HTTP404'));
     await useDataStore.getState().load();
     expect(useDataStore.getState()).toMatchObject({

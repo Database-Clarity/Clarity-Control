@@ -1,4 +1,4 @@
-import type { Tooltip } from '@clarity/core';
+import { completeWeaponTypeLabels, type Tooltip } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 
 export const english = {
@@ -14,6 +14,7 @@ export function editorData(): EditorData {
       123: { hash: 123, name: 'Perk', icon: '', categoryId: 'perk', inGameDescription: 'In-game' },
     },
     aliases: { 456: { to: 123, kind: 'sandbox' } },
+    weaponTypeLabels: completeWeaponTypeLabels(),
     bundle: {
       sourceCommit: 'base-commit',
       generatedAt: english.updatedAt,

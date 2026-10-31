@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { publishableHash, type Tooltip } from '@clarity/core';
+import { completeWeaponTypeLabels, publishableHash, type Tooltip } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import { canPush, pendingTooltips, selectedPending, stepIndex, toggleSelection } from './model';
 
@@ -15,6 +15,7 @@ function data(tooltips: Tooltip[], pushed: Record<string, string> = {}): EditorD
     },
     categories: [{ id: 'perk', label: 'Perks', group: 'Weapons', order: 1 }],
     aliases: {},
+    weaponTypeLabels: completeWeaponTypeLabels(),
     bundle: {
       sourceCommit: 'abc',
       generatedAt: '2026-01-01T00:00:00Z',

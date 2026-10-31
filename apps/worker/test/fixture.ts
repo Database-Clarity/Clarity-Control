@@ -57,6 +57,10 @@ export class Fixture {
   failGoogle = false;
   aliases: Aliases = { 789: { to: 123, kind: 'sandbox' } };
   extraItems: Record<string, unknown> = {};
+  /** Generator `weaponTypes.json`; undefined serves a 404 (the file is optional). */
+  weaponTypeTable?: unknown;
+  /** Status served for `weaponTypes.json` instead of the table or 404 (e.g. an upstream error). */
+  weaponTypeStatus?: number;
   /** Extra generator fields on the canonical item 123. */
   canonicalFacts: Record<string, unknown> = {};
   history = [
@@ -171,6 +175,12 @@ export class Fixture {
       if (url.pathname.endsWith('/categories.json'))
         return this.response([{ id: 'perk', legacyType: 'Weapon Perk' }]);
       if (url.pathname.endsWith('/aliases.json')) return this.response(this.aliases);
+      if (url.pathname.endsWith('/weaponTypes.json')) {
+        if (this.weaponTypeStatus) return this.response({}, this.weaponTypeStatus);
+        return this.weaponTypeTable === undefined
+          ? this.response({ message: '404: Not Found' }, 404)
+          : this.response(this.weaponTypeTable);
+      }
     }
     if (url.hostname === 'github.com' && url.pathname === '/login/oauth/access_token') {
       return this.response({ access_token: 'oauth-user-token' });
