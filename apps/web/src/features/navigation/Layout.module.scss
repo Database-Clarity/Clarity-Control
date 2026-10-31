@@ -108,3 +108,19 @@
     border-bottom: 1px solid theme.$button-border-color;
   }
 }
+
+@media (max-width: 700px) {
+  .reviewMode .sidebar {
+    .tooltipNavigation,
+    .status,
+    .brand span {
+      display: none;
+    }
+    .brand {
+      margin-bottom: 0.4rem;
+    }
+    .pageSelection {
+      margin-bottom: 0.4rem;
+    }
+  }
+}

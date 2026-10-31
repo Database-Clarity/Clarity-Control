@@ -76,3 +76,20 @@ current in-game descriptions. Draft/save authorization and local provisional neg
 decisions retain their existing behavior. Progress changes do not recompute source
 evidence or the selected item's navigation hints. Source/browser independent review
 must cover this new candidate and the preceding responsiveness fix.
+
+## Rapid review workspace
+
+The review route shows one entry beside its proposed source and nearby styled sheet cells.
+A/P/N/S/U accept, open the picker, mark no equivalent, skip, and undo. Shortcuts ignore
+text fields, modifiers, repeat events, and open overlays. Escape closes either overlay.
+Actions remain in the fixed bottom bar. On phones the panels stack and decisions bring
+the next entry into view. Unusually long descriptions scroll inside desktop panels.
+
+Proposal matching uses the existing core auto-link resolver in a dedicated Web Worker,
+once per editor/source revision. Only round-trippable whole-description proposals enter
+bulk preview; fuzzy candidates and research hints require manual selection. Bulk preview
+respects category, search, status and proposal filters and creates normal local drafts.
+Undo is one in-memory transaction (including a bulk transaction), restores only link
+metadata and local progress, and refuses changed links or a changed saved data revision.
+It never rolls back text/association edits or a remote save. Reopen remains available for
+local skip/no-equivalent decisions. Normal draft storage, roles and Worker save are unchanged.
