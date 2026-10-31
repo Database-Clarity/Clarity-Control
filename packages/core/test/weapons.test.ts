@@ -391,6 +391,14 @@ describe('lossless conversion', () => {
       'title sample (\t',
       '/* note */title sample (',
       'export hidden sample ( // note',
+      'title sample (\t// note',
+      'title sample (inline',
+      'enhanced (inline',
+      'catalyst (inline',
+      'exotic perk (inline',
+      'export hidden sample (inline',
+      'ti/* first */ignored/* second */tle sample (',
+      '/* first */ignored/* second */title sample (',
     ]) {
       const old = `${header}\n${body}\n)`;
       const result = convertWeaponTypeSyntax(old);

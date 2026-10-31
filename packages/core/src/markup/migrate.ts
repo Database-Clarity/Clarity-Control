@@ -70,10 +70,11 @@ export function convertWeaponTypeSyntax(text: string): WeaponConversion {
   // Preparation can hide authored blocks, so their equivalence cannot be proved here.
   const uncommented = text
     .replace(/\r/g, '')
-    .replace(/\/\*[^]*?\*\//g, '')
+    .replace(/\/\*[^]*\*\/\n?/g, '')
     .replace(/^ *?\/\/.*$\n?| +\/\/.*$/gm, '');
   if (
-    /^(?:enhanced|catalyst|exotic perk|export(?: hidden)? .+|title .+) \([ \t]*$/m.test(uncommented)
+    /^(?:enhanced|catalyst|exotic perk|export(?: hidden)? .+|title .+) \(/m.test(text) ||
+    /^(?:enhanced|catalyst|exotic perk|export(?: hidden)? .+|title .+) \(/m.test(uncommented)
   )
     return fail('conditional, exported or title content cannot be safely verified');
   let reason = '';
