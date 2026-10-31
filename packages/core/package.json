@@ -14,9 +14,12 @@
     "node": "^20.19.0 || ^22.12.0 || >=24.0.0"
   },
   "dependencies": {
+    "diff": "^9.0.0",
+    "parse5": "^8.0.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "esbuild": "^0.28.2",
     "@icemourne/description-converter": "1.0.55",
     "@types/node": "^22.15.0",
     "typescript": "^5.8.3",

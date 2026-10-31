@@ -3,6 +3,7 @@ import type { Me } from '../../api';
 import type { Item } from '../../generator';
 import { metadata } from './metadata';
 import { bungie } from './bungie';
+import { compendiumEnricher } from './compendium';
 
 export type SaveEnricher = (ctx: {
   before: Tooltip | undefined;
@@ -11,7 +12,7 @@ export type SaveEnricher = (ctx: {
   item?: Item;
 }) => Promise<Tooltip>;
 
-export const saveEnrichers: SaveEnricher[] = [metadata, bungie];
+export const saveEnrichers: SaveEnricher[] = [metadata, bungie, compendiumEnricher];
 export default saveEnrichers;
 
 export async function enrichTooltip(ctx: Parameters<SaveEnricher>[0]): Promise<Tooltip> {

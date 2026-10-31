@@ -56,10 +56,9 @@ test('all edit, source, legacy and snapshot metadata is excluded without mutatin
       updateTracker: { descriptions: { en: { lastUpdate: 2000, updatedBy: 'old author' } } },
     },
     compendium: {
-      tab: 'Weapons',
-      key: 'Example',
-      column: 'B',
-      snapshot: 'cell',
+      gid: '1662574278',
+      rowKey: 'Example',
+      snapshot: { plain: 'cell', runs: [{ text: 'cell' }] },
       snapshotAt: '2026-02-01T00:00:00.000Z',
     },
     bungieSnapshot: { description: 'Bungie', snapshotAt: '2026-02-01T00:00:00.000Z' },

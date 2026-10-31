@@ -1,0 +1,546 @@
+{
+  "gid": "1662574278",
+  "name": "Weapon Perks",
+  "rows": [
+    {
+      "name": "Aggressive Frame",
+      "nameNorm": "aggressive frame",
+      "rowIndex": 315,
+      "anchor": {
+        "row": 315,
+        "col": 0
+      },
+      "section": "Intrinsic Traits",
+      "cell": {
+        "plain": "No intrinsic bonuses whatsoever.",
+        "runs": [
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": "No intrinsic bonuses whatsoever."
+          }
+        ]
+      }
+    },
+    {
+      "name": "Aggressive Frame\n(Fusion Rifles)",
+      "nameNorm": "aggressive frame",
+      "rowIndex": 316,
+      "anchor": {
+        "row": 316,
+        "col": 0
+      },
+      "section": "Intrinsic Traits",
+      "cell": {
+        "plain": "Fires a 3-round burst of 4 pellets each in an increasingly wider spread.\nDeals 113 [28.8] damage per pellet x 4 = 452 [115.2] per burst x 3 = 1356 [345.6] damage per ammo spent.",
+        "runs": [
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": "Fires a 3-round burst of 4 pellets each in an increasingly wider spread.\nDeals "
+          },
+          {
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "bold": true,
+            "text": "113"
+          },
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": " "
+          },
+          {
+            "color": "#ea9999",
+            "sizePt": 9,
+            "bold": true,
+            "text": "[28.8]"
+          },
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": " damage per pellet x 4 = "
+          },
+          {
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "bold": true,
+            "text": "452 "
+          },
+          {
+            "color": "#ea9999",
+            "sizePt": 9,
+            "bold": true,
+            "text": "[115.2]"
+          },
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": " per burst x 3 = "
+          },
+          {
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "bold": true,
+            "text": "1356 "
+          },
+          {
+            "color": "#ea9999",
+            "sizePt": 9,
+            "bold": true,
+            "text": "[345.6]"
+          },
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": " damage per ammo spent."
+          }
+        ]
+      }
+    },
+    {
+      "name": "Aggressive Frame\n(Rocket Launchers)",
+      "nameNorm": "aggressive frame",
+      "rowIndex": 317,
+      "anchor": {
+        "row": 317,
+        "col": 0
+      },
+      "section": "Intrinsic Traits",
+      "cell": {
+        "plain": "Deals 10% increased damage over High-Impact Rocket Launchers.\n1 Impact : 3.5 Explosive Damage Ratio. 54.5 RPM",
+        "runs": [
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": "Deals 10% increased damage over High-Impact Rocket Launchers.\n1 Impact : 3.5 Explosive Damage Ratio. 54.5 RPM"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Aggressive Frame\n(Scout Rifles)",
+      "nameNorm": "aggressive frame",
+      "rowIndex": 318,
+      "anchor": {
+        "row": 318,
+        "col": 0
+      },
+      "section": "Intrinsic Traits",
+      "cell": {
+        "plain": "Reloads two ammo at a time.",
+        "runs": [
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": "Reloads two ammo at a time."
+          }
+        ]
+      }
+    },
+    {
+      "name": "Aggressive Frame\n(Shotguns)",
+      "nameNorm": "aggressive frame",
+      "rowIndex": 319,
+      "anchor": {
+        "row": 319,
+        "col": 0
+      },
+      "section": "Intrinsic Traits",
+      "cell": {
+        "plain": "Upon scoring a Kill:\n0.75x Fire Recovery Delay for 4 seconds.",
+        "runs": [
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "italic": true,
+            "text": "Upon scoring a Kill:\n"
+          },
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": "0.75x Fire Recovery Delay for 4 seconds."
+          }
+        ]
+      }
+    }
+  ],
+  "grid": [
+    {
+      "row": 314,
+      "col": 0,
+      "cell": {
+        "plain": "Aggressive Burst",
+        "runs": [
+          {
+            "color": "#cccccc",
+            "sizePt": 10,
+            "bold": true,
+            "text": "Aggressive Burst"
+          }
+        ]
+      }
+    },
+    {
+      "row": 314,
+      "col": 2,
+      "colSpan": 4,
+      "cell": {
+        "plain": "Fires 4-round bursts.",
+        "runs": [
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": "Fires 4-round bursts."
+          }
+        ]
+      }
+    },
+    {
+      "row": 315,
+      "col": 0,
+      "cell": {
+        "plain": "Aggressive Frame",
+        "runs": [
+          {
+            "color": "#cccccc",
+            "sizePt": 10,
+            "bold": true,
+            "text": "Aggressive Frame"
+          }
+        ]
+      }
+    },
+    {
+      "row": 315,
+      "col": 2,
+      "colSpan": 4,
+      "cell": {
+        "plain": "No intrinsic bonuses whatsoever.",
+        "runs": [
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": "No intrinsic bonuses whatsoever."
+          }
+        ]
+      }
+    },
+    {
+      "row": 316,
+      "col": 0,
+      "cell": {
+        "plain": "Aggressive Frame\n(Fusion Rifles)",
+        "runs": [
+          {
+            "color": "#cccccc",
+            "sizePt": 10,
+            "bold": true,
+            "text": "Aggressive Frame\n"
+          },
+          {
+            "color": "#63d275",
+            "sizePt": 10,
+            "italic": true,
+            "text": "(Fusion Rifles)"
+          }
+        ]
+      }
+    },
+    {
+      "row": 316,
+      "col": 2,
+      "colSpan": 4,
+      "cell": {
+        "plain": "Fires a 3-round burst of 4 pellets each in an increasingly wider spread.\nDeals 113 [28.8] damage per pellet x 4 = 452 [115.2] per burst x 3 = 1356 [345.6] damage per ammo spent.",
+        "runs": [
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": "Fires a 3-round burst of 4 pellets each in an increasingly wider spread.\nDeals "
+          },
+          {
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "bold": true,
+            "text": "113"
+          },
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": " "
+          },
+          {
+            "color": "#ea9999",
+            "sizePt": 9,
+            "bold": true,
+            "text": "[28.8]"
+          },
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": " damage per pellet x 4 = "
+          },
+          {
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "bold": true,
+            "text": "452 "
+          },
+          {
+            "color": "#ea9999",
+            "sizePt": 9,
+            "bold": true,
+            "text": "[115.2]"
+          },
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": " per burst x 3 = "
+          },
+          {
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "bold": true,
+            "text": "1356 "
+          },
+          {
+            "color": "#ea9999",
+            "sizePt": 9,
+            "bold": true,
+            "text": "[345.6]"
+          },
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": " damage per ammo spent."
+          }
+        ]
+      }
+    },
+    {
+      "row": 317,
+      "col": 0,
+      "cell": {
+        "plain": "Aggressive Frame\n(Rocket Launchers)",
+        "runs": [
+          {
+            "color": "#cccccc",
+            "sizePt": 10,
+            "bold": true,
+            "text": "Aggressive Frame\n"
+          },
+          {
+            "color": "#a481e1",
+            "sizePt": 10,
+            "italic": true,
+            "text": "(Rocket Launchers)"
+          }
+        ]
+      }
+    },
+    {
+      "row": 317,
+      "col": 2,
+      "colSpan": 4,
+      "cell": {
+        "plain": "Deals 10% increased damage over High-Impact Rocket Launchers.\n1 Impact : 3.5 Explosive Damage Ratio. 54.5 RPM",
+        "runs": [
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": "Deals 10% increased damage over High-Impact Rocket Launchers.\n1 Impact : 3.5 Explosive Damage Ratio. 54.5 RPM"
+          }
+        ]
+      }
+    },
+    {
+      "row": 318,
+      "col": 0,
+      "cell": {
+        "plain": "Aggressive Frame\n(Scout Rifles)",
+        "runs": [
+          {
+            "color": "#cccccc",
+            "sizePt": 10,
+            "bold": true,
+            "text": "Aggressive Frame\n"
+          },
+          {
+            "color": "#cccccc",
+            "sizePt": 10,
+            "italic": true,
+            "text": "(Scout Rifles)"
+          }
+        ]
+      }
+    },
+    {
+      "row": 318,
+      "col": 2,
+      "colSpan": 4,
+      "cell": {
+        "plain": "Reloads two ammo at a time.",
+        "runs": [
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": "Reloads two ammo at a time."
+          }
+        ]
+      }
+    },
+    {
+      "row": 319,
+      "col": 0,
+      "cell": {
+        "plain": "Aggressive Frame\n(Shotguns)",
+        "runs": [
+          {
+            "color": "#cccccc",
+            "sizePt": 10,
+            "bold": true,
+            "text": "Aggressive Frame\n"
+          },
+          {
+            "color": "#cccccc",
+            "sizePt": 10,
+            "italic": true,
+            "text": "(Shotguns)"
+          }
+        ]
+      }
+    },
+    {
+      "row": 319,
+      "col": 2,
+      "colSpan": 4,
+      "cell": {
+        "plain": "Upon scoring a Kill:\n0.75x Fire Recovery Delay for 4 seconds.",
+        "runs": [
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "italic": true,
+            "text": "Upon scoring a Kill:\n"
+          },
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": "0.75x Fire Recovery Delay for 4 seconds."
+          }
+        ]
+      }
+    },
+    {
+      "row": 320,
+      "col": 0,
+      "cell": {
+        "plain": "Area Denial Frame",
+        "runs": [
+          {
+            "color": "#cccccc",
+            "sizePt": 10,
+            "bold": true,
+            "text": "Area Denial Frame"
+          }
+        ]
+      }
+    },
+    {
+      "row": 320,
+      "col": 2,
+      "colSpan": 4,
+      "cell": {
+        "plain": "Shoots a burst of 5 projectiles at the cost of 1 Ammo.\n\nProjectiles create a lingering damage field after 0.5 seconds of impacting.\n\nDamaging Field deals damage every 0.25 seconds for 5.65 seconds, dealing 52.5 [?] damage up to 22 times per field.\nEnemies can only receive damage from a single field at a time.",
+        "runs": [
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": "Shoots a burst of 5 projectiles at the cost of 1 Ammo.\n\nProjectiles create a lingering "
+          },
+          {
+            "color": "#f9cb9c",
+            "sizePt": 9,
+            "bold": true,
+            "text": "damage field"
+          },
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": " after 0.5 seconds of impacting.\n\n"
+          },
+          {
+            "color": "#f9cb9c",
+            "sizePt": 9,
+            "bold": true,
+            "text": "Damaging Field"
+          },
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": " deals damage every 0.25 seconds for 5.65 seconds, dealing "
+          },
+          {
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "bold": true,
+            "text": "52.5"
+          },
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": " "
+          },
+          {
+            "color": "#ea9999",
+            "sizePt": 9,
+            "bold": true,
+            "text": "[?]"
+          },
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": " damage up to 22 times per field.\nEnemies can only receive damage from a "
+          },
+          {
+            "color": "#f9cb9c",
+            "sizePt": 9,
+            "bold": true,
+            "text": "single field"
+          },
+          {
+            "color": "#cccccc",
+            "sizePt": 9,
+            "bold": true,
+            "text": " at a time."
+          }
+        ]
+      }
+    }
+  ]
+}

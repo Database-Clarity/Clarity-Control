@@ -1,0 +1,626 @@
+{
+  "110793779": {
+    "rule": "explicit-main-import",
+    "dependencies": ["110793779", "2724068510"],
+    "gid": "1934379638",
+    "section": "Helmet",
+    "rowKey": "Siphon\n[1–2–3 Energy]",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "1266037484": {
+    "rule": "explicit-main-import",
+    "dependencies": ["1266037484", "1645158859"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Under Pressure",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "1266037485": {
+    "rule": "explicit-main-import",
+    "dependencies": ["1266037485", "2779035018"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Feeding Frenzy",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "1266037486": {
+    "rule": "explicit-main-import",
+    "dependencies": ["1266037486", "1354429876"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Fourth Time's The Charm",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "1266037487": {
+    "rule": "explicit-main-import",
+    "dependencies": ["1266037487", "1168162263"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Outlaw",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "1565861116": {
+    "rule": "nightmare-tier-family",
+    "dependencies": ["1565861116"],
+    "gid": "1934379638",
+    "section": "Activity or Destination Specific",
+    "rowKey": "Nightmare Crusher\n[1 | 2 | 3 Energy]",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "1763668984": {
+    "rule": "explicit-main-import",
+    "dependencies": ["1763668984", "953234331"],
+    "gid": "1934379638",
+    "section": "Chest",
+    "rowKey": "Resistance\n[1–3 Energy]",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "1931951168": {
+    "rule": "explicit-main-import",
+    "dependencies": ["1931951168", "1820235745"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Subsistence",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "1931951169": {
+    "rule": "explicit-main-import",
+    "dependencies": ["1931951169", "2048641572"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Destabilizing Rounds",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "1931951170": {
+    "rule": "explicit-main-import",
+    "dependencies": ["1931951170", "95528736"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Onslaught",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "1996040463": {
+    "rule": "nightmare-tier-family",
+    "dependencies": ["1996040463"],
+    "gid": "1934379638",
+    "section": "Activity or Destination Specific",
+    "rowKey": "Nightmare Banisher\n[1 | 2 | 3 Energy]",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "2023980600": {
+    "rule": "nightmare-tier-family",
+    "dependencies": ["2023980600"],
+    "gid": "1934379638",
+    "section": "Activity or Destination Specific",
+    "rowKey": "Nightmare Breaker\n[1 | 2 | 3 Energy]",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "2045123179": {
+    "rule": "nightmare-tier-family",
+    "dependencies": ["2045123179"],
+    "gid": "1934379638",
+    "section": "Activity or Destination Specific",
+    "rowKey": "Nightmare Crusher\n[1 | 2 | 3 Energy]",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "2321824285": {
+    "rule": "aspect-role",
+    "dependencies": ["2321824285"],
+    "gid": "1907852650",
+    "section": "Aspects",
+    "rowKey": "Chaos Accelerant",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "2562645296": {
+    "rule": "explicit-main-import",
+    "dependencies": ["2562645296", "1763668984", "953234331"],
+    "gid": "1934379638",
+    "section": "Chest",
+    "rowKey": "Resistance\n[1–3 Energy]",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "2812559045": {
+    "rule": "explicit-main-import",
+    "dependencies": ["2812559045", "2724068510"],
+    "gid": "1934379638",
+    "section": "Helmet",
+    "rowKey": "Siphon\n[1–2–3 Energy]",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "282266465": {
+    "rule": "explicit-main-import",
+    "dependencies": ["282266465", "3731491409"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Transcendent Moment",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "282266466": {
+    "rule": "explicit-main-import",
+    "dependencies": ["282266466", "1820235745"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Subsistence",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "282266467": {
+    "rule": "explicit-main-import",
+    "dependencies": ["282266467", "247725512"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Rapid Hit",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "2831374162": {
+    "rule": "explicit-main-import",
+    "dependencies": ["2831374162", "2724068510"],
+    "gid": "1934379638",
+    "section": "Helmet",
+    "rowKey": "Siphon\n[1–2–3 Energy]",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "2883096192": {
+    "rule": "explicit-main-import",
+    "dependencies": ["2883096192", "1583705720"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Stats for All",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "2883096193": {
+    "rule": "explicit-main-import",
+    "dependencies": ["2883096193", "3751912585"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Cascade Point",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "2883096194": {
+    "rule": "explicit-main-import",
+    "dependencies": ["2883096194", "776531651"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Repulsor Brace",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "2883096195": {
+    "rule": "explicit-main-import",
+    "dependencies": ["2883096195", "1119449540"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Loose Change",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "2940035732": {
+    "rule": "explicit-spelling-alias",
+    "dependencies": ["2940035732"],
+    "gid": "441434520",
+    "section": "Power Weapons",
+    "rowKey": "Grand Overture\n\nWrath of the Colosssus\nOmega Strike\n↑Grand Overture Catalyst",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 3
+      }
+    ]
+  },
+  "3146691100": {
+    "rule": "explicit-main-import",
+    "dependencies": ["3146691100", "1631667848"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Grave Robber",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "3146691101": {
+    "rule": "explicit-main-import",
+    "dependencies": ["3146691101", "3800201097"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Immovable Object",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "3146691103": {
+    "rule": "explicit-main-import",
+    "dependencies": ["3146691103", "1966281507"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Replenishing Aegis",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "3189860891": {
+    "rule": "explicit-main-import",
+    "dependencies": ["3189860891", "2209918983"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Turnabout",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "3719981603": {
+    "rule": "explicit-main-import",
+    "dependencies": ["3719981603", "953234331"],
+    "gid": "1934379638",
+    "section": "Chest",
+    "rowKey": "Resistance\n[1–3 Energy]",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "372672210": {
+    "rule": "explicit-main-import",
+    "dependencies": ["372672210", "1546637391"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Vorpal Weapon",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "372672211": {
+    "rule": "explicit-main-import",
+    "dependencies": ["372672211", "831391274"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Hatchling",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "3829100654": {
+    "rule": "nightmare-tier-family",
+    "dependencies": ["3829100654"],
+    "gid": "1934379638",
+    "section": "Activity or Destination Specific",
+    "rowKey": "Nightmare Banisher\n[1 | 2 | 3 Energy]",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "3865920552": {
+    "rule": "explicit-main-import",
+    "dependencies": ["3865920552", "1749209109"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Relentless Strikes",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "3865920553": {
+    "rule": "explicit-main-import",
+    "dependencies": ["3865920553", "243981275"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Attrition Orbs",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "3865920555": {
+    "rule": "explicit-main-import",
+    "dependencies": ["3865920555", "2890807135"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Burning Ambition",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "4193902249": {
+    "rule": "nightmare-tier-family",
+    "dependencies": ["4193902249"],
+    "gid": "1934379638",
+    "section": "Activity or Destination Specific",
+    "rowKey": "Nightmare Breaker\n[1 | 2 | 3 Energy]",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "4204405032": {
+    "rule": "explicit-main-import",
+    "dependencies": ["4204405032", "365154968"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Target Lock",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "4204405033": {
+    "rule": "explicit-main-import",
+    "dependencies": ["4204405033", "4049631843"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "One For All",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "4204405034": {
+    "rule": "explicit-main-import",
+    "dependencies": ["4204405034", "831391274"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Hatchling",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "4204405035": {
+    "rule": "explicit-main-import",
+    "dependencies": ["4204405035", "2213355989"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "High-Impact Reserves",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "521530777": {
+    "rule": "explicit-main-import",
+    "dependencies": ["521530777", "2724068510"],
+    "gid": "1934379638",
+    "section": "Helmet",
+    "rowKey": "Siphon\n[1–2–3 Energy]",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "657773637": {
+    "rule": "explicit-main-import",
+    "dependencies": ["657773637", "707237917", "953234331"],
+    "gid": "1934379638",
+    "section": "Chest",
+    "rowKey": "Resistance\n[1–3 Energy]",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "707237917": {
+    "rule": "explicit-main-import",
+    "dependencies": ["707237917", "953234331"],
+    "gid": "1934379638",
+    "section": "Chest",
+    "rowKey": "Resistance\n[1–3 Energy]",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "777589556": {
+    "rule": "explicit-main-import",
+    "dependencies": ["777589556", "2866798147"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "No Distractions",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "930759851": {
+    "rule": "explicit-main-import",
+    "dependencies": ["930759851", "3719981603", "953234331"],
+    "gid": "1934379638",
+    "section": "Chest",
+    "rowKey": "Resistance\n[1–3 Energy]",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "95528736": {
+    "rule": "primary-name",
+    "dependencies": ["95528736"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Onslaught",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  },
+  "956288240": {
+    "rule": "explicit-main-import",
+    "dependencies": ["956288240", "95528736"],
+    "gid": "1662574278",
+    "section": "Weapon Traits",
+    "rowKey": "Onslaught",
+    "cells": [
+      {
+        "dRow": 0,
+        "dCol": 2
+      }
+    ]
+  }
+}

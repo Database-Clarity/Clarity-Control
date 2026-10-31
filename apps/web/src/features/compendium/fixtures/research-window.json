@@ -1,0 +1,1029 @@
+{
+  "fetchedAt": "2026-10-30T23:56:48.298Z",
+  "tabs": [
+    {
+      "gid": "1662574278",
+      "name": "Weapon Perks",
+      "rows": [
+        {
+          "name": "Enhanced Accuracy",
+          "nameNorm": "enhanced accuracy",
+          "rowIndex": 284,
+          "anchor": {
+            "row": 284,
+            "col": 0
+          },
+          "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+          "cell": {
+            "plain": "+10 Accuracy.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+10 Accuracy."
+              }
+            ]
+          }
+        },
+        {
+          "name": "Enhanced Blast Radius",
+          "nameNorm": "enhanced blast radius",
+          "rowIndex": 285,
+          "anchor": {
+            "row": 285,
+            "col": 0
+          },
+          "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+          "cell": {
+            "plain": "+10 Blast Radius.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+10 Blast Radius."
+              }
+            ]
+          }
+        },
+        {
+          "name": "Enhanced Charge Time",
+          "nameNorm": "enhanced charge time",
+          "rowIndex": 286,
+          "anchor": {
+            "row": 286,
+            "col": 0
+          },
+          "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+          "cell": {
+            "plain": "-40ms Charge Time.\nDoes not reduce damage. Does not display in the stats.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "-40ms Charge Time.\n"
+              },
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "italic": true,
+                "text": "Does not reduce damage. Does not display in the stats."
+              }
+            ]
+          }
+        },
+        {
+          "name": "Enhanced Draw Time",
+          "nameNorm": "enhanced draw time",
+          "rowIndex": 287,
+          "anchor": {
+            "row": 287,
+            "col": 0
+          },
+          "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+          "cell": {
+            "plain": "-40ms Draw Time.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "-40ms Draw Time."
+              }
+            ]
+          }
+        },
+        {
+          "name": "Enhanced Handling",
+          "nameNorm": "enhanced handling",
+          "rowIndex": 288,
+          "anchor": {
+            "row": 288,
+            "col": 0
+          },
+          "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+          "cell": {
+            "plain": "+10 Handling.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+10 Handling."
+              }
+            ]
+          }
+        },
+        {
+          "name": "Enhanced Impact",
+          "nameNorm": "enhanced impact",
+          "rowIndex": 289,
+          "anchor": {
+            "row": 289,
+            "col": 0
+          },
+          "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+          "cell": {
+            "plain": "+5 Impact.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+5 Impact."
+              }
+            ]
+          }
+        },
+        {
+          "name": "Enhanced Persistence",
+          "nameNorm": "enhanced persistence",
+          "rowIndex": 290,
+          "anchor": {
+            "row": 290,
+            "col": 0
+          },
+          "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+          "cell": {
+            "plain": "+10 Persistence.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+10 Persistence."
+              }
+            ]
+          }
+        },
+        {
+          "name": "Enhanced Projectile Speed",
+          "nameNorm": "enhanced projectile speed",
+          "rowIndex": 291,
+          "anchor": {
+            "row": 291,
+            "col": 0
+          },
+          "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+          "cell": {
+            "plain": "+10 Velocity.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+10 Velocity."
+              }
+            ]
+          }
+        },
+        {
+          "name": "Enhanced Range",
+          "nameNorm": "enhanced range",
+          "rowIndex": 292,
+          "anchor": {
+            "row": 292,
+            "col": 0
+          },
+          "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+          "cell": {
+            "plain": "+10 Range.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+10 Range."
+              }
+            ]
+          }
+        },
+        {
+          "name": "Enhanced Reload",
+          "nameNorm": "enhanced reload",
+          "rowIndex": 293,
+          "anchor": {
+            "row": 293,
+            "col": 0
+          },
+          "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+          "cell": {
+            "plain": "+10 Reload.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+10 Reload."
+              }
+            ]
+          }
+        },
+        {
+          "name": "Enhanced Shield Duration",
+          "nameNorm": "enhanced shield duration",
+          "rowIndex": 294,
+          "anchor": {
+            "row": 294,
+            "col": 0
+          },
+          "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+          "cell": {
+            "plain": "+10 Shield Duration.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+10 Shield Duration."
+              }
+            ]
+          }
+        },
+        {
+          "name": "Enhanced Stability",
+          "nameNorm": "enhanced stability",
+          "rowIndex": 295,
+          "anchor": {
+            "row": 295,
+            "col": 0
+          },
+          "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+          "cell": {
+            "plain": "+10 Stability.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+10 Stability."
+              }
+            ]
+          }
+        },
+        {
+          "name": "Flight",
+          "nameNorm": "flight",
+          "rowIndex": 296,
+          "anchor": {
+            "row": 296,
+            "col": 0
+          },
+          "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+          "cell": {
+            "plain": "+6 ↑+7 Persistence and +6 ↑+7 Velocity.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+6 "
+              },
+              {
+                "color": "#ffd966",
+                "sizePt": 9,
+                "bold": true,
+                "text": "↑+7"
+              },
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": " Persistence and +6 "
+              },
+              {
+                "color": "#ffd966",
+                "sizePt": 9,
+                "bold": true,
+                "text": "↑+7"
+              },
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": " Velocity."
+              }
+            ]
+          }
+        },
+        {
+          "name": "Freehand Grip",
+          "nameNorm": "freehand grip",
+          "rowIndex": 297,
+          "anchor": {
+            "row": 297,
+            "col": 0
+          },
+          "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+          "cell": {
+            "plain": "-30% ↑-30% Hipfire Accuracy Cone Size.\n0.95x ↑0.?x Ready Animation Duration Multiplier.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "-30% "
+              },
+              {
+                "color": "#ffd966",
+                "sizePt": 9,
+                "bold": true,
+                "text": "↑-30%"
+              },
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": " Hipfire Accuracy Cone Size.\n0.95x "
+              },
+              {
+                "color": "#ffd966",
+                "sizePt": 9,
+                "bold": true,
+                "text": "↑0.?x"
+              },
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": " Ready Animation Duration Multiplier."
+              }
+            ]
+          }
+        },
+        {
+          "name": "Icarus Grip",
+          "nameNorm": "icarus grip",
+          "rowIndex": 298,
+          "anchor": {
+            "row": 298,
+            "col": 0
+          },
+          "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+          "cell": {
+            "plain": "+15 Airborne Effectiveness ↑and +5 Handling.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+15 Airborne Effectiveness "
+              },
+              {
+                "color": "#ffd966",
+                "sizePt": 9,
+                "bold": true,
+                "text": "↑and +5 Handling"
+              },
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "."
+              }
+            ]
+          }
+        },
+        {
+          "name": "Marksman Optics: High",
+          "nameNorm": "marksman optics high",
+          "rowIndex": 299,
+          "anchor": {
+            "row": 299,
+            "col": 0
+          },
+          "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+          "cell": {
+            "plain": "+2 Zoom.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+2 Zoom."
+              }
+            ]
+          }
+        },
+        {
+          "name": "Marksman Optics: Low",
+          "nameNorm": "marksman optics low",
+          "rowIndex": 300,
+          "anchor": {
+            "row": 300,
+            "col": 0
+          },
+          "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+          "cell": {
+            "plain": "-2 Zoom.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "-2 Zoom."
+              }
+            ]
+          }
+        }
+      ],
+      "grid": [
+        {
+          "row": 284,
+          "col": 0,
+          "cell": {
+            "plain": "Enhanced Accuracy",
+            "runs": [
+              {
+                "color": "#ceaa6c",
+                "sizePt": 10,
+                "bold": true,
+                "text": "Enhanced Accuracy"
+              }
+            ]
+          }
+        },
+        {
+          "row": 284,
+          "col": 2,
+          "colSpan": 4,
+          "cell": {
+            "plain": "+10 Accuracy.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+10 Accuracy."
+              }
+            ]
+          }
+        },
+        {
+          "row": 285,
+          "col": 0,
+          "cell": {
+            "plain": "Enhanced Blast Radius",
+            "runs": [
+              {
+                "color": "#ceaa6c",
+                "sizePt": 10,
+                "bold": true,
+                "text": "Enhanced Blast Radius"
+              }
+            ]
+          }
+        },
+        {
+          "row": 285,
+          "col": 2,
+          "colSpan": 4,
+          "cell": {
+            "plain": "+10 Blast Radius.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+10 Blast Radius."
+              }
+            ]
+          }
+        },
+        {
+          "row": 286,
+          "col": 0,
+          "cell": {
+            "plain": "Enhanced Charge Time",
+            "runs": [
+              {
+                "color": "#ceaa6c",
+                "sizePt": 10,
+                "bold": true,
+                "text": "Enhanced Charge Time"
+              }
+            ]
+          }
+        },
+        {
+          "row": 286,
+          "col": 2,
+          "colSpan": 4,
+          "cell": {
+            "plain": "-40ms Charge Time.\nDoes not reduce damage. Does not display in the stats.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "-40ms Charge Time.\n"
+              },
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "italic": true,
+                "text": "Does not reduce damage. Does not display in the stats."
+              }
+            ]
+          }
+        },
+        {
+          "row": 287,
+          "col": 0,
+          "cell": {
+            "plain": "Enhanced Draw Time",
+            "runs": [
+              {
+                "color": "#ceaa6c",
+                "sizePt": 10,
+                "bold": true,
+                "text": "Enhanced Draw Time"
+              }
+            ]
+          }
+        },
+        {
+          "row": 287,
+          "col": 2,
+          "colSpan": 4,
+          "cell": {
+            "plain": "-40ms Draw Time.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "-40ms Draw Time."
+              }
+            ]
+          }
+        },
+        {
+          "row": 288,
+          "col": 0,
+          "cell": {
+            "plain": "Enhanced Handling",
+            "runs": [
+              {
+                "color": "#ceaa6c",
+                "sizePt": 10,
+                "bold": true,
+                "text": "Enhanced Handling"
+              }
+            ]
+          }
+        },
+        {
+          "row": 288,
+          "col": 2,
+          "colSpan": 4,
+          "cell": {
+            "plain": "+10 Handling.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+10 Handling."
+              }
+            ]
+          }
+        },
+        {
+          "row": 289,
+          "col": 0,
+          "cell": {
+            "plain": "Enhanced Impact",
+            "runs": [
+              {
+                "color": "#ceaa6c",
+                "sizePt": 10,
+                "bold": true,
+                "text": "Enhanced Impact"
+              }
+            ]
+          }
+        },
+        {
+          "row": 289,
+          "col": 2,
+          "colSpan": 4,
+          "cell": {
+            "plain": "+5 Impact.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+5 Impact."
+              }
+            ]
+          }
+        },
+        {
+          "row": 290,
+          "col": 0,
+          "cell": {
+            "plain": "Enhanced Persistence",
+            "runs": [
+              {
+                "color": "#ceaa6c",
+                "sizePt": 10,
+                "bold": true,
+                "text": "Enhanced Persistence"
+              }
+            ]
+          }
+        },
+        {
+          "row": 290,
+          "col": 2,
+          "colSpan": 4,
+          "cell": {
+            "plain": "+10 Persistence.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+10 Persistence."
+              }
+            ]
+          }
+        },
+        {
+          "row": 291,
+          "col": 0,
+          "cell": {
+            "plain": "Enhanced Projectile Speed",
+            "runs": [
+              {
+                "color": "#ceaa6c",
+                "sizePt": 10,
+                "bold": true,
+                "text": "Enhanced Projectile Speed"
+              }
+            ]
+          }
+        },
+        {
+          "row": 291,
+          "col": 2,
+          "colSpan": 4,
+          "cell": {
+            "plain": "+10 Velocity.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+10 Velocity."
+              }
+            ]
+          }
+        },
+        {
+          "row": 292,
+          "col": 0,
+          "cell": {
+            "plain": "Enhanced Range",
+            "runs": [
+              {
+                "color": "#ceaa6c",
+                "sizePt": 10,
+                "bold": true,
+                "text": "Enhanced Range"
+              }
+            ]
+          }
+        },
+        {
+          "row": 292,
+          "col": 2,
+          "colSpan": 4,
+          "cell": {
+            "plain": "+10 Range.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+10 Range."
+              }
+            ]
+          }
+        },
+        {
+          "row": 293,
+          "col": 0,
+          "cell": {
+            "plain": "Enhanced Reload",
+            "runs": [
+              {
+                "color": "#ceaa6c",
+                "sizePt": 10,
+                "bold": true,
+                "text": "Enhanced Reload"
+              }
+            ]
+          }
+        },
+        {
+          "row": 293,
+          "col": 2,
+          "colSpan": 4,
+          "cell": {
+            "plain": "+10 Reload.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+10 Reload."
+              }
+            ]
+          }
+        },
+        {
+          "row": 294,
+          "col": 0,
+          "cell": {
+            "plain": "Enhanced Shield Duration",
+            "runs": [
+              {
+                "color": "#ceaa6c",
+                "sizePt": 10,
+                "bold": true,
+                "text": "Enhanced Shield Duration"
+              }
+            ]
+          }
+        },
+        {
+          "row": 294,
+          "col": 2,
+          "colSpan": 4,
+          "cell": {
+            "plain": "+10 Shield Duration.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+10 Shield Duration."
+              }
+            ]
+          }
+        },
+        {
+          "row": 295,
+          "col": 0,
+          "cell": {
+            "plain": "Enhanced Stability",
+            "runs": [
+              {
+                "color": "#ceaa6c",
+                "sizePt": 10,
+                "bold": true,
+                "text": "Enhanced Stability"
+              }
+            ]
+          }
+        },
+        {
+          "row": 295,
+          "col": 2,
+          "colSpan": 4,
+          "cell": {
+            "plain": "+10 Stability.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+10 Stability."
+              }
+            ]
+          }
+        },
+        {
+          "row": 296,
+          "col": 0,
+          "cell": {
+            "plain": "Flight",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 10,
+                "bold": true,
+                "text": "Flight"
+              }
+            ]
+          }
+        },
+        {
+          "row": 296,
+          "col": 2,
+          "colSpan": 4,
+          "cell": {
+            "plain": "+6 ↑+7 Persistence and +6 ↑+7 Velocity.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+6 "
+              },
+              {
+                "color": "#ffd966",
+                "sizePt": 9,
+                "bold": true,
+                "text": "↑+7"
+              },
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": " Persistence and +6 "
+              },
+              {
+                "color": "#ffd966",
+                "sizePt": 9,
+                "bold": true,
+                "text": "↑+7"
+              },
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": " Velocity."
+              }
+            ]
+          }
+        },
+        {
+          "row": 297,
+          "col": 0,
+          "cell": {
+            "plain": "Freehand Grip",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 10,
+                "bold": true,
+                "text": "Freehand Grip"
+              }
+            ]
+          }
+        },
+        {
+          "row": 297,
+          "col": 2,
+          "colSpan": 4,
+          "cell": {
+            "plain": "-30% ↑-30% Hipfire Accuracy Cone Size.\n0.95x ↑0.?x Ready Animation Duration Multiplier.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "-30% "
+              },
+              {
+                "color": "#ffd966",
+                "sizePt": 9,
+                "bold": true,
+                "text": "↑-30%"
+              },
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": " Hipfire Accuracy Cone Size.\n0.95x "
+              },
+              {
+                "color": "#ffd966",
+                "sizePt": 9,
+                "bold": true,
+                "text": "↑0.?x"
+              },
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": " Ready Animation Duration Multiplier."
+              }
+            ]
+          }
+        },
+        {
+          "row": 298,
+          "col": 0,
+          "cell": {
+            "plain": "Icarus Grip",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 10,
+                "bold": true,
+                "text": "Icarus Grip"
+              }
+            ]
+          }
+        },
+        {
+          "row": 298,
+          "col": 2,
+          "colSpan": 4,
+          "cell": {
+            "plain": "+15 Airborne Effectiveness ↑and +5 Handling.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+15 Airborne Effectiveness "
+              },
+              {
+                "color": "#ffd966",
+                "sizePt": 9,
+                "bold": true,
+                "text": "↑and +5 Handling"
+              },
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "."
+              }
+            ]
+          }
+        },
+        {
+          "row": 299,
+          "col": 0,
+          "cell": {
+            "plain": "Marksman Optics: High",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 10,
+                "bold": true,
+                "text": "Marksman Optics: High"
+              }
+            ]
+          }
+        },
+        {
+          "row": 299,
+          "col": 2,
+          "colSpan": 4,
+          "cell": {
+            "plain": "+2 Zoom.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "+2 Zoom."
+              }
+            ]
+          }
+        },
+        {
+          "row": 300,
+          "col": 0,
+          "cell": {
+            "plain": "Marksman Optics: Low",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 10,
+                "bold": true,
+                "text": "Marksman Optics: Low"
+              }
+            ]
+          }
+        },
+        {
+          "row": 300,
+          "col": 2,
+          "colSpan": 4,
+          "cell": {
+            "plain": "-2 Zoom.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "bold": true,
+                "text": "-2 Zoom."
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

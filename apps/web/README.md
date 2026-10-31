@@ -75,6 +75,26 @@ Scroll Lock and Ctrl/Cmd+Shift+F align table columns in one undoable transaction
 Changing to an externally supplied document clears undo history, preventing
 undo from restoring a different tooltip or language.
 
+## Compendium tracking
+
+`#/compendium` lists linked tooltips whose source text or styling changed, newest
+first, with a navigation count badge. The Unlinked list supports incremental linking.
+The tooltip's Compendium panel suggests exact name matches, lets editors choose a
+tab and row, and remembers the tab per category. Linking/unlinking is a local draft.
+Literal uppercase `OLD` tab names are excluded; lowercase and mixed-case names remain.
+
+The panel preserves source run colors, font sizes, emphasis and safe links. Inline
+word changes and style-only changes are distinct; hover, focus or tap a dotted style
+change to inspect both styles. A toggle shows snapshot/current cells side-by-side.
+Editor+ **Mark as reviewed** saves only the current snapshot through the normal
+review flow; save or discard an existing draft first. English saves refresh linked
+snapshots; translation-only saves do not.
+
+Source age and manual refresh progress are shown on the Compendium page. The save
+summary offers refresh when linked data is over one hour old. Refreshes are authorized
+by the Worker and run in the separate public Compendium-data repository; failed runs
+are explicit and unchanged successful runs finish without requiring a data commit.
+
 ## Worker connection
 
 Set `VITE_API_URL` in `apps/web/.env.local` to the worker origin before starting Vite.

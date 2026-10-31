@@ -16,6 +16,10 @@ export interface Env {
   GITHUB_PRIVATE_KEY: string;
   SESSION_SECRET: string;
   OAUTH_CALLBACK_URL: string;
+  COMPENDIUM_OWNER?: string;
+  COMPENDIUM_REPO?: string;
+  COMPENDIUM_REF?: string;
+  COMPENDIUM_WORKFLOW?: string;
 }
 
 export interface Identity {

@@ -43,10 +43,11 @@ Keep `LIVE_BRANCH=converter-v2-test` until an explicit production cut-over.
    stay enabled: this Worker uses the user token once and then discards it.
 6. Leave **Setup URL** blank. Under **Webhook**, uncheck **Active**: this Worker
    does not receive webhooks.
-7. Expand **Repository permissions**. Set **Contents** to **Read and write**.
+7. Expand **Repository permissions**. Set **Contents** and **Actions** to **Read and write**.
+   Actions access is used only to refresh Compendium data and read refresh status.
    **Metadata: Read-only** is automatically required by GitHub. Leave **all
    other repository permissions**, all organization permissions, and all account
-   permissions at **No access**. Do not request Administration, Actions,
+   permissions at **No access**. Do not request Administration,
    Workflows, Members, or email permissions. No event subscriptions are needed.
 8. Under **Where can this GitHub App be installed?**, select **Only on this
    account**. Click **Create GitHub App**.
@@ -58,12 +59,12 @@ Keep `LIVE_BRANCH=converter-v2-test` until an explicit production cut-over.
 11. Under **Private keys**, click **Generate a private key**. A `.pem` file
     downloads. Keep it private; do not put it in the repository, chat or screenshots.
 
-## 3. Install only on Live-Clarity-Database
+## 3. Install on the two data repositories
 
 1. On the App's settings page, click **Install App** in the left menu.
 2. Choose **Database-Clarity** → **Install**.
 3. Select **Only select repositories**, then select **Live-Clarity-Database**
-   and **no other repository**. Confirm that GitHub shows Contents read/write and
+   and **Compendium-data**, and no others. Confirm that GitHub shows Contents and Actions read/write and
    Metadata read-only. Click **Install**.
 4. The resulting page URL contains `/installations/12345678`. Record that
    number as `GITHUB_INSTALLATION_ID`; it is different from the App ID.
@@ -77,6 +78,14 @@ Keep `LIVE_BRANCH=converter-v2-test` until an explicit production cut-over.
    the production `converter`, `live` or `main` branches.
    Testing marks the selected records in the configured data branch's
    `live/pushed.json`; prefer a complete scratch repository for local tests.
+7. `Database-Clarity/Compendium-data` is a separate public repository. Its
+   default `main` branch holds the daily/manual `compendium.yml` Action,
+   dependency-free runner/parser and `compendium.json`; see the editor's
+   `scripts/compendium/README.md` for the reviewed bootstrap/update procedure.
+   Enable Actions and its Contents write permission in that repository.
+   Existing App installations must accept the new Actions permission and add
+   this repository. A refresh failure does not block ordinary translation saves.
+   The Worker never parses spreadsheet HTML; it only dispatches the Action.
 
 ## 4. Set non-secret configuration
 

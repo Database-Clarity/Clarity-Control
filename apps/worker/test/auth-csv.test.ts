@@ -148,7 +148,7 @@ describe('sessions and OAuth web flow', () => {
   });
 });
 
-describe('quoted multiline CSV and caching', () => {
+describe('quoted multiline CSV', () => {
   it.each([
     ['', []],
     [
@@ -169,44 +169,5 @@ describe('quoted multiline CSV and caching', () => {
 
   it.each(['"open', '"closed"x', 'a"b', '"a" "b"'])('rejects malformed CSV %j', (csv) => {
     expect(() => parseCsv(csv)).toThrow();
-  });
-
-  it('returns rows, caches for exactly 15 minutes, and separates tabs', async () => {
-    const first = await fixture.request('/compendium/Weapon%20Perks');
-    expect(first.status).toBe(200);
-    expect(first.headers.get('Cache-Control')).toBe('public, max-age=900');
-    expect(await first.json()).toEqual({
-      rows: [
-        ['Perk', 'Description'],
-        ['Thing', 'Line 1\nLine 2, "quoted"'],
-      ],
-    });
-    await Promise.all(fixture.pending);
-    expect((await fixture.request('/compendium/Weapon%20Perks')).status).toBe(200);
-    expect(fixture.googleCalls).toBe(1);
-    const local = await worker.fetch(
-      new Request('https://api.example/compendium/Weapon%20Perks', {
-        headers: { Origin: 'http://localhost:5173' },
-      }),
-      fixture.env,
-      context,
-    );
-    expect(local.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:5173');
-    expect(fixture.googleCalls).toBe(1);
-    await fixture.request('/compendium/Other');
-    await Promise.all(fixture.pending);
-    expect(fixture.googleCalls).toBe(2);
-    vi.useFakeTimers();
-    vi.setSystemTime(Date.now() + 900_001);
-    await fixture.request('/compendium/Weapon%20Perks');
-    expect(fixture.googleCalls).toBe(3);
-  });
-
-  it('surfaces Google failures instead of returning or caching empty rows', async () => {
-    fixture.failGoogle = true;
-    expect((await fixture.request('/compendium/Weapon%20Perks')).status).toBe(502);
-    fixture.failGoogle = false;
-    expect((await fixture.request('/compendium/Weapon%20Perks')).status).toBe(200);
-    expect(fixture.googleCalls).toBe(2);
   });
 });

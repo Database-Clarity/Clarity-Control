@@ -1,0 +1,3130 @@
+{
+  "observedAt": "2026-10-30T23:56:48.298Z",
+  "places": [
+    {
+      "gid": "1662574278",
+      "rationale": "Category tab only; component-specific section not located. Do not default barrels/magazines/scopes to Weapon Traits.",
+      "relation": "Category tab only; component-specific section not located. Do not default barrels/magazines/scopes to Weapon Traits."
+    },
+    {
+      "gid": "441434520",
+      "rationale": "Generator exposes parent itemHash 1753923263; curated parent Wolfsbane exists in source. Verify per-component coverage before confirming. No safe named-grid or explicit dependency rule established. Full inventory searched against all 4,520 fresh styled cells; category mapping below is navigation context, not an equivalent.",
+      "relation": "related-context",
+      "section": "Power Weapons",
+      "rowKey": "Wolfsbane\n\nResurgence Directive\nNano-Assault\n",
+      "fingerprint": "53634:2418984040",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 3
+        }
+      ]
+    },
+    {
+      "gid": "1662574278",
+      "rationale": "frame family context; no individual equivalence asserted Anchor uniqueness needs review.",
+      "relation": "frame family context; no individual equivalence asserted",
+      "section": "Intrinsic Traits",
+      "rowKey": "Intrinsic Traits"
+    },
+    {
+      "gid": "1918152785",
+      "rationale": "availability context only; lacks individual jump/lift/glide description",
+      "relation": "availability context only; lacks individual jump/lift/glide description",
+      "rowKey": "Movement Abilities and Class Abilities that are normally subclass-restricted can be freely picked.\n\nHunters are able to use Blink and Acrobat's Dodge.\nTitans have Thruster.\nWarlocks can equip Blink and Phoenix Dive.",
+      "fingerprint": "25396:866426843"
+    },
+    {
+      "gid": "1800463143",
+      "rationale": "grounded movement/Mobility context only, not movement ability equivalence",
+      "relation": "grounded movement/Mobility context only, not movement ability equivalence",
+      "rowKey": "Walk Speed\n [m/s]",
+      "fingerprint": "25523:39196914"
+    },
+    {
+      "gid": "1662574278",
+      "rationale": "Proposed Adept -> Enhanced stat-label mapping; corresponding explicit stat amounts agree in representative inspected entries. Source tier/equip restrictions differ; keep human-confirmed mapping unless owner accepts the narrow alias family.",
+      "relation": "equivalent",
+      "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+      "rowKey": "Enhanced Accuracy",
+      "fingerprint": "6120:3900865834",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 2
+        }
+      ]
+    },
+    {
+      "gid": "1662574278",
+      "rationale": "supported mod-family section Anchor uniqueness needs review.",
+      "relation": "supported mod-family section",
+      "rowKey": "Weapon Mods"
+    },
+    {
+      "gid": "1934379638",
+      "rationale": "category context; use a specific supported proposal where available",
+      "relation": "category context; use a specific supported proposal where available"
+    },
+    {
+      "gid": "1800463143",
+      "rationale": "stat behavior reference; not a description of mod stat grants Anchor uniqueness needs review.",
+      "relation": "stat behavior reference; not a description of mod stat grants",
+      "rowKey": "Character Attributes"
+    },
+    {
+      "gid": "1662574278",
+      "rationale": "related mechanics only; individual guard/blade values not established",
+      "relation": "related mechanics only; individual guard/blade values not established",
+      "section": "Sword Guard Information",
+      "rowKey": "Sword Guard Information",
+      "fingerprint": "27932:3930302713"
+    },
+    {
+      "gid": "1662574278",
+      "rationale": "Enhanced variant indicated by ↑ in shared mod row. Compare whole styled cell; Adept/Enhanced terminology is not a general equivalence rule.",
+      "relation": "equivalent",
+      "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+      "rowKey": "Backup Mag",
+      "fingerprint": "5483:1392179883",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 2
+        }
+      ]
+    },
+    {
+      "gid": "1662574278",
+      "rationale": "Glaive Information explicitly describes melee, projectile and energy/shield mechanics across three rows; weapon-frame-specific stats are not individually described here. Human must choose whether shared mechanics is the desired snapshot.",
+      "relation": "partial-mechanics",
+      "section": "Glaive Information",
+      "rowKey": "Glaive Information",
+      "fingerprint": "24964:2455252602",
+      "cells": [
+        {
+          "dRow": 1,
+          "dCol": 2
+        },
+        {
+          "dRow": 2,
+          "dCol": 2
+        },
+        {
+          "dRow": 3,
+          "dCol": 2
+        }
+      ]
+    },
+    {
+      "gid": "1662574278",
+      "rationale": "Proposed Adept -> Enhanced stat-label mapping; corresponding explicit stat amounts agree in representative inspected entries. Source tier/equip restrictions differ; keep human-confirmed mapping unless owner accepts the narrow alias family.",
+      "relation": "equivalent",
+      "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+      "rowKey": "Enhanced Shield Duration",
+      "fingerprint": "5864:4148439383",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 2
+        }
+      ]
+    },
+    {
+      "gid": "1934379638",
+      "rationale": "Named Siphon variant; shared Siphon source describes Mod-Element Matching Weapon Kills. This entry has no explicit import proving equivalence, so confirm variant behavior rather than auto-linking from the suffix.",
+      "relation": "equivalent",
+      "section": "Helmet",
+      "rowKey": "Siphon\n[1–2–3 Energy]",
+      "fingerprint": "99056:1771870827",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 2
+        }
+      ]
+    },
+    {
+      "gid": "441434520",
+      "rationale": "category tab; weapon slot section requires actual source identity",
+      "relation": "category tab; weapon slot section requires actual source identity"
+    },
+    {
+      "gid": "441434520",
+      "rationale": "Exact standalone named subheading appears inside Barrow-Dyad description, not name column. Both names share one styled cell; picker cannot select only the subheading substring.",
+      "relation": "equivalent",
+      "section": "Kinetic Slot Weapons",
+      "rowKey": "Barrow-Dyad\n\nPanic Response I–V\nTaken Divergence\n↑Craftable Trait",
+      "fingerprint": "74993:4077056828",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 3
+        }
+      ]
+    },
+    {
+      "gid": "1662574278",
+      "rationale": "Enhanced variant indicated by ↑ in shared mod row. Compare whole styled cell; Adept/Enhanced terminology is not a general equivalence rule.",
+      "relation": "equivalent",
+      "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+      "rowKey": "Counterbalance Stock",
+      "fingerprint": "6469:4148902532",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 2
+        }
+      ]
+    },
+    {
+      "gid": "1287885342",
+      "rationale": "category context; use a specific supported proposal where available",
+      "relation": "category context; use a specific supported proposal where available"
+    },
+    {
+      "gid": "1662574278",
+      "rationale": "No safe named-grid or explicit dependency rule established. Full inventory searched against all 4,520 fresh styled cells; category mapping below is navigation context, not an equivalent.",
+      "relation": "name-occurrence-only",
+      "section": "Weapon Traits",
+      "rowKey": "Firefly",
+      "fingerprint": "30007:602074302",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 0
+        }
+      ]
+    },
+    {
+      "gid": "441434520",
+      "rationale": "No safe named-grid or explicit dependency rule established. Full inventory searched against all 4,520 fresh styled cells; category mapping below is navigation context, not an equivalent.",
+      "relation": "name-occurrence-only",
+      "section": "Kinetic Slot Weapons",
+      "rowKey": "Ace of Spades\n\nMemento Mori\nFirefly\n↑Funeral Pyre",
+      "fingerprint": "49633:2543768823",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 0
+        }
+      ]
+    },
+    {
+      "gid": "441434520",
+      "rationale": "No safe named-grid or explicit dependency rule established. Full inventory searched against all 4,520 fresh styled cells; category mapping below is navigation context, not an equivalent.",
+      "relation": "name-occurrence-only",
+      "section": "Kinetic Slot Weapons",
+      "rowKey": "The Jade Rabbit\n\nThe Fate of All Fools\nShoot To Loot\nFirefly",
+      "fingerprint": "87262:316052358",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 0
+        }
+      ]
+    },
+    {
+      "gid": "1662574278",
+      "rationale": "Enhanced variant indicated by ↑ in shared mod row. Compare whole styled cell; Adept/Enhanced terminology is not a general equivalence rule.",
+      "relation": "equivalent",
+      "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+      "rowKey": "Targeting Adjuster",
+      "fingerprint": "13310:1998775596",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 2
+        }
+      ]
+    },
+    {
+      "gid": "1662574278",
+      "rationale": "Proposed Adept -> Enhanced stat-label mapping; corresponding explicit stat amounts agree in representative inspected entries. Source tier/equip restrictions differ; keep human-confirmed mapping unless owner accepts the narrow alias family.",
+      "relation": "equivalent",
+      "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+      "rowKey": "Enhanced Draw Time",
+      "fingerprint": "5361:863815025",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 2
+        }
+      ]
+    },
+    {
+      "gid": "441434520",
+      "rationale": "Generator exposes parent itemHash 1473821207; curated parent Revision Zero exists in source. Verify per-component coverage before confirming. No safe named-grid or explicit dependency rule established. Full inventory searched against all 4,520 fresh styled cells; category mapping below is navigation context, not an equivalent.",
+      "relation": "related-context",
+      "section": "Kinetic Slot Weapons",
+      "rowKey": "Revision Zero\n\nHunter's Trace I–IV\nCraftable Trait\nBurst Mode\n↑Craftable Refit",
+      "fingerprint": "93592:345845471",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 3
+        }
+      ]
+    },
+    {
+      "gid": "1662574278",
+      "rationale": "Proposed Adept -> Enhanced stat-label mapping; corresponding explicit stat amounts agree in representative inspected entries. Source tier/equip restrictions differ; keep human-confirmed mapping unless owner accepts the narrow alias family.",
+      "relation": "equivalent",
+      "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+      "rowKey": "Enhanced Blast Radius",
+      "fingerprint": "5996:3512811414",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 2
+        }
+      ]
+    },
+    {
+      "gid": "1662574278",
+      "rationale": "Proposed Adept -> Enhanced stat-label mapping; corresponding explicit stat amounts agree in representative inspected entries. Source tier/equip restrictions differ; keep human-confirmed mapping unless owner accepts the narrow alias family.",
+      "relation": "equivalent",
+      "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+      "rowKey": "Enhanced Projectile Speed",
+      "fingerprint": "5729:1681885647",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 2
+        }
+      ]
+    },
+    {
+      "gid": "441434520",
+      "rationale": "Explicit import target remains ambiguous: 2620589274 -> 3081173348 No safe named-grid or explicit dependency rule established. Full inventory searched against all 4,520 fresh styled cells; category mapping below is navigation context, not an equivalent.",
+      "relation": "name-occurrence-only",
+      "section": "Energy Slot Weapons",
+      "rowKey": "Borealis\n\nThe Fundamentals \nIonic Return\n↑Shield Disorient",
+      "fingerprint": "77596:3096482293",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 0
+        }
+      ]
+    },
+    {
+      "gid": "441434520",
+      "rationale": "Explicit import target remains ambiguous: 2620589274 -> 3081173348 No safe named-grid or explicit dependency rule established. Full inventory searched against all 4,520 fresh styled cells; category mapping below is navigation context, not an equivalent.",
+      "relation": "name-occurrence-only",
+      "section": "Energy Slot Weapons",
+      "rowKey": "Dead Messenger\n\nTrinary Vision\nThe Fundamentals\nCraftable Trait\n↑Turnabout",
+      "fingerprint": "79350:1462217716",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 0
+        }
+      ]
+    },
+    {
+      "gid": "441434520",
+      "rationale": "Explicit import target remains ambiguous: 2620589274 -> 3081173348 No safe named-grid or explicit dependency rule established. Full inventory searched against all 4,520 fresh styled cells; category mapping below is navigation context, not an equivalent.",
+      "relation": "name-occurrence-only",
+      "section": "Energy Slot Weapons",
+      "rowKey": "Hard Light\n\nVolatile Light \nThe Fundamentals\n↑Light Touch",
+      "fingerprint": "89661:2728712044",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 0
+        }
+      ]
+    },
+    {
+      "gid": "1287885342",
+      "rationale": "Accretion is a 2 Piece named perk inside Collective Psyche description. Set Bonus: Accretion could intentionally select only this tier; do not include Doppler Effect without confirmation.",
+      "relation": "equivalent",
+      "section": "Armor Set Bonuses",
+      "rowKey": "Collective Psyche\n\nDesert Perpetual\nRaid",
+      "fingerprint": "35356:829349390",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 2
+        }
+      ]
+    },
+    {
+      "gid": "1662574278",
+      "rationale": "Proposed Adept -> Enhanced stat-label mapping; corresponding explicit stat amounts agree in representative inspected entries. Source tier/equip restrictions differ; keep human-confirmed mapping unless owner accepts the narrow alias family.",
+      "relation": "equivalent",
+      "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+      "rowKey": "Enhanced Range",
+      "fingerprint": "5471:4006388587",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 2
+        }
+      ]
+    },
+    {
+      "gid": "441434520",
+      "rationale": "No safe named-grid or explicit dependency rule established. Full inventory searched against all 4,520 fresh styled cells; category mapping below is navigation context, not an equivalent.",
+      "relation": "name-occurrence-only",
+      "section": "Energy Slot Weapons",
+      "rowKey": "Borealis\n\nThe Fundamentals \nIonic Return\n↑Shield Disorient",
+      "fingerprint": "77596:3096482293",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 0
+        }
+      ]
+    },
+    {
+      "gid": "441434520",
+      "rationale": "No safe named-grid or explicit dependency rule established. Full inventory searched against all 4,520 fresh styled cells; category mapping below is navigation context, not an equivalent.",
+      "relation": "name-occurrence-only",
+      "section": "Energy Slot Weapons",
+      "rowKey": "Dead Messenger\n\nTrinary Vision\nThe Fundamentals\nCraftable Trait\n↑Turnabout",
+      "fingerprint": "79350:1462217716",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 0
+        }
+      ]
+    },
+    {
+      "gid": "441434520",
+      "rationale": "No safe named-grid or explicit dependency rule established. Full inventory searched against all 4,520 fresh styled cells; category mapping below is navigation context, not an equivalent.",
+      "relation": "name-occurrence-only",
+      "section": "Energy Slot Weapons",
+      "rowKey": "Hard Light\n\nVolatile Light \nThe Fundamentals\n↑Light Touch",
+      "fingerprint": "89661:2728712044",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 0
+        }
+      ]
+    },
+    {
+      "gid": "1662574278",
+      "rationale": "Proposed Adept -> Enhanced stat-label mapping; corresponding explicit stat amounts agree in representative inspected entries. Source tier/equip restrictions differ; keep human-confirmed mapping unless owner accepts the narrow alias family.",
+      "relation": "equivalent",
+      "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+      "rowKey": "Enhanced Impact",
+      "fingerprint": "5549:2374870888",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 2
+        }
+      ]
+    },
+    {
+      "gid": "473308249",
+      "rationale": "category context; use a specific supported proposal where available",
+      "relation": "category context; use a specific supported proposal where available"
+    },
+    {
+      "gid": "441434520",
+      "rationale": "Generator exposes parent itemHash 2910326942; curated parent Wish-Keeper exists in source. Verify per-component coverage before confirming. No safe named-grid or explicit dependency rule established. Full inventory searched against all 4,520 fresh styled cells; category mapping below is navigation context, not an equivalent.",
+      "relation": "related-context",
+      "section": "Kinetic Slot Weapons",
+      "rowKey": "Wish-Keeper\n\nSnareweaver I–IV\nSilkbound Slayer\n↑Craftable Traits",
+      "fingerprint": "85397:4040385617",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 3
+        }
+      ]
+    },
+    {
+      "gid": "1662574278",
+      "rationale": "Enhanced variant indicated by ↑ in shared mod row. Compare whole styled cell; Adept/Enhanced terminology is not a general equivalence rule.",
+      "relation": "equivalent",
+      "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+      "rowKey": "Icarus Grip",
+      "fingerprint": "12300:2670688701",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 2
+        }
+      ]
+    },
+    {
+      "gid": "1662574278",
+      "rationale": "Proposed Adept -> Enhanced stat-label mapping; corresponding explicit stat amounts agree in representative inspected entries. Source tier/equip restrictions differ; keep human-confirmed mapping unless owner accepts the narrow alias family.",
+      "relation": "equivalent",
+      "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+      "rowKey": "Enhanced Stability",
+      "fingerprint": "5987:3278302165",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 2
+        }
+      ]
+    },
+    {
+      "gid": "1662574278",
+      "rationale": "Proposed Adept -> Enhanced stat-label mapping; corresponding explicit stat amounts agree in representative inspected entries. Source tier/equip restrictions differ; keep human-confirmed mapping unless owner accepts the narrow alias family.",
+      "relation": "equivalent",
+      "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+      "rowKey": "Enhanced Handling",
+      "fingerprint": "5333:520210489",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 2
+        }
+      ]
+    },
+    {
+      "gid": "1662574278",
+      "rationale": "Proposed Adept -> Enhanced stat-label mapping; corresponding explicit stat amounts agree in representative inspected entries. Source tier/equip restrictions differ; keep human-confirmed mapping unless owner accepts the narrow alias family.",
+      "relation": "equivalent",
+      "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+      "rowKey": "Enhanced Reload",
+      "fingerprint": "5657:1361661555",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 2
+        }
+      ]
+    },
+    {
+      "gid": "1662574278",
+      "rationale": "Proposed Adept -> Enhanced stat-label mapping; corresponding explicit stat amounts agree in representative inspected entries. Source tier/equip restrictions differ; keep human-confirmed mapping unless owner accepts the narrow alias family.",
+      "relation": "equivalent",
+      "section": "Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons.",
+      "rowKey": "Enhanced Charge Time",
+      "fingerprint": "5597:1053154726",
+      "cells": [
+        {
+          "dRow": 0,
+          "dCol": 2
+        }
+      ]
+    }
+  ],
+  "entries": {
+    "0": {
+      "name": "Default perk",
+      "category": "none",
+      "places": []
+    },
+    "1": {
+      "name": "Global exports",
+      "category": "none",
+      "places": []
+    },
+    "1002206008": {
+      "name": "Steady Rounds",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1012699414": {
+      "name": "Heavy Grip",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1065371964": {
+      "name": "Appended Mag",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1067908860": {
+      "name": "Short-Action Stock",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "106909392": {
+      "name": "Tactical Mag",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1080094173": {
+      "name": "Enhanced Heatsink",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1087426260": {
+      "name": "Appended Mag",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1096957638": {
+      "name": "Rasmussen ISA",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1111219233": {
+      "name": "Carbon Arrow Shaft",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "111235976": {
+      "name": "Corkscrew Rifling",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1124871858": {
+      "name": "Fluted Barrel",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1127992351": {
+      "name": "Unyielding Handle",
+      "category": "weapon-perk-exotic",
+      "places": [1, 2]
+    },
+    "1128768652": {
+      "name": "Triple Jump",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "1128768654": {
+      "name": "High Jump",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "1128768655": {
+      "name": "Strafe Jump",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "1147230557": {
+      "name": "Hammer-Forged Rifling",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "117884138": {
+      "name": "Adept Accuracy",
+      "category": "weapon-mod",
+      "places": [5, 6]
+    },
+    "1180408010": {
+      "name": "Health Mod",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "1180618054": {
+      "name": "Enduring Guard",
+      "category": "weapon-perk",
+      "places": [9]
+    },
+    "1196733167": {
+      "name": "Tactile String",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1220787353": {
+      "name": "Ultralight Rail",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1225726778": {
+      "name": "Adept Mag",
+      "category": "weapon-mod",
+      "places": [10, 6]
+    },
+    "1237488984": {
+      "name": "Blink",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "1237488985": {
+      "name": "Balanced Glide",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "1237488986": {
+      "name": "Burst Glide",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "1237488987": {
+      "name": "Strafe Glide",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "1237786518": {
+      "name": "Minor Class Mod",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "125241418": {
+      "name": "Swordmaster's Guard",
+      "category": "weapon-perk",
+      "places": [9]
+    },
+    "1261178282": {
+      "name": "Enduring Blade",
+      "category": "weapon-perk",
+      "places": [9]
+    },
+    "1263609309": {
+      "name": "Ballistic Tuning",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1285109625": {
+      "name": "Jumpshot",
+      "category": "weapon-mod",
+      "places": [6]
+    },
+    "1285109626": {
+      "name": "Tungsten Bowstring",
+      "category": "weapon-mod",
+      "places": [6]
+    },
+    "1285109627": {
+      "name": "Shattershafts",
+      "category": "weapon-mod",
+      "places": [6]
+    },
+    "1288081796": {
+      "name": "Wolf Sight W1",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1288081797": {
+      "name": "King Sight K1",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1288081798": {
+      "name": "Dusk Sight D1",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1300023272": {
+      "name": "Barrel Shroud",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1301083363": {
+      "name": "Natural String",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1313805249": {
+      "name": "LC Ranged",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1313805250": {
+      "name": "LB Assault",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1313805251": {
+      "name": "LD Watchdog",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1316753551": {
+      "name": "Adaptive Glaive",
+      "category": "weapon-frame",
+      "places": [11, 2]
+    },
+    "1332244541": {
+      "name": "Rifled Barrel",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1342449029": {
+      "name": "Adept Shield Duration",
+      "category": "weapon-mod",
+      "places": [12, 6]
+    },
+    "137682932": {
+      "name": "Proximity Grenades",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "13792278": {
+      "name": "Hitmark IS",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "13792279": {
+      "name": "Cleanshot IS",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1380253176": {
+      "name": "High-Explosive Ordnance",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1380268164": {
+      "name": "Catapult Lift",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "1380268166": {
+      "name": "High Lift",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "1380268167": {
+      "name": "Strafe Lift",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "1389309840": {
+      "name": "Precise Jolts",
+      "category": "armor-mod-activity",
+      "places": [7]
+    },
+    "1392496348": {
+      "name": "Polygonal Rifling",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1395789926": {
+      "name": "Wave Frame",
+      "category": "weapon-frame",
+      "places": [2]
+    },
+    "1408087974": {
+      "name": "Combat Sights",
+      "category": "weapon-perk-exotic",
+      "places": [2]
+    },
+    "1408087975": {
+      "name": "Marksman Sights",
+      "category": "weapon-perk-exotic",
+      "places": [2]
+    },
+    "1409978308": {
+      "name": "Spark PS",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1409978309": {
+      "name": "Candle PS",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1409978311": {
+      "name": "Jolt PS",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1433540272": {
+      "name": "Kinetic Entropy Siphon",
+      "category": "armor-mod-general",
+      "places": [13, 7]
+    },
+    "1435557120": {
+      "name": "Grenade Mod",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "1439751480": {
+      "name": "Alloy Casing",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1441682018": {
+      "name": "Linear Compensator",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1452368632": {
+      "name": "Wolf Dot W2",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1452368633": {
+      "name": "King Dot K2",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1452368634": {
+      "name": "Dusk Dot D1",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1454612425": {
+      "name": "Ionized Heatsink",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1465283453": {
+      "name": "Ultralight Rail",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1467527085": {
+      "name": "Extended Barrel",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1478423395": {
+      "name": "Volatile Launch",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1482024992": {
+      "name": "Smallbore",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1483536627": {
+      "name": "Ionized Battery",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1488599449": {
+      "name": "Assault Mag",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1491926336": {
+      "name": "Ranged Lens RLR5",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1491926337": {
+      "name": "Focus Lens FLS2",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1497627200": {
+      "name": "Ergo Sum Catalyst",
+      "category": "weapon-catalyst-exotic",
+      "places": [14]
+    },
+    "1498024248": {
+      "name": "Hungry Edge",
+      "category": "weapon-perk",
+      "places": [9]
+    },
+    "1500996326": {
+      "name": "Natural Fletching",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1510949672": {
+      "name": "+Class / -Melee",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "1515139595": {
+      "name": "Bountiful Harvest",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "1524069046": {
+      "name": "Taken Ambition",
+      "category": "weapon-trait-exotic",
+      "places": [15, 14]
+    },
+    "1525622117": {
+      "name": "Adept Counterbalance",
+      "category": "weapon-mod",
+      "places": [16, 6]
+    },
+    "1529576681": {
+      "name": "Combat Grip",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1530138662": {
+      "name": "Set Bonus: \nWayward Psyche",
+      "category": "armor-mod-general",
+      "places": [17]
+    },
+    "1544361296": {
+      "name": "Heavy Hitter",
+      "category": "armor-mod-general",
+      "places": [7]
+    },
+    "1546108491": {
+      "name": "Disruption Weapon [Shield-Piercing]",
+      "category": "weapon-frame",
+      "places": [2]
+    },
+    "155346308": {
+      "name": "Fitted Stock",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1555922475": {
+      "name": "Taken Resolution",
+      "category": "weapon-trait-exotic",
+      "places": [15, 14]
+    },
+    "1561789734": {
+      "name": "Firefly",
+      "category": "weapon-trait-exotic",
+      "places": [18, 19, 20, 14]
+    },
+    "1588878496": {
+      "name": "Blink",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "1588878497": {
+      "name": "Triple Jump",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "1588878498": {
+      "name": "Strafe Jump",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "1588878499": {
+      "name": "High Jump",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "1617987572": {
+      "name": "SSO-08 Sniper",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1617987574": {
+      "name": "SSO-05 Sniper",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1617987575": {
+      "name": "SSO-07 Sniper",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1628165636": {
+      "name": "Torch HS3",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1628165637": {
+      "name": "Flash HS5",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "16392701": {
+      "name": "Compact Arrow Shaft",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1639399262": {
+      "name": "Linear Compensator",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1649480699": {
+      "name": "Straight Fletching",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1672416975": {
+      "name": "+Grenade / -Super",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "1687452232": {
+      "name": "Liquid Coils",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1698387812": {
+      "name": "Catapult Lift",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "1698387814": {
+      "name": "High Lift",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "1698387815": {
+      "name": "Strafe Lift",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "1703647492": {
+      "name": "Minor Weapons Mod",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "1709045111": {
+      "name": "Flared Magwell",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1710791394": {
+      "name": "Adept Targeting",
+      "category": "weapon-mod",
+      "places": [21, 6]
+    },
+    "1716000303": {
+      "name": "Concussion Grenades",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1771897777": {
+      "name": "Augmented Drum",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1776069409": {
+      "name": "Mag-lev Rail",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1777340333": {
+      "name": "Flexible String",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1783397184": {
+      "name": "Tactical Mag",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1784898267": {
+      "name": "Natural String",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1791833453": {
+      "name": "Extract Pattern",
+      "category": "weapon-mod",
+      "places": [6]
+    },
+    "1796628141": {
+      "name": "Helical Fletching",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1802305063": {
+      "name": "Thermoplastic Grenades",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1807273211": {
+      "name": "Light Mag",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1820053064": {
+      "name": "Blinding Light",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "1820053065": {
+      "name": "Guiding Light",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "1820053068": {
+      "name": "Little Light",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "1820053069": {
+      "name": "Flickering Light",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "1820053070": {
+      "name": "Burning Light",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "1820053071": {
+      "name": "Hopeful Light",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "1834828808": {
+      "name": "Tempered Truss Rod",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "183772609": {
+      "name": "Caster Frame",
+      "category": "weapon-frame",
+      "places": [2]
+    },
+    "1840239774": {
+      "name": "Fluted Barrel",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1844523823": {
+      "name": "Confined Launch",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "185041502": {
+      "name": "Volatile Battery",
+      "category": "weapon-perk-exotic",
+      "places": [2]
+    },
+    "1871180748": {
+      "name": "Full Bore",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1879022254": {
+      "name": "+Class / -Grenade",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "1885045197": {
+      "name": "Adept Draw Time",
+      "category": "weapon-mod",
+      "places": [22, 6]
+    },
+    "1890040155": {
+      "name": "Low-Profile Rail",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1890997540": {
+      "name": "Extended Mag",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1918710127": {
+      "name": "+Weapons / -Class",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "1922571986": {
+      "name": "+Grenade / -Class",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "1926090090": {
+      "name": "Crossfire HCS",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1926090091": {
+      "name": "Sureshot HCS",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1926090092": {
+      "name": "TrueSight HCS",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1926090093": {
+      "name": "HitMark HCS",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1926090094": {
+      "name": "Fastdraw HCS",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1926090095": {
+      "name": "SteadyHand HCS",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1932356121": {
+      "name": "Extended Barrel",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1934171651": {
+      "name": "Supercooled Accelerator",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1946186791": {
+      "name": "Light Heatsink",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "194952921": {
+      "name": "Transmission MS7",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "194952922": {
+      "name": "Impulse MS3",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "194952923": {
+      "name": "Signal MS5",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1956005708": {
+      "name": "Rapid-Fire Glaive",
+      "category": "weapon-frame",
+      "places": [11, 2]
+    },
+    "1958555234": {
+      "name": "Balanced Grip",
+      "category": "weapon-perk-exotic",
+      "places": [2]
+    },
+    "197518367": {
+      "name": "Smooth Grip",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1986105578": {
+      "name": "Aggressive Glaive",
+      "category": "weapon-frame",
+      "places": [11, 2]
+    },
+    "1987021001": {
+      "name": "Rifled Barrel",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "1992361643": {
+      "name": "Anti-Taken Fletching",
+      "category": "weapon-perk-exotic",
+      "places": [2]
+    },
+    "1996142143": {
+      "name": "Black Powder",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2": {
+      "name": "Global variables",
+      "category": "none",
+      "places": []
+    },
+    "2005566727": {
+      "name": "Nucleosynthetic Magazine",
+      "category": "weapon-perk-exotic",
+      "places": [2]
+    },
+    "202670084": {
+      "name": "Full Bore",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2052299741": {
+      "name": "Countermass",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2054312700": {
+      "name": "SC Holo",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2054312701": {
+      "name": "SD Thermal",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "20616656": {
+      "name": "Triple Jump",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "20616658": {
+      "name": "High Jump",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "20616659": {
+      "name": "Strafe Jump",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "2073750249": {
+      "name": "Light Battery",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2077016094": {
+      "name": "Arc/Stasis Dual Siphon",
+      "category": "armor-mod-general",
+      "places": [13, 7]
+    },
+    "2078097559": {
+      "name": "Polymer Grip",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2094823172": {
+      "name": "Bulwark Armorer",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "2108812838": {
+      "name": "High-Velocity Rounds",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2125798995": {
+      "name": "+Health / -Weapons",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "2126519017": {
+      "name": "Enhanced Heatsink",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2135480054": {
+      "name": "Demolitionist Armorer",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "2154191829": {
+      "name": "Carbon Arrow Shaft",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2154730217": {
+      "name": "Ballistic Tuning",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2193118393": {
+      "name": "Longview SLR10",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2193118396": {
+      "name": "Ambush SLH25",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2193118397": {
+      "name": "EagleEye SLR20",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2193118398": {
+      "name": "Shortgaze SLH10",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2193118399": {
+      "name": "Longview SLR20",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2206869417": {
+      "name": "Häkke Heavy Burst Fire",
+      "category": "weapon-trait-origin-exotic",
+      "places": [23, 14]
+    },
+    "2209280306": {
+      "name": "IS 5 Circle",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2209280307": {
+      "name": "IS 2 Classic",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2225231092": {
+      "name": "High Lift",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "2225231093": {
+      "name": "Strafe Lift",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "2225231094": {
+      "name": "Catapult Lift",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "223754954": {
+      "name": "Heavy Grip",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2244422610": {
+      "name": "+Super / -Weapons",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "2261115701": {
+      "name": "Gunner Armorer",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "2276384431": {
+      "name": "Tactile String",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "229003538": {
+      "name": "Adept Blast Radius",
+      "category": "weapon-mod",
+      "places": [24, 6]
+    },
+    "2299766748": {
+      "name": "Adept Projectile Speed",
+      "category": "weapon-mod",
+      "places": [25, 6]
+    },
+    "23016037": {
+      "name": "Colossus Armorer",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "231101171": {
+      "name": "Random Masterwork",
+      "category": "weapon-mod",
+      "places": [6]
+    },
+    "2338887882": {
+      "name": "Balanced Guard",
+      "category": "weapon-perk",
+      "places": [9]
+    },
+    "234526563": {
+      "name": "Low-Profile Rail",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2349202967": {
+      "name": "Heavy Guard",
+      "category": "weapon-perk",
+      "places": [9]
+    },
+    "2364577709": {
+      "name": "Lightweight Emitter",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2371713880": {
+      "name": "Barrel Shroud",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2385083333": {
+      "name": "Mag-lev Rail",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2398680997": {
+      "name": "Empowered Rail",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2405638014": {
+      "name": "Red Dot Micro",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2405638015": {
+      "name": "Red Dot 2 MOA",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2406549743": {
+      "name": "Concussion Grenades",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2410284308": {
+      "name": "TrueSight IS",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2410284310": {
+      "name": "Fastdraw IS",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2410284311": {
+      "name": "Quickdraw IS",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2414725840": {
+      "name": "Satou Focus Lens",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2414725841": {
+      "name": "Satou Precision Lens",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2420895100": {
+      "name": "Extended Mag",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2426323900": {
+      "name": "Energized",
+      "category": "armor-mod-general",
+      "places": [7]
+    },
+    "2467967826": {
+      "name": "Chambered Compensator",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2479815754": {
+      "name": "Brawler Armorer",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "2483028032": {
+      "name": "Chaotic Motion",
+      "category": "weapon-mod",
+      "places": [6]
+    },
+    "2483028033": {
+      "name": "Overflowing Holster",
+      "category": "weapon-mod",
+      "places": [6]
+    },
+    "2483028035": {
+      "name": "Fikrul's Friends",
+      "category": "weapon-mod",
+      "places": [6]
+    },
+    "2532323436": {
+      "name": "Minor Health Mod",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "2557881346": {
+      "name": "Vortex Frame",
+      "category": "weapon-perk-exotic",
+      "places": [2]
+    },
+    "2564164194": {
+      "name": "Compounding Force",
+      "category": "weapon-frame-exotic",
+      "places": [2]
+    },
+    "2570630406": {
+      "name": "Siegebreaker Armorer",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "2571259936": {
+      "name": "Compressed Wave Frame",
+      "category": "weapon-frame",
+      "places": [2]
+    },
+    "2620589274": {
+      "name": "The Fundamentals",
+      "category": "weapon-trait-exotic",
+      "places": [26, 27, 28, 14]
+    },
+    "2628485816": {
+      "name": "Strafe Glide",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "2628485817": {
+      "name": "Burst Glide",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "2628485818": {
+      "name": "Balanced Glide",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "2635532173": {
+      "name": "Accurized Rounds",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "263649945": {
+      "name": "Vortex Frame",
+      "category": "weapon-frame",
+      "places": [2]
+    },
+    "2639422088": {
+      "name": "Minor Melee Mod",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "265542500": {
+      "name": "Chain Bowstring",
+      "category": "weapon-perk-exotic",
+      "places": [2]
+    },
+    "266130437": {
+      "name": "Catapult Lift",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "266130438": {
+      "name": "Strafe Lift",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "266130439": {
+      "name": "High Lift",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "2680121939": {
+      "name": "Enhanced Battery",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "269888150": {
+      "name": "Swordmaster's Guard",
+      "category": "weapon-perk",
+      "places": [9]
+    },
+    "2713678205": {
+      "name": "Low-Impedance Windings",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2719770986": {
+      "name": "Auxiliary Reserves",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2724608735": {
+      "name": "Super Mod",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "2732340361": {
+      "name": "Compact Arrow Shaft",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2732913576": {
+      "name": "Red Dot-OAS",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2732913578": {
+      "name": "Red Dot-ORS",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2732913579": {
+      "name": "Red Dot-ORS1",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2733010662": {
+      "name": "Kinetic Charge Siphon",
+      "category": "armor-mod-general",
+      "places": [13, 7]
+    },
+    "2734970071": {
+      "name": "Kinetic Thermal Siphon",
+      "category": "armor-mod-general",
+      "places": [13, 7]
+    },
+    "2749775325": {
+      "name": "Light Battery",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "275904576": {
+      "name": "Ultimate Glimmer Booster",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "275904577": {
+      "name": "Supercharged Glimmer Booster",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "275904580": {
+      "name": "Standard Glimmer Booster",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "275904581": {
+      "name": "Meager Glimmer Booster",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "275904582": {
+      "name": "Prodigious Glimmer Booster",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "275904583": {
+      "name": "Considerable Glimmer Booster",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "2777563320": {
+      "name": "Liquid Coils",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2778559527": {
+      "name": "Locked Armor Mod",
+      "category": "armor-mod-general",
+      "places": [7]
+    },
+    "2800182654": {
+      "name": "Projection Fuse",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2801223209": {
+      "name": "Elastic String",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2822142346": {
+      "name": "High-Velocity Rounds",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "282266464": {
+      "name": "Temporal Alignment Refit",
+      "category": "weapon-catalyst-exotic",
+      "places": [14]
+    },
+    "2824493179": {
+      "name": "Set Bonus: \nAccretion",
+      "category": "armor-mod-general",
+      "places": [29, 17]
+    },
+    "2860123632": {
+      "name": "Smallbore",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2868519241": {
+      "name": "Paragon Armorer",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "2870095399": {
+      "name": "Thermoplastic Grenades",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "289811733": {
+      "name": "Wave Sword Frame",
+      "category": "weapon-perk-exotic",
+      "places": [2]
+    },
+    "290984395": {
+      "name": "Composite Stock",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2913786532": {
+      "name": "Short-Action Stock",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2931483505": {
+      "name": "Default Ornament",
+      "category": "weapon-perk-exotic",
+      "places": [23, 2]
+    },
+    "2953575380": {
+      "name": "Frictionless Rail",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2969185026": {
+      "name": "Projection Fuse",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "2985827016": {
+      "name": "Alloy Casing",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "299264772": {
+      "name": "Adept Range",
+      "category": "weapon-mod",
+      "places": [30, 6]
+    },
+    "3": {
+      "name": "Global titles",
+      "category": "none",
+      "places": []
+    },
+    "3017854987": {
+      "name": "Grenadier Armorer",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "3020906571": {
+      "name": "Supercooled Accelerator",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3048246338": {
+      "name": "Arrowhead Brake",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3055419104": {
+      "name": "Public Defender",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "3081173348": {
+      "name": "The Fundamentals",
+      "category": "weapon-frame-exotic",
+      "places": [31, 32, 33, 2]
+    },
+    "3081681954": {
+      "name": "Particle Repeater",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "309000506": {
+      "name": "+Grenade / -Melee",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "311164277": {
+      "name": "+Melee / -Super",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "3121760799": {
+      "name": "+Weapons / -Health",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "3122197216": {
+      "name": "Balanced Tuning",
+      "category": "armor-mod-general",
+      "places": [7]
+    },
+    "3128149872": {
+      "name": "Quickload Rail",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3142289711": {
+      "name": "Accurized Rounds",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3142708267": {
+      "name": "Core Harvest",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "3151536500": {
+      "name": "SPO-28 Front",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3151536501": {
+      "name": "SPO-57 Front",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3151536503": {
+      "name": "SPO-26 Front",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3156458303": {
+      "name": "Mini Frags",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3177308360": {
+      "name": "Steady Rounds",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3208647503": {
+      "name": "Adept Impact",
+      "category": "weapon-mod",
+      "places": [34, 6]
+    },
+    "3210123846": {
+      "name": "Tactical Heatsink",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3230963543": {
+      "name": "Flared Magwell",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "323635379": {
+      "name": "+Class / -Weapons",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "3250034553": {
+      "name": "Hammer-Forged Rifling",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3250572790": {
+      "name": "Quick Launch",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3256371876": {
+      "name": "Tactical Battery",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3259193064": {
+      "name": "Reaver Armorer",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "3267421167": {
+      "name": "Accurized Rounds",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3284443097": {
+      "name": "+Weapons / -Grenade",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "3295115440": {
+      "name": "Defensive Grip",
+      "category": "weapon-perk-exotic",
+      "places": [2]
+    },
+    "3310526732": {
+      "name": "+Health / -Class",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "3311977193": {
+      "name": "Helical Fletching",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "332133599": {
+      "name": "Mini Frags",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3326204863": {
+      "name": "Smooth Grip",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "332773068": {
+      "name": "Volatile Launch",
+      "category": "weapon-perk-exotic",
+      "places": [2]
+    },
+    "3340021875": {
+      "name": "Specialist Armorer",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "3350493948": {
+      "name": "Strafe Lift",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "3350493949": {
+      "name": "High Lift",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "3350493951": {
+      "name": "Catapult Lift",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "3355117577": {
+      "name": "Low-Impedance Windings",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3358678417": {
+      "name": "Polymer Grip",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3371775011": {
+      "name": "High Tension String",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3377448506": {
+      "name": "Tenacious Handle",
+      "category": "weapon-perk-exotic",
+      "places": [1, 2]
+    },
+    "3399528164": {
+      "name": "Chambered Compensator",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3420505819": {
+      "name": "Giving Hand",
+      "category": "armor-mod-general",
+      "places": [7]
+    },
+    "3429800428": {
+      "name": "Fiberglass Arrow Shaft",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3432568518": {
+      "name": "Empowering Largesse",
+      "category": "armor-mod-general",
+      "places": [7]
+    },
+    "3433396026": {
+      "name": "Meyrin RDS",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3433396027": {
+      "name": "Meyrin RDL",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3438534621": {
+      "name": "Combat Grip",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3457794063": {
+      "name": "Skirmisher Armorer",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "3458160468": {
+      "name": "Void/Stasis Dual Siphon",
+      "category": "armor-mod-general",
+      "places": [13, 7]
+    },
+    "3465198467": {
+      "name": "Composite Stock",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3471392239": {
+      "name": "Confined Launch",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3492396210": {
+      "name": "Implosion Rounds",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3492498209": {
+      "name": "Shortened Barrel",
+      "category": "weapon-perk-exotic",
+      "places": [2]
+    },
+    "350061697": {
+      "name": "Minor Super Mod",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "3514694513": {
+      "name": "Balanced Tang",
+      "category": "weapon-perk-exotic",
+      "places": [2]
+    },
+    "3514869240": {
+      "name": "Locked Armor Mod",
+      "category": "armor-mod-general",
+      "places": [7]
+    },
+    "3514869241": {
+      "name": "Locked Armor Mod",
+      "category": "armor-mod-general",
+      "places": [7]
+    },
+    "3514869243": {
+      "name": "Locked Armor Mod",
+      "category": "armor-mod-general",
+      "places": [7]
+    },
+    "3520505384": {
+      "name": "Combo Detector",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "3520505385": {
+      "name": "Wombo Detector",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "3525010810": {
+      "name": "Quick Launch",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3531427692": {
+      "name": "Triple Jump",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "3531427694": {
+      "name": "High Jump",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "3531427695": {
+      "name": "Strafe Jump",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "3553394349": {
+      "name": "Rampager's Handle",
+      "category": "weapon-perk-exotic",
+      "places": [1, 2]
+    },
+    "3554800389": {
+      "name": "+Super / -Class",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "3564974257": {
+      "name": "Full Auto Retrofit",
+      "category": "weapon-mod",
+      "places": [6]
+    },
+    "3565742161": {
+      "name": "Locked Armor Mod",
+      "category": "armor-mod-general",
+      "places": [7]
+    },
+    "3565742162": {
+      "name": "Locked Armor Mod",
+      "category": "armor-mod-general",
+      "places": [7]
+    },
+    "3565742163": {
+      "name": "Locked Armor Mod",
+      "category": "armor-mod-general",
+      "places": [7]
+    },
+    "3572001649": {
+      "name": "High-Impact Longbow",
+      "category": "weapon-frame",
+      "places": [2]
+    },
+    "3605260959": {
+      "name": "Black Powder",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "360593481": {
+      "name": "SRO-52 Ocular",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "360593482": {
+      "name": "SRO-41 Ocular",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "360593483": {
+      "name": "SRO-37 Ocular",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3619040072": {
+      "name": "Impact, Shock, Gravity",
+      "category": "armor-mod-seasonal",
+      "places": [35]
+    },
+    "3619040074": {
+      "name": "Expert Handling",
+      "category": "armor-mod-seasonal",
+      "places": [35]
+    },
+    "3619040075": {
+      "name": "Gravitic-Voltaic Charge",
+      "category": "armor-mod-seasonal",
+      "places": [35]
+    },
+    "3619040077": {
+      "name": "Fastest Draw",
+      "category": "armor-mod-seasonal",
+      "places": [35]
+    },
+    "3619040078": {
+      "name": "Vanguard Surplus Discounts",
+      "category": "armor-mod-seasonal",
+      "places": [35]
+    },
+    "3619040079": {
+      "name": "Concentrated Forward Firepower",
+      "category": "armor-mod-seasonal",
+      "places": [35]
+    },
+    "3625355092": {
+      "name": "Burst Guard",
+      "category": "weapon-perk",
+      "places": [9]
+    },
+    "3629421851": {
+      "name": "Ionized Battery",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3641619157": {
+      "name": "Locked Armor Mod",
+      "category": "armor-mod-general",
+      "places": [7]
+    },
+    "3648644469": {
+      "name": "Augmented Drum",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3653484343": {
+      "name": "Heavy Guard",
+      "category": "weapon-perk",
+      "places": [9]
+    },
+    "3661387068": {
+      "name": "Chambered Compensator",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3666208348": {
+      "name": "Jagged Edge",
+      "category": "weapon-perk",
+      "places": [9]
+    },
+    "3681082702": {
+      "name": "+Health / -Grenade",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "3686638441": {
+      "name": "Balanced Glide",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "3686638442": {
+      "name": "Burst Glide",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "3686638443": {
+      "name": "Strafe Glide",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "3721022585": {
+      "name": "Triple Jump",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "3721022586": {
+      "name": "Strafe Jump",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "3721022587": {
+      "name": "High Jump",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "372672208": {
+      "name": "Enduring Snare Refit",
+      "category": "weapon-catalyst-exotic",
+      "places": [36, 14]
+    },
+    "372672209": {
+      "name": "Multi-Threaded Snare Refit",
+      "category": "weapon-catalyst-exotic",
+      "places": [36, 14]
+    },
+    "3732622839": {
+      "name": "Burst Guard",
+      "category": "weapon-perk",
+      "places": [9]
+    },
+    "373417387": {
+      "name": "Volatile Launch",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3768438372": {
+      "name": "Agile Bowstring",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3781548872": {
+      "name": "High-Explosive Ordnance",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3786062476": {
+      "name": "Frictionless Rail",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3789184904": {
+      "name": "Adept Icarus Grip",
+      "category": "weapon-mod",
+      "places": [37, 6]
+    },
+    "3794918801": {
+      "name": "Fencing Tang",
+      "category": "weapon-perk-exotic",
+      "places": [2]
+    },
+    "3798852852": {
+      "name": "Smart Drift Control",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3807404750": {
+      "name": "Implosion Rounds",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3809316345": {
+      "name": "Countermass",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3819272442": {
+      "name": "Natural Fletching",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3827198035": {
+      "name": "Straight Fletching",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3837163218": {
+      "name": "Polymer String",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3839493627": {
+      "name": "Enhanced Battery",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3845057226": {
+      "name": "Hand-Laid Stock",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3865920554": {
+      "name": "SUBROUTINE: ~RECURSION",
+      "category": "weapon-catalyst-exotic",
+      "places": [1, 14]
+    },
+    "3868766766": {
+      "name": "Particle Repeater",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3885243590": {
+      "name": "Enduring Blade",
+      "category": "weapon-perk",
+      "places": [9]
+    },
+    "388618952": {
+      "name": "+Health / -Melee",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "3899519180": {
+      "name": "Locked Armor Mod",
+      "category": "armor-mod-general",
+      "places": [7]
+    },
+    "3899519181": {
+      "name": "Locked Armor Mod",
+      "category": "armor-mod-general",
+      "places": [7]
+    },
+    "3899519183": {
+      "name": "Locked Armor Mod",
+      "category": "armor-mod-general",
+      "places": [7]
+    },
+    "3917450714": {
+      "name": "Textured Grip",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3923000764": {
+      "name": "Burst Guard",
+      "category": "weapon-perk",
+      "places": [9]
+    },
+    "3946669007": {
+      "name": "+Super / -Grenade",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "3956406253": {
+      "name": "Elastic String",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3959569796": {
+      "name": "Jagged Edge",
+      "category": "weapon-perk",
+      "places": [9]
+    },
+    "3966296580": {
+      "name": "Polygonal Rifling",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "3999527219": {
+      "name": "Remote Detonation",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "4003264426": {
+      "name": "Adept Stability",
+      "category": "weapon-mod",
+      "places": [38, 6]
+    },
+    "4020349587": {
+      "name": "+Melee / -Weapons",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "4021790309": {
+      "name": "Minor Grenade Mod",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "4026309323": {
+      "name": "Deflection Tang",
+      "category": "weapon-perk-exotic",
+      "places": [2]
+    },
+    "4026414261": {
+      "name": "+Super / -Health",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "4030660414": {
+      "name": "+Class / -Health",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "4039411798": {
+      "name": "Textured Grip",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "4067834857": {
+      "name": "Flexible String",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "407573255": {
+      "name": "Rapid Fire Slug",
+      "category": "weapon-frame",
+      "places": [2]
+    },
+    "4088731040": {
+      "name": "Quickload Rail",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "4088823605": {
+      "name": "+Health / -Super",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "4090651448": {
+      "name": "Corkscrew Rifling",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "409831596": {
+      "name": "Proximity Grenades",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "4116389173": {
+      "name": "+Grenade / -Weapons",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "4152458172": {
+      "name": "Häkke Light Burst Fire",
+      "category": "weapon-trait-origin-exotic",
+      "places": [23, 14]
+    },
+    "4154539168": {
+      "name": "Burst Glide",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "4154539169": {
+      "name": "Strafe Glide",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "4154539171": {
+      "name": "Balanced Glide",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "4164883102": {
+      "name": "+Melee / -Health",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "4183296050": {
+      "name": "Weapons Mod",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "4185607275": {
+      "name": "High Tension String",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "4196967425": {
+      "name": "Empowered Rail",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "4201007276": {
+      "name": "Agile Bowstring",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "4204488676": {
+      "name": "Class Mod",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "4210715468": {
+      "name": "+Melee / -Class",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "4217417017": {
+      "name": "Anti-Barrier Hand Cannon",
+      "category": "armor-mod-seasonal",
+      "places": [35]
+    },
+    "4217417018": {
+      "name": "Anti-Barrier Sniper Rifle",
+      "category": "armor-mod-seasonal",
+      "places": [35]
+    },
+    "4217417019": {
+      "name": "Overload Pulse Rifle",
+      "category": "armor-mod-seasonal",
+      "places": [35]
+    },
+    "4217417020": {
+      "name": "Overload Submachine Gun",
+      "category": "armor-mod-seasonal",
+      "places": [35]
+    },
+    "4217417021": {
+      "name": "Unstoppable Bow",
+      "category": "armor-mod-seasonal",
+      "places": [35]
+    },
+    "4217417022": {
+      "name": "Stunning Fusion",
+      "category": "armor-mod-seasonal",
+      "places": [35]
+    },
+    "4217417023": {
+      "name": "Shield-Shattering Rounds",
+      "category": "armor-mod-seasonal",
+      "places": [35]
+    },
+    "4259401308": {
+      "name": "Fitted Stock",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "4260919524": {
+      "name": "Mark 15 Lens",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "4260919525": {
+      "name": "Mark 10 Glass",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "4267445637": {
+      "name": "Enduring Guard",
+      "category": "weapon-perk",
+      "places": [9]
+    },
+    "4273542183": {
+      "name": "Light Heatsink",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "4278960718": {
+      "name": "Adept Handling",
+      "category": "weapon-mod",
+      "places": [39, 6]
+    },
+    "4287799666": {
+      "name": "Melee Mod",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "430173891": {
+      "name": "Wave Sword Frame",
+      "category": "weapon-frame",
+      "places": [2]
+    },
+    "436053704": {
+      "name": "Hungry Edge",
+      "category": "weapon-perk",
+      "places": [9]
+    },
+    "439168247": {
+      "name": "Striking Hand",
+      "category": "armor-mod-general",
+      "places": [7]
+    },
+    "445755704": {
+      "name": "Tactic SAS",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "445755705": {
+      "name": "Shortspec SAS",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "445755706": {
+      "name": "Control SAS",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "445755707": {
+      "name": "QuickDot SAS",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "445755710": {
+      "name": "FarPoint SAS",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "445755711": {
+      "name": "Target SAS",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "455024236": {
+      "name": "+Grenade / -Health",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "469281040": {
+      "name": "High Lift",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "469281041": {
+      "name": "Strafe Lift",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "469281042": {
+      "name": "Catapult Lift",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "519046634": {
+      "name": "Caster Frame",
+      "category": "weapon-perk-exotic",
+      "places": [2]
+    },
+    "52780822": {
+      "name": "Balanced Guard",
+      "category": "weapon-perk",
+      "places": [9]
+    },
+    "52802868": {
+      "name": "Fiberglass Arrow Shaft",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "5333292": {
+      "name": "Strafe Glide",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "5333293": {
+      "name": "Burst Glide",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "5333294": {
+      "name": "Balanced Glide",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "5333295": {
+      "name": "Blink",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "534630542": {
+      "name": "+Melee / -Grenade",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "554078784": {
+      "name": "Zoom 30 Focus",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "554078785": {
+      "name": "Zoom 10 Point",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "564443854": {
+      "name": "Hard Launch",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "5699512": {
+      "name": "Tempered Truss Rod",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "580685494": {
+      "name": "Auxiliary Reserves",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "582768348": {
+      "name": "Smart Drift Control",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "594346985": {
+      "name": "Lightweight Emitter",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "599007201": {
+      "name": "Enduring Guard",
+      "category": "weapon-perk",
+      "places": [9]
+    },
+    "634781242": {
+      "name": "Adept Reload",
+      "category": "weapon-mod",
+      "places": [40, 6]
+    },
+    "663495154": {
+      "name": "Model 8 Red",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "663495155": {
+      "name": "Model 6 Loop",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "673231129": {
+      "name": "+Super / -Melee",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "679077872": {
+      "name": "Rifle Scope SSF",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "679077873": {
+      "name": "Rifle Scope ST",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "679225683": {
+      "name": "Light Mag",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "691392383": {
+      "name": "+Weapons / -Melee",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "697983358": {
+      "name": "Offensive Grip",
+      "category": "weapon-perk-exotic",
+      "places": [2]
+    },
+    "732557052": {
+      "name": "Tactical Battery",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "744770875": {
+      "name": "Adept Charge Time",
+      "category": "weapon-mod",
+      "places": [41, 6]
+    },
+    "766579919": {
+      "name": "Tempered Edge",
+      "category": "weapon-perk",
+      "places": [9]
+    },
+    "767484756": {
+      "name": "9RECT Telescopic",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "767484757": {
+      "name": "50VAL Telescopic",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "769709866": {
+      "name": "Tactical Heatsink",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "791862061": {
+      "name": "Assault Mag",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "807993149": {
+      "name": "Ionized Heatsink",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "809345546": {
+      "name": "Devil Scope D2",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "809345547": {
+      "name": "Dusk Scope D2",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "839105230": {
+      "name": "Arrowhead Brake",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "843081753": {
+      "name": "Shielding Hand",
+      "category": "armor-mod-general",
+      "places": [7]
+    },
+    "852209214": {
+      "name": "Polymer String",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "862848869": {
+      "name": "Polymer Grip",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "87986588": {
+      "name": "GB Iron",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "87986589": {
+      "name": "GA Post",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "890263312": {
+      "name": "Burst Glide",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "890263313": {
+      "name": "Strafe Glide",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "890263315": {
+      "name": "Balanced Glide",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "891771298": {
+      "name": "+Weapons / -Super",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "893526892": {
+      "name": "ATA Scout",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "893526893": {
+      "name": "ATC Rex",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "893526894": {
+      "name": "ATB Long Range",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "893526895": {
+      "name": "ATD Raptor",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "910975608": {
+      "name": "Embraced Largesse",
+      "category": "armor-mod-general",
+      "places": [7]
+    },
+    "911046884": {
+      "name": "Condor SS2",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "911046885": {
+      "name": "Yepaki SS2",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "911046886": {
+      "name": "Aquila SS4",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "911046887": {
+      "name": "Corvo SS2",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "91797877": {
+      "name": "Version: Prime",
+      "category": "weapon-perk-exotic",
+      "places": [23, 2]
+    },
+    "91797878": {
+      "name": "Version: One",
+      "category": "weapon-perk-exotic",
+      "places": [23, 2]
+    },
+    "91797879": {
+      "name": "Version: Alpha",
+      "category": "weapon-perk-exotic",
+      "places": [23, 2]
+    },
+    "918679156": {
+      "name": "Pinpoint Slug Frame",
+      "category": "weapon-frame",
+      "places": [2]
+    },
+    "935202422": {
+      "name": "Horizon Ironsights",
+      "category": "weapon-trait-exotic",
+      "places": [14]
+    },
+    "938542991": {
+      "name": "Tempered Edge",
+      "category": "weapon-perk",
+      "places": [9]
+    },
+    "952444125": {
+      "name": "Radiant Largesse",
+      "category": "armor-mod-general",
+      "places": [7]
+    },
+    "954094982": {
+      "name": "Powerhouse Armorer",
+      "category": "ghost-mod",
+      "places": []
+    },
+    "95544328": {
+      "name": "Triple Jump",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "95544329": {
+      "name": "Blink",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "95544330": {
+      "name": "High Jump",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "95544331": {
+      "name": "Strafe Jump",
+      "category": "subclass-movement",
+      "places": [3, 4]
+    },
+    "957763733": {
+      "name": "+Class / -Super",
+      "category": "armor-mod-general",
+      "places": [7, 8]
+    },
+    "965619220": {
+      "name": "SLO-21 Post",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "965619221": {
+      "name": "SLO-12 Post",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "965619223": {
+      "name": "SLO-10 Post",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "981914802": {
+      "name": "Hard Launch",
+      "category": "weapon-perk",
+      "places": [0]
+    },
+    "990298390": {
+      "name": "Hand-Laid Stock",
+      "category": "weapon-perk",
+      "places": [0]
+    }
+  }
+}

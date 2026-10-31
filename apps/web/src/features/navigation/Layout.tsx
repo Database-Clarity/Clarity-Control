@@ -5,6 +5,7 @@ import { useDraftStore } from '../../stores/drafts';
 import { useAuthStore } from '../../stores/auth';
 import { AuthStatus } from '../auth/AuthStatus';
 import { TooltipNavigation } from './TooltipNavigation';
+import { CompendiumBadge } from '../compendium/CompendiumBadge';
 import styles from './Layout.module.scss';
 
 const links = [
@@ -74,6 +75,7 @@ export function Layout() {
           </select>
         </label>
         <AuthStatus />
+        <CompendiumBadge />
         <p className={styles.status}>
           {data && `Data revision ${data.bundle.sourceCommit.slice(0, 8)}`}
         </p>

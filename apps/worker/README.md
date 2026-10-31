@@ -21,7 +21,8 @@ never from a request or token. Permissions are read on every request and retry
 | `GET /me`                                 | Bearer token                                                             | `{ id: number, login, role: string \| null, languages: string[] }`     |
 | `POST /save`                              | `{ changes: [{ hash, base: Tooltip \| null, next: Tooltip }], message }` | `{ commit, tooltips: Tooltip[] }`                                      |
 | `POST /push-live`                         | `{ hashes: number[] }`                                                   | `{ commit, liveCommit, pushed: { [hash]: publishableHash }, branch }`  |
-| `GET /compendium/:tab`                    | URL-encoded sheet name                                                   | `{ rows: string[][] }`                                                 |
+| `POST /compendium/refresh`                | Editor/maintainer token                                                  | 202 `{ requestedAt, runId }`                                           |
+| `GET /compendium/refresh/status`          | Editor/maintainer token                                                  | `{ run: { id, status, conclusion, created_at, html_url } \| null }`    |
 | `GET /permissions`                        | Maintainer token                                                         | `{ users: { [githubId]: { login, role, languages? } } }`               |
 | `PUT /permissions`                        | Same permissions object; maintainer only                                 | `{ commit, permissions }`                                              |
 | `GET /history/:hash?page=1`               | Authorized member token                                                  | `{ page, commits: [{ commit, author, date, message }] }`, 30 per page  |
@@ -109,14 +110,19 @@ saves are supported. Do not equate any failed push with â€œnothing was written.â
 `pushed.json` has no branch namespace: use a scratch data branch/repo when testing
 publishing, and rerun migration/refresh markers when cutting over to production.
 
-Compendium uses the gviz CSV URL, not authenticated Google export URLs. The parser
-handles BOMs, escaped quotes, CRLF and quoted multiline fields. Only successful
-JSON row responses enter Cloudflare's Cache API, with `max-age=900`; CORS headers
-are added after retrieval so one origin's headers cannot contaminate another.
-Cache keys use the Worker hostname and each sheet name. Cache contents are local
-to a Cloudflare data center, not globally replicated; dashboard/Playground
-previews do not exercise production caching. Production Cache API behavior needs
-an owner smoke check after deployment.
+Compendium parsing runs in a daily/manual Action in the separate public
+`Database-Clarity/Compendium-data` repository, not in the CPU-limited Worker.
+The web app reads its `main/compendium.json` directly. Refresh/status require
+current editor/maintainer access in the authored database; trial users and
+translators cannot dispatch. An active refresh is reused instead of queued again.
+`COMPENDIUM_OWNER` defaults to `GITHUB_OWNER`, `COMPENDIUM_REPO` to
+`Compendium-data`, `COMPENDIUM_REF` to `main`, and `COMPENDIUM_WORKFLOW` to
+`compendium.yml`. The same organization installation must cover both repositories,
+with Actions read/write granted. Data writes still request Contents-only tokens;
+refresh uses a separate token restricted to the Compendium repository and
+Actions read/write (read-only for status). No bearer token reaches the client.
+Content-identical runs do not advance `fetchedAt`; the UI also polls run
+completion and can report an unchanged successful refresh.
 
 ## Development and verification
 

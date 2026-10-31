@@ -1,0 +1,4076 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`real htmlview golden fixtures > normalises arc cell text and styles against a saved golden 1`] = `
+{
+  "gid": "618967225",
+  "grid": [
+    {
+      "cell": {
+        "plain": "Go back to the top!",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "href": "https://docs.google.com/#rangeid=984939131",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Go back to the top!",
+            "underline": true,
+          },
+        ],
+      },
+      "col": 0,
+      "colSpan": 3,
+      "row": 1,
+    },
+    {
+      "cell": {
+        "plain": "Arc Subclasses",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Arc Subclasses",
+          },
+        ],
+      },
+      "col": 3,
+      "colSpan": 10,
+      "row": 1,
+    },
+    {
+      "cell": {
+        "plain": "Support the Data Compendium",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#9fc5e8",
+            "href": "https://www.patreon.com/DataCompendium",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Support the Data Compendium",
+            "underline": true,
+          },
+        ],
+      },
+      "col": 13,
+      "colSpan": 2,
+      "row": 1,
+    },
+    {
+      "cell": {
+        "plain": "Hunter",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "href": "https://docs.google.com/#rangeid=2063680218",
+            "sizePt": 14,
+            "text": "Hunter",
+            "underline": true,
+          },
+        ],
+      },
+      "col": 1,
+      "colSpan": 3,
+      "row": 3,
+    },
+    {
+      "cell": {
+        "plain": "Titan",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "href": "https://docs.google.com/#rangeid=546414595",
+            "sizePt": 14,
+            "text": "Titan",
+            "underline": true,
+          },
+        ],
+      },
+      "col": 6,
+      "colSpan": 3,
+      "row": 3,
+    },
+    {
+      "cell": {
+        "plain": "Warlock",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "href": "https://docs.google.com/#rangeid=1678010845",
+            "sizePt": 14,
+            "text": "Warlock",
+            "underline": true,
+          },
+        ],
+      },
+      "col": 11,
+      "colSpan": 3,
+      "row": 3,
+    },
+    {
+      "cell": {
+        "plain": "Glossary",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#d9d9d9",
+            "text": "Glossary",
+          },
+        ],
+      },
+      "col": 1,
+      "colSpan": 13,
+      "row": 5,
+    },
+    {
+      "cell": {
+        "plain": "Amplified",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "text": "Amplified",
+          },
+        ],
+      },
+      "col": 1,
+      "row": 6,
+    },
+    {
+      "cell": {
+        "plain": "Intrinsic Arc Subclass Buff
+Obtained by reaching 100% Counter Progress through Arc Kills within 6 seconds of each, or through Aspects.
+Rank-And-File = 25% | Elite = 50% | Miniboss+ = 100% | Guardians = 50%
+
+Amplified:
++50 Mobility, increases Slide Distance to 8.5 meters, +40 Handling, and 0.95x Handling Duration Multiplier for 15 seconds. 
+Combatants are less accurate at targeting the wearer and grants 15% Damage Resist against Combatants while active.
+While Amplified, sprinting for 2.5 seconds grants Speed Booster.
+
+Speed Booster:
+Maximizes Movement Speed, increased Slide Distance to 11 meters, 25% Increased Jump Height, and 15% Damage Resist against Combatants.
+Speed Booster lingers for 2 seconds until no longer sprinting, even after Amplified runs out.
+Performing a Speed Booster Slide permanently increases base Slide Distance from 6.5 meters to 8.5 meters until death.",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Intrinsic Arc Subclass Buff
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "Obtained by reaching 100% Counter Progress through ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Arc Kills",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " within 6 seconds of each, or through ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Aspects",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ".
+",
+          },
+          {
+            "bold": true,
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "text": "Rank-And-File ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "=",
+          },
+          {
+            "bold": true,
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "25%",
+          },
+          {
+            "bold": true,
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "text": " | Elite ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "=",
+          },
+          {
+            "bold": true,
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "50%",
+          },
+          {
+            "bold": true,
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "text": " | Miniboss+ ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "=",
+          },
+          {
+            "bold": true,
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "100%",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " | ",
+          },
+          {
+            "bold": true,
+            "color": "#ea9999",
+            "sizePt": 9,
+            "text": "Guardians ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "=",
+          },
+          {
+            "bold": true,
+            "color": "#ea9999",
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "50%",
+          },
+          {
+            "bold": true,
+            "color": "#ea9999",
+            "sizePt": 9,
+            "text": "
+
+",
+          },
+          {
+            "bold": true,
+            "color": "#79bec3",
+            "sizePt": 9,
+            "text": "Amplified:",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "
++50 Mobility, increases Slide Distance to 8.5 meters, +40 Handling, and 0.95x Handling Duration Multiplier for 15 seconds. 
+",
+          },
+          {
+            "bold": true,
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "text": "Combatants are less accurate at targeting the wearer and grants 15% Damage Resist against Combatants while active.
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "While ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Amplified",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ", sprinting for 2.5 seconds grants ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Speed Booster",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ".
+
+",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Speed Booster:
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "Maximizes Movement Speed, increased Slide Distance to 11 meters, 25% Increased Jump Height, and",
+          },
+          {
+            "bold": true,
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "text": " 15% Damage Resist against Combatants",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ".
+",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Speed Booster",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " lingers for 2 seconds until no longer sprinting, even after ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Amplified ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "runs out.
+",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Performing a Speed Booster Slide permanently increases base Slide Distance from 6.5 meters to 8.5 meters until death.",
+          },
+        ],
+      },
+      "col": 3,
+      "colSpan": 11,
+      "row": 6,
+    },
+    {
+      "cell": {
+        "plain": "Bolt Charge",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "text": "Bolt Charge",
+          },
+        ],
+      },
+      "col": 1,
+      "row": 7,
+    },
+    {
+      "cell": {
+        "plain": "Upon scoring a Magazine-Based amount of Weapon Damage Instances within 5 seconds of each while Bolt Charge is active:
+The next damage instance from any source will grant a stack of Bolt Charge.
+Swapping weapons resets the counter. Can only gain up to 1 stack per simultaneous damage instance.
+
+Damage instances needed to gain a stack:
+(15% of Magazine, rounded down) + 1
+Swords and GLs: 2
+3-Ammo Snipers: 1
+
+Gaining a Bolt Charge stack grants 2.5% Melee Ability Energy per Bolt Charge stack obtained, generally granting 25% Melee Ability Energy over the 10 stacks needed to discharge.
+Acquiring over x10 stacks through abilities will still grant the corresponding Ability Gains (For example, being at x9 and acquiring x4 will still grant 10% Melee Energy)
+
+After 0.5 seconds of scoring an Ability Hit or dealing Unpowered Melee Damage while at x10 Bolt Charge stacks:
+Discharges an Arc Bolt over the damaged enemy, dealing up to 405 Bolt Splash + 270 Ground Splash = 675 Total [36 Bolt Splash + 30 Ground Splash] Arc Damage over ? meters.
+Does not count as Ability Damage, only as Generic Arc Damage.
+
+Triggers Discharge:
+Volatile Explosions | Freeze Shatter (Not auto-shatter on Bosses) | Tangle Explosions | Threadlings | Unraveling Threads | Suspend Snap on Bosses | Forerunner's The Rock
+
+Do NOT trigger Discharge:
+ Jolt's Chain Lightning | Scorch and Ignitions (from Non-Abilities) | Crystal Shatter (from Non-Abilities) | Gifted Conviction's Explosives",
+        "runs": [
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Upon scoring a ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Magazine-Based amount",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " of ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Weapon Damage Instances",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " within ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "5 seconds",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " of ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "each ",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "while ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Bolt Charge",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " is ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "active",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ":
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "The next damage instance from any source will grant a ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "stack ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "of ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Bolt Charge",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ".
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Swapping weapons resets the counter. ",
+          },
+          {
+            "color": "#e06666",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Can only gain up to 1 stack per simultaneous damage instance",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ".
+
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "Damage instances needed to gain a ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "stack",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ":
+",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "(15% of Magazine, rounded down) + 1
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "Swords and GLs: ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "2
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "3-Ammo Snipers: ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "1
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 7,
+            "text": "
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "Gaining a Bolt Charge stack grants ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "2.5% Melee Ability Energy",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " per ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Bolt Charge",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "stack ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "obtained, generally granting ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "25% Melee Ability Energy",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " over the ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "10 stacks",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " needed to ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "discharge",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ".
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Acquiring over ",
+          },
+          {
+            "color": "#89cdd1",
+            "italic": true,
+            "sizePt": 9,
+            "text": "x10 stacks",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " through abilities will still grant the corresponding",
+          },
+          {
+            "color": "#89cdd1",
+            "italic": true,
+            "sizePt": 9,
+            "text": " Ability Gains",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 7,
+            "text": "(For example, being at ",
+          },
+          {
+            "color": "#89cdd1",
+            "italic": true,
+            "sizePt": 7,
+            "text": "x9",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 7,
+            "text": " and acquiring ",
+          },
+          {
+            "color": "#89cdd1",
+            "italic": true,
+            "sizePt": 7,
+            "text": "x4 ",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 7,
+            "text": "will still grant ",
+          },
+          {
+            "color": "#89cdd1",
+            "italic": true,
+            "sizePt": 7,
+            "text": "10% Melee Energy",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 7,
+            "text": ")
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "After ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "0.5 seconds",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " of scoring an ",
+          },
+          {
+            "bold": true,
+            "color": "#d5a6bd",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Ability Hit ",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "or dealing ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Unpowered Melee Damage",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " while at ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "italic": true,
+            "sizePt": 9,
+            "text": "x10 Bolt Charge stacks",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ":
+",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Discharges ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "an ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Arc Bolt",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " over the damaged enemy, dealing up to ",
+          },
+          {
+            "bold": true,
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "text": "405 Bolt Splash + 270 Ground Splash = 675 Total ",
+          },
+          {
+            "bold": true,
+            "color": "#ea9999",
+            "sizePt": 9,
+            "text": "[36 Bolt Splash + 30 Ground Splash]",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Arc Damage",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " over ? meters.
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Does not count as ",
+          },
+          {
+            "color": "#89cdd1",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Ability Damage",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", only as ",
+          },
+          {
+            "color": "#89cdd1",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Generic Arc Damage",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ".
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "
+",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Triggers Discharge",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ":
+",
+          },
+          {
+            "bold": true,
+            "color": "#d5a6bd",
+            "sizePt": 9,
+            "text": "Volatile Explosions ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "| ",
+          },
+          {
+            "bold": true,
+            "color": "#3c78d8",
+            "sizePt": 9,
+            "text": "Freeze Shatter",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 7,
+            "text": "(Not ",
+          },
+          {
+            "color": "#3d85c6",
+            "italic": true,
+            "sizePt": 7,
+            "text": "auto-shatter",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 7,
+            "text": " on Bosses)",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " | ",
+          },
+          {
+            "bold": true,
+            "color": "#63d275",
+            "sizePt": 9,
+            "text": "Tangle Explosions",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " | ",
+          },
+          {
+            "bold": true,
+            "color": "#b6d7a8",
+            "sizePt": 9,
+            "text": "Threadlings",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " | ",
+          },
+          {
+            "bold": true,
+            "color": "#6aa84f",
+            "sizePt": 9,
+            "text": "Unraveling Threads",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " | ",
+          },
+          {
+            "bold": true,
+            "color": "#6aa84f",
+            "sizePt": 9,
+            "text": "Suspend Snap",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " on ",
+          },
+          {
+            "bold": true,
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "text": "Bosses ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "|",
+          },
+          {
+            "bold": true,
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "bold": true,
+            "color": "#ffd966",
+            "sizePt": 9,
+            "text": "Forerunner's The Rock",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "
+
+",
+          },
+          {
+            "bold": true,
+            "color": "#e06666",
+            "sizePt": 9,
+            "text": "Do NOT trigger Discharge",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ":
+ ",
+          },
+          {
+            "bold": true,
+            "color": "#76a5af",
+            "sizePt": 9,
+            "text": "Jolt's Chain Lightning ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "| ",
+          },
+          {
+            "bold": true,
+            "color": "#f6b26b",
+            "sizePt": 9,
+            "text": "Scorch ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "and ",
+          },
+          {
+            "bold": true,
+            "color": "#ff9900",
+            "sizePt": 9,
+            "text": "Ignitions ",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 6,
+            "text": "(from Non-Abilities)",
+          },
+          {
+            "bold": true,
+            "color": "#ff9900",
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "| ",
+          },
+          {
+            "bold": true,
+            "color": "#6fa8dc",
+            "sizePt": 9,
+            "text": "Crystal Shatter",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 6,
+            "text": "(from Non-Abilities)",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " | ",
+          },
+          {
+            "bold": true,
+            "color": "#ffd966",
+            "sizePt": 9,
+            "text": "Gifted Conviction's Explosives",
+          },
+        ],
+      },
+      "col": 3,
+      "colSpan": 11,
+      "row": 7,
+    },
+  ],
+  "name": "Arc",
+  "rows": [
+    {
+      "anchor": {
+        "col": 1,
+        "row": 6,
+      },
+      "cell": {
+        "plain": "Intrinsic Arc Subclass Buff
+Obtained by reaching 100% Counter Progress through Arc Kills within 6 seconds of each, or through Aspects.
+Rank-And-File = 25% | Elite = 50% | Miniboss+ = 100% | Guardians = 50%
+
+Amplified:
++50 Mobility, increases Slide Distance to 8.5 meters, +40 Handling, and 0.95x Handling Duration Multiplier for 15 seconds. 
+Combatants are less accurate at targeting the wearer and grants 15% Damage Resist against Combatants while active.
+While Amplified, sprinting for 2.5 seconds grants Speed Booster.
+
+Speed Booster:
+Maximizes Movement Speed, increased Slide Distance to 11 meters, 25% Increased Jump Height, and 15% Damage Resist against Combatants.
+Speed Booster lingers for 2 seconds until no longer sprinting, even after Amplified runs out.
+Performing a Speed Booster Slide permanently increases base Slide Distance from 6.5 meters to 8.5 meters until death.",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Intrinsic Arc Subclass Buff
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "Obtained by reaching 100% Counter Progress through ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Arc Kills",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " within 6 seconds of each, or through ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Aspects",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ".
+",
+          },
+          {
+            "bold": true,
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "text": "Rank-And-File ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "=",
+          },
+          {
+            "bold": true,
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "25%",
+          },
+          {
+            "bold": true,
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "text": " | Elite ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "=",
+          },
+          {
+            "bold": true,
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "50%",
+          },
+          {
+            "bold": true,
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "text": " | Miniboss+ ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "=",
+          },
+          {
+            "bold": true,
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "100%",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " | ",
+          },
+          {
+            "bold": true,
+            "color": "#ea9999",
+            "sizePt": 9,
+            "text": "Guardians ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "=",
+          },
+          {
+            "bold": true,
+            "color": "#ea9999",
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "50%",
+          },
+          {
+            "bold": true,
+            "color": "#ea9999",
+            "sizePt": 9,
+            "text": "
+
+",
+          },
+          {
+            "bold": true,
+            "color": "#79bec3",
+            "sizePt": 9,
+            "text": "Amplified:",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "
++50 Mobility, increases Slide Distance to 8.5 meters, +40 Handling, and 0.95x Handling Duration Multiplier for 15 seconds. 
+",
+          },
+          {
+            "bold": true,
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "text": "Combatants are less accurate at targeting the wearer and grants 15% Damage Resist against Combatants while active.
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "While ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Amplified",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ", sprinting for 2.5 seconds grants ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Speed Booster",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ".
+
+",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Speed Booster:
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "Maximizes Movement Speed, increased Slide Distance to 11 meters, 25% Increased Jump Height, and",
+          },
+          {
+            "bold": true,
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "text": " 15% Damage Resist against Combatants",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ".
+",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Speed Booster",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " lingers for 2 seconds until no longer sprinting, even after ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Amplified ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "runs out.
+",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Performing a Speed Booster Slide permanently increases base Slide Distance from 6.5 meters to 8.5 meters until death.",
+          },
+        ],
+      },
+      "name": "Amplified",
+      "nameNorm": "amplified",
+      "rowIndex": 6,
+      "section": "Glossary",
+    },
+    {
+      "anchor": {
+        "col": 1,
+        "row": 7,
+      },
+      "cell": {
+        "plain": "Upon scoring a Magazine-Based amount of Weapon Damage Instances within 5 seconds of each while Bolt Charge is active:
+The next damage instance from any source will grant a stack of Bolt Charge.
+Swapping weapons resets the counter. Can only gain up to 1 stack per simultaneous damage instance.
+
+Damage instances needed to gain a stack:
+(15% of Magazine, rounded down) + 1
+Swords and GLs: 2
+3-Ammo Snipers: 1
+
+Gaining a Bolt Charge stack grants 2.5% Melee Ability Energy per Bolt Charge stack obtained, generally granting 25% Melee Ability Energy over the 10 stacks needed to discharge.
+Acquiring over x10 stacks through abilities will still grant the corresponding Ability Gains (For example, being at x9 and acquiring x4 will still grant 10% Melee Energy)
+
+After 0.5 seconds of scoring an Ability Hit or dealing Unpowered Melee Damage while at x10 Bolt Charge stacks:
+Discharges an Arc Bolt over the damaged enemy, dealing up to 405 Bolt Splash + 270 Ground Splash = 675 Total [36 Bolt Splash + 30 Ground Splash] Arc Damage over ? meters.
+Does not count as Ability Damage, only as Generic Arc Damage.
+
+Triggers Discharge:
+Volatile Explosions | Freeze Shatter (Not auto-shatter on Bosses) | Tangle Explosions | Threadlings | Unraveling Threads | Suspend Snap on Bosses | Forerunner's The Rock
+
+Do NOT trigger Discharge:
+ Jolt's Chain Lightning | Scorch and Ignitions (from Non-Abilities) | Crystal Shatter (from Non-Abilities) | Gifted Conviction's Explosives",
+        "runs": [
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Upon scoring a ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Magazine-Based amount",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " of ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Weapon Damage Instances",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " within ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "5 seconds",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " of ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "each ",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "while ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Bolt Charge",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " is ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "active",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ":
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "The next damage instance from any source will grant a ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "stack ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "of ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Bolt Charge",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ".
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Swapping weapons resets the counter. ",
+          },
+          {
+            "color": "#e06666",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Can only gain up to 1 stack per simultaneous damage instance",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ".
+
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "Damage instances needed to gain a ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "stack",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ":
+",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "(15% of Magazine, rounded down) + 1
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "Swords and GLs: ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "2
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "3-Ammo Snipers: ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "1
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 7,
+            "text": "
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "Gaining a Bolt Charge stack grants ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "2.5% Melee Ability Energy",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " per ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Bolt Charge",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "stack ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "obtained, generally granting ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "25% Melee Ability Energy",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " over the ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "10 stacks",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " needed to ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "discharge",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ".
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Acquiring over ",
+          },
+          {
+            "color": "#89cdd1",
+            "italic": true,
+            "sizePt": 9,
+            "text": "x10 stacks",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " through abilities will still grant the corresponding",
+          },
+          {
+            "color": "#89cdd1",
+            "italic": true,
+            "sizePt": 9,
+            "text": " Ability Gains",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 7,
+            "text": "(For example, being at ",
+          },
+          {
+            "color": "#89cdd1",
+            "italic": true,
+            "sizePt": 7,
+            "text": "x9",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 7,
+            "text": " and acquiring ",
+          },
+          {
+            "color": "#89cdd1",
+            "italic": true,
+            "sizePt": 7,
+            "text": "x4 ",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 7,
+            "text": "will still grant ",
+          },
+          {
+            "color": "#89cdd1",
+            "italic": true,
+            "sizePt": 7,
+            "text": "10% Melee Energy",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 7,
+            "text": ")
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "After ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "0.5 seconds",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " of scoring an ",
+          },
+          {
+            "bold": true,
+            "color": "#d5a6bd",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Ability Hit ",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "or dealing ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Unpowered Melee Damage",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " while at ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "italic": true,
+            "sizePt": 9,
+            "text": "x10 Bolt Charge stacks",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ":
+",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Discharges ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "an ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Arc Bolt",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " over the damaged enemy, dealing up to ",
+          },
+          {
+            "bold": true,
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "text": "405 Bolt Splash + 270 Ground Splash = 675 Total ",
+          },
+          {
+            "bold": true,
+            "color": "#ea9999",
+            "sizePt": 9,
+            "text": "[36 Bolt Splash + 30 Ground Splash]",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Arc Damage",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " over ? meters.
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Does not count as ",
+          },
+          {
+            "color": "#89cdd1",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Ability Damage",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", only as ",
+          },
+          {
+            "color": "#89cdd1",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Generic Arc Damage",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ".
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "
+",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Triggers Discharge",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ":
+",
+          },
+          {
+            "bold": true,
+            "color": "#d5a6bd",
+            "sizePt": 9,
+            "text": "Volatile Explosions ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "| ",
+          },
+          {
+            "bold": true,
+            "color": "#3c78d8",
+            "sizePt": 9,
+            "text": "Freeze Shatter",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 7,
+            "text": "(Not ",
+          },
+          {
+            "color": "#3d85c6",
+            "italic": true,
+            "sizePt": 7,
+            "text": "auto-shatter",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 7,
+            "text": " on Bosses)",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " | ",
+          },
+          {
+            "bold": true,
+            "color": "#63d275",
+            "sizePt": 9,
+            "text": "Tangle Explosions",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " | ",
+          },
+          {
+            "bold": true,
+            "color": "#b6d7a8",
+            "sizePt": 9,
+            "text": "Threadlings",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " | ",
+          },
+          {
+            "bold": true,
+            "color": "#6aa84f",
+            "sizePt": 9,
+            "text": "Unraveling Threads",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " | ",
+          },
+          {
+            "bold": true,
+            "color": "#6aa84f",
+            "sizePt": 9,
+            "text": "Suspend Snap",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " on ",
+          },
+          {
+            "bold": true,
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "text": "Bosses ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "|",
+          },
+          {
+            "bold": true,
+            "color": "#a4c2f4",
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "bold": true,
+            "color": "#ffd966",
+            "sizePt": 9,
+            "text": "Forerunner's The Rock",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "
+
+",
+          },
+          {
+            "bold": true,
+            "color": "#e06666",
+            "sizePt": 9,
+            "text": "Do NOT trigger Discharge",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ":
+ ",
+          },
+          {
+            "bold": true,
+            "color": "#76a5af",
+            "sizePt": 9,
+            "text": "Jolt's Chain Lightning ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "| ",
+          },
+          {
+            "bold": true,
+            "color": "#f6b26b",
+            "sizePt": 9,
+            "text": "Scorch ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "and ",
+          },
+          {
+            "bold": true,
+            "color": "#ff9900",
+            "sizePt": 9,
+            "text": "Ignitions ",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 6,
+            "text": "(from Non-Abilities)",
+          },
+          {
+            "bold": true,
+            "color": "#ff9900",
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "| ",
+          },
+          {
+            "bold": true,
+            "color": "#6fa8dc",
+            "sizePt": 9,
+            "text": "Crystal Shatter",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 6,
+            "text": "(from Non-Abilities)",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " | ",
+          },
+          {
+            "bold": true,
+            "color": "#ffd966",
+            "sizePt": 9,
+            "text": "Gifted Conviction's Explosives",
+          },
+        ],
+      },
+      "name": "Bolt Charge",
+      "nameNorm": "bolt charge",
+      "rowIndex": 7,
+      "section": "Glossary",
+    },
+  ],
+}
+`;
+
+exports[`real htmlview golden fixtures > normalises armor cell text and styles against a saved golden 1`] = `
+{
+  "gid": "1287885342",
+  "grid": [
+    {
+      "cell": {
+        "plain": "Armor Set Bonuses",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#fbbdec",
+            "sizePt": 8,
+            "text": "Armor Set Bonuses",
+          },
+        ],
+      },
+      "col": 0,
+      "colSpan": 6,
+      "row": 1,
+    },
+    {
+      "cell": {
+        "plain": "Armor Set",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#d5a6bd",
+            "sizePt": 8,
+            "text": "Armor Set",
+          },
+        ],
+      },
+      "col": 0,
+      "colSpan": 2,
+      "row": 2,
+    },
+    {
+      "cell": {
+        "plain": "Description",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#d5a6bd",
+            "sizePt": 8,
+            "text": "Description",
+          },
+        ],
+      },
+      "col": 2,
+      "colSpan": 4,
+      "row": 2,
+    },
+    {
+      "cell": {
+        "plain": "AION Renewal
+
+Kepler
+Destination",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#ffb247",
+            "text": "AION Renewal
+
+",
+          },
+          {
+            "color": "#ffb247",
+            "italic": true,
+            "text": "Kepler
+Destination",
+          },
+        ],
+      },
+      "col": 0,
+      "row": 3,
+      "rowSpan": 2,
+    },
+    {
+      "cell": {
+        "plain": "2 Piece | Force Converter
+
+Upon scoring a Micro-Missile, Rocket Launcher or Grenade Launcher Kill:
+Grants Force Converter.
+
+Sprinting while Force Converter is active grants Speed Booster.
+
+Missiles:
+Quicksilver Storm's Rocket Tracer, Nanotech Tracer Rounds, Exhaustive Research Rockets, Rocket Frames, Grand Overture Missiles, and Hazardous Propulsion's Exodus Rockets.",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#ffb247",
+            "sizePt": 9,
+            "text": "2 Piece | Force Converter
+
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Upon scoring a ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Micro-Missile",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", ",
+          },
+          {
+            "bold": true,
+            "color": "#a481e1",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Rocket Launcher",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " or ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Grenade Launcher Kill",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ":
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "Grants ",
+          },
+          {
+            "bold": true,
+            "color": "#ffb247",
+            "sizePt": 9,
+            "text": "Force Converter",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ".
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "Sprinting while ",
+          },
+          {
+            "bold": true,
+            "color": "#ffb247",
+            "sizePt": 9,
+            "text": "Force Converter",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " is active grants ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Speed Booster",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ".
+
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Missiles:
+",
+          },
+          {
+            "color": "#63d275",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Quicksilver Storm's",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "color": "#ffd966",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Rocket Tracer",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", ",
+          },
+          {
+            "color": "#d5a6bd",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Nanotech Tracer Rounds",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", ",
+          },
+          {
+            "color": "#e4b253",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Exhaustive Research Rockets",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", ",
+          },
+          {
+            "color": "#93c47d",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Rocket Frames",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", ",
+          },
+          {
+            "color": "#ffd966",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Grand Overture Missiles",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", and ",
+          },
+          {
+            "color": "#ffd966",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Hazardous Propulsion's Exodus Rockets",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ".",
+          },
+        ],
+      },
+      "col": 2,
+      "colSpan": 4,
+      "row": 3,
+    },
+    {
+      "cell": {
+        "plain": "4 Piece | Reactive Booster
+
+Sprinting while at Critical Health, being Suspended, or being affected by a Stasis Debuff will grant Speed Booster.
+Can only trigger once per Force Converter activation.",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#ffb247",
+            "sizePt": 9,
+            "text": "4 Piece | Reactive Booster
+
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "Sprinting while at ",
+          },
+          {
+            "bold": true,
+            "color": "#dd7e6b",
+            "sizePt": 9,
+            "text": "Critical Health",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ", being ",
+          },
+          {
+            "bold": true,
+            "color": "#6aa84f",
+            "sizePt": 9,
+            "text": "Suspended",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ", or being affected by a ",
+          },
+          {
+            "bold": true,
+            "color": "#6fa8dc",
+            "sizePt": 9,
+            "text": "Stasis Debuff",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " will grant ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Speed Booster",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ".
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Can only trigger once per ",
+          },
+          {
+            "color": "#ffb247",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Force Converter activation",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ".",
+          },
+        ],
+      },
+      "col": 2,
+      "colSpan": 4,
+      "row": 4,
+    },
+    {
+      "cell": {
+        "plain": "AION Adapter
+
+Kepler
+Destination",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#81cf82",
+            "text": "AION Adapter
+
+",
+          },
+          {
+            "color": "#81cf82",
+            "italic": true,
+            "text": "Kepler
+Destination",
+          },
+        ],
+      },
+      "col": 0,
+      "row": 5,
+      "rowSpan": 2,
+    },
+    {
+      "cell": {
+        "plain": "2 Piece | Force Absorption
+
+Upon scoring a Missile, Rocket Launcher or Grenade Launcher Kill:
+20% Area-of-Effect Damage Resist and 60% Explosive Self-Damage Resist for 15 seconds.
+
+Missiles:
+Quicksilver Storm's Rocket Tracer, Nanotech Tracer Round, Exhaustive Research Rockets, Rocket Frames, Grand Overture Missiles, and Hazardous Propulsion's Exodus Rockets.",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#81cf82",
+            "sizePt": 9,
+            "text": "2 Piece | Force Absorption
+",
+          },
+          {
+            "bold": true,
+            "color": "#ffb247",
+            "sizePt": 9,
+            "text": "
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Upon scoring a ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Missile",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", ",
+          },
+          {
+            "bold": true,
+            "color": "#a481e1",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Rocket Launcher",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " or ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Grenade Launcher Kill",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ":
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "20% Area-of-Effect Damage Resist and 60% Explosive Self-Damage Resist for 15 seconds.",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Missiles:
+",
+          },
+          {
+            "color": "#63d275",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Quicksilver Storm's",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "color": "#ffd966",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Rocket Tracer",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", ",
+          },
+          {
+            "color": "#d5a6bd",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Nanotech Tracer Round",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", ",
+          },
+          {
+            "color": "#e4b253",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Exhaustive Research Rockets",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", ",
+          },
+          {
+            "color": "#93c47d",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Rocket Frames",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", ",
+          },
+          {
+            "color": "#ffd966",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Grand Overture Missiles",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", and ",
+          },
+          {
+            "color": "#ffd966",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Hazardous Propulsion's Exodus Rockets",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ".",
+          },
+        ],
+      },
+      "col": 2,
+      "colSpan": 4,
+      "row": 5,
+    },
+  ],
+  "name": "Armor Perks",
+  "rows": [
+    {
+      "anchor": {
+        "col": 0,
+        "row": 3,
+      },
+      "cell": {
+        "plain": "2 Piece | Force Converter
+
+Upon scoring a Micro-Missile, Rocket Launcher or Grenade Launcher Kill:
+Grants Force Converter.
+
+Sprinting while Force Converter is active grants Speed Booster.
+
+Missiles:
+Quicksilver Storm's Rocket Tracer, Nanotech Tracer Rounds, Exhaustive Research Rockets, Rocket Frames, Grand Overture Missiles, and Hazardous Propulsion's Exodus Rockets.
+4 Piece | Reactive Booster
+
+Sprinting while at Critical Health, being Suspended, or being affected by a Stasis Debuff will grant Speed Booster.
+Can only trigger once per Force Converter activation.",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#ffb247",
+            "sizePt": 9,
+            "text": "2 Piece | Force Converter
+
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Upon scoring a ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Micro-Missile",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", ",
+          },
+          {
+            "bold": true,
+            "color": "#a481e1",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Rocket Launcher",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " or ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Grenade Launcher Kill",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ":
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "Grants ",
+          },
+          {
+            "bold": true,
+            "color": "#ffb247",
+            "sizePt": 9,
+            "text": "Force Converter",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ".
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "Sprinting while ",
+          },
+          {
+            "bold": true,
+            "color": "#ffb247",
+            "sizePt": 9,
+            "text": "Force Converter",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " is active grants ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Speed Booster",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ".
+
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Missiles:
+",
+          },
+          {
+            "color": "#63d275",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Quicksilver Storm's",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "color": "#ffd966",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Rocket Tracer",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", ",
+          },
+          {
+            "color": "#d5a6bd",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Nanotech Tracer Rounds",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", ",
+          },
+          {
+            "color": "#e4b253",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Exhaustive Research Rockets",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", ",
+          },
+          {
+            "color": "#93c47d",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Rocket Frames",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", ",
+          },
+          {
+            "color": "#ffd966",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Grand Overture Missiles",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", and ",
+          },
+          {
+            "color": "#ffd966",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Hazardous Propulsion's Exodus Rockets",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ".",
+          },
+          {
+            "text": "
+",
+          },
+          {
+            "bold": true,
+            "color": "#ffb247",
+            "sizePt": 9,
+            "text": "4 Piece | Reactive Booster
+
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "Sprinting while at ",
+          },
+          {
+            "bold": true,
+            "color": "#dd7e6b",
+            "sizePt": 9,
+            "text": "Critical Health",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ", being ",
+          },
+          {
+            "bold": true,
+            "color": "#6aa84f",
+            "sizePt": 9,
+            "text": "Suspended",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ", or being affected by a ",
+          },
+          {
+            "bold": true,
+            "color": "#6fa8dc",
+            "sizePt": 9,
+            "text": "Stasis Debuff",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " will grant ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Speed Booster",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ".
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Can only trigger once per ",
+          },
+          {
+            "color": "#ffb247",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Force Converter activation",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ".",
+          },
+        ],
+      },
+      "name": "AION Renewal
+
+Kepler
+Destination",
+      "nameNorm": "aion renewal kepler destination",
+      "rowIndex": 3,
+      "section": "Armor Set Bonuses",
+    },
+    {
+      "anchor": {
+        "col": 0,
+        "row": 5,
+      },
+      "cell": {
+        "plain": "2 Piece | Force Absorption
+
+Upon scoring a Missile, Rocket Launcher or Grenade Launcher Kill:
+20% Area-of-Effect Damage Resist and 60% Explosive Self-Damage Resist for 15 seconds.
+
+Missiles:
+Quicksilver Storm's Rocket Tracer, Nanotech Tracer Round, Exhaustive Research Rockets, Rocket Frames, Grand Overture Missiles, and Hazardous Propulsion's Exodus Rockets.",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#81cf82",
+            "sizePt": 9,
+            "text": "2 Piece | Force Absorption
+",
+          },
+          {
+            "bold": true,
+            "color": "#ffb247",
+            "sizePt": 9,
+            "text": "
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Upon scoring a ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Missile",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", ",
+          },
+          {
+            "bold": true,
+            "color": "#a481e1",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Rocket Launcher",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " or ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Grenade Launcher Kill",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ":
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "20% Area-of-Effect Damage Resist and 60% Explosive Self-Damage Resist for 15 seconds.",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Missiles:
+",
+          },
+          {
+            "color": "#63d275",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Quicksilver Storm's",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": " ",
+          },
+          {
+            "color": "#ffd966",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Rocket Tracer",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", ",
+          },
+          {
+            "color": "#d5a6bd",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Nanotech Tracer Round",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", ",
+          },
+          {
+            "color": "#e4b253",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Exhaustive Research Rockets",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", ",
+          },
+          {
+            "color": "#93c47d",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Rocket Frames",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", ",
+          },
+          {
+            "color": "#ffd966",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Grand Overture Missiles",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ", and ",
+          },
+          {
+            "color": "#ffd966",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Hazardous Propulsion's Exodus Rockets",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ".",
+          },
+        ],
+      },
+      "name": "AION Adapter
+
+Kepler
+Destination",
+      "nameNorm": "aion adapter kepler destination",
+      "rowIndex": 5,
+      "section": "Armor Set Bonuses",
+    },
+  ],
+}
+`;
+
+exports[`real htmlview golden fixtures > normalises weapon cell text and styles against a saved golden 1`] = `
+{
+  "gid": "1662574278",
+  "grid": [
+    {
+      "cell": {
+        "plain": "Gear Perks, Traits, and Mods",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 8,
+            "text": "Gear Perks, Traits, and Mods",
+          },
+        ],
+      },
+      "col": 0,
+      "colSpan": 6,
+      "row": 1,
+    },
+    {
+      "cell": {
+        "plain": "Weapon Traits",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "href": "https://docs.google.com/#rangeid=2032310408",
+            "sizePt": 8,
+            "text": "Weapon Traits",
+            "underline": true,
+          },
+        ],
+      },
+      "col": 0,
+      "colSpan": 2,
+      "row": 2,
+    },
+    {
+      "cell": {
+        "plain": "Weapon Mods",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "href": "https://docs.google.com/#rangeid=489910551",
+            "sizePt": 8,
+            "text": "Weapon Mods",
+            "underline": true,
+          },
+        ],
+      },
+      "col": 2,
+      "row": 2,
+    },
+    {
+      "cell": {
+        "plain": "Intrinsic Traits",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "href": "https://docs.google.com/#rangeid=1783872249",
+            "sizePt": 8,
+            "text": "Intrinsic Traits",
+            "underline": true,
+          },
+        ],
+      },
+      "col": 3,
+      "row": 2,
+    },
+    {
+      "cell": {
+        "plain": "Crossbow/Glaive/Sword Info",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#a481e1",
+            "href": "https://docs.google.com/#rangeid=1741839492",
+            "sizePt": 8,
+            "text": "Crossbow/Glaive/Sword Info",
+            "underline": true,
+          },
+        ],
+      },
+      "col": 4,
+      "row": 2,
+    },
+    {
+      "cell": {
+        "plain": "Origin Traits",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "href": "https://docs.google.com/#rangeid=1073063811",
+            "sizePt": 8,
+            "text": "Origin Traits",
+            "underline": true,
+          },
+        ],
+      },
+      "col": 5,
+      "row": 2,
+    },
+    {
+      "cell": {
+        "plain": "Perk",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#d9d9d9",
+            "sizePt": 8,
+            "text": "Perk",
+          },
+        ],
+      },
+      "col": 0,
+      "colSpan": 2,
+      "row": 3,
+    },
+    {
+      "cell": {
+        "plain": "Description",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#d9d9d9",
+            "sizePt": 8,
+            "text": "Description",
+          },
+        ],
+      },
+      "col": 2,
+      "colSpan": 4,
+      "row": 3,
+    },
+    {
+      "cell": {
+        "plain": "Enhanced Traits are shown in ↑Yellow.
+
+Smaller + signs are color-coded for Subclass-specific fragment interactions.
+For example: 5+2 seconds of Restoration for Ember of Solace, x30+15 Scorch for Ember of Ashes, and 10+5 seconds for Echo of Persistence.
+
+All Grenade, Melee, and Class Energy sources will be listed at 100 Stat.
+At 0 Stat, the amount received is 0.44x of the stated number.",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#ffd966",
+            "sizePt": 9,
+            "text": "Enhanced Traits are shown in ↑Yellow.
+
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "Smaller + signs are ",
+          },
+          {
+            "bold": true,
+            "color": "#d5a6bd",
+            "sizePt": 9,
+            "text": "color-coded",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " for ",
+          },
+          {
+            "bold": true,
+            "color": "#d5a6bd",
+            "sizePt": 9,
+            "text": "Subclass-specific",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " fragment interactions.
+For example: 5",
+          },
+          {
+            "bold": true,
+            "color": "#f9cb9c",
+            "sizePt": 7,
+            "text": "+2",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " seconds of ",
+          },
+          {
+            "bold": true,
+            "color": "#dd7e6b",
+            "sizePt": 9,
+            "text": "Restoration ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "for ",
+          },
+          {
+            "bold": true,
+            "color": "#e0a261",
+            "sizePt": 9,
+            "text": "Ember of Solace",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ",",
+          },
+          {
+            "bold": true,
+            "color": "#e0a261",
+            "sizePt": 9,
+            "text": " x30",
+          },
+          {
+            "bold": true,
+            "color": "#e0a261",
+            "sizePt": 7,
+            "text": "+15",
+          },
+          {
+            "bold": true,
+            "color": "#e0a261",
+            "sizePt": 9,
+            "text": " Scorch",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " for ",
+          },
+          {
+            "bold": true,
+            "color": "#e0a261",
+            "sizePt": 9,
+            "text": "Ember of Ashes",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ", and 10",
+          },
+          {
+            "bold": true,
+            "color": "#b4a7d6",
+            "sizePt": 7,
+            "text": "+5",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " seconds for ",
+          },
+          {
+            "bold": true,
+            "color": "#bba5f3",
+            "sizePt": 9,
+            "text": "Echo of Persistence",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ".
+
+",
+          },
+          {
+            "bold": true,
+            "color": "#cfe2f3",
+            "sizePt": 9,
+            "text": "All ",
+          },
+          {
+            "bold": true,
+            "color": "#e0a261",
+            "sizePt": 9,
+            "text": "Grenade",
+          },
+          {
+            "bold": true,
+            "color": "#d5a6bd",
+            "sizePt": 9,
+            "text": ", ",
+          },
+          {
+            "bold": true,
+            "color": "#89cdd1",
+            "sizePt": 9,
+            "text": "Melee",
+          },
+          {
+            "bold": true,
+            "color": "#d5a6bd",
+            "sizePt": 9,
+            "text": ", and ",
+          },
+          {
+            "bold": true,
+            "color": "#b4a7d6",
+            "sizePt": 9,
+            "text": "Class ",
+          },
+          {
+            "bold": true,
+            "color": "#d5a6bd",
+            "sizePt": 9,
+            "text": "Energy sources",
+          },
+          {
+            "bold": true,
+            "color": "#cfe2f3",
+            "sizePt": 9,
+            "text": " will be listed at ",
+          },
+          {
+            "bold": true,
+            "color": "#d5a6bd",
+            "sizePt": 9,
+            "text": "100 Stat",
+          },
+          {
+            "bold": true,
+            "color": "#cfe2f3",
+            "sizePt": 9,
+            "text": ".
+At ",
+          },
+          {
+            "bold": true,
+            "color": "#e06666",
+            "sizePt": 9,
+            "text": "0 Stat",
+          },
+          {
+            "bold": true,
+            "color": "#cfe2f3",
+            "sizePt": 9,
+            "text": ", the amount received is ",
+          },
+          {
+            "bold": true,
+            "color": "#e06666",
+            "sizePt": 9,
+            "text": "0.44x",
+          },
+          {
+            "bold": true,
+            "color": "#cfe2f3",
+            "sizePt": 9,
+            "text": " of the stated number.",
+          },
+        ],
+      },
+      "col": 2,
+      "colSpan": 4,
+      "row": 4,
+    },
+    {
+      "cell": {
+        "plain": "Weapon Traits",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "Weapon Traits",
+          },
+        ],
+      },
+      "col": 0,
+      "colSpan": 6,
+      "row": 5,
+    },
+    {
+      "cell": {
+        "plain": "Accelerated Heatsink",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#e0a261",
+            "text": "Accelerated Heatsink",
+          },
+        ],
+      },
+      "col": 0,
+      "row": 6,
+    },
+    {
+      "cell": {
+        "plain": "Passively grants +25 Cooling Efficiency stat ↑and +2 Reload Speed at the downside of 2% decreased damage.
+
+How do Heat Weapons work?",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "Passively grants ",
+          },
+          {
+            "bold": true,
+            "color": "#6fa8dc",
+            "sizePt": 9,
+            "text": "+25 Cooling Efficiency stat ",
+          },
+          {
+            "bold": true,
+            "color": "#ffd966",
+            "sizePt": 9,
+            "text": "↑and +2 Reload Speed ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "at the downside of",
+          },
+          {
+            "bold": true,
+            "color": "#dd7e6b",
+            "sizePt": 9,
+            "text": " 2% decreased damage",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ".
+
+",
+          },
+          {
+            "bold": true,
+            "color": "#6fa8dc",
+            "href": "https://docs.google.com/#rangeid=1962653729",
+            "italic": true,
+            "sizePt": 9,
+            "text": "How do Heat Weapons work?",
+            "underline": true,
+          },
+        ],
+      },
+      "col": 2,
+      "colSpan": 4,
+      "row": 6,
+    },
+    {
+      "cell": {
+        "plain": "Adagio",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "text": "Adagio",
+          },
+        ],
+      },
+      "col": 0,
+      "row": 7,
+    },
+    {
+      "cell": {
+        "plain": "On Weapon Kill:
+30% (27% Hand Cannons) increased damage, +10 Range, and 1.2x Fire Recovery Delay/Charge Time Multiplier/Draw Time Multiplier for 7 ↑8 seconds.
+Buff is removed on stow.",
+        "runs": [
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "On ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Weapon Kill",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ":
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "30% (27% Hand Cannons) increased damage, +10 Range, and 1.2x Fire Recovery Delay/Charge Time Multiplier/Draw Time Multiplier for 7 ",
+          },
+          {
+            "bold": true,
+            "color": "#ffd966",
+            "sizePt": 9,
+            "text": "↑8",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " seconds.",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 7,
+            "text": "
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Buff is removed on stow.",
+          },
+        ],
+      },
+      "col": 2,
+      "colSpan": 4,
+      "row": 7,
+    },
+  ],
+  "name": "Weapon Perks",
+  "rows": [
+    {
+      "anchor": {
+        "col": 0,
+        "row": 6,
+      },
+      "cell": {
+        "plain": "Passively grants +25 Cooling Efficiency stat ↑and +2 Reload Speed at the downside of 2% decreased damage.
+
+How do Heat Weapons work?",
+        "runs": [
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "Passively grants ",
+          },
+          {
+            "bold": true,
+            "color": "#6fa8dc",
+            "sizePt": 9,
+            "text": "+25 Cooling Efficiency stat ",
+          },
+          {
+            "bold": true,
+            "color": "#ffd966",
+            "sizePt": 9,
+            "text": "↑and +2 Reload Speed ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "at the downside of",
+          },
+          {
+            "bold": true,
+            "color": "#dd7e6b",
+            "sizePt": 9,
+            "text": " 2% decreased damage",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": ".
+
+",
+          },
+          {
+            "bold": true,
+            "color": "#6fa8dc",
+            "href": "https://docs.google.com/#rangeid=1962653729",
+            "italic": true,
+            "sizePt": 9,
+            "text": "How do Heat Weapons work?",
+            "underline": true,
+          },
+        ],
+      },
+      "name": "Accelerated Heatsink",
+      "nameNorm": "accelerated heatsink",
+      "rowIndex": 6,
+      "section": "Weapon Traits",
+    },
+    {
+      "anchor": {
+        "col": 0,
+        "row": 7,
+      },
+      "cell": {
+        "plain": "On Weapon Kill:
+30% (27% Hand Cannons) increased damage, +10 Range, and 1.2x Fire Recovery Delay/Charge Time Multiplier/Draw Time Multiplier for 7 ↑8 seconds.
+Buff is removed on stow.",
+        "runs": [
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "On ",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Weapon Kill",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": ":
+",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": "30% (27% Hand Cannons) increased damage, +10 Range, and 1.2x Fire Recovery Delay/Charge Time Multiplier/Draw Time Multiplier for 7 ",
+          },
+          {
+            "bold": true,
+            "color": "#ffd966",
+            "sizePt": 9,
+            "text": "↑8",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 9,
+            "text": " seconds.",
+          },
+          {
+            "bold": true,
+            "color": "#cccccc",
+            "sizePt": 7,
+            "text": "
+",
+          },
+          {
+            "color": "#cccccc",
+            "italic": true,
+            "sizePt": 9,
+            "text": "Buff is removed on stow.",
+          },
+        ],
+      },
+      "name": "Adagio",
+      "nameNorm": "adagio",
+      "rowIndex": 7,
+      "section": "Weapon Traits",
+    },
+  ],
+}
+`;

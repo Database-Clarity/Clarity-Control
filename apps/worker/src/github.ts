@@ -23,7 +23,13 @@ export class GitHub {
   private token?: string;
   readonly root: string;
 
-  constructor(readonly env: Env) {
+  constructor(
+    readonly env: Env,
+    private readonly tokenPermissions: {
+      contents?: 'read' | 'write';
+      actions?: 'read' | 'write';
+    } = { contents: 'write' },
+  ) {
     this.root = `/repos/${encodeURIComponent(env.GITHUB_OWNER)}/${encodeURIComponent(env.GITHUB_REPO)}`;
   }
 
@@ -37,7 +43,7 @@ export class GitHub {
         headers: this.headers(jwt),
         body: JSON.stringify({
           repositories: [this.env.GITHUB_REPO],
-          permissions: { contents: 'write' },
+          permissions: this.tokenPermissions,
         }),
       },
     );

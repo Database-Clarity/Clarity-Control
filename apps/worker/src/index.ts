@@ -1,7 +1,7 @@
 import { ZodError } from 'zod';
 import { callback, identity, login } from './auth.js';
 import { managePermissions, history } from './admin.js';
-import { compendium } from './compendium.js';
+import { compendiumRefresh } from './compendium.js';
 import { GitHub } from './github.js';
 import { HttpError, json } from './http.js';
 import { permissions } from './permissions.js';
@@ -9,23 +9,19 @@ import { pushLive } from './push.js';
 import { save } from './save.js';
 import type { Context, Env } from './types.js';
 
-async function route(request: Request, env: Env, context: Context): Promise<Response> {
+async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
   if (request.method === 'GET' && path === '/auth/login') return login(env);
   if (request.method === 'GET' && path === '/auth/callback') return callback(request, env);
-  const tab = /^\/compendium\/([^/]+)$/.exec(path);
-  if (request.method === 'GET' && tab) {
-    let decoded: string;
-    try {
-      decoded = decodeURIComponent(tab[1]);
-    } catch {
-      throw new HttpError(400, 'Invalid tab encoding');
-    }
-    return compendium(request, decoded, context);
-  }
   const user = await identity(request, env);
   const github = new GitHub(env);
+  if (
+    (request.method === 'POST' && path === '/compendium/refresh') ||
+    (request.method === 'GET' && path === '/compendium/refresh/status')
+  ) {
+    return compendiumRefresh(request, github, user);
+  }
   if (request.method === 'GET' && path === '/me') {
     const access = (await permissions(github, await github.head())).users[String(user.id)];
     return json({
@@ -45,8 +41,8 @@ async function route(request: Request, env: Env, context: Context): Promise<Resp
   throw new HttpError(404, 'Endpoint not found');
 }
 
-export default {
-  async fetch(request: Request, env: Env, context: Context): Promise<Response> {
+const worker: { fetch(request: Request, env: Env, context: Context): Promise<Response> } = {
+  async fetch(request, env) {
     const origin = request.headers.get('Origin');
     const allowed = !origin || [env.SITE_ORIGIN, 'http://localhost:5173'].includes(origin);
     let response: Response;
@@ -55,7 +51,7 @@ export default {
       if (request.method === 'OPTIONS') {
         response = new Response(null, { status: 204 });
       } else {
-        response = await route(request, env, context);
+        response = await route(request, env);
       }
     } catch (error) {
       if (error instanceof HttpError) {
@@ -93,3 +89,4 @@ export default {
     return new Response(response.body, { status: response.status, headers });
   },
 };
+export default worker;

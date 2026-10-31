@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import type { Change } from '../api';
 import type { EditorData } from '../../stores/data';
 import { WordDiff } from '../../ui/diff';
+import { CompendiumFreshness } from '../../features/compendium/CompendiumFreshness';
 
 export function SaveSummary({
   changes,
@@ -13,13 +14,13 @@ export function SaveSummary({
   issues: TooltipValidationIssue[];
   data: EditorData;
 }) {
-  // TODO: mount the linked-tooltip age/refresh notice once Compendium's fetchedAt service lands.
   return (
     <>
       <p>
         {changes.length} changed tooltip(s). Removed words are struck through; additions are
         underlined.
       </p>
+      {changes.some(({ next }) => next.compendium) && <CompendiumFreshness staleOnly />}
       {issues.length > 0 && (
         <section aria-label="Save validation issues">
           <h3>Validation</h3>

@@ -1,39 +1,50 @@
-import { parseCsv } from './csv.js';
+import { z } from 'zod';
+import { GitHub } from './github.js';
 import { HttpError, json } from './http.js';
-import type { Context } from './types.js';
+import { permissions, requireAccess } from './permissions.js';
+import type { Identity } from './types.js';
 
-export async function compendium(
+const runSchema = z.object({
+  id: z.number().int().positive(),
+  status: z.string(),
+  conclusion: z.string().nullable(),
+  created_at: z.string(),
+  html_url: z.string().url(),
+});
+const runsSchema = z.object({ workflow_runs: z.array(runSchema) });
+export async function compendiumRefresh(
   request: Request,
-  tab: string,
-  context: Context,
+  github: GitHub,
+  user: Identity,
 ): Promise<Response> {
-  if (!tab.trim() || tab.length > 200) throw new HttpError(400, 'Invalid Compendium tab');
-  const url = new URL(
-    'https://docs.google.com/spreadsheets/d/1WaxvbLx7UoSZaBqdFr1u32F2uWVLo-CJunJB4nlGUE4/gviz/tq',
+  requireAccess(await permissions(github, await github.head()), user, ['maintainer', 'editor']);
+  const env = github.env;
+  const actions = new GitHub(
+    {
+      ...env,
+      GITHUB_OWNER: env.COMPENDIUM_OWNER ?? env.GITHUB_OWNER,
+      GITHUB_REPO: env.COMPENDIUM_REPO ?? 'Compendium-data',
+    },
+    { contents: 'read', actions: request.method === 'POST' ? 'write' : 'read' },
   );
-  url.searchParams.set('tqx', 'out:csv');
-  url.searchParams.set('sheet', tab);
-  const keyUrl = new URL('/__clarity_cache/compendium', request.url);
-  keyUrl.searchParams.set('tab', tab);
-  const key = new Request(keyUrl);
-  const cache = await caches.open('clarity-compendium-v1');
-  const cached = await cache.match(key);
-  if (cached) return cached;
-  const response = await fetch(url);
-  if (!response.ok) throw new HttpError(502, `Compendium fetch failed (${response.status})`);
-  const contentType = response.headers.get('Content-Type') ?? '';
-  if (!/text\/(csv|plain)|application\/(csv|octet-stream)/i.test(contentType)) {
-    throw new HttpError(502, 'Compendium did not return CSV');
+  const ref = env.COMPENDIUM_REF ?? 'main';
+  const workflow = encodeURIComponent(env.COMPENDIUM_WORKFLOW ?? 'compendium.yml');
+  const path = `/actions/workflows/${workflow}`;
+  const response = await actions.request(
+    `${path}/runs?branch=${encodeURIComponent(ref)}&per_page=1`,
+  );
+  if (!response.ok)
+    throw new HttpError(
+      502,
+      `Compendium workflow status failed (${response.status}); check the App installation and Actions permissions`,
+    );
+  const latest = runsSchema.parse(await response.json()).workflow_runs[0] ?? null;
+  if (request.method === 'GET') return json({ run: latest });
+  if (latest && latest.status !== 'completed') {
+    return json({ requestedAt: latest.created_at, runId: latest.id }, 202);
   }
-  const result = json({ rows: parseCsv(await response.text()) });
-  result.headers.set('Cache-Control', 'public, max-age=900');
-  context.waitUntil(
-    cache.put(key, result.clone()).catch((error: unknown) => {
-      console.error(
-        'Compendium cache write failed',
-        error instanceof Error ? error.message : 'Unknown error',
-      );
-    }),
-  );
-  return result;
+  const dispatch = await actions.request(`${path}/dispatches`, 'POST', { ref });
+  if (!dispatch.ok)
+    throw new HttpError(502, `Compendium refresh could not start (${dispatch.status})`);
+  return json({ requestedAt: new Date().toISOString(), runId: null }, 202);
 }

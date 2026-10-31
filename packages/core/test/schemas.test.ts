@@ -16,9 +16,13 @@ test('validates hashes, associations, timestamps, custom names and snapshots', (
   expect(tooltipSchema.parse({
     ...tooltip(),
     custom: { name: 'Verb', categoryId: 'verbs' },
-    compendium: { tab: 'Perks', key: 'Perk', column: 'Description', snapshot: '', snapshotAt: '2026-01-01T00:00:00Z' },
+    compendium: { gid: '123', rowKey: 'Perk', snapshot: { plain: '', runs: [] }, snapshotAt: '2026-01-01T00:00:00Z' },
     bungieSnapshot: { description: '', snapshotAt: '2026-01-01T00:00:00Z' },
   }).custom?.name).toBe('Verb');
+  expect(tooltipSchema.safeParse({
+    ...tooltip(),
+    compendium: { tab: 'Perks', key: 'Perk', column: 'Description', snapshot: '', snapshotAt: '2026-01-01T00:00:00Z' },
+  }).success).toBe(false);
 });
 test('v2 rejects removed stat fields, including nested legacy stat trackers', () => {
   for (const extra of [

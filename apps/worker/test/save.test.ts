@@ -71,10 +71,9 @@ describe('save permission matrix', () => {
       } else if (field === 'associated') next.associated = [999];
       else if (field === 'compendium')
         next.compendium = {
-          tab: 'Weapon Perks',
-          key: 'Demo',
-          column: 'Description',
-          snapshot: '',
+          gid: '1662574278',
+          rowKey: 'Demo',
+          snapshot: { plain: '', runs: [] },
           snapshotAt: '2026-10-02T00:00:00Z',
         };
       else if (field === 'legacy') next.legacy = { uploadedBy: 'spoofed' };

@@ -20,6 +20,7 @@ import { HistoryPanel } from '../history/HistoryPanel';
 import { canEditLanguage } from '../auth/permissions';
 import { useSaveState } from '../../services/save/state';
 import { AssociationsPanel } from '../associations/AssociationsPanel';
+import { CompendiumPanel } from '../compendium/CompendiumPanel';
 import styles from './TooltipPage.module.scss';
 
 export function TooltipPage() {
@@ -114,17 +115,20 @@ export function TooltipPage() {
                   onChange={(text) => edit(base, lang, text, user?.login ?? 'local draft')}
                 />
               </section>
-              <TooltipPreview
-                text={value}
-                lang={lang}
-                name={entry?.name ?? `Tooltip ${variant}`}
-                icon={entry?.icon || undefined}
-                categoryLabel={category?.label ?? entry?.categoryId}
-                globals={globals}
-                tooltipHash={variant}
-                weaponTypes={weaponTypesFor(variant, data)}
-                weaponTypeLabels={data.weaponTypeLabels}
-              />
+              <div>
+                <TooltipPreview
+                  text={value}
+                  lang={lang}
+                  name={entry?.name ?? `Tooltip ${variant}`}
+                  icon={entry?.icon || undefined}
+                  categoryLabel={category?.label ?? entry?.categoryId}
+                  globals={globals}
+                  tooltipHash={variant}
+                  weaponTypes={weaponTypesFor(variant, data)}
+                  weaponTypeLabels={data.weaponTypeLabels}
+                />
+                <CompendiumPanel base={base} />
+              </div>
             </div>
             <AssociationsPanel hash={variant} />
             <HistoryPanel hash={variant} />

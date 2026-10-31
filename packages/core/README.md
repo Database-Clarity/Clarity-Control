@@ -60,6 +60,30 @@ npx tsc --noEmit
   snapshots and legacy metadata. A hash mismatch is an error.
 - `aliasesSchema` validates generic `{ to, kind: 'sandbox' | 'frame' }` aliases;
   `resolveAlias(hash, aliases)` follows chains and rejects cycles.
+- Compendium APIs live in `src/compendium/`. `parseCompendiumTabs(html)` reads
+  the Landing tab switcher without executing scripts. `parseCompendiumSheet`
+  builds the physical row/column grid (including omitted empty rows and
+  row/column spans), detects header names on each fetch, applies the small
+  per-tab synonym/layout overrides in `config.ts`, and resolves stylesheet
+  classes plus inherited inline styles to normalized runs. Class names and HTML
+  are never persisted. Parallel tables and artifact name/description cards are
+  supported. Three trimmed real htmlview fixtures and their golden outputs are
+  checked offline; `test/compendium/refresh-fixtures.mjs` documents their source
+  and trimming. Set `COMPENDIUM_FIXTURE_DIR` to the downloaded full-tab fixtures
+  to run the optional all-tab smoke test.
+- `compendiumDataSchema` validates `{ fetchedAt, tabs: [{ gid, name, rows }] }`.
+  Each row has `rowIndex`, `name`, `nameNorm`, optional `section`, and styled
+  `cell: { plain, runs }`. `Tooltip.compendium` is optional (existing migrated
+  tooltips have none) and stores `{ gid, rowKey, section?, snapshot, snapshotAt }`.
+  `resolveCompendiumLink` distinguishes exact `ok`/`changed`, unique normalized
+  `moved`, ambiguous or content-similar `candidates`, and `missing`. Duplicate
+  names use section and then snapshot similarity; ties require confirmation.
+  `snapshotCompendium` records confirmed/resolved locations; `sameCell` detects
+  text and styling changes independently of class names or adjacent run splits.
+- `diffCompendium` matches complete words across run boundaries, preserving all
+  source styles and distinguishing added/removed text from style-only changes.
+  The separate Compendium-data repository runs the bundled core parser outside
+  the Worker CPU budget; see `scripts/compendium/README.md` in the editor root.
 - `exportLegacy(tooltips, now, catalog?, aliases?)` returns legacy entries keyed by hash.
   Supply canonical tooltips only. Every frame and sandbox alias is exported as a
   reference stub `{ hash, aliasOf, aliasKind: 'frame' | 'sandbox', ...ownFacts }`
@@ -102,18 +126,18 @@ aliases, and selection of canonical tooltips to publish.
 
 ## Legacy field inventory
 
-| Legacy field | v2 destination / treatment |
-| --- | --- |
-| `hash` | `hash`; map key must agree, unsigned 32-bit integer |
-| `editor[lang].main` | `text[lang].text` |
-| `editor[lang].secondary` | deliberately discarded; export uses main |
-| `updateTracker.descriptions[lang]` | `text[lang].updatedAt/updatedBy`; original also retained in `legacy.updateTracker` |
-| `updateTracker.stats` | deliberately discarded with the unused stat editor |
-| `uploadedBy`, `lastUpload`, `inLiveDatabase`, `uploadToLive` | `legacy` compatibility metadata |
-| `stats`, `importStatsFrom`, `duration`, `activationCondition` | deliberately discarded; no v2 schema fields or export output |
-| `name`, `type` | excluded manifest facts; reserved custom hashes 0-3 preserve these as `custom.name/categoryId` |
-| `itemHash`, `itemName` | excluded manifest facts, supplied at export by caller |
-| `databaseSettings.folders/enhancedPerks` | excluded manifest structure; caller-owned |
+| Legacy field                                                  | v2 destination / treatment                                                                     |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `hash`                                                        | `hash`; map key must agree, unsigned 32-bit integer                                            |
+| `editor[lang].main`                                           | `text[lang].text`                                                                              |
+| `editor[lang].secondary`                                      | deliberately discarded; export uses main                                                       |
+| `updateTracker.descriptions[lang]`                            | `text[lang].updatedAt/updatedBy`; original also retained in `legacy.updateTracker`             |
+| `updateTracker.stats`                                         | deliberately discarded with the unused stat editor                                             |
+| `uploadedBy`, `lastUpload`, `inLiveDatabase`, `uploadToLive`  | `legacy` compatibility metadata                                                                |
+| `stats`, `importStatsFrom`, `duration`, `activationCondition` | deliberately discarded; no v2 schema fields or export output                                   |
+| `name`, `type`                                                | excluded manifest facts; reserved custom hashes 0-3 preserve these as `custom.name/categoryId` |
+| `itemHash`, `itemName`                                        | excluded manifest facts, supplied at export by caller                                          |
+| `databaseSettings.folders/enhancedPerks`                      | excluded manifest structure; caller-owned                                                      |
 
 Migration keeps upload flags without interpreting them as v2 permissions or
 pushed state. All stat data, links, calculation parameters and stat tracker
