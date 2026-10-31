@@ -211,6 +211,7 @@ function AssociatedTooltips({
                 lang={lang}
                 name={name}
                 icon={item?.icon}
+                weaponTypeLabels={data.weaponTypeLabels}
                 categoryLabel={category?.label}
                 globals={{ ...globals, type: category?.legacyType }}
               />

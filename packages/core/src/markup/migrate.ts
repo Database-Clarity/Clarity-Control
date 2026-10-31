@@ -33,7 +33,7 @@ export interface WeaponConversion {
 function renderings(text: string): Map<string, string> {
   const { lines, diagnostics } = parseMarkup(text);
   const marker = String.fromCharCode(0);
-  const labels = Object.fromEntries([...markupWeaponTypes, 'other'].map((name) => [name, marker]));
+  const labels = Object.fromEntries([...markupWeaponTypes, 'other'].map((name) => [name, { en: marker }]));
   const shown = new Map<string, string>([['diagnostics', JSON.stringify(diagnostics)]]);
   for (const type of markupWeaponTypes) {
     shown.set(type, JSON.stringify(specializeWeaponTypes(lines, { type })));
