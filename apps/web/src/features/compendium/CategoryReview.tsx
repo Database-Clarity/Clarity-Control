@@ -22,7 +22,9 @@ export function CategoryReview({
   onReview,
   canEdit = false,
   onAccept,
+  onRestore,
 }: {
+  onRestore?: (hash: number) => void;
   categories: ReviewCategory[];
   editor: EditorData;
   source: CompendiumData;
@@ -261,6 +263,7 @@ export function CategoryReview({
                 categories={categories}
                 key={category.id}
                 canEdit={canEdit && !paused && !guidance.conflict && !guidance.reloading}
+                onRestore={onRestore}
                 onAccept={(entries, revision) => onAccept?.(category, entries, revision)}
                 document={guidance.proposalInput}
                 planningRevision={guidance.planningRevision}

@@ -22,7 +22,9 @@ export function GuidedPreview({
   scope,
   canEdit = false,
   onAccept,
+  onRestore,
 }: {
+  onRestore?: (hash: number) => void;
   document: GuidanceDocument;
   planningRevision?: number;
   category: ReviewCategory;
@@ -64,6 +66,19 @@ export function GuidedPreview({
       </summary>
       <p>Acceptance creates local link-only drafts. Review &amp; save uses the normal save flow.</p>
       <p>{group.ownerNote}</p>
+      <details>
+        <summary>
+          Not needed ({group.entries.filter((entry) => entry.confidence === 'out-of-scope').length})
+        </summary>
+        {group.entries
+          .filter((entry) => entry.confidence === 'out-of-scope')
+          .map((entry) => (
+            <div key={entry.hash}>
+              {entry.name} · {entry.hash}{' '}
+              <button onClick={() => onRestore?.(entry.hash)}>Restore to scope</button>
+            </div>
+          ))}
+      </details>
       <button
         disabled={!canEdit}
         onClick={() =>
