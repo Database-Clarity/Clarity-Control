@@ -1,7 +1,7 @@
 import { guidedDecisions, guidedRevision, type GuidedDecision } from './guidedDecisions';
 import { importContext } from './importContext';
 import { researchSuggestions } from './researchSuggestions';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { CompendiumData, Tooltip } from '@clarity/core';
 import { groupManifestItems } from './manifestItems';
@@ -114,6 +114,7 @@ export function ReviewQueue({
   source: CompendiumData;
   storageKey: string;
 }) {
+  const actionBar = useRef<HTMLElement>(null);
   const { progress, update, error } = useReviewProgress(storageKey);
   const setSidebarCategories = useSidebarQueueStore((state) => state.setCompendiumCategories);
   const [params, setParams] = useSearchParams();
@@ -158,6 +159,30 @@ export function ReviewQueue({
   const { drafts, hydrated } = useDraftStore();
   const user = useAuthStore((state) => state.user);
   const locked = useSaveState((state) => state.locked);
+  useLayoutEffect(() => {
+    const actions = actionBar.current;
+    const page = actions?.closest('article');
+    if (!page || !actions) return;
+    const updateHeight = () =>
+      page.style.setProperty(
+        '--review-action-bar-height',
+        `${actions.getBoundingClientRect().height}px`,
+      );
+    updateHeight();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateHeight);
+      return () => {
+        window.removeEventListener('resize', updateHeight);
+        page.style.removeProperty('--review-action-bar-height');
+      };
+    }
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(actions, { box: 'border-box' });
+    return () => {
+      observer.disconnect();
+      page.style.removeProperty('--review-action-bar-height');
+    };
+  }, []);
   const fingerprint = useMemo(() => sourceFingerprint(source.tabs), [source]);
   const evidence = useMemo(
     () => reviewEvidence(editor, source, drafts, fingerprint),
@@ -792,7 +817,7 @@ export function ReviewQueue({
           onAccept={acceptBulk}
         />
       )}
-      <footer className={styles.actionBar} aria-label="Review actions">
+      <footer ref={actionBar} className={styles.actionBar} aria-label="Review actions">
         <p className={styles.actionConsequence}>
           Links create local drafts, not saves · Skip/No equivalent stay in browser.
         </p>

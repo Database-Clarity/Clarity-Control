@@ -40,7 +40,9 @@ const compendium = guidedFixture();
 compendium.editor.categories = [
   { id: 'weapon-trait', label: 'Synthetic friendly weapon traits', group: 'Fixture', order: 1 },
 ];
-const longEvidence = 'Synthetic long evidence stays available below the review controls. '.repeat(32);
+const longEvidence = 'Synthetic long evidence stays available below the review controls. '.repeat(
+  32,
+);
 compendium.editor.items[100].inGameDescription = longEvidence;
 compendium.source.tabs[0].rows[0].cell = {
   plain: longEvidence,
@@ -123,9 +125,9 @@ const path =
       ? '/compendium/review'
       : workspace === 'compendium-entry'
         ? '/compendium/review?view=entries&hash=100'
-    : workspace === 'compendium'
-      ? '/compendium?group=fixture-category-18'
-      : '/review?hash=105';
+        : workspace === 'compendium'
+          ? '/compendium?group=fixture-category-18'
+          : '/review?hash=105';
 createRoot(document.getElementById('root')!).render(
   <MemoryRouter initialEntries={[path]}>
     <Routes>
@@ -164,21 +166,93 @@ function rect(element: Element) {
   return { x, y, width, height, bottom };
 }
 
+function scrollableAncestors(element: HTMLElement) {
+  const scrollables: HTMLElement[] = [];
+  for (
+    let parent = element.parentElement;
+    parent && parent !== document.body;
+    parent = parent.parentElement
+  ) {
+    const overflow = getComputedStyle(parent).overflowY;
+    if (/auto|scroll/.test(overflow) && parent.scrollHeight > parent.clientHeight + 1)
+      scrollables.push(parent);
+  }
+  const page = document.scrollingElement as HTMLElement | null;
+  if (page && page.scrollHeight > page.clientHeight + 1 && !scrollables.includes(page))
+    scrollables.push(page);
+  return scrollables;
+}
+
+function assertVisible(element: HTMLElement, description: string) {
+  const bounds = rect(element);
+  assert(
+    bounds.width > 0 &&
+      bounds.height > 0 &&
+      bounds.x >= 0 &&
+      bounds.y >= 0 &&
+      bounds.x + bounds.width <= innerWidth + 1 &&
+      bounds.bottom <= innerHeight + 1,
+    `${description} is outside the viewport: ${JSON.stringify(bounds)}`,
+  );
+  const hit = document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  assert(hit === element || element.contains(hit), `${description} is obscured`);
+}
+
+function assertActionTargets(buttons: HTMLButtonElement[], description: string) {
+  for (const [index, button] of buttons.entries()) {
+    const bounds = rect(button);
+    assert(
+      bounds.width >= 44 && bounds.height >= 44,
+      `${description} target ${index + 1} is below 44x44: ${JSON.stringify(bounds)}`,
+    );
+    assertVisible(button, `${description} target ${index + 1}`);
+  }
+}
+
+async function nextFrame() {
+  await new Promise<void>((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+  );
+}
+
+async function scrollToEnd(element: HTMLElement) {
+  for (const scroller of scrollableAncestors(element)) scroller.scrollTop = scroller.scrollHeight;
+  await nextFrame();
+}
+
+async function scrollOverlayToEnd(overlay: HTMLElement) {
+  const descendants = [...overlay.querySelectorAll<HTMLElement>('*')].reverse();
+  for (const element of [...descendants, overlay]) {
+    const overflow = getComputedStyle(element).overflowY;
+    if (/auto|scroll/.test(overflow) && element.scrollHeight > element.clientHeight + 1)
+      element.scrollTop = element.scrollHeight;
+  }
+  await nextFrame();
+}
+
 async function run() {
+  let emptyFilter:
+    | {
+        viewport: number[];
+        bounds: ReturnType<typeof rect>;
+        resetQuery: string;
+        resultCount: string;
+      }
+    | undefined;
   await waitFor(
     () =>
       workspace === 'review'
         ? document.querySelectorAll('[aria-label="Pending saved changes"] li a').length === 60
         : workspace === 'compendium-entry'
           ? document.querySelector('footer[aria-label="Review actions"]') !== null &&
-              [...document.querySelectorAll('button')].some(
-                (button) => button.textContent?.trim() === 'Bulk preview (6)',
-              )
+            [...document.querySelectorAll('button')].some(
+              (button) => button.textContent?.trim() === 'Bulk preview (6)',
+            )
           : workspace === 'compendium-sample'
-              ? document.querySelector('[aria-label="Category guidance"]') !== null &&
-                document.querySelector('[aria-label="Sample proposed source"] h3')?.textContent ===
-                  'Proposed source'
-        : document.querySelector('#main-content article') !== null,
+            ? document.querySelector('[aria-label="Category guidance"]') !== null &&
+              document.querySelector('[aria-label="Sample proposed source"] h3')?.textContent ===
+                'Proposed source'
+            : document.querySelector('#main-content article') !== null,
     'workspace queue',
   );
   if (workspace.startsWith('compendium-')) {
@@ -194,9 +268,7 @@ async function run() {
     assert(stableFrames === 5, 'Compendium layout did not settle after matching');
     const sample = workspace === 'compendium-sample';
     const firstAction = document.querySelector<HTMLElement>(
-      sample
-        ? '[aria-label^="Resolve sample"] button'
-        : 'footer[aria-label="Review actions"]',
+      sample ? '[aria-label^="Resolve sample"] button' : 'footer[aria-label="Review actions"]',
     )!;
     const actionRegion = sample ? firstAction.parentElement! : firstAction;
     const consequence = actionRegion.querySelector('p')?.textContent?.trim() ?? '';
@@ -207,61 +279,214 @@ async function run() {
           : 'Links create local drafts, not saves · Skip/No equivalent stay in browser.'),
       'Decision consequence must appear inside its action region',
     );
-    const actionButtons = [
-      ...actionRegion.querySelectorAll<HTMLButtonElement>('button'),
-    ];
-    assert(actionButtons.length >= 4, 'Expected all existing decision actions');
-    let buttonBounds = actionButtons.map((button) => rect(button));
+    const actionButtons = [...actionRegion.querySelectorAll<HTMLButtonElement>('button')];
+    const expectedActionCount = sample ? 4 : 5;
+    assert(
+      actionButtons.length === expectedActionCount,
+      `Expected ${expectedActionCount} existing decision actions`,
+    );
+    const actionMeasurements: {
+      phase: string;
+      actions: ReturnType<typeof rect>;
+      buttons: ReturnType<typeof rect>[];
+    }[] = [];
+    const evidence = document.querySelectorAll<HTMLElement>('[aria-label="Entry to review"] pre');
+    const target = sample
+      ? document.querySelector<HTMLTextAreaElement>('[aria-label="Category guidance"] textarea')
+      : evidence.item(evidence.length - 1);
+    assert(target !== null, 'Missing final sample input or review evidence');
     if (innerWidth <= 700) {
       const position = getComputedStyle(actionRegion).position;
-      assert(position === (sample ? 'sticky' : 'fixed'), 'Phone decision actions must remain reachable');
       assert(
-        actionButtons.every((button) => button.getBoundingClientRect().height >= 44),
-        'Decision target below 44px',
-      );
-      const evidence = document.querySelectorAll<HTMLElement>('[aria-label="Entry to review"] pre');
-      const target = sample
-        ? document.querySelector<HTMLTextAreaElement>('[aria-label="Category guidance"] textarea')
-        : evidence.item(evidence.length - 1);
-      assert(target !== null, 'Missing final sample input or review evidence');
-      target.scrollIntoView({ block: 'end' });
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-      let finalTarget = rect(target);
-      let actionBounds = rect(actionRegion);
-      if (finalTarget.bottom > actionBounds.y && finalTarget.y < actionBounds.bottom) {
-        window.scrollBy(0, finalTarget.bottom - actionBounds.y + 12);
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-        finalTarget = rect(target);
-        actionBounds = rect(actionRegion);
-      }
-      buttonBounds = actionButtons.map((button) => rect(button));
-      assert(
-        finalTarget.bottom <= actionBounds.y + 1 ||
-          finalTarget.y >= actionBounds.bottom - 1 ||
-          actionBounds.y >= innerHeight,
-        `Final evidence/input overlaps its action bar: ${JSON.stringify({ finalTarget, actionBounds })}`,
+        position === (sample ? 'sticky' : 'fixed'),
+        'Phone decision actions must remain reachable',
       );
     }
+    if (sample && innerWidth <= 700) {
+      const page = document.scrollingElement as HTMLElement;
+      const maxScroll = page.scrollHeight - page.clientHeight;
+      const actionBottom = actionRegion.getBoundingClientRect().bottom + page.scrollTop;
+      const firstActionScroll = Math.min(maxScroll, Math.max(0, actionBottom - innerHeight));
+      const positions = [
+        firstActionScroll,
+        Math.floor((firstActionScroll + maxScroll) / 2),
+        maxScroll,
+      ];
+      for (const [index, scrollTop] of positions.entries()) {
+        page.scrollTop = scrollTop;
+        await nextFrame();
+        assertActionTargets(actionButtons, `Sample actions at scroll position ${index + 1}`);
+        const actionBounds = rect(actionRegion);
+        const targetBounds = rect(target);
+        if (targetBounds.bottom > 0 && targetBounds.y < innerHeight) {
+          assert(
+            targetBounds.bottom <= actionBounds.y + 1 || targetBounds.y >= actionBounds.bottom - 1,
+            `Final sample input overlaps its action bar: ${JSON.stringify({ targetBounds, actionBounds })}`,
+          );
+        }
+        actionMeasurements.push({
+          phase: `document-${page.scrollTop}-of-${maxScroll}`,
+          actions: actionBounds,
+          buttons: actionButtons.map((button) => rect(button)),
+        });
+      }
+      assert(page.scrollTop === maxScroll, 'Sample fixture did not reach the full document end');
+    } else if (sample) {
+      await scrollToEnd(target);
+      assertActionTargets(actionButtons, `${sample ? 'Sample' : 'Entry'} actions at full scroll`);
+      actionMeasurements.push({
+        phase: 'full-scroll-end',
+        actions: rect(actionRegion),
+        buttons: actionButtons.map((button) => rect(button)),
+      });
+    } else {
+      target.scrollIntoView({ block: 'end' });
+      await nextFrame();
+      const targetBounds = rect(target);
+      const actionBounds = rect(actionRegion);
+      if (targetBounds.bottom > actionBounds.y && targetBounds.y < actionBounds.bottom) {
+        const scroller =
+          scrollableAncestors(target)[0] ?? (document.scrollingElement as HTMLElement);
+        scroller.scrollTop += targetBounds.bottom - actionBounds.y;
+        await nextFrame();
+      }
+      assertActionTargets(actionButtons, 'Entry actions while final evidence is reachable');
+      actionMeasurements.push({
+        phase: 'final-evidence-reachable',
+        actions: rect(actionRegion),
+        buttons: actionButtons.map((button) => rect(button)),
+      });
+    }
+    const finalTarget = rect(target);
+    assert(
+      finalTarget.bottom > 0 && finalTarget.y < innerHeight,
+      'Final evidence/input is not reachable at the full-scroll endpoint',
+    );
+    const finalActionBounds = rect(actionRegion);
+    assert(
+      finalTarget.bottom <= finalActionBounds.y + 1 ||
+        finalTarget.y >= finalActionBounds.bottom - 1,
+      `Final evidence/input overlaps its action bar: ${JSON.stringify({ finalTarget, finalActionBounds })}`,
+    );
     assert(
       document.documentElement.scrollWidth <= document.documentElement.clientWidth,
       'Horizontal page overflow',
     );
-    assert(network.every((url) => url.includes('__review-guidance')), 'Unexpected fixture request');
+    assert(
+      network.every((url) => url.includes('__review-guidance')),
+      'Unexpected fixture request',
+    );
+    let overlays: Record<string, unknown> | undefined;
+    if (!sample) {
+      const footer = document.querySelector<HTMLElement>('footer[aria-label="Review actions"]')!;
+      const page = footer.closest<HTMLElement>('article')!;
+      const measuredHeight = Number.parseFloat(
+        getComputedStyle(page).getPropertyValue('--review-action-bar-height'),
+      );
+      assert(
+        Number.isFinite(measuredHeight) &&
+          Math.abs(measuredHeight - footer.getBoundingClientRect().height) < 1,
+        'Overlay reservation must match the measured action bar height',
+      );
+
+      const pick = [...footer.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
+        button.textContent?.trim().startsWith('Pick other'),
+      )!;
+      pick.click();
+      await waitFor(
+        () => document.querySelector('[aria-label="Pick another source"]') !== null,
+        'picker opens',
+      );
+      const picker = document.querySelector<HTMLElement>('[aria-label="Pick another source"]')!;
+      await scrollOverlayToEnd(picker);
+      const pickerButtons = [...picker.querySelectorAll<HTMLButtonElement>('button')];
+      const pickerLastButton = pickerButtons.at(-1)!;
+      const pickerLastContent = picker.lastElementChild as HTMLElement;
+      const footerBounds = rect(footer);
+      const pickerBounds = rect(picker);
+      const pickerContentBounds = rect(pickerLastContent);
+      assert(
+        pickerBounds.bottom <= footerBounds.y + 1,
+        `Picker extends behind the review actions: ${JSON.stringify({ pickerBounds, footerBounds })}`,
+      );
+      assertVisible(pickerLastButton, 'Final picker control');
+      assert(
+        pickerContentBounds.bottom <= footerBounds.y + 1 &&
+          pickerContentBounds.bottom > pickerBounds.y - 1,
+        `Final picker evidence is not visible above the action bar: ${JSON.stringify({ pickerContentBounds, pickerBounds, footerBounds })}`,
+      );
+      const pickerResult = {
+        viewport: [innerWidth, innerHeight],
+        scrollTop: picker.scrollTop,
+        maxScroll: picker.scrollHeight - picker.clientHeight,
+        overlay: pickerBounds,
+        finalContent: pickerContentBounds,
+        finalControl: rect(pickerLastButton),
+        footer: footerBounds,
+      };
+      picker.querySelector<HTMLButtonElement>('header button')?.click();
+      await waitFor(
+        () => document.querySelector('[aria-label="Pick another source"]') === null,
+        'picker closes without a decision',
+      );
+
+      const bulkButton = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+        (button) => button.textContent?.trim() === 'Bulk preview (6)',
+      )!;
+      bulkButton.click();
+      await waitFor(
+        () => document.querySelector('[aria-label="Bulk accept preview"]') !== null,
+        'bulk preview opens',
+      );
+      const bulk = document.querySelector<HTMLElement>('[aria-label="Bulk accept preview"]')!;
+      await scrollOverlayToEnd(bulk);
+      const bulkFooterBounds = rect(footer);
+      const bulkBounds = rect(bulk);
+      const bulkButtons = [...bulk.querySelectorAll<HTMLButtonElement>('button')];
+      const bulkLastButton = bulkButtons.at(-1)!;
+      const bulkList = [...bulk.children].find(
+        (child): child is HTMLElement =>
+          child instanceof HTMLElement &&
+          [...child.children].some((entry) => entry.tagName === 'SECTION'),
+      );
+      const bulkLastEntry = bulkList?.lastElementChild as HTMLElement | undefined;
+      const bulkLastEvidence = bulkLastEntry?.lastElementChild as HTMLElement | undefined;
+      assert(
+        bulkBounds.bottom <= bulkFooterBounds.y + 1,
+        `Bulk preview extends behind the review actions: ${JSON.stringify({ bulkBounds, bulkFooterBounds })}`,
+      );
+      assertVisible(bulkLastButton, 'Final bulk control');
+      assert(
+        !!bulkLastEvidence &&
+          rect(bulkLastEvidence).bottom <= bulkFooterBounds.y + 1 &&
+          rect(bulkLastEvidence).bottom > bulkBounds.y - 1,
+        `Final bulk evidence is not visible above the action bar: ${JSON.stringify({ evidence: bulkLastEvidence ? rect(bulkLastEvidence) : null, bulkBounds, bulkFooterBounds })}`,
+      );
+      overlays = {
+        picker: pickerResult,
+        bulk: {
+          viewport: [innerWidth, innerHeight],
+          scrollTop: bulk.scrollTop,
+          maxScroll: bulk.scrollHeight - bulk.clientHeight,
+          overlay: bulkBounds,
+          finalEvidence: bulkLastEvidence ? rect(bulkLastEvidence) : null,
+          finalControl: rect(bulkLastButton),
+          footer: bulkFooterBounds,
+        },
+      };
+      assert(
+        Object.keys(useDraftStore.getState().drafts).length === 0,
+        'Overlay fixture created drafts',
+      );
+    }
     return {
       fixture: workspace,
       viewport: [innerWidth, innerHeight],
       actions: rect(actionRegion),
       consequence,
-      buttons: buttonBounds,
-      target: sample
-        ? rect(document.querySelector('[aria-label="Category guidance"] textarea')!)
-        : rect(
-            document
-              .querySelectorAll<HTMLElement>('[aria-label="Entry to review"] pre')
-              .item(
-                document.querySelectorAll('[aria-label="Entry to review"] pre').length - 1,
-              ),
-          ),
+      actionMeasurements,
+      target: finalTarget,
+      overlays,
       documentWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
       network,
@@ -285,6 +510,47 @@ async function run() {
         'Review action or filter target below 44px',
       );
     }
+    const search = document.querySelector<HTMLInputElement>('[aria-label="Find saved changes"]')!;
+    const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    if (!valueSetter) throw new Error('Input value setter unavailable');
+    valueSetter.call(search, 'no-such-fixture-xyz');
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await waitFor(
+      () => document.body.textContent?.includes('No saved changes match these filters.') ?? false,
+      'empty filtered Review state',
+    );
+    const clearFilters = [
+      ...document.querySelectorAll<HTMLButtonElement>('#main-content article button'),
+    ].find((button) => button.textContent?.trim() === 'Clear filters');
+    if (!clearFilters) throw new Error('Missing Clear filters action');
+    const clearBounds = rect(clearFilters);
+    if (innerWidth <= 700)
+      assert(
+        clearBounds.width >= 44 && clearBounds.height >= 44,
+        `Empty-state Clear filters target below 44x44: ${JSON.stringify(clearBounds)}`,
+      );
+    clearFilters.focus();
+    assert(document.activeElement === clearFilters, 'Clear filters must remain keyboard focusable');
+    clearFilters.click();
+    await waitFor(
+      () =>
+        search.value === '' &&
+        (document.querySelector('#main-content article')?.textContent ?? '').includes(
+          'Showing 60 of 60',
+        ),
+      'Clear filters resets the actual Review filters',
+    );
+    if (innerWidth <= 700)
+      assert(clearBounds.height >= 44, 'Empty-state Clear filters target below 44px');
+    emptyFilter = {
+      viewport: [innerWidth, innerHeight],
+      bounds: clearBounds,
+      resetQuery: search.value,
+      resultCount:
+        document
+          .querySelector('#main-content article')
+          ?.textContent?.match(/Showing (\d+ of \d+)/)?.[1] ?? '',
+    };
   }
   const sidebar = document.getElementById('sidebar')!;
   const body = sidebar.querySelector<HTMLElement>(`.${styles.sidebarBody}`)!;
@@ -309,6 +575,7 @@ async function run() {
       anchor: anchor ? rect(anchor) : null,
       minHeight: density?.minHeight,
       padding: density?.paddingTop,
+      emptyFilter: workspace === 'review' ? emptyFilter : undefined,
       network,
     };
   }
@@ -390,7 +657,13 @@ async function run() {
   assert(selected() === beforeSelection, 'Reopen changed selection');
   assert(network.length === 0, `Unexpected fixture requests: ${network.join(', ')}`);
   assert(Object.keys(useDraftStore.getState().drafts).length === 0, 'Fixture created drafts');
-  return { top, end, selected: beforeSelection, network };
+  return {
+    top,
+    end,
+    selected: beforeSelection,
+    emptyFilter: workspace === 'review' ? emptyFilter : undefined,
+    network,
+  };
 }
 
 void run().then(

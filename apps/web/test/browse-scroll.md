@@ -16,14 +16,20 @@ trigger decisions.
 
 Read the hidden `#result` output after loading. `PASS` includes actual
 top/end rectangles, clientHeight, scrollHeight, scrollTop, final-link
-bounds, Close bounds, selection and network requests. The assertions
-require one viewport-bounded body, reachable final link, stationary
-Close/background, no horizontal overflow, 44px Review action, filter
-and queue targets, focus
-containment/restoration and unchanged selection after close/reopen.
-Failures are explicit and the readiness wait is bounded to five seconds.
-The fixture leaves Browse open at the top for a screenshot; scroll its
-body to the end for the companion capture.
+bounds, Close bounds, selection and network requests. The sample and entry
+fixtures also measure decision targets at real scroll positions, final
+evidence/input reachability, the measured action-bar height, and the ends
+of both picker and bulk-preview overlays. `workspace=review` filters to
+`no-such-fixture-xyz`, measures Clear filters in the empty state, then
+activates it and verifies the visible list is restored.
+
+The assertions require one viewport-bounded Browse body, reachable final
+links, stationary Close/background, no horizontal overflow, 44px Review
+and decision targets, focused filter reset, focus containment/restoration
+and unchanged selection after close/reopen. Failures are explicit and
+the readiness wait is bounded to five seconds. The fixture leaves Browse
+open at the top for a screenshot; scroll its body to the end for the
+companion capture.
 
 At **1440x1000**, repeat the queues for desktop density. Use
 `workspace=editor` without `long=true` for the representative short
@@ -36,9 +42,10 @@ It does not supply browser layout geometry. This fixture is the
 permanent rendered regression; headless results do not imply physical
 phone, IME or real-account clearance.
 
-The sample and entry variants also report action-bar rectangles, all
-decision-button rectangles, the last input/evidence rectangle, document width,
-and blocked guidance requests. On phones they require the sample action group
-to remain sticky, the individual action bar to remain fixed above the save dock,
-44px button targets, truthful consequence text inside the action region, and
-the final input/evidence to remain unobscured after scrolling.
+At each viewport, the sample and entry variants report action-bar and
+decision-button rectangles, the last input/evidence rectangle, document
+width, overlay end controls/evidence and blocked guidance requests. Phone
+sample actions are checked from first reachability through the full document
+end; picker and bulk overlays must stop above the actual measured decision
+bar and keep their final evidence/controls reachable. No fixture decision is
+submitted.

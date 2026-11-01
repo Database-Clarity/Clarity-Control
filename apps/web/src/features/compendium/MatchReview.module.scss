@@ -236,7 +236,7 @@
 }
 .overlay {
   position: fixed;
-  inset: 2rem 2rem 6rem calc(17rem + 2rem);
+  inset: 2rem 2rem calc(var(--review-action-bar-height, 0px) + 0.5rem) calc(17rem + 2rem);
   z-index: 9;
   padding: 1.4rem;
   background: #1c2130;
@@ -331,7 +331,10 @@
   }
   .overlay {
     inset: 0.5rem 0.5rem
-      calc(8rem + var(--save-dock-height, calc(5rem + env(safe-area-inset-bottom, 0px))));
+      calc(
+        var(--review-action-bar-height, 0px) +
+          var(--save-dock-height, calc(5rem + env(safe-area-inset-bottom, 0px))) + 0.5rem
+      );
     padding: 1rem;
   }
   .progress {
