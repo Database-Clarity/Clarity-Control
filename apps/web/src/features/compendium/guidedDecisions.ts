@@ -6,14 +6,16 @@ import type { ReviewCategory, ReviewSample } from './reviewCategories';
 import type { ReviewProposal } from './rapidReview';
 import { referenceCurrent } from './sampleReferences';
 import { sourceFingerprint } from './reviewProgress';
+import { manifestRule } from './manifestRule';
+import { classifyScope } from './reviewScope';
 
 export interface GuidedDecision {
   hash: number;
   name: string;
   categoryId: string;
-  confidence: 'high' | 'medium' | 'unresolved';
+  confidence: 'high' | 'medium' | 'unresolved' | 'out-of-scope';
   ruleId: string;
-  action: 'link' | 'no-equivalent' | 'owner' | 'preserve';
+  action: 'link' | 'no-equivalent' | 'owner' | 'preserve' | 'out-of-scope';
   reason: string;
   references: number[];
   evidence?: string;
@@ -28,6 +30,7 @@ export interface GuidedCategory {
   entries: GuidedDecision[];
   high: number;
   unresolved: number;
+  outOfScope: number;
   medium: number;
   ownerNote: string;
   samples: number[];
@@ -42,6 +45,22 @@ function stableSelection(
   return link && { ...link, snapshotAt: source.fetchedAt };
 }
 
+// Bounded typo comparison on normalized full names. A close runner-up is ambiguous.
+function editDistance(a: string, b: string): number {
+  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j++)
+      current[j] = Math.min(
+        current[j - 1] + 1,
+        previous[j] + 1,
+        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    previous = current;
+  }
+  return previous[b.length];
+}
+
 // Pure planning only. No drafts, progress, guidance writes, authentication or save calls.
 export function guidedDecisions(
   document: GuidanceDocument,
@@ -52,6 +71,23 @@ export function guidedDecisions(
   scope: string,
 ): GuidedCategory[] {
   const current = new Map(categories.map((category) => [category.id, category]));
+  const globalUsable = new Map<number, GuidanceReference>();
+  if (document.scope === scope && document.baseline === baseline) {
+    for (const record of Object.values(document.categories)) {
+      if (!record.active) continue;
+      const category = current.get(record.id);
+      for (const ref of Object.values(record.references ?? {})) {
+        const entry = category?.entries.find((candidate) => candidate.hash === ref.hash);
+        if (
+          entry &&
+          record.hashes.includes(ref.hash) &&
+          ref.decision === 'no-equivalent' &&
+          referenceCurrent(ref, entry, baseline, source)
+        )
+          globalUsable.set(ref.hash, ref);
+      }
+    }
+  }
   return Object.values(document.categories)
     .filter((record) => record.active)
     .map((record) => {
@@ -103,6 +139,15 @@ export function guidedDecisions(
             action: 'preserve',
             reason: 'Existing link, draft or human review decision preserved.',
           };
+        const scopeRule = classifyScope(entry, record.id);
+        if (scopeRule)
+          return {
+            ...result,
+            action: 'out-of-scope',
+            confidence: 'out-of-scope',
+            ruleId: scopeRule,
+            reason: `Out of scope: ${scopeRule}.`,
+          };
         if (!compatible)
           return { ...result, reason: 'Scope or baseline differs; proposal withheld.' };
         const reference = usable.get(hash);
@@ -124,6 +169,9 @@ export function guidedDecisions(
             ...result,
             reason: 'Category comment needs agent interpretation; no automatic rule applied.',
           };
+        const manifestDecision =
+          !entry.scopeRestored && manifestRule(entry, record.id, globalUsable);
+        if (manifestDecision) return { ...result, ...manifestDecision };
         if (record.id === 'catalog:armor-mod-seasonal')
           return {
             ...result,
@@ -182,6 +230,7 @@ export function guidedDecisions(
                 row,
                 exact,
                 token,
+                distance: editDistance(norm, first),
                 score: Math.max(...[...names].map((name) => compendiumSimilarity(name, first))),
               };
             }),
@@ -189,6 +238,13 @@ export function guidedDecisions(
         const exact = candidates.filter((candidate) => candidate.exact);
         const token = candidates.filter((candidate) => candidate.token);
         const ranked = [...candidates].sort((a, b) => b.score - a.score);
+        const typoRanked = [...candidates].sort((a, b) => a.distance - b.distance);
+        const typo =
+          norm.length >= 8 &&
+          typoRanked[0]?.distance <= 2 &&
+          (typoRanked[1]?.distance ?? Infinity) - typoRanked[0].distance >= 2
+            ? typoRanked[0]
+            : undefined;
         const best =
           exact.length === 1
             ? exact[0]
@@ -200,7 +256,7 @@ export function guidedDecisions(
                   ? undefined
                   : ranked[0]?.score >= 0.65 && ranked[0].score - (ranked[1]?.score ?? 0) >= 0.08
                     ? ranked[0]
-                    : undefined;
+                    : typo;
         if (!best) {
           const proposal = proposals.get(hash);
           if (exact.length > 1 || proposal?.match?.parts) {
@@ -283,7 +339,10 @@ export function guidedDecisions(
                 : 'unique-name-in-learned-tab'
             : token.length === 1
               ? 'exotic-name-line-or-catalyst'
-              : 'separated-fuzzy-name';
+              : best === typo &&
+                  !(ranked[0]?.score >= 0.65 && ranked[0].score - (ranked[1]?.score ?? 0) >= 0.08)
+                ? 'separated-typo-name'
+                : 'separated-fuzzy-name';
         return {
           ...result,
           confidence: high ? 'high' : 'medium',
@@ -302,23 +361,26 @@ export function guidedDecisions(
       const decisions = record.hashes.map(decide);
       const medium = decisions.filter((entry) => entry.confidence === 'medium').length;
       const high = decisions.filter((entry) => entry.confidence === 'high').length;
+      const outOfScope = decisions.filter((entry) => entry.confidence === 'out-of-scope').length;
       // Deterministic stratification by outcome, with remaining exceptions available in full below.
       const stratum = (entry: GuidedDecision) =>
         `${entry.ruleId}:${entry.confidence}:${entry.action}`;
-      const samples = [...new Set(decisions.map(stratum))]
-        .flatMap((kind) => decisions.filter((entry) => stratum(entry) === kind).slice(0, 2))
+      const actionable = decisions.filter((entry) => entry.confidence !== 'out-of-scope');
+      const samples = [...new Set(actionable.map(stratum))]
+        .flatMap((kind) => actionable.filter((entry) => stratum(entry) === kind).slice(0, 2))
         .map((entry) => entry.hash);
       return {
         id: record.id,
         name: category?.name ?? record.name,
         comment: record.comment,
         pattern:
-          'Unique normalized name in an owner-demonstrated tab; fragment prefixes and explicitly approved shared armor families normalized. Exotic name lines, catalyst suffixes and separated fuzzy names require confirmation. No-equivalent decisions never generalize.',
+          'Unique normalized name in an owner-demonstrated tab; fragment prefixes and explicitly approved shared armor families normalized. Exotic name lines, catalyst suffixes and separated fuzzy names require confirmation. No-equivalent families require current owner support and explicit manifest predicates; missing names never prove exclusion.',
         issues,
         entries: decisions,
         high,
         medium,
-        unresolved: decisions.length - high - medium,
+        outOfScope,
+        unresolved: decisions.length - high - medium - outOfScope,
         ownerNote: decisions.some((entry) => entry.confidence === 'unresolved')
           ? `Provide a source row or confirm no equivalent for representative exceptions: ${decisions
               .filter((entry) => entry.confidence === 'unresolved')

@@ -1,7 +1,7 @@
 import { guidedDecisions, guidedRevision, type GuidedDecision } from './guidedDecisions';
 import { importContext } from './importContext';
 import { researchSuggestions } from './researchSuggestions';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { CompendiumData, Tooltip } from '@clarity/core';
 import { groupManifestItems } from './manifestItems';
@@ -25,6 +25,7 @@ import { useProposals } from './useProposals';
 import { CategoryReview } from './CategoryReview';
 import { categoryId, reviewCategories, type ReviewCategory } from './reviewCategories';
 import { useGuidance } from './useGuidance';
+import { classifyScope } from './reviewScope';
 import {
   BulkPreview,
   bulkPreviewCurrent,
@@ -109,6 +110,37 @@ export function ReviewQueue({
   const [params, setParams] = useSearchParams();
   const categoryView = params.get('view') !== 'entries';
   const groupId = params.get('group');
+  const scopeKey = `review-scope-restored:${bundleUrl}|${compendiumDataUrl}`;
+  const [scopeState, setScopeState] = useState(() => {
+    try {
+      const raw = localStorage.getItem(scopeKey);
+      const value: unknown = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(value) || !value.every((hash) => Number.isSafeInteger(hash)))
+        throw new Error('Invalid stored restore list');
+      return { hashes: new Set<number>(value), error: '' };
+    } catch {
+      return {
+        hashes: new Set<number>(),
+        error: 'Could not load restored scope from local storage.',
+      };
+    }
+  });
+  const scopeRef = useRef(scopeState);
+  function restoreScope(hash: number) {
+    if (scopeRef.current.hashes.has(hash)) return;
+    const hashes = new Set(scopeRef.current.hashes);
+    hashes.add(hash);
+    let error = '';
+    try {
+      localStorage.setItem(scopeKey, JSON.stringify([...hashes]));
+    } catch {
+      error = 'Could not save restored scope to local storage.';
+    }
+    const next = { hashes, error };
+    scopeRef.current = next;
+    setScopeState(next);
+    setBulk(undefined);
+  }
   const [message, setMessage] = useState('');
   const [proposalFilter, setProposalFilter] = useState('all');
   const [picker, setPicker] = useState(false);
@@ -130,11 +162,47 @@ export function ReviewQueue({
   );
   const { proposals, loading: matching, error: proposalError } = useProposals(editor, source);
   const categories = useMemo(
-    () => reviewCategories(entries, editor, proposals, matching, !!proposalError),
-    [entries, editor, proposals, matching, proposalError],
+    () =>
+      reviewCategories(entries, editor, proposals, matching, !!proposalError).map((category) => {
+        const decorated = new Map(
+          category.entries.map((entry) => [
+            entry.hash,
+            {
+              ...entry,
+              scopeRestored: scopeState.hashes.has(entry.hash),
+            },
+          ]),
+        );
+        const decorate = (entry: (typeof category.entries)[number]) => decorated.get(entry.hash)!;
+        return {
+          ...category,
+          entries: category.entries.map(decorate),
+          samples: category.samples.map(decorate),
+          reasons: Object.fromEntries(
+            Object.entries(category.reasons).map(([reason, items]) => [
+              reason,
+              items.map(decorate),
+            ]),
+          ) as typeof category.reasons,
+        };
+      }),
+    [entries, editor, proposals, matching, proposalError, scopeState.hashes],
   );
-  const guidance = useGuidance(categories, `${editor.bundle.sourceCommit}|${fingerprint}`);
-  const filtered = entries.filter(
+  const guidance = useGuidance(
+    categories,
+    `${editor.bundle.sourceCommit}|${fingerprint}`,
+    source,
+    !matching && !proposalError,
+  );
+  const inScope = new Set(
+    categories.flatMap((category) =>
+      category.entries
+        .filter((entry) => !classifyScope(entry, category.id))
+        .map((entry) => entry.hash),
+    ),
+  );
+  const scopedEntries = entries.filter((entry) => inScope.has(entry.hash));
+  const filtered = scopedEntries.filter(
     (entry) =>
       (!groupId || categoryId(entry.category) === groupId) &&
       (!progress.category || entry.category === progress.category) &&
@@ -165,7 +233,7 @@ export function ReviewQueue({
   );
   const bulkCurrent =
     !!bulk && bulkPreviewCurrent(bulk, editor, source, entries, proposals, drafts);
-  const completed = entries.filter((entry) => entry.status !== 'open').length;
+  const completed = scopedEntries.filter((entry) => entry.status !== 'open').length;
   const nextHash = advanceHash(
     filtered.map((entry) => entry.hash),
     index,
@@ -238,6 +306,10 @@ export function ReviewQueue({
   }
   function acceptGuided(category: ReviewCategory, decisions: GuidedDecision[], revision: string) {
     // Read authoritative state at invocation: a captured handler may predate a synchronous edit.
+    if (scopeRef.current.hashes !== scopeState.hashes) {
+      setMessage('Review scope changed. Open a new preview.');
+      return;
+    }
     const latest = guidance.persistence.getSnapshot();
     if (
       !mayDraftLink(
@@ -255,7 +327,7 @@ export function ReviewQueue({
       return;
     const group = guidedDecisions(
       latest.proposalInput,
-      [category],
+      categories,
       proposals,
       source,
       `${editor.bundle.sourceCommit}|${fingerprint}`,
@@ -308,6 +380,7 @@ export function ReviewQueue({
   function acceptBulk(visible: BulkProposal[]) {
     if (!canEdit || !bulk || !visible.length) return;
     if (
+      scopeRef.current.hashes !== scopeState.hashes ||
       !bulkPreviewCurrent(bulk, editor, source, entries, proposals, useDraftStore.getState().drafts)
     ) {
       setMessage('Preview evidence or drafts changed. Cancel and open a new preview.');
@@ -374,6 +447,7 @@ export function ReviewQueue({
       <>
         {proposalError && <p role="alert">{proposalError}</p>}
         {error && <p role="alert">{error}</p>}
+        {scopeState.error && <p role="alert">{scopeState.error}</p>}
         {message && <p role="status">{message}</p>}
         <button disabled={!undo || !canEdit} onClick={undoLast}>
           Undo last decision
@@ -381,6 +455,7 @@ export function ReviewQueue({
         <CategoryReview
           canEdit={canEdit}
           onAccept={acceptGuided}
+          onRestore={restoreScope}
           categories={categories}
           editor={editor}
           source={source}
@@ -411,11 +486,12 @@ export function ReviewQueue({
         {groupId && <button onClick={() => reviewCategory()}>Review all categories</button>}
       </div>
       {proposalError && <p role="alert">{proposalError}</p>}
+      {scopeState.error && <p role="alert">{scopeState.error}</p>}
       <div className={styles.progress}>
-        <progress value={completed} max={entries.length || 1} />
+        <progress value={completed} max={scopedEntries.length || 1} />
         <span>
-          {completed} / {entries.length} reviewed ·{' '}
-          {entries.filter((e) => e.status === 'drafted').length} drafts
+          {completed} / {scopedEntries.length} reviewed ·{' '}
+          {scopedEntries.filter((e) => e.status === 'drafted').length} drafts
         </span>
       </div>
       <div className={styles.filters}>

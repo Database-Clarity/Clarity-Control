@@ -15,16 +15,20 @@ export function GuidedPreview({
   document,
   planningRevision = 0,
   category,
+  categories,
   proposals,
   source,
   baseline,
   scope,
   canEdit = false,
   onAccept,
+  onRestore,
 }: {
+  onRestore?: (hash: number) => void;
   document: GuidanceDocument;
   planningRevision?: number;
   category: ReviewCategory;
+  categories?: ReviewCategory[];
   proposals: Map<number, ReviewProposal>;
   source: CompendiumData;
   baseline: string;
@@ -40,10 +44,10 @@ export function GuidedPreview({
   const [limit, setLimit] = useState(20);
   const group = useMemo(
     () =>
-      guidedDecisions(document, [category], proposals, source, baseline, scope).find(
+      guidedDecisions(document, categories ?? [category], proposals, source, baseline, scope).find(
         (group) => group.id === category.id,
       ),
-    [document, category, proposals, source, baseline, scope],
+    [document, category, categories, proposals, source, baseline, scope],
   );
   if (!group) return null;
   const current =
@@ -51,6 +55,7 @@ export function GuidedPreview({
     (planningRevision === preview.planningRevision &&
       guidedRevision([group]) === guidedRevision([preview.group]));
   const shown = preview?.group ?? group;
+  const actionable = group.entries.filter((entry) => entry.confidence !== 'out-of-scope');
   const candidates = shown.entries.filter(
     (entry) => entry.confidence === preview?.tier && entry.action === 'link',
   );
@@ -62,6 +67,19 @@ export function GuidedPreview({
       </summary>
       <p>Acceptance creates local link-only drafts. Review &amp; save uses the normal save flow.</p>
       <p>{group.ownerNote}</p>
+      <details>
+        <summary>
+          Not needed ({group.entries.filter((entry) => entry.confidence === 'out-of-scope').length})
+        </summary>
+        {group.entries
+          .filter((entry) => entry.confidence === 'out-of-scope')
+          .map((entry) => (
+            <div key={entry.hash}>
+              {entry.name} · {entry.hash}{' '}
+              <button onClick={() => onRestore?.(entry.hash)}>Restore to scope</button>
+            </div>
+          ))}
+      </details>
       <button
         disabled={!canEdit}
         onClick={() =>
@@ -137,11 +155,11 @@ export function GuidedPreview({
         .map((entry) => (
           <Decision key={entry.hash} entry={entry} />
         ))}
-      <h4>Full recorded scope</h4>
-      {group.entries.slice(0, limit).map((entry) => (
+      <h4>In-scope proposals</h4>
+      {actionable.slice(0, limit).map((entry) => (
         <Decision key={entry.hash} entry={entry} />
       ))}
-      {limit < group.entries.length && (
+      {limit < actionable.length && (
         <button onClick={() => setLimit(limit + 20)}>Show 20 more proposals</button>
       )}
     </details>

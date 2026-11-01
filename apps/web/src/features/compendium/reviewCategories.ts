@@ -3,9 +3,16 @@ import { groupManifestItems } from './manifestItems';
 import type { ReviewProposal } from './rapidReview';
 import type { applyReviewProgress } from './reviewQueue';
 import { sourceFingerprint } from './reviewProgress';
+import { loadManifestFacts, type ManifestFacts } from './manifestFacts';
+
+const catalogFacts = loadManifestFacts();
 
 export type ReviewEntry = ReturnType<typeof applyReviewProgress>[number];
-export type ReviewSample = ReviewEntry & { sampleEvidence: string };
+export type ReviewSample = ReviewEntry & {
+  sampleEvidence: string;
+  scopeRestored?: boolean;
+  manifestFacts?: { item: ManifestFacts['items'][string]; version: string };
+};
 export const reasonLabels = {
   validated: 'Validated proposals',
   fuzzy: 'Fuzzy candidates only',
@@ -37,6 +44,7 @@ export function reviewCategories(
   failed = false,
 ): ReviewCategory[] {
   const manifest = groupManifestItems(editor.items, editor.aliases);
+  const facts = catalogFacts;
   const groups = new Map<string, ReviewCategory>();
   for (const entry of entries) {
     const id = categoryId(entry.category);
@@ -75,8 +83,22 @@ export function reviewCategories(
             : proposal?.candidates.length
               ? 'fuzzy'
               : 'none';
-    const sample = {
+    const items = manifest.get(entry.hash) ?? [];
+    const fact = facts.items[String(entry.hash)];
+    // All aliases must describe the same raw inventory item before attaching facts.
+    const agreed =
+      fact?.inventory &&
+      items.length > 0 &&
+      items.every(
+        (item) =>
+          item.hash === entry.hash &&
+          item.name === fact.inventory!.displayName &&
+          (!item.inGameDescription.trim() ||
+            item.inGameDescription === fact.inventory!.description),
+      );
+    const sample: ReviewSample = {
       ...entry,
+      ...(agreed ? { manifestFacts: { item: fact, version: facts.source.manifestVersion } } : {}),
       sampleEvidence: sourceFingerprint([
         entry.hash,
         entry.evidence,

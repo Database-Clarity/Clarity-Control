@@ -12,6 +12,12 @@ import { bundleUrl } from '../../services/bundle';
 import { compendiumDataUrl } from '../../services/compendium';
 import { guidedDecisions, guidedRevision } from './guidedDecisions';
 import type { CategoryReview } from './CategoryReview';
+import { loadManifestFacts } from './manifestFacts';
+import { reviewCategories } from './reviewCategories';
+import { emptyProgress, sourceFingerprint } from './reviewProgress';
+import { reviewQueue } from './reviewQueue';
+import { proposalFor } from './rapidReview';
+import { sampleReference } from './sampleReferences';
 
 vi.mock('../../services/api', () => ({ apiUrl: 'https://synthetic.invalid' }));
 vi.mock('../../services/draftStorage', () => ({
@@ -35,13 +41,68 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function mount() {
+async function mount(scope?: 'ghost' | 'mixed') {
   const cache = new Map<string, string>();
+  let backupFailure = false;
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => cache.get(key) ?? null,
-    setItem: (key: string, value: string) => cache.set(key, value),
+    setItem: (key: string, value: string) => {
+      if (backupFailure && key.includes(':pre-renewal:')) throw new Error('quota');
+      cache.set(key, value);
+    },
   });
   const f = guidedFixture();
+  if (scope) {
+    const categoryId = scope === 'ghost' ? 'ghost-mod' : 'weapon-perk';
+    for (const item of Object.values(f.editor.items)) item.categoryId = categoryId;
+    if (scope === 'mixed') {
+      const inventory = loadManifestFacts().items['5699512'].inventory!;
+      f.editor.items[5699512] = {
+        hash: 5699512,
+        name: inventory.displayName!,
+        categoryId,
+        icon: '',
+        inGameDescription: inventory.description!,
+      };
+    }
+    const entries = reviewQueue(
+      f.editor,
+      f.source,
+      {},
+      emptyProgress(),
+      sourceFingerprint(f.source.tabs),
+    );
+    f.proposals = new Map(
+      entries.map((entry) => [entry.hash, proposalFor(entry.base, f.editor, f.source)]),
+    );
+    f.categories = reviewCategories(entries, f.editor, f.proposals, false);
+    const category = f.categories[0];
+    const original = Object.values(f.document.categories)[0];
+    f.document.categories = {
+      [category.id]: {
+        ...original,
+        id: category.id,
+        name: category.name,
+        rule: category.rule,
+        count: entries.length,
+        hashes: entries.map((entry) => entry.hash),
+        references: Object.fromEntries(
+          Object.values(original.references!).map((reference) => [
+            reference.hash,
+            sampleReference(
+              category.entries.find((entry) => entry.hash === reference.hash)!,
+              category.id,
+              f.baseline,
+              reference.note,
+              reference.decision,
+              reference.link ? f.proposals.get(reference.hash)?.match : undefined,
+              f.source,
+            ),
+          ]),
+        ),
+      },
+    };
+  }
   f.document.scope = `${bundleUrl}|${compendiumDataUrl}`;
   captured.proposals = f.proposals;
   let disk = structuredClone(f.document);
@@ -103,6 +164,9 @@ async function mount() {
     click,
     frozen,
     request,
+    failBackups: () => {
+      backupFailure = true;
+    },
     conflict: () => {
       conflict = true;
     },
@@ -130,6 +194,46 @@ it.each([false, true])(
       await f.click('Accept all high');
       expect(Object.keys(useDraftStore.getState().drafts).sort()).toEqual(['101', '102']);
       expect(useDraftStore.getState().drafts[100]).toBeUndefined();
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+it.each(['ghost', 'mixed'] as const)(
+  'retains %s exclusions and Restore when stale-guidance renewal cannot back up',
+  async (scope) => {
+    const f = await mount(scope);
+    try {
+      const original = structuredClone(f.props().guidance.document);
+      f.failBackups();
+      await act(async () => {
+        f.props().guidance.persistence.importBackup({
+          ...original,
+          baseline: 'stale-baseline',
+        });
+      });
+      const p = f.props();
+      expect(p.guidance.document.baseline).toBe('stale-baseline');
+      expect(p.guidance.document.categories).toEqual(original.categories);
+      expect(p.guidance.localError).toContain('renewal backup failed');
+      expect(f.host.textContent).toContain(`Not needed (${scope === 'ghost' ? 6 : 1})`);
+      expect(f.button('Restore to scope')).toBeTruthy();
+      const group = guidedDecisions(
+        p.guidance.proposalInput!,
+        p.categories,
+        p.proposals,
+        f.source,
+        f.baseline,
+        f.document.scope,
+      )[0];
+      expect(group.high).toBe(0);
+      expect(group.medium).toBe(0);
+      expect(group.outOfScope).toBe(scope === 'ghost' ? 6 : 1);
+      expect(group.samples).not.toContain(scope === 'ghost' ? 100 : 5699512);
+      await act(async () => p.onRestore!(scope === 'ghost' ? 100 : 5699512));
+      expect(f.host.textContent).toContain(`Not needed (${scope === 'ghost' ? 5 : 0})`);
+      expect(useDraftStore.getState().drafts).toEqual({});
     } finally {
       await f.close();
     }
@@ -182,6 +286,66 @@ it.each(['comment', 'reload', 'conflict'] as const)(
       });
       expect(f.button('Accept all high').disabled).toBe(true);
       expect(useDraftStore.getState().drafts).toEqual({});
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+it('keeps an entirely ghost category out of owner samples, counts and browse actions', async () => {
+  const f = await mount('ghost');
+  try {
+    expect(f.host.textContent).toContain('0/0 samples resolved');
+    expect(f.host.textContent).toContain('Browse / category definition (0 entries)');
+    expect(f.host.textContent).toContain('Not needed (6)');
+    expect(f.host.querySelector('[aria-label="Representative samples"]')?.children).toHaveLength(0);
+    expect(f.host.querySelector('[aria-label^="Resolve sample"]')).toBeNull();
+    expect(f.host.textContent).not.toContain('Validated proposals:');
+    const p = f.props();
+    expect(p.categories[0].entries).toHaveLength(6);
+    expect(Object.values(p.guidance.document.categories)[0].references).toHaveProperty('100');
+  } finally {
+    await f.close();
+  }
+});
+
+it('removes real stat-only samples from mixed category owner surfaces without losing membership', async () => {
+  const f = await mount('mixed');
+  try {
+    expect(f.host.textContent).toContain('Browse / category definition (6 entries)');
+    expect(f.host.textContent).toContain('Not needed (1)');
+    expect(
+      f.host.querySelector('[aria-label="Representative samples"]')?.textContent,
+    ).not.toContain('Horizon Ironsights');
+    expect(f.host.querySelector('[aria-label^="Resolve sample Horizon"]')).toBeNull();
+    expect(f.host.textContent).not.toContain('No resolver candidate: 1');
+    expect(f.props().categories[0].entries).toHaveLength(7);
+  } finally {
+    await f.close();
+  }
+});
+
+it.each([false, true])(
+  'invalidates captured acceptance when real excluded scope is restored, after render=%s',
+  async (afterRender) => {
+    const f = await mount('mixed');
+    try {
+      await f.click('Preview all high');
+      const oldHandler = f.frozen();
+      const restore = f.props().onRestore!;
+      await act(async () => {
+        restore(5699512);
+        if (!afterRender) oldHandler();
+      });
+      if (afterRender) await act(async () => oldHandler());
+      expect(useDraftStore.getState().drafts).toEqual({});
+      expect(f.host.textContent).toContain('Review scope changed');
+      expect(f.button('Accept all high').disabled).toBe(true);
+      expect(f.host.textContent).toContain('Not needed (0)');
+      expect(f.host.textContent).toContain('Browse / category definition (7 entries)');
+      await f.click('Preview all high');
+      await f.click('Accept all high');
+      expect(Object.keys(useDraftStore.getState().drafts)).toEqual(['100', '101', '102']);
     } finally {
       await f.close();
     }

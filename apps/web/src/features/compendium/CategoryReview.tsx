@@ -12,6 +12,7 @@ import { GuidedPreview } from './GuidedPreview';
 import { bundleUrl } from '../../services/bundle';
 import { compendiumDataUrl } from '../../services/compendium';
 import { sourceFingerprint } from './reviewProgress';
+import { inScopeCategory } from './reviewScope';
 
 export function CategoryReview({
   categories,
@@ -22,7 +23,9 @@ export function CategoryReview({
   onReview,
   canEdit = false,
   onAccept,
+  onRestore,
 }: {
+  onRestore?: (hash: number) => void;
   categories: ReviewCategory[];
   editor: EditorData;
   source: CompendiumData;
@@ -41,9 +44,11 @@ export function CategoryReview({
   const [selected, setSelected] = useState<Record<string, number>>({});
   const [browsing, setBrowsing] = useState(20);
   const [importError, setImportError] = useState<string | null>(null);
-  const filtered = categories.filter((category) =>
-    `${category.name} ${category.group}`.toLowerCase().includes(query.toLowerCase()),
-  );
+  const filtered = categories
+    .map(inScopeCategory)
+    .filter((category) =>
+      `${category.name} ${category.group}`.toLowerCase().includes(query.toLowerCase()),
+    );
   const category = filtered.find((category) => category.id === categoryId) ?? filtered[0];
   function samples(group: ReviewCategory) {
     const references = guidance.document.categories[group.id]?.references ?? {};
@@ -100,6 +105,7 @@ export function CategoryReview({
                   : 'Examples and notes are not saved to disk yet.'}
         </p>
         {guidance.error && <p role="alert">{guidance.error}</p>}
+        {guidance.renewalNotice && <p role="status">{guidance.renewalNotice}</p>}
         {guidance.localError && <p role="alert">{guidance.localError}</p>}
         <SendGuidance document={guidance.document} ready={guidance.ready} />
         <details>
@@ -257,8 +263,10 @@ export function CategoryReview({
             <button onClick={() => onReview(category)}>Review these one by one</button>
             {guidance.ready && guidance.proposalInput && (
               <GuidedPreview
+                categories={categories}
                 key={category.id}
                 canEdit={canEdit && !paused && !guidance.conflict && !guidance.reloading}
+                onRestore={onRestore}
                 onAccept={(entries, revision) => onAccept?.(category, entries, revision)}
                 document={guidance.proposalInput}
                 planningRevision={guidance.planningRevision}

@@ -48,6 +48,27 @@ function fixture(): EditorData {
     },
   };
 }
+it('withholds manifest predicates when generator identity or description differs', () => {
+  const editor = fixture();
+  editor.items = {
+    5699512: {
+      hash: 5699512, name: 'Tempered Truss Rod', icon: '',
+      categoryId: 'weapon-perk', inGameDescription: '',
+    },
+  };
+  const sample = () => {
+    const entries = reviewQueue(editor, source, {}, emptyProgress(), '');
+    return reviewCategories(entries, editor, new Map(), false)
+      .flatMap((category) => category.entries).find((entry) => entry.hash === 5699512)!;
+  };
+  const original = sample();
+  expect(original.manifestFacts?.item.inventory?.displayName).toBe('Tempered Truss Rod');
+  editor.items[5699512].name = 'Changed identity';
+  expect(sample().manifestFacts).toBeUndefined();
+  editor.items[5699512].name = 'Tempered Truss Rod';
+  editor.items[5699512].inGameDescription = 'New behavior from generator';
+  expect(sample().manifestFacts).toBeUndefined();
+});
 it('assigns every queue entry exactly once, including enhanced/custom/unknown categories but not aliases', () => {
   const editor = fixture();
   const entries = reviewQueue(editor, source, {}, emptyProgress(), '');
