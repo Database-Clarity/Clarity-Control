@@ -55,3 +55,54 @@
   flex-wrap: wrap;
   gap: 0.75rem;
 }
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: flex-end;
+  button[aria-pressed='true'] {
+    border-color: #ff9a9a;
+    font-weight: bold;
+  }
+}
+
+.worklist {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+// One tap target per card: the title link covers the whole card; nested controls sit above it.
+.workCard {
+  position: relative;
+  button {
+    position: relative;
+    z-index: 1;
+  }
+}
+.cardLink::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid #777;
+  border-radius: 1rem;
+  font-weight: bold;
+}
+
+.clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.next {
+  font-weight: bold;
+}

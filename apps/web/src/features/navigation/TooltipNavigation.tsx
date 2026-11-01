@@ -10,7 +10,14 @@ import {
   sharedPerkLabel,
   variantHashes,
 } from './catalog';
-import { createStepping, shiftScrollDirection, stepWithinCategory } from './stepping';
+import {
+  categoryPosition,
+  createStepping,
+  positionLabel,
+  shiftScrollDirection,
+  stepTarget,
+  tooltipPath,
+} from './stepping';
 import styles from './Layout.module.scss';
 
 export function TooltipNavigation({ data }: { data: EditorData }) {
@@ -31,22 +38,20 @@ export function TooltipNavigation({ data }: { data: EditorData }) {
     sections.find((category) => category.id === itemFor(hash, data)?.categoryId) ?? sections[0];
   const items = selectedCategory?.items ?? [];
   const hashes = items.map((item) => item.hash);
-  const path = useRef(location.pathname);
-  path.current = location.pathname;
+  const position = categoryPosition(hash, hashes);
+  const current = useRef({ pathname: location.pathname, search: location.search });
+  current.current = { pathname: location.pathname, search: location.search };
   const select = useRef<HTMLSelectElement>(null);
   const [stepping] = useState(() =>
     createStepping((target, options) => navigateRef.current(target, options)),
   );
   const step = useRef<(direction: number) => boolean>(() => false);
   step.current = (direction) => {
-    const next = stepWithinCategory(Number(path.current.split('/')[2]), direction, hashes);
-    if (next !== undefined) {
-      const target = `/t/${next}`;
-      stepping.step(path.current, target);
-      path.current = target;
-      return true;
-    }
-    return false;
+    const target = stepTarget(current.current, direction, hashes);
+    if (!target) return false;
+    stepping.step(target.from, target.to.path);
+    current.current = target.to;
+    return true;
   };
   useEffect(() => {
     const element = select.current;
@@ -86,98 +91,122 @@ export function TooltipNavigation({ data }: { data: EditorData }) {
   }, [stepping]);
   function choose(hash: number) {
     stepping.commit();
-    navigate(`/t/${hash}`);
+    navigate(tooltipPath(hash, location.search));
   }
   return (
-    <section aria-label="Tooltip navigation" className={styles.tooltipNavigation}>
-      {staleDrafts.map(([hash, draft]) => {
-        const canonical = resolveAlias(Number(hash), data.aliases);
-        return (
-          <details key={hash}>
-            <summary role="alert">
-              Recovered draft conflict: {hash} now shares tooltip {canonical}
-            </summary>
-            <p>
-              This draft is preserved, but cannot be saved separately. Copy any text you want to
-              keep into the shared tooltip before discarding it.
-            </p>
-            <button type="button" onClick={() => choose(canonical)}>
-              Open shared tooltip {canonical}
-            </button>
-            {Object.entries(draft.next.text).map(([language, value]) => (
-              <div key={language}>
-                <strong>{language}</strong>
-                <pre className={styles.recoveredText}>{value.text}</pre>
-              </div>
-            ))}
-            <button type="button" onClick={() => discard(Number(hash))}>
-              Discard recovered draft {hash}
-            </button>
-          </details>
-        );
-      })}
-      <label>
-        Search name or hash
-        <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} />
-      </label>
-      <label>
-        Category
-        <select
-          value={selectedCategory?.id ?? ''}
-          disabled={!sections.length}
-          onChange={(event) => {
-            const first = sections.find((category) => category.id === event.target.value)?.items[0];
-            if (first) choose(first.hash);
-          }}
-        >
-          {!sections.length && <option value="">No matching categories</option>}
-          {groups.map((group) => (
-            <optgroup key={group.name} label={group.name}>
-              {group.sections.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.label} ({category.items.length})
-                </option>
+    <>
+      <section aria-label="Tooltip navigation" className={styles.tooltipNavigation}>
+        {staleDrafts.map(([hash, draft]) => {
+          const canonical = resolveAlias(Number(hash), data.aliases);
+          return (
+            <details key={hash}>
+              <summary role="alert">
+                Recovered draft conflict: {hash} now shares tooltip {canonical}
+              </summary>
+              <p>
+                This draft is preserved, but cannot be saved separately. Copy any text you want to
+                keep into the shared tooltip before discarding it.
+              </p>
+              <button type="button" onClick={() => choose(canonical)}>
+                Open shared tooltip {canonical}
+              </button>
+              {Object.entries(draft.next.text).map(([language, value]) => (
+                <div key={language}>
+                  <strong>{language}</strong>
+                  <pre className={styles.recoveredText}>{value.text}</pre>
+                </div>
               ))}
-            </optgroup>
-          ))}
-        </select>
-      </label>
-      <label>
-        Tooltip
-        <select
-          ref={select}
-          value={items.some((item) => item.hash === hash) ? String(hash) : ''}
-          disabled={!items.length}
-          aria-describedby="tooltip-stepping-help"
-          onChange={(event) => choose(Number(event.target.value))}
-          onKeyDown={(event) => {
-            if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-              event.preventDefault();
-              step.current(event.key === 'ArrowDown' ? 1 : -1);
-            }
-          }}
+              <button type="button" onClick={() => discard(Number(hash))}>
+                Discard recovered draft {hash}
+              </button>
+            </details>
+          );
+        })}
+        <label>
+          Search name or hash
+          <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} />
+        </label>
+        <label>
+          Category
+          <select
+            value={selectedCategory?.id ?? ''}
+            disabled={!sections.length}
+            onChange={(event) => {
+              const first = sections.find((category) => category.id === event.target.value)
+                ?.items[0];
+              if (first) choose(first.hash);
+            }}
+          >
+            {!sections.length && <option value="">No matching categories</option>}
+            {groups.map((group) => (
+              <optgroup key={group.name} label={group.name}>
+                {group.sections.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.label} ({category.items.length})
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
+        <label>
+          Tooltip
+          <select
+            ref={select}
+            value={items.some((item) => item.hash === hash) ? String(hash) : ''}
+            disabled={!items.length}
+            aria-describedby="tooltip-stepping-help"
+            onChange={(event) => choose(Number(event.target.value))}
+            onKeyDown={(event) => {
+              if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                step.current(event.key === 'ArrowDown' ? 1 : -1);
+              }
+            }}
+          >
+            <option value="" disabled>
+              {items.length ? 'Choose tooltip' : 'No matching tooltips'}
+            </option>
+            {items.map((item) => {
+              const dirty = variantHashes(item.hash, data).some((variant) => drafts[variant]);
+              return (
+                <option key={item.hash} value={item.hash} title={sharedPerkLabel(item.hash, data)}>
+                  {dirty ? '* ' : ''}
+                  {item.name} ({item.hash}){sharedPerkLabel(item.hash, data) && ' · shared perk'}
+                  {frameGroupSize(item.hash, data) > 1 && ` ×${frameGroupSize(item.hash, data)}`}
+                </option>
+              );
+            })}
+          </select>
+        </label>
+        {sharedPerkLabel(hash, data) && <small role="note">{sharedPerkLabel(hash, data)}</small>}
+        <small id="tooltip-stepping-help">
+          <span className={styles.pointerHelp}>
+            Shift+Scroll anywhere steps within this category and stops at its ends. Arrow keys on
+            Tooltip also work.{' '}
+          </span>
+          * = unsaved draft.
+        </small>
+      </section>
+      {/* A direct child of the sidebar so the phone layout can keep it visible while Browse is closed. */}
+      <div role="group" aria-label="Step within category" className={styles.stepper}>
+        <button
+          type="button"
+          disabled={position.previous === undefined}
+          onClick={() => step.current(-1)}
         >
-          <option value="" disabled>
-            {items.length ? 'Choose tooltip' : 'No matching tooltips'}
-          </option>
-          {items.map((item) => {
-            const dirty = variantHashes(item.hash, data).some((variant) => drafts[variant]);
-            return (
-              <option key={item.hash} value={item.hash} title={sharedPerkLabel(item.hash, data)}>
-                {dirty ? '* ' : ''}
-                {item.name} ({item.hash}){sharedPerkLabel(item.hash, data) && ' · shared perk'}
-                {frameGroupSize(item.hash, data) > 1 && ` ×${frameGroupSize(item.hash, data)}`}
-              </option>
-            );
-          })}
-        </select>
-      </label>
-      {sharedPerkLabel(hash, data) && <small role="note">{sharedPerkLabel(hash, data)}</small>}
-      <small id="tooltip-stepping-help">
-        Shift+Scroll anywhere steps within this category and stops at its ends. Arrow keys on
-        Tooltip also work. * = unsaved draft.
-      </small>
-    </section>
+          Previous
+        </button>
+        <span role="status">{positionLabel(position)}</span>
+        <button
+          type="button"
+          disabled={position.next === undefined}
+          onClick={() => step.current(1)}
+        >
+          Next
+        </button>
+      </div>
+    </>
   );
 }

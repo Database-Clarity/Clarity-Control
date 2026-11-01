@@ -66,3 +66,68 @@ export function outdatedTranslations(
       b.ageMs - a.ageMs || a.tooltip.hash - b.tooltip.hash || a.language.localeCompare(b.language),
   );
 }
+
+export type TranslationState = 'missing' | 'outdated' | 'current';
+
+export interface TranslationQueueEntry {
+  tooltip: Tooltip;
+  language: Lang;
+  state: TranslationState;
+  /** Only for `outdated`: English revision gap in ms (> 0). */
+  ageMs?: number;
+  /** Only for `outdated`: the English revision the translation was based on. */
+  sourceUpdatedAt?: string;
+  /** Only for `outdated`: the gap exceeds the export limit, so English is exported instead. */
+  exportedInEnglish?: boolean;
+}
+
+const stateRank: Record<TranslationState, number> = { outdated: 0, missing: 1, current: 2 };
+
+/**
+ * Every tooltip × selected non-English language with its translation state.
+ * `missing` = English exists but there is no saved translation; `outdated` matches
+ * `outdatedTranslations`; everything else (including translations without a known source
+ * revision) is `current`. Aliases and tooltips without English are never listed.
+ * Order: outdated (largest gap first), then missing, then current; ties by hash, language.
+ */
+export function translationQueue(
+  tooltips: readonly Tooltip[],
+  selectedLanguages: readonly Lang[] = languages,
+  aliases: Aliases = {},
+): TranslationQueueEntry[] {
+  const selected = new Set(selectedLanguages);
+  const entries: TranslationQueueEntry[] = [];
+  for (const tooltip of tooltips) {
+    const english = tooltip.text.en;
+    if (resolveAlias(tooltip.hash, aliases) !== tooltip.hash || !english) continue;
+    for (const language of languages) {
+      if (language === 'en' || !selected.has(language)) continue;
+      const translation = tooltip.text[language];
+      if (!translation) {
+        entries.push({ tooltip, language, state: 'missing' });
+        continue;
+      }
+      const sourceUpdatedAt = translation.sourceUpdatedAt;
+      const ageMs = sourceUpdatedAt
+        ? Date.parse(english.updatedAt) - Date.parse(sourceUpdatedAt)
+        : 0;
+      if (sourceUpdatedAt && ageMs > 0) {
+        entries.push({
+          tooltip,
+          language,
+          state: 'outdated',
+          ageMs,
+          sourceUpdatedAt,
+          exportedInEnglish: ageMs > translationMaxAge,
+        });
+      } else entries.push({ tooltip, language, state: 'current' });
+    }
+  }
+  return entries.sort(
+    (a, b) =>
+      stateRank[a.state] - stateRank[b.state] ||
+      (b.ageMs ?? 0) - (a.ageMs ?? 0) ||
+      a.tooltip.hash - b.tooltip.hash ||
+      a.language.localeCompare(b.language),
+  );
+}

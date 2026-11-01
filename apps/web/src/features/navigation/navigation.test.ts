@@ -1,7 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EditorData } from '../../stores/data';
 import { canonicalHash, navigationGroups, sharedPerkLabel, variantHashes } from './catalog';
-import { createStepping, shiftScrollDirection, stepWithinCategory } from './stepping';
+import {
+  categoryPosition,
+  createStepping,
+  positionLabel,
+  shiftScrollDirection,
+  stepTarget,
+  stepWithinCategory,
+  tooltipPath,
+} from './stepping';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
@@ -109,7 +117,7 @@ describe('tooltip catalog', () => {
       useDraftStore.setState(previous);
     }
   });
-  it('uses grouped dropdowns rather than lists or paging buttons', () => {
+  it('uses grouped dropdowns and only the Previous/Next stepping buttons', () => {
     const markup = renderToStaticMarkup(
       createElement(
         MemoryRouter,
@@ -121,7 +129,7 @@ describe('tooltip catalog', () => {
     expect(markup).toContain('<optgroup label="Armor">');
     expect(markup).toContain('<optgroup label="Weapons">');
     expect(markup).not.toContain('<details');
-    expect(markup).not.toContain('<button');
+    expect(markup.match(/<button/g)).toHaveLength(2);
     expect(markup).toContain('value="10" selected=""');
     expect(markup).not.toContain('value="11"');
   });
@@ -218,6 +226,83 @@ describe('tooltip catalog', () => {
   });
 });
 
+describe('previous/next stepping buttons', () => {
+  const category: EditorData = {
+    ...data,
+    items: {
+      ...data.items,
+      21: { hash: 21, name: 'Boots', icon: '', categoryId: 'first', inGameDescription: '' },
+      22: { hash: 22, name: 'Cape', icon: '', categoryId: 'first', inGameDescription: '' },
+    },
+  };
+  function stepper(path: string) {
+    const markup = renderToStaticMarkup(
+      createElement(
+        MemoryRouter,
+        { initialEntries: [path] },
+        createElement(TooltipNavigation, { data: category }),
+      ),
+    );
+    const buttons = [...markup.matchAll(/<button([^>]*)>(Previous|Next)<\/button>/g)];
+    return {
+      markup,
+      disabled: Object.fromEntries(
+        buttons.map((match) => [match[2], match[1].includes('disabled')]),
+      ),
+    };
+  }
+  it('computes targets and the counter at both ends and in the middle', () => {
+    const hashes = [20, 21, 22];
+    expect(categoryPosition(20, hashes)).toEqual({
+      index: 1,
+      total: 3,
+      previous: undefined,
+      next: 21,
+    });
+    expect(categoryPosition(21, hashes)).toEqual({ index: 2, total: 3, previous: 20, next: 22 });
+    expect(categoryPosition(22, hashes)).toEqual({
+      index: 3,
+      total: 3,
+      previous: 21,
+      next: undefined,
+    });
+    expect(categoryPosition(99, hashes)).toEqual({
+      index: 0,
+      total: 3,
+      previous: undefined,
+      next: undefined,
+    });
+    expect(categoryPosition(1, [])).toEqual({
+      index: 0,
+      total: 0,
+      previous: undefined,
+      next: undefined,
+    });
+    expect(positionLabel({ index: 2, total: 3 })).toBe('2 of 3');
+    expect(positionLabel({ index: 0, total: 3 })).toBe('3 in category');
+  });
+  it('disables Previous on the first and Next on the last tooltip of the category', () => {
+    const first = stepper('/t/20');
+    expect(first.disabled).toEqual({ Previous: true, Next: false });
+    expect(first.markup).toContain('1 of 3');
+    expect(stepper('/t/21').disabled).toEqual({ Previous: false, Next: false });
+    const last = stepper('/t/22');
+    expect(last.disabled).toEqual({ Previous: false, Next: true });
+    expect(last.markup).toContain('3 of 3');
+  });
+  it('keeps both buttons disabled for a single-item category and labels the group', () => {
+    const only = stepper('/t/10');
+    expect(only.disabled).toEqual({ Previous: true, Next: true });
+    expect(only.markup).toContain('1 of 1');
+    expect(only.markup).toContain('aria-label="Step within category"');
+  });
+  it('wraps the keyboard/wheel help so touch devices can hide it but keeps the draft legend', () => {
+    const { markup } = stepper('/t/20');
+    expect(markup).toMatch(/<small id="tooltip-stepping-help"><span[^>]*>Shift\+Scroll/);
+    expect(markup).toContain('* = unsaved draft.');
+  });
+});
+
 describe('stepping history', () => {
   it('steps only within the selected category and stops at both ends without wrapping', () => {
     const category = [10, 30, 40];
@@ -284,5 +369,41 @@ describe('stepping history', () => {
     stepping.step('/t/20', '/t/10');
     vi.advanceTimersByTime(1000);
     expect(entries).toEqual(['/t/10']);
+  });
+  describe('language from a worklist link', () => {
+    it('keeps a valid ?lang= in targets and drops line/variant highlights and invalid values', () => {
+      expect(tooltipPath(20, '?lang=fr&line=3&variant=11')).toBe('/t/20?lang=fr');
+      expect(tooltipPath(20, '?line=3')).toBe('/t/20');
+      expect(tooltipPath(20, '?lang=xx')).toBe('/t/20');
+      expect(tooltipPath(20, '')).toBe('/t/20');
+    });
+    it('steps from /t/1?lang=fr to /t/2?lang=fr, remembering the full origin', () => {
+      const location = { pathname: '/t/10', search: '?lang=fr&line=3' };
+      expect(stepTarget(location, 1, [10, 20, 30])).toEqual({
+        from: '/t/10?lang=fr&line=3',
+        to: { path: '/t/20?lang=fr', pathname: '/t/20', search: '?lang=fr' },
+      });
+      expect(stepTarget({ pathname: '/t/10', search: '' }, 1, [10, 20])?.to).toEqual({
+        path: '/t/20',
+        pathname: '/t/20',
+        search: '',
+      });
+      expect(stepTarget(location, -1, [10, 20, 30])).toBeUndefined();
+    });
+    it('keeps ?lang= through Next, Next, and committed Back history without touching the dropdown', () => {
+      vi.useFakeTimers();
+      const { entries, stepping } = history();
+      entries[0] = '/t/10?lang=fr&line=3';
+      let location = { pathname: '/t/10', search: '?lang=fr&line=3' };
+      for (const direction of [1, 1]) {
+        const target = stepTarget(location, direction, [10, 20, 30]);
+        expect(target).toBeDefined();
+        stepping.step(target!.from, target!.to.path);
+        location = target!.to;
+      }
+      expect(entries).toEqual(['/t/30?lang=fr']);
+      vi.advanceTimersByTime(1000);
+      expect(entries).toEqual(['/t/10?lang=fr&line=3', '/t/30?lang=fr']);
+    });
   });
 });

@@ -1,19 +1,16 @@
 import { useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { apiUrl, loginUrl } from '../../services/api';
+import { rememberReturnPath } from '../../services/returnPath';
 import { useAuthStore } from '../../stores/auth';
-import { SavePanel } from '../../services/save/SavePanel';
 
 export function AuthStatus() {
-  return (
-    <>
-      <AuthIdentity />
-      <SavePanel />
-    </>
-  );
+  return <AuthIdentity />;
 }
 
 function AuthIdentity() {
   const { user, loading, error, load, logout } = useAuthStore();
+  const location = useLocation();
   useEffect(() => {
     void load();
   }, [load]);
@@ -49,7 +46,10 @@ function AuthIdentity() {
     );
   return (
     <p role="status">
-      Read-only: sign in to edit. <a href={loginUrl()}>Sign in with GitHub</a>
+      Read-only: sign in to edit.{' '}
+      <a href={loginUrl()} onClick={() => rememberReturnPath(location)}>
+        Sign in with GitHub
+      </a>
     </p>
   );
 }

@@ -6,11 +6,14 @@ export function Dialog({
   children,
   onClose,
   busy = false,
+  footer,
 }: {
   title: string;
   children: ReactNode;
   onClose(): void;
   busy?: boolean;
+  /** Primary actions; sticks to the bottom of the sheet at the mobile breakpoint. */
+  footer?: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -35,7 +38,8 @@ export function Dialog({
           Close
         </button>
       </header>
-      {children}
+      <div className={styles.body}>{children}</div>
+      {footer && <footer className={styles.footer}>{footer}</footer>}
     </dialog>
   );
 }

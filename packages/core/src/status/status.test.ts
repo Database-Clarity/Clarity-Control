@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { exportLegacy, translationMaxAge, type LegacyEntry } from '../exportLegacy.js';
 import type { Tooltip } from '../schemas.js';
-import { bungieDrift, outdatedTranslations } from './index.js';
+import { bungieDrift, outdatedTranslations, translationQueue } from './index.js';
 
 const source = '2026-01-01T00:00:00.000Z';
 function tooltip(hash: number, age = 1): Tooltip {
@@ -76,5 +76,84 @@ describe('outdated translations', () => {
       ),
     ).toEqual([2, 4, 3]);
     expect(outdatedTranslations(values, ['en', 'fr'])).toEqual([]);
+  });
+});
+
+describe('translation queue', () => {
+  const rows = (
+    values: Tooltip[],
+    languages?: Parameters<typeof translationQueue>[1],
+    aliases = {},
+  ) =>
+    translationQueue(values, languages, aliases).map(
+      (entry) => [entry.tooltip.hash, entry.language, entry.state] as const,
+    );
+  function only(hash: number, age = 1, extra: Partial<Tooltip> = {}): Tooltip {
+    const value = tooltip(hash, age);
+    delete value.text.de;
+    return { ...value, ...extra };
+  }
+
+  it('classifies missing, outdated and current per tooltip and language', () => {
+    const outdated = tooltip(1, 5);
+    const current = tooltip(2, 0);
+    const missing = only(3);
+    const unknownSource = tooltip(4, 5);
+    delete unknownSource.text.de?.sourceUpdatedAt;
+    expect(rows([current, missing, outdated, unknownSource], ['de'])).toEqual([
+      [1, 'de', 'outdated'],
+      [3, 'de', 'missing'],
+      [2, 'de', 'current'],
+      [4, 'de', 'current'],
+    ]);
+  });
+
+  it('lists every selected non-English language and defaults to all of them', () => {
+    expect(rows([only(1)], ['en', 'de', 'fr'])).toEqual([
+      [1, 'de', 'missing'],
+      [1, 'fr', 'missing'],
+    ]);
+    const all = translationQueue([only(1)]);
+    expect(all.length).toBeGreaterThan(2);
+    expect(all.some((entry) => entry.language === 'en')).toBe(false);
+    expect(translationQueue([only(1)], [])).toEqual([]);
+  });
+
+  it('uses the strict 90-day boundary like export and outdatedTranslations', () => {
+    const exact = tooltip(1, translationMaxAge);
+    const over = tooltip(2, translationMaxAge + 1);
+    const entries = translationQueue([exact, over], ['de']);
+    expect(entries.map((entry) => [entry.tooltip.hash, entry.exportedInEnglish])).toEqual([
+      [2, true],
+      [1, false],
+    ]);
+    expect(entries[0]).toMatchObject({ state: 'outdated', ageMs: translationMaxAge + 1 });
+    expect(entries[0].sourceUpdatedAt).toBe(source);
+    expect(entries).toEqual(
+      outdatedTranslations([exact, over], ['de']).map((entry) => expect.objectContaining(entry)),
+    );
+  });
+
+  it('never lists aliases or tooltips without English, but includes custom tooltips', () => {
+    const noEnglish = only(3);
+    delete noEnglish.text.en;
+    const custom = only(4, 1, { custom: { name: 'Custom', categoryId: 'custom' } });
+    expect(
+      rows([only(1), only(2), noEnglish, custom], ['de'], { 2: { to: 1, kind: 'sandbox' } }),
+    ).toEqual([
+      [1, 'de', 'missing'],
+      [4, 'de', 'missing'],
+    ]);
+  });
+
+  it('sorts outdated by gap, then missing, then current with stable ties', () => {
+    const values = [tooltip(5, 0), only(4), tooltip(3, 10), tooltip(2, 20), only(1)];
+    expect(rows(values, ['de'])).toEqual([
+      [2, 'de', 'outdated'],
+      [3, 'de', 'outdated'],
+      [1, 'de', 'missing'],
+      [4, 'de', 'missing'],
+      [5, 'de', 'current'],
+    ]);
   });
 });

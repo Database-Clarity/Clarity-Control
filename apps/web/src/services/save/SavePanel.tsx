@@ -7,11 +7,12 @@ import { useDraftStore } from '../../stores/drafts';
 import { ConflictDialog } from '../../features/conflicts/ConflictDialog';
 import { Dialog } from '../../ui/Dialog';
 import { acceptSaved } from './drafts';
+import { isSaveDockIdle } from './dock';
 import { permissionError, prepareChanges, validateChanges } from './pipeline';
 import { reviewSaveChanges, useSaveState, type SaveReview } from './state';
 import { SaveSummary } from './SaveSummary';
 
-export function SavePanel() {
+export function SavePanel({ className }: { className?: string }) {
   const drafts = useDraftStore((state) => state.drafts);
   const data = useDataStore((state) => state.data);
   const user = useAuthStore((state) => state.user);
@@ -19,7 +20,11 @@ export function SavePanel() {
   const [notice, setNotice] = useState<string | null>(null);
   const count = Object.keys(drafts).length;
   return (
-    <section aria-label="Save drafts">
+    <section
+      aria-label="Save drafts"
+      className={className}
+      data-idle={isSaveDockIdle({ count, notice, review })}
+    >
       <p>{count} local draft(s)</p>
       <button
         type="button"
@@ -137,7 +142,25 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
       />
     );
   return (
-    <Dialog title="Review save" busy={pending} onClose={close}>
+    <Dialog
+      title="Review save"
+      busy={pending}
+      onClose={close}
+      footer={
+        <>
+          <button
+            type="button"
+            disabled={pending || blocked || !data || Boolean(remoteCommit)}
+            onClick={() => void submit()}
+          >
+            {pending ? 'Saving...' : 'Save changes'}
+          </button>
+          <button type="button" disabled={pending} onClick={close}>
+            Cancel; keep local drafts
+          </button>
+        </>
+      }
+    >
       {data && <SaveSummary changes={changes} issues={validation.issues} data={data} />}
       {deleted.length > 0 && (
         <p>
@@ -153,25 +176,18 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
       {validation.issues.some((issue) => issue.severity === 'warning') && (
         <p>Warnings do not block saving.</p>
       )}
-      <label>
-        Optional commit message
-        <textarea
-          maxLength={500}
-          value={message}
-          disabled={pending}
-          onChange={(event) => setMessage(event.target.value)}
-        />
-      </label>
-      <button
-        type="button"
-        disabled={pending || blocked || !data || Boolean(remoteCommit)}
-        onClick={() => void submit()}
-      >
-        {pending ? 'Saving...' : 'Save changes'}
-      </button>
-      <button type="button" disabled={pending} onClick={close}>
-        Cancel; keep local drafts
-      </button>
+      <details>
+        <summary>Add commit message</summary>
+        <label>
+          Optional commit message
+          <textarea
+            maxLength={500}
+            value={message}
+            disabled={pending}
+            onChange={(event) => setMessage(event.target.value)}
+          />
+        </label>
+      </details>
     </Dialog>
   );
 }

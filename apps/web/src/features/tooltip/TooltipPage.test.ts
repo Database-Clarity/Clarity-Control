@@ -6,6 +6,7 @@ import { type Tooltip } from '@clarity/core';
 import { TooltipPage } from './TooltipPage';
 import { ClarityEditor, type ClarityEditorProps } from '../editor';
 import { TooltipPreview, type TooltipPreviewProps } from '../preview';
+import { CompendiumPanel } from '../compendium/CompendiumPanel';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { useAuthStore } from '../../stores/auth';
@@ -16,6 +17,11 @@ vi.mock('../editor', () => ({
 }));
 vi.mock('../preview', () => ({
   TooltipPreview: vi.fn((props: TooltipPreviewProps) => createElement('div', null, props.text)),
+}));
+vi.mock('../compendium/CompendiumPanel', () => ({
+  CompendiumPanel: vi.fn(({ base }: { base: Tooltip }) =>
+    createElement('aside', { 'data-compendium-hash': base.hash }, 'Compendium'),
+  ),
 }));
 vi.mock('../../stores/data', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../stores/data')>();
@@ -106,11 +112,11 @@ const data: EditorData = {
   },
 };
 
-function render() {
+function render(location = '/t/10') {
   return renderToStaticMarkup(
     createElement(
       StaticRouter,
-      { location: '/t/10' },
+      { location },
       createElement(
         Routes,
         null,
@@ -173,6 +179,29 @@ describe('tooltip screen composition', () => {
       categoryLabel: 'Enhanced category',
     });
     expect(editors.every((props) => props.readOnly === !apiUrl)).toBe(true);
+  });
+  it('keeps each Compendium panel attached to its own variant in English and translation workspaces', () => {
+    for (const [location, role] of [
+      ['/t/10', 'editor'],
+      ['/t/10?lang=fr', 'translator'],
+    ] as const) {
+      vi.mocked(CompendiumPanel).mockClear();
+      useAuthStore.setState({
+        user: { id: 1, login: 'alice', role, languages: ['fr'] },
+      });
+      const markup = render(location);
+      expect(vi.mocked(CompendiumPanel).mock.calls.map(([props]) => props.base)).toEqual([
+        base,
+        enhanced,
+      ]);
+      expect(markup).toContain('data-compendium-hash="10"');
+      expect(markup).toContain('data-compendium-hash="11"');
+      if (role === 'translator') {
+        expect(markup).toContain('aria-label="Tooltip panels"');
+        expect(markup).toContain('Associations and history');
+        expect(vi.mocked(ClarityEditor).mock.calls.at(-1)?.[0].lang).toBe('fr');
+      }
+    }
   });
   it('shows the shared-perk callout in the header only when 2+ exotics own the perk', () => {
     expect(render()).not.toContain('Shared perk');

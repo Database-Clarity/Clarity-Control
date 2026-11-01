@@ -1,3 +1,5 @@
+@use '../../data/variables' as theme;
+
 .header,
 .variant > header {
   display: flex;
@@ -36,5 +38,62 @@
 @media (max-width: 1000px) {
   .columns {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  > * {
+    min-width: 0;
+  }
+  h3 {
+    margin-top: 0;
+  }
+}
+.tabs {
+  display: none;
+  grid-column: 1 / -1;
+  gap: 0.25rem;
+  button {
+    flex: 1;
+    min-height: 44px;
+    &[aria-selected='true'] {
+      border-color: theme.$orange-color;
+    }
+  }
+}
+.panel[data-panel='source'] {
+  grid-column: 1 / -1;
+}
+.sourceText {
+  margin: 0;
+  padding: 0.75rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid theme.$button-border-color;
+  border-radius: 4px;
+}
+.reason {
+  margin: 0 0 0.5rem;
+  color: theme.$orange-color;
+}
+.more > summary {
+  cursor: pointer;
+}
+
+@media (max-width: 1000px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@include theme.mobile {
+  .tabs {
+    display: flex;
+  }
+  .panel[data-active='false'] {
+    display: none;
   }
 }
