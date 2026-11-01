@@ -1,4 +1,5 @@
 import { ZodError } from 'zod';
+import { agentGuidance } from './agentGuidance.js';
 import { callback, identity, login } from './auth.js';
 import { managePermissions, history } from './admin.js';
 import { compendiumRefresh } from './compendium.js';
@@ -22,6 +23,8 @@ async function route(request: Request, env: Env): Promise<Response> {
   ) {
     return compendiumRefresh(request, github, user);
   }
+  if (['GET', 'POST'].includes(request.method) && path === '/compendium/agent-guidance')
+    return agentGuidance(request, github, user);
   if (request.method === 'GET' && path === '/me') {
     const access = (await permissions(github, await github.head())).users[String(user.id)];
     return json({
