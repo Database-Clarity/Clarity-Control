@@ -81,6 +81,21 @@ export function frameGroupSize(hash: number, data: EditorData): number {
   return counts.get(hash) ?? 1;
 }
 
+function matchesOwner(item: Item, data: EditorData, search: string): boolean {
+  const owners = new Set([
+    ...(item.owners ?? []),
+    ...(item.itemHash === undefined ? [] : [item.itemHash]),
+  ]);
+  return [...owners].some((owner) =>
+    [
+      String(owner),
+      data.items[owner]?.name,
+      data.bundle.tooltips[owner]?.custom?.name,
+      item.ownerNames?.[owner],
+    ].some((value) => value?.toLocaleLowerCase().includes(search)),
+  );
+}
+
 export interface CategorySection extends Category {
   items: Item[];
 }
@@ -115,6 +130,10 @@ export function navigationGroups(data: EditorData, query: string): CategoryGroup
               String(hash).includes(search) ||
               data.items[hash]?.name.toLocaleLowerCase().includes(search),
           ) ||
+          variantHashes(item.hash, data).some((hash) => {
+            const variant = itemFor(hash, data);
+            return variant && matchesOwner(variant, data, search);
+          }) ||
           matchingAliases.has(item.hash)),
     );
   const categories = [...data.categories];
