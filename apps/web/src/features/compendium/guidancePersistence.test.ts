@@ -38,6 +38,26 @@ function fixture() {
   return { create, request, cache, storage, document: () => document, writes: () => writes };
 }
 afterEach(() => vi.useRealTimers());
+it('keeps the loaded planning scope separate from synchronized membership and edits until reload', async () => {
+  const data = fixture();
+  const writer = data.create();
+  await writer.start();
+  writer.synchronize(categories, 'baseline');
+  await writer.flush();
+  const reader = data.create();
+  await reader.start();
+  const loaded = reader.getSnapshot().proposalInput;
+  reader.synchronize([{ ...categories[0], count: 2, hashes: [10, 11] }], 'new-baseline');
+  reader.comment(categories[0].id, 'New comment');
+  expect(reader.getSnapshot().proposalInput).toBe(loaded);
+  expect(loaded?.categories[categories[0].id].hashes).toEqual([10]);
+  expect(loaded?.baseline).toBe('baseline');
+  await reader.flush();
+  await reader.reloadDisk();
+  expect(reader.getSnapshot().proposalInput?.categories[categories[0].id].hashes).toEqual([10, 11]);
+  reader.dispose();
+  writer.dispose();
+});
 it('retains typed comments and references during conflicts without overwriting newer disk guidance', async () => {
   const data = fixture();
   const first = data.create();

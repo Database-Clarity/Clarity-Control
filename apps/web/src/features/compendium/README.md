@@ -161,6 +161,36 @@ set and evidence revision, not arbitrary future membership. Rejections with new
 comments loop back to step 2. Accepted link changes still use normal draft/save,
 roles and Worker gates; no data publication is part of these steps.
 
+### Guided proposal preview
+
+The category view now has a non-mutating guided preview. It uses the guidance
+captured at the last disk/browser load, before automatic membership synchronization;
+reload disk guidance after saving new references or notes to refresh that input.
+It shows the full recorded scope, stratified explicit/inferred/exception samples,
+source snapshots, supporting reference hashes, reasons and high/unresolved counts.
+Existing links and local human decisions are preserved. New category members are
+excluded. Scope/baseline mismatches, missing or changed entry/source evidence,
+skips and note-only records never become mapping examples.
+
+The bounded rule is exact normalized-name, validated whole-description resolver
+links, supported by at least two current same-category references in the same
+source tab and section. Notes and comments require human interpretation and do
+not authorize inferred mappings. Picked renames and no-equivalent examples apply
+only to the explicitly resolved entry. Confidence means evidence-backed proposal,
+not owner approval, a probability or model training.
+
+Generate an inspectable decisions file without opening the UI or exporting again:
+`node scripts/compendium-guidance/report.mjs <guidance.json> <new-output-directory>`.
+This reads the existing local guidance plus current public generator, bundle and
+Compendium inputs; it writes only a new report directory, never the guidance or
+remote data. The JSON records input digest/baselines, revision, complete per-entry
+evidence, preserved reference snapshots/notes, category patterns and stale issues.
+
+Category accept/reject semantics remain a product decision. This increment offers
+preview only, with no draft/progress/category-decision mutation and no save action.
+Normal individual draft/save roles, conflicts and undo remain the existing path.
+Synthetic browser fixture: `/test/guided-preview.html` (network disabled).
+
 ### Individual review
 
 Individual review shows one entry beside its proposed source and nearby styled sheet cells.

@@ -10,6 +10,8 @@ import {
 
 interface GuidanceState {
   document: GuidanceDocument;
+  // Immutable planning input from the last read, before membership synchronization.
+  proposalInput?: GuidanceDocument;
   ready: boolean;
   saving: boolean;
   reloading: boolean;
@@ -95,7 +97,7 @@ export class GuidancePersistence {
           throw new Error('Backup dataset mismatch');
         this.revision = cached.revision;
         this.pending = cached.pending;
-        this.set({ document: cached.document });
+        this.set({ document: cached.document, proposalInput: cached.document });
       }
     } catch (error) {
       this.recoveryError = `Browser backup could not be recovered: ${errorMessage(error)}`;
@@ -117,6 +119,7 @@ export class GuidancePersistence {
         ready: true,
         diskSaved: !this.pending && !!disk.document,
         document: this.pending ? this.state.document : (disk.document ?? this.state.document),
+        proposalInput: this.pending ? this.state.document : (disk.document ?? undefined),
       });
       this.cache();
       if (this.pending) this.schedule();
@@ -239,6 +242,7 @@ export class GuidancePersistence {
       this.pending = false;
       this.set({
         document: disk.document ?? { ...this.state.document, categories: {} },
+        proposalInput: disk.document ?? undefined,
         ready: true,
         conflict: false,
         error: null,

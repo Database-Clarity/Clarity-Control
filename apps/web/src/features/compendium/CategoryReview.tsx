@@ -7,6 +7,10 @@ import type { useGuidance } from './useGuidance';
 import { referenceCurrent } from './sampleReferences';
 import { SampleReview } from './SampleReview';
 import styles from './CategoryReview.module.scss';
+import { GuidedPreview } from './GuidedPreview';
+import { bundleUrl } from '../../services/bundle';
+import { compendiumDataUrl } from '../../services/compendium';
+import { sourceFingerprint } from './reviewProgress';
 
 export function CategoryReview({
   categories,
@@ -208,6 +212,16 @@ export function CategoryReview({
               )}
             </details>
             <button onClick={() => onReview(category)}>Review these one by one</button>
+            {guidance.ready && guidance.proposalInput && (
+              <GuidedPreview
+                document={guidance.proposalInput}
+                category={category}
+                proposals={proposals}
+                source={source}
+                baseline={`${editor.bundle.sourceCommit}|${sourceFingerprint(source.tabs)}`}
+                scope={`${bundleUrl}|${compendiumDataUrl}`}
+              />
+            )}
           </section>
         )}
       </div>
