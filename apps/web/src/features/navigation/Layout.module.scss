@@ -198,6 +198,48 @@
   }
 }
 
+@include theme.mobile {
+  .editorMode {
+    .sidebar {
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 0.25rem;
+      padding: 0.25rem 0.5rem;
+    }
+
+    .sidebar > .brand {
+      grid-column: 1;
+      grid-row: 1;
+      margin: 0;
+
+      span {
+        display: none;
+      }
+    }
+
+    .sidebar > .stepper {
+      grid-column: 2;
+      grid-row: 1;
+      gap: 0.25rem;
+      margin: 0;
+      min-width: 0;
+
+      span {
+        font-size: 0.75rem;
+        white-space: nowrap;
+      }
+    }
+
+    .sidebar > .navToggle {
+      grid-column: 3;
+      grid-row: 1;
+    }
+
+    .main {
+      padding-top: 0.25rem;
+    }
+  }
+}
+
 @include theme.mobile-or-coarse {
   .sidebar,
   .saveDock {

@@ -1,11 +1,11 @@
-import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import styles from './TooltipPage.module.scss';
 import { useWorkspaceDivider } from './useWorkspaceDivider';
 
 type Panel = 'source' | 'translation' | 'preview';
 const panels: { id: Panel; label: string }[] = [
   { id: 'source', label: 'Source' },
-  { id: 'translation', label: 'Translation' },
+  { id: 'translation', label: 'Editor' },
   { id: 'preview', label: 'Preview' },
 ];
 
@@ -25,38 +25,34 @@ export function VariantWorkspace({ source, editor, preview }: VariantWorkspacePr
   const prefix = useId();
   const [active, setActive] = useState<Panel>('translation');
   const tabs = useRef<Partial<Record<Panel, HTMLButtonElement | null>>>({});
-  if (!source) {
-    return (
-      <div className={styles.columns} ref={container} style={style}>
-        {editor}
-        {separator}
-        {preview}
-      </div>
-    );
-  }
+  const activePanel = !source && active === 'source' ? 'translation' : active;
+  useEffect(() => {
+    if (!source && active === 'source') setActive('translation');
+  }, [source, active]);
+  const visiblePanels = source ? panels : panels.filter((panel) => panel.id !== 'source');
   const content: Record<Panel, ReactNode> = { source, translation: editor, preview };
   function onKeyDown(event: KeyboardEvent) {
-    const index = panels.findIndex((panel) => panel.id === active);
+    const index = visiblePanels.findIndex((panel) => panel.id === activePanel);
     const target =
       event.key === 'ArrowRight'
-        ? (index + 1) % panels.length
+        ? (index + 1) % visiblePanels.length
         : event.key === 'ArrowLeft'
-          ? (index + panels.length - 1) % panels.length
+          ? (index + visiblePanels.length - 1) % visiblePanels.length
           : event.key === 'Home'
             ? 0
             : event.key === 'End'
-              ? panels.length - 1
+              ? visiblePanels.length - 1
               : -1;
     if (target < 0) return;
     event.preventDefault();
-    const next = panels[target].id;
+    const next = visiblePanels[target].id;
     setActive(next);
     tabs.current[next]?.focus();
   }
   return (
     <div className={styles.workspace} ref={container} style={style}>
       <div role="tablist" aria-label="Tooltip panels" className={styles.tabs} onKeyDown={onKeyDown}>
-        {panels.map(({ id, label }) => (
+        {visiblePanels.map(({ id, label }) => (
           <button
             key={id}
             ref={(element) => {
@@ -65,23 +61,23 @@ export function VariantWorkspace({ source, editor, preview }: VariantWorkspacePr
             type="button"
             role="tab"
             id={`${prefix}-tab-${id}`}
-            aria-selected={active === id}
+            aria-selected={activePanel === id}
             aria-controls={`${prefix}-panel-${id}`}
-            tabIndex={active === id ? 0 : -1}
+            tabIndex={activePanel === id ? 0 : -1}
             onClick={() => setActive(id)}
           >
             {label}
           </button>
         ))}
       </div>
-      {panels.map(({ id }) => (
+      {visiblePanels.map(({ id }) => (
         <div
           key={id}
           role="tabpanel"
           id={`${prefix}-panel-${id}`}
           aria-labelledby={`${prefix}-tab-${id}`}
           data-panel={id}
-          data-active={active === id}
+          data-active={activePanel === id}
           className={styles.panel}
         >
           {content[id]}

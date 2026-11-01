@@ -161,6 +161,17 @@ describe('translator tooltip page', () => {
     expect(html).not.toContain('English source');
   });
 
+  it('keeps primary provenance and read-only help reachable from the identity header', () => {
+    const html = render('/t/10?lang=en');
+    const header = /<header class="[^"]*">([\s\S]*?)<\/header>/.exec(html)?.[1] ?? '';
+
+    expect(header).toContain('aria-label="Language"');
+    expect(header).toContain('Edited by owner');
+    expect(header).toContain('<summary>Read-only details</summary>');
+    expect(header).toContain('Read-only: you can translate German, not English.');
+    expect(html).toContain('primaryMetadata');
+  });
+
   it.each([
     ['translator', { ...translator, languages: ['de' as const, 'fr' as const] }],
     ['editor', editor],
@@ -215,13 +226,13 @@ describe('translator tooltip page', () => {
     expect(html).not.toContain('Switch to');
   });
 
-  it('shows no reason, no source and no tablist for an editor on English', () => {
+  it('shows English editor and panel tabs without a translation source', () => {
     useAuthStore.setState({ user: editor });
     const html = render('/t/10');
     expect(vi.mocked(ClarityEditor).mock.calls[0][0].markupToolbar).toBe(false);
     expect(html).not.toContain('Read-only');
     expect(html).not.toContain('English source');
-    expect(html).not.toContain('role="tablist"');
+    expect(html).toContain('role="tablist"');
   });
 
   describe('English source view', () => {
@@ -250,10 +261,10 @@ describe('translator tooltip page', () => {
   });
 
   describe('tablist', () => {
-    it('renders Source · Translation · Preview with ARIA tab semantics', () => {
+    it('renders Source · Editor · Preview with ARIA tab semantics', () => {
       const html = render('/t/10?lang=de');
       const tabs = [...html.matchAll(/<button[^>]*role="tab"[^>]*>([^<]*)<\/button>/g)];
-      expect(tabs.map((match) => match[1])).toEqual(['Source', 'Translation', 'Preview']);
+      expect(tabs.map((match) => match[1])).toEqual(['Source', 'Editor', 'Preview']);
       expect(html).toContain('role="tablist"');
       expect(html.match(/aria-selected="true"/g)).toHaveLength(1);
       expect(html.match(/tabindex="-1"/g)).toHaveLength(2);

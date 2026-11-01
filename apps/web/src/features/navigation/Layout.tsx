@@ -54,7 +54,7 @@ export function Layout() {
   return (
     <div
       ref={layout}
-      className={`${styles.layout} ${location.pathname === '/compendium/review' ? styles.reviewMode : ''}`}
+      className={`${styles.layout} ${location.pathname === '/compendium/review' ? styles.reviewMode : ''} ${location.pathname.startsWith('/t/') ? styles.editorMode : ''}`}
     >
       <a
         className={styles.skipLink}
