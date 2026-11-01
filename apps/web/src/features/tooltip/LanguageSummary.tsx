@@ -6,12 +6,38 @@ function date(value: string | number | undefined): string {
   return time > 0 && Number.isFinite(parsed.getTime()) ? parsed.toISOString() : 'unknown time';
 }
 
-export function LanguageSummary({ base, lang, draft }: { base: Tooltip; lang: Lang; draft: boolean }) {
+export function LanguageSummary({
+  base,
+  lang,
+  draft,
+}: {
+  base: Tooltip;
+  lang: Lang;
+  draft: boolean;
+}) {
   const entry = base.text[lang];
   const legacy = base.legacy;
-  return <p>
-    {draft && 'Local unsaved changes. '}
-    {entry ? `Saved language edit: ${entry.updatedBy || 'unknown author'}, ${date(entry.updatedAt)}.` : 'No saved language text.'}
-    {' '}Legacy tooltip upload: {legacy?.uploadedBy || 'unknown author'}, {date(legacy?.lastUpload)}.
-  </p>;
+  const iso = date(entry?.updatedAt);
+  const shortDate =
+    iso === 'unknown time'
+      ? iso
+      : new Date(iso).toLocaleDateString(undefined, {
+          day: 'numeric',
+          month: 'short',
+          timeZone: 'UTC',
+        });
+  return (
+    <details>
+      <summary>
+        {draft && 'Local draft · '}
+        {entry
+          ? `Edited by ${entry.updatedBy || 'unknown author'} · ${shortDate}`
+          : 'No saved language text'}
+      </summary>
+      <p>
+        Saved language edit: {entry?.updatedBy || 'unknown author'}, {iso}. Legacy tooltip upload:{' '}
+        {legacy?.uploadedBy || 'unknown author'}, {date(legacy?.lastUpload)}.
+      </p>
+    </details>
+  );
 }

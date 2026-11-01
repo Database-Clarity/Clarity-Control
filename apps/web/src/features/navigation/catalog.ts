@@ -45,7 +45,7 @@ export function sharedPerkLabel(hash: number, data: EditorData): string | undefi
       item.ownerNames?.[owner]?.trim() ||
       String(owner),
   );
-  return `Shared perk — used on: ${names.join(', ')}`;
+  return `Shared perk — used on: ${[...new Set(names)].join(', ')}`;
 }
 
 /** Single owning item identity, with catalog and embedded metadata fallbacks. */
@@ -54,9 +54,11 @@ export function singleOwnerLabel(hash: number, data: EditorData): string | undef
   if (!item || (item.owners?.length ?? 0) > 1) return undefined;
   const owner = item.itemHash ?? item.owners?.[0];
   if (owner === undefined) return undefined;
-  const name = data.items[owner]?.name.trim() ||
+  const name =
+    data.items[owner]?.name.trim() ||
     data.bundle.tooltips[owner]?.custom?.name.trim() ||
-    item.ownerNames?.[owner]?.trim() || item.itemName?.trim();
+    item.ownerNames?.[owner]?.trim() ||
+    item.itemName?.trim();
   return `Owner: ${name ? `${name} / ` : ''}${owner}`;
 }
 

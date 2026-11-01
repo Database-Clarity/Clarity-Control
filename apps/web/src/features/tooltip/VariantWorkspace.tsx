@@ -25,38 +25,34 @@ export function VariantWorkspace({ source, editor, preview }: VariantWorkspacePr
   const prefix = useId();
   const [active, setActive] = useState<Panel>('translation');
   const tabs = useRef<Partial<Record<Panel, HTMLButtonElement | null>>>({});
-  if (!source) {
-    return (
-      <div className={styles.columns} ref={container} style={style}>
-        {editor}
-        {separator}
-        {preview}
-      </div>
-    );
-  }
+  const visiblePanels = source
+    ? panels
+    : panels
+        .filter((panel) => panel.id !== 'source')
+        .map((panel) => (panel.id === 'translation' ? { ...panel, label: 'Source' } : panel));
   const content: Record<Panel, ReactNode> = { source, translation: editor, preview };
   function onKeyDown(event: KeyboardEvent) {
-    const index = panels.findIndex((panel) => panel.id === active);
+    const index = visiblePanels.findIndex((panel) => panel.id === active);
     const target =
       event.key === 'ArrowRight'
-        ? (index + 1) % panels.length
+        ? (index + 1) % visiblePanels.length
         : event.key === 'ArrowLeft'
-          ? (index + panels.length - 1) % panels.length
+          ? (index + visiblePanels.length - 1) % visiblePanels.length
           : event.key === 'Home'
             ? 0
             : event.key === 'End'
-              ? panels.length - 1
+              ? visiblePanels.length - 1
               : -1;
     if (target < 0) return;
     event.preventDefault();
-    const next = panels[target].id;
+    const next = visiblePanels[target].id;
     setActive(next);
     tabs.current[next]?.focus();
   }
   return (
     <div className={styles.workspace} ref={container} style={style}>
       <div role="tablist" aria-label="Tooltip panels" className={styles.tabs} onKeyDown={onKeyDown}>
-        {panels.map(({ id, label }) => (
+        {visiblePanels.map(({ id, label }) => (
           <button
             key={id}
             ref={(element) => {
@@ -74,7 +70,7 @@ export function VariantWorkspace({ source, editor, preview }: VariantWorkspacePr
           </button>
         ))}
       </div>
-      {panels.map(({ id }) => (
+      {visiblePanels.map(({ id }) => (
         <div
           key={id}
           role="tabpanel"

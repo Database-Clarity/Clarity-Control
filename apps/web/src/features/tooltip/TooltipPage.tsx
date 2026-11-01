@@ -111,7 +111,7 @@ export function TooltipPage() {
         );
         return (
           <section key={variant} className={styles.variant}>
-            <header>
+            <header className={variant === hash ? styles.primaryVariant : undefined}>
               <h2>
                 {entry?.name ?? `Tooltip ${variant}`} {variant !== hash && '(enhanced variant)'}
               </h2>
@@ -128,8 +128,12 @@ export function TooltipPage() {
               }
               editor={
                 <section aria-label={`${entry?.name ?? variant} editor (${languageLabel(lang)})`}>
-                  <h3>Clarity text ({languageLabel(lang)})</h3>
-                  <LanguageSummary base={base} lang={lang} draft={tooltip.text[lang]?.text !== base.text[lang]?.text} />
+                  <h3 className={styles.editorTitle}>Clarity text ({languageLabel(lang)})</h3>
+                  <LanguageSummary
+                    base={base}
+                    lang={lang}
+                    draft={tooltip.text[lang]?.text !== base.text[lang]?.text}
+                  />
                   {access.reason && (
                     <p role="status" className={styles.reason}>
                       {access.reason}

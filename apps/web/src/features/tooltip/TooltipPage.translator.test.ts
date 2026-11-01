@@ -215,13 +215,13 @@ describe('translator tooltip page', () => {
     expect(html).not.toContain('Switch to');
   });
 
-  it('shows no reason, no source and no tablist for an editor on English', () => {
+  it('shows English editor and panel tabs without a translation source', () => {
     useAuthStore.setState({ user: editor });
     const html = render('/t/10');
     expect(vi.mocked(ClarityEditor).mock.calls[0][0].markupToolbar).toBe(false);
     expect(html).not.toContain('Read-only');
     expect(html).not.toContain('English source');
-    expect(html).not.toContain('role="tablist"');
+    expect(html).toContain('role="tablist"');
   });
 
   describe('English source view', () => {

@@ -98,8 +98,44 @@
 }
 
 @include theme.mobile {
+  .header {
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+  .header img {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+  .header h1 {
+    font-size: 1.2rem;
+  }
+  .header p {
+    margin: 0;
+    font-size: 0.8rem;
+  }
+  .header label {
+    margin-left: 0;
+  }
+  .variant {
+    margin-block: 0.5rem;
+  }
+  .primaryVariant h2,
+  .primaryVariant small,
+  .editorTitle {
+    display: none;
+  }
+  .primaryVariant {
+    margin-bottom: 0;
+  }
+  .workspace {
+    gap: 0.5rem;
+  }
   .tabs {
     display: flex;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #181818;
   }
   .panel[data-active='false'] {
     display: none;
@@ -111,18 +147,37 @@
 }
 
 @media (min-width: 1001px) {
-  .columns, .workspace {
+  .columns,
+  .workspace {
     grid-template-columns: minmax(0, var(--editor-width)) 16px minmax(0, 1fr);
     column-gap: 0;
   }
-  .workspace .panel[data-panel='translation'] { grid-column: 1; grid-row: 2; }
-  .workspace .panel[data-panel='preview'] { grid-column: 3; grid-row: 2; }
-  .workspace .divider { grid-column: 2; grid-row: 2; }
+  .workspace .panel[data-panel='translation'] {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .workspace .panel[data-panel='preview'] {
+    grid-column: 3;
+    grid-row: 2;
+  }
+  .workspace .divider {
+    grid-column: 2;
+    grid-row: 2;
+  }
   .divider {
     display: block;
     cursor: col-resize;
     touch-action: none;
-    background: linear-gradient(to right, transparent 7px, theme.$button-border-color 7px, theme.$button-border-color 9px, transparent 9px);
-    &:focus-visible { outline: 2px solid theme.$orange-color; outline-offset: -2px; }
+    background: linear-gradient(
+      to right,
+      transparent 7px,
+      theme.$button-border-color 7px,
+      theme.$button-border-color 9px,
+      transparent 9px
+    );
+    &:focus-visible {
+      outline: 2px solid theme.$orange-color;
+      outline-offset: -2px;
+    }
   }
 }
