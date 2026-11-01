@@ -3,6 +3,7 @@ import {
   guidanceCacheSchema,
   guidanceResponseSchema,
   guidanceReferenceSchema,
+  guidanceSchema,
   type GuidanceCategory,
   type GuidanceDocument,
   type GuidanceReference,
@@ -189,6 +190,15 @@ export class GuidancePersistence {
       },
       true,
     );
+  }
+  importBackup(input: unknown) {
+    if (!this.state.ready || this.state.saving || this.state.reloading || this.state.conflict)
+      throw new Error('Wait for guidance to load and resolve any disk conflict before importing.');
+    const document = guidanceSchema.parse(input);
+    if (document.scope !== this.state.document.scope)
+      throw new Error('The guidance backup belongs to another dataset.');
+    this.change(document);
+    this.set({ proposalInput: document, planningRevision: this.state.planningRevision + 1 });
   }
   private change(document: GuidanceDocument, ownerEdit = false) {
     this.pending = true;

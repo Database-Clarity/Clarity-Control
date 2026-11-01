@@ -49,7 +49,9 @@ it('keeps loaded membership frozen while applying current owner edits', async ()
   const loaded = reader.getSnapshot().proposalInput;
   reader.synchronize([{ ...categories[0], count: 2, hashes: [10, 11] }], 'new-baseline');
   reader.comment(categories[0].id, 'New comment');
-  expect(reader.getSnapshot().proposalInput?.categories[categories[0].id].comment).toBe('New comment');
+  expect(reader.getSnapshot().proposalInput?.categories[categories[0].id].comment).toBe(
+    'New comment',
+  );
   expect(reader.getSnapshot().proposalInput?.categories[categories[0].id].hashes).toEqual([10]);
   expect(loaded?.categories[categories[0].id].hashes).toEqual([10]);
   expect(loaded?.baseline).toBe('baseline');
@@ -403,4 +405,23 @@ it('never reports disk success for an acknowledgement of different guidance', as
   expect(owner.getSnapshot().error).toContain('invalid acknowledgement');
   await owner.flush();
   owner.dispose();
+});
+
+it('imports validated same-scope backups, freezes planning membership and rejects scope/conflict', async () => {
+  const data = fixture();
+  const writer = data.create();
+  await writer.start();
+  writer.synchronize(categories, 'old');
+  const imported = structuredClone(writer.getSnapshot().document);
+  imported.baseline = 'renewed';
+  const revision = writer.getSnapshot().planningRevision;
+  writer.importBackup(imported);
+  expect(writer.getSnapshot().proposalInput).toEqual(imported);
+  expect(writer.getSnapshot().planningRevision).toBeGreaterThan(revision);
+  expect(() => writer.importBackup({ ...imported, scope: 'other' })).toThrow(/dataset/);
+  expect(() => writer.importBackup({ version: 999 })).toThrow();
+  writer.synchronize([{ ...categories[0], count: 2, hashes: [10, 11] }], 'current');
+  expect(writer.getSnapshot().proposalInput?.categories[categories[0].id].hashes).toEqual([10]);
+  await writer.flush();
+  writer.dispose();
 });

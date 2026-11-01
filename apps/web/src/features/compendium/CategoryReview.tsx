@@ -40,6 +40,7 @@ export function CategoryReview({
   const [categoryId, setCategoryId] = useState('');
   const [selected, setSelected] = useState<Record<string, number>>({});
   const [browsing, setBrowsing] = useState(20);
+  const [importError, setImportError] = useState<string | null>(null);
   const filtered = categories.filter((category) =>
     `${category.name} ${category.group}`.toLowerCase().includes(query.toLowerCase()),
   );
@@ -107,6 +108,38 @@ export function CategoryReview({
             <button onClick={exportGuidance} disabled={!guidance.ready}>
               Export backup
             </button>
+            <label>
+              Import guidance backup
+              <input
+                type="file"
+                accept="application/json,.json"
+                disabled={paused || guidance.saving || guidance.conflict}
+                onChange={async (event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = '';
+                  if (!file) return;
+                  if (
+                    !window.confirm(
+                      'Replace browser examples and notes with this backup? Export a backup first to keep the current guidance.',
+                    )
+                  )
+                    return;
+                  try {
+                    const raw = await file.text();
+                    // A reload, edit or save while reading must not be overwritten.
+                    if (guidance.persistence.getSnapshot().document !== guidance.document)
+                      throw new Error('Guidance changed while reading the backup. Import again.');
+                    guidance.persistence.importBackup(JSON.parse(raw));
+                    setImportError(null);
+                  } catch (error) {
+                    setImportError(
+                      error instanceof Error ? error.message : 'Could not import guidance.',
+                    );
+                  }
+                }}
+              />
+            </label>
+            {importError && <p role="alert">{importError}</p>}
             {guidance.error && !guidance.conflict && !guidance.reloading && (
               <button onClick={() => void guidance.persistence.flush()}>Retry disk save</button>
             )}
