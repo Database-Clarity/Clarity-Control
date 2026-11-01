@@ -21,7 +21,25 @@ export function ConflictDialog({
     conflict.fields.every((field) => resolutions[resolutionKey(conflict.hash, field)]),
   );
   return (
-    <Dialog title="Resolve concurrent changes" onClose={onClose}>
+    <Dialog
+      title="Resolve concurrent changes"
+      onClose={onClose}
+      footer={
+        <button
+          type="button"
+          disabled={!complete}
+          onClick={() => {
+            try {
+              onResolve(resolveConflicts(changes, conflicts, resolutions));
+            } catch (error) {
+              setError(error instanceof Error ? error.message : String(error));
+            }
+          }}
+        >
+          Review resolved changes
+        </button>
+      }
+    >
       <p>
         Nothing was saved. Resolve each field, then review and save again against the server's
         latest version.
@@ -35,15 +53,17 @@ export function ConflictDialog({
               <fieldset key={field}>
                 <legend>{field}</legend>
                 <div className={styles.versions}>
-                  {(['base', 'head', 'next'] as const).map((version) => (
+                  {(['head', 'next'] as const).map((version) => (
                     <section key={version}>
-                      <h4>
-                        {version === 'head' ? 'Theirs' : version === 'next' ? 'Mine' : 'Base'}
-                      </h4>
+                      <h4>{version === 'head' ? 'Theirs' : 'Mine'}</h4>
                       <pre>{displayField(conflict[version], field)}</pre>
                     </section>
                   ))}
                 </div>
+                <details className={styles.base}>
+                  <summary>Show base (common ancestor)</summary>
+                  <pre>{displayField(conflict.base, field)}</pre>
+                </details>
                 <div className={styles.actions}>
                   <button
                     type="button"
@@ -101,19 +121,6 @@ export function ConflictDialog({
         </section>
       ))}
       {error && <p role="alert">{error}</p>}
-      <button
-        type="button"
-        disabled={!complete}
-        onClick={() => {
-          try {
-            onResolve(resolveConflicts(changes, conflicts, resolutions));
-          } catch (error) {
-            setError(error instanceof Error ? error.message : String(error));
-          }
-        }}
-      >
-        Review resolved changes
-      </button>
     </Dialog>
   );
 }

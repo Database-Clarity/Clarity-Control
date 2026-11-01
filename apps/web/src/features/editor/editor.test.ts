@@ -4,6 +4,7 @@ import { CompletionContext } from '@codemirror/autocomplete';
 import { markupLanguage, type MarkupGlobals } from '@clarity/core';
 import { clarityCompletions } from './completion';
 import { formatMarkupTables, tableFormattingTransaction } from './formatTable';
+import { dockScrollMargin, saveDockScrollMargins } from './scrollMargins';
 
 const globals: MarkupGlobals = {
   variables: 'var damage = 25\nvar duration = 10',
@@ -73,6 +74,20 @@ test('table formatting keeps the caret on its line and column and is one undoabl
     }),
   ).toBe(true);
   expect(state.doc.toString()).toBe(text);
+});
+
+describe('save dock scroll margin', () => {
+  test('reserves the dock height plus a gap only while the dock is fixed and visible', () => {
+    expect(dockScrollMargin(64, 'fixed')).toBe(72);
+    expect(dockScrollMargin(64, 'fixed', 0)).toBe(64);
+    expect(dockScrollMargin(0, 'fixed')).toBe(0);
+    expect(dockScrollMargin(64, 'static')).toBe(0);
+    expect(dockScrollMargin(64, 'sticky')).toBe(0);
+  });
+  test('is a CodeMirror extension that can be added to a state', () => {
+    const state = EditorState.create({ doc: 'x', extensions: saveDockScrollMargins() });
+    expect(state.doc.toString()).toBe('x');
+  });
 });
 
 test('retired scoped syntax is no longer offered by completion', () => {

@@ -32,6 +32,15 @@ button {
   cursor: pointer;
 }
 
+// 16px stops iOS Safari zooming the page when a field is focused.
+@include theme.mobile-or-coarse {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 a:focus-visible,
 button:focus-visible {
   outline: 2px solid theme.$orange-color;
