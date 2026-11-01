@@ -2,6 +2,7 @@ import { isolateHistory } from '@codemirror/commands';
 import { EditorSelection, EditorState, Transaction } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import {
+  extractBlocks,
   extractVariables,
   markupColors,
   markupCommentContext,
@@ -65,15 +66,91 @@ interface ProtectedRange {
   protectEnd?: boolean;
 }
 
+type Rejection = 'context' | 'expansion' | 'table-link' | 'line-style';
+type PreparedContext = { text: string; offsets: number[] };
+
+function expandedContext(text: string, globals: MarkupGlobals): PreparedContext | null {
+  let expanded = text;
+  let offsets = Array.from({ length: text.length }, (_, index) => index);
+  const replace = (from: number, length: number, value: string) => {
+    const origin = offsets[from];
+    expanded = expanded.slice(0, from) + value + expanded.slice(from + length);
+    offsets = offsets
+      .slice(0, from)
+      .concat(Array<number>(value.length).fill(origin), offsets.slice(from + length));
+  };
+  const structural = /[<>\r\n#${}|]|\/\*|\*\//;
+  for (let pass = 0; pass < 5; pass++) {
+    const imports = markupImports(expanded);
+    if (!imports.length) break;
+    for (const line of imports) {
+      const match = line.match(/^import (.+?) from (\d+|global) *$/);
+      if (!match) return null;
+      const [, name, from] = match;
+      const source =
+        globals.imports?.[from] ?? (from === 'global' ? globals.imports?.['1'] : undefined);
+      const value =
+        name === 'main' || name === 'secondary'
+          ? source
+          : extractBlocks(source ?? '', 'export')[name];
+      if (value === undefined || structural.test(value)) return null;
+      replace(expanded.indexOf(line), line.length, value);
+    }
+  }
+  if (markupImports(expanded).length) return null;
+  for (const reference of markupVariableReferences(expanded)) {
+    const variables = { ...extractVariables(expanded), ...extractVariables(globals.variables) };
+    const value = variables[reference.slice(1)];
+    if (value === undefined || structural.test(value)) return null;
+    let from = expanded.indexOf(reference);
+    while (from !== -1) {
+      replace(from, reference.length, value);
+      from = expanded.indexOf(reference, from + value.length);
+    }
+  }
+  const originalComments = markupCommentContext(text).comments;
+  const prepared = markupCommentContext(expanded);
+  const expandedComments = prepared.comments.map(({ from, to }) => ({
+    from: offsets[from],
+    to: offsets[to - 1] + 1,
+  }));
+  const delimiters = (value: string, mapping: number[]) =>
+    [...value.matchAll(/\/\*|\*\//g)].map((match) => ({
+      from: mapping[match.index],
+      to: mapping[match.index + 1] + 1,
+    }));
+  const originalDelimiters = delimiters(
+    text,
+    Array.from({ length: text.length }, (_, index) => index),
+  );
+  const expandedDelimiters = delimiters(expanded, offsets);
+  const unsafe =
+    originalComments.length !== expandedComments.length ||
+    originalComments.some(
+      (comment, index) =>
+        comment.from !== expandedComments[index].from || comment.to !== expandedComments[index].to,
+    ) ||
+    originalDelimiters.length !== expandedDelimiters.length ||
+    originalDelimiters.some(
+      (delimiter, index) =>
+        delimiter.from !== expandedDelimiters[index].from ||
+        delimiter.to !== expandedDelimiters[index].to,
+    );
+  return unsafe
+    ? null
+    : { text: prepared.text, offsets: prepared.offsets.map((offset) => offsets[offset]) };
+}
+
 function protectedRanges(state: EditorState, comments: { from: number; to: number }[]) {
   const text = state.doc.toString();
   const tokens: ProtectedRange[] = [];
   const tables: ProtectedRange[] = [];
   for (const comment of comments) {
-    // Comment removal can join both surrounding authored lines into one renderer line.
+    const start = state.doc.lineAt(comment.from);
+    const standalone = comment.from === start.from && text[comment.to - 1] === '\n';
     tokens.push({
-      from: state.doc.lineAt(comment.from).from,
-      to: state.doc.lineAt(comment.to).to,
+      from: start.from,
+      to: state.doc.lineAt(standalone ? comment.to - 1 : comment.to).to,
       protectStart: true,
       incomplete: true,
     });
@@ -81,6 +158,12 @@ function protectedRanges(state: EditorState, comments: { from: number; to: numbe
   let tableStart: number | undefined;
   for (let number = 1; number <= state.doc.lines; number++) {
     const line = state.doc.line(number);
+    if (
+      /^(?:title |export |var |import |enhanced \(|catalyst \(|exotic perk \()/.test(line.text) ||
+      /^\) *$/.test(line.text)
+    ) {
+      tokens.push({ from: line.from, to: line.to, protectStart: true, protectEnd: true });
+    }
     for (const range of markupInlineRanges(line.text)) {
       tokens.push({ from: line.from + range.from, to: line.from + range.to });
     }
@@ -145,24 +228,39 @@ function intersects(from: number, to: number, protectedRange: ProtectedRange) {
   );
 }
 
-export function markupTransaction(
+function createMarkupTransaction(
   state: EditorState,
   option: MarkupOption,
   globals: MarkupGlobals = { variables: '', titles: '' },
-): Transaction | null {
+): { transaction: Transaction; rejection?: never } | { transaction?: never; rejection: Rejection } {
   const text = state.doc.toString();
-  const variables = { ...extractVariables(text), ...extractVariables(globals.variables) };
-  // Expansion precedes comment removal and can create a comment spanning unrelated lines.
+  const context = expandedContext(text, globals);
+  if (!context) return { rejection: 'expansion' };
+  const { tokens, tables } = protectedRanges(state, markupCommentContext(text).comments);
+  const tableBlocks = [...context.text.matchAll(/< table [^]+?\n<\$>\n?/g)];
+  const preparedTables = tableBlocks.map((block) => ({
+    from: context.offsets[block.index],
+    to: context.offsets[block.index + block[0].replace(/\n$/, '').length - 1] + 1,
+    protectStart: true,
+    protectEnd: true,
+  }));
+  for (const block of tableBlocks) {
+    for (const match of block[0].matchAll(/\|[bchr\d-]*/g)) {
+      const start = block.index + match.index;
+      tokens.push({
+        from: context.offsets[start],
+        to: context.offsets[start + match[0].length - 1] + 1,
+        protectStart: true,
+      });
+    }
+  }
   if (
-    markupImports(text).length ||
-    markupVariableReferences(text).some((reference) => {
-      const value = variables[reference.slice(1)];
-      return value !== undefined && (value === '' || /[/*]/.test(value));
-    })
+    option.kind === 'link' &&
+    state.selection.ranges.some((range) =>
+      preparedTables.some((table) => intersects(range.from, range.to, table)),
+    )
   )
-    return null;
-  const context = markupCommentContext(text);
-  const { tokens, tables } = protectedRanges(state, context.comments);
+    return { rejection: 'table-link' };
   const unsafe = state.selection.ranges.some((range) => {
     const insertAtHead = option.kind === 'icon' || option.kind === 'line';
     const from = insertAtHead ? range.head : range.from;
@@ -173,13 +271,13 @@ export function markupTransaction(
       (!insertAtHead && selected.includes('/>')) ||
       ((option.kind === 'link' || option.kind === 'title') && selected.includes('[')) ||
       (option.kind === 'table' &&
-        (selected.includes('|') || tables.some((table) => intersects(from, to, table))))
+        (selected.includes('|') ||
+          [...tables, ...preparedTables].some((table) => intersects(from, to, table))))
     );
   });
-  if (unsafe) return null;
+  if (unsafe) return { rejection: 'context' };
 
   if (option.kind === 'line') {
-    const tableBlocks = [...context.text.matchAll(/< table [^]+?\n<\$>\n?/g)];
     const pending = new Map<number, number>();
     for (const range of state.selection.ranges) {
       const position = context.offsets.findIndex((offset) => offset >= range.head);
@@ -190,13 +288,14 @@ export function markupTransaction(
       const inTable = tableBlocks.some(
         (block) => point >= block.index && point < block.index + block[0].length,
       );
-      if (inTable && (line.startsWith('< table ') || line === '<$>')) return null;
+      if (inTable && (line.startsWith('< table ') || line === '<$>'))
+        return { rejection: 'context' };
       const allowed = inTable ? markupEmpty : markupLineClasses;
       const capacity = allowed.filter((name) => name === option.name).length;
       const marker = `<${option.name}/>`;
       const existing = line.split(marker).length - 1;
       const additions = (pending.get(start) ?? 0) + 1;
-      if (existing + additions > capacity) return null;
+      if (existing + additions > capacity) return { rejection: 'line-style' };
       pending.set(start, additions);
     }
   }
@@ -254,22 +353,32 @@ export function markupTransaction(
           : EditorSelection.range(start, end),
     };
   });
-  return state.update(changes, {
-    annotations: [Transaction.userEvent.of('input'), isolateHistory.of('full')],
-    scrollIntoView: true,
-  });
+  return {
+    transaction: state.update(changes, {
+      annotations: [Transaction.userEvent.of('input'), isolateHistory.of('full')],
+      scrollIntoView: true,
+    }),
+  };
+}
+
+export function markupTransaction(
+  state: EditorState,
+  option: MarkupOption,
+  globals: MarkupGlobals = { variables: '', titles: '' },
+): Transaction | null {
+  return createMarkupTransaction(state, option, globals).transaction ?? null;
 }
 
 export function insertMarkup(
   view: EditorView,
   option: MarkupOption,
   globals: MarkupGlobals = { variables: '', titles: '' },
-): 'inserted' | 'read-only' | 'composing' | 'unsupported' {
+): 'inserted' | 'read-only' | 'composing' | Rejection {
   if (view.state.readOnly) return 'read-only';
   if (view.compositionStarted || view.composing) return 'composing';
-  const transaction = markupTransaction(view.state, option, globals);
-  if (!transaction) return 'unsupported';
-  view.dispatch(transaction);
+  const result = createMarkupTransaction(view.state, option, globals);
+  if (result.rejection) return result.rejection;
+  view.dispatch(result.transaction);
   view.focus();
   return 'inserted';
 }

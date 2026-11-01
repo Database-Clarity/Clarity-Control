@@ -48,9 +48,15 @@ export function MarkupToolbar({
           ? 'Finish composing text before inserting markup.'
           : result === 'read-only'
             ? 'The markup editor is read-only.'
-            : result === 'unsupported'
-              ? 'Cannot insert markup here without breaking existing syntax. Select plain text outside markup.'
-              : '',
+            : result === 'table-link'
+              ? 'Links are not supported in table cells. Insert the link outside the table or edit the markup directly.'
+              : result === 'expansion'
+                ? 'Imports or variable expansions may change the surrounding markup. Edit the markup directly.'
+                : result === 'line-style'
+                  ? 'This line or table row cannot display another of that line style. Edit the markup directly.'
+                  : result === 'context'
+                    ? 'Cannot insert markup in this syntax or selection. Select plain text outside it or edit the markup directly.'
+                    : '',
       );
     }
   }

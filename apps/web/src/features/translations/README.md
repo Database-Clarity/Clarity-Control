@@ -25,10 +25,13 @@ The toolbar is absent in read-only views.
 To preserve the existing markup grammar, the toolbar declines insertion inside or across existing
 tokens, incomplete markup, variables and table boundaries. Link and title labels containing `[`
 are also declined because the reference parser would interpret that bracket as part of the target.
-Lines joined or affected by comments, variables or math are conservatively protected, and line
-styles are declined when the renderer cannot consume another marker on that line or table row.
-Imports and variable expansions that could create comment delimiters also prevent insertion,
-because their renderer effects can span other authored lines.
+Declaration and block boundaries and lines joined or affected by comments, variables or math are
+conservatively protected. Plain text in title bodies remains editable with the toolbar. Line styles
+are declined when the renderer cannot consume another marker on that line or table row; links are
+declined in table cells because the existing renderer cannot preserve their destinations there.
+Harmless resolved imports and URL variables do not block unrelated text. Unresolved or structurally
+complex expansions, and expansions that change comment boundaries, prevent insertion because
+their renderer effects can span other authored lines.
 Edit existing markup directly when a toolbar operation is declined.
 
 Outdated order and the red "exported in English" flag use the same strict greater-than-90-day

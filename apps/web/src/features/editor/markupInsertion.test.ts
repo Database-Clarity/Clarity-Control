@@ -9,15 +9,16 @@ import {
   markupLineClasses,
   markupTableClasses,
   parseMarkup,
+  type MarkupGlobals,
 } from '@clarity/core';
 import { markupOptions, markupTransaction, type MarkupOption } from './markupInsertion';
 import { TooltipPreview } from '../preview/TooltipPreview';
 
 const globals = { variables: '', titles: 'title Name (\nDescription\n)' };
 
-function preview(text: string) {
+function preview(text: string, previewGlobals: MarkupGlobals = globals) {
   return renderToStaticMarkup(
-    createElement(TooltipPreview, { text, globals, lang: 'fr', name: 'Fixture' }),
+    createElement(TooltipPreview, { text, globals: previewGlobals, lang: 'fr', name: 'Fixture' }),
   );
 }
 
@@ -461,6 +462,203 @@ describe('markup insertion', () => {
       selection: { anchor: 25 },
     });
     expect(markupTransaction(imported, option('inline:bold'))).toBeNull();
+  });
+
+  test.each(['inline:blue', 'link', 'title', 'table:wide', 'icon:solar', 'line:blue'])(
+    'allows %s on independent plain text with harmless expansions and standalone comments',
+    (id) => {
+      const cases: { doc: string; globals: MarkupGlobals; expected?: string }[] = [
+        {
+          doc: 'var url = https://example.com\nplain\n<link label [#url] />',
+          globals,
+          expected: 'href="https://example.com"',
+        },
+        {
+          doc: 'plain\n<link label [#url] />',
+          globals: { ...globals, variables: 'var url = https://example.com' },
+          expected: 'href="https://example.com"',
+        },
+        {
+          doc: 'import main from 42\nplain',
+          globals: { ...globals, imports: { '42': 'Imported text' } },
+          expected: 'Imported text',
+        },
+        { doc: '// translator note\nplain', globals },
+        { doc: '/* translator note */\nplain', globals },
+      ];
+      for (const fixture of cases) {
+        const point = fixture.doc.indexOf('plain');
+        const state = EditorState.create({
+          doc: fixture.doc,
+          selection: { anchor: point, head: point + 5 },
+          extensions: history(),
+        });
+        expect(parseMarkup(fixture.doc, fixture.globals).diagnostics).toEqual([]);
+        const transaction = markupTransaction(state, option(id), fixture.globals);
+        expect(transaction, `${id}: ${fixture.doc}`).not.toBeNull();
+        const next = transaction!.state;
+        const html = preview(next.doc.toString(), fixture.globals);
+        expect(html).toContain('plain');
+        if (fixture.expected) expect(html).toContain(fixture.expected);
+        expect(undoDepth(next)).toBe(1);
+      }
+    },
+  );
+
+  test.each(['inline:blue', 'link', 'title', 'table:wide', 'icon:solar', 'line:blue'])(
+    'rejects %s when an expansion creates a comment or is unresolved',
+    (id) => {
+      const cases: { doc: string; globals: MarkupGlobals }[] = [
+        {
+          doc: '<bold Damage > #join\nignored\n*/10 />',
+          globals: { ...globals, variables: 'var join = /*' },
+        },
+        {
+          doc: '/#empty* hidden\n*/visible',
+          globals: { ...globals, variables: 'var empty = empty' },
+        },
+        { doc: 'import main from 42\nplain', globals },
+        { doc: 'import main from 42\nplain', globals: { ...globals, imports: { '42': '/*' } } },
+        { doc: '#unknown\nplain', globals },
+      ];
+      for (const fixture of cases) {
+        const point = fixture.doc.includes('10')
+          ? fixture.doc.indexOf('10')
+          : fixture.doc.includes('visible')
+            ? fixture.doc.indexOf('visible')
+            : fixture.doc.indexOf('plain');
+        const state = EditorState.create({
+          doc: fixture.doc,
+          selection: { anchor: point, head: point + 1 },
+          extensions: history(),
+        });
+        const before = preview(fixture.doc, fixture.globals);
+        expect(markupTransaction(state, option(id), fixture.globals), fixture.doc).toBeNull();
+        expect(state.doc.toString()).toBe(fixture.doc);
+        expect(state.selection.main.anchor).toBe(point);
+        expect(undoDepth(state)).toBe(0);
+        expect(preview(state.doc.toString(), fixture.globals)).toBe(before);
+      }
+    },
+  );
+
+  test.each(['inline:blue', 'link', 'title', 'table:wide', 'icon:solar', 'line:blue'])(
+    'protects title definition boundaries from %s but allows supported body formatting',
+    (id) => {
+      const doc = 'title Name (\nDescription\n)\n<title label [Name] />';
+      const localGlobals = { variables: '', titles: '' };
+      const point = doc.indexOf('Name');
+      const initial = preview(doc, localGlobals);
+      expect(initial).toContain('role="tooltip"');
+      expect(initial).toContain('Description');
+      for (const [anchor, head] of [
+        [point, point + 4],
+        [point + 4, point],
+        [point + 2, point + 2],
+        [doc.indexOf('('), doc.indexOf('(')],
+        [doc.indexOf('\n)') + 1, doc.indexOf('\n)') + 1],
+      ]) {
+        const state = EditorState.create({
+          doc,
+          selection: { anchor, head },
+          extensions: history(),
+        });
+        expect(
+          markupTransaction(state, option(id), localGlobals),
+          `${id}: ${anchor}-${head}`,
+        ).toBeNull();
+        expect(state.selection.main.anchor).toBe(anchor);
+        expect(state.selection.main.head).toBe(head);
+        expect(undoDepth(state)).toBe(0);
+        expect(preview(state.doc.toString(), localGlobals)).toBe(initial);
+        expect(
+          parseMarkup(state.doc.toString(), localGlobals).lines[0].linesContent?.[0].title,
+        ).toBeDefined();
+      }
+      const body = doc.indexOf('Description');
+      const state = EditorState.create({ doc, selection: { anchor: body, head: body + 11 } });
+      const next = markupTransaction(state, option('inline:blue'), localGlobals);
+      expect(next).not.toBeNull();
+      const html = preview(next!.state.doc.toString(), localGlobals);
+      expect(html).toContain('role="tooltip"');
+      expect(html).toContain('Description');
+      expect(
+        parseMarkup(next!.state.doc.toString(), localGlobals).lines[0].linesContent?.[0].title?.[0]
+          .linesContent?.[0],
+      ).toEqual({ text: 'Description', classNames: ['blue'] });
+    },
+  );
+
+  test('protects declaration and condition headers without blocking their body text', () => {
+    for (const doc of [
+      'var damage = 10\nplain',
+      'import main from 42\nplain',
+      'export Name (\nplain\n)',
+      'enhanced (\nplain\n)',
+    ]) {
+      const fixtureGlobals = { ...globals, imports: { '42': 'Imported text' } };
+      const state = EditorState.create({ doc, selection: { anchor: 2, head: 5 } });
+      expect(markupTransaction(state, option('inline:blue'), fixtureGlobals), doc).toBeNull();
+    }
+  });
+
+  test('rejects links in prepared table cells atomically while retaining supported cell actions', () => {
+    for (const doc of [
+      '< table wide >\n| plain\n<$>',
+      '< table /* hidden\n*/wide >\n| plain\n<$>',
+      'var kind = table\n< #kind wide >\n| plain\n<$>',
+    ]) {
+      const point = doc.indexOf('plain');
+      for (const [anchor, head] of [
+        [point, point + 5],
+        [point + 5, point],
+        [point + 2, point + 2],
+      ]) {
+        const state = EditorState.create({
+          doc,
+          selection: { anchor, head },
+          extensions: history(),
+        });
+        const before = preview(doc);
+        expect(markupTransaction(state, option('link'))).toBeNull();
+        expect(state.selection.main.anchor).toBe(anchor);
+        expect(state.selection.main.head).toBe(head);
+        expect(undoDepth(state)).toBe(0);
+        expect(preview(state.doc.toString())).toBe(before);
+        expect(before).not.toContain('<a ');
+      }
+      for (const id of ['inline:blue', 'title', 'icon:solar', 'line:bold']) {
+        const state = EditorState.create({ doc, selection: { anchor: point, head: point + 5 } });
+        const next = insert(state, option(id));
+        const html = preview(next.doc.toString());
+        expect(html).toContain('plain');
+        if (id === 'title') {
+          expect(html).toContain('role="tooltip"');
+          expect(html).toContain('Description');
+        }
+      }
+      const withPlain = `${doc}\noutside`;
+      const outside = withPlain.indexOf('outside');
+      const multi = EditorState.create({
+        doc: withPlain,
+        selection: EditorSelection.create([
+          EditorSelection.range(point, point + 5),
+          EditorSelection.range(outside, outside + 7),
+        ]),
+        extensions: [history(), EditorState.allowMultipleSelections.of(true)],
+      });
+      expect(markupTransaction(multi, option('link'))).toBeNull();
+      expect(multi.doc.toString()).toBe(withPlain);
+      expect(undoDepth(multi)).toBe(0);
+      expect(multi.selection.ranges).toHaveLength(2);
+      const nested = EditorState.create({ doc, selection: { anchor: point, head: point + 5 } });
+      expect(markupTransaction(nested, option('table:wide'))).toBeNull();
+      const delimiter = EditorState.create({
+        doc,
+        selection: { anchor: doc.indexOf('|'), head: point + 5 },
+      });
+      expect(markupTransaction(delimiter, option('inline:blue'))).toBeNull();
+    }
   });
 
   test('declines repeated and existing line markers without altering history or preview', () => {
