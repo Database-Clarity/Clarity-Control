@@ -18,6 +18,7 @@ vi.mock('../../services/bundle', () => ({ loadBundle: vi.fn() }));
 vi.mock('../../services/api', async (original) => ({
   ...(await original<typeof import('../../services/api')>()),
   apiUrl: 'https://synthetic.invalid',
+  loginUrl: () => 'https://synthetic.invalid/auth/login',
   apiRequest: (path: string, init: RequestInit) => fetch(`https://synthetic.invalid${path}`, init),
 }));
 vi.mock('../../services/save/SavePanel', () => ({ SavePanel: () => null }));
@@ -223,6 +224,72 @@ it('selects pending changes from the sidebar and restores the selected item afte
   expect(
     host.querySelector('[aria-label="Pending saved changes"] a[aria-current="page"]')?.textContent,
   ).toContain('Tooltip 20');
+});
+
+it('shows one anonymous notice, leads with friendly categories, and filters canonical IDs', async () => {
+  const second = structuredClone(tooltip);
+  second.hash = 20;
+  second.text.en!.text = 'Second saved edit';
+  bundle.tooltips[20] = second;
+  vi.mocked(loadGenerator).mockResolvedValue({
+    categories: [
+      { id: 'weapon-trait', label: 'Friendly weapon traits', group: 'Weapons', order: 1 },
+      { id: 'armor-perk', label: 'Friendly armor effects', group: 'Armor', order: 2 },
+    ],
+    items: {
+      10: {
+        hash: 10,
+        name: 'Weapon sample',
+        icon: '',
+        categoryId: 'weapon-trait',
+        inGameDescription: 'Weapon evidence',
+      },
+      20: {
+        hash: 20,
+        name: 'Long sword perk',
+        icon: '',
+        categoryId: 'armor-perk',
+        inGameDescription: 'Armor evidence',
+      },
+    },
+    aliases: {},
+  });
+  useAuthStore.setState({ user: null, loading: false, load: async () => {} });
+  await mount();
+  await waitFor(() => expect(host.textContent).toContain('2 pending / 0 selected'));
+
+  expect(host.querySelectorAll('[role="note"]')).toHaveLength(1);
+  expect(host.textContent).not.toContain('Sign in to see latest change');
+  expect(host.textContent).toContain('Friendly weapon traits');
+  expect(host.textContent).toContain('weapon-trait');
+  const weapon = host.querySelector<HTMLButtonElement>(
+    'button[aria-label="Open Weapon sample, Friendly weapon traits, 10"]',
+  );
+  expect(weapon?.textContent).toContain('#10');
+  expect(host.querySelectorAll('[aria-label="Selected change"]')).toHaveLength(0);
+
+  const category = host.querySelector<HTMLSelectElement>('select[aria-label="Category"]')!;
+  await act(async () => {
+    category.value = 'armor-perk';
+    category.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await waitFor(() => expect(host.textContent).toContain('1 of 1'));
+  expect(host.textContent).toContain('Friendly armor effects');
+  expect(
+    host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Open Long sword perk, Friendly armor effects, 20"]',
+    )?.textContent,
+  ).toContain('#20');
+  expect(
+    host.querySelector<HTMLAnchorElement>(
+      '[aria-label="Pending saved changes"] a[aria-current="page"]',
+    )?.getAttribute('href'),
+  ).toContain('hash=20');
+
+  await act(async () => useAuthStore.setState({ user }));
+  await waitFor(() => expect(host.querySelectorAll('[role="note"]')).toHaveLength(0));
+  await act(async () => useAuthStore.setState({ user: null, loading: false, load: async () => {} }));
+  await waitFor(() => expect(host.querySelectorAll('[role="note"]')).toHaveLength(1));
 });
 
 it('retires acknowledgment when the bundle reports a superseding marker without catching up first', async () => {

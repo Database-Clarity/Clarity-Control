@@ -191,6 +191,28 @@ it('publishes the existing category queue for sidebar navigation', async () => {
   }
 });
 
+it('states the example-only consequence inside the category action group', async () => {
+  const f = await mount();
+  try {
+    const sample = f.host.querySelector('[aria-label="Resolve sample Sample 100"]')!;
+    const accept = f.button('Accept proposed link', sample);
+    const actions = accept.parentElement!;
+    expect(actions.querySelector('p')?.textContent).toBe(
+      'Saves as example · no tooltip change',
+    );
+    expect([...actions.querySelectorAll('button')].map((button) => button.textContent?.trim())).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Accept proposed link'),
+        expect.stringContaining('Pick other'),
+        expect.stringContaining('No equivalent'),
+        expect.stringContaining('Skip'),
+      ]),
+    );
+  } finally {
+    await f.close();
+  }
+});
+
 it.each([false, true])(
   'rejects old owner links before confirmation, including after disk save=%s',
   async (save) => {

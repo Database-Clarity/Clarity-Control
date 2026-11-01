@@ -35,6 +35,10 @@ it('keeps the phone review actions and overlay above the measured save dock', ()
   expect(mobile).toMatch(/\.overlay \{[^}]*var\(--save-dock-height,/);
   expect(mobile).toContain('calc(5rem + env(safe-area-inset-bottom, 0px))');
   expect(layoutCss).toContain('calc(5rem + env(safe-area-inset-bottom, 0px))');
+  expect(css).toMatch(/\.actionBar button \{\s*min-height: 44px;\s*\}/);
+  expect(css).toContain('.actionConsequence');
+  expect(categoryCss).toMatch(/@media \(max-width: 700px\)[\s\S]*\.actions \{\s*position: sticky;/);
+  expect(categoryCss).toContain('.actionEyebrow');
 });
 it('bounds the mobile context-aware sidebar without hiding the Editor stepper globally', () => {
   expect(layoutCss).toMatch(/\.sidebar\[data-open=true\] \{[^}]*height: 100dvh;/);

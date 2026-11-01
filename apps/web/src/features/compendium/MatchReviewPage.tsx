@@ -793,6 +793,9 @@ export function ReviewQueue({
         />
       )}
       <footer className={styles.actionBar} aria-label="Review actions">
+        <p className={styles.actionConsequence}>
+          Links create local drafts, not saves · Skip/No equivalent stay in browser.
+        </p>
         <button
           className={styles.primary}
           disabled={!canEdit || !proposal?.link || selected?.status !== 'open' || picker || !!bulk}

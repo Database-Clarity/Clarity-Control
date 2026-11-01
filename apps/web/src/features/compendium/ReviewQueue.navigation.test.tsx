@@ -237,6 +237,23 @@ afterEach(async () => {
 });
 
 describe('reviewed URL/decision reproductions', () => {
+  it('states local consequences inside the individual decision bar', async () => {
+    await mount();
+    const bar = host.querySelector<HTMLElement>('footer[aria-label="Review actions"]')!;
+    expect(bar.querySelector('p')?.textContent).toBe(
+      'Links create local drafts, not saves · Skip/No equivalent stay in browser.',
+    );
+    expect([...bar.querySelectorAll('button')].map((element) => element.textContent?.trim())).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Accept proposed link'),
+        expect.stringContaining('Pick other'),
+        expect.stringContaining('No equivalent'),
+        expect.stringContaining('Skip'),
+      ]),
+    );
+    expect(bar.querySelectorAll('button')).toHaveLength(5);
+  });
+
   it('Next changes the mounted entry and URL from 100 to 101 in All entries', async () => {
     await mount();
     await change('Show', 'all');

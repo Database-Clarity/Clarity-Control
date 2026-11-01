@@ -104,6 +104,7 @@ export function SampleReview({
         </details>
       )}
       <div className={styles.actions}>
+        <p className={styles.actionEyebrow}>Saves as example · no tooltip change</p>
         <button
           disabled={paused || !proposal?.link || !proposal.match}
           onClick={() => decide('accepted', proposal?.match)}

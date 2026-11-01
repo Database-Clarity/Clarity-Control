@@ -5,6 +5,8 @@ import { Layout } from '../src/features/navigation/Layout';
 import styles from '../src/features/navigation/Layout.module.scss';
 import { TooltipPage } from '../src/features/tooltip/TooltipPage';
 import { ReviewPage } from '../src/features/review/ReviewPage';
+import { MatchReviewPage } from '../src/features/compendium/MatchReviewPage';
+import { guidedFixture } from './guided-fixture';
 import { useAuthStore } from '../src/stores/auth';
 import { useDataStore, type EditorData } from '../src/stores/data';
 import { useDraftStore } from '../src/stores/drafts';
@@ -16,9 +18,33 @@ const params = new URLSearchParams(window.location.search);
 const workspace = params.get('workspace') ?? 'review';
 const longEditor = params.get('long') === 'true';
 const network: string[] = [];
+const storage = new Map<string, string>();
+Object.defineProperty(window, 'localStorage', {
+  configurable: true,
+  value: {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => storage.set(key, value),
+    removeItem: (key: string) => storage.delete(key),
+    clear: () => storage.clear(),
+    key: (index: number) => [...storage.keys()][index] ?? null,
+    get length() {
+      return storage.size;
+    },
+  },
+});
 window.fetch = async (input) => {
   network.push(String(input));
   throw new Error('Network blocked by read-only Browse regression fixture');
+};
+const compendium = guidedFixture();
+compendium.editor.categories = [
+  { id: 'weapon-trait', label: 'Synthetic friendly weapon traits', group: 'Fixture', order: 1 },
+];
+const longEvidence = 'Synthetic long evidence stays available below the review controls. '.repeat(32);
+compendium.editor.items[100].inGameDescription = longEvidence;
+compendium.source.tabs[0].rows[0].cell = {
+  plain: longEvidence,
+  runs: [{ text: longEvidence }],
 };
 const timestamp = '2026-11-01T00:00:00Z';
 const tooltips: Record<number, Tooltip> = {};
@@ -65,7 +91,8 @@ const data: EditorData = {
     pushed: {},
   },
 };
-useDataStore.setState({ data, status: 'ready', error: null, load: async () => {} });
+const activeData = workspace.startsWith('compendium-') ? compendium.editor : data;
+useDataStore.setState({ data: activeData, status: 'ready', error: null, load: async () => {} });
 useAuthStore.setState({ user: null, loading: false, error: null, load: async () => {} });
 useDraftStore.setState({
   drafts: {},
@@ -75,7 +102,9 @@ useDraftStore.setState({
   hydrate: async () => {},
 });
 useCompendiumStore.setState({
-  data: { fetchedAt: timestamp, tabs: [] },
+  data: workspace.startsWith('compendium-')
+    ? compendium.source
+    : { fetchedAt: timestamp, tabs: [] },
   loading: false,
   error: null,
   load: async () => {},
@@ -90,6 +119,10 @@ useSidebarQueueStore.setState({
 const path =
   workspace === 'editor'
     ? '/t/100?lang=de'
+    : workspace === 'compendium-sample'
+      ? '/compendium/review'
+      : workspace === 'compendium-entry'
+        ? '/compendium/review?view=entries&hash=100'
     : workspace === 'compendium'
       ? '/compendium?group=fixture-category-18'
       : '/review?hash=105';
@@ -99,6 +132,7 @@ createRoot(document.getElementById('root')!).render(
       <Route element={<Layout />}>
         <Route path="t/:hash" element={<TooltipPage />} />
         <Route path="review" element={<ReviewPage />} />
+        <Route path="compendium/review" element={<MatchReviewPage />} />
         <Route
           path="compendium"
           element={
@@ -135,9 +169,123 @@ async function run() {
     () =>
       workspace === 'review'
         ? document.querySelectorAll('[aria-label="Pending saved changes"] li a').length === 60
+        : workspace === 'compendium-entry'
+          ? document.querySelector('footer[aria-label="Review actions"]') !== null &&
+              [...document.querySelectorAll('button')].some(
+                (button) => button.textContent?.trim() === 'Bulk preview (6)',
+              )
+          : workspace === 'compendium-sample'
+              ? document.querySelector('[aria-label="Category guidance"]') !== null &&
+                document.querySelector('[aria-label="Sample proposed source"] h3')?.textContent ===
+                  'Proposed source'
         : document.querySelector('#main-content article') !== null,
     'workspace queue',
   );
+  if (workspace.startsWith('compendium-')) {
+    await document.fonts.ready;
+    let previousHeight = document.documentElement.scrollHeight;
+    let stableFrames = 0;
+    for (let frame = 0; frame < 60 && stableFrames < 5; frame++) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const currentHeight = document.documentElement.scrollHeight;
+      stableFrames = currentHeight === previousHeight ? stableFrames + 1 : 0;
+      previousHeight = currentHeight;
+    }
+    assert(stableFrames === 5, 'Compendium layout did not settle after matching');
+    const sample = workspace === 'compendium-sample';
+    const firstAction = document.querySelector<HTMLElement>(
+      sample
+        ? '[aria-label^="Resolve sample"] button'
+        : 'footer[aria-label="Review actions"]',
+    )!;
+    const actionRegion = sample ? firstAction.parentElement! : firstAction;
+    const consequence = actionRegion.querySelector('p')?.textContent?.trim() ?? '';
+    assert(
+      consequence ===
+        (sample
+          ? 'Saves as example · no tooltip change'
+          : 'Links create local drafts, not saves · Skip/No equivalent stay in browser.'),
+      'Decision consequence must appear inside its action region',
+    );
+    const actionButtons = [
+      ...actionRegion.querySelectorAll<HTMLButtonElement>('button'),
+    ];
+    assert(actionButtons.length >= 4, 'Expected all existing decision actions');
+    let buttonBounds = actionButtons.map((button) => rect(button));
+    if (innerWidth <= 700) {
+      const position = getComputedStyle(actionRegion).position;
+      assert(position === (sample ? 'sticky' : 'fixed'), 'Phone decision actions must remain reachable');
+      assert(
+        actionButtons.every((button) => button.getBoundingClientRect().height >= 44),
+        'Decision target below 44px',
+      );
+      const evidence = document.querySelectorAll<HTMLElement>('[aria-label="Entry to review"] pre');
+      const target = sample
+        ? document.querySelector<HTMLTextAreaElement>('[aria-label="Category guidance"] textarea')
+        : evidence.item(evidence.length - 1);
+      assert(target !== null, 'Missing final sample input or review evidence');
+      target.scrollIntoView({ block: 'end' });
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      let finalTarget = rect(target);
+      let actionBounds = rect(actionRegion);
+      if (finalTarget.bottom > actionBounds.y && finalTarget.y < actionBounds.bottom) {
+        window.scrollBy(0, finalTarget.bottom - actionBounds.y + 12);
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        finalTarget = rect(target);
+        actionBounds = rect(actionRegion);
+      }
+      buttonBounds = actionButtons.map((button) => rect(button));
+      assert(
+        finalTarget.bottom <= actionBounds.y + 1 ||
+          finalTarget.y >= actionBounds.bottom - 1 ||
+          actionBounds.y >= innerHeight,
+        `Final evidence/input overlaps its action bar: ${JSON.stringify({ finalTarget, actionBounds })}`,
+      );
+    }
+    assert(
+      document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+      'Horizontal page overflow',
+    );
+    assert(network.every((url) => url.includes('__review-guidance')), 'Unexpected fixture request');
+    return {
+      fixture: workspace,
+      viewport: [innerWidth, innerHeight],
+      actions: rect(actionRegion),
+      consequence,
+      buttons: buttonBounds,
+      target: sample
+        ? rect(document.querySelector('[aria-label="Category guidance"] textarea')!)
+        : rect(
+            document
+              .querySelectorAll<HTMLElement>('[aria-label="Entry to review"] pre')
+              .item(
+                document.querySelectorAll('[aria-label="Entry to review"] pre').length - 1,
+              ),
+          ),
+      documentWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+      network,
+    };
+  }
+  if (workspace === 'review') {
+    assert(document.querySelectorAll('[role="note"]').length === 1, 'Expected one page notice');
+    assert(
+      !document.body.textContent?.includes('Sign in to see latest change'),
+      'Anonymous sign-in text repeated in pending rows',
+    );
+    if (innerWidth <= 700) {
+      const touchTargets = [
+        ...document.querySelectorAll<HTMLElement>(
+          '#main-content article button, #main-content article input, #main-content article select',
+        ),
+      ].filter((target) => target.getBoundingClientRect().height > 0);
+      assert(touchTargets.length > 0, 'Missing Review page touch targets');
+      assert(
+        touchTargets.every((target) => target.getBoundingClientRect().height >= 44),
+        'Review action or filter target below 44px',
+      );
+    }
+  }
   const sidebar = document.getElementById('sidebar')!;
   const body = sidebar.querySelector<HTMLElement>(`.${styles.sidebarBody}`)!;
   const close = sidebar.querySelector<HTMLButtonElement>('[aria-controls="sidebar"]')!;

@@ -3,6 +3,7 @@ import { getHistory, type HistoryCommit } from '../../services/history';
 import { errorMessage } from '../../services/http';
 import { CommitAuthor } from '../history/CommitAuthor';
 import type { PendingTooltip } from './model';
+import styles from './Review.module.scss';
 
 export function ReviewRow({
   entry,
@@ -51,27 +52,30 @@ export function ReviewRow({
           checked={checked}
           onChange={onToggle}
           disabled={disabled}
-          aria-label={`Select ${entry.name}`}
+          aria-label={`Select ${entry.name}, ${entry.category}, ${entry.tooltip.hash}`}
         />{' '}
-        <button type="button" onClick={onOpen} aria-current={active ? 'true' : undefined}>
-          {entry.name} ({entry.tooltip.hash})
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-current={active ? 'true' : undefined}
+          aria-label={`Open ${entry.name}, ${entry.category}, ${entry.tooltip.hash}`}
+        >
+          <span className={styles.rowIdentity}>
+            {entry.name} <small>#{entry.tooltip.hash}</small>
+          </span>
         </button>
       </label>
-      <div>
-        {latest ? (
-          <CommitAuthor entry={latest} />
-        ) : error ? (
-          <span role="alert">{error}</span>
-        ) : (
-          <span>
-            {historyAvailable
-              ? loaded
-                ? 'No history available'
-                : 'Loading latest change...'
-              : 'Sign in to see latest change'}
-          </span>
-        )}
-      </div>
+      {historyAvailable && (
+        <div>
+          {latest ? (
+            <CommitAuthor entry={latest} />
+          ) : error ? (
+            <span role="alert">{error}</span>
+          ) : (
+            <span>{loaded ? 'No history available' : 'Loading latest change...'}</span>
+          )}
+        </div>
+      )}
     </li>
   );
 }

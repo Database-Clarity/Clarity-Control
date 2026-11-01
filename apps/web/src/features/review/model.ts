@@ -6,6 +6,7 @@ export interface PendingTooltip {
   tooltip: Tooltip;
   name: string;
   category: string;
+  categoryId: string;
   categoryOrder: number;
 }
 
@@ -24,6 +25,7 @@ export async function pendingTooltips(
         tooltip,
         name: item?.name ?? tooltip.custom?.name ?? `Tooltip ${tooltip.hash}`,
         category: category?.label ?? categoryId,
+        categoryId,
         categoryOrder: category?.order ?? 9999,
       };
     }),
