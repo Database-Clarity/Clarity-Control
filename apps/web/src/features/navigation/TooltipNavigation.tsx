@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { resolveAlias } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
+import { workspaceShortcutsBlocked } from '../../ui/interaction';
 import {
   frameGroupSize,
   itemFor,
@@ -64,7 +65,7 @@ export function TooltipNavigation({ data }: { data: EditorData }) {
     };
     const shiftWheel = (event: WheelEvent) => {
       const direction = shiftScrollDirection(event);
-      if (!direction) return;
+      if (!direction || workspaceShortcutsBlocked(event)) return;
       if (step.current(direction)) event.preventDefault();
     };
     const pop = () => stepping.cancel();

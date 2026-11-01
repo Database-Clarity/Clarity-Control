@@ -27,6 +27,47 @@
   }
 }
 
+.sidebarNavigation {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  margin-bottom: 1rem;
+
+  h2 {
+    margin: 0;
+    font-size: 1rem;
+  }
+
+  a {
+    display: block;
+    min-width: 0;
+    padding: 0.35rem 0;
+    overflow-wrap: anywhere;
+  }
+
+  a[aria-current='page'] {
+    color: theme.$orange-color;
+    font-weight: 700;
+  }
+
+  small {
+    color: hsl(0, 0%, 72%);
+    overflow-wrap: anywhere;
+  }
+}
+
+.sidebarList {
+  display: grid;
+  gap: 0.1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sidebarBody {
+  min-width: 0;
+}
+
 .stepper {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -146,10 +187,6 @@
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
 
-    > * {
-      grid-column: 1 / -1;
-    }
-
     > .brand {
       grid-column: 1;
       margin-bottom: 0;
@@ -160,13 +197,55 @@
       grid-column: 2;
     }
 
-    // Hidden, not unmounted, so the search box keeps its value while the drawer is closed.
-    &[data-open='false'] > :not(.brand, .navToggle, .stepper, .saveDock) {
+    .sidebarBody {
+      display: contents;
+    }
+
+    &[data-open='false'] .sidebarBody > :not(.stepper, .saveDock) {
       display: none;
     }
 
-    &[data-open='true'] > .brand {
-      margin-bottom: 0.75rem;
+    &[data-open='true'] {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-rows: auto minmax(0, 1fr);
+      align-items: start;
+      height: 100vh;
+      height: 100dvh;
+      max-height: 100dvh;
+      overflow: hidden;
+      border: 0;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    &[data-open='true'] > .brand,
+    &[data-open='true'] > .navToggle {
+      grid-row: 1;
+      margin: 0;
+    }
+
+    &[data-open='true'] .sidebarBody {
+      display: block;
+      grid-column: 1 / -1;
+      grid-row: 2;
+      align-self: stretch;
+      min-height: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding-top: 0.75rem;
+      overflow-wrap: anywhere;
+    }
+
+    &[data-open='true'] .saveDock {
+      position: static;
+      inset: auto;
+      z-index: auto;
+      margin-inline: -0.75rem;
+      border-top: 1px solid theme.$button-border-color;
     }
   }
 
@@ -216,7 +295,7 @@
       }
     }
 
-    .sidebar > .stepper {
+    .sidebar .sidebarBody > .stepper {
       grid-column: 2;
       grid-row: 1;
       gap: 0.25rem;
@@ -241,6 +320,15 @@
 }
 
 @include theme.mobile-or-coarse {
+  .sidebarNavigation a {
+    min-height: 44px;
+    box-sizing: border-box;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 0.25rem;
+  }
+
   .sidebar,
   .saveDock {
     button,
@@ -254,8 +342,6 @@
 
 @media (max-width: 700px) {
   .reviewMode .sidebar {
-    .tooltipNavigation,
-    .stepper,
     .status,
     .brand span {
       display: none;

@@ -18,6 +18,7 @@ import { emptyProgress, sourceFingerprint } from './reviewProgress';
 import { reviewQueue } from './reviewQueue';
 import { proposalFor } from './rapidReview';
 import { sampleReference } from './sampleReferences';
+import { useSidebarQueueStore } from '../navigation/sidebarQueue';
 
 vi.mock('../../services/api', () => ({ apiUrl: 'https://synthetic.invalid' }));
 vi.mock('../../services/draftStorage', () => ({
@@ -39,6 +40,7 @@ vi.mock('./CategoryReview', async (original) => {
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 afterEach(() => {
   vi.unstubAllGlobals();
+  useSidebarQueueStore.setState({ compendiumCategories: null, pendingChanges: null });
 });
 
 async function mount(scope?: 'ghost' | 'mixed') {
@@ -176,6 +178,18 @@ async function mount(scope?: 'ghost' | 'mixed') {
     },
   };
 }
+
+it('publishes the existing category queue for sidebar navigation', async () => {
+  const f = await mount();
+  try {
+    const categories = (captured.props as Parameters<typeof CategoryReview>[0]).categories;
+    expect(useSidebarQueueStore.getState().compendiumCategories).toEqual(
+      categories.map(({ id, name }) => ({ id, name })),
+    );
+  } finally {
+    await f.close();
+  }
+});
 
 it.each([false, true])(
   'rejects old owner links before confirmation, including after disk save=%s',
