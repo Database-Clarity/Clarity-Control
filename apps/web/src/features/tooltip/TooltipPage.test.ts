@@ -180,13 +180,12 @@ describe('tooltip screen composition', () => {
       ...data,
       items: {
         ...data.items,
-        10: { ...data.items[10], owners },
+        10: { ...data.items[10], owners, ownerNames: { 30: 'Exotic <B>' } },
         20: { hash: 20, name: 'Exotic <A>', icon: '', categoryId: 'base', inGameDescription: '' },
       },
     });
     useDataStore.setState({ data: owned([20, 30]) });
-    // Names come from the item lookup (escaped); unknown owners fall back to the hash.
-    expect(render()).toContain('Shared perk — used on: Exotic &lt;A&gt;, 30');
+    expect(render()).toContain('Shared perk — used on: Exotic &lt;A&gt;, Exotic &lt;B&gt;');
     useDataStore.setState({ data: owned([20]) });
     expect(render()).not.toContain('Shared perk');
   });

@@ -152,6 +152,57 @@ describe('tooltip catalog', () => {
       }),
     ).toBeUndefined();
   });
+  it('resolves shared owner names from the catalog, custom items, and generated owner names', () => {
+    const shared: EditorData = {
+      ...data,
+      items: {
+        ...data.items,
+        10: {
+          ...data.items[10],
+          owners: [20, 2, 77, 78, 79],
+          ownerNames: { 20: 'Other armor', 2: 'Other custom', 77: 'Exotic <A>', 78: ' ' },
+        },
+      },
+    };
+    const expected = 'Shared perk — used on: Armor, Variables, Exotic <A>, 78, 79';
+    expect(sharedPerkLabel(10, shared)).toBe(expected);
+    const markup = renderToStaticMarkup(
+      createElement(
+        MemoryRouter,
+        { initialEntries: ['/t/10'] },
+        createElement(TooltipNavigation, { data: shared }),
+      ),
+    );
+    expect(markup).toContain('Shared perk — used on: Armor, Variables, Exotic &lt;A&gt;, 78, 79');
+  });
+  it('uses custom names when catalog names are blank, before generated names or hashes', () => {
+    const shared: EditorData = {
+      ...data,
+      items: {
+        ...data.items,
+        10: { ...data.items[10], owners: [2, 20, 77], ownerNames: { 2: 'Generated' } },
+        2: { ...data.items[20], hash: 2, name: '  ' },
+        20: { ...data.items[20], name: '\t' },
+      },
+      bundle: {
+        ...data.bundle,
+        tooltips: {
+          ...data.bundle.tooltips,
+          20: {
+            hash: 20,
+            custom: { name: ' Custom armor ', categoryId: 'first' },
+            text: {},
+            associated: [],
+          },
+        },
+      },
+    };
+    expect(sharedPerkLabel(10, shared)).toBe('Shared perk — used on: Variables, Custom armor, 77');
+    shared.items[2].name = ' Catalog name ';
+    expect(sharedPerkLabel(10, shared)).toBe(
+      'Shared perk — used on: Catalog name, Custom armor, 77',
+    );
+  });
   it('provides one navigation appearance with no density toggle', () => {
     const markup = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(Layout)));
     expect(markup).not.toContain('Comfortable navigation');

@@ -25,6 +25,7 @@ export const itemSchema = z.object({
   sandboxPerkHashes: z.array(hashSchema).optional(),
   /** All owning exotic items; present only for perks shared by two or more exotics. */
   owners: z.array(hashSchema).optional(),
+  ownerNames: z.record(z.string(), z.string()).optional(),
 });
 export const itemsSchema = z
   .record(z.string(), itemSchema)
