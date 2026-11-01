@@ -1,10 +1,12 @@
-import { appendFile, readdir, readFile, unlink, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { writeFile } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
-import { aliasesSchema, pushedSchema, tooltipSchema } from '@clarity/core';
+import { aliasesSchema } from '@clarity/core';
 import { z } from 'zod';
-import { conflictNotes, foldFrames } from './foldFrames.js';
-import { formatJson, readJson } from './migrate.js';
+import { foldFrames } from './foldFrames.js';
+import { readJson, readMigration } from './migrate.js';
+import { deletedHashes, excludedDeletions } from './deletions.js';
+import { planFold } from './foldWrite.js';
+import { commitFiles, dataDiff } from './transaction.js';
 
 const { values } = parseArgs({
   options: {
@@ -12,56 +14,51 @@ const { values } = parseArgs({
     aliases: { type: 'string' },
     items: { type: 'string' },
     conflicts: { type: 'string' },
+    deletions: { type: 'string' },
+    reimport: { type: 'string', multiple: true },
+    diff: { type: 'string' },
+    approve: { type: 'string' },
+    'allow-authored-overwrite': { type: 'boolean', default: false },
     write: { type: 'boolean', default: false },
   },
 });
 if (!values.data || !values.aliases || !values.items || !values.conflicts) {
   throw new Error(
-    'Required: --data <checkout> --aliases <json> --items <json> --conflicts <md> [--write]',
+    'Required: --data <checkout> --aliases <json> --items <json> --conflicts <file-in-checkout> [--diff <new-json>] [--write --approve <reviewed-diff.json>]',
   );
 }
-const root = resolve(values.data);
-const directory = join(root, 'tooltips');
-const files = await readdir(directory);
-if (files.some((file) => !/^(0|[1-9]\d*)\.json$/.test(file))) {
-  throw new Error('Unexpected non-tooltip file in tooltips directory');
-}
-const tooltips = await Promise.all(
-  files.map(async (file) => {
-    const tooltip = tooltipSchema.parse(JSON.parse(await readFile(join(directory, file), 'utf8')));
-    if (file !== `${tooltip.hash}.json`) throw new Error(`Stored tooltip hash mismatch: ${file}`);
-    return tooltip;
-  }),
+const existing = await readMigration(values.data);
+if (!existing) throw new Error('No existing editor data to fold');
+const excluded = excludedDeletions(
+  await deletedHashes(values.data, values.deletions),
+  values.reimport,
 );
 const result = foldFrames(
-  tooltips,
+  existing.tooltips,
   aliasesSchema.parse(await readJson(values.aliases)),
-  pushedSchema.parse(await readJson(join(root, 'live', 'pushed.json'))),
+  existing.pushed,
   z.record(z.string(), z.object({ name: z.string() })).parse(await readJson(values.items)),
 );
+const changes = await planFold(values.data, existing, result, values.conflicts, excluded);
+const diff = dataDiff(changes);
 console.log(
   JSON.stringify(
     {
       mode: values.write ? 'write' : 'dry run',
-      before: tooltips.length,
+      before: existing.tooltips.length,
       after: result.tooltips.length,
       folded: result.folded,
       replacedLanguageVersions: result.conflicts.length,
+      diff,
     },
     null,
     2,
   ),
 );
+if (values.diff) await writeFile(values.diff, `${JSON.stringify(diff, null, 2)}\n`, { flag: 'wx' });
 if (values.write) {
-  // Archive replaced text before deleting any authored file.
-  await appendFile(resolve(values.conflicts), conflictNotes(result.conflicts));
-  for (const tooltip of result.tooltips) {
-    const path = join(directory, `${tooltip.hash}.json`);
-    const next = formatJson(tooltip);
-    if (!files.includes(`${tooltip.hash}.json`) || (await readFile(path, 'utf8')) !== next) {
-      await writeFile(path, next);
-    }
-  }
-  await writeFile(join(root, 'live', 'pushed.json'), formatJson(result.pushed));
-  for (const hash of result.folded) await unlink(join(directory, `${hash}.json`));
+  await commitFiles(values.data, changes, {
+    approvedPlan: values.approve ? await readJson(values.approve) : undefined,
+    allowAuthoredOverwrite: values['allow-authored-overwrite'],
+  });
 }
