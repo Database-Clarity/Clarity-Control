@@ -27,7 +27,7 @@ import { ProposalContext } from './ProposalContext';
 import { suggestionAnchor } from './suggestions';
 import styles from './MatchReview.module.scss';
 import { useProposals } from './useProposals';
-import { CategoryReview } from './CategoryReview';
+import { CategoryReview, type CategoryReviewRouteState } from './CategoryReview';
 import { categoryId, reviewCategories, type ReviewCategory } from './reviewCategories';
 import { useGuidance } from './useGuidance';
 import { classifyScope } from './reviewScope';
@@ -145,6 +145,8 @@ export function ReviewQueue({
   const { progress, update, error } = useReviewProgress(storageKey);
   const setSidebarCategories = useSidebarQueueStore((state) => state.setCompendiumCategories);
   const [params, setParams] = useSearchParams();
+  const categoryRouteParams = useRef(new URLSearchParams(params));
+  categoryRouteParams.current = new URLSearchParams(params);
   const categoryView = params.get('view') !== 'entries';
   const groupId = params.get('group');
   const scopeKey = `review-scope-restored:${bundleUrl}|${compendiumDataUrl}`;
@@ -265,6 +267,30 @@ export function ReviewQueue({
     source,
     !matching && !proposalError,
   );
+  useEffect(() => {
+    const categoryById = new Map(categories.map((category) => [category.id, category]));
+    const next = new URLSearchParams(params);
+    let changed = false;
+    const selectedCategory = next.get('guideCategory');
+    if (selectedCategory && !categoryById.has(selectedCategory)) {
+      next.delete('guideCategory');
+      changed = true;
+    }
+    for (const [key, value] of params) {
+      if (!key.startsWith('guideSample:')) continue;
+      const category = categoryById.get(key.slice('guideSample:'.length));
+      const hash = Number(value);
+      if (
+        !category ||
+        !Number.isSafeInteger(hash) ||
+        !category.entries.some((entry) => entry.hash === hash)
+      ) {
+        next.delete(key);
+        changed = true;
+      }
+    }
+    if (changed) setParams(next, { replace: true });
+  }, [categories, params, setParams]);
   const inScope = new Set(
     categories.flatMap((category) =>
       category.entries
@@ -557,20 +583,36 @@ export function ReviewQueue({
     setCandidate(0);
     setPicker(false);
   }
+  function setCategoryRouteParam(key: string, value: string) {
+    const next = new URLSearchParams(categoryRouteParams.current);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    categoryRouteParams.current = next;
+    setParams(next, { replace: true });
+  }
+  const categoryRouteState: CategoryReviewRouteState = {
+    query: params.get('guideSearch') ?? '',
+    categoryId: params.get('guideCategory') ?? '',
+    selectedSamples: Object.fromEntries(
+      [...params.entries()]
+        .filter(([key]) => key.startsWith('guideSample:'))
+        .map(([key, value]) => [key.slice('guideSample:'.length), Number(value)])
+        .filter(([, hash]) => Number.isSafeInteger(hash)),
+    ),
+    onQueryChange: (query) => setCategoryRouteParam('guideSearch', query),
+    onCategorySelect: (id) => setCategoryRouteParam('guideCategory', id),
+    onSampleSelect: (id, hash) => setCategoryRouteParam(`guideSample:${id}`, String(hash)),
+  };
   function reviewCategory(category?: ReviewCategory, hash?: number) {
     const state = { ...progress, category: '', query: '', filter: 'open' as const, selected: hash };
     update(() => state);
     setCandidate(0);
     setPicker(false);
-    setParams(
-      selectionParams(
-        hash,
-        state,
-        new URLSearchParams(
-          category ? { view: 'entries', group: category.id } : { view: 'entries' },
-        ),
-      ),
-    );
+    const next = new URLSearchParams(params);
+    next.set('view', 'entries');
+    if (category) next.set('group', category.id);
+    else next.delete('group');
+    setParams(selectionParams(hash, state, next));
   }
   if (categoryView)
     return (
@@ -591,6 +633,7 @@ export function ReviewQueue({
           source={source}
           proposals={proposals}
           guidance={guidance}
+          routeState={categoryRouteState}
           onReview={reviewCategory}
         />
       </>
@@ -602,7 +645,10 @@ export function ReviewQueue({
           onClick={() => {
             setPicker(false);
             setBulk(undefined);
-            setParams({});
+            const next = new URLSearchParams(params);
+            for (const key of ['view', 'group', 'hash', 'query', 'category', 'status', 'proposal'])
+              next.delete(key);
+            setParams(next);
           }}
         >
           Back to category guidance

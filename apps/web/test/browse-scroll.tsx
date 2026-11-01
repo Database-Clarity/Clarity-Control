@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import type { Tooltip } from '@clarity/core';
 import { Layout } from '../src/features/navigation/Layout';
 import styles from '../src/features/navigation/Layout.module.scss';
@@ -13,6 +13,27 @@ import { useDraftStore } from '../src/stores/drafts';
 import { useCompendiumStore } from '../src/features/compendium/store';
 import { useSidebarQueueStore } from '../src/features/navigation/sidebarQueue';
 import '../src/ui/global.scss';
+
+declare global {
+  interface Window {
+    __reviewFixtureNavigate?: (delta: number) => void;
+  }
+}
+
+function FixtureRouteState() {
+  const location = useLocation();
+  return (
+    <output hidden data-fixture-route>
+      {location.pathname}
+      {location.search}
+    </output>
+  );
+}
+
+function FixtureHistory() {
+  window.__reviewFixtureNavigate = useNavigate();
+  return null;
+}
 
 const params = new URLSearchParams(window.location.search);
 const workspace = params.get('workspace') ?? 'review';
@@ -153,21 +174,25 @@ useSidebarQueueStore.setState({
 const path =
   workspace === 'editor'
     ? '/t/100?lang=de'
-    : workspace === 'compendium-sample'
-      ? '/compendium/review'
-      : workspace === 'compendium-entry' && params.get('initial') === 'entries'
-        ? '/compendium/review?view=entries&hash=100'
-        : workspace === 'compendium-entry'
-          ? '/compendium/review'
-          : workspace.startsWith('compendium-linked-')
-            ? '/compendium?tab=linked'
-            : workspace === 'compendium'
-              ? '/compendium'
-              : '/review?hash=105';
+    : workspace === 'compendium-state-roundtrip'
+      ? '/compendium'
+      : workspace === 'compendium-sample'
+        ? '/compendium/review'
+        : workspace === 'compendium-entry' && params.get('initial') === 'entries'
+          ? '/compendium/review?view=entries&hash=100'
+          : workspace === 'compendium-entry'
+            ? '/compendium/review'
+            : workspace.startsWith('compendium-linked-')
+              ? '/compendium?tab=linked'
+              : workspace === 'compendium'
+                ? '/compendium'
+                : '/review?hash=105';
 const root = createRoot(document.getElementById('root')!);
 window.addEventListener('review-fixture-unmount', () => root.unmount(), { once: true });
 root.render(
   <MemoryRouter initialEntries={[path]}>
+    <FixtureRouteState />
+    <FixtureHistory />
     <Routes>
       <Route element={<Layout />}>
         <Route path="t/:hash" element={<TooltipPage />} />
@@ -313,7 +338,10 @@ async function run() {
             ? document.querySelector('[aria-label="Category guidance"]') !== null &&
               document.querySelector('[aria-label="Sample proposed source"] h3')?.textContent ===
                 'Proposed source'
-            : document.querySelector('#main-content article') !== null,
+            : workspace === 'compendium-state-roundtrip'
+              ? document.querySelector('[aria-label="Category guidance"]') !== null &&
+                document.querySelector('nav[aria-label="Compendium views"]') !== null
+              : document.querySelector('#main-content article') !== null,
     'workspace queue',
   );
   if (workspace.startsWith('compendium-')) {
@@ -327,6 +355,18 @@ async function run() {
       previousHeight = currentHeight;
     }
     assert(stableFrames === 5, 'Compendium layout did not settle after matching');
+  }
+  if (workspace === 'compendium-state-roundtrip') {
+    assert(
+      document.querySelector('#main-content h1')?.textContent === 'Review matches',
+      'State-roundtrip fixture did not open on Review matches',
+    );
+    return {
+      stateRoundtripReady: true,
+      viewport: [innerWidth, innerHeight],
+      documentWidth: document.documentElement.scrollWidth,
+      network,
+    };
   }
   if (
     workspace === 'compendium' ||
