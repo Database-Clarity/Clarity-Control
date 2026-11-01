@@ -2,7 +2,7 @@ import { guidedDecisions, guidedRevision, type GuidedDecision } from './guidedDe
 import { importContext } from './importContext';
 import { researchSuggestions } from './researchSuggestions';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import type { CompendiumData, Tooltip } from '@clarity/core';
 import { groupManifestItems } from './manifestItems';
 import { apiUrl } from '../../services/api';
@@ -40,6 +40,7 @@ import {
 } from './BulkPreview';
 import { useSidebarQueueStore } from '../navigation/sidebarQueue';
 import { workspaceShortcutsBlocked } from '../../ui/interaction';
+import { CompendiumPage } from './CompendiumPage';
 
 const labels = {
   open: 'Unresolved',
@@ -57,9 +58,11 @@ type Undo = {
 
 export function MatchReviewPage() {
   const [params] = useSearchParams();
+  const location = useLocation();
   const editor = useDataStore((state) => state.data);
   const { data, load, loading, error } = useCompendiumStore();
   const { user, loading: authLoading } = useAuthStore();
+  const linkedTab = params.get('tab') === 'linked';
   useEffect(() => {
     void load();
   }, [load]);
@@ -67,39 +70,63 @@ export function MatchReviewPage() {
     `${bundleUrl}|${compendiumDataUrl}|${apiUrl ?? 'read-only'}`,
     user?.id,
   );
+  const reviewParams = new URLSearchParams(location.search);
+  reviewParams.delete('tab');
+  const linkedParams = new URLSearchParams(location.search);
+  linkedParams.set('tab', 'linked');
+  const reviewSearch = reviewParams.toString();
+  const linkedSearch = linkedParams.toString();
+  const reviewTarget = `${location.pathname}${reviewSearch ? `?${reviewSearch}` : ''}${location.hash}`;
+  const linkedTarget = `${location.pathname}${linkedSearch ? `?${linkedSearch}` : ''}${location.hash}`;
   return (
     <article
-      className={`${styles.review} ${params.get('view') === 'entries' ? styles.entryReview : styles.categoryReview}`}
+      className={`${styles.review} ${linkedTab ? styles.linkedReview : params.get('view') === 'entries' ? styles.entryReview : styles.categoryReview}`}
     >
       <header className={styles.heading}>
         <div>
-          <Link to="/compendium">← Compendium</Link>
-          <h1>Review matches</h1>
+          {location.pathname !== '/compendium' && <Link to="/compendium">← Compendium</Link>}
+          <h1>{linkedTab ? 'Linked sources changed' : 'Review matches'}</h1>
         </div>
         <Link to="/review">Review & save drafts →</Link>
-        <details className={styles.help}>
-          <summary aria-label="Review help">?</summary>
-          <div>
-            <p>
-              Compare the entry with the proposed source. Accept creates a local draft; Review &
-              save drafts uses the normal Worker save flow.
-            </p>
-            <p>
-              Pick other opens the full sheet picker. Skip and No equivalent are local browser
-              progress only. Changed evidence reopens these decisions.
-            </p>
-            <p>
-              Bulk preview contains only validated resolver proposals. Accept applies only to the
-              current preview page. Undo restores link metadata only, preserving text and
-              association edits. Shortcuts are disabled while typing or using the picker.
-            </p>
-          </div>
-        </details>
+        {!linkedTab && (
+          <details className={styles.help}>
+            <summary aria-label="Review help">?</summary>
+            <div>
+              <p>
+                Compare the entry with the proposed source. Accept creates a local draft; Review &
+                save drafts uses the normal Worker save flow.
+              </p>
+              <p>
+                Pick other opens the full sheet picker. Skip and No equivalent are local browser
+                progress only. Changed evidence reopens these decisions.
+              </p>
+              <p>
+                Bulk preview contains only validated resolver proposals. Accept applies only to the
+                current preview page. Undo restores link metadata only, preserving text and
+                association edits. Shortcuts are disabled while typing or using the picker.
+              </p>
+            </div>
+          </details>
+        )}
       </header>
+      <nav className={styles.tabs} aria-label="Compendium views">
+        <Link to={reviewTarget} aria-current={!linkedTab ? 'page' : undefined}>
+          Review matches
+        </Link>
+        <Link to={linkedTarget} aria-current={linkedTab ? 'page' : undefined}>
+          Linked sources changed
+        </Link>
+      </nav>
       {error && <p role="alert">{error}</p>}
-      {(loading || authLoading) && <p role="status">Loading review data…</p>}
-      {editor && data && !authLoading && (
-        <ReviewQueue key={storageKey} storageKey={storageKey} editor={editor} source={data} />
+      {linkedTab ? (
+        editor && data && <CompendiumPage />
+      ) : (
+        <>
+          {(loading || authLoading) && <p role="status">Loading review data…</p>}
+          {editor && data && !authLoading && (
+            <ReviewQueue key={storageKey} storageKey={storageKey} editor={editor} source={data} />
+          )}
+        </>
       )}
     </article>
   );

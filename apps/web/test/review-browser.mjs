@@ -47,6 +47,8 @@ try {
     for (const variant of [
       'editor&long=true',
       'compendium',
+      'compendium-linked-empty',
+      'compendium-linked-populated',
       'review&keyboard=true',
       'compendium-sample',
       'compendium-entry',

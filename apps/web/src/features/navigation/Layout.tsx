@@ -146,7 +146,7 @@ export function Layout() {
   return (
     <div
       ref={layout}
-      className={`${styles.layout} ${isCompendium && location.pathname !== '/compendium' ? styles.reviewMode : ''} ${isReview ? styles.reviewMode : ''} ${isEditor ? styles.editorMode : ''}`}
+      className={`${styles.layout} ${isCompendium ? styles.reviewMode : ''} ${isReview ? styles.reviewMode : ''} ${isEditor ? styles.editorMode : ''}`}
     >
       <a
         ref={skipLink}

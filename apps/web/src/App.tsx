@@ -1,7 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AdminPage } from './features/admin/AdminPage';
 import { MatchReviewPage } from './features/compendium/MatchReviewPage';
-import { CompendiumPage } from './features/compendium/CompendiumPage';
 import { TooltipPage } from './features/tooltip/TooltipPage';
 import { useDataStore } from './stores/data';
 import { navigationGroups } from './features/navigation/catalog';
@@ -23,7 +22,7 @@ export function App() {
         <Route path="t/:hash" element={<TooltipPage />} />
         <Route path="review" element={<ReviewPage />} />
         <Route path="compendium/review" element={<MatchReviewPage />} />
-        <Route path="compendium" element={<CompendiumPage />} />
+        <Route path="compendium" element={<MatchReviewPage />} />
         <Route path="drift" element={<DriftPage />} />
         <Route path="translations" element={<TranslationsPage />} />
         <Route path="globals" element={<GlobalsPage />} />
