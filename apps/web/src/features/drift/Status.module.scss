@@ -119,3 +119,12 @@
 .next {
   font-weight: bold;
 }
+
+@include theme.mobile-or-coarse {
+  .next {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 0.65rem;
+  }
+}

@@ -104,6 +104,10 @@ async function run() {
   );
   size('worklist language', document.querySelector('main select'), measurements);
   size('worklist search', document.querySelector('main input[type="search"]'), measurements);
+  const openNext = [...document.querySelectorAll<HTMLAnchorElement>('main a')].find(
+    (item) => item.textContent?.trim() === 'Open next',
+  );
+  size('Open next', openNext ?? null, measurements);
   for (const text of ['Missing', 'Outdated', 'All', 'Show more', 'Show English changes']) {
     size(text, button(text), measurements);
   }
