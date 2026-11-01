@@ -5,7 +5,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 
-const [guidanceFile, output, bundleFile] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const renew = args.includes('--rebaseline');
+const [guidanceFile, output, bundleFile] = args.filter((arg) => arg !== '--rebaseline');
 if (!guidanceFile || !output)
   throw new Error(
     'Usage: node scripts/compendium-guidance/report.mjs <guidance.json> <new-output-directory> [historical-bundle.json]',
@@ -33,7 +35,7 @@ try {
   const sourceUrl =
     'https://raw.githubusercontent.com/Database-Clarity/Compendium-data/main/compendium.json';
   const raw = await readFile(guidanceFile);
-  const document = schema.guidanceSchema.parse(JSON.parse(raw.toString('utf8')));
+  let document = schema.guidanceSchema.parse(JSON.parse(raw.toString('utf8')));
   const response = await fetch(sourceUrl, { cache: 'no-store' });
   if (!response.ok) throw new Error(`Compendium HTTP ${response.status}`);
   const source = core.compendiumDataSchema.parse(await response.json());
@@ -51,6 +53,15 @@ try {
     entries.map((entry) => [entry.hash, rapid.proposalFor(entry.base, editor, source)]),
   );
   const categories = categoriesModule.reviewCategories(entries, editor, proposals, false);
+  const scope = `${bundleModule.bundleUrl}|${sourceUrl}`;
+  let renewal;
+  if (renew) {
+    const { rebaselineGuidance } = await load(
+      'apps/web/src/features/compendium/rebaselineGuidance.ts',
+    );
+    renewal = rebaselineGuidance(document, categories, source, baseline, scope);
+    document = renewal.document;
+  }
   const groups = guided.guidedDecisions(
     document,
     categories,
@@ -89,9 +100,37 @@ try {
   };
   // Refuse to overwrite an earlier report or the guidance itself.
   await mkdir(output);
+  if (renewal) {
+    await writeFile(path.join(output, 'renewed-guidance.json'), JSON.stringify(document, null, 2), {
+      flag: 'wx',
+    });
+    await writeFile(
+      path.join(output, 'rebaseline-audit.json'),
+      JSON.stringify(
+        {
+          inputSha256: createHash('sha256').update(raw).digest('hex'),
+          baseline,
+          renewed: renewal.renewed,
+          changed: renewal.changed,
+        },
+        null,
+        2,
+      ),
+      { flag: 'wx' },
+    );
+  }
   await writeFile(path.join(output, 'proposals.json'), JSON.stringify(result, null, 2), {
     flag: 'wx',
   });
+  await writeFile(
+    path.join(output, 'owner-tier.json'),
+    JSON.stringify(
+      groups.flatMap((group) => group.entries.filter((entry) => entry.confidence === 'unresolved')),
+      null,
+      2,
+    ),
+    { flag: 'wx' },
+  );
   await writeFile(
     path.join(output, 'summary.md'),
     [
@@ -123,6 +162,8 @@ try {
       baselineMatches: result.baselineMatches,
       baseline,
       output,
+      renewed: renewal?.renewed.length,
+      changed: renewal?.changed.length,
     }),
   );
 } finally {
