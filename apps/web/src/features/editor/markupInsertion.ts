@@ -1,7 +1,13 @@
 import { isolateHistory } from '@codemirror/commands';
 import { EditorSelection, EditorState, Transaction } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
-import { markupColors, markupIcons, markupLineClasses, markupTableClasses } from '@clarity/core';
+import {
+  markupColors,
+  markupIcons,
+  markupInlineRanges,
+  markupLineClasses,
+  markupTableClasses,
+} from '@clarity/core';
 
 type MarkupKind = 'inline' | 'icon' | 'line' | 'link' | 'title' | 'table';
 export interface MarkupOption {
@@ -59,6 +65,9 @@ function protectedRanges(state: EditorState) {
   let tableStart: number | undefined;
   for (let number = 1; number <= state.doc.lines; number++) {
     const line = state.doc.line(number);
+    for (const range of markupInlineRanges(line.text)) {
+      tokens.push({ from: line.from + range.from, to: line.from + range.to });
+    }
     for (const match of line.text.matchAll(/<[^>\n]*(?:>|$)/g)) {
       tokens.push({
         from: line.from + match.index,
@@ -66,6 +75,14 @@ function protectedRanges(state: EditorState) {
         incomplete: !match[0].endsWith('>'),
         protectStart: match[0].startsWith('< table ') || match[0] === '<$>',
       });
+    }
+    for (const match of line.text.matchAll(/<(\w+) /g)) {
+      if (
+        [...markupColors, 'background', 'link', 'title'].includes(match[1]) &&
+        !line.text.includes('/>', match.index)
+      ) {
+        tokens.push({ from: line.from + match.index, to: line.to, incomplete: true });
+      }
     }
     for (const match of line.text.matchAll(/#[a-zA-Z0-9]+|\$\{[^}\n]*(?:}|$)/g)) {
       tokens.push({
@@ -115,7 +132,7 @@ export function markupTransaction(state: EditorState, option: MarkupOption): Tra
     return (
       tokens.some((token) => intersects(from, to, token)) ||
       (!insertAtHead && selected.includes('/>')) ||
-      ((option.kind === 'link' || option.kind === 'title') && /(^|\n| )\[/.test(selected)) ||
+      ((option.kind === 'link' || option.kind === 'title') && selected.includes('[')) ||
       (option.kind === 'table' &&
         (selected.includes('|') || tables.some((table) => intersects(from, to, table))))
     );

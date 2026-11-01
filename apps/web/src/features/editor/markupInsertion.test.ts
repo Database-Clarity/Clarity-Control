@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'vitest';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { history, redo, undo } from '@codemirror/commands';
 import { EditorSelection, EditorState } from '@codemirror/state';
 import {
@@ -9,6 +11,15 @@ import {
   parseMarkup,
 } from '@clarity/core';
 import { markupOptions, markupTransaction, type MarkupOption } from './markupInsertion';
+import { TooltipPreview } from '../preview/TooltipPreview';
+
+const globals = { variables: '', titles: 'title Name (\nDescription\n)' };
+
+function preview(text: string) {
+  return renderToStaticMarkup(
+    createElement(TooltipPreview, { text, globals, lang: 'fr', name: 'Fixture' }),
+  );
+}
 
 function option(id: string) {
   const found = markupOptions.find((item) => item.id === id);
@@ -201,13 +212,142 @@ describe('markup insertion', () => {
       expect(markupTransaction(state, option('inline:bold'))).toBeNull();
     }
     for (const id of ['link', 'title']) {
-      for (const doc of ['label [other]', '[other]', 'first\n[other]']) {
+      for (const doc of [
+        'label [other]',
+        '[other]',
+        'label[other]',
+        'label[unfinished',
+        'label\t[other]',
+        'label\u00a0[other]',
+        'first\n[other]',
+      ]) {
         const state = EditorState.create({ doc, selection: { anchor: 0, head: doc.length } });
         expect(markupTransaction(state, option(id))).toBeNull();
         expect(parseMarkup(state.doc.toString()).lines.map((line) => line.linesContent)).toEqual(
           doc.split('\n').map((text) => [{ text }]),
         );
+        expect(preview(state.doc.toString())).not.toContain('Unsafe link omitted');
       }
+    }
+  });
+
+  test.each(['inline:bold', 'inline:blue', 'link', 'title', 'icon:solar', 'line:background'])(
+    'protects a renderer token after a literal greater-than sign from %s',
+    (id) => {
+      let state = EditorState.create({
+        doc: 'Damage > 10',
+        selection: { anchor: 0, head: 11 },
+        extensions: history(),
+      });
+      state = insert(state, option('inline:bold'));
+      const doc = state.doc.toString();
+      expect(doc).toBe('<bold Damage > 10 />');
+      const ten = doc.indexOf('10');
+      for (const [anchor, head] of [
+        [ten, ten + 2],
+        [ten + 2, ten],
+        [ten, ten],
+        [ten + 1, ten + 1],
+        [ten + 2, ten + 2],
+        [ten - 1, doc.length - 1],
+        [doc.length, ten],
+      ]) {
+        const selected = state.update({ selection: { anchor, head } }).state;
+        const before = preview(selected.doc.toString());
+        expect(markupTransaction(selected, option(id)), `${id}: ${anchor}-${head}`).toBeNull();
+        expect(selected.selection.main.anchor).toBe(anchor);
+        expect(selected.selection.main.head).toBe(head);
+        expect(preview(selected.doc.toString())).toBe(before);
+        expect(before).toContain('Damage &gt; 10');
+        expect(before).not.toContain('&lt;blue');
+      }
+      const dispatch = (transaction: { state: EditorState }) => {
+        state = transaction.state;
+      };
+      expect(undo({ state, dispatch })).toBe(true);
+      expect(state.doc.toString()).toBe('Damage > 10');
+      expect(redo({ state, dispatch })).toBe(true);
+      expect(preview(state.doc.toString())).toContain('Damage &gt; 10');
+    },
+  );
+
+  test('protects parser boundaries after stripped line markers and in reference targets', () => {
+    for (const doc of [
+      '<bold Damage > <blue/> 10 />',
+      '<link label [https://example.com/a>b] />',
+      '<title label > 10 [Name] />',
+      '< table wide >\n| <bold Damage > <background/> 10 />\n<$>',
+    ]) {
+      const point = doc.includes('example.com') ? doc.indexOf('>b') + 1 : doc.indexOf('10');
+      const state = EditorState.create({ doc, selection: { anchor: point, head: point + 1 } });
+      for (const id of ['inline:blue', 'icon:solar', 'line:background']) {
+        expect(markupTransaction(state, option(id)), `${id}: ${doc}`).toBeNull();
+      }
+      const html = preview(state.doc.toString());
+      expect(html).not.toContain('&lt;blue 10');
+      if (doc.startsWith('<link')) {
+        expect(parseMarkup(doc, globals).lines[0].linesContent?.[0].link).toBe(
+          'https://example.com/a>b',
+        );
+        expect(html).toContain('href="https://example.com/a&gt;b"');
+      }
+      if (doc.startsWith('<title')) {
+        expect(parseMarkup(doc, globals).lines[0].linesContent?.[0].title).toBeDefined();
+        expect(html).toContain('role="tooltip"');
+        expect(html).toContain('Description');
+      }
+    }
+    const incomplete = '<bold Damage > 10';
+    const state = EditorState.create({
+      doc: incomplete,
+      selection: { anchor: incomplete.length },
+    });
+    expect(markupTransaction(state, option('inline:blue'))).toBeNull();
+  });
+
+  test('allows adjacent text but rejects mixed selections after an internal greater-than sign', () => {
+    const doc = '<bold Damage > 10 /> plain';
+    const start = doc.indexOf('plain');
+    const adjacent = EditorState.create({ doc, selection: { anchor: start, head: doc.length } });
+    const next = insert(adjacent, option('inline:blue'));
+    expect(parseMarkup(next.doc.toString()).lines[0].linesContent).toEqual([
+      { text: 'Damage > 10', classNames: ['bold'] },
+      { text: ' ' },
+      { text: 'plain', classNames: ['blue'] },
+    ]);
+    expect(preview(next.doc.toString())).toContain('Damage &gt; 10');
+    const multi = EditorState.create({
+      doc,
+      selection: EditorSelection.create([
+        EditorSelection.range(doc.indexOf('10'), doc.indexOf('10') + 2),
+        EditorSelection.range(start, doc.length),
+      ]),
+      extensions: EditorState.allowMultipleSelections.of(true),
+    });
+    expect(markupTransaction(multi, option('inline:blue'))).toBeNull();
+    expect(multi.doc.toString()).toBe(doc);
+    expect(multi.selection.ranges).toHaveLength(2);
+  });
+
+  test('preserves resolvable link and title targets for unambiguous labels', () => {
+    for (const id of ['link', 'title']) {
+      const state = EditorState.create({
+        doc: 'label > other]',
+        selection: { anchor: 0, head: 14 },
+      });
+      const next = insert(state, option(id));
+      const parsed = parseMarkup(next.doc.toString(), globals).lines[0].linesContent?.[0];
+      const html = preview(next.doc.toString());
+      if (id === 'link') {
+        expect(parsed?.link).toBe('https://example.com');
+        expect(html).toContain('href="https://example.com"');
+        expect(html).not.toContain('Unsafe link omitted');
+      } else {
+        expect(parsed?.title?.[0].linesContent?.[0].text).toBe('Description');
+        expect(html).toContain('role="tooltip"');
+        expect(html).toContain('Description');
+      }
+      expect(html).toContain('label &gt; other]');
     }
   });
 

@@ -8,17 +8,39 @@ import {
 import type { MarkupLine, MarkupSpan } from './types.js';
 import { weaponSectionHeadings } from './weaponHeadings.js';
 
-function lineClasses(line: string, allowed: string[]) {
+const inlineToken = /<.+?\/>/;
+
+function lineClasses(line: string, allowed: string[], offsets?: number[]) {
   const classNames = allowed.filter((name) => line.includes(`<${name}/>`));
+  let cleanLine = line;
+  for (const name of classNames) {
+    const marker = `<${name}/>`;
+    const index = cleanLine.indexOf(marker);
+    if (index !== -1) {
+      cleanLine = cleanLine.slice(0, index) + cleanLine.slice(index + marker.length);
+      offsets?.splice(index, marker.length);
+    }
+  }
   return {
     classNames,
-    cleanLine: classNames.reduce((text, name) => text.replace(`<${name}/>`, ''), line),
+    cleanLine,
   };
+}
+
+export function markupInlineRanges(line: string): { from: number; to: number }[] {
+  return [markupLineClasses, markupEmpty, []].flatMap((allowed) => {
+    const offsets = Array.from({ length: line.length }, (_, index) => index);
+    const { cleanLine } = lineClasses(line, allowed, offsets);
+    return [...cleanLine.matchAll(new RegExp(inlineToken, 'g'))].map((match) => ({
+      from: offsets[match.index],
+      to: offsets[match.index + match[0].length - 1] + 1,
+    }));
+  });
 }
 
 function spans(line: string, titles: Record<string, MarkupLine[]>): MarkupSpan[] {
   return line
-    .split(/(<.+?\/>|🡅)/g)
+    .split(new RegExp(`(${inlineToken.source}|🡅)`, 'g'))
     .filter(Boolean)
     .flatMap((text): MarkupSpan[] => {
       if (text === '🡅') return [{ text, classNames: ['enhancedArrow'] }];
