@@ -9,6 +9,7 @@ import {
   rmdir,
   writeFile,
   chmod,
+  copyFile,
 } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { stableStringify } from '@clarity/core';
@@ -120,7 +121,14 @@ export async function commitFiles(
     }
   }
   let temporary: string | undefined;
-  const applied: { target: string; backup: string; hadBefore: boolean; hasAfter: boolean }[] = [];
+  const applied: {
+    target: string;
+    backup: string;
+    change: FileChange;
+    hadBefore: boolean;
+    hasAfter: boolean;
+  }[] = [];
+  let cleanupStarted = false;
   try {
     await ensureDirectory(resolve(root));
     temporary = await mkdtemp(join(resolve(root), '.migration-transaction-'));
@@ -142,6 +150,7 @@ export async function commitFiles(
       const state = {
         target,
         backup: join(temporary, `${index}.old`),
+        change,
         hadBefore: false,
         hasAfter: false,
       };
@@ -156,22 +165,62 @@ export async function commitFiles(
       }
       options.afterSwap?.(index + 1);
     }
+    cleanupStarted = true;
+    await rm(temporary, { recursive: true });
   } catch (error) {
     const failures: unknown[] = [error];
-    for (const state of applied.reverse()) {
+    let recovery: string | undefined;
+    if (cleanupStarted) {
       try {
+        recovery = await mkdtemp(join(resolve(root), '.migration-recovery-'));
+        const originals = applied.map((state, index) => ({
+          path: state.change.path,
+          file: state.hadBefore ? `${index}.old` : null,
+          mode: state.change.mode,
+        }));
+        await writeFile(join(recovery, 'manifest.json'), JSON.stringify(originals, null, 2));
+        for (const [index, state] of applied.entries()) {
+          if (!state.hadBefore || state.change.before === null) continue;
+          const snapshot = join(recovery, `${index}.old`);
+          await writeFile(snapshot, state.change.before);
+          if (state.change.mode !== null) await chmod(snapshot, state.change.mode);
+        }
+      } catch (snapshotError) {
+        throw new AggregateError(
+          [error, snapshotError],
+          `Rollback could not start; destination files may have changed. Recovery snapshots may be incomplete at ${recovery ?? '(unavailable)'}; transaction backups may remain at ${temporary}. Restore from a pristine external snapshot`,
+        );
+      }
+    }
+    for (const [index, state] of [...applied.entries()].reverse()) {
+      try {
+        if (recovery && state.hadBefore) {
+          await copyFile(join(recovery, `${index}.old`), join(recovery, `${index}.restore`));
+        }
         if (state.hasAfter) await rm(state.target);
-        if (state.hadBefore) await rename(state.backup, state.target);
+        if (state.hadBefore) {
+          await rename(recovery ? join(recovery, `${index}.restore`) : state.backup, state.target);
+        }
       } catch (rollbackError) {
         failures.push(rollbackError);
       }
     }
     if (failures.length > 1) {
-      throw new AggregateError(failures, `Rollback failed; recover originals from ${temporary}`);
+      throw new AggregateError(
+        failures,
+        `Rollback failed; recover originals from ${recovery ?? temporary}`,
+      );
     }
-    if (temporary) await rm(temporary, { recursive: true });
-    for (const path of created.reverse()) await rmdir(path);
+    try {
+      if (temporary) await rm(temporary, { recursive: true, force: true });
+      if (recovery) await rm(recovery, { recursive: true });
+      for (const path of created.reverse()) await rmdir(path);
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        `Rollback completed, but cleanup failed; inspect ${temporary} and ${recovery ?? '(no recovery directory)'}`,
+      );
+    }
     throw error;
   }
-  await rm(temporary, { recursive: true });
 }

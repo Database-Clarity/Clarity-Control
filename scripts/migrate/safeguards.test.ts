@@ -197,6 +197,251 @@ describe('rerun safeguards', () => {
     ).toHaveLength(3);
   });
 
+  it('restores a single approved authored file when backup cleanup fails', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'clarity-cleanup-single-'));
+    roots.push(root);
+    await writeFile(join(root, 'authored.txt'), 'original authored bytes');
+    const before = await inventory(root);
+    const injector = new URL('./test-fixtures/cleanup-fault.mjs', import.meta.url).href;
+    const script = fileURLToPath(new URL('./test-fixtures/single-transaction.ts', import.meta.url));
+    for (const failure of ['before', 'partial', 'complete']) {
+      const result = spawnSync(
+        process.execPath,
+        ['--import', injector, '--import', 'tsx', script, root],
+        {
+          encoding: 'utf8',
+          env: { ...process.env, MIGRATION_TEST_CLEANUP: failure },
+        },
+      );
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('injected backup cleanup EACCES');
+      expect(await inventory(root)).toEqual(before);
+    }
+  }, 30000);
+
+  it('reports changed destinations when pristine recovery snapshots cannot be created', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'clarity-snapshot-failure-'));
+    roots.push(root);
+    await writeFile(join(root, 'authored.txt'), 'original authored bytes');
+    const injector = new URL('./test-fixtures/cleanup-fault.mjs', import.meta.url).href;
+    const script = fileURLToPath(new URL('./test-fixtures/single-transaction.ts', import.meta.url));
+    const result = spawnSync(
+      process.execPath,
+      ['--import', injector, '--import', 'tsx', script, root],
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          MIGRATION_TEST_CLEANUP: 'partial',
+          MIGRATION_TEST_SNAPSHOT_FAILURE: '1',
+        },
+      },
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('destination files may have changed');
+    expect(result.stderr).toContain('Restore from a pristine external snapshot');
+    expect(result.stderr).toContain('injected backup cleanup EACCES');
+    expect(result.stderr).toContain('injected recovery snapshot EACCES');
+    expect(await readFile(join(root, 'authored.txt'), 'utf8')).toBe('approved replacement bytes');
+    expect((await readdir(root)).some((name) => name.startsWith('.migration-recovery-'))).toBe(
+      true,
+    );
+  }, 30000);
+
+  it('reports leftover artifacts separately when cleanup after rollback also fails', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'clarity-cleanup-retry-'));
+    roots.push(root);
+    await writeFile(join(root, 'authored.txt'), 'original authored bytes');
+    const injector = new URL('./test-fixtures/cleanup-fault.mjs', import.meta.url).href;
+    const script = fileURLToPath(new URL('./test-fixtures/single-transaction.ts', import.meta.url));
+    const result = spawnSync(
+      process.execPath,
+      ['--import', injector, '--import', 'tsx', script, root],
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          MIGRATION_TEST_CLEANUP: 'partial',
+          MIGRATION_TEST_CLEANUP_RETRY_FAILURE: '1',
+        },
+      },
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Rollback completed, but cleanup failed');
+    expect(result.stderr).toContain('injected cleanup retry EACCES');
+    expect(await readFile(join(root, 'authored.txt'), 'utf8')).toBe('original authored bytes');
+    expect((await readdir(root)).some((name) => name.startsWith('.migration-recovery-'))).toBe(
+      true,
+    );
+  }, 30000);
+
+  it.each(['migration', 'fold'] as const)(
+    '%s CLI rolls back both complete and partial backup-cleanup failures',
+    async (caller) => {
+      const root = await fixture();
+      const inputs = await mkdtemp(join(tmpdir(), 'clarity-cleanup-inputs-'));
+      roots.push(inputs);
+      await writeMigration(
+        root,
+        {
+          ...initial,
+          tooltips: [
+            { ...tooltip, text: {} },
+            { ...tooltip, hash: 20 },
+          ],
+          pushed: { 10: 'a'.repeat(64), 20: 'b'.repeat(64) },
+        },
+        { allowAuthoredOverwrite: true },
+      );
+      await writeFile(join(root, 'README.md'), 'authored README\r\n');
+      for (const [name, value] of Object.entries({
+        intermediate: legacy,
+        live: legacy,
+        owner: { id: 117818418, login: 'StardustD2' },
+        deletions: [],
+        aliases: { 20: { to: 10, kind: 'frame' } },
+        items: {},
+      })) {
+        await writeFile(join(inputs, `${name}.json`), formatJson(value));
+      }
+      const common = [
+        '--aliases',
+        join(inputs, 'aliases.json'),
+        '--items',
+        join(inputs, 'items.json'),
+        '--deletions',
+        join(inputs, 'deletions.json'),
+        '--conflicts',
+        join(root, 'archive', 'conflicts.md'),
+      ];
+      const args =
+        caller === 'migration'
+          ? [
+              fileURLToPath(new URL('./cli.ts', import.meta.url)),
+              '--output',
+              root,
+              '--intermediate',
+              join(inputs, 'intermediate.json'),
+              '--live',
+              join(inputs, 'live.json'),
+              '--owner',
+              join(inputs, 'owner.json'),
+              ...common,
+            ]
+          : [
+              fileURLToPath(new URL('./foldFramesCli.ts', import.meta.url)),
+              '--data',
+              root,
+              ...common,
+            ];
+      const tsx = fileURLToPath(new URL('./node_modules/tsx/dist/cli.mjs', import.meta.url));
+      const injector = new URL('./test-fixtures/cleanup-fault.mjs', import.meta.url).href;
+      const diff = join(inputs, 'diff.json');
+      const before = await inventory(root);
+      execFileSync(process.execPath, [tsx, ...args, '--diff', diff], { encoding: 'utf8' });
+      const plan = JSON.parse(await readFile(diff, 'utf8')) as { operation: string }[];
+      expect(plan.map(({ operation }) => operation)).toEqual(
+        expect.arrayContaining(['add', 'modify', 'remove']),
+      );
+      for (const failure of ['before', 'partial', 'complete']) {
+        const result = spawnSync(
+          process.execPath,
+          ['--import', injector, '--import', 'tsx', ...args, '--write', '--approve', diff],
+          { encoding: 'utf8', env: { ...process.env, MIGRATION_TEST_CLEANUP: failure } },
+        );
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain('injected backup cleanup EACCES');
+        expect(await inventory(root)).toEqual(before);
+      }
+    },
+    30000,
+  );
+
+  it('retains a complete mapped before-image set when rollback after partial cleanup fails', async () => {
+    const root = await fixture();
+    const inputs = await mkdtemp(join(tmpdir(), 'clarity-recovery-inputs-'));
+    roots.push(inputs);
+    await writeMigration(
+      root,
+      {
+        ...initial,
+        tooltips: [
+          { ...tooltip, text: {} },
+          { ...tooltip, hash: 20 },
+        ],
+        pushed: { 10: 'a'.repeat(64), 20: 'b'.repeat(64) },
+      },
+      { allowAuthoredOverwrite: true },
+    );
+    for (const [name, value] of Object.entries({
+      aliases: { 20: { to: 10, kind: 'frame' } },
+      items: {},
+      deletions: [],
+    })) {
+      await writeFile(join(inputs, `${name}.json`), formatJson(value));
+    }
+    const before = await inventory(root);
+    const tsx = fileURLToPath(new URL('./node_modules/tsx/dist/cli.mjs', import.meta.url));
+    const injector = new URL('./test-fixtures/cleanup-fault.mjs', import.meta.url).href;
+    const args = [
+      fileURLToPath(new URL('./foldFramesCli.ts', import.meta.url)),
+      '--data',
+      root,
+      '--aliases',
+      join(inputs, 'aliases.json'),
+      '--items',
+      join(inputs, 'items.json'),
+      '--deletions',
+      join(inputs, 'deletions.json'),
+      '--conflicts',
+      join(root, 'archive', 'conflicts.md'),
+    ];
+    const diff = join(inputs, 'diff.json');
+    execFileSync(process.execPath, [tsx, ...args, '--diff', diff], { encoding: 'utf8' });
+    const result = spawnSync(
+      process.execPath,
+      ['--import', injector, '--import', 'tsx', ...args, '--write', '--approve', diff],
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          MIGRATION_TEST_CLEANUP: 'partial',
+          MIGRATION_TEST_ROLLBACK_TARGET: join(root, 'tooltips', '10.json'),
+        },
+      },
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Rollback failed; recover originals from');
+    expect(result.stderr).toContain('injected backup cleanup EACCES');
+    expect(result.stderr).toContain('injected rollback EACCES');
+    const recoveryName = (await readdir(root)).find((name) =>
+      name.startsWith('.migration-recovery-'),
+    );
+    if (!recoveryName) throw new Error('Missing recovery directory');
+    const recovery = join(root, recoveryName);
+    expect(result.stderr).toContain(recovery);
+    const manifest = JSON.parse(await readFile(join(recovery, 'manifest.json'), 'utf8')) as {
+      path: string;
+      file: string | null;
+      mode: number;
+    }[];
+    const plan = JSON.parse(await readFile(diff, 'utf8')) as {
+      path: string;
+      before: string | null;
+    }[];
+    expect(manifest.map(({ path }) => path).sort()).toEqual(plan.map(({ path }) => path).sort());
+    for (const entry of manifest) {
+      if (entry.file === null) {
+        expect(before[entry.path]).toBeUndefined();
+        continue;
+      }
+      expect({
+        bytes: (await readFile(join(recovery, entry.file))).toString('base64'),
+        mode: (await stat(join(recovery, entry.file))).mode & 0o777,
+      }).toEqual(before[entry.path]);
+    }
+  }, 30000);
+
   it('rejects stale exact approval and concurrent changes without overwriting them', async () => {
     const root = await fixture();
     const plan = await planMigration(root, {

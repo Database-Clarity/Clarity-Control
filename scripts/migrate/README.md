@@ -44,14 +44,22 @@ diff, intended only for disposable rehearsal copies. Unmanaged files are never
 changed. Do not use that broad opt-in for the eventual reviewed real-data run.
 
 All destination contents are staged to temporary files on the same filesystem
-before replacement. Existing files are renamed into transaction backups; any
-runtime write/swap failure rolls back completed changes, including removals,
-archives, file modes and newly created directories. Mid-write injected failures
-are covered for both migration and folding. Unexpected concurrent byte changes
-are rejected. If rollback itself fails, the command reports every failure and
-the retained backup location; do not retry without recovery. This is not a
-cross-process lock or a power-loss-safe database transaction: freeze external
-data writers for the approved run and retain a pristine source snapshot.
+before replacement. Existing files are renamed into transaction backups; runtime
+write, swap or backup-cleanup failures roll back completed changes, including
+removals, archives, file modes and newly created directories. Cleanup can delete
+some backups before failing: in that case rollback reconstructs a separate,
+manifested set of pristine before-images from the retained in-memory plan.
+Injected swap and partial-cleanup failures are covered for both migration and
+folding. Unexpected concurrent byte changes are rejected.
+
+If rollback fails, the error identifies the retained recovery directory (or
+transaction backups before cleanup) and reports the underlying failures; do not
+retry without recovery. If creating the recovery set itself fails, it may be
+incomplete and the error explicitly requires restoration from a pristine external
+snapshot. A cleanup error after a completed rollback reports any remaining
+artifacts separately. This is not a cross-process lock or a power-loss-safe
+database transaction: freeze external data writers for the approved run and
+retain a pristine source snapshot.
 
 **Rehearse any cut-over rerun in isolation first.** When the output already has
 editor-data, the CLI validates and preserves every existing tooltip in full,
