@@ -43,6 +43,28 @@ async function flush() {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
+async function waitFor(check: () => void) {
+  // act flushes React updates, but does not await native crypto or transport work.
+  await vi.waitFor(async () => {
+    await flush();
+    check();
+  });
+}
+async function waitForReview() {
+  await waitFor(() => {
+    expect(useDataStore.getState().status).toBe('ready');
+    expect(host.textContent).not.toContain('Comparing publishable content...');
+    expect(button('Refresh saved changes')).toBeDefined();
+  });
+}
+async function waitForPush() {
+  await waitFor(() => expect(useReviewSession.getState().pushing).toBe(false));
+}
+async function refresh() {
+  expect(button('Refresh saved changes').disabled).toBe(false);
+  await click('Refresh saved changes');
+  await waitForReview();
+}
 async function click(label: string) {
   await act(async () => button(label).click());
   await flush();
@@ -65,7 +87,7 @@ async function mount() {
       ),
     ),
   );
-  await flush();
+  await waitForReview();
 }
 beforeEach(async () => {
   useReviewSession.setState({
@@ -83,18 +105,23 @@ beforeEach(async () => {
     permissions: { users: {} },
   };
   vi.mocked(loadGenerator).mockResolvedValue({ categories: [], items: {}, aliases: {} });
-  vi.mocked(loadBundle).mockImplementation(async () => structuredClone(bundle));
+  vi.mocked(loadBundle).mockImplementation(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    return structuredClone(bundle);
+  });
   useDataStore.setState({ data: null, status: 'idle', error: null });
   useAuthStore.setState({ user, loading: false, load: async () => {} });
   useDraftStore.setState({ hydrated: true, hydrate: async () => {}, drafts: {} });
-  post = vi.fn(async () =>
-    Response.json({
+  post = vi.fn(async () => {
+    // Exercise real async boundaries instead of depending on one timer tick.
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    return Response.json({
       commit: 'a'.repeat(40),
       liveCommit: 'b'.repeat(40),
       pushed: { 10: await publishableHash(tooltip) },
       branch: 'synthetic-test',
-    }),
-  );
+    });
+  });
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
@@ -128,28 +155,29 @@ it('keeps successful acknowledgment and notice through a real-store lagging refr
   );
   await click('Select page');
   await click('Push selected');
-  expect(host.textContent).toContain('Loading manifest');
+  await waitFor(() => expect(host.textContent).toContain('Loading manifest'));
   await act(async () => resolve(structuredClone(bundle)));
-  await flush();
+  await waitForPush();
+  await waitForReview();
   expect(post).toHaveBeenCalledTimes(1);
   expect(host.textContent).toContain('0 pending / 0 selected');
   expect(host.textContent).toContain('Pushed 1 tooltip(s) to synthetic-test');
   const request = JSON.parse(post.mock.calls[0][0]!.body as string);
   expect(request).toEqual({ hashes: [10], expected: { 10: await publishableHash(tooltip) } });
   bundle.tooltips[10].text.en!.text = 'New saved content';
-  await click('Refresh saved changes');
+  await refresh();
   expect(host.textContent).toContain('1 pending / 0 selected');
   expect(host.textContent).toContain('New saved content');
   bundle.pushed[10] = await publishableHash(tooltip);
-  await click('Refresh saved changes');
+  await refresh();
   expect(useReviewSession.getState().acknowledgments).toEqual({});
   expect(host.textContent).toContain('1 pending / 0 selected');
   bundle.pushed[10] = await publishableHash(bundle.tooltips[10]);
-  await click('Refresh saved changes');
+  await refresh();
   expect(host.textContent).toContain('0 pending / 0 selected');
   // Once retired, the old local acknowledgment cannot hide a later authoritative marker.
   bundle.tooltips[10] = structuredClone(tooltip);
-  await click('Refresh saved changes');
+  await refresh();
   expect(host.textContent).toContain('1 pending / 0 selected');
 });
 
@@ -157,10 +185,12 @@ it('retires acknowledgment when the bundle reports a superseding marker without 
   await mount();
   await click('Select page');
   await click('Push selected');
+  await waitForPush();
+  await waitForReview();
   const other = structuredClone(tooltip);
   other.text.en!.text = 'Other live version';
   bundle.pushed[10] = await publishableHash(other);
-  await click('Refresh saved changes');
+  await refresh();
   expect(host.textContent).toContain('1 pending / 0 selected');
   expect(useReviewSession.getState().acknowledgments).toEqual({});
 });
@@ -170,11 +200,13 @@ it('distinguishes failed refresh from failed push and preserves success on retry
   vi.mocked(loadBundle).mockRejectedValueOnce(Error('synthetic bundle unavailable'));
   await click('Select page');
   await click('Push selected');
+  await waitForPush();
   expect(post).toHaveBeenCalledTimes(1);
   expect(host.textContent).toContain('Cannot load editor data: synthetic bundle unavailable');
   expect(useReviewSession.getState().notice).toContain('Pushed 1');
   expect(useReviewSession.getState().error).toBeUndefined();
   await click('Retry data loading');
+  await waitForReview();
   expect(host.textContent).toContain('Pushed 1');
   expect(host.textContent).toContain('0 pending / 0 selected');
 });
@@ -186,6 +218,7 @@ it('keeps partial-live error details and never acknowledges a failed publish', a
   );
   await click('Select page');
   await click('Push selected');
+  await waitForPush();
   expect(host.textContent).toContain(
     'partial live write: liveCommit=synthetic; markers not recorded',
   );
@@ -205,6 +238,7 @@ it('holds the submission lock across unmount and account/role transitions', asyn
   );
   await click('Select page');
   await click('Push selected');
+  await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
   expect(useReviewSession.getState().pushing).toBe(true);
   await act(async () => root.unmount());
   root = createRoot(host);
@@ -224,7 +258,8 @@ it('holds the submission lock across unmount and account/role transitions', asyn
       }),
     ),
   );
-  await flush();
+  await waitForPush();
+  await waitForReview();
   expect(useReviewSession.getState().pushing).toBe(false);
   expect(useReviewSession.getState().notice).toBeUndefined();
   expect(host.textContent).toContain('0 pending / 0 selected');
@@ -238,7 +273,7 @@ it('aborts before sending when unmounted or account changes during digest calcul
     button('Push selected').click();
     useAuthStore.setState({ user: { ...user, role: 'translator' } });
   });
-  await flush();
+  await waitForPush();
   expect(post).not.toHaveBeenCalled();
   await act(async () => useAuthStore.setState({ user }));
   await click('Select page');
@@ -247,7 +282,7 @@ it('aborts before sending when unmounted or account changes during digest calcul
     root.unmount();
   });
   root = createRoot(host);
-  await flush();
+  await waitForPush();
   expect(post).not.toHaveBeenCalled();
   expect(useReviewSession.getState().pushing).toBe(false);
 });
@@ -256,7 +291,7 @@ it('clears reviewed selection on refresh and leaves keyboard events in controls 
   await mount();
   await click('Select page');
   bundle.tooltips[10].text.en!.text = 'Unreviewed saved edit';
-  await click('Refresh saved changes');
+  await refresh();
   expect(host.textContent).toContain('1 pending / 0 selected');
   expect(button('Push selected').disabled).toBe(true);
   const event = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true });
@@ -275,7 +310,8 @@ it('does not submit if the saved snapshot changes while digests are being comput
     newer.bundle.tooltips[10].text.en!.text = 'Unreviewed concurrent save';
     useDataStore.setState({ data: newer });
   });
-  await flush();
+  await waitForPush();
+  await waitForReview();
   expect(post).not.toHaveBeenCalled();
   expect(useReviewSession.getState().pushing).toBe(false);
   expect(host.textContent).toContain('1 pending / 0 selected');
@@ -285,8 +321,10 @@ it('retires acknowledgment when its tooltip is removed from the bundle', async (
   await mount();
   await click('Select page');
   await click('Push selected');
+  await waitForPush();
+  await waitForReview();
   expect(Object.keys(useReviewSession.getState().acknowledgments)).toEqual(['10']);
   bundle.tooltips = {};
-  await click('Refresh saved changes');
+  await refresh();
   expect(useReviewSession.getState().acknowledgments).toEqual({});
 });
