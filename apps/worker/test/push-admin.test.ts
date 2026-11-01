@@ -47,7 +47,11 @@ describe('push-live', () => {
   });
   it('ignores retired weapon facts and never writes owners', async () => {
     fixture.aliases = { 456: { to: 123, kind: 'frame' } };
-    fixture.canonicalFacts = { weaponTypes: ['Bow', 'Sniper'], owners: [1, 2] };
+    fixture.canonicalFacts = {
+      weaponTypes: ['Bow', 'Sniper'],
+      owners: [1, 2],
+      ownerNames: { 1: 'First exotic', 2: 'Second exotic' },
+    };
     fixture.extraItems = {
       456: {
         hash: 456,
@@ -55,6 +59,7 @@ describe('push-live', () => {
         categoryId: 'perk',
         weaponTypes: ['Bow'],
         owners: [3, 4],
+        ownerNames: { 3: 'Third exotic', 4: 'Fourth exotic' },
       },
     };
     expect((await fixture.request('/push-live', 'POST', { hashes: [123] })).status).toBe(200);

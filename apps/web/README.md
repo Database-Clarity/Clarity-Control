@@ -22,6 +22,9 @@ be hosted below a GitHub Pages repository path.
   choose a tooltip explicitly before stepping.
   Explicit selections push history;
   stepping replaces immediately and commits one entry after a second idle.
+  Shared exotic perks display owner names from the item catalog or the generator's
+  optional `ownerNames` metadata. Older catalogs and missing or blank names fall
+  back to hashes; these display-only names are never published as tooltip data.
 - `src/ui/`: shared components and base styles.
 - `src/services/`: generator, authored bundle, worker API, and native IndexedDB access.
 - `src/stores/`: loaded data and per-tooltip `{base,next}` drafts. Draft recovery

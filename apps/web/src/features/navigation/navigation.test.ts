@@ -152,6 +152,29 @@ describe('tooltip catalog', () => {
       }),
     ).toBeUndefined();
   });
+  it('resolves shared owner names from the catalog, custom items, and generated owner names', () => {
+    const shared: EditorData = {
+      ...data,
+      items: {
+        ...data.items,
+        10: {
+          ...data.items[10],
+          owners: [20, 2, 77, 78, 79],
+          ownerNames: { 20: 'Other armor', 2: 'Other custom', 77: 'Exotic <A>', 78: ' ' },
+        },
+      },
+    };
+    const expected = 'Shared perk — used on: Armor, Variables, Exotic <A>, 78, 79';
+    expect(sharedPerkLabel(10, shared)).toBe(expected);
+    const markup = renderToStaticMarkup(
+      createElement(
+        MemoryRouter,
+        { initialEntries: ['/t/10'] },
+        createElement(TooltipNavigation, { data: shared }),
+      ),
+    );
+    expect(markup).toContain('Shared perk — used on: Armor, Variables, Exotic &lt;A&gt;, 78, 79');
+  });
   it('provides one navigation appearance with no density toggle', () => {
     const markup = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(Layout)));
     expect(markup).not.toContain('Comfortable navigation');

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { loadGenerator } from './generator';
+import { itemSchema, loadGenerator } from './generator';
 
 const item = {
   hash: 1,
@@ -8,6 +8,7 @@ const item = {
   categoryId: 'perk',
   inGameDescription: '',
   owners: [2, 3],
+  ownerNames: { 2: 'Exotic A', 3: 'Exotic B' },
   weaponTypes: ['Sword'],
 };
 
@@ -33,6 +34,13 @@ function stubFetch(weaponTypes: () => Response) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('generator catalog', () => {
+  it('accepts old catalogs and rejects malformed owner-name metadata', () => {
+    const oldItem = Object.fromEntries(
+      Object.entries(item).filter(([key]) => key !== 'ownerNames'),
+    );
+    expect(itemSchema.parse(oldItem).ownerNames).toBeUndefined();
+    expect(() => itemSchema.parse({ ...item, ownerNames: { 2: 42 } })).toThrow();
+  });
   it.each([
     () => new Response('missing', { status: 404 }),
     () => new Response('failure', { status: 500 }),
@@ -45,6 +53,7 @@ describe('generator catalog', () => {
     expect(catalog).not.toHaveProperty('weaponTypeLabels');
     expect(Object.keys(catalog.items)).toEqual(['1']);
     expect(catalog.items[1].owners).toEqual([2, 3]);
+    expect(catalog.items[1].ownerNames).toEqual({ 2: 'Exotic A', 3: 'Exotic B' });
     expect(catalog.items[1]).not.toHaveProperty('weaponTypes');
   });
 });

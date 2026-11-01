@@ -35,9 +35,13 @@ export function itemFor(hash: number, data: EditorData): Item | undefined {
 
 /** "Shared perk — used on: A, B" for perks owned by 2+ exotics; undefined otherwise. */
 export function sharedPerkLabel(hash: number, data: EditorData): string | undefined {
-  const owners = data.items[hash]?.owners;
+  const item = data.items[hash];
+  const owners = item?.owners;
   if (!owners || owners.length < 2) return undefined;
-  const names = owners.map((owner) => itemFor(owner, data)?.name ?? String(owner));
+  const names = owners.map(
+    (owner) =>
+      itemFor(owner, data)?.name.trim() || item.ownerNames?.[owner]?.trim() || String(owner),
+  );
   return `Shared perk — used on: ${names.join(', ')}`;
 }
 
