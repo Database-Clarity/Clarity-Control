@@ -85,6 +85,13 @@ push-live targets the real `converter` branch; an older converter has no editor 
 stubs and would drop frame aliases. Pushed markers refer
 only to canonical authored tooltips. Existing
 unselected perks, database settings and other root fields are preserved.
+Each request accepts 1–100 distinct selected hashes before canonical deduplication;
+an alias selection exports its entire canonical group, so the output can exceed
+100 entries. When sending `expected`, key digests by resolved canonical hash,
+including for alias-only selections. Run rollout batches sequentially and inspect
+each result before continuing. Unselected legacy alias copies remain intentionally
+stale until their group is selected; this is different from a reference stub whose
+canonical target is missing.
 The target Contents API PUT checks the file SHA and retries collisions up to
 three times. Then a separate Git Data commit updates `live/pushed.json` with the
 **exported snapshot's** core `publishableHash` values, never a later editor save's
@@ -107,6 +114,12 @@ but the marker cannot be recorded, an explicit error includes
 A competing target-branch update detected before marking also returns that
 partial-push error. Avoid simultaneous push-live operations; ordinary concurrent
 saves are supported. Do not equate any failed push with “nothing was written.”
+If a save changed after review, retrying the old `expected` digest returns 409
+without another live write: review the saved version before retrying. A retry
+exports again rather than only repairing markers, so a still-pending canonical
+receives the retry's time/user stamp. Earlier batches and unrelated entries are
+retained. During partial failure, pushed history still describes the last recorded
+snapshot, not necessarily the latest live write.
 `pushed.json` has no branch namespace: use a scratch data branch/repo when testing
 publishing, and rerun migration/refresh markers when cutting over to production.
 
@@ -151,6 +164,11 @@ atomicity, ref and file-SHA races, permission revocation during retries, actual
 author/committer payloads, catalog projection/aliases, partial publishing,
 history, and multiline CSV/cache expiry. They do not require secrets, an account,
 or a network connection. A dry run bundles only; it does not deploy.
+`push-batches.test.ts` and `push-recovery.test.ts` exercise the real Worker and
+GitHub adapter against mocked services, including both rollout orders, 100/101
+selections, group closure, partial failures and reviewed recovery. These offline
+fixtures do not establish arbitrary batch ordering safety, real publisher adoption,
+or an atomic transaction between the two branches.
 
 Modules are organized by endpoint; `github.ts` owns installation authentication
 and Git operations, `permissions.ts` owns access checks. Core owns tooltip and
