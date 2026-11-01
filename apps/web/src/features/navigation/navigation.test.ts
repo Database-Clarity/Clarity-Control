@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EditorData } from '../../stores/data';
-import { canonicalHash, navigationGroups, sharedPerkLabel, variantHashes } from './catalog';
+import { canonicalHash, navigationGroups, sharedPerkLabel, singleOwnerLabel, variantHashes } from './catalog';
 import {
   categoryPosition,
   createStepping,
@@ -79,6 +79,15 @@ const data: EditorData = {
 };
 
 describe('tooltip catalog', () => {
+  it('retains and discovers single owner identity with fallback names', () => {
+    const single: EditorData = { ...data, items: { 10: { ...data.items[10], itemHash: 42, itemName: 'Hidden Exotic' } } };
+    expect(singleOwnerLabel(10, single)).toBe('Owner: Hidden Exotic / 42');
+    expect(navigationGroups(single, 'hidden exotic')[0].sections[0].items[0].hash).toBe(10);
+    expect(navigationGroups(single, '42')[0].sections[0].items[0].hash).toBe(10);
+    const fallback: EditorData = { ...single, items: { 10: { ...single.items[10], itemName: undefined } } };
+    expect(singleOwnerLabel(10, fallback)).toBe('Owner: 42');
+  });
+
   it('surfaces stale alias drafts as recoverable conflicts instead of hiding their text', () => {
     const previous = useDraftStore.getState();
     const base = { hash: 11, text: {}, associated: [] };

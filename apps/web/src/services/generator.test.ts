@@ -39,6 +39,7 @@ describe('generator catalog', () => {
       Object.entries(item).filter(([key]) => key !== 'ownerNames'),
     );
     expect(itemSchema.parse(oldItem).ownerNames).toBeUndefined();
+    expect(itemSchema.parse({ ...oldItem, itemHash: 42, itemName: 'Exotic' }).itemName).toBe('Exotic');
     expect(() => itemSchema.parse({ ...item, ownerNames: { 2: 42 } })).toThrow();
   });
   it.each([
