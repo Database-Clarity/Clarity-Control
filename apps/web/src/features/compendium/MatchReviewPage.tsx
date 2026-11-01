@@ -1,3 +1,4 @@
+import { guidedDecisions, guidedRevision, type GuidedDecision } from './guidedDecisions';
 import { importContext } from './importContext';
 import { researchSuggestions } from './researchSuggestions';
 import { useEffect, useMemo, useState } from 'react';
@@ -235,6 +236,60 @@ export function ReviewQueue({
     setCandidate(0);
     setMessage('Last decision undone.');
   }
+  function acceptGuided(category: ReviewCategory, decisions: GuidedDecision[], revision: string) {
+    if (!canEdit || !guidance.proposalInput || !decisions.length) return;
+    const group = guidedDecisions(
+      guidance.proposalInput,
+      [category],
+      proposals,
+      source,
+      `${editor.bundle.sourceCommit}|${fingerprint}`,
+      `${bundleUrl}|${compendiumDataUrl}`,
+    ).find((group) => group.id === category.id);
+    if (!group || guidedRevision([group]) !== revision) {
+      setMessage('Guided evidence changed. Open a new preview.');
+      return;
+    }
+    const selected = decisions.map((decision) => ({
+      decision,
+      entry: category.entries.find((entry) => entry.hash === decision.hash),
+    }));
+    if (
+      new Set(decisions.map((decision) => decision.hash)).size !== decisions.length ||
+      selected.some(
+        ({ decision, entry }) =>
+          !entry ||
+          entry.status !== 'open' ||
+          !decision.link ||
+          !group.entries.some(
+            (current) =>
+              JSON.stringify(current) === JSON.stringify(decision) &&
+              current.action === 'link' &&
+              current.confidence !== 'unresolved',
+          ) ||
+          (useDraftStore.getState().drafts[entry.hash]?.next ??
+            editor.bundle.tooltips[entry.hash] ??
+            entry.base) !== entry.next,
+      )
+    ) {
+      setMessage('Preview or drafts changed. Open a new preview.');
+      return;
+    }
+    snapshot(
+      selected.map(({ decision, entry }) => ({
+        base: entry!.base,
+        before: entry!.next.compendium,
+        after: decision.link,
+      })),
+    );
+    useDraftStore.getState().updateDrafts(
+      selected.map(({ decision, entry }) => ({
+        base: entry!.base,
+        update: (next) => ({ ...next, compendium: decision.link }),
+      })),
+    );
+    setMessage(`${selected.length} links drafted, not saved.`);
+  }
   function acceptBulk(visible: BulkProposal[]) {
     if (!canEdit || !bulk || !visible.length) return;
     if (
@@ -304,7 +359,13 @@ export function ReviewQueue({
       <>
         {proposalError && <p role="alert">{proposalError}</p>}
         {error && <p role="alert">{error}</p>}
+        {message && <p role="status">{message}</p>}
+        <button disabled={!undo || !canEdit} onClick={undoLast}>
+          Undo last decision
+        </button>
         <CategoryReview
+          canEdit={canEdit}
+          onAccept={acceptGuided}
           categories={categories}
           editor={editor}
           source={source}

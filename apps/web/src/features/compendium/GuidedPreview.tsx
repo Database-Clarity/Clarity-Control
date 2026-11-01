@@ -3,7 +3,12 @@ import type { CompendiumData } from '@clarity/core';
 import type { GuidanceDocument } from './guidanceSchema';
 import type { ReviewCategory } from './reviewCategories';
 import type { ReviewProposal } from './rapidReview';
-import { guidedDecisions, type GuidedDecision } from './guidedDecisions';
+import {
+  guidedDecisions,
+  guidedRevision,
+  type GuidedCategory,
+  type GuidedDecision,
+} from './guidedDecisions';
 import { RichCell } from './RichCell';
 
 export function GuidedPreview({
@@ -13,6 +18,8 @@ export function GuidedPreview({
   source,
   baseline,
   scope,
+  canEdit = false,
+  onAccept,
 }: {
   document: GuidanceDocument;
   category: ReviewCategory;
@@ -20,7 +27,10 @@ export function GuidedPreview({
   source: CompendiumData;
   baseline: string;
   scope: string;
+  canEdit?: boolean;
+  onAccept?: (entries: GuidedDecision[], revision: string) => void;
 }) {
+  const [preview, setPreview] = useState<{ group: GuidedCategory; tier: 'high' | 'medium' }>();
   const [limit, setLimit] = useState(20);
   const group = useMemo(
     () =>
@@ -30,15 +40,69 @@ export function GuidedPreview({
     [document, category, proposals, source, baseline, scope],
   );
   if (!group) return null;
+  const current = !preview || guidedRevision([group]) === guidedRevision([preview.group]);
+  const shown = preview?.group ?? group;
+  const candidates = shown.entries.filter(
+    (entry) => entry.confidence === preview?.tier && entry.action === 'link',
+  );
   return (
     <details>
       <summary>
-        Guided proposal preview ({group.high} high confidence, {group.unresolved} for owner)
+        Guided proposal preview ({group.high} high confidence, {group.medium} medium,{' '}
+        {group.unresolved} for owner)
       </summary>
-      <p>
-        Preview only. No drafts or category approval are created. Category acceptance awaits a
-        product decision.
-      </p>
+      <p>Acceptance creates local link-only drafts. Review &amp; save uses the normal save flow.</p>
+      <p>{group.ownerNote}</p>
+      <button
+        disabled={!canEdit}
+        onClick={() => setPreview({ group: structuredClone(group), tier: 'high' })}
+      >
+        Preview all high
+      </button>{' '}
+      <button
+        disabled={!canEdit}
+        onClick={() => setPreview({ group: structuredClone(group), tier: 'medium' })}
+      >
+        Review medium
+      </button>
+      {preview && (
+        <section aria-label="Category acceptance preview">
+          <p>
+            {candidates.length} {preview.tier} links in this frozen preview. Source descriptions
+            below are pre-selected.
+          </p>
+          {!current && <p role="alert">Evidence changed. Open a new preview.</p>}
+          {candidates.map((entry) => (
+            <section key={entry.hash}>
+              <Decision entry={entry} />
+              {entry.link && <RichCell cell={entry.link.snapshot} />}
+              {preview.tier === 'medium' && (
+                <button
+                  disabled={!canEdit || !current}
+                  onClick={() => {
+                    onAccept?.([entry], guidedRevision([shown]));
+                    setPreview(undefined);
+                  }}
+                >
+                  Confirm {entry.name} as draft
+                </button>
+              )}
+            </section>
+          ))}
+          {preview.tier === 'high' && (
+            <button
+              disabled={!canEdit || !current || !candidates.length}
+              onClick={() => {
+                onAccept?.(candidates, guidedRevision([shown]));
+                setPreview(undefined);
+              }}
+            >
+              Accept all high ({candidates.length}) as drafts
+            </button>
+          )}
+          <button onClick={() => setPreview(undefined)}>Cancel preview</button>
+        </section>
+      )}
       <p>
         Uses guidance from the last load, before category synchronization. Reload disk guidance to
         include newly saved examples and notes.
@@ -77,7 +141,9 @@ function Decision({ entry }: { entry: GuidedDecision }) {
       <summary>
         {entry.name} · {entry.hash} · {entry.confidence} · {entry.action}
       </summary>
-      <p>{entry.reason}</p>
+      <p>
+        {entry.ruleId}: {entry.reason}
+      </p>
       <p>
         Category: {entry.categoryId}. Supporting references: {entry.references.join(', ') || 'none'}
         .

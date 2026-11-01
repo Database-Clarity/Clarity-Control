@@ -59,7 +59,7 @@ try {
   );
   const result = {
     version: 1,
-    mode: 'preview-only',
+    mode: 'local-draft-preview',
     guidanceSha256: createHash('sha256').update(raw).digest('hex'),
     guidanceBaseline: document.baseline,
     currentBaseline: baseline,
@@ -67,8 +67,20 @@ try {
     scope: document.scope,
     revision: guided.guidedRevision(groups),
     high: groups.reduce((sum, group) => sum + group.high, 0),
+    medium: groups.reduce((sum, group) => sum + group.medium, 0),
     owner: groups.reduce((sum, group) => sum + group.unresolved, 0),
     currentQueueCount: entries.length,
+    reasonGroups: Object.fromEntries(
+      categories.map((category) => [
+        category.id,
+        Object.fromEntries(
+          Object.entries(category.reasons).map(([reason, entries]) => [
+            reason,
+            entries.map((entry) => entry.hash),
+          ]),
+        ),
+      ]),
+    ),
     groups,
   };
   // Refuse to overwrite an earlier report or the guidance itself.
@@ -85,12 +97,13 @@ try {
       `Guidance baseline: ${document.baseline}`,
       `Current baseline: ${baseline}`,
       `Baseline matches: ${result.baselineMatches}`,
-      `High confidence: ${result.high}; owner/unresolved: ${result.owner}. No drafts or writes to remote data.`,
+      `High confidence: ${result.high}; medium: ${result.medium}; owner/unresolved: ${result.owner}. No drafts or writes to remote data.`,
       '',
-      '| Category | High | Owner | Issues |',
-      '| --- | ---: | ---: | --- |',
+      '| Category | High | Medium | Owner | Issues |',
+      '| --- | ---: | ---: | ---: | --- |',
       ...groups.map(
-        (group) => `| ${group.id} | ${group.high} | ${group.unresolved} | ${group.issues.length} |`,
+        (group) =>
+          `| ${group.id} | ${group.high} | ${group.medium} | ${group.unresolved} | ${group.issues.length} |`,
       ),
       '',
       'Full per-entry scope, evidence, supporting references, source snapshots and reasons: proposals.json.',
@@ -100,6 +113,7 @@ try {
   console.log(
     JSON.stringify({
       high: result.high,
+      medium: result.medium,
       owner: result.owner,
       baselineMatches: result.baselineMatches,
       baseline,

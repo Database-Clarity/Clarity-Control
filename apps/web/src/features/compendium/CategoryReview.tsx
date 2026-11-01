@@ -19,12 +19,20 @@ export function CategoryReview({
   proposals,
   guidance,
   onReview,
+  canEdit = false,
+  onAccept,
 }: {
   categories: ReviewCategory[];
   editor: EditorData;
   source: CompendiumData;
   proposals: Map<number, ReviewProposal>;
   guidance: ReturnType<typeof useGuidance>;
+  canEdit?: boolean;
+  onAccept?: (
+    category: ReviewCategory,
+    entries: import('./guidedDecisions').GuidedDecision[],
+    revision: string,
+  ) => void;
   onReview: (category?: ReviewCategory, hash?: number) => void;
 }) {
   const [query, setQuery] = useState('');
@@ -214,6 +222,9 @@ export function CategoryReview({
             <button onClick={() => onReview(category)}>Review these one by one</button>
             {guidance.ready && guidance.proposalInput && (
               <GuidedPreview
+                key={category.id}
+                canEdit={canEdit && !paused}
+                onAccept={(entries, revision) => onAccept?.(category, entries, revision)}
                 document={guidance.proposalInput}
                 category={category}
                 proposals={proposals}

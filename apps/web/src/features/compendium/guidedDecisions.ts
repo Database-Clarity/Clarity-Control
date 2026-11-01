@@ -1,4 +1,6 @@
 import { normaliseCompendiumName, type CompendiumData, type CompendiumLink } from '@clarity/core';
+import { compendiumSimilarity, sameCell } from '@clarity/core';
+import { confirmCompendiumSelection } from './selection';
 import type { GuidanceDocument, GuidanceReference } from './guidanceSchema';
 import type { ReviewCategory, ReviewSample } from './reviewCategories';
 import type { ReviewProposal } from './rapidReview';
@@ -9,7 +11,8 @@ export interface GuidedDecision {
   hash: number;
   name: string;
   categoryId: string;
-  confidence: 'high' | 'unresolved';
+  confidence: 'high' | 'medium' | 'unresolved';
+  ruleId: string;
   action: 'link' | 'no-equivalent' | 'owner' | 'preserve';
   reason: string;
   references: number[];
@@ -25,14 +28,19 @@ export interface GuidedCategory {
   entries: GuidedDecision[];
   high: number;
   unresolved: number;
+  medium: number;
+  ownerNote: string;
   samples: number[];
   referenceEvidence: GuidanceReference[];
 }
 
-const location = (link: CompendiumLink) => JSON.stringify([link.gid, link.section ?? '']);
-const exactName = (name: string, other: string) =>
-  !!normaliseCompendiumName(name) &&
-  normaliseCompendiumName(name) === normaliseCompendiumName(other);
+function stableSelection(
+  match: Parameters<typeof confirmCompendiumSelection>[0],
+  source: CompendiumData,
+) {
+  const link = confirmCompendiumSelection(match, source);
+  return link && { ...link, snapshotAt: source.fetchedAt };
+}
 
 // Pure planning only. No drafts, progress, guidance writes, authentication or save calls.
 export function guidedDecisions(
@@ -74,20 +82,6 @@ export function guidedDecisions(
       }
       const extra = category?.entries.filter((entry) => !record.hashes.includes(entry.hash)) ?? [];
       if (extra.length) issues.push(`${extra.length} new entries excluded from recorded scope.`);
-      const patterns = new Map<string, number[]>();
-      for (const reference of usable.values()) {
-        // A picked rename/cell selection is an example for itself, never a generic mapping rule.
-        if (
-          !reference.link ||
-          reference.link.cells ||
-          reference.note.trim() ||
-          !reference.sourceName ||
-          !exactName(reference.name, reference.sourceName)
-        )
-          continue;
-        const key = location(reference.link);
-        patterns.set(key, [...(patterns.get(key) ?? []), reference.hash]);
-      }
       const decide = (hash: number): GuidedDecision => {
         const entry: ReviewSample | undefined = entries.get(hash);
         const result: GuidedDecision = {
@@ -98,6 +92,7 @@ export function guidedDecisions(
           confidence: 'unresolved',
           references: [],
           evidence: entry?.sampleEvidence,
+          ruleId: 'owner-no-candidate',
           reason: 'No supported mapping; owner decision needed.',
         };
         if (!entry)
@@ -116,6 +111,7 @@ export function guidedDecisions(
             ...result,
             action: reference.link ? 'link' : 'no-equivalent',
             confidence: 'high',
+            ruleId: 'explicit-owner',
             link: reference.link,
             references: [hash],
             reason: 'Current explicit owner reference; applies to this entry only.',
@@ -128,35 +124,159 @@ export function guidedDecisions(
             ...result,
             reason: 'Category comment needs agent interpretation; no automatic rule applied.',
           };
-        const proposal = proposals.get(hash);
-        if (!proposal?.link || !proposal.match || !exactName(entry.name, proposal.match.row.name))
+        // Learn the tab from every current positive sample, including picked renames.
+        // Section labels are layout headings, not category boundaries (e.g. Armor Mods slots).
+        const positive = [...usable.values()].filter((ref) => ref.link);
+        const tabs = new Set(positive.map((ref) => ref.link!.gid));
+        const support = positive.map((ref) => ref.hash);
+        const norm = normaliseCompendiumName(entry.name);
+        const names = new Set([norm]);
+        const fragment = /^(?:Facet|Whisper|Ember|Spark|Echo|Thread) of (.+)$/i.exec(entry.name);
+        if (fragment) names.add(normaliseCompendiumName(fragment[1]));
+        // Owner explicitly approves shared finder and surge rows. No generic prefix stripping.
+        const shared =
+          record.id === 'catalog:armor-mod-general'
+            ? entry.name
+                .replace(/^(?:Heavy|Special) Ammo Finder$/, 'Ammo Finder')
+                .replace(/^(?:Kinetic|Arc|Solar|Void|Stasis|Strand) Weapon Surge$/, 'Weapon Surge')
+            : entry.name;
+        names.add(normaliseCompendiumName(shared));
+        const catalyst =
+          record.id === 'catalog:weapon-catalyst-exotic'
+            ? entry.name.replace(/ Catalyst$/, '')
+            : entry.name;
+        const candidates = source.tabs
+          .filter((tab) => tabs.has(tab.gid))
+          .flatMap((tab) =>
+            tab.rows.map((row) => {
+              const first = normaliseCompendiumName(row.name.split(/\r?\n/)[0]);
+              const lines = row.name
+                .split(/\r?\n/)
+                .map((line) => normaliseCompendiumName(line.replace(/^↑/, '')));
+              const exact = names.has(normaliseCompendiumName(row.name)) || names.has(first);
+              const token = lines.includes(norm) || first === normaliseCompendiumName(catalyst);
+              return {
+                tab,
+                row,
+                exact,
+                token,
+                score: Math.max(...[...names].map((name) => compendiumSimilarity(name, first))),
+              };
+            }),
+          );
+        const exact = candidates.filter((candidate) => candidate.exact);
+        const token = candidates.filter((candidate) => candidate.token);
+        const ranked = [...candidates].sort((a, b) => b.score - a.score);
+        const best =
+          exact.length === 1
+            ? exact[0]
+            : exact.length
+              ? undefined
+              : token.length === 1
+                ? token[0]
+                : token.length
+                  ? undefined
+                  : ranked[0]?.score >= 0.65 && ranked[0].score - (ranked[1]?.score ?? 0) >= 0.08
+                    ? ranked[0]
+                    : undefined;
+        if (!best) {
+          const proposal = proposals.get(hash);
+          const confirmed = proposal?.match && stableSelection(proposal.match, source);
+          if (
+            proposal?.match &&
+            proposal.link &&
+            confirmed &&
+            sameCell(confirmed.snapshot, proposal.link.snapshot) &&
+            tabs.has(proposal.link.gid) &&
+            names.has(normaliseCompendiumName(proposal.match.row.name))
+          ) {
+            return {
+              ...result,
+              action: 'link',
+              confidence: positive.some(
+                (ref) => ref.link?.gid === proposal.link!.gid && ref.link.cells,
+              )
+                ? 'medium'
+                : 'high',
+              ruleId: 'resolver-multipart-name',
+              references: support,
+              link: confirmed,
+              reason:
+                'Exact normalized name in learned tab, multipart description combined and validated by resolver.',
+            };
+          }
+          // An uncovered elemental tab is a review candidate, never inferred high.
+          if (record.id.startsWith('catalog:subclass-') || record.id === 'catalog:verbs') {
+            const outside = source.tabs
+              .filter((tab) => !tabs.has(tab.gid))
+              .flatMap((tab) =>
+                tab.rows
+                  .filter((row) => names.has(normaliseCompendiumName(row.name)))
+                  .map((row) => ({ tab, row })),
+              );
+            if (outside.length === 1) {
+              const link = stableSelection(outside[0], source);
+              if (link)
+                return {
+                  ...result,
+                  action: 'link',
+                  confidence: 'medium',
+                  link,
+                  ruleId: 'uncovered-element-tab',
+                  references: support,
+                  reason: `Unique exact name in uncovered tab ${outside[0].tab.name}, row ${outside[0].row.rowIndex}; confirm tab convention.`,
+                };
+            }
+          }
+        }
+        if (!best)
           return {
             ...result,
-            reason: proposal?.candidates.length
-              ? 'Fuzzy or ambiguous source requires owner selection.'
-              : 'No exact validated resolver proposal.',
+            reason: candidates.length
+              ? 'No unique name/token hit or separated fuzzy candidate in learned tabs.'
+              : 'No positive owner sample establishes a source tab.',
           };
-        const support = patterns.get(location(proposal.link)) ?? [];
-        if (support.length < 2 || proposal.link.cells)
+        const link = stableSelection(best, source);
+        if (!link)
           return {
             ...result,
-            reason: 'Fewer than two comparable owner references support this source section.',
+            reason: 'Candidate cannot resolve uniquely to current source cells.',
           };
+        // A note on a picked example supports its tab, not a generic rename rule.
+        const high =
+          exact.length === 1 &&
+          !positive.some((ref) => ref.link?.gid === best.tab.gid && ref.link.cells);
+        const ruleId =
+          exact.length === 1
+            ? fragment
+              ? 'fragment-short-name'
+              : shared !== entry.name
+                ? 'owner-shared-armor-family'
+                : 'unique-name-in-learned-tab'
+            : token.length === 1
+              ? 'exotic-name-line-or-catalyst'
+              : 'separated-fuzzy-name';
         return {
           ...result,
-          confidence: 'high',
+          confidence: high ? 'high' : 'medium',
           action: 'link',
-          link: proposal.link,
+          link,
+          ruleId,
           references: support,
           reason:
-            'Validated exact-name whole-description mapping in the source tab/section confirmed by these owner references.',
+            `${ruleId}: unique candidate in learned tab ${best.tab.name}; row ${best.row.rowIndex}; ` +
+            `anchor ${JSON.stringify(best.row.anchor ?? null)}; score ${best.score.toFixed(3)}. ` +
+            (high
+              ? 'Normalized full/first-line name; current resolver confirmed description.'
+              : 'Confirm source description; token/rename or selected-cell convention needs review.'),
         };
       };
       const decisions = record.hashes.map(decide);
+      const medium = decisions.filter((entry) => entry.confidence === 'medium').length;
       const high = decisions.filter((entry) => entry.confidence === 'high').length;
       // Deterministic stratification by outcome, with remaining exceptions available in full below.
       const stratum = (entry: GuidedDecision) =>
-        `${entry.action}:${entry.confidence}:${entry.references.includes(entry.hash) ? 'reference' : 'pattern'}`;
+        `${entry.ruleId}:${entry.confidence}:${entry.action}`;
       const samples = [...new Set(decisions.map(stratum))]
         .flatMap((kind) => decisions.filter((entry) => stratum(entry) === kind).slice(0, 2))
         .map((entry) => entry.hash);
@@ -165,11 +285,21 @@ export function guidedDecisions(
         name: category?.name ?? record.name,
         comment: record.comment,
         pattern:
-          'Exact-name validated whole-description links; at least two current same-category examples in the same source tab/section. No-equivalent and picked renames apply only to their explicit sample.',
+          'Unique normalized name in an owner-demonstrated tab; fragment prefixes and explicitly approved shared armor families normalized. Exotic name lines, catalyst suffixes and separated fuzzy names require confirmation. No-equivalent decisions never generalize.',
         issues,
         entries: decisions,
         high,
-        unresolved: decisions.length - high,
+        medium,
+        unresolved: decisions.length - high - medium,
+        ownerNote: decisions.some((entry) => entry.confidence === 'unresolved')
+          ? `Provide a source row or confirm no equivalent for representative exceptions: ${decisions
+              .filter((entry) => entry.confidence === 'unresolved')
+              .slice(0, 3)
+              .map((entry) => entry.name)
+              .join(
+                ', ',
+              )}. Notes/skips need an explicit decision; do not resolve the whole category from absence alone.`
+          : 'No owner exceptions; confirm medium source descriptions individually.',
         samples,
         referenceEvidence: references,
       };

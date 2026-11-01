@@ -52,11 +52,13 @@ it('withholds changed baseline, scope and individual source/entry evidence', () 
     );
     expect(group.issues.length).toBeGreaterThan(0);
     expect(group.entries[0].confidence).toBe('unresolved');
-    expect(group.entries[2].confidence).toBe('unresolved');
+    expect(group.entries[2].confidence).toBe(
+      change === 'baseline' || change === 'scope' ? 'unresolved' : 'high',
+    );
   }
 });
 
-it('never generalizes no-equivalent, skipped, note-only, comments, selected cells or renamed picks', () => {
+it('learns from one positive reference, requires review for cell conventions, and protects owner samples/comments', () => {
   for (const kind of ['none', 'skip', 'note', 'comment', 'rename', 'cells'] as const) {
     const f = guidedFixture();
     const record = f.document.categories[f.categories[0].id];
@@ -77,7 +79,7 @@ it('never generalizes no-equivalent, skipped, note-only, comments, selected cell
       f.baseline,
       f.scope,
     );
-    expect(group.entries[2].confidence).toBe('unresolved');
+    expect(group.entries[2].confidence).toBe(kind === 'comment' ? 'unresolved' : 'high');
     if (kind === 'skip' || kind === 'note') expect(group.entries[0].action).toBe('owner');
   }
 });
@@ -122,12 +124,53 @@ it('withholds fuzzy proposals and makes preview-only scope and spot-check limita
     f.baseline,
     f.scope,
   );
-  expect(group.entries[2].confidence).toBe('unresolved');
+  expect(group.entries[2].confidence).toBe('high');
   const html = renderToStaticMarkup(
     createElement(GuidedPreview, { ...f, category: f.categories[0] }),
   );
   expect(html).toContain('6 recorded entries');
   expect(html).toContain('not individual review');
-  expect(html).toContain('No drafts or category approval');
+  expect(html).toContain('local link-only drafts');
   expect(html).not.toContain('Accept category');
+});
+
+it('one positive sample establishes a tab; negative samples never establish an absence rule', () => {
+  const f = guidedFixture();
+  const record = f.document.categories[f.categories[0].id];
+  delete record.references![101];
+  let [group] = guidedDecisions(
+    f.document,
+    f.categories,
+    f.proposals,
+    f.source,
+    f.baseline,
+    f.scope,
+  );
+  expect(group.entries[2]).toMatchObject({
+    confidence: 'high',
+    references: [100],
+    ruleId: 'unique-name-in-learned-tab',
+  });
+  delete record.references![100];
+  [group] = guidedDecisions(f.document, f.categories, f.proposals, f.source, f.baseline, f.scope);
+  expect(group.entries[2]).toMatchObject({ confidence: 'unresolved', action: 'owner' });
+});
+
+it('ambiguous names and stale multipart proposals cannot produce high links', () => {
+  const f = guidedFixture();
+  const row = f.source.tabs[0].rows[2];
+  f.source.tabs[0].rows.push({
+    ...row,
+    rowIndex: 99,
+    cell: { plain: 'Different mechanics', runs: [{ text: 'Different mechanics' }] },
+  });
+  const [group] = guidedDecisions(
+    f.document,
+    f.categories,
+    f.proposals,
+    f.source,
+    f.baseline,
+    f.scope,
+  );
+  expect(group.entries[2]).toMatchObject({ confidence: 'unresolved', action: 'owner' });
 });
