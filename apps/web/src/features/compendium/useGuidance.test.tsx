@@ -11,6 +11,12 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 it.each([true, false])('renews after an overlapping save finishes (success: %s)', async (success) => {
   const f = guidedFixture();
+  const cache: Record<string, string> = {};
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => cache[key] ?? null,
+    setItem: (key: string, value: string) => { cache[key] = value; },
+    clear: () => { for (const key of Object.keys(cache)) delete cache[key]; },
+  });
   f.document.scope = `${bundleUrl}|${compendiumDataUrl}`;
   const key = `clarity-review-guidance:v1:${encodeURIComponent(f.document.scope)}`;
   localStorage.clear();
@@ -43,13 +49,13 @@ it.each([true, false])('renews after an overlapping save finishes (success: %s)'
     expect(result.document.baseline).toBe('renewed');
     expect(result.renewalNotice).toBe('5 references carried over, 0 need re-check');
     expect(result.planningRevision).toBeGreaterThan(0);
-    const backupKey = Object.keys(localStorage).find((k) => k.startsWith(`${key}:pre-renewal:`));
+    const backupKey = Object.keys(cache).find((k) => k.startsWith(`${key}:pre-renewal:`));
     expect(JSON.parse(localStorage.getItem(backupKey!)!).document).toEqual(f.document);
   } finally {
     // Dispose cannot begin another network operation during teardown.
     request.mockResolvedValue(new Response('offline', { status: 503 }));
     await act(async () => root.unmount());
-    vi.unstubAllGlobals();
     localStorage.clear();
+    vi.unstubAllGlobals();
   }
 });

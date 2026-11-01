@@ -58,7 +58,8 @@ it('withholds manifest predicates when generator identity or description differs
   };
   const sample = () => {
     const entries = reviewQueue(editor, source, {}, emptyProgress(), '');
-    return reviewCategories(entries, editor, new Map(), false)[0].entries[0];
+    return reviewCategories(entries, editor, new Map(), false)
+      .flatMap((category) => category.entries).find((entry) => entry.hash === 5699512)!;
   };
   const original = sample();
   expect(original.manifestFacts?.item.inventory?.displayName).toBe('Tempered Truss Rod');
