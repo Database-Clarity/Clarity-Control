@@ -100,7 +100,7 @@ describe('migration', () => {
     );
     await writeFile(join(root, 'tooltips', '123.json'), '{}');
     await writeFile(join(root, 'keep.txt'), 'untouched');
-    await writeMigration(root, result);
+    await writeMigration(root, result, { allowAuthoredOverwrite: true });
     expect(await readFile(path, 'utf8')).toBe(first);
     expect(await readdir(join(root, 'tooltips'))).toEqual(['2.json']);
     expect(await readFile(join(root, 'keep.txt'), 'utf8')).toBe('untouched');
@@ -162,7 +162,7 @@ describe('migration', () => {
     const stored = await readMigration(root);
     const incoming = database('legacy overwrite');
     Object.assign(incoming.perks, database('new legacy', 43).perks);
-    const rerun = await prepareMigration(incoming, database('legacy live'), owner, stored);
+    const rerun = await prepareMigration(incoming, database('legacy live'), owner, stored, []);
     expect(rerun.preserved).toBe(2);
     expect(rerun.tooltips.find(({ hash }) => hash === 42)).toEqual(existing.tooltips[0]);
     expect(rerun.tooltips.find(({ hash }) => hash === 100)).toEqual(existing.tooltips[1]);
@@ -179,7 +179,13 @@ describe('migration', () => {
     );
     expect(
       formatJson(
-        await prepareMigration(incoming, database('legacy live'), owner, await readMigration(root)),
+        await prepareMigration(
+          incoming,
+          database('legacy live'),
+          owner,
+          await readMigration(root),
+          [],
+        ),
       ),
     ).toBe(formatJson({ ...rerun, preserved: 3 }));
   });
@@ -196,6 +202,7 @@ describe('migration', () => {
       database('member', 20),
       owner,
       existing,
+      [],
     );
     const folded = foldFrames(rerun.tooltips, { 20: { to: 10, kind: 'frame' } }, rerun.pushed, {});
     expect(folded.tooltips).toHaveLength(1);
@@ -210,7 +217,9 @@ describe('migration', () => {
     expect(await readMigration(root)).toBeUndefined();
     await mkdir(join(root, 'tooltips'));
     await expect(readMigration(root)).rejects.toThrow();
-    await writeMigration(root, await prepareMigration(database('draft'), database('live'), owner));
+    await writeMigration(root, await prepareMigration(database('draft'), database('live'), owner), {
+      allowAuthoredOverwrite: true,
+    });
     await writeFile(
       join(root, 'tooltips', '42.json'),
       formatJson({
@@ -219,7 +228,9 @@ describe('migration', () => {
       }),
     );
     await expect(readMigration(root)).rejects.toThrow('hash mismatch');
-    await writeMigration(root, await prepareMigration(database('draft'), database('live'), owner));
+    await writeMigration(root, await prepareMigration(database('draft'), database('live'), owner), {
+      allowAuthoredOverwrite: true,
+    });
     await writeFile(join(root, 'config', 'permissions.json'), '{"users":{"bad":{}}}');
     await expect(readMigration(root)).rejects.toThrow();
   });
@@ -234,6 +245,7 @@ describe('migration', () => {
       ['intermediate', database('legacy overwrite')],
       ['live', database('published')],
       ['owner', { id: 117818418, login: 'StardustD2' }],
+      ['deletions', []],
     ] as const) {
       await writeFile(join(root, `${name}.json`), formatJson(value));
     }
@@ -248,9 +260,13 @@ describe('migration', () => {
       join(root, 'live.json'),
       '--owner',
       join(root, 'owner.json'),
+      '--deletions',
+      join(root, 'deletions.json'),
+      '--write',
     ];
     const log = execFileSync(process.execPath, args, { encoding: 'utf8' });
-    expect(JSON.parse(log)).toMatchObject({ preserved: 1, pending: 1 });
+    expect(log).toContain('"preserved": 1');
+    expect(log).toContain('"pending": 1');
     expect(formatJson(await readMigration(output))).toBe(
       formatJson({
         tooltips: existing.tooltips,
@@ -311,10 +327,14 @@ describe('dependency-free bundle', () => {
     const root = await temporaryDirectory();
     await expect(buildBundle(root, 'main')).rejects.toThrow('full source commit');
     await expect(buildBundle(root, sourceCommit)).rejects.toThrow();
-    await writeMigration(root, await prepareMigration(database('draft'), database('live'), owner));
+    await writeMigration(root, await prepareMigration(database('draft'), database('live'), owner), {
+      allowAuthoredOverwrite: true,
+    });
     await writeFile(join(root, 'tooltips', '42.json'), '{"hash":43}');
     await expect(buildBundle(root, sourceCommit)).rejects.toThrow('does not match');
-    await writeMigration(root, await prepareMigration(database('draft'), database('live'), owner));
+    await writeMigration(root, await prepareMigration(database('draft'), database('live'), owner), {
+      allowAuthoredOverwrite: true,
+    });
     await writeFile(join(root, 'live', 'pushed.json'), '{"42":"bad"}');
     await expect(buildBundle(root, sourceCommit)).rejects.toThrow('Invalid pushed entry');
   });
