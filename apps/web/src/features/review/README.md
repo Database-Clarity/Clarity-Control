@@ -12,6 +12,20 @@ reviewed content digests; a newer saved version causes a 409 rather than silentl
 publishing unreviewed content. Successful responses update the local marker view
 and refresh the bundle; bundle generation can lag behind a push.
 
+Acknowledgments and the submission lock live in review-specific tab memory, outside
+the route's loading/unmount lifecycle. There is at most one acknowledged digest per
+tooltip, paired with its pre-push bundle marker. It applies only while that marker
+is unchanged; a caught-up or different marker, or removal of the tooltip, retires it.
+Changed saved text is still compared by digest and becomes pending. A full page
+reload clears this memory; no cross-session persistence is promised. The latest
+success/error notice survives route remounts until the next attempt or account/role
+change. Server acknowledgments remain valid across account changes, but notices
+and selections are cleared; an outstanding request keeps its lock until settlement.
+Selection also clears when the saved snapshot changes. Hashing aborts submission
+if the page unmounts, identity changes, or saved data is replaced before the request.
+A bundle refresh error is reported by the data-loading shell, separately from a
+publish failure; retrying data loading restores the acknowledged review view.
+
 `GET /history/:hash?live=1` supplies the exact last pushed authored snapshot.
 The worker commits `live/tooltips/<hash>.json` with `live/pushed.json`, using the
 same immutable data version exported to the target branch. A save between export

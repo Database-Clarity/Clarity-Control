@@ -1,7 +1,5 @@
-import { useEffect, useState } from 'react';
-import { publishableHash } from '@clarity/core';
+import { useEffect, useRef, useState } from 'react';
 import { apiUrl } from '../../services/api';
-import { pushSelected } from '../../services/history';
 import { errorMessage } from '../../services/http';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
@@ -16,6 +14,7 @@ import {
 } from './model';
 import { ReviewDetail } from './ReviewDetail';
 import { ReviewRow } from './ReviewRow';
+import { acknowledgedMarkers, publishReviewed, useReviewSession } from './session';
 import styles from './Review.module.scss';
 
 const pageSize = 15;
@@ -29,15 +28,21 @@ export function ReviewPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [index, setIndex] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [pushing, setPushing] = useState(false);
+  const { pushing, notice, error: pushError, acknowledgments } = useReviewSession();
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const [error, setError] = useState<string>();
-  const [notice, setNotice] = useState<string>();
-  const [pushed, setPushed] = useState<Record<string, string>>({});
   useEffect(() => {
     let active = true;
     if (!data) return;
     setLoading(true);
-    void pendingTooltips(data, { ...data.bundle.pushed, ...pushed }).then(
+    setSelected(new Set());
+    void pendingTooltips(data, acknowledgedMarkers(data)).then(
       (result) => {
         if (!active) return;
         setEntries(result);
@@ -54,7 +59,10 @@ export function ReviewPage() {
     return () => {
       active = false;
     };
-  }, [data, pushed]);
+  }, [data, acknowledgments]);
+  useEffect(() => {
+    setSelected(new Set());
+  }, [user]);
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || pushing) return;
@@ -76,30 +84,14 @@ export function ReviewPage() {
   const groups = [...new Set(page.map((entry) => entry.category))];
 
   async function publish() {
-    if (!canPush(user) || !hashes.length || hashes.length > 100 || pushing) return;
-    setPushing(true);
+    if (!data || loading) return;
     setError(undefined);
-    setNotice(undefined);
-    try {
-      const expected = Object.fromEntries(
-        await Promise.all(
-          entries
-            .filter(({ tooltip }) => hashes.includes(tooltip.hash))
-            .map(async ({ tooltip }) => [tooltip.hash, await publishableHash(tooltip)] as const),
-        ),
-      );
-      const result = await pushSelected(hashes, expected);
-      setPushed((previous) => ({ ...previous, ...result.pushed }));
-      setSelected(new Set());
-      setNotice(`Pushed ${hashes.length} tooltip(s) to ${result.branch}. Refreshing saved data.`);
-      await load();
-    } catch (reason) {
-      setError(
-        `${errorMessage(reason)} A failed push may have written live data; check the error details before retrying.`,
-      );
-    } finally {
-      setPushing(false);
-    }
+    const succeeded = await publishReviewed(
+      entries.filter(({ tooltip }) => hashes.includes(tooltip.hash)),
+      data,
+      () => mounted.current,
+    );
+    if (succeeded && mounted.current) setSelected(new Set());
   }
 
   return (
@@ -119,6 +111,7 @@ export function ReviewPage() {
         </p>
       ) : null}
       {error && <p role="alert">{error}</p>}
+      {pushError && <p role="alert">{pushError}</p>}
       {notice && <p role="status">{notice}</p>}
       <div className={styles.toolbar}>
         <button type="button" disabled={pushing || loading} onClick={() => void load()}>
