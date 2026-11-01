@@ -1,7 +1,7 @@
 import { importContext } from './importContext';
 import { researchSuggestions } from './researchSuggestions';
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import type { CompendiumData, Tooltip } from '@clarity/core';
 import { groupManifestItems } from './manifestItems';
 import { apiUrl } from '../../services/api';
@@ -21,6 +21,9 @@ import { ProposalContext } from './ProposalContext';
 import { suggestionAnchor } from './suggestions';
 import styles from './MatchReview.module.scss';
 import { useProposals } from './useProposals';
+import { CategoryReview } from './CategoryReview';
+import { categoryId, reviewCategories, type ReviewCategory } from './reviewCategories';
+import { useGuidance } from './useGuidance';
 
 const labels = {
   open: 'Unresolved',
@@ -92,6 +95,9 @@ export function ReviewQueue({
   storageKey: string;
 }) {
   const { progress, update, error } = useReviewProgress(storageKey);
+  const [params, setParams] = useSearchParams();
+  const categoryView = params.get('view') !== 'entries';
+  const groupId = params.get('group');
   const [message, setMessage] = useState('');
   const [proposalFilter, setProposalFilter] = useState('all');
   const [picker, setPicker] = useState(false);
@@ -112,8 +118,14 @@ export function ReviewQueue({
     [editor.items, editor.aliases],
   );
   const { proposals, loading: matching, error: proposalError } = useProposals(editor, source);
+  const categories = useMemo(
+    () => reviewCategories(entries, editor, proposals, matching, !!proposalError),
+    [entries, editor, proposals, matching, proposalError],
+  );
+  const guidance = useGuidance(categories, `${editor.bundle.sourceCommit}|${fingerprint}`);
   const filtered = entries.filter(
     (entry) =>
+      (!groupId || categoryId(entry.category) === groupId) &&
       (!progress.category || entry.category === progress.category) &&
       (!progress.query ||
         `${entry.name} ${entry.hash}`.toLowerCase().includes(progress.query.toLowerCase())) &&
@@ -236,6 +248,7 @@ export function ReviewQueue({
     setBulk(false);
   }
   useEffect(() => {
+    if (categoryView) return;
     function keydown(event: KeyboardEvent) {
       if (event.key === 'Escape' && (picker || bulk)) {
         setPicker(false);
@@ -263,8 +276,45 @@ export function ReviewQueue({
     setCandidate(0);
     setPicker(false);
   }
+  function reviewCategory(category?: ReviewCategory, hash?: number) {
+    filter({ category: '', query: '', filter: 'open', selected: hash });
+    setProposalFilter('all');
+    setParams(category ? { view: 'entries', group: category.id } : { view: 'entries' });
+  }
+  if (categoryView)
+    return (
+      <>
+        {proposalError && <p role="alert">{proposalError}</p>}
+        {error && <p role="alert">{error}</p>}
+        <CategoryReview
+          categories={categories}
+          editor={editor}
+          proposals={proposals}
+          guidance={guidance}
+          onReview={reviewCategory}
+        />
+      </>
+    );
   return (
     <>
+      <div className={styles.entryNav}>
+        <button
+          onClick={() => {
+            setPicker(false);
+            setBulk(false);
+            setParams({});
+          }}
+        >
+          Back to category guidance
+        </button>
+        {groupId && (
+          <span>
+            {categories.find((category) => category.id === groupId)?.name ??
+              'Category no longer in queue'}
+          </span>
+        )}
+        {groupId && <button onClick={() => reviewCategory()}>Review all categories</button>}
+      </div>
       {proposalError && <p role="alert">{proposalError}</p>}
       <div className={styles.progress}>
         <progress value={completed} max={entries.length || 1} />
@@ -284,7 +334,18 @@ export function ReviewQueue({
         </label>
         <label>
           Category
-          <select value={progress.category} onChange={(e) => filter({ category: e.target.value })}>
+          <select
+            value={
+              groupId
+                ? (categories.find((category) => category.id === groupId)?.entries[0]?.category ??
+                  '')
+                : progress.category
+            }
+            onChange={(e) => {
+              setParams({ view: 'entries' });
+              filter({ category: e.target.value });
+            }}
+          >
             <option value="">All categories</option>
             {editor.categories.map((c) => (
               <option key={c.id} value={c.id}>
@@ -470,6 +531,7 @@ export function ReviewQueue({
             onClick={() => {
               filter({ filter: 'open', query: '', category: '' });
               setProposalFilter('all');
+              setParams({ view: 'entries' });
             }}
           >
             Show all unresolved

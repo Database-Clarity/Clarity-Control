@@ -95,6 +95,16 @@ summary offers refresh when linked data is over one hour old. Refreshes are auth
 by the Worker and run in the separate public Compendium-data repository; failed runs
 are explicit and unchanged successful runs finish without requiring a data commit.
 
+`#/compendium/review` defaults to category guidance: comment on catalog-defined
+groups, inspect representative samples or browse, and optionally enter the
+existing one-by-one review. During Vite development, comments autosave to the
+gitignored `apps/web/review-guidance.json` so agents can read them without export,
+including comments entered on a phone using the same server. Disk status and
+conflicts are explicit; localStorage and Export backup protect local-only edits.
+This dev-only endpoint is absent from production/preview and never saves
+Tooltip data. See `features/compendium/README.md` for persistence and the later
+agent-proposal/category-approval stages.
+
 ## Worker connection
 
 Set `VITE_API_URL` in `apps/web/.env.local` to the worker origin before starting Vite.
