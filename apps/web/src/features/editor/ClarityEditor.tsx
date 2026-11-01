@@ -8,6 +8,7 @@ import {
   toggleComment,
 } from '@codemirror/commands';
 import { bracketMatching, indentOnInput } from '@codemirror/language';
+import { search, searchKeymap } from '@codemirror/search';
 import { Compartment, EditorState, type Extension } from '@codemirror/state';
 import {
   EditorView,
@@ -97,6 +98,7 @@ export function ClarityEditor({
       EditorView.lineWrapping,
       saveDockScrollMargins(),
       history(),
+      search(),
       indentOnInput(),
       bracketMatching(),
       clarityLanguage,
@@ -105,6 +107,7 @@ export function ClarityEditor({
         { key: 'ScrollLock', run: format },
         { key: 'Mod-Shift-f', run: format },
         { key: 'Mod-/', run: toggleComment },
+        ...searchKeymap,
         ...completionKeymap,
         ...historyKeymap,
         ...defaultKeymap,
@@ -171,8 +174,8 @@ export function ClarityEditor({
       <details className={styles.help}>
         <summary>{issues.length ? `${issues.length} markup issue(s)` : 'Markup help'}</summary>
         <p>
-          Ctrl/Cmd+Space: complete. Ctrl/Cmd+Z: undo. Ctrl/Cmd+/: comment. Scroll Lock or
-          Ctrl/Cmd+Shift+F: align tables.
+          Ctrl/Cmd+F: find and replace. Ctrl/Cmd+Space: complete. Ctrl/Cmd+Z: undo. Ctrl/Cmd+/:
+          comment. Scroll Lock or Ctrl/Cmd+Shift+F: align tables.
         </p>
         <p>
           Native spelling uses your browser&apos;s enabled dictionaries. Right-click a misspelling

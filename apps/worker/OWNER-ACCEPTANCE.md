@@ -44,10 +44,8 @@ marker and snapshot before any retry; rejection does not prove nothing changed.
 For a stale reviewed digest, refresh saved changes and review the current version
 again before deciding whether to retry. Do not blindly repeat the push.
 
-Known limitation until the reviewed review-refresh fix lands: after a successful
-push, automatic bundle refresh can lose the success notice and acknowledged marker
-overlay, leaving the same unchanged item pending when the bundle is stale. A
-publish can succeed even if bundle refresh fails. Inspect commits and markers
+The review-refresh fix preserves the success notice and acknowledged marker overlay
+after a successful push. A publish can succeed even if bundle refresh fails. Inspect commits and markers
 before acting; an apparently pending item or refresh error is not proof of failure.
 
 Retain targets, time, selected hash, observed role/languages, commit IDs, marker

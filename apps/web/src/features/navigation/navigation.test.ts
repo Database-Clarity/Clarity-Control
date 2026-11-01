@@ -238,6 +238,26 @@ describe('tooltip catalog', () => {
     }
     expect(navigationGroups(data, 'missing')).toEqual([]);
   });
+  it('finds canonical entries by existing owner names and hashes', () => {
+    const owned: EditorData = {
+      ...data,
+      items: {
+        ...data.items,
+        10: {
+          ...data.items[10],
+          owners: [20, 2, 77],
+          ownerNames: { 77: 'Fallback Exotic' },
+          itemHash: 88,
+        },
+      },
+    };
+    for (const query of ['armor', 'VARIABLES', 'fallback exotic', '77', '88', '99']) {
+      const hashes = navigationGroups(owned, query).flatMap((group) =>
+        group.sections.flatMap((section) => section.items.map((item) => item.hash)),
+      );
+      expect(hashes.filter((hash) => hash === 10)).toEqual([10]);
+    }
+  });
   it('reports alias cycles rather than looping', () => {
     expect(() =>
       canonicalHash(98, {
