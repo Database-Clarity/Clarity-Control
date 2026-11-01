@@ -3,6 +3,8 @@ import { EditorSelection, EditorState, Transaction } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import {
   markupColors,
+  markupCommentContext,
+  markupEmpty,
   markupIcons,
   markupInlineRanges,
   markupLineClasses,
@@ -56,12 +58,22 @@ interface ProtectedRange {
   to: number;
   incomplete?: boolean;
   protectStart?: boolean;
+  protectEnd?: boolean;
 }
 
-function protectedRanges(state: EditorState) {
+function protectedRanges(state: EditorState, comments: { from: number; to: number }[]) {
   const text = state.doc.toString();
   const tokens: ProtectedRange[] = [];
   const tables: ProtectedRange[] = [];
+  for (const comment of comments) {
+    // Comment removal can join both surrounding authored lines into one renderer line.
+    tokens.push({
+      from: state.doc.lineAt(comment.from).from,
+      to: state.doc.lineAt(comment.to).to,
+      protectStart: true,
+      incomplete: true,
+    });
+  }
   let tableStart: number | undefined;
   for (let number = 1; number <= state.doc.lines; number++) {
     const line = state.doc.line(number);
@@ -74,6 +86,7 @@ function protectedRanges(state: EditorState) {
         to: line.from + match.index + match[0].length,
         incomplete: !match[0].endsWith('>'),
         protectStart: match[0].startsWith('< table ') || match[0] === '<$>',
+        protectEnd: match[0].startsWith('< table ') || match[0] === '<$>',
       });
     }
     for (const match of line.text.matchAll(/<(\w+) /g)) {
@@ -84,11 +97,12 @@ function protectedRanges(state: EditorState) {
         tokens.push({ from: line.from + match.index, to: line.to, incomplete: true });
       }
     }
-    for (const match of line.text.matchAll(/#[a-zA-Z0-9]+|\$\{[^}\n]*(?:}|$)/g)) {
+    if (/#[a-zA-Z0-9]+|\$\{[^}\n]*(?:}|$)/.test(line.text)) {
       tokens.push({
-        from: line.from + match.index,
-        to: line.from + match.index + match[0].length,
-        incomplete: match[0].startsWith('${') && !match[0].endsWith('}'),
+        from: line.from,
+        to: line.to,
+        protectStart: true,
+        incomplete: true,
       });
     }
     if (line.text.startsWith('< table ') && tableStart === undefined) tableStart = line.from;
@@ -116,14 +130,20 @@ function intersects(from: number, to: number, protectedRange: ProtectedRange) {
     return (
       (from > protectedRange.from ||
         (protectedRange.protectStart && from === protectedRange.from)) &&
-      (from < protectedRange.to || (protectedRange.incomplete && from === protectedRange.to))
+      (from < protectedRange.to ||
+        ((protectedRange.incomplete || protectedRange.protectEnd) && from === protectedRange.to))
     );
   }
-  return from < protectedRange.to && to > protectedRange.from;
+  return (
+    (from < protectedRange.to && to > protectedRange.from) ||
+    (protectedRange.protectStart && to === protectedRange.from) ||
+    ((protectedRange.incomplete || protectedRange.protectEnd) && from === protectedRange.to)
+  );
 }
 
 export function markupTransaction(state: EditorState, option: MarkupOption): Transaction | null {
-  const { tokens, tables } = protectedRanges(state);
+  const context = markupCommentContext(state.doc.toString());
+  const { tokens, tables } = protectedRanges(state, context.comments);
   const unsafe = state.selection.ranges.some((range) => {
     const insertAtHead = option.kind === 'icon' || option.kind === 'line';
     const from = insertAtHead ? range.head : range.from;
@@ -138,6 +158,29 @@ export function markupTransaction(state: EditorState, option: MarkupOption): Tra
     );
   });
   if (unsafe) return null;
+
+  if (option.kind === 'line') {
+    const tableBlocks = [...context.text.matchAll(/< table [^]+?\n<\$>\n?/g)];
+    const pending = new Map<number, number>();
+    for (const range of state.selection.ranges) {
+      const position = context.offsets.findIndex((offset) => offset >= range.head);
+      const point = position < 0 ? context.text.length : position;
+      const start = point === 0 ? 0 : context.text.lastIndexOf('\n', point - 1) + 1;
+      const end = context.text.indexOf('\n', point);
+      const line = context.text.slice(start, end < 0 ? undefined : end);
+      const inTable = tableBlocks.some(
+        (block) => point >= block.index && point < block.index + block[0].length,
+      );
+      if (inTable && (line.startsWith('< table ') || line === '<$>')) return null;
+      const allowed = inTable ? markupEmpty : markupLineClasses;
+      const capacity = allowed.filter((name) => name === option.name).length;
+      const marker = `<${option.name}/>`;
+      const existing = line.split(marker).length - 1;
+      const additions = (pending.get(start) ?? 0) + 1;
+      if (existing + additions > capacity) return null;
+      pending.set(start, additions);
+    }
+  }
 
   const changes = state.changeByRange((range) => {
     const selected = state.sliceDoc(range.from, range.to);

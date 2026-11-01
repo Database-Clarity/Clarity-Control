@@ -4,8 +4,9 @@ import {
   type IntermediatePerk,
 } from '@icemourne/description-converter';
 import { describe, expect, test } from 'vitest';
-import { parseMarkup } from '../src/markup/index.js';
+import { markupCommentContext, parseMarkup } from '../src/markup/index.js';
 import { evaluateMarkupMath } from '../src/markup/arithmetic.js';
+import { removeMarkupComments } from '../src/markup/prepare.js';
 import { database } from './helpers.js';
 
 function withoutStats(lines: DescriptionLine[] | undefined): unknown {
@@ -34,6 +35,24 @@ function withoutStats(lines: DescriptionLine[] | undefined): unknown {
     })) ?? []
   );
 }
+
+test.each([
+  '<bold Damage > /*\nignored\n*/10 />',
+  'a /* one */ middle /* two */\nb',
+  'a / /* hidden */ / hidden\nnext',
+  'before // ignored\r\nafter',
+  '// first\nvisible\n/* block */\nlast',
+  '😀 before /* comment */ after',
+])('maps the renderer comment removal back to authored offsets: %s', (doc) => {
+  const context = markupCommentContext(doc);
+  expect(context.text).toBe(removeMarkupComments(doc));
+  expect(context.offsets.map((offset) => doc[offset]).join('')).toBe(context.text);
+  for (const comment of context.comments) {
+    expect(comment.from).toBeGreaterThanOrEqual(0);
+    expect(comment.to).toBeGreaterThan(comment.from);
+    expect(comment.to).toBeLessThanOrEqual(doc.length);
+  }
+});
 
 describe.each(['live', 'intermediate'])('%s real-tooltip converter golden parity', (source) => {
   const raw = database(source);

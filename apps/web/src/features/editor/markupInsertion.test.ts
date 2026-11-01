@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { history, redo, undo } from '@codemirror/commands';
+import { history, redo, undo, undoDepth } from '@codemirror/commands';
 import { EditorSelection, EditorState } from '@codemirror/state';
 import {
   markupColors,
@@ -349,6 +349,193 @@ describe('markup insertion', () => {
       }
       expect(html).toContain('label &gt; other]');
     }
+  });
+
+  test.each(['inline:blue', 'link', 'title', 'table:wide', 'icon:solar', 'line:blue'])(
+    'rejects %s throughout a multiline-comment-joined renderer token',
+    (id) => {
+      const doc = '<bold Damage > /*\nignored\n*/10 />';
+      const ten = doc.indexOf('10');
+      const comment = doc.indexOf('ignored');
+      const selections = [
+        [ten, ten + 2],
+        [ten + 2, ten],
+        [ten + 1, ten + 1],
+        [comment, comment],
+        [doc.indexOf('Damage'), ten + 2],
+        [ten + 2, doc.indexOf('Damage')],
+      ];
+      for (const [anchor, head] of selections) {
+        let state = EditorState.create({ doc: '', extensions: history() });
+        state = state.update({ changes: { from: 0, insert: doc }, userEvent: 'input.type' }).state;
+        state = state.update({ selection: { anchor, head } }).state;
+        const depth = undoDepth(state);
+        const before = preview(doc);
+        expect(before).toContain('Damage &gt; 10');
+        expect(before).not.toContain('ignored');
+        expect(markupTransaction(state, option(id)), `${id}: ${anchor}-${head}`).toBeNull();
+        expect(state.doc.toString()).toBe(doc);
+        expect(state.selection.main.anchor).toBe(anchor);
+        expect(state.selection.main.head).toBe(head);
+        expect(undoDepth(state)).toBe(depth);
+        expect(preview(state.doc.toString())).toBe(before);
+      }
+    },
+  );
+
+  test('protects comment boundaries atomically without blocking unrelated lines', () => {
+    const doc = 'before\n<link label /* comment\nhidden\n*/ [https://example.com] />\nafter';
+    const target = doc.indexOf('example');
+    const after = doc.indexOf('after');
+    const multi = EditorState.create({
+      doc,
+      selection: EditorSelection.create([
+        EditorSelection.range(target, target + 3),
+        EditorSelection.range(after, after + 5),
+      ]),
+      extensions: EditorState.allowMultipleSelections.of(true),
+    });
+    expect(markupTransaction(multi, option('inline:blue'))).toBeNull();
+    expect(preview(doc)).toContain('href="https://example.com"');
+    const safe = EditorState.create({ doc, selection: { anchor: after, head: after + 5 } });
+    const next = insert(safe, option('inline:blue'));
+    expect(next.doc.toString()).toContain('/* comment\nhidden\n*/');
+    expect(preview(next.doc.toString())).toContain('href="https://example.com"');
+    expect(preview(next.doc.toString())).toContain('after');
+  });
+
+  test('rejects wrapping a newline that touches a comment-joined line', () => {
+    const doc = 'before\n<bold x /*\nhidden\n*/ y />\nafter';
+    const lineStart = doc.indexOf('<bold');
+    const lineEnd = doc.lastIndexOf('\n');
+    for (const [anchor, head] of [
+      [0, lineStart],
+      [lineEnd, doc.length],
+    ]) {
+      const state = EditorState.create({ doc, selection: { anchor, head } });
+      expect(markupTransaction(state, option('inline:blue'))).toBeNull();
+      expect(preview(doc)).not.toContain('hidden');
+    }
+  });
+
+  test('protects renderer context on lines containing expanded variable or math references', () => {
+    for (const doc of [
+      'var style = <blue/>\n#style French text',
+      'var opener = <bold \n#opener 10 />',
+      'French ${2+2} text',
+    ]) {
+      const start = doc.lastIndexOf('\n') + 1;
+      const state = EditorState.create({ doc, selection: { anchor: doc.length } });
+      for (const id of ['inline:blue', 'link', 'title', 'table:wide', 'icon:solar', 'line:blue']) {
+        expect(markupTransaction(state, option(id)), `${id}: ${doc}`).toBeNull();
+      }
+      const selection = state.update({ selection: { anchor: start, head: doc.length } }).state;
+      expect(markupTransaction(selection, option('inline:bold'))).toBeNull();
+      expect(preview(selection.doc.toString())).toBe(preview(doc));
+    }
+  });
+
+  test('declines repeated and existing line markers without altering history or preview', () => {
+    let state = EditorState.create({ doc: 'French text', extensions: history() });
+    state = insert(state, option('line:blue'));
+    expect(state.doc.toString()).toBe('<blue/>French text');
+    const before = preview(state.doc.toString());
+    const depth = undoDepth(state);
+    expect(before).toContain('French text');
+    expect(before).not.toContain('&lt;blue/&gt;');
+    expect(markupTransaction(state, option('line:blue'))).toBeNull();
+    expect(undoDepth(state)).toBe(depth);
+    const dispatch = (transaction: { state: EditorState }) => {
+      state = transaction.state;
+    };
+    expect(undo({ state, dispatch })).toBe(true);
+    expect(state.doc.toString()).toBe('French text');
+    expect(redo({ state, dispatch })).toBe(true);
+    expect(preview(state.doc.toString())).toBe(before);
+
+    const elsewhere = EditorState.create({
+      doc: 'French <blue/>text',
+      selection: { anchor: 0 },
+    });
+    expect(markupTransaction(elsewhere, option('line:blue'))).toBeNull();
+    expect(preview(elsewhere.doc.toString())).not.toContain('&lt;blue/&gt;');
+  });
+
+  test('allows renderer-supported mixed styles, bold capacity and repeated icons', () => {
+    let state = EditorState.create({ doc: 'French text' });
+    state = insert(state, option('line:blue'));
+    state = insert(state, option('line:green'));
+    state = insert(state, option('line:bold'));
+    state = insert(state, option('line:bold'));
+    expect(markupTransaction(state, option('line:bold'))).toBeNull();
+    state = insert(state, option('icon:solar'));
+    state = insert(state, option('icon:solar'));
+    const parsed = parseMarkup(state.doc.toString()).lines[0];
+    expect(parsed.classNames).toEqual(expect.arrayContaining(['blue', 'green', 'bold']));
+    expect(parsed.linesContent?.filter((part) => part.classNames?.includes('solar'))).toHaveLength(
+      2,
+    );
+    expect(preview(state.doc.toString())).toContain('French text');
+    expect(preview(state.doc.toString())).not.toContain('&lt;bold/&gt;');
+  });
+
+  test('preserves existing line colors and references when wrapping plain multiline text', () => {
+    const doc = '<blue/>one\nsecond\n<link target [https://example.com] />';
+    const start = doc.indexOf('one');
+    const end = doc.indexOf('\n<link');
+    const state = EditorState.create({ doc, selection: { anchor: end, head: start } });
+    const next = insert(state, option('inline:bold'));
+    const lines = parseMarkup(next.doc.toString()).lines;
+    expect(lines[0].classNames).toContain('blue');
+    expect(lines[0].linesContent).toEqual([{ text: 'one', classNames: ['bold'] }]);
+    expect(lines[1].linesContent).toEqual([{ text: 'second', classNames: ['bold'] }]);
+    expect(lines[2].linesContent?.[0].link).toBe('https://example.com');
+    expect(next.selection.main.anchor).toBeGreaterThan(next.selection.main.head);
+    expect(preview(next.doc.toString())).toContain('href="https://example.com"');
+  });
+
+  test('checks line-style capacity per renderer table row and multiple cursor', () => {
+    const doc = '< table wide >\n| one\n| two\n<$>';
+    const first = doc.indexOf('one');
+    const row = EditorState.create({ doc, selection: { anchor: first } });
+    expect(markupTransaction(row, option('line:blue'))).toBeNull();
+    const styled = insert(row, option('line:bold'));
+    expect(parseMarkup(styled.doc.toString()).lines[0].table?.[0].classNames).toContain('bold');
+    expect(markupTransaction(styled, option('line:bold'))).toBeNull();
+    expect(preview(styled.doc.toString())).not.toContain('&lt;bold/&gt;');
+    const second = styled.update({
+      selection: { anchor: styled.doc.toString().indexOf('two') },
+    }).state;
+    expect(insert(second, option('line:bold')).doc.toString()).toContain('| <bold/>two');
+
+    const multi = EditorState.create({
+      doc: 'one two',
+      selection: EditorSelection.create([EditorSelection.cursor(0), EditorSelection.cursor(4)]),
+      extensions: EditorState.allowMultipleSelections.of(true),
+    });
+    expect(markupTransaction(multi, option('line:blue'))).toBeNull();
+    expect(multi.doc.toString()).toBe('one two');
+  });
+
+  test.each(['inline:blue', 'link', 'title', 'table:wide', 'icon:solar', 'line:blue'])(
+    'protects table delimiter edges from %s',
+    (id) => {
+      const doc = '< table wide >\n| one\n<$>';
+      for (const point of [0, doc.indexOf('\n'), doc.indexOf('<$>'), doc.length]) {
+        const state = EditorState.create({ doc, selection: { anchor: point } });
+        expect(markupTransaction(state, option(id)), `${id}: ${point}`).toBeNull();
+        expect(preview(state.doc.toString())).toContain('one');
+      }
+    },
+  );
+
+  test('recognizes table rows when comments join a table header', () => {
+    const doc = '< table /* hidden\n*/wide >\n| one\n<$>';
+    const row = EditorState.create({ doc, selection: { anchor: doc.indexOf('one') } });
+    expect(markupTransaction(row, option('line:blue'))).toBeNull();
+    const next = insert(row, option('line:bold'));
+    expect(parseMarkup(next.doc.toString()).lines[0].table?.[0].classNames).toContain('bold');
+    expect(preview(next.doc.toString())).not.toContain('&lt;bold/&gt;');
   });
 
   test('allows selections adjacent to tokens and protects incomplete tokens', () => {
