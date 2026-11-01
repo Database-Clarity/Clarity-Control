@@ -81,6 +81,22 @@ describe('workspace divider', () => {
     expect(localStorage.getItem(key)).toBeNull();
     expect(host.querySelector('[data-panel="source"]')?.textContent).toBe('Source');
   });
+  it('suppresses selection only for resizing and retains separator focus', () => {
+    const divider = render();
+    divider.setPointerCapture = vi.fn();
+    const primary = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 });
+    Object.defineProperty(primary, 'pointerId', { value: 7 });
+    act(() => { divider.dispatchEvent(primary); });
+    expect(primary.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(divider);
+    const secondary = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 2 });
+    act(() => { divider.dispatchEvent(secondary); });
+    expect(secondary.defaultPrevented).toBe(false);
+    const editor = host.firstElementChild!.firstElementChild!;
+    const normal = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 });
+    act(() => { editor.dispatchEvent(normal); });
+    expect(normal.defaultPrevented).toBe(false);
+  });
   it('stops dragging after pointer cancellation', () => {
     const divider = render();
     divider.setPointerCapture = vi.fn();

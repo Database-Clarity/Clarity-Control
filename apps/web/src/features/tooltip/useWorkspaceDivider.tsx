@@ -63,6 +63,8 @@ export function useWorkspaceDivider() {
       aria-valuenow={Math.round(value)} tabIndex={0} onKeyDown={keyboard}
       onPointerDown={(event) => {
         if (event.button !== 0) return;
+        event.preventDefault();
+        event.currentTarget.focus();
         dragging.current = event.pointerId;
         event.currentTarget.setPointerCapture(event.pointerId);
       }}
