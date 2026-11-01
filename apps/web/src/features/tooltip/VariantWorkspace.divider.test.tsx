@@ -76,7 +76,7 @@ describe('workspace divider', () => {
   it('switches English panels with keyboard while retaining the editor', () => {
     render();
     const tabs = host.querySelectorAll<HTMLButtonElement>('[role="tab"]');
-    expect([...tabs].map((tab) => tab.textContent)).toEqual(['Source', 'Preview']);
+    expect([...tabs].map((tab) => tab.textContent)).toEqual(['Editor', 'Preview']);
     const editor = host.querySelector('[data-panel="translation"]');
     tabs[0].focus();
     press(tabs[0], 'ArrowRight');
@@ -89,16 +89,18 @@ describe('workspace divider', () => {
   it('falls back to the editor when Source disappears and keeps the tabs usable', () => {
     render(true);
     let tabs = host.querySelectorAll<HTMLButtonElement>('[role="tab"]');
-    expect([...tabs].map((tab) => tab.textContent)).toEqual(['Source', 'Translation', 'Preview']);
+    expect([...tabs].map((tab) => tab.textContent)).toEqual(['Source', 'Editor', 'Preview']);
     act(() => tabs[0].click());
     expect(tabs[0].getAttribute('aria-selected')).toBe('true');
 
     render(false);
     tabs = host.querySelectorAll<HTMLButtonElement>('[role="tab"]');
-    expect([...tabs].map((tab) => tab.textContent)).toEqual(['Source', 'Preview']);
+    expect([...tabs].map((tab) => tab.textContent)).toEqual(['Editor', 'Preview']);
     expect(tabs[0].getAttribute('aria-selected')).toBe('true');
     expect(tabs[0].tabIndex).toBe(0);
-    expect(host.querySelector('[data-panel="translation"]')?.getAttribute('data-active')).toBe('true');
+    expect(host.querySelector('[data-panel="translation"]')?.getAttribute('data-active')).toBe(
+      'true',
+    );
     expect(host.querySelector('[data-panel="translation"]')?.textContent).toBe('Editor');
 
     act(() => tabs[1].click());
@@ -198,5 +200,18 @@ describe('workspace divider', () => {
     );
     expect(css).toMatch(/\.divider\s*\{\s*display: none/);
     expect(css).toMatch(/@media \(min-width: 1001px\)[\s\S]*\.divider\s*\{\s*display: block/);
+  });
+  it('keeps phone identity disclosures and panel controls compact and reachable', () => {
+    const tooltipCss = readFileSync(
+      'apps/web/src/features/tooltip/TooltipPage.module.scss',
+      'utf8',
+    );
+    const layoutCss = readFileSync('apps/web/src/features/navigation/Layout.module.scss', 'utf8');
+    expect(tooltipCss).toMatch(/\.phoneMeta summary\s*\{[\s\S]*?min-height:\s*44px/);
+    expect(tooltipCss).toMatch(/\.tabs\s*\{[\s\S]*?position:\s*sticky/);
+    expect(tooltipCss).toMatch(/\.primaryMetadata,[\s\S]*?display:\s*none/);
+    expect(layoutCss).toMatch(
+      /\.editorMode[\s\S]*?grid-template-columns:\s*auto minmax\(0, 1fr\) auto/,
+    );
   });
 });

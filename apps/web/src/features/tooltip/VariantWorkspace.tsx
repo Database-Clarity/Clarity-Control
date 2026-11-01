@@ -5,7 +5,7 @@ import { useWorkspaceDivider } from './useWorkspaceDivider';
 type Panel = 'source' | 'translation' | 'preview';
 const panels: { id: Panel; label: string }[] = [
   { id: 'source', label: 'Source' },
-  { id: 'translation', label: 'Translation' },
+  { id: 'translation', label: 'Editor' },
   { id: 'preview', label: 'Preview' },
 ];
 
@@ -29,11 +29,7 @@ export function VariantWorkspace({ source, editor, preview }: VariantWorkspacePr
   useEffect(() => {
     if (!source && active === 'source') setActive('translation');
   }, [source, active]);
-  const visiblePanels = source
-    ? panels
-    : panels
-        .filter((panel) => panel.id !== 'source')
-        .map((panel) => (panel.id === 'translation' ? { ...panel, label: 'Source' } : panel));
+  const visiblePanels = source ? panels : panels.filter((panel) => panel.id !== 'source');
   const content: Record<Panel, ReactNode> = { source, translation: editor, preview };
   function onKeyDown(event: KeyboardEvent) {
     const index = visiblePanels.findIndex((panel) => panel.id === activePanel);

@@ -60,23 +60,42 @@ export function TooltipPage() {
     return <Navigate to={tooltipPath(canonical, search.toString())} replace />;
   const item = itemFor(hash, data);
   if (!item && !data.bundle.tooltips[hash]) return <h1>Tooltip {hash} not found</h1>;
+  const primaryBase = tooltipFor(hash, data);
+  const primaryTooltip = drafts[hash]?.next ?? primaryBase;
+  const primaryAccess = editorAccess({
+    apiConfigured: Boolean(apiUrl),
+    hydrated,
+    saving,
+    user,
+    lang,
+  });
+  const primarySwitchTo = primaryAccess.switchTo;
   return (
     <article>
       <header className={styles.header}>
         {item?.icon && <img src={`https://www.bungie.net${item.icon}`} alt="" />}
-        <div>
+        <div className={styles.identityText}>
           <h1>{item?.name ?? `Tooltip ${hash}`}</h1>
           <p>
             {data.categories.find((category) => category.id === item?.categoryId)?.label ??
               item?.categoryId}{' '}
             / {hash}
           </p>
-          {singleOwnerLabel(hash, data) && <p role="note">{singleOwnerLabel(hash, data)}</p>}
-          {sharedPerkLabel(hash, data) && <p role="note">{sharedPerkLabel(hash, data)}</p>}
+          {singleOwnerLabel(hash, data) && (
+            <p role="note" className={styles.identityOwner}>
+              {singleOwnerLabel(hash, data)}
+            </p>
+          )}
+          {sharedPerkLabel(hash, data) && (
+            <p role="note" className={styles.identityOwner}>
+              {sharedPerkLabel(hash, data)}
+            </p>
+          )}
         </div>
         <label>
-          Language{' '}
+          <span className={styles.languageLabel}>Language</span>{' '}
           <select
+            aria-label="Language"
             value={lang}
             onChange={(event) => changeLanguage(langSchema.parse(event.target.value))}
           >
@@ -87,6 +106,31 @@ export function TooltipPage() {
             ))}
           </select>
         </label>
+        <div className={styles.phoneMeta}>
+          <div>
+            <LanguageSummary
+              base={primaryBase}
+              lang={lang}
+              draft={primaryTooltip.text[lang]?.text !== primaryBase.text[lang]?.text}
+            />
+          </div>
+          {primaryAccess.reason && (
+            <details>
+              <summary>Read-only details</summary>
+              <p role="status" className={styles.reason}>
+                {primaryAccess.reason}
+                {primarySwitchTo && (
+                  <>
+                    {' '}
+                    <button type="button" onClick={() => changeLanguage(primarySwitchTo)}>
+                      Switch to {languageLabel(primarySwitchTo)}
+                    </button>
+                  </>
+                )}
+              </p>
+            </details>
+          )}
+        </div>
       </header>
       {variantHashes(hash, data).map((variant) => {
         const base = tooltipFor(variant, data);
@@ -95,14 +139,6 @@ export function TooltipPage() {
         const category = data.categories.find((category) => category.id === entry?.categoryId);
         const globals: MarkupGlobals = { ...sharedGlobals, type: category?.legacyType };
         const value = tooltip.text[lang]?.text ?? '';
-        const access = editorAccess({
-          apiConfigured: Boolean(apiUrl),
-          hydrated,
-          saving,
-          user,
-          lang,
-        });
-        const switchTo = access.switchTo;
         const panels = (
           <>
             <AssociationsPanel hash={variant} />
@@ -129,31 +165,33 @@ export function TooltipPage() {
               editor={
                 <section aria-label={`${entry?.name ?? variant} editor (${languageLabel(lang)})`}>
                   <h3 className={styles.editorTitle}>Clarity text ({languageLabel(lang)})</h3>
-                  <LanguageSummary
-                    base={base}
-                    lang={lang}
-                    draft={tooltip.text[lang]?.text !== base.text[lang]?.text}
-                  />
-                  {access.reason && (
-                    <p role="status" className={styles.reason}>
-                      {access.reason}
-                      {switchTo && (
-                        <>
-                          {' '}
-                          <button type="button" onClick={() => changeLanguage(switchTo)}>
-                            Switch to {languageLabel(switchTo)}
-                          </button>
-                        </>
-                      )}
-                    </p>
-                  )}
+                  <div className={variant === hash ? styles.primaryMetadata : undefined}>
+                    <LanguageSummary
+                      base={base}
+                      lang={lang}
+                      draft={tooltip.text[lang]?.text !== base.text[lang]?.text}
+                    />
+                    {primaryAccess.reason && (
+                      <p role="status" className={styles.reason}>
+                        {primaryAccess.reason}
+                        {primarySwitchTo && (
+                          <>
+                            {' '}
+                            <button type="button" onClick={() => changeLanguage(primarySwitchTo)}>
+                              Switch to {languageLabel(primarySwitchTo)}
+                            </button>
+                          </>
+                        )}
+                      </p>
+                    )}
+                  </div>
                   <ClarityEditor
                     key={`${variant}:${lang}`}
                     value={value}
                     lang={lang}
                     globals={globals}
                     requireEnglish={variant > 3}
-                    readOnly={access.reason !== null}
+                    readOnly={primaryAccess.reason !== null}
                     markupToolbar={lang !== 'en'}
                     highlightLine={
                       Number(search.get('variant') ?? hash) === variant ? highlightLine : undefined
