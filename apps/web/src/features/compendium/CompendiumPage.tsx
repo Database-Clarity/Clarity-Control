@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useMemo } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { resolveAlias } from '@clarity/core';
 import { useDataStore } from '../../stores/data';
 import { canonicalHash, itemFor } from '../navigation/catalog';
@@ -7,15 +7,20 @@ import { compendiumChanges } from './tracking';
 import { useCompendiumStore } from './store';
 import { CompendiumFreshness } from './CompendiumFreshness';
 import styles from './Compendium.module.scss';
+
 export function CompendiumPage() {
   const editor = useDataStore((state) => state.data);
   const { data, error, loading, load } = useCompendiumStore();
-  const [query, setQuery] = useState('');
-  const [category, setCategory] = useState('');
-  const [unlinked, setUnlinked] = useState(false);
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const [params, setParams] = useSearchParams();
+  const query = params.get('linkedQuery') ?? '';
+  const category = params.get('linkedCategory') ?? '';
+  const unlinked = params.get('linkedList') === 'unlinked';
+  const setFilter = (key: string, value: string) => {
+    const next = new URLSearchParams(params);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    setParams(next, { replace: true });
+  };
   const changes = useMemo(
     () => (editor && data ? compendiumChanges(editor.bundle.tooltips, data) : []),
     [editor, data],
@@ -49,14 +54,10 @@ export function CompendiumPage() {
   const listedChanges = changes.filter(({ tooltip }) => matches(tooltip.hash));
   const listedMissing = missing.filter((item) => matches(item.hash));
   return (
-    <article>
-      <h1>Compendium</h1>
+    <section>
       <p>
         Linked text and styling are compared with the last English save or review. Translation-only
         saves keep snapshots unchanged.
-      </p>
-      <p>
-        <Link to="/compendium/review">Review matches — resolve unlinked and broken links</Link>
       </p>
       <CompendiumFreshness />
       <p>Newest snapshots first.</p>
@@ -68,19 +69,27 @@ export function CompendiumPage() {
         </button>
       </div>
       <div className={styles.actions}>
-        <button type="button" aria-pressed={!unlinked} onClick={() => setUnlinked(false)}>
-          Needs attention ({data ? changes.length : '...'})
+        <button type="button" aria-pressed={!unlinked} onClick={() => setFilter('linkedList', '')}>
+          Linked sources changed ({data ? changes.length : '...'})
         </button>
-        <button type="button" aria-pressed={unlinked} onClick={() => setUnlinked(true)}>
-          Unlinked ({missing.length})
+        <button
+          type="button"
+          aria-pressed={unlinked}
+          onClick={() => setFilter('linkedList', 'unlinked')}
+        >
+          Tooltips without links ({missing.length})
         </button>
       </div>
       <label>
-        Search tooltips <input value={query} onChange={(event) => setQuery(event.target.value)} />
+        Search tooltips
+        <input value={query} onChange={(event) => setFilter('linkedQuery', event.target.value)} />
       </label>{' '}
       <label>
         Category{' '}
-        <select value={category} onChange={(event) => setCategory(event.target.value)}>
+        <select
+          value={category}
+          onChange={(event) => setFilter('linkedCategory', event.target.value)}
+        >
           <option value="">All categories</option>
           {editor.categories.map((entry) => (
             <option key={entry.id} value={entry.id}>
@@ -117,6 +126,6 @@ export function CompendiumPage() {
       {!unlinked && data && !listedChanges.length && (
         <p>No linked Compendium changes match these filters.</p>
       )}
-    </article>
+    </section>
   );
 }

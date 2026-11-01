@@ -39,7 +39,8 @@ describe('Layout phone shell', () => {
     expect(html).toContain('href="#main-content"');
   });
 
-  it('applies review mode only to the Compendium review route', () => {
+  it('applies review mode across the Compendium workspace', () => {
+    expect(render(createElement(Layout), '/compendium')).toContain(styles.reviewMode);
     expect(render(createElement(Layout), '/compendium/review')).toContain(styles.reviewMode);
     expect(html).not.toContain(styles.reviewMode);
   });

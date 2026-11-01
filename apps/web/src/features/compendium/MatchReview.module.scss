@@ -91,6 +91,32 @@
   gap: 1.5rem;
   justify-content: space-between;
 }
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-block: 0.5rem 0.75rem;
+  border-bottom: 1px solid #424e62;
+  a {
+    display: inline-flex;
+    align-items: center;
+    box-sizing: border-box;
+    padding: 0.45rem 0.8rem;
+    border: 1px solid #596478;
+    border-bottom: 0;
+    border-radius: 0.4rem 0.4rem 0 0;
+    color: inherit;
+    text-decoration: none;
+  }
+  a[aria-current='page'] {
+    background: #242a38;
+    font-weight: 650;
+  }
+  a:focus-visible {
+    outline: 2px solid #87beff;
+    outline-offset: 2px;
+  }
+}
 .help {
   position: relative;
   summary {
@@ -278,6 +304,16 @@
   }
 }
 @media (max-width: 700px) {
+  .review {
+    button,
+    input,
+    select,
+    textarea,
+    summary {
+      min-height: 44px;
+      box-sizing: border-box;
+    }
+  }
   .heading {
     flex-wrap: wrap;
     gap: 0.5rem;
@@ -286,7 +322,18 @@
     flex: 1;
   }
   .heading > a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
     font-size: 0.8rem;
+  }
+  .help summary {
+    min-width: 44px;
+  }
+  .tabs a {
+    min-height: 44px;
+    flex: 1 1 10rem;
+    justify-content: center;
   }
   .filters label {
     flex: 1 1 40%;

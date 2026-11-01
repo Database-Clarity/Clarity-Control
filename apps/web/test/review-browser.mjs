@@ -47,6 +47,9 @@ try {
     for (const variant of [
       'editor&long=true',
       'compendium',
+      'compendium-linked-empty',
+      'compendium-linked-populated',
+      'compendium-state-roundtrip',
       'review&keyboard=true',
       'compendium-sample',
       'compendium-entry',
@@ -107,6 +110,129 @@ try {
       const result = await page.locator('#result').textContent();
       assert.ok(result.startsWith('PASS '), `${variant} ${JSON.stringify(viewport)}: ${result}`);
       const measurements = JSON.parse(result.slice(5));
+      if (variant === 'compendium-state-roundtrip') {
+        const readState = () =>
+          page.evaluate(() => {
+            const rect = (element) => {
+              const { x, y, width, height, bottom } = element.getBoundingClientRect();
+              return { x, y, width, height, bottom };
+            };
+            const route = document.querySelector('[data-fixture-route]')?.textContent ?? '';
+            const targets = [
+              ...document.querySelectorAll(
+                '#main-content article button, #main-content article input, #main-content article select, #main-content article textarea, #main-content article summary, #main-content article a[href]',
+              ),
+            ].filter((element) => element.getBoundingClientRect().height > 0);
+            return {
+              route,
+              selectedSample: document
+                .querySelector('[aria-label^="Resolve sample "]')
+                ?.getAttribute('aria-label'),
+              categorySearch: document.querySelector('[aria-label="Review categories"] input')
+                ?.value,
+              categoryVisible: !!document.querySelector('[aria-label="Category guidance"]'),
+              documentWidth: document.documentElement.scrollWidth,
+              targets: targets.map(rect),
+            };
+          });
+        const assertPhoneTargets = (state, label) => {
+          if (viewport.width <= 700)
+            assert.ok(
+              state.targets.every((target) => target.height >= 44),
+              `${label} has an action below 44px: ${JSON.stringify(state.targets)}`,
+            );
+          assert.ok(
+            state.documentWidth <= viewport.width,
+            `${label} overflows horizontally: ${state.documentWidth}`,
+          );
+        };
+        const initial = await readState();
+        const sampleButton = page.getByRole('button', { name: '2. Sample 101', exact: true });
+        await sampleButton.evaluate((button) => button.scrollIntoView({ block: 'center' }));
+        await sampleButton.click();
+        await page.waitForFunction(() => {
+          const route = document.querySelector('[data-fixture-route]')?.textContent ?? '';
+          return (
+            new URL(route, 'http://fixture.invalid').searchParams.get(
+              'guideSample:catalog:weapon-trait',
+            ) === '101'
+          );
+        });
+        const selected = await readState();
+        assert.equal(
+          new URL(selected.route, 'http://fixture.invalid').searchParams.get(
+            'guideSample:catalog:weapon-trait',
+          ),
+          '101',
+          `Sample selection was not recorded in route state: ${JSON.stringify({ initial, selected })}`,
+        );
+        await page.getByLabel('Find category').fill('trait');
+        const before = await readState();
+        assert.equal(
+          before.selectedSample,
+          'Resolve sample Sample 101',
+          `Initial category sample changed during search: ${JSON.stringify(before)}`,
+        );
+        assert.equal(before.categorySearch, 'trait');
+        assertPhoneTargets(before, 'Pre-transition category state');
+        if (evidence)
+          await page.screenshot({
+            path: join(evidence, `item4-before-${viewport.width}x${viewport.height}.png`),
+          });
+
+        await page.getByRole('link', { name: 'Linked sources changed', exact: true }).click();
+        await page.waitForFunction(
+          () =>
+            document.querySelector('#main-content h1')?.textContent === 'Linked sources changed' &&
+            !document.querySelector('[aria-label="Category guidance"]'),
+        );
+        const linked = await readState();
+        assert.equal(linked.categoryVisible, false, 'Inactive category UI remained mounted');
+        if (evidence)
+          await page.screenshot({
+            path: join(evidence, `item4-linked-${viewport.width}x${viewport.height}.png`),
+          });
+
+        await page.evaluate(() => window.__reviewFixtureNavigate?.(-1));
+        await page.waitForFunction(
+          () =>
+            document.querySelector('#main-content h1')?.textContent === 'Review matches' &&
+            !!document.querySelector('[aria-label="Category guidance"]'),
+        );
+        const back = await readState();
+        assert.equal(back.selectedSample, 'Resolve sample Sample 101');
+        assert.equal(back.categorySearch, 'trait');
+        assertPhoneTargets(back, 'Back-restored category state');
+        if (evidence)
+          await page.screenshot({
+            path: join(evidence, `item4-after-back-${viewport.width}x${viewport.height}.png`),
+          });
+
+        await page.evaluate(() => window.__reviewFixtureNavigate?.(1));
+        await page.waitForFunction(
+          () =>
+            document.querySelector('#main-content h1')?.textContent === 'Linked sources changed' &&
+            !document.querySelector('[aria-label="Category guidance"]'),
+        );
+        await page
+          .locator('nav[aria-label="Compendium views"]')
+          .getByRole('link', { name: 'Review matches', exact: true })
+          .click();
+        await page.waitForFunction(
+          () =>
+            document.querySelector('#main-content h1')?.textContent === 'Review matches' &&
+            !!document.querySelector('[aria-label="Category guidance"]'),
+        );
+        const after = await readState();
+        assert.equal(after.selectedSample, 'Resolve sample Sample 101');
+        assert.equal(after.categorySearch, 'trait');
+        assertPhoneTargets(after, 'Tab-restored category state');
+        if (evidence)
+          await page.screenshot({
+            path: join(evidence, `item4-after-tab-${viewport.width}x${viewport.height}.png`),
+          });
+        measurements.item4StateRoundtrip = { before, linked, back, after };
+      }
       let lifecycle;
       if (variant.startsWith('compendium-entry') && !variant.includes('observer=none')) {
         lifecycle = await page.evaluate(() => {

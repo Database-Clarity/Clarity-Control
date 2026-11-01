@@ -14,6 +14,15 @@ import { compendiumDataUrl } from '../../services/compendium';
 import { sourceFingerprint } from './reviewProgress';
 import { inScopeCategory } from './reviewScope';
 
+export type CategoryReviewRouteState = {
+  query: string;
+  categoryId: string;
+  selectedSamples: Record<string, number>;
+  onQueryChange: (query: string) => void;
+  onCategorySelect: (categoryId: string) => void;
+  onSampleSelect: (categoryId: string, hash: number) => void;
+};
+
 export function CategoryReview({
   categories,
   editor,
@@ -21,6 +30,7 @@ export function CategoryReview({
   proposals,
   guidance,
   onReview,
+  routeState,
   canEdit = false,
   onAccept,
   onRestore,
@@ -32,6 +42,7 @@ export function CategoryReview({
   proposals: Map<number, ReviewProposal>;
   guidance: ReturnType<typeof useGuidance>;
   canEdit?: boolean;
+  routeState?: CategoryReviewRouteState;
   onAccept?: (
     category: ReviewCategory,
     entries: import('./guidedDecisions').GuidedDecision[],
@@ -39,11 +50,13 @@ export function CategoryReview({
   ) => void;
   onReview: (category?: ReviewCategory, hash?: number) => void;
 }) {
-  const [query, setQuery] = useState('');
-  const [categoryId, setCategoryId] = useState('');
+  const [localQuery, setLocalQuery] = useState('');
+  const [localCategoryId, setLocalCategoryId] = useState('');
   const [selected, setSelected] = useState<Record<string, number>>({});
   const [browsing, setBrowsing] = useState(20);
   const [importError, setImportError] = useState<string | null>(null);
+  const query = routeState?.query ?? localQuery;
+  const categoryId = routeState?.categoryId ?? localCategoryId;
   const filtered = categories
     .map(inScopeCategory)
     .filter((category) =>
@@ -71,7 +84,10 @@ export function CategoryReview({
     }).length;
   }
   const entries = category ? samples(category) : [];
-  const entry = entries.find((entry) => entry.hash === selected[category?.id ?? '']) ?? entries[0];
+  const selectedHash = routeState
+    ? category && routeState.selectedSamples[category.id]
+    : selected[category?.id ?? ''];
+  const entry = entries.find((entry) => entry.hash === selectedHash) ?? entries[0];
   const paused = !guidance.ready || guidance.reloading;
   function exportGuidance() {
     const url = URL.createObjectURL(
@@ -172,7 +188,10 @@ export function CategoryReview({
             Find category
             <input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                if (routeState) routeState.onQueryChange(event.target.value);
+                else setLocalQuery(event.target.value);
+              }}
               placeholder="Weapons, armor, subclass..."
             />
           </label>
@@ -184,7 +203,8 @@ export function CategoryReview({
                 key={group.id}
                 aria-current={group.id === category?.id ? 'true' : undefined}
                 onClick={() => {
-                  setCategoryId(group.id);
+                  if (routeState) routeState.onCategorySelect(group.id);
+                  else setLocalCategoryId(group.id);
                   setBrowsing(20);
                 }}
               >
@@ -210,7 +230,10 @@ export function CategoryReview({
                 <button
                   key={sample.hash}
                   aria-pressed={sample.hash === entry?.hash}
-                  onClick={() => setSelected((state) => ({ ...state, [category.id]: sample.hash }))}
+                  onClick={() => {
+                    if (routeState) routeState.onSampleSelect(category.id, sample.hash);
+                    else setSelected((state) => ({ ...state, [category.id]: sample.hash }));
+                  }}
                 >
                   {index + 1}. {sample.name}
                 </button>

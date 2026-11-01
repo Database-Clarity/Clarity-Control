@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import type { Tooltip } from '@clarity/core';
 import { Layout } from '../src/features/navigation/Layout';
 import styles from '../src/features/navigation/Layout.module.scss';
@@ -13,6 +13,27 @@ import { useDraftStore } from '../src/stores/drafts';
 import { useCompendiumStore } from '../src/features/compendium/store';
 import { useSidebarQueueStore } from '../src/features/navigation/sidebarQueue';
 import '../src/ui/global.scss';
+
+declare global {
+  interface Window {
+    __reviewFixtureNavigate?: (delta: number) => void;
+  }
+}
+
+function FixtureRouteState() {
+  const location = useLocation();
+  return (
+    <output hidden data-fixture-route>
+      {location.pathname}
+      {location.search}
+    </output>
+  );
+}
+
+function FixtureHistory() {
+  window.__reviewFixtureNavigate = useNavigate();
+  return null;
+}
 
 const params = new URLSearchParams(window.location.search);
 const workspace = params.get('workspace') ?? 'review';
@@ -37,9 +58,43 @@ window.fetch = async (input) => {
   throw new Error('Network blocked by read-only Browse regression fixture');
 };
 const compendium = guidedFixture();
-compendium.editor.categories = [
-  { id: 'weapon-trait', label: 'Synthetic friendly weapon traits', group: 'Fixture', order: 1 },
-];
+if (workspace === 'compendium') {
+  compendium.editor.categories = Array.from({ length: 44 }, (_, index) => ({
+    id: `fixture-category-${index}`,
+    label: `Synthetic category ${index}: a deliberately long category name for wrapping`,
+    group: 'Fixture',
+    order: index + 1,
+  }));
+  for (let index = 0; index < 44; index++) {
+    const hash = 200 + index;
+    compendium.editor.items[hash] = {
+      hash,
+      name: `Synthetic entry ${hash}`,
+      icon: '',
+      categoryId: `fixture-category-${index}`,
+      inGameDescription: 'Read-only synthetic category queue item',
+    };
+  }
+} else {
+  compendium.editor.categories = [
+    { id: 'weapon-trait', label: 'Synthetic friendly weapon traits', group: 'Fixture', order: 1 },
+  ];
+}
+if (workspace === 'compendium-linked-populated') {
+  for (const hash of [100, 101]) {
+    compendium.editor.bundle.tooltips[hash] = {
+      hash,
+      associated: [],
+      text: {},
+      compendium: {
+        gid: compendium.source.tabs[0].gid,
+        rowKey: `Missing source ${hash}`,
+        snapshot: { plain: 'Previously linked text', runs: [{ text: 'Previously linked text' }] },
+        snapshotAt: '2026-11-01T00:00:00Z',
+      },
+    };
+  }
+}
 const longEvidence = 'Synthetic long evidence stays available below the review controls. '.repeat(
   32,
 );
@@ -93,7 +148,7 @@ const data: EditorData = {
     pushed: {},
   },
 };
-const activeData = workspace.startsWith('compendium-') ? compendium.editor : data;
+const activeData = workspace.startsWith('compendium') ? compendium.editor : data;
 useDataStore.setState({ data: activeData, status: 'ready', error: null, load: async () => {} });
 useAuthStore.setState({ user: null, loading: false, error: null, load: async () => {} });
 useDraftStore.setState({
@@ -104,9 +159,7 @@ useDraftStore.setState({
   hydrate: async () => {},
 });
 useCompendiumStore.setState({
-  data: workspace.startsWith('compendium-')
-    ? compendium.source
-    : { fetchedAt: timestamp, tabs: [] },
+  data: workspace.startsWith('compendium') ? compendium.source : { fetchedAt: timestamp, tabs: [] },
   loading: false,
   error: null,
   load: async () => {},
@@ -121,33 +174,31 @@ useSidebarQueueStore.setState({
 const path =
   workspace === 'editor'
     ? '/t/100?lang=de'
-    : workspace === 'compendium-sample'
-      ? '/compendium/review'
-      : workspace === 'compendium-entry' && params.get('initial') === 'entries'
-        ? '/compendium/review?view=entries&hash=100'
-        : workspace === 'compendium-entry'
-          ? '/compendium/review'
-          : workspace === 'compendium'
-            ? '/compendium?group=fixture-category-18'
-            : '/review?hash=105';
+    : workspace === 'compendium-state-roundtrip'
+      ? '/compendium'
+      : workspace === 'compendium-sample'
+        ? '/compendium/review'
+        : workspace === 'compendium-entry' && params.get('initial') === 'entries'
+          ? '/compendium/review?view=entries&hash=100'
+          : workspace === 'compendium-entry'
+            ? '/compendium/review'
+            : workspace.startsWith('compendium-linked-')
+              ? '/compendium?tab=linked'
+              : workspace === 'compendium'
+                ? '/compendium'
+                : '/review?hash=105';
 const root = createRoot(document.getElementById('root')!);
 window.addEventListener('review-fixture-unmount', () => root.unmount(), { once: true });
 root.render(
   <MemoryRouter initialEntries={[path]}>
+    <FixtureRouteState />
+    <FixtureHistory />
     <Routes>
       <Route element={<Layout />}>
         <Route path="t/:hash" element={<TooltipPage />} />
         <Route path="review" element={<ReviewPage />} />
         <Route path="compendium/review" element={<MatchReviewPage />} />
-        <Route
-          path="compendium"
-          element={
-            <article>
-              <h1>Synthetic Compendium queue</h1>
-              <p>In-memory categories only; no matching or guidance actions.</p>
-            </article>
-          }
-        />
+        <Route path="compendium" element={<MatchReviewPage />} />
       </Route>
     </Routes>
   </MemoryRouter>,
@@ -168,6 +219,14 @@ async function waitFor(predicate: () => boolean, description: string) {
 function rect(element: Element) {
   const { x, y, width, height, bottom } = element.getBoundingClientRect();
   return { x, y, width, height, bottom };
+}
+
+function isFixtureGuidanceRead(url: string) {
+  const request = new URL(url, window.location.href);
+  return (
+    request.origin === new URL(window.location.href).origin &&
+    request.pathname.endsWith('/__review-guidance')
+  );
 }
 
 function scrollableAncestors(element: HTMLElement) {
@@ -235,6 +294,14 @@ async function scrollOverlayToEnd(overlay: HTMLElement) {
 }
 
 async function run() {
+  let compendiumNavigation:
+    | {
+        tabs: ReturnType<typeof rect>[];
+        counters: string[];
+        targets: ReturnType<typeof rect>[];
+        documentWidth: number;
+      }
+    | undefined;
   let emptyFilter:
     | {
         viewport: number[];
@@ -271,7 +338,10 @@ async function run() {
             ? document.querySelector('[aria-label="Category guidance"]') !== null &&
               document.querySelector('[aria-label="Sample proposed source"] h3')?.textContent ===
                 'Proposed source'
-            : document.querySelector('#main-content article') !== null,
+            : workspace === 'compendium-state-roundtrip'
+              ? document.querySelector('[aria-label="Category guidance"]') !== null &&
+                document.querySelector('nav[aria-label="Compendium views"]') !== null
+              : document.querySelector('#main-content article') !== null,
     'workspace queue',
   );
   if (workspace.startsWith('compendium-')) {
@@ -285,6 +355,158 @@ async function run() {
       previousHeight = currentHeight;
     }
     assert(stableFrames === 5, 'Compendium layout did not settle after matching');
+  }
+  if (workspace === 'compendium-state-roundtrip') {
+    assert(
+      document.querySelector('#main-content h1')?.textContent === 'Review matches',
+      'State-roundtrip fixture did not open on Review matches',
+    );
+    return {
+      stateRoundtripReady: true,
+      viewport: [innerWidth, innerHeight],
+      documentWidth: document.documentElement.scrollWidth,
+      network,
+    };
+  }
+  if (
+    workspace === 'compendium' ||
+    workspace === 'compendium-linked-empty' ||
+    workspace === 'compendium-linked-populated'
+  ) {
+    await waitFor(
+      () =>
+        document.querySelector('nav[aria-label="Compendium views"]') !== null &&
+        document.querySelector('#main-content h1')?.textContent ===
+          (workspace === 'compendium' ? 'Review matches' : 'Linked sources changed'),
+      'Compendium default or linked-source tab',
+    );
+    const navigation = document.querySelector<HTMLElement>('nav[aria-label="Compendium views"]')!;
+    const tabs = [...navigation.querySelectorAll<HTMLAnchorElement>('a')];
+    assert(tabs.length === 2, 'Expected both Compendium workspace tabs');
+    assert(
+      tabs.every((tab) => tab.getBoundingClientRect().height > 0),
+      'Compendium tabs must be visible',
+    );
+    if (innerWidth <= 700)
+      assert(
+        tabs.every((tab) => rect(tab).width >= 44 && rect(tab).height >= 44),
+        'Compendium tab target below 44x44',
+      );
+    else
+      assert(
+        tabs.every((tab) => rect(tab).height < 44),
+        'Phone tab target minimum leaked to fine-pointer desktop',
+      );
+    const counters: string[] = [];
+    if (workspace === 'compendium') {
+      assert(
+        document.querySelector('[aria-label="Category guidance"]') !== null,
+        'Default Compendium route did not show review categories',
+      );
+      if (innerWidth <= 700) {
+        const reviewTargets = [
+          ...document.querySelectorAll<HTMLElement>(
+            '#main-content article button, #main-content article input, #main-content article select, #main-content article textarea, #main-content article summary, #main-content article a[href]',
+          ),
+        ].filter((target) => target.getBoundingClientRect().height > 0);
+        assert(
+          reviewTargets.every((target) => rect(target).height >= 44),
+          'Review-match action or navigation target below 44px',
+        );
+      }
+      tabs.find((tab) => tab.textContent?.includes('Linked sources changed'))!.click();
+      await waitFor(
+        () =>
+          document.querySelector('nav[aria-label="Compendium views"] a[aria-current="page"]')
+            ?.textContent === 'Linked sources changed',
+        'linked-source tab navigation',
+      );
+      const buttons = [
+        ...document.querySelectorAll<HTMLButtonElement>('#main-content article button'),
+      ];
+      assert(
+        buttons.some((button) => button.textContent?.trim() === 'Linked sources changed (0)'),
+        'Zero linked-source count is missing or mislabeled',
+      );
+      assert(
+        buttons.some((button) => button.textContent?.trim() === 'Tooltips without links (50)'),
+        'Unlinked-tooltip count is missing or mislabeled',
+      );
+      counters.push(...buttons.map((button) => button.textContent?.trim() ?? '').filter(Boolean));
+      const targets = [
+        ...document.querySelectorAll<HTMLElement>(
+          '#main-content article section button, #main-content article section input, #main-content article section select, #main-content article section ul a',
+        ),
+      ].filter((target) => target.getBoundingClientRect().height > 0);
+      if (innerWidth <= 700) {
+        assert(
+          targets.every((target) => rect(target).height >= 44),
+          'Linked-source control target below 44px',
+        );
+      }
+      compendiumNavigation = {
+        tabs: tabs.map(rect),
+        counters,
+        targets: targets.map(rect),
+        documentWidth: document.documentElement.scrollWidth,
+      };
+      tabs.find((tab) => tab.textContent?.includes('Review matches'))!.click();
+      await waitFor(
+        () =>
+          document.querySelector('nav[aria-label="Compendium views"] a[aria-current="page"]')
+            ?.textContent === 'Review matches' &&
+          document.querySelector('[aria-label="Category guidance"]') !== null,
+        'return to default review workload',
+      );
+    } else {
+      const buttons = [
+        ...document.querySelectorAll<HTMLButtonElement>('#main-content article button'),
+      ];
+      const expected =
+        workspace === 'compendium-linked-populated' ? ['(2)', '(4)'] : ['(0)', '(6)'];
+      assert(
+        buttons.some((button) =>
+          button.textContent?.startsWith(`Linked sources changed ${expected[0]}`),
+        ),
+        'Linked-source count does not match the selector',
+      );
+      assert(
+        buttons.some((button) =>
+          button.textContent?.startsWith(`Tooltips without links ${expected[1]}`),
+        ),
+        'Unlinked-tooltip count does not match the selector',
+      );
+      if (workspace === 'compendium-linked-populated')
+        assert(
+          [...document.querySelectorAll('#main-content article section ul a')].some(
+            (anchor) => anchor.textContent?.trim() === 'Sample 100',
+          ),
+          'Populated linked-source detail context is missing',
+        );
+      counters.push(...buttons.map((button) => button.textContent?.trim() ?? '').filter(Boolean));
+      const targets = [
+        ...document.querySelectorAll<HTMLElement>(
+          '#main-content article section button, #main-content article section input, #main-content article section select, #main-content article section ul a',
+        ),
+      ].filter((target) => target.getBoundingClientRect().height > 0);
+      if (innerWidth <= 700)
+        assert(
+          targets.every((target) => rect(target).height >= 44),
+          'Linked-source control target below 44px',
+        );
+      compendiumNavigation = {
+        tabs: tabs.map(rect),
+        counters,
+        targets: targets.map(rect),
+        documentWidth: document.documentElement.scrollWidth,
+      };
+    }
+    assert(
+      document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+      'Compendium tab caused horizontal page overflow',
+    );
+  }
+  if (workspace === 'compendium-sample' || workspace === 'compendium-entry') {
     const sample = workspace === 'compendium-sample';
     const firstAction = document.querySelector<HTMLElement>(
       sample ? '[aria-label^="Resolve sample"] button' : 'footer[aria-label="Review actions"]',
@@ -426,10 +648,7 @@ async function run() {
       document.documentElement.scrollWidth <= document.documentElement.clientWidth,
       'Horizontal page overflow',
     );
-    assert(
-      network.every((url) => url.includes('__review-guidance')),
-      'Unexpected fixture request',
-    );
+    assert(network.every(isFixtureGuidanceRead), 'Unexpected fixture request');
     let overlays: Record<string, unknown> | undefined;
     if (!sample) {
       async function measureOverlays() {
@@ -602,6 +821,7 @@ async function run() {
       documentWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
       network,
+      compendiumNavigation,
     };
   }
   if (workspace === 'review') {
@@ -690,6 +910,7 @@ async function run() {
       padding: density?.paddingTop,
       emptyFilter: workspace === 'review' ? emptyFilter : undefined,
       network,
+      compendiumNavigation,
     };
   }
   if (workspace === 'editor' && !longEditor) {
@@ -768,7 +989,11 @@ async function run() {
   await waitFor(() => sidebar.getAttribute('role') === 'dialog', 'Browse reopens');
   body.scrollTop = 0;
   assert(selected() === beforeSelection, 'Reopen changed selection');
-  assert(network.length === 0, `Unexpected fixture requests: ${network.join(', ')}`);
+  assert(
+    network.length === 0 ||
+      (workspace.startsWith('compendium') && network.every(isFixtureGuidanceRead)),
+    `Unexpected fixture requests: ${network.join(', ')}`,
+  );
   assert(Object.keys(useDraftStore.getState().drafts).length === 0, 'Fixture created drafts');
   return {
     top,

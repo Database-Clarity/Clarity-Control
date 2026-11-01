@@ -1,10 +1,12 @@
 # Compendium review
 
-`#/compendium` retains Needs attention and Unlinked. **Review matches** opens
-`#/compendium/review`: unlinked canonical tooltips and links resolving to missing
-or candidates. Sandbox/frame aliases are excluded; enhanced tooltips that own
-distinct text remain separate. Saved healthy links enter this queue only when
-there is local review history. Counts describe this queue, not total coverage.
+`#/compendium` opens **Review matches**, the category-review workload also
+available at `#/compendium/review`. Its **Linked sources changed** tab keeps the
+previous linked-change and unlinked-tooltip lists. The counters name their
+scope: **Linked sources changed** and **Tooltips without links**. Neither count
+implies total review completion. Sandbox/frame aliases are excluded; enhanced
+tooltips that own distinct text remain separate. Saved healthy links enter the
+review queue only when there is local review history.
 
 Select a tooltip, inspect its English text, then use the shared LinkPicker and
 CellPicker. Tab suggestions come from core category configuration; section

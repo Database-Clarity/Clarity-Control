@@ -2,7 +2,7 @@ import { guidedDecisions, guidedRevision, type GuidedDecision } from './guidedDe
 import { importContext } from './importContext';
 import { researchSuggestions } from './researchSuggestions';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import type { CompendiumData, Tooltip } from '@clarity/core';
 import { groupManifestItems } from './manifestItems';
 import { apiUrl } from '../../services/api';
@@ -27,7 +27,7 @@ import { ProposalContext } from './ProposalContext';
 import { suggestionAnchor } from './suggestions';
 import styles from './MatchReview.module.scss';
 import { useProposals } from './useProposals';
-import { CategoryReview } from './CategoryReview';
+import { CategoryReview, type CategoryReviewRouteState } from './CategoryReview';
 import { categoryId, reviewCategories, type ReviewCategory } from './reviewCategories';
 import { useGuidance } from './useGuidance';
 import { classifyScope } from './reviewScope';
@@ -40,6 +40,7 @@ import {
 } from './BulkPreview';
 import { useSidebarQueueStore } from '../navigation/sidebarQueue';
 import { workspaceShortcutsBlocked } from '../../ui/interaction';
+import { CompendiumPage } from './CompendiumPage';
 
 const labels = {
   open: 'Unresolved',
@@ -57,9 +58,11 @@ type Undo = {
 
 export function MatchReviewPage() {
   const [params] = useSearchParams();
+  const location = useLocation();
   const editor = useDataStore((state) => state.data);
   const { data, load, loading, error } = useCompendiumStore();
   const { user, loading: authLoading } = useAuthStore();
+  const linkedTab = params.get('tab') === 'linked';
   useEffect(() => {
     void load();
   }, [load]);
@@ -67,39 +70,63 @@ export function MatchReviewPage() {
     `${bundleUrl}|${compendiumDataUrl}|${apiUrl ?? 'read-only'}`,
     user?.id,
   );
+  const reviewParams = new URLSearchParams(location.search);
+  reviewParams.delete('tab');
+  const linkedParams = new URLSearchParams(location.search);
+  linkedParams.set('tab', 'linked');
+  const reviewSearch = reviewParams.toString();
+  const linkedSearch = linkedParams.toString();
+  const reviewTarget = `${location.pathname}${reviewSearch ? `?${reviewSearch}` : ''}${location.hash}`;
+  const linkedTarget = `${location.pathname}${linkedSearch ? `?${linkedSearch}` : ''}${location.hash}`;
   return (
     <article
-      className={`${styles.review} ${params.get('view') === 'entries' ? styles.entryReview : styles.categoryReview}`}
+      className={`${styles.review} ${linkedTab ? styles.linkedReview : params.get('view') === 'entries' ? styles.entryReview : styles.categoryReview}`}
     >
       <header className={styles.heading}>
         <div>
-          <Link to="/compendium">← Compendium</Link>
-          <h1>Review matches</h1>
+          {location.pathname !== '/compendium' && <Link to="/compendium">← Compendium</Link>}
+          <h1>{linkedTab ? 'Linked sources changed' : 'Review matches'}</h1>
         </div>
         <Link to="/review">Review & save drafts →</Link>
-        <details className={styles.help}>
-          <summary aria-label="Review help">?</summary>
-          <div>
-            <p>
-              Compare the entry with the proposed source. Accept creates a local draft; Review &
-              save drafts uses the normal Worker save flow.
-            </p>
-            <p>
-              Pick other opens the full sheet picker. Skip and No equivalent are local browser
-              progress only. Changed evidence reopens these decisions.
-            </p>
-            <p>
-              Bulk preview contains only validated resolver proposals. Accept applies only to the
-              current preview page. Undo restores link metadata only, preserving text and
-              association edits. Shortcuts are disabled while typing or using the picker.
-            </p>
-          </div>
-        </details>
+        {!linkedTab && (
+          <details className={styles.help}>
+            <summary aria-label="Review help">?</summary>
+            <div>
+              <p>
+                Compare the entry with the proposed source. Accept creates a local draft; Review &
+                save drafts uses the normal Worker save flow.
+              </p>
+              <p>
+                Pick other opens the full sheet picker. Skip and No equivalent are local browser
+                progress only. Changed evidence reopens these decisions.
+              </p>
+              <p>
+                Bulk preview contains only validated resolver proposals. Accept applies only to the
+                current preview page. Undo restores link metadata only, preserving text and
+                association edits. Shortcuts are disabled while typing or using the picker.
+              </p>
+            </div>
+          </details>
+        )}
       </header>
+      <nav className={styles.tabs} aria-label="Compendium views">
+        <Link to={reviewTarget} aria-current={!linkedTab ? 'page' : undefined}>
+          Review matches
+        </Link>
+        <Link to={linkedTarget} aria-current={linkedTab ? 'page' : undefined}>
+          Linked sources changed
+        </Link>
+      </nav>
       {error && <p role="alert">{error}</p>}
-      {(loading || authLoading) && <p role="status">Loading review data…</p>}
-      {editor && data && !authLoading && (
-        <ReviewQueue key={storageKey} storageKey={storageKey} editor={editor} source={data} />
+      {linkedTab ? (
+        editor && data && <CompendiumPage />
+      ) : (
+        <>
+          {(loading || authLoading) && <p role="status">Loading review data…</p>}
+          {editor && data && !authLoading && (
+            <ReviewQueue key={storageKey} storageKey={storageKey} editor={editor} source={data} />
+          )}
+        </>
       )}
     </article>
   );
@@ -118,6 +145,8 @@ export function ReviewQueue({
   const { progress, update, error } = useReviewProgress(storageKey);
   const setSidebarCategories = useSidebarQueueStore((state) => state.setCompendiumCategories);
   const [params, setParams] = useSearchParams();
+  const categoryRouteParams = useRef(new URLSearchParams(params));
+  categoryRouteParams.current = new URLSearchParams(params);
   const categoryView = params.get('view') !== 'entries';
   const groupId = params.get('group');
   const scopeKey = `review-scope-restored:${bundleUrl}|${compendiumDataUrl}`;
@@ -238,6 +267,30 @@ export function ReviewQueue({
     source,
     !matching && !proposalError,
   );
+  useEffect(() => {
+    const categoryById = new Map(categories.map((category) => [category.id, category]));
+    const next = new URLSearchParams(params);
+    let changed = false;
+    const selectedCategory = next.get('guideCategory');
+    if (selectedCategory && !categoryById.has(selectedCategory)) {
+      next.delete('guideCategory');
+      changed = true;
+    }
+    for (const [key, value] of params) {
+      if (!key.startsWith('guideSample:')) continue;
+      const category = categoryById.get(key.slice('guideSample:'.length));
+      const hash = Number(value);
+      if (
+        !category ||
+        !Number.isSafeInteger(hash) ||
+        !category.entries.some((entry) => entry.hash === hash)
+      ) {
+        next.delete(key);
+        changed = true;
+      }
+    }
+    if (changed) setParams(next, { replace: true });
+  }, [categories, params, setParams]);
   const inScope = new Set(
     categories.flatMap((category) =>
       category.entries
@@ -530,20 +583,36 @@ export function ReviewQueue({
     setCandidate(0);
     setPicker(false);
   }
+  function setCategoryRouteParam(key: string, value: string) {
+    const next = new URLSearchParams(categoryRouteParams.current);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    categoryRouteParams.current = next;
+    setParams(next, { replace: true });
+  }
+  const categoryRouteState: CategoryReviewRouteState = {
+    query: params.get('guideSearch') ?? '',
+    categoryId: params.get('guideCategory') ?? '',
+    selectedSamples: Object.fromEntries(
+      [...params.entries()]
+        .filter(([key]) => key.startsWith('guideSample:'))
+        .map(([key, value]) => [key.slice('guideSample:'.length), Number(value)])
+        .filter(([, hash]) => Number.isSafeInteger(hash)),
+    ),
+    onQueryChange: (query) => setCategoryRouteParam('guideSearch', query),
+    onCategorySelect: (id) => setCategoryRouteParam('guideCategory', id),
+    onSampleSelect: (id, hash) => setCategoryRouteParam(`guideSample:${id}`, String(hash)),
+  };
   function reviewCategory(category?: ReviewCategory, hash?: number) {
     const state = { ...progress, category: '', query: '', filter: 'open' as const, selected: hash };
     update(() => state);
     setCandidate(0);
     setPicker(false);
-    setParams(
-      selectionParams(
-        hash,
-        state,
-        new URLSearchParams(
-          category ? { view: 'entries', group: category.id } : { view: 'entries' },
-        ),
-      ),
-    );
+    const next = new URLSearchParams(params);
+    next.set('view', 'entries');
+    if (category) next.set('group', category.id);
+    else next.delete('group');
+    setParams(selectionParams(hash, state, next));
   }
   if (categoryView)
     return (
@@ -564,6 +633,7 @@ export function ReviewQueue({
           source={source}
           proposals={proposals}
           guidance={guidance}
+          routeState={categoryRouteState}
           onReview={reviewCategory}
         />
       </>
@@ -575,7 +645,10 @@ export function ReviewQueue({
           onClick={() => {
             setPicker(false);
             setBulk(undefined);
-            setParams({});
+            const next = new URLSearchParams(params);
+            for (const key of ['view', 'group', 'hash', 'query', 'category', 'status', 'proposal'])
+              next.delete(key);
+            setParams(next);
           }}
         >
           Back to category guidance
