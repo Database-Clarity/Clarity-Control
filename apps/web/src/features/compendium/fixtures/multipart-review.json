@@ -1,0 +1,2863 @@
+{
+  "fetchedAt": "2026-10-31T22:53:43.520Z",
+  "tabs": [
+    {
+      "gid": "473308249",
+      "name": "Artifact Perks",
+      "rows": [
+        {
+          "name": "Armorsmith",
+          "nameNorm": "armorsmith",
+          "section": "Encrypted Data Disk (Renegades)",
+          "rowIndex": 13,
+          "anchor": {
+            "row": 13,
+            "col": 5
+          },
+          "cell": {
+            "plain": "Upon breaking a Combatant's Shield or performing a Finisher:\n\n10% [2.5%] Damage Resist (Resist x1) for 6 seconds.\n100% Increased Melee Damage for 6 seconds.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 9,
+                "text": "Upon "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "italic": true,
+                "sizePt": 9,
+                "text": "breaking "
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 9,
+                "text": "a "
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "italic": true,
+                "sizePt": 9,
+                "text": "Combatant's Shield"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 9,
+                "text": " or performing a "
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "italic": true,
+                "sizePt": 9,
+                "text": "Finisher"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 9,
+                "text": ":\n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": "\n"
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 9,
+                "text": "10%"
+              },
+              {
+                "color": "#ea9999",
+                "bold": true,
+                "sizePt": 9,
+                "text": " [2.5%] "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": "Damage Resist "
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": "(Resist x1)"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": " for 6 seconds.\n"
+              },
+              {
+                "color": "#89cdd1",
+                "bold": true,
+                "sizePt": 9,
+                "text": "100% Increased Melee Damage "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": "for 6 seconds"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 9,
+                "text": "."
+              }
+            ]
+          }
+        },
+        {
+          "name": "Armorsmith",
+          "nameNorm": "armorsmith",
+          "section": "Solar | Stasis | Strand \u2bc1  Rocket Launcher | Grenade Launchers",
+          "rowIndex": 139,
+          "anchor": {
+            "row": 139,
+            "col": 2
+          },
+          "cell": {
+            "plain": "Upon breaking a Combatant's Shield or performing a Finisher:\n\n10% [2.5%] Damage Resist (Resist x1) for 6 seconds.\n100% Increased Melee Damage for 6 seconds.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 9,
+                "text": "Upon "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "italic": true,
+                "sizePt": 9,
+                "text": "breaking "
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 9,
+                "text": "a "
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "italic": true,
+                "sizePt": 9,
+                "text": "Combatant's Shield"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 9,
+                "text": " or performing a "
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "italic": true,
+                "sizePt": 9,
+                "text": "Finisher"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 9,
+                "text": ":\n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": "\n"
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 9,
+                "text": "10%"
+              },
+              {
+                "color": "#ea9999",
+                "bold": true,
+                "sizePt": 9,
+                "text": " [2.5%] "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": "Damage Resist "
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": "(Resist x1)"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": " for 6 seconds.\n"
+              },
+              {
+                "color": "#89cdd1",
+                "bold": true,
+                "sizePt": 9,
+                "text": "100% Increased Melee Damage "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": "for 6 seconds"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 9,
+                "text": "."
+              }
+            ]
+          }
+        }
+      ],
+      "grid": [
+        {
+          "row": 13,
+          "col": 2,
+          "cell": {
+            "plain": "Kinetic Synthesis",
+            "runs": [
+              {
+                "color": "#999999",
+                "bold": true,
+                "sizePt": 10,
+                "text": "Kinetic Synthesis"
+              }
+            ]
+          }
+        },
+        {
+          "row": 13,
+          "col": 5,
+          "cell": {
+            "plain": "Armorsmith",
+            "runs": [
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 10,
+                "text": "Armorsmith"
+              }
+            ]
+          }
+        },
+        {
+          "row": 13,
+          "col": 8,
+          "cell": {
+            "plain": "Kinetic Rupture",
+            "runs": [
+              {
+                "color": "#999999",
+                "bold": true,
+                "sizePt": 10,
+                "text": "Kinetic Rupture"
+              }
+            ]
+          }
+        },
+        {
+          "row": 139,
+          "col": 2,
+          "cell": {
+            "plain": "Armorsmith",
+            "runs": [
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 10,
+                "text": "Armorsmith"
+              }
+            ]
+          }
+        },
+        {
+          "row": 139,
+          "col": 5,
+          "cell": {
+            "plain": "Anti-Champion Nosecone",
+            "runs": [
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 10,
+                "text": "Anti-Champion "
+              },
+              {
+                "color": "#a481e1",
+                "bold": true,
+                "sizePt": 10,
+                "text": "Nosecone"
+              }
+            ]
+          }
+        },
+        {
+          "row": 139,
+          "col": 8,
+          "cell": {
+            "plain": "Solo Operative",
+            "runs": [
+              {
+                "color": "#f1c232",
+                "bold": true,
+                "sizePt": 10,
+                "text": "Solo Operative"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "gid": "1500097863",
+      "name": "Exotic Armors",
+      "rows": [
+        {
+          "name": "Blastwave Striders",
+          "nameNorm": "blastwave striders",
+          "section": "Armor",
+          "rowIndex": 28,
+          "anchor": {
+            "row": 28,
+            "col": 3
+          },
+          "cell": {
+            "plain": "75% Damage Resist against Explosive Self-Damage.\n\nKills charge up Blastwave Striders:\nRank-and-File = 10% | Elite+ = 25% | Guardians = 20%\nAlethonym's Vestiges = 10% \n\nUpon either dealing Shiver Strike or Howl of the Storm Damage, or receiving Explosive Self-Damage while at 100% Charge:\nPropels the wearer 25 meters backwards, granting x5 Frost Armor.\nReleases an expanding Stasis Wave that inflicts Freeze [x? Slow for ? seconds] over 15 meters.\nShoots out 8 Tracking Shrapnel, each dealing 623 [?] Stasis Damage over 8 meters on impact.\nSelf Damage = Arcing Trajectory | Shiver/Howl Damage = Straight ahead.\nShrapnel kills do not charge up Blastwave Striders.\n\nExplosive Head, Explosive Payload, and Timed Payload can trigger Blastwave Striders despite not dealing self-damage.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "75% Damage Resist against Explosive Self-Damage.\n\nKills charge up "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Blastwave Striders"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": ":\n"
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Rank-and-File"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " = "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "10%"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " | "
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Elite+ "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "= "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "25%"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " | "
+              },
+              {
+                "color": "#ea9999",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Guardians "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "= "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "20%"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "\n"
+              },
+              {
+                "color": "#6fa8dc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Alethonym's "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Vestiges "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "="
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": " 10% \n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "\n"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": "Upon either "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "italic": true,
+                "sizePt": 7,
+                "text": "dealing "
+              },
+              {
+                "color": "#6fa8dc",
+                "bold": true,
+                "italic": true,
+                "sizePt": 7,
+                "text": "Shiver Strike or Howl of the Storm Damage"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": ", or receiving "
+              },
+              {
+                "color": "#f9cb9c",
+                "bold": true,
+                "italic": true,
+                "sizePt": 7,
+                "text": "Explosive Self-Damage"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": " while at "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "italic": true,
+                "sizePt": 7,
+                "text": "100% Charge"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": ":\n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Propels the wearer 25 meters backwards, granting "
+              },
+              {
+                "color": "#6fa8dc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "x5 Frost Armor"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": ".\nReleases an expanding "
+              },
+              {
+                "color": "#6fa8dc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Stasis Wave"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " that inflicts "
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Freeze "
+              },
+              {
+                "color": "#ea9999",
+                "bold": true,
+                "sizePt": 7,
+                "text": "[x? Slow for ? seconds] "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "over 15 meters"
+              },
+              {
+                "color": "#ea9999",
+                "bold": true,
+                "sizePt": 7,
+                "text": ".\n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Shoots out "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "8 Tracking Shrapnel"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": ", each dealing "
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 7,
+                "text": "623 "
+              },
+              {
+                "color": "#ea9999",
+                "bold": true,
+                "sizePt": 7,
+                "text": "[?]"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " "
+              },
+              {
+                "color": "#6fa8dc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Stasis Damage"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " over 8 meters on impact.\n"
+              },
+              {
+                "color": "#f9cb9c",
+                "italic": true,
+                "sizePt": 7,
+                "text": "Self Damage"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": " = Arcing Trajectory | "
+              },
+              {
+                "color": "#6fa8dc",
+                "italic": true,
+                "sizePt": 7,
+                "text": "Shiver/Howl Damage"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": " = Straight ahead.\n"
+              },
+              {
+                "color": "#e06666",
+                "italic": true,
+                "sizePt": 7,
+                "text": "Shrapnel kills do not charge up Blastwave Striders.\n\n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Explosive Head, Explosive Payload, and Timed Payload can "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "trigger Blastwave Striders"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " despite not dealing "
+              },
+              {
+                "color": "#f9cb9c",
+                "bold": true,
+                "sizePt": 7,
+                "text": "self-damage"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "."
+              }
+            ]
+          }
+        },
+        {
+          "name": "Blastwave Striders",
+          "nameNorm": "blastwave striders",
+          "section": "Armor",
+          "rowIndex": 30,
+          "anchor": {
+            "row": 30,
+            "col": 3
+          },
+          "cell": {
+            "plain": "75% Damage Resist against Explosive Self-Damage.\n\nKills charge up Blastwave Striders:\nRank-and-File = 10% | Elite+ = 25% | Guardians = 20%\nAlethonym's Vestiges = 10% \n\nUpon either dealing Shiver Strike or Howl of the Storm Damage, or receiving Explosive Self-Damage while at 100% Charge:\nPropels the wearer 25 meters backwards, granting x5 Frost Armor.\nReleases an expanding Stasis Wave that inflicts Freeze [x? Slow for ? seconds] over 15 meters.\nShoots out 8 Tracking Shrapnel, each dealing 623 [?] Stasis Damage over 8 meters on impact.\nSelf Damage = Arcing Trajectory | Shiver/Howl Damage = Straight ahead.\nShrapnel kills do not charge up Blastwave Striders.\n\nExplosive Head, Explosive Payload, and Timed Payload can trigger Blastwave Striders despite not dealing self-damage.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "75% Damage Resist against Explosive Self-Damage.\n\nKills charge up "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Blastwave Striders"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": ":\n"
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Rank-and-File"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " = "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "10%"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " | "
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Elite+ "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "= "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "25%"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " | "
+              },
+              {
+                "color": "#ea9999",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Guardians "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "= "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "20%"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "\n"
+              },
+              {
+                "color": "#6fa8dc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Alethonym's "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Vestiges "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "="
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": " 10% \n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "\n"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": "Upon either "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "italic": true,
+                "sizePt": 7,
+                "text": "dealing "
+              },
+              {
+                "color": "#6fa8dc",
+                "bold": true,
+                "italic": true,
+                "sizePt": 7,
+                "text": "Shiver Strike or Howl of the Storm Damage"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": ", or receiving "
+              },
+              {
+                "color": "#f9cb9c",
+                "bold": true,
+                "italic": true,
+                "sizePt": 7,
+                "text": "Explosive Self-Damage"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": " while at "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "italic": true,
+                "sizePt": 7,
+                "text": "100% Charge"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": ":\n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Propels the wearer 25 meters backwards, granting "
+              },
+              {
+                "color": "#6fa8dc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "x5 Frost Armor"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": ".\nReleases an expanding "
+              },
+              {
+                "color": "#6fa8dc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Stasis Wave"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " that inflicts "
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Freeze "
+              },
+              {
+                "color": "#ea9999",
+                "bold": true,
+                "sizePt": 7,
+                "text": "[x? Slow for ? seconds] "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "over 15 meters"
+              },
+              {
+                "color": "#ea9999",
+                "bold": true,
+                "sizePt": 7,
+                "text": ".\n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Shoots out "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "8 Tracking Shrapnel"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": ", each dealing "
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 7,
+                "text": "623 "
+              },
+              {
+                "color": "#ea9999",
+                "bold": true,
+                "sizePt": 7,
+                "text": "[?]"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " "
+              },
+              {
+                "color": "#6fa8dc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Stasis Damage"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " over 8 meters on impact.\n"
+              },
+              {
+                "color": "#f9cb9c",
+                "italic": true,
+                "sizePt": 7,
+                "text": "Self Damage"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": " = Arcing Trajectory | "
+              },
+              {
+                "color": "#6fa8dc",
+                "italic": true,
+                "sizePt": 7,
+                "text": "Shiver/Howl Damage"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": " = Straight ahead.\n"
+              },
+              {
+                "color": "#e06666",
+                "italic": true,
+                "sizePt": 7,
+                "text": "Shrapnel kills do not charge up Blastwave Striders.\n\n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Explosive Head, Explosive Payload, and Timed Payload can "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "trigger Blastwave Striders"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " despite not dealing "
+              },
+              {
+                "color": "#f9cb9c",
+                "bold": true,
+                "sizePt": 7,
+                "text": "self-damage"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "."
+              }
+            ]
+          }
+        },
+        {
+          "name": "Swarmers",
+          "nameNorm": "swarmers",
+          "section": "Armor",
+          "rowIndex": 121,
+          "anchor": {
+            "row": 121,
+            "col": 6
+          },
+          "cell": {
+            "plain": "Upon destroying a Tangle:\nSpawns 2 Threadlings.\n\nThreadlings inflict Unravel on hit.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 9,
+                "text": "Upon destroying a "
+              },
+              {
+                "color": "#93c47d",
+                "italic": true,
+                "sizePt": 9,
+                "text": "Tangle"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 9,
+                "text": ":"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": "\nSpawns 2 "
+              },
+              {
+                "color": "#b6d7a8",
+                "bold": true,
+                "sizePt": 9,
+                "text": "Threadlings"
+              },
+              {
+                "color": "#93c47d",
+                "bold": true,
+                "sizePt": 9,
+                "text": ".\n\n"
+              },
+              {
+                "color": "#b6d7a8",
+                "bold": true,
+                "sizePt": 9,
+                "text": "Threadlings "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": "inflict "
+              },
+              {
+                "color": "#6aa84f",
+                "bold": true,
+                "sizePt": 9,
+                "text": "Unravel"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": " on hit."
+              }
+            ]
+          }
+        },
+        {
+          "name": "Swarmers",
+          "nameNorm": "swarmers",
+          "section": "Armor",
+          "rowIndex": 123,
+          "anchor": {
+            "row": 123,
+            "col": 6
+          },
+          "cell": {
+            "plain": "Upon destroying a Tangle:\nSpawns 2 Threadlings.\n\nThreadlings inflict Unravel on hit.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 9,
+                "text": "Upon destroying a "
+              },
+              {
+                "color": "#93c47d",
+                "italic": true,
+                "sizePt": 9,
+                "text": "Tangle"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 9,
+                "text": ":"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": "\nSpawns 2 "
+              },
+              {
+                "color": "#b6d7a8",
+                "bold": true,
+                "sizePt": 9,
+                "text": "Threadlings"
+              },
+              {
+                "color": "#93c47d",
+                "bold": true,
+                "sizePt": 9,
+                "text": ".\n\n"
+              },
+              {
+                "color": "#b6d7a8",
+                "bold": true,
+                "sizePt": 9,
+                "text": "Threadlings "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": "inflict "
+              },
+              {
+                "color": "#6aa84f",
+                "bold": true,
+                "sizePt": 9,
+                "text": "Unravel"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": " on hit."
+              }
+            ]
+          }
+        }
+      ],
+      "grid": [
+        {
+          "row": 28,
+          "col": 0,
+          "cell": {
+            "plain": "The Dragon's Shadow",
+            "runs": [
+              {
+                "color": "#d9d9d9",
+                "bold": true,
+                "italic": true,
+                "sizePt": 10,
+                "text": "The Dragon's Shadow"
+              }
+            ]
+          }
+        },
+        {
+          "row": 28,
+          "col": 2,
+          "rowSpan": 3,
+          "cell": {
+            "plain": "Passively grants +10 Stability and 0.?x Ready Duration Multiplier.\n\nOn Class Ability Usage:\nGrants Wraithmetal Mail for 15 seconds.\nReloads all weapons and picks up Ammo Bricks within 15 meters. Activates On-Reload Perks.\n\nWraithmetal Mail:\n+35 Stability and +? Handling.\nIncreases Sprint Speed from 8.5m/s to 9m/s.\nIncreases Slide Distance from 6.5 meters to 8.5 meters.\n?% Decreased ADS Movement Speed Penalty.\nDoes not grant any Class Stat, contrary to description.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": "Passively grants +10 Stability and 0.?x Ready Duration Multiplier.\n\n"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 9,
+                "text": "On "
+              },
+              {
+                "color": "#b4a7d6",
+                "bold": true,
+                "italic": true,
+                "sizePt": 9,
+                "text": "Class Ability Usage"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 9,
+                "text": ":"
+              },
+              {
+                "color": "#cccccc",
+                "sizePt": 9,
+                "text": "\n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": "Grants "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 9,
+                "text": "Wraithmetal Mail"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": " for 15 seconds.\nReloads all weapons and picks up "
+              },
+              {
+                "color": "#63d275",
+                "bold": true,
+                "sizePt": 9,
+                "text": "Ammo "
+              },
+              {
+                "color": "#a481e1",
+                "bold": true,
+                "sizePt": 9,
+                "text": "Bricks "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": "within 15 meters. Activates On-Reload Perks.\n\n"
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 9,
+                "text": "Wraithmetal Mail:\n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": "+35 Stability and +? Handling.\nIncreases Sprint Speed from 8.5m/s to 9m/s.\nIncreases Slide Distance from 6.5 meters to 8.5 meters.\n?% Decreased ADS Movement Speed Penalty.\n"
+              },
+              {
+                "color": "#e06666",
+                "bold": true,
+                "sizePt": 9,
+                "text": "Does not grant any Class Stat, contrary to description."
+              }
+            ]
+          }
+        },
+        {
+          "row": 28,
+          "col": 3,
+          "cell": {
+            "plain": "Blastwave Striders",
+            "runs": [
+              {
+                "color": "#6fa8dc",
+                "bold": true,
+                "italic": true,
+                "sizePt": 10,
+                "text": "Blastwave Striders"
+              }
+            ]
+          }
+        },
+        {
+          "row": 28,
+          "col": 5,
+          "rowSpan": 3,
+          "cell": {
+            "plain": "75% Damage Resist against Explosive Self-Damage.\n\nKills charge up Blastwave Striders:\nRank-and-File = 10% | Elite+ = 25% | Guardians = 20%\nAlethonym's Vestiges = 10% \n\nUpon either dealing Shiver Strike or Howl of the Storm Damage, or receiving Explosive Self-Damage while at 100% Charge:\nPropels the wearer 25 meters backwards, granting x5 Frost Armor.\nReleases an expanding Stasis Wave that inflicts Freeze [x? Slow for ? seconds] over 15 meters.\nShoots out 8 Tracking Shrapnel, each dealing 623 [?] Stasis Damage over 8 meters on impact.\nSelf Damage = Arcing Trajectory | Shiver/Howl Damage = Straight ahead.\nShrapnel kills do not charge up Blastwave Striders.\n\nExplosive Head, Explosive Payload, and Timed Payload can trigger Blastwave Striders despite not dealing self-damage.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "75% Damage Resist against Explosive Self-Damage.\n\nKills charge up "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Blastwave Striders"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": ":\n"
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Rank-and-File"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " = "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "10%"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " | "
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Elite+ "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "= "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "25%"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " | "
+              },
+              {
+                "color": "#ea9999",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Guardians "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "= "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "20%"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "\n"
+              },
+              {
+                "color": "#6fa8dc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Alethonym's "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Vestiges "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "="
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": " 10% \n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "\n"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": "Upon either "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "italic": true,
+                "sizePt": 7,
+                "text": "dealing "
+              },
+              {
+                "color": "#6fa8dc",
+                "bold": true,
+                "italic": true,
+                "sizePt": 7,
+                "text": "Shiver Strike or Howl of the Storm Damage"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": ", or receiving "
+              },
+              {
+                "color": "#f9cb9c",
+                "bold": true,
+                "italic": true,
+                "sizePt": 7,
+                "text": "Explosive Self-Damage"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": " while at "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "italic": true,
+                "sizePt": 7,
+                "text": "100% Charge"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": ":\n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Propels the wearer 25 meters backwards, granting "
+              },
+              {
+                "color": "#6fa8dc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "x5 Frost Armor"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": ".\nReleases an expanding "
+              },
+              {
+                "color": "#6fa8dc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Stasis Wave"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " that inflicts "
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Freeze "
+              },
+              {
+                "color": "#ea9999",
+                "bold": true,
+                "sizePt": 7,
+                "text": "[x? Slow for ? seconds] "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "over 15 meters"
+              },
+              {
+                "color": "#ea9999",
+                "bold": true,
+                "sizePt": 7,
+                "text": ".\n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Shoots out "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "8 Tracking Shrapnel"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": ", each dealing "
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 7,
+                "text": "623 "
+              },
+              {
+                "color": "#ea9999",
+                "bold": true,
+                "sizePt": 7,
+                "text": "[?]"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " "
+              },
+              {
+                "color": "#6fa8dc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Stasis Damage"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " over 8 meters on impact.\n"
+              },
+              {
+                "color": "#f9cb9c",
+                "italic": true,
+                "sizePt": 7,
+                "text": "Self Damage"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": " = Arcing Trajectory | "
+              },
+              {
+                "color": "#6fa8dc",
+                "italic": true,
+                "sizePt": 7,
+                "text": "Shiver/Howl Damage"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": " = Straight ahead.\n"
+              },
+              {
+                "color": "#e06666",
+                "italic": true,
+                "sizePt": 7,
+                "text": "Shrapnel kills do not charge up Blastwave Striders.\n\n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Explosive Head, Explosive Payload, and Timed Payload can "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "trigger Blastwave Striders"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " despite not dealing "
+              },
+              {
+                "color": "#f9cb9c",
+                "bold": true,
+                "sizePt": 7,
+                "text": "self-damage"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "."
+              }
+            ]
+          }
+        },
+        {
+          "row": 28,
+          "col": 6,
+          "cell": {
+            "plain": "Contraverse Hold",
+            "runs": [
+              {
+                "color": "#bba5f3",
+                "bold": true,
+                "italic": true,
+                "sizePt": 10,
+                "text": "Contraverse Hold"
+              }
+            ]
+          }
+        },
+        {
+          "row": 28,
+          "col": 8,
+          "rowSpan": 3,
+          "cell": {
+            "plain": "Overcharged Grenades inflict Weaken for 6? [2.5?] seconds.\n\nWhile overcharging a Void Grenade with Chaos Accelerant:\nGrants 20% Damage Resist.\n\nUpon dealing Overcharged Void Grenade Damage:\nTriggers Chaotic Exchange for 1.75 seconds.\nChaotic Exchange grants Additional Base Grenade Regeneration Rate.\nAxion: 5000% [4000%] Additional Base Grenade Regeneration Rate.\nScatter: 3700% [2700%] Additional Base Grenade Regeneration Rate.\nVortex: 3400% [2400%] Additional Base Grenade Regeneration Rate.\nHHSN: 2500%? [2000%] Additional Base Grenade Regeneration Rate.\nIncurs a 4 second cooldown between activations which is removed on Grenade Usage.",
+            "runs": [
+              {
+                "color": "#bba5f3",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Overcharged Grenades"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": " inflict "
+              },
+              {
+                "color": "#c27ba0",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Weaken "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": "for "
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 8,
+                "text": "6?"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": " "
+              },
+              {
+                "color": "#ea9999",
+                "bold": true,
+                "sizePt": 8,
+                "text": "[2.5?]"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": " seconds.\n"
+              },
+              {
+                "color": "#cccccc",
+                "sizePt": 8,
+                "text": "\n"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 8,
+                "text": "While "
+              },
+              {
+                "color": "#bba5f3",
+                "bold": true,
+                "italic": true,
+                "sizePt": 8,
+                "text": "overcharging "
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 8,
+                "text": "a"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "italic": true,
+                "sizePt": 8,
+                "text": " "
+              },
+              {
+                "color": "#bba5f3",
+                "bold": true,
+                "italic": true,
+                "sizePt": 8,
+                "text": "Void Grenade"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "italic": true,
+                "sizePt": 8,
+                "text": " "
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 8,
+                "text": "with "
+              },
+              {
+                "color": "#bba5f3",
+                "bold": true,
+                "italic": true,
+                "sizePt": 8,
+                "text": "Chaos Accelerant"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "italic": true,
+                "sizePt": 8,
+                "text": ":\n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Grants 20% Damage Resist.\n\n"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 8,
+                "text": "Upon dealing "
+              },
+              {
+                "color": "#bba5f3",
+                "bold": true,
+                "italic": true,
+                "sizePt": 8,
+                "text": "Overcharged Void Grenade Damage"
+              },
+              {
+                "color": "#bba5f3",
+                "italic": true,
+                "sizePt": 8,
+                "text": ":"
+              },
+              {
+                "color": "#f6b26b",
+                "italic": true,
+                "sizePt": 8,
+                "text": "\n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Triggers "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Chaotic Exchange "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": "for 1.75 seconds.\n"
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Chaotic Exchange"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": " grants "
+              },
+              {
+                "color": "#e0a261",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Additional Base Grenade Regeneration Rate."
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": "\n"
+              },
+              {
+                "color": "#bba5f3",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Axion:"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": " "
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 8,
+                "text": "5000% "
+              },
+              {
+                "color": "#ea9999",
+                "bold": true,
+                "sizePt": 8,
+                "text": "[4000%]"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": " "
+              },
+              {
+                "color": "#e0a261",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Additional Base Grenade Regeneration Rate."
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": "\n"
+              },
+              {
+                "color": "#bba5f3",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Scatter:"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": " "
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 8,
+                "text": "3700%"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": " "
+              },
+              {
+                "color": "#ea9999",
+                "bold": true,
+                "sizePt": 8,
+                "text": "[2700%]"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": " "
+              },
+              {
+                "color": "#e0a261",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Additional Base Grenade Regeneration Rate.\n"
+              },
+              {
+                "color": "#bba5f3",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Vortex:"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": " "
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 8,
+                "text": "3400%"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": " "
+              },
+              {
+                "color": "#ea9999",
+                "bold": true,
+                "sizePt": 8,
+                "text": "[2400%]"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": " "
+              },
+              {
+                "color": "#e0a261",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Additional Base Grenade Regeneration Rate."
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": "\n"
+              },
+              {
+                "color": "#bba5f3",
+                "bold": true,
+                "sizePt": 8,
+                "text": "HHSN:"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": " "
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 8,
+                "text": "2500%?"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": " "
+              },
+              {
+                "color": "#ea9999",
+                "bold": true,
+                "sizePt": 8,
+                "text": "[2000%]"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": " "
+              },
+              {
+                "color": "#e0a261",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Additional Base Grenade Regeneration Rate."
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": "\n"
+              },
+              {
+                "color": "#dd7e6b",
+                "bold": true,
+                "italic": true,
+                "sizePt": 8,
+                "text": "Incurs a 4 second cooldown between activations which is removed on Grenade Usage."
+              }
+            ]
+          }
+        },
+        {
+          "row": 30,
+          "col": 0,
+          "cell": {
+            "plain": "Wraithmetal Mail",
+            "runs": [
+              {
+                "color": "#fdd24d",
+                "bold": true,
+                "italic": true,
+                "sizePt": 10,
+                "text": "Wraithmetal Mail"
+              }
+            ]
+          }
+        },
+        {
+          "row": 30,
+          "col": 3,
+          "cell": {
+            "plain": "Blastwave Striders",
+            "runs": [
+              {
+                "color": "#fdd24d",
+                "bold": true,
+                "italic": true,
+                "sizePt": 10,
+                "text": "Blastwave Striders"
+              }
+            ]
+          }
+        },
+        {
+          "row": 30,
+          "col": 6,
+          "cell": {
+            "plain": "Chaotic Exchanger",
+            "runs": [
+              {
+                "color": "#fdd24d",
+                "bold": true,
+                "italic": true,
+                "sizePt": 10,
+                "text": "Chaotic Exchanger"
+              }
+            ]
+          }
+        },
+        {
+          "row": 121,
+          "col": 0,
+          "cell": {
+            "plain": "Speedloader Slacks",
+            "runs": [
+              {
+                "color": "#d9d9d9",
+                "bold": true,
+                "italic": true,
+                "sizePt": 10,
+                "text": "Speedloader Slacks"
+              }
+            ]
+          }
+        },
+        {
+          "row": 121,
+          "col": 2,
+          "rowSpan": 3,
+          "cell": {
+            "plain": "\nOn Class Ability Usage:\nReloads all weapons and picks up Ammo Bricks within 15 meters. Activates On-Reload Perks.\nGrants x1 Tight Fit for the wearer and allies within 15 meters for 15 seconds.\n\nWhile Tight Fit is active:\n Dodges grant an additional stack, up to a maximum of x5 Tight Fit and refresh the duration of the buff.\nAllies within range match the stack amount of the wearer's Tight Fit when the buff is refreshed.\n\n+40 | +40 | +45 | +50 | +55 Reload Speed\n- | 0.925x | 0.915x | 0.91x | 0.89x Reload Duration Multiplier\n+40? | +40? | +45? | +50? | +55? Handling\n\nScoring direct hits within 3 seconds of each while Tight Fit is active progresses a Counter System that grants 20% Class Ability Energy upon reaching 100%.\nSMG, Trace = 7.14% || Auto, MG = 8.33% || Pulse = 9.1% || Sidearm = 12.5% || HC, Scout = 16.7%\nSword = 20% | Bow, Glaive, GL, Shotgun, Snipers = 34%",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": "\nOn "
+              },
+              {
+                "color": "#b4a7d6",
+                "bold": true,
+                "italic": true,
+                "sizePt": 7,
+                "text": "Class Ability Usage"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": ":\n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Reloads all weapons and picks up "
+              },
+              {
+                "color": "#63d275",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Ammo "
+              },
+              {
+                "color": "#a481e1",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Bricks "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "within 15 meters. "
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": "Activates On-Reload Perks.\n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Grants "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "x1 Tight Fit"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " for the "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "wearer "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "and "
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 7,
+                "text": "allies "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "within 15 meters for 15 seconds.\n\n"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": "While "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "italic": true,
+                "sizePt": 7,
+                "text": "Tight Fit "
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": "is active:\n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " "
+              },
+              {
+                "color": "#b4a7d6",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Dodges "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "grant an additional "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "stack"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": ", up to a maximum of"
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": " x5 Tight Fit "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "and refresh the duration of the buff.\n"
+              },
+              {
+                "color": "#a4c2f4",
+                "italic": true,
+                "sizePt": 7,
+                "text": "Allies "
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": "within range match the stack amount of the "
+              },
+              {
+                "color": "#ffd966",
+                "italic": true,
+                "sizePt": 7,
+                "text": "wearer's Tight Fit"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 7,
+                "text": " when the buff is refreshed.\n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": "\n+40 | +40 | +45 | +50 | +55 Reload Speed\n- | 0.925x | 0.915x | 0.91x | 0.89x Reload Duration Multiplier\n+40? | +40? | +45? | +50? | +55? Handling\n\nScoring direct hits within 3 seconds of each while "
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 7,
+                "text": "Tight Fit"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " is active progresses a Counter System that grants "
+              },
+              {
+                "color": "#b4a7d6",
+                "bold": true,
+                "sizePt": 7,
+                "text": "20% Class Ability Energy"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 7,
+                "text": " upon reaching 100%.\nSMG, Trace = 7.14% || Auto, MG = 8.33% || Pulse = 9.1% || Sidearm = 12.5% || HC, Scout = 16.7%\nSword = 20% | Bow, Glaive, GL, Shotgun, Snipers = 34%"
+              }
+            ]
+          }
+        },
+        {
+          "row": 121,
+          "col": 3,
+          "cell": {
+            "plain": "Severance Enclosure",
+            "runs": [
+              {
+                "color": "#d9d9d9",
+                "bold": true,
+                "italic": true,
+                "sizePt": 10,
+                "text": "Severance Enclosure"
+              }
+            ]
+          }
+        },
+        {
+          "row": 121,
+          "col": 5,
+          "rowSpan": 3,
+          "cell": {
+            "plain": "On Powered Melee Kill or Finisher:\nEnemy triggers a Kinetic Explosion, dealing variable damage in a wide radius with falloff, knocking enemies upwards, and disorienting them.\nFalloff decreases damage by up to 20%.\nExplosion Damage and Radius scale on Enemy Rank (Finisher). \nIncurs a 1 second cooldown between non-chaining explosions. \n\nSeverance Explosion Damage | Radius\nRank-and-File: 439 (598) Kinetic Damage over 15 meters.\nElite: 598 (717) Kinetic Damage over 20 meters\nMiniboss+: 717 Kinetic Damage over 20 meters.\n\nSeverance Explosions triggered by Powered Melee Kills can chain, triggering a weaker explosion that only deals up to 242 [?] damage in a 8 meter radius. \nChaining Explosions do not have a cooldown but cannot simultaneously trigger multiple of them.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 8,
+                "text": "On "
+              },
+              {
+                "color": "#79bec3",
+                "bold": true,
+                "italic": true,
+                "sizePt": 8,
+                "text": "Powered Melee Kill"
+              },
+              {
+                "color": "#79bec3",
+                "italic": true,
+                "sizePt": 8,
+                "text": " "
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 8,
+                "text": "or "
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "italic": true,
+                "sizePt": 8,
+                "text": "Finisher"
+              },
+              {
+                "color": "#a4c2f4",
+                "italic": true,
+                "sizePt": 8,
+                "text": ":\n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Enemy triggers a "
+              },
+              {
+                "color": "#999999",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Kinetic Explosion"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": ", dealing variable damage in a wide radius with falloff, knocking enemies upwards, and "
+              },
+              {
+                "color": "#999999",
+                "bold": true,
+                "sizePt": 8,
+                "text": "disorienting "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": "them.\n"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 8,
+                "text": "Falloff decreases damage by up to 20%."
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": "\n"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "italic": true,
+                "sizePt": 8,
+                "text": "Explosion Damage and Radius scale on "
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "italic": true,
+                "sizePt": 8,
+                "text": "Enemy Rank (Finisher). \n"
+              },
+              {
+                "color": "#e06666",
+                "bold": true,
+                "italic": true,
+                "sizePt": 8,
+                "text": "Incurs a 1 second cooldown between non-chaining explosions. \n"
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "italic": true,
+                "sizePt": 8,
+                "text": "\n"
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Severance Explosion Damage | Radius\n"
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Rank-and-File: 439 (598) "
+              },
+              {
+                "color": "#999999",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Kinetic Damage"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": " over 15 meters.\n"
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Elite: 598 (717)"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": " "
+              },
+              {
+                "color": "#999999",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Kinetic Damage"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": " over 20 meters\n"
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Miniboss+: 717"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": " "
+              },
+              {
+                "color": "#999999",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Kinetic Damage "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": "over 20 meters."
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "italic": true,
+                "sizePt": 8,
+                "text": "\n\n"
+              },
+              {
+                "color": "#ffd966",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Severance Explosions"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": " triggered by "
+              },
+              {
+                "color": "#79bec3",
+                "bold": true,
+                "sizePt": 8,
+                "text": "Powered Melee Kills"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": " can chain, triggering a weaker explosion that only deals up to "
+              },
+              {
+                "color": "#a4c2f4",
+                "bold": true,
+                "sizePt": 8,
+                "text": "242 "
+              },
+              {
+                "color": "#ea9999",
+                "bold": true,
+                "sizePt": 8,
+                "text": "[?]"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 8,
+                "text": " damage in a 8 meter radius. "
+              },
+              {
+                "color": "#c9daf8",
+                "bold": true,
+                "italic": true,
+                "sizePt": 8,
+                "text": "\n"
+              },
+              {
+                "color": "#e06666",
+                "bold": true,
+                "italic": true,
+                "sizePt": 8,
+                "text": "Chaining Explosions do not have a cooldown but cannot simultaneously trigger multiple of them."
+              }
+            ]
+          }
+        },
+        {
+          "row": 121,
+          "col": 6,
+          "cell": {
+            "plain": "Swarmers",
+            "runs": [
+              {
+                "color": "#63d275",
+                "bold": true,
+                "italic": true,
+                "sizePt": 10,
+                "text": "Swarmers"
+              }
+            ]
+          }
+        },
+        {
+          "row": 121,
+          "col": 8,
+          "rowSpan": 3,
+          "cell": {
+            "plain": "Upon destroying a Tangle:\nSpawns 2 Threadlings.\n\nThreadlings inflict Unravel on hit.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 9,
+                "text": "Upon destroying a "
+              },
+              {
+                "color": "#93c47d",
+                "italic": true,
+                "sizePt": 9,
+                "text": "Tangle"
+              },
+              {
+                "color": "#cccccc",
+                "italic": true,
+                "sizePt": 9,
+                "text": ":"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": "\nSpawns 2 "
+              },
+              {
+                "color": "#b6d7a8",
+                "bold": true,
+                "sizePt": 9,
+                "text": "Threadlings"
+              },
+              {
+                "color": "#93c47d",
+                "bold": true,
+                "sizePt": 9,
+                "text": ".\n\n"
+              },
+              {
+                "color": "#b6d7a8",
+                "bold": true,
+                "sizePt": 9,
+                "text": "Threadlings "
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": "inflict "
+              },
+              {
+                "color": "#6aa84f",
+                "bold": true,
+                "sizePt": 9,
+                "text": "Unravel"
+              },
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": " on hit."
+              }
+            ]
+          }
+        },
+        {
+          "row": 123,
+          "col": 0,
+          "cell": {
+            "plain": "Tight Fit",
+            "runs": [
+              {
+                "color": "#fdd24d",
+                "bold": true,
+                "italic": true,
+                "sizePt": 10,
+                "text": "Tight Fit"
+              }
+            ]
+          }
+        },
+        {
+          "row": 123,
+          "col": 3,
+          "cell": {
+            "plain": "Spheromatik Trigger",
+            "runs": [
+              {
+                "color": "#fdd24d",
+                "bold": true,
+                "italic": true,
+                "sizePt": 10,
+                "text": "Spheromatik Trigger"
+              }
+            ]
+          }
+        },
+        {
+          "row": 123,
+          "col": 6,
+          "cell": {
+            "plain": "Swarmers",
+            "runs": [
+              {
+                "color": "#fdd24d",
+                "bold": true,
+                "italic": true,
+                "sizePt": 10,
+                "text": "Swarmers"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "gid": "1662574278",
+      "name": "Weapon Perks",
+      "rows": [
+        {
+          "name": "Adaptive Frame",
+          "nameNorm": "adaptive frame",
+          "section": "Intrinsic Traits",
+          "rowIndex": 312,
+          "anchor": {
+            "row": 312,
+            "col": 0
+          },
+          "cell": {
+            "plain": "No intrinsic bonuses whatsoever.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": "No intrinsic bonuses whatsoever."
+              }
+            ]
+          }
+        },
+        {
+          "name": "Adaptive Frame\n(Rocket Launchers)",
+          "nameNorm": "adaptive frame",
+          "section": "Intrinsic Traits",
+          "rowIndex": 313,
+          "anchor": {
+            "row": 313,
+            "col": 0
+          },
+          "cell": {
+            "plain": "Deals 10% increased damage over High-Impact Rocket Launchers.\n1 Impact : 3.5 Explosive Damage Ratio. 50.5 RPM",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": "Deals 10% increased damage over High-Impact Rocket Launchers.\n1 Impact : 3.5 Explosive Damage Ratio. 50.5 RPM"
+              }
+            ]
+          }
+        }
+      ],
+      "grid": [
+        {
+          "row": 312,
+          "col": 0,
+          "cell": {
+            "plain": "Adaptive Frame",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 10,
+                "text": "Adaptive Frame"
+              }
+            ]
+          }
+        },
+        {
+          "row": 312,
+          "col": 2,
+          "colSpan": 4,
+          "cell": {
+            "plain": "No intrinsic bonuses whatsoever.",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": "No intrinsic bonuses whatsoever."
+              }
+            ]
+          }
+        },
+        {
+          "row": 313,
+          "col": 0,
+          "cell": {
+            "plain": "Adaptive Frame\n(Rocket Launchers)",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 10,
+                "text": "Adaptive Frame\n"
+              },
+              {
+                "color": "#a481e1",
+                "italic": true,
+                "sizePt": 10,
+                "text": "(Rocket Launchers)"
+              }
+            ]
+          }
+        },
+        {
+          "row": 313,
+          "col": 2,
+          "colSpan": 4,
+          "cell": {
+            "plain": "Deals 10% increased damage over High-Impact Rocket Launchers.\n1 Impact : 3.5 Explosive Damage Ratio. 50.5 RPM",
+            "runs": [
+              {
+                "color": "#cccccc",
+                "bold": true,
+                "sizePt": 9,
+                "text": "Deals 10% increased damage over High-Impact Rocket Launchers.\n1 Impact : 3.5 Explosive Damage Ratio. 50.5 RPM"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

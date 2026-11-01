@@ -174,3 +174,128 @@ it('ambiguous names and stale multipart proposals cannot produce high links', ()
   );
   expect(group.entries[2]).toMatchObject({ confidence: 'unresolved', action: 'owner' });
 });
+import { combineCompendiumMatches, snapshotCompendium, compendiumDataSchema } from '@clarity/core';
+import multipartSource from './fixtures/multipart-review.json';
+import { sampleReference } from './sampleReferences';
+import { sourceFingerprint } from './reviewProgress';
+
+it.each(['Blastwave Striders', 'Swarmers', 'Armorsmith'])(
+  'withholds actual %s card anchors instead of promoting resolver-generated neighboring headings',
+  (name) => {
+    const f = guidedFixture();
+    const realTab = structuredClone(
+      compendiumDataSchema
+        .parse(multipartSource)
+        .tabs.find((tab) => tab.rows.some((row) => row.name === name))!,
+    );
+    const rows = realTab.rows.filter((row) => row.name === name);
+    realTab.rows = [...rows, f.source.tabs[0].rows[0]];
+    f.source.tabs.push(realTab);
+    f.baseline = `synthetic|${sourceFingerprint(f.source.tabs)}`;
+    f.document.baseline = f.baseline;
+    const record = f.document.categories[f.categories[0].id];
+    const sample = f.categories[0].entries.find((entry) => entry.hash === 100)!;
+    record.references = {
+      100: sampleReference(
+        sample,
+        record.id,
+        f.baseline,
+        '',
+        'picked',
+        { tab: realTab, row: realTab.rows[2] },
+        f.source,
+      ),
+    };
+    f.categories[0].entries.find((entry) => entry.hash === 102)!.name = name;
+    const match = combineCompendiumMatches(rows.map((row) => ({ tab: realTab, row })))!;
+    expect(match.parts).toHaveLength(2);
+    const expected =
+      name === 'Blastwave Striders'
+        ? ["The Dragon's Shadow", 'Wraithmetal Mail']
+        : name === 'Swarmers'
+          ? ['Speedloader Slacks', 'Tight Fit']
+          : ['Kinetic Synthesis', 'Anti-Champion Nosecone'];
+    expect(match.parts).toEqual(expected);
+    f.proposals.set(102, {
+      match,
+      link: snapshotCompendium(match, f.source.fetchedAt),
+      candidates: [],
+    });
+    const before = JSON.stringify(f.source);
+    const [group] = guidedDecisions(
+      f.document,
+      f.categories,
+      f.proposals,
+      f.source,
+      f.baseline,
+      f.scope,
+    );
+    const decision = group.entries.find((entry) => entry.hash === 102)!;
+    expect(decision).toMatchObject({
+      action: 'owner',
+      confidence: 'unresolved',
+      ruleId: 'owner-multipart-source',
+    });
+    expect(decision.link).toBeUndefined();
+    for (const row of rows) expect(decision.reason).toContain(JSON.stringify(row.anchor));
+    expect(JSON.stringify(f.source)).toBe(before);
+    expect(
+      combineCompendiumMatches([...rows].reverse().map((row) => ({ tab: realTab, row })))?.parts,
+    ).toEqual(match.parts);
+  },
+);
+
+it('requires explicit current-artifact identity even for a unique name in the learned tab', () => {
+  const f = guidedFixture();
+  const record = f.document.categories[f.categories[0].id];
+  record.id = 'catalog:armor-mod-seasonal';
+  const category = { ...f.categories[0], id: record.id };
+  const [group] = guidedDecisions(
+    f.document,
+    [category],
+    f.proposals,
+    f.source,
+    f.baseline,
+    f.scope,
+  );
+  expect(group.entries[2]).toMatchObject({
+    confidence: 'unresolved',
+    action: 'owner',
+    ruleId: 'owner-artifact-identity',
+  });
+});
+
+it('preserves real multipart frame ordering and snapshots for explicit manual resolution', () => {
+  const source = compendiumDataSchema.parse(multipartSource);
+  const tab = source.tabs.find((tab) => tab.name === 'Weapon Perks')!;
+  const rows = tab.rows.filter((row) => row.nameNorm === 'adaptive frame');
+  expect(rows).toHaveLength(2);
+  const match = combineCompendiumMatches([...rows].reverse().map((row) => ({ tab, row })))!;
+  expect(match.parts).toEqual(['Intrinsic Traits', 'Rocket Launchers']);
+  expect(match.row.cell.plain.indexOf(rows[0].cell.plain)).toBeLessThan(
+    match.row.cell.plain.indexOf(rows[1].cell.plain),
+  );
+  const f = guidedFixture();
+  f.source.tabs.push(tab);
+  f.baseline = `synthetic|${sourceFingerprint(f.source.tabs)}`;
+  f.document.baseline = f.baseline;
+  const record = f.document.categories[f.categories[0].id];
+  const entry = f.categories[0].entries[0];
+  record.references = {
+    [entry.hash]: sampleReference(entry, record.id, f.baseline, '', 'picked', match, f.source),
+  };
+  const [group] = guidedDecisions(
+    f.document,
+    f.categories,
+    f.proposals,
+    f.source,
+    f.baseline,
+    f.scope,
+  );
+  expect(group.entries[0]).toMatchObject({
+    action: 'link',
+    confidence: 'high',
+    ruleId: 'explicit-owner',
+    link: { parts: match.parts, snapshot: match.row.cell },
+  });
+});

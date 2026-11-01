@@ -13,6 +13,7 @@ import { RichCell } from './RichCell';
 
 export function GuidedPreview({
   document,
+  planningRevision = 0,
   category,
   proposals,
   source,
@@ -22,6 +23,7 @@ export function GuidedPreview({
   onAccept,
 }: {
   document: GuidanceDocument;
+  planningRevision?: number;
   category: ReviewCategory;
   proposals: Map<number, ReviewProposal>;
   source: CompendiumData;
@@ -30,7 +32,11 @@ export function GuidedPreview({
   canEdit?: boolean;
   onAccept?: (entries: GuidedDecision[], revision: string) => void;
 }) {
-  const [preview, setPreview] = useState<{ group: GuidedCategory; tier: 'high' | 'medium' }>();
+  const [preview, setPreview] = useState<{
+    group: GuidedCategory;
+    tier: 'high' | 'medium';
+    planningRevision: number;
+  }>();
   const [limit, setLimit] = useState(20);
   const group = useMemo(
     () =>
@@ -40,7 +46,10 @@ export function GuidedPreview({
     [document, category, proposals, source, baseline, scope],
   );
   if (!group) return null;
-  const current = !preview || guidedRevision([group]) === guidedRevision([preview.group]);
+  const current =
+    !preview ||
+    (planningRevision === preview.planningRevision &&
+      guidedRevision([group]) === guidedRevision([preview.group]));
   const shown = preview?.group ?? group;
   const candidates = shown.entries.filter(
     (entry) => entry.confidence === preview?.tier && entry.action === 'link',
@@ -55,13 +64,17 @@ export function GuidedPreview({
       <p>{group.ownerNote}</p>
       <button
         disabled={!canEdit}
-        onClick={() => setPreview({ group: structuredClone(group), tier: 'high' })}
+        onClick={() =>
+          setPreview({ group: structuredClone(group), tier: 'high', planningRevision })
+        }
       >
         Preview all high
       </button>{' '}
       <button
         disabled={!canEdit}
-        onClick={() => setPreview({ group: structuredClone(group), tier: 'medium' })}
+        onClick={() =>
+          setPreview({ group: structuredClone(group), tier: 'medium', planningRevision })
+        }
       >
         Review medium
       </button>
@@ -104,8 +117,8 @@ export function GuidedPreview({
         </section>
       )}
       <p>
-        Uses guidance from the last load, before category synchronization. Reload disk guidance to
-        include newly saved examples and notes.
+        Uses current owner examples and notes within the membership loaded for this session.
+        Evidence changes invalidate an open preview; reload disk guidance to renew membership.
       </p>
       <p>
         Scope: {group.entries.length} recorded entries. Samples are a spot-check, not individual

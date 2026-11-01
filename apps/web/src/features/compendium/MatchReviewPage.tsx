@@ -237,9 +237,24 @@ export function ReviewQueue({
     setMessage('Last decision undone.');
   }
   function acceptGuided(category: ReviewCategory, decisions: GuidedDecision[], revision: string) {
-    if (!canEdit || !guidance.proposalInput || !decisions.length) return;
+    // Read authoritative state at invocation: a captured handler may predate a synchronous edit.
+    const latest = guidance.persistence.getSnapshot();
+    if (
+      !mayDraftLink(
+        useAuthStore.getState().user?.role,
+        !!apiUrl,
+        useDraftStore.getState().hydrated,
+        useSaveState.getState().locked,
+      ) ||
+      latest.conflict ||
+      latest.reloading ||
+      !latest.proposalInput ||
+      !decisions.length ||
+      latest.planningRevision !== guidance.planningRevision
+    )
+      return;
     const group = guidedDecisions(
-      guidance.proposalInput,
+      latest.proposalInput,
       [category],
       proposals,
       source,

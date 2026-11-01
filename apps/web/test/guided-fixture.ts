@@ -97,5 +97,5 @@ export function guidedFixture() {
       },
     },
   };
-  return { document, categories, proposals, source, baseline, scope };
+  return { document, categories, proposals, source, baseline, scope, editor };
 }

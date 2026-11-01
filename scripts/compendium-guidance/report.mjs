@@ -5,10 +5,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 
-const [guidanceFile, output] = process.argv.slice(2);
+const [guidanceFile, output, bundleFile] = process.argv.slice(2);
 if (!guidanceFile || !output)
   throw new Error(
-    'Usage: node scripts/compendium-guidance/report.mjs <guidance.json> <new-output-directory>',
+    'Usage: node scripts/compendium-guidance/report.mjs <guidance.json> <new-output-directory> [historical-bundle.json]',
   );
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const server = await createServer({
@@ -39,7 +39,9 @@ try {
   const source = core.compendiumDataSchema.parse(await response.json());
   const [catalog, bundle] = await Promise.all([
     generator.loadGenerator(),
-    bundleModule.loadBundle(),
+    bundleFile
+      ? readFile(bundleFile, 'utf8').then((raw) => bundleModule.bundleSchema.parse(JSON.parse(raw)))
+      : bundleModule.loadBundle(),
   ]);
   const editor = { ...catalog, bundle };
   const fingerprint = progress.sourceFingerprint(source.tabs);
@@ -60,6 +62,8 @@ try {
   const result = {
     version: 1,
     mode: 'local-draft-preview',
+    bundleInput: bundleFile ? 'historical-local-bundle' : bundleModule.bundleUrl,
+    bundleSourceCommit: bundle.sourceCommit,
     guidanceSha256: createHash('sha256').update(raw).digest('hex'),
     guidanceBaseline: document.baseline,
     currentBaseline: baseline,
@@ -94,6 +98,7 @@ try {
       '# Guided Compendium proposal preview',
       '',
       `Guidance SHA256: ${result.guidanceSha256}`,
+      `Bundle input: ${result.bundleInput}; source commit: ${result.bundleSourceCommit}`,
       `Guidance baseline: ${document.baseline}`,
       `Current baseline: ${baseline}`,
       `Baseline matches: ${result.baselineMatches}`,

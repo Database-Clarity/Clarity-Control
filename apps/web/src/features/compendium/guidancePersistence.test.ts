@@ -38,7 +38,7 @@ function fixture() {
   return { create, request, cache, storage, document: () => document, writes: () => writes };
 }
 afterEach(() => vi.useRealTimers());
-it('keeps the loaded planning scope separate from synchronized membership and edits until reload', async () => {
+it('keeps loaded membership frozen while applying current owner edits', async () => {
   const data = fixture();
   const writer = data.create();
   await writer.start();
@@ -49,7 +49,8 @@ it('keeps the loaded planning scope separate from synchronized membership and ed
   const loaded = reader.getSnapshot().proposalInput;
   reader.synchronize([{ ...categories[0], count: 2, hashes: [10, 11] }], 'new-baseline');
   reader.comment(categories[0].id, 'New comment');
-  expect(reader.getSnapshot().proposalInput).toBe(loaded);
+  expect(reader.getSnapshot().proposalInput?.categories[categories[0].id].comment).toBe('New comment');
+  expect(reader.getSnapshot().proposalInput?.categories[categories[0].id].hashes).toEqual([10]);
   expect(loaded?.categories[categories[0].id].hashes).toEqual([10]);
   expect(loaded?.baseline).toBe('baseline');
   await reader.flush();

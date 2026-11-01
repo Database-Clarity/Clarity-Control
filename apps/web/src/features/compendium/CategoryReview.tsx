@@ -223,9 +223,10 @@ export function CategoryReview({
             {guidance.ready && guidance.proposalInput && (
               <GuidedPreview
                 key={category.id}
-                canEdit={canEdit && !paused}
+                canEdit={canEdit && !paused && !guidance.conflict && !guidance.reloading}
                 onAccept={(entries, revision) => onAccept?.(category, entries, revision)}
                 document={guidance.proposalInput}
+                planningRevision={guidance.planningRevision}
                 category={category}
                 proposals={proposals}
                 source={source}

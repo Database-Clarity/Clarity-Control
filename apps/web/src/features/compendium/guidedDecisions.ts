@@ -1,5 +1,5 @@
 import { normaliseCompendiumName, type CompendiumData, type CompendiumLink } from '@clarity/core';
-import { compendiumSimilarity, sameCell } from '@clarity/core';
+import { compendiumSimilarity } from '@clarity/core';
 import { confirmCompendiumSelection } from './selection';
 import type { GuidanceDocument, GuidanceReference } from './guidanceSchema';
 import type { ReviewCategory, ReviewSample } from './reviewCategories';
@@ -124,6 +124,28 @@ export function guidedDecisions(
             ...result,
             reason: 'Category comment needs agent interpretation; no automatic rule applied.',
           };
+        if (record.id === 'catalog:armor-mod-seasonal')
+          return {
+            ...result,
+            ruleId: 'owner-artifact-identity',
+            reason:
+              'Current artifact identity is not established by a name or learned tab. Select a current-artifact source explicitly. Anchors: ' +
+              source.tabs
+                .filter((tab) => tab.name === 'Artifact Perks')
+                .flatMap((tab) =>
+                  tab.rows
+                    .filter((row) => row.nameNorm === normaliseCompendiumName(entry.name))
+                    .map((row) =>
+                      JSON.stringify({
+                        gid: tab.gid,
+                        section: row.section,
+                        row: row.rowIndex,
+                        anchor: row.anchor,
+                      }),
+                    ),
+                )
+                .join('; '),
+          };
         // Learn the tab from every current positive sample, including picked renames.
         // Section labels are layout headings, not category boundaries (e.g. Armor Mods slots).
         const positive = [...usable.values()].filter((ref) => ref.link);
@@ -181,28 +203,27 @@ export function guidedDecisions(
                     : undefined;
         if (!best) {
           const proposal = proposals.get(hash);
-          const confirmed = proposal?.match && stableSelection(proposal.match, source);
-          if (
-            proposal?.match &&
-            proposal.link &&
-            confirmed &&
-            sameCell(confirmed.snapshot, proposal.link.snapshot) &&
-            tabs.has(proposal.link.gid) &&
-            names.has(normaliseCompendiumName(proposal.match.row.name))
-          ) {
+          if (exact.length > 1 || proposal?.match?.parts) {
+            // Resolver agreement is not independent card/column or artifact evidence.
+            // Keep all original source rows available for an explicit owner selection;
+            // never expose the resolver's potentially duplicated/neighbor-labelled snapshot.
             return {
               ...result,
-              action: 'link',
-              confidence: positive.some(
-                (ref) => ref.link?.gid === proposal.link!.gid && ref.link.cells,
-              )
-                ? 'medium'
-                : 'high',
-              ruleId: 'resolver-multipart-name',
+              ruleId: 'owner-multipart-source',
               references: support,
-              link: confirmed,
               reason:
-                'Exact normalized name in learned tab, multipart description combined and validated by resolver.',
+                'Multiple same-name source rows require card/column and artifact identity review. ' +
+                'No combined snapshot proposed. Anchors: ' +
+                exact
+                  .map(({ tab, row }) =>
+                    JSON.stringify({
+                      gid: tab.gid,
+                      section: row.section,
+                      row: row.rowIndex,
+                      anchor: row.anchor,
+                    }),
+                  )
+                  .join('; '),
             };
           }
           // An uncovered elemental tab is a review candidate, never inferred high.
@@ -241,6 +262,13 @@ export function guidedDecisions(
           return {
             ...result,
             reason: 'Candidate cannot resolve uniquely to current source cells.',
+          };
+        if (link.parts)
+          return {
+            ...result,
+            ruleId: 'owner-multipart-source',
+            reason:
+              'Combined source requires independent card/column validation; no combined snapshot proposed.',
           };
         // A note on a picked example supports its tab, not a generic rename rule.
         const high =
