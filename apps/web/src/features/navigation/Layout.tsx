@@ -61,7 +61,11 @@ export function Layout() {
       return;
     }
     const previousOverflow = document.body.style.overflow;
+    const previousInert = [skipLink.current, mainContent.current]
+      .filter((element): element is HTMLElement => element !== null)
+      .map((element) => ({ element, value: element.getAttribute('inert') }));
     document.body.style.overflow = 'hidden';
+    for (const { element } of previousInert) element.setAttribute('inert', '');
     browseButton.current?.focus();
     const keydown = (event: KeyboardEvent) => {
       // A native save/conflict dialog owns focus and Escape above Browse.
@@ -76,9 +80,11 @@ export function Layout() {
       if (event.key !== 'Tab') return;
       const drawer = sidebar.current;
       const focusable = drawer
-        ? [...drawer.querySelectorAll<HTMLElement>(
-            'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-          )].filter((element) => {
+        ? [
+            ...drawer.querySelectorAll<HTMLElement>(
+              'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+            ),
+          ].filter((element) => {
             const closedDetails = element.closest('details:not([open])');
             if (
               element.closest('[hidden], [inert], [data-idle="true"]') ||
@@ -107,11 +113,11 @@ export function Layout() {
     return () => {
       window.removeEventListener('keydown', keydown);
       document.body.style.overflow = previousOverflow;
+      for (const { element, value } of previousInert) {
+        if (value === null) element.removeAttribute('inert');
+        else element.setAttribute('inert', value);
+      }
     };
-  }, [navOpen]);
-  useEffect(() => {
-    skipLink.current?.toggleAttribute('inert', navOpen);
-    mainContent.current?.toggleAttribute('inert', navOpen);
   }, [navOpen]);
   useEffect(() => {
     // Reserve the dock's real height (wrapped notices, large text, safe area) below the content.
