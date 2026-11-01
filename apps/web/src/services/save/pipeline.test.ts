@@ -57,7 +57,7 @@ describe('save preparation', () => {
   });
   it('checks recovered drafts against the current role instead of silently filtering changes', () => {
     expect(permissionError([{ hash: 123, base: tooltip, next }], translator)).toContain(
-      'cannot edit en',
+      'cannot edit English',
     );
     const fr = { ...tooltip, text: { ...tooltip.text, fr: { ...english, text: 'French' } } };
     expect(permissionError([{ hash: 123, base: tooltip, next: fr }], translator)).toBeNull();

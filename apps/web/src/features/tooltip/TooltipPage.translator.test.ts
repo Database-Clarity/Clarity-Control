@@ -156,8 +156,8 @@ describe('translator tooltip page', () => {
   it('lets the URL language win and explains the read-only English editor with a switch shortcut', () => {
     const html = render('/t/10?lang=en');
     expect(vi.mocked(ClarityEditor).mock.calls[0][0]).toMatchObject({ lang: 'en', readOnly: true });
-    expect(html).toContain('Read-only: you can translate de, not en.');
-    expect(html).toMatch(/<button[^>]*>Switch to de<\/button>/);
+    expect(html).toContain('Read-only: you can translate German, not English.');
+    expect(html).toMatch(/<button[^>]*>Switch to German<\/button>/);
     expect(html).not.toContain('English source');
   });
 

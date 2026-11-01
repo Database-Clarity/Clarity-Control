@@ -1,3 +1,4 @@
+import { languageLabel } from '../../languageLabels';
 import { useId, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -174,7 +175,7 @@ function AssociatedTooltips({
                 globals={{ ...globals, type: category?.legacyType }}
               />
             ) : (
-              <p>No {lang} text yet.</p>
+              <p>No {languageLabel(lang)} text yet.</p>
             )}
           </details>
         );

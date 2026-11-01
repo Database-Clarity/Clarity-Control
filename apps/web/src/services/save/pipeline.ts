@@ -1,3 +1,4 @@
+import { languageLabel } from '../../languageLabels';
 import {
   languages,
   resolveAlias,
@@ -26,7 +27,7 @@ export function permissionError(changes: Change[], user: Me | null): string | nu
         !canEditLanguage(user, lang) &&
         JSON.stringify(beforeText[lang]) !== JSON.stringify(nextText[lang])
       ) {
-        return `Tooltip ${change.hash}: you cannot edit ${lang}. Your draft was preserved.`;
+        return `Tooltip ${change.hash}: you cannot edit ${languageLabel(lang)}. Your draft was preserved.`;
       }
     }
   }

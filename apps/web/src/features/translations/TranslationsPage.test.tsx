@@ -125,13 +125,13 @@ describe('TranslationsPage worklist', () => {
 
   it('limits a translator to assigned languages', () => {
     const html = render('/translations?status=all', person('translator', ['fr']));
-    expect(html).toContain('Your assigned languages: fr.');
+    expect(html).toContain('Your assigned languages: French.');
     expect(html).toContain('href="/t/1?lang=fr"');
     expect(html).not.toContain('lang=de');
     expect(html).not.toMatch(/<option value="de"/);
     expect(html).toContain('All assigned languages');
     const unavailable = render('/translations?lang=de', person('translator', ['fr']));
-    expect(unavailable).toContain('Unavailable language (de)');
+    expect(unavailable).toContain('Unavailable language (German)');
     expect(unavailable).not.toContain('href="/t/1?lang=de"');
   });
 
@@ -146,8 +146,8 @@ describe('TranslationsPage worklist', () => {
     for (const user of [person('maintainer'), person('editor'), person('trial'), null]) {
       const html = render('/translations', user);
       expect(html).toContain('All languages');
-      expect(html).toContain('<option value="de">de</option>');
-      expect(html).toContain('<option value="fr">fr</option>');
+      expect(html).toContain('<option value="de">German</option>');
+      expect(html).toContain('<option value="fr">French</option>');
       expect(html).toContain('href="/t/1?lang=de"');
       expect(html).toContain('href="/t/1?lang=fr"');
       expect(html).not.toContain('Your assigned languages');

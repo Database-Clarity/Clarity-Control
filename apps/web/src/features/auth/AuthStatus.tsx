@@ -1,3 +1,4 @@
+import { languageLabel } from '../../languageLabels';
 import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { apiUrl, loginUrl } from '../../services/api';
@@ -35,7 +36,7 @@ function AuthIdentity() {
         {!user.role && <span>Read-only: ask a maintainer for an editing role. </span>}
         {user.role === 'translator' && (
           <span>
-            Editable languages: {user.languages?.join(', ') || 'none'}. Other fields are
+            Editable languages: {user.languages?.map(languageLabel).join(', ') || 'none'}. Other fields are
             read-only.{' '}
           </span>
         )}
