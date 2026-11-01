@@ -82,7 +82,7 @@ export function GlobalDetailPage() {
                   to={`/t/${data ? canonicalHash(usage.hash, data) : usage.hash}?lang=${usage.lang}&line=${usage.line}&variant=${usage.hash}`}
                 >
                   {data ? (itemFor(usage.hash, data)?.name ?? usage.hash) : usage.hash} /{' '}
-                  {usage.lang} / line {usage.line}
+                  {languageLabel(usage.lang)} / line {usage.line}
                 </Link>
                 <pre>
                   <mark>{usage.source}</mark>

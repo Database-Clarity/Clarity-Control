@@ -28,7 +28,7 @@ export function SaveSummary({
           <ul>
             {issues.map((issue, index) => (
               <li key={index}>
-                <strong>{issue.severity}</strong>: {issue.hash} / {issue.lang}: {issue.message}
+                <strong>{issue.severity}</strong>: {issue.hash} / {languageLabel(issue.lang)}: {issue.message}
               </li>
             ))}
           </ul>
