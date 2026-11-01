@@ -32,7 +32,6 @@ const source: CompendiumData = {
 const base: Tooltip = { hash: 100, text: {}, associated: [200] };
 const editor: EditorData = {
   categories: [],
-  weaponTypeLabels: {},
   aliases: {},
   items: {
     100: { hash: 100, name: 'Test', categoryId: 'weapon-frame', icon: '', inGameDescription: '' },

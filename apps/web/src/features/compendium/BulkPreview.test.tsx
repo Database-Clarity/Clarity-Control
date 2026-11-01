@@ -32,7 +32,6 @@ function fixture() {
   };
   const editor: EditorData = {
     categories: [],
-    weaponTypeLabels: {},
     aliases: {},
     items: Object.fromEntries(
       rows.map((row, i) => [

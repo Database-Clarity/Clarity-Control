@@ -31,7 +31,6 @@ function fixture(): EditorData {
       { id: 'weapon-frame', label: 'Weapon frames', group: 'Weapons', order: 2 },
       { id: 'weapon-trait-enhanced', label: 'Enhanced traits', group: 'Weapons', order: 3 },
     ],
-    weaponTypeLabels: {},
     bundle: {
       sourceCommit: 'test',
       generatedAt: source.fetchedAt,
