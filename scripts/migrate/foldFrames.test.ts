@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import type { Aliases, Tooltip } from '@clarity/core';
+import { exportLegacy, type Aliases, type Tooltip } from '@clarity/core';
 import { conflictNotes, foldFrames } from './foldFrames.js';
 
 const aliases: Aliases = {
@@ -65,4 +65,65 @@ test('fold is idempotent and rejects cycles', () => {
   expect(() =>
     foldFrames([], { 10: { to: 20, kind: 'frame' }, 20: { to: 10, kind: 'frame' } }, {}, {}),
   ).toThrow('Cyclic');
+});
+
+test.each(['', ' \n\t'])('nonempty text beats a newer blank %j in every language', (blank) => {
+  const canonical = tooltip(10, blank, 25);
+  const older = tooltip(20, 'restored', 10);
+  canonical.text.de = { ...canonical.text.en!, text: blank };
+  older.text.de = { ...older.text.en!, text: 'wiederhergestellt' };
+  const result = foldFrames(
+    [canonical, older, tooltip(30, 'latest nonempty', 20)],
+    aliases,
+    {},
+    {},
+  );
+  expect(result.tooltips[0].text.en?.text).toBe('latest nonempty');
+  expect(result.tooltips[0].text.de).toEqual(older.text.de);
+  expect(result.conflicts).toContainEqual({
+    canonical: 10,
+    hash: 10,
+    language: 'en',
+    name: '10',
+    value: canonical.text.en,
+  });
+  expect(canonical.text.en?.text).toBe(blank);
+});
+
+test('all-blank groups retain the normal revision/tie rules rather than inventing content', () => {
+  const result = foldFrames([tooltip(10, '', 10), tooltip(20, ' ', 20)], aliases, {}, {});
+  expect(result.tooltips[0].text.en?.text).toBe(' ');
+  expect(result.tooltips[0].text.en?.updatedBy).toBe('author20');
+});
+
+test('a newer blank member cannot erase nonempty canonical text', () => {
+  const canonical = tooltip(10, 'accepted shared text', 10);
+  const result = foldFrames([canonical, tooltip(20, '', 25)], aliases, {}, {});
+  expect(result.tooltips[0].text.en).toEqual(canonical.text.en);
+});
+
+test('owner-approved shared frames recover exact member text and export all aliases', () => {
+  const groups = [
+    { hash: 695966445, member: 1645158859, text: 'Hard-hitting four-burst fire.' },
+    { hash: 570373697, member: 749936529, text: 'Hard-hitting two-burst fire.' },
+    {
+      hash: 1888623310,
+      member: 1057935015,
+      text: 'Superb handling. Move faster with this lightweight weapon equipped. This weapon grants additional speed benefits when MIDA Multi-Tool is also equipped.',
+    },
+  ];
+  const frameAliases: Aliases = {};
+  const source: Tooltip[] = [];
+  for (const group of groups) {
+    frameAliases[group.member] = { to: group.hash, kind: 'frame' };
+    source.push(tooltip(group.hash, '', 25), tooltip(group.member, group.text, 10));
+  }
+  const result = foldFrames(source, frameAliases, {}, {});
+  const exported = exportLegacy(result.tooltips, 0, undefined, frameAliases);
+  for (const group of groups) {
+    const canonical = result.tooltips.find((value) => value.hash === group.hash)!;
+    expect(canonical.text.en?.text).toBe(group.text);
+    expect(exported[group.member]).toMatchObject({ aliasOf: group.hash, aliasKind: 'frame' });
+    expect(exported[group.hash]).toMatchObject({ editor: { en: { main: group.text } } });
+  }
 });

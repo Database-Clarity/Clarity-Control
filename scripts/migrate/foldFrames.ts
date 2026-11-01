@@ -61,6 +61,7 @@ export function foldFrames(
       const sameText = new Set(versions.map((version) => version.value.text)).size === 1;
       versions.sort(
         (a, b) =>
+          Number(b.value.text.trim() !== '') - Number(a.value.text.trim() !== '') ||
           Date.parse(b.value.updatedAt) - Date.parse(a.value.updatedAt) ||
           Number(b.hash === canonical) - Number(a.hash === canonical) ||
           a.hash - b.hash,
