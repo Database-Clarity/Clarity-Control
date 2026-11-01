@@ -13,6 +13,7 @@ import {
   tooltipFor,
   variantHashes,
 } from '../navigation/catalog';
+import { tooltipPath } from '../navigation/stepping';
 import { ClarityEditor } from '../editor';
 import { TooltipPreview } from '../preview';
 import { HistoryPanel } from '../history/HistoryPanel';
@@ -52,7 +53,8 @@ export function TooltipPage() {
   }
   const hash = Number(parameter);
   const canonical = canonicalHash(hash, data);
-  if (hash !== canonical) return <Navigate to={`/t/${canonical}`} replace />;
+  if (hash !== canonical)
+    return <Navigate to={tooltipPath(canonical, search.toString())} replace />;
   const item = itemFor(hash, data);
   if (!item && !data.bundle.tooltips[hash]) return <h1>Tooltip {hash} not found</h1>;
   return (

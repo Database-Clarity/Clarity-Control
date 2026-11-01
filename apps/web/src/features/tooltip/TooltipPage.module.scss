@@ -83,6 +83,14 @@
   cursor: pointer;
 }
 
+@include theme.mobile-or-coarse {
+  .header select,
+  .variant button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
 @media (max-width: 1000px) {
   .workspace {
     grid-template-columns: minmax(0, 1fr);

@@ -1,3 +1,5 @@
+@use '../../data/variables' as theme;
+
 .page {
   max-width: 70rem;
   h1 {
@@ -9,6 +11,17 @@
     font: inherit;
     padding: 0.45rem 0.65rem;
     max-width: 100%;
+  }
+}
+
+@include theme.mobile-or-coarse {
+  .page {
+    button,
+    select,
+    input {
+      min-height: 44px;
+      min-width: 44px;
+    }
   }
 }
 

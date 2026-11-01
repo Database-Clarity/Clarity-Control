@@ -1,6 +1,6 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { StaticRouter, Route, Routes } from 'react-router-dom';
+import { Navigate, StaticRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import { TooltipPage } from './TooltipPage';
@@ -11,6 +11,10 @@ import { useDraftStore } from '../../stores/drafts';
 import { useAuthStore } from '../../stores/auth';
 import { useSaveState } from '../../services/save/state';
 
+vi.mock('react-router-dom', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-router-dom')>()),
+  Navigate: vi.fn(() => null),
+}));
 vi.mock('../../services/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../services/api')>()),
   apiUrl: 'https://api.test',
@@ -154,6 +158,44 @@ describe('translator tooltip page', () => {
     expect(html).toContain('Read-only: you can translate de, not en.');
     expect(html).toMatch(/<button[^>]*>Switch to de<\/button>/);
     expect(html).not.toContain('English source');
+  });
+
+  it.each([
+    ['translator', { ...translator, languages: ['de' as const, 'fr' as const] }],
+    ['editor', editor],
+  ])('redirects an alias to the French workspace for an %s', (_role, user) => {
+    const french = {
+      text: 'Texte français',
+      updatedAt: '2026-10-27T00:00:00Z',
+      updatedBy: 'owner',
+    };
+    const translated = { ...base, text: { ...base.text, fr: french } };
+    useAuthStore.setState({ user });
+    useDataStore.setState({
+      data: {
+        ...data,
+        aliases: { 40: { to: 10, kind: 'sandbox' } },
+        bundle: { ...data.bundle, tooltips: { ...data.bundle.tooltips, 10: translated } },
+      },
+    });
+
+    render('/t/40?lang=fr&line=3&variant=40');
+    expect(vi.mocked(Navigate).mock.calls[0][0]).toMatchObject({
+      to: '/t/10?lang=fr',
+      replace: true,
+    });
+    render('/t/10?lang=fr');
+    expect(vi.mocked(ClarityEditor).mock.calls[0][0]).toMatchObject({
+      lang: 'fr',
+      value: 'Texte français',
+      readOnly: false,
+    });
+  });
+
+  it('drops invalid language and obsolete highlights when redirecting an alias', () => {
+    useDataStore.setState({ data: { ...data, aliases: { 40: { to: 10, kind: 'sandbox' } } } });
+    render('/t/40?lang=invalid&line=3&variant=40');
+    expect(vi.mocked(Navigate).mock.calls[0][0]).toMatchObject({ to: '/t/10', replace: true });
   });
 
   it.each([

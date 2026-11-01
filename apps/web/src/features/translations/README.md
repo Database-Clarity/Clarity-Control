@@ -13,6 +13,8 @@ Lists render 50 cards at a time.
 
 On a non-English tooltip, each variant keeps its Compendium panel with the preview. On phones,
 open the Preview tab to see it; the Source and Translation tabs remain available.
+Canonical alias redirects preserve a valid requested language, while dropping line and variant
+highlights tied to the old route.
 
 Outdated order and the red "exported in English" flag use the same strict greater-than-90-day
 revision gap as core export, not wall-clock time. Exactly 90 days remains translated.
@@ -23,3 +25,7 @@ or not found, show a labeled current-English fallback, with explicit errors and 
 request failures. Collapse or navigation aborts outstanding requests.
 
 Run root tests targeting this folder and `packages/core/src/status/status.test.ts`.
+For the rendered touch-target and alias regression, run the web Vite server with
+`VITE_API_URL` set to a non-production dummy URL and open `/test/translator-phone.html`
+at a phone width. The fixture uses synthetic in-memory data and blocks network connections;
+the page displays PASS with measured heights or an explicit failure.
