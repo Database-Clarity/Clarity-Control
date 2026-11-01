@@ -133,7 +133,7 @@ export function ReviewQueue({
     () => reviewCategories(entries, editor, proposals, matching, !!proposalError),
     [entries, editor, proposals, matching, proposalError],
   );
-  const guidance = useGuidance(categories, `${editor.bundle.sourceCommit}|${fingerprint}`);
+  const guidance = useGuidance(categories, `${editor.bundle.sourceCommit}|${fingerprint}`, source, !matching && !proposalError);
   const filtered = entries.filter(
     (entry) =>
       (!groupId || categoryId(entry.category) === groupId) &&

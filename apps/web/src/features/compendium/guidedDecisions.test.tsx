@@ -5,6 +5,24 @@ import { guidedFixture } from '../../../test/guided-fixture';
 import { guidedDecisions, guidedRevision } from './guidedDecisions';
 import { GuidedPreview } from './GuidedPreview';
 
+it('offers a close typo only for confirmation and preserves owner samples', () => {
+  const f = guidedFixture();
+  const entry = f.categories[0].entries.find((item) => item.hash === 102)!;
+  entry.name = 'Precise Jolts';
+  const row = f.source.tabs[0].rows[2];
+  row.name = 'Precise Jolt';
+  row.nameNorm = 'precise jolt';
+  const decide = () =>
+    guidedDecisions(f.document, f.categories, f.proposals, f.source, f.baseline, f.scope)[0]
+      .entries[2];
+  expect(decide()).toMatchObject({ action: 'link', confidence: 'medium' });
+  f.document.categories[f.categories[0].id].references![102] = {
+    ...f.document.categories[f.categories[0].id].references![104],
+    hash: 102,
+  };
+  expect(decide()).toMatchObject({ action: 'owner', confidence: 'unresolved' });
+});
+
 it('proposes exact validated links with two references, exposes complete evidence, and never mutates inputs', () => {
   const f = guidedFixture();
   const before = JSON.stringify([f.document, f.categories, [...f.proposals], f.source]);

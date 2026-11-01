@@ -42,6 +42,22 @@ function stableSelection(
   return link && { ...link, snapshotAt: source.fetchedAt };
 }
 
+// Bounded typo comparison on normalized full names. A close runner-up is ambiguous.
+function editDistance(a: string, b: string): number {
+  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j++)
+      current[j] = Math.min(
+        current[j - 1] + 1,
+        previous[j] + 1,
+        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    previous = current;
+  }
+  return previous[b.length];
+}
+
 // Pure planning only. No drafts, progress, guidance writes, authentication or save calls.
 export function guidedDecisions(
   document: GuidanceDocument,
@@ -182,6 +198,7 @@ export function guidedDecisions(
                 row,
                 exact,
                 token,
+                distance: editDistance(norm, first),
                 score: Math.max(...[...names].map((name) => compendiumSimilarity(name, first))),
               };
             }),
@@ -189,6 +206,13 @@ export function guidedDecisions(
         const exact = candidates.filter((candidate) => candidate.exact);
         const token = candidates.filter((candidate) => candidate.token);
         const ranked = [...candidates].sort((a, b) => b.score - a.score);
+        const typoRanked = [...candidates].sort((a, b) => a.distance - b.distance);
+        const typo =
+          norm.length >= 8 &&
+          typoRanked[0]?.distance <= 2 &&
+          (typoRanked[1]?.distance ?? Infinity) - typoRanked[0].distance >= 2
+            ? typoRanked[0]
+            : undefined;
         const best =
           exact.length === 1
             ? exact[0]
@@ -200,7 +224,7 @@ export function guidedDecisions(
                   ? undefined
                   : ranked[0]?.score >= 0.65 && ranked[0].score - (ranked[1]?.score ?? 0) >= 0.08
                     ? ranked[0]
-                    : undefined;
+                    : typo;
         if (!best) {
           const proposal = proposals.get(hash);
           if (exact.length > 1 || proposal?.match?.parts) {
@@ -283,7 +307,10 @@ export function guidedDecisions(
                 : 'unique-name-in-learned-tab'
             : token.length === 1
               ? 'exotic-name-line-or-catalyst'
-              : 'separated-fuzzy-name';
+              : best === typo &&
+                  !(ranked[0]?.score >= 0.65 && ranked[0].score - (ranked[1]?.score ?? 0) >= 0.08)
+                ? 'separated-typo-name'
+                : 'separated-fuzzy-name';
         return {
           ...result,
           confidence: high ? 'high' : 'medium',

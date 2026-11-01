@@ -1,10 +1,11 @@
+import type { CompendiumData } from '@clarity/core';
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { bundleUrl } from '../../services/bundle';
 import { compendiumDataUrl } from '../../services/compendium';
 import { GuidancePersistence } from './guidancePersistence';
 import type { ReviewCategory } from './reviewCategories';
 
-export function useGuidance(categories: ReviewCategory[], baseline: string) {
+export function useGuidance(categories: ReviewCategory[], baseline: string, source: CompendiumData, enabled: boolean) {
   const persistence = useMemo(
     () =>
       new GuidancePersistence(
@@ -23,6 +24,7 @@ export function useGuidance(categories: ReviewCategory[], baseline: string) {
     return () => persistence.dispose();
   }, [persistence]);
   useEffect(() => {
+    if (!enabled || !persistence.renew(categories, source, baseline)) return;
     persistence.synchronize(
       categories.map((category) => ({
         id: category.id,
@@ -38,7 +40,10 @@ export function useGuidance(categories: ReviewCategory[], baseline: string) {
     persistence,
     categories,
     baseline,
+    source,
+    enabled,
     state.ready,
+    state.saving,
     state.conflict,
     state.reloading,
     state.document,

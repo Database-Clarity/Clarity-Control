@@ -100,6 +100,7 @@ export function CategoryReview({
                   : 'Examples and notes are not saved to disk yet.'}
         </p>
         {guidance.error && <p role="alert">{guidance.error}</p>}
+        {guidance.renewalNotice && <p role="status">{guidance.renewalNotice}</p>}
         {guidance.localError && <p role="alert">{guidance.localError}</p>}
         <SendGuidance document={guidance.document} ready={guidance.ready} />
         <details>

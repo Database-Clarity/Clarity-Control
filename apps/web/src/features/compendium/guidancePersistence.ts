@@ -1,3 +1,6 @@
+import type { CompendiumData } from '@clarity/core';
+import type { ReviewCategory } from './reviewCategories';
+import { rebaselineGuidance } from './rebaselineGuidance';
 import { errorMessage } from '../../services/http';
 import {
   guidanceCacheSchema,
@@ -21,6 +24,7 @@ interface GuidanceState {
   conflict: boolean;
   error: string | null;
   localError: string | null;
+  renewalNotice?: string;
 }
 export class GuidancePersistence {
   private revision: string | null = null;
@@ -139,6 +143,26 @@ export class GuidancePersistence {
         error: `Disk autosave unavailable: ${errorMessage(error)}. Comments stay in this browser; agents cannot read them yet.`,
       });
     }
+  }
+  renew(categories: ReviewCategory[], source: CompendiumData, baseline: string): boolean {
+    if (!this.state.ready || this.state.reloading || this.state.conflict || this.state.saving) return false;
+    const original = this.state.document;
+    if (!original.baseline || original.baseline === baseline) return true;
+    const result = rebaselineGuidance(original, categories, source, baseline, original.scope);
+    try {
+      // Never replace an earlier recovery point, even across repeated renewals.
+      const prefix = `${this.key}:pre-renewal:`;
+      let suffix = Date.now();
+      while (this.storage.getItem(prefix + suffix) !== null) suffix++;
+      this.storage.setItem(prefix + suffix, JSON.stringify({ document: original, revision: this.revision, pending: this.pending }));
+    } catch (error) {
+      this.set({ localError: `Guidance renewal backup failed: ${errorMessage(error)}. Guidance was not renewed.` });
+      return false;
+    }
+    this.change(result.document);
+    this.set({ proposalInput: result.document, planningRevision: this.state.planningRevision + 1,
+      renewalNotice: `${result.renewed.length} references carried over, ${result.changed.length} need re-check` });
+    return true;
   }
   synchronize(categories: Omit<GuidanceCategory, 'comment' | 'references'>[], baseline: string) {
     if (!this.state.ready || this.state.reloading) return;
