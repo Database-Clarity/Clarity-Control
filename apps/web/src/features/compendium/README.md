@@ -161,6 +161,44 @@ set and evidence revision, not arbitrary future membership. Rejections with new
 comments loop back to step 2. Accepted link changes still use normal draft/save,
 roles and Worker gates; no data publication is part of these steps.
 
+### Guided proposal preview
+
+The category view now has a non-mutating guided preview. It uses the guidance
+with membership and baseline captured at the last disk/browser load, before automatic
+membership synchronization. Owner reference/comment edits apply immediately and invalidate
+open previews, including after autosave. Conflicts and disk reloads invalidate acceptance.
+Reload disk guidance to renew membership; synchronization never expands a frozen preview.
+It shows the full recorded scope, stratified explicit/inferred/exception samples,
+source snapshots, supporting reference hashes, reasons and high/unresolved counts.
+Existing links and local human decisions are preserved. New category members are
+excluded. Scope/baseline mismatches, missing or changed entry/source evidence,
+skips and note-only records never become mapping examples.
+
+Exact normalized names in an owner-demonstrated tab may be proposed high. Token,
+rename and selected-cell conventions require individual medium confirmation. Duplicate
+names/multipart resolver output require independent card/column validation and are withheld
+with source anchors for owner review. Inferred seasonal matches are withheld until current
+artifact identity is established; name/tab agreement alone cannot establish it. Explicit
+owner outcomes apply only to their own entries. Existing resolver/manual multipart ordering
+is unchanged. Confidence is an evidence-backed proposal, not owner approval.
+
+Generate an inspectable decisions file without opening the UI or exporting again:
+`node scripts/compendium-guidance/report.mjs <guidance.json> <new-output-directory>`.
+This reads the existing local guidance plus current public generator, bundle and
+Compendium inputs; it writes only a new report directory, never the guidance or
+remote data. The JSON records input digest/baselines, revision, complete per-entry
+evidence, preserved reference snapshots/notes, category patterns and stale issues.
+
+Accept all high and individual medium confirmation create only displayed local link drafts.
+Acceptance revalidates current guidance, evidence, permissions and drafts. Undo restores only
+link metadata while preserving later text/association edits. Save remains the normal flow.
+
+For reproducible historical-baseline comparison, optionally pass a third argument naming a
+local bundle rebuilt from the exact recorded public editor-data commit. Reports identify this
+input and retain baseline checks. This never relabels current data as an older revision.
+Current live results and historical comparisons must be reported separately.
+Synthetic browser fixture: `/test/guided-preview.html` (network disabled).
+
 ### Individual review
 
 Individual review shows one entry beside its proposed source and nearby styled sheet cells.

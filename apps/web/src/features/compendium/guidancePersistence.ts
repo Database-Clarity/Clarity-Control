@@ -10,6 +10,9 @@ import {
 
 interface GuidanceState {
   document: GuidanceDocument;
+  // Frozen membership/baseline from the last read, with current owner references/comments.
+  planningRevision: number;
+  proposalInput?: GuidanceDocument;
   ready: boolean;
   saving: boolean;
   reloading: boolean;
@@ -37,6 +40,7 @@ export class GuidancePersistence {
     this.key = `clarity-review-guidance:v1:${encodeURIComponent(scope)}`;
     this.state = {
       document: { version: 1, scope, baseline: '', categories: {} },
+      planningRevision: 0,
       ready: false,
       saving: false,
       reloading: false,
@@ -54,7 +58,14 @@ export class GuidancePersistence {
     };
   };
   private set(patch: Partial<GuidanceState>) {
-    this.state = { ...this.state, ...patch };
+    const invalidate =
+      (patch.conflict === true && !this.state.conflict) || patch.reloading === true;
+    this.state = {
+      ...this.state,
+      ...patch,
+      planningRevision:
+        (patch.planningRevision ?? this.state.planningRevision) + (invalidate ? 1 : 0),
+    };
     for (const listener of this.listeners) listener();
   }
   private cache() {
@@ -95,7 +106,7 @@ export class GuidancePersistence {
           throw new Error('Backup dataset mismatch');
         this.revision = cached.revision;
         this.pending = cached.pending;
-        this.set({ document: cached.document });
+        this.set({ document: cached.document, proposalInput: cached.document });
       }
     } catch (error) {
       this.recoveryError = `Browser backup could not be recovered: ${errorMessage(error)}`;
@@ -117,6 +128,7 @@ export class GuidancePersistence {
         ready: true,
         diskSaved: !this.pending && !!disk.document,
         document: this.pending ? this.state.document : (disk.document ?? this.state.document),
+        proposalInput: this.pending ? this.state.document : (disk.document ?? undefined),
       });
       this.cache();
       if (this.pending) this.schedule();
@@ -149,10 +161,13 @@ export class GuidancePersistence {
     const category = this.state.document.categories[id];
     if (!category) throw new Error(`Unknown guidance category ${id}`);
     if (comment.length > 100_000) throw new Error('Category guidance exceeds 100,000 characters');
-    this.change({
-      ...this.state.document,
-      categories: { ...this.state.document.categories, [id]: { ...category, comment } },
-    });
+    this.change(
+      {
+        ...this.state.document,
+        categories: { ...this.state.document.categories, [id]: { ...category, comment } },
+      },
+      true,
+    );
   }
   reference(id: string, reference: GuidanceReference) {
     if (!this.state.ready) throw new Error('Guidance is still loading');
@@ -161,20 +176,45 @@ export class GuidancePersistence {
     const validated = guidanceReferenceSchema.parse(reference);
     if (validated.categoryId !== id || !category.hashes.includes(validated.hash))
       throw new Error('Reference must belong to this category');
-    this.change({
-      ...this.state.document,
-      categories: {
-        ...this.state.document.categories,
-        [id]: {
-          ...category,
-          references: { ...category.references, [validated.hash]: validated },
+    this.change(
+      {
+        ...this.state.document,
+        categories: {
+          ...this.state.document.categories,
+          [id]: {
+            ...category,
+            references: { ...category.references, [validated.hash]: validated },
+          },
         },
       },
-    });
+      true,
+    );
   }
-  private change(document: GuidanceDocument) {
+  private change(document: GuidanceDocument, ownerEdit = false) {
     this.pending = true;
-    this.set({ document, diskSaved: false });
+    const input = this.state.proposalInput;
+    const proposalInput =
+      ownerEdit && input
+        ? {
+            ...input,
+            categories: Object.fromEntries(
+              Object.entries(input.categories).map(([id, category]) => [
+                id,
+                {
+                  ...category,
+                  comment: document.categories[id]?.comment ?? category.comment,
+                  references: document.categories[id]?.references ?? category.references,
+                },
+              ]),
+            ),
+          }
+        : input;
+    this.set({
+      document,
+      proposalInput,
+      diskSaved: false,
+      planningRevision: this.state.planningRevision + (ownerEdit ? 1 : 0),
+    });
     this.cache();
     this.schedule();
   }
@@ -239,6 +279,7 @@ export class GuidancePersistence {
       this.pending = false;
       this.set({
         document: disk.document ?? { ...this.state.document, categories: {} },
+        proposalInput: disk.document ?? undefined,
         ready: true,
         conflict: false,
         error: null,

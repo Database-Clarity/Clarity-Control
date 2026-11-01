@@ -1,0 +1,301 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { expect, it } from 'vitest';
+import { guidedFixture } from '../../../test/guided-fixture';
+import { guidedDecisions, guidedRevision } from './guidedDecisions';
+import { GuidedPreview } from './GuidedPreview';
+
+it('proposes exact validated links with two references, exposes complete evidence, and never mutates inputs', () => {
+  const f = guidedFixture();
+  const before = JSON.stringify([f.document, f.categories, [...f.proposals], f.source]);
+  const [group] = guidedDecisions(
+    f.document,
+    f.categories,
+    f.proposals,
+    f.source,
+    f.baseline,
+    f.scope,
+  );
+  expect(group.high).toBe(4);
+  expect(group.unresolved).toBe(2);
+  expect(group.entries.find((entry) => entry.hash === 102)).toMatchObject({
+    action: 'link',
+    confidence: 'high',
+    references: [100, 101],
+    link: { rowKey: 'Sample 102' },
+  });
+  expect(group.entries.find((entry) => entry.hash === 104)?.action).toBe('owner');
+  expect(group.samples).toContain(103);
+  expect(before).toBe(JSON.stringify([f.document, f.categories, [...f.proposals], f.source]));
+  expect(guidedRevision([group])).toBe(
+    guidedRevision(
+      guidedDecisions(f.document, f.categories, f.proposals, f.source, f.baseline, f.scope),
+    ),
+  );
+});
+
+it('withholds changed baseline, scope and individual source/entry evidence', () => {
+  for (const change of ['baseline', 'scope', 'source', 'entry'] as const) {
+    const f = guidedFixture();
+    if (change === 'baseline') f.baseline += 'changed';
+    if (change === 'scope') f.scope += 'changed';
+    if (change === 'source')
+      f.source.tabs[0].rows[0].cell = { plain: 'Changed', runs: [{ text: 'Changed' }] };
+    if (change === 'entry') f.categories[0].entries[0].sampleEvidence += 'changed';
+    const [group] = guidedDecisions(
+      f.document,
+      f.categories,
+      f.proposals,
+      f.source,
+      f.baseline,
+      f.scope,
+    );
+    expect(group.issues.length).toBeGreaterThan(0);
+    expect(group.entries[0].confidence).toBe('unresolved');
+    expect(group.entries[2].confidence).toBe(
+      change === 'baseline' || change === 'scope' ? 'unresolved' : 'high',
+    );
+  }
+});
+
+it('learns from one positive reference, requires review for cell conventions, and protects owner samples/comments', () => {
+  for (const kind of ['none', 'skip', 'note', 'comment', 'rename', 'cells'] as const) {
+    const f = guidedFixture();
+    const record = f.document.categories[f.categories[0].id];
+    const reference = record.references![100];
+    if (kind === 'none' || kind === 'skip' || kind === 'note') {
+      reference.decision =
+        kind === 'none' ? 'no-equivalent' : kind === 'skip' ? 'skipped' : undefined;
+      delete reference.link;
+    }
+    if (kind === 'comment') record.comment = 'Need manual interpretation';
+    if (kind === 'rename') reference.sourceName = 'Different name';
+    if (kind === 'cells') reference.link!.cells = [{ dRow: 0, dCol: 2 }];
+    const [group] = guidedDecisions(
+      f.document,
+      f.categories,
+      f.proposals,
+      f.source,
+      f.baseline,
+      f.scope,
+    );
+    expect(group.entries[2].confidence).toBe(kind === 'comment' ? 'unresolved' : 'high');
+    if (kind === 'skip' || kind === 'note') expect(group.entries[0].action).toBe('owner');
+  }
+});
+
+it('preserves human overrides and excludes new membership; missing references are explicit', () => {
+  const f = guidedFixture();
+  f.categories[0].entries[2].status = 'no-equivalent';
+  f.document.categories[f.categories[0].id].hashes = [100, 101, 102, 999];
+  const [group] = guidedDecisions(
+    f.document,
+    f.categories,
+    f.proposals,
+    f.source,
+    f.baseline,
+    f.scope,
+  );
+  expect(group.entries.map((entry) => entry.hash)).toEqual([100, 101, 102, 999]);
+  expect(group.entries[2].action).toBe('preserve');
+  expect(group.entries[3].reason).toContain('missing');
+  expect(group.issues.some((issue) => issue.includes('new entries excluded'))).toBe(true);
+  f.categories[0].entries = [];
+  expect(
+    guidedDecisions(
+      f.document,
+      f.categories,
+      f.proposals,
+      f.source,
+      f.baseline,
+      f.scope,
+    )[0].issues.join(),
+  ).toContain('Reference 100');
+});
+
+it('withholds fuzzy proposals and makes preview-only scope and spot-check limitations visible', () => {
+  const f = guidedFixture();
+  f.proposals.get(102)!.link = undefined;
+  const [group] = guidedDecisions(
+    f.document,
+    f.categories,
+    f.proposals,
+    f.source,
+    f.baseline,
+    f.scope,
+  );
+  expect(group.entries[2].confidence).toBe('high');
+  const html = renderToStaticMarkup(
+    createElement(GuidedPreview, { ...f, category: f.categories[0] }),
+  );
+  expect(html).toContain('6 recorded entries');
+  expect(html).toContain('not individual review');
+  expect(html).toContain('local link-only drafts');
+  expect(html).not.toContain('Accept category');
+});
+
+it('one positive sample establishes a tab; negative samples never establish an absence rule', () => {
+  const f = guidedFixture();
+  const record = f.document.categories[f.categories[0].id];
+  delete record.references![101];
+  let [group] = guidedDecisions(
+    f.document,
+    f.categories,
+    f.proposals,
+    f.source,
+    f.baseline,
+    f.scope,
+  );
+  expect(group.entries[2]).toMatchObject({
+    confidence: 'high',
+    references: [100],
+    ruleId: 'unique-name-in-learned-tab',
+  });
+  delete record.references![100];
+  [group] = guidedDecisions(f.document, f.categories, f.proposals, f.source, f.baseline, f.scope);
+  expect(group.entries[2]).toMatchObject({ confidence: 'unresolved', action: 'owner' });
+});
+
+it('ambiguous names and stale multipart proposals cannot produce high links', () => {
+  const f = guidedFixture();
+  const row = f.source.tabs[0].rows[2];
+  f.source.tabs[0].rows.push({
+    ...row,
+    rowIndex: 99,
+    cell: { plain: 'Different mechanics', runs: [{ text: 'Different mechanics' }] },
+  });
+  const [group] = guidedDecisions(
+    f.document,
+    f.categories,
+    f.proposals,
+    f.source,
+    f.baseline,
+    f.scope,
+  );
+  expect(group.entries[2]).toMatchObject({ confidence: 'unresolved', action: 'owner' });
+});
+import { combineCompendiumMatches, snapshotCompendium, compendiumDataSchema } from '@clarity/core';
+import multipartSource from './fixtures/multipart-review.json';
+import { sampleReference } from './sampleReferences';
+import { sourceFingerprint } from './reviewProgress';
+
+it.each(['Blastwave Striders', 'Swarmers', 'Armorsmith'])(
+  'withholds actual %s card anchors instead of promoting resolver-generated neighboring headings',
+  (name) => {
+    const f = guidedFixture();
+    const realTab = structuredClone(
+      compendiumDataSchema
+        .parse(multipartSource)
+        .tabs.find((tab) => tab.rows.some((row) => row.name === name))!,
+    );
+    const rows = realTab.rows.filter((row) => row.name === name);
+    realTab.rows = [...rows, f.source.tabs[0].rows[0]];
+    f.source.tabs.push(realTab);
+    f.baseline = `synthetic|${sourceFingerprint(f.source.tabs)}`;
+    f.document.baseline = f.baseline;
+    const record = f.document.categories[f.categories[0].id];
+    const sample = f.categories[0].entries.find((entry) => entry.hash === 100)!;
+    record.references = {
+      100: sampleReference(
+        sample,
+        record.id,
+        f.baseline,
+        '',
+        'picked',
+        { tab: realTab, row: realTab.rows[2] },
+        f.source,
+      ),
+    };
+    f.categories[0].entries.find((entry) => entry.hash === 102)!.name = name;
+    const match = combineCompendiumMatches(rows.map((row) => ({ tab: realTab, row })))!;
+    expect(match.parts).toHaveLength(2);
+    const expected =
+      name === 'Blastwave Striders'
+        ? ["The Dragon's Shadow", 'Wraithmetal Mail']
+        : name === 'Swarmers'
+          ? ['Speedloader Slacks', 'Tight Fit']
+          : ['Kinetic Synthesis', 'Anti-Champion Nosecone'];
+    expect(match.parts).toEqual(expected);
+    f.proposals.set(102, {
+      match,
+      link: snapshotCompendium(match, f.source.fetchedAt),
+      candidates: [],
+    });
+    const before = JSON.stringify(f.source);
+    const [group] = guidedDecisions(
+      f.document,
+      f.categories,
+      f.proposals,
+      f.source,
+      f.baseline,
+      f.scope,
+    );
+    const decision = group.entries.find((entry) => entry.hash === 102)!;
+    expect(decision).toMatchObject({
+      action: 'owner',
+      confidence: 'unresolved',
+      ruleId: 'owner-multipart-source',
+    });
+    expect(decision.link).toBeUndefined();
+    for (const row of rows) expect(decision.reason).toContain(JSON.stringify(row.anchor));
+    expect(JSON.stringify(f.source)).toBe(before);
+    expect(
+      combineCompendiumMatches([...rows].reverse().map((row) => ({ tab: realTab, row })))?.parts,
+    ).toEqual(match.parts);
+  },
+);
+
+it('requires explicit current-artifact identity even for a unique name in the learned tab', () => {
+  const f = guidedFixture();
+  const record = f.document.categories[f.categories[0].id];
+  record.id = 'catalog:armor-mod-seasonal';
+  const category = { ...f.categories[0], id: record.id };
+  const [group] = guidedDecisions(
+    f.document,
+    [category],
+    f.proposals,
+    f.source,
+    f.baseline,
+    f.scope,
+  );
+  expect(group.entries[2]).toMatchObject({
+    confidence: 'unresolved',
+    action: 'owner',
+    ruleId: 'owner-artifact-identity',
+  });
+});
+
+it('preserves real multipart frame ordering and snapshots for explicit manual resolution', () => {
+  const source = compendiumDataSchema.parse(multipartSource);
+  const tab = source.tabs.find((tab) => tab.name === 'Weapon Perks')!;
+  const rows = tab.rows.filter((row) => row.nameNorm === 'adaptive frame');
+  expect(rows).toHaveLength(2);
+  const match = combineCompendiumMatches([...rows].reverse().map((row) => ({ tab, row })))!;
+  expect(match.parts).toEqual(['Intrinsic Traits', 'Rocket Launchers']);
+  expect(match.row.cell.plain.indexOf(rows[0].cell.plain)).toBeLessThan(
+    match.row.cell.plain.indexOf(rows[1].cell.plain),
+  );
+  const f = guidedFixture();
+  f.source.tabs.push(tab);
+  f.baseline = `synthetic|${sourceFingerprint(f.source.tabs)}`;
+  f.document.baseline = f.baseline;
+  const record = f.document.categories[f.categories[0].id];
+  const entry = f.categories[0].entries[0];
+  record.references = {
+    [entry.hash]: sampleReference(entry, record.id, f.baseline, '', 'picked', match, f.source),
+  };
+  const [group] = guidedDecisions(
+    f.document,
+    f.categories,
+    f.proposals,
+    f.source,
+    f.baseline,
+    f.scope,
+  );
+  expect(group.entries[0]).toMatchObject({
+    action: 'link',
+    confidence: 'high',
+    ruleId: 'explicit-owner',
+    link: { parts: match.parts, snapshot: match.row.cell },
+  });
+});

@@ -8,6 +8,10 @@ import { referenceCurrent } from './sampleReferences';
 import { SampleReview } from './SampleReview';
 import { SendGuidance } from './SendGuidance';
 import styles from './CategoryReview.module.scss';
+import { GuidedPreview } from './GuidedPreview';
+import { bundleUrl } from '../../services/bundle';
+import { compendiumDataUrl } from '../../services/compendium';
+import { sourceFingerprint } from './reviewProgress';
 
 export function CategoryReview({
   categories,
@@ -16,12 +20,20 @@ export function CategoryReview({
   proposals,
   guidance,
   onReview,
+  canEdit = false,
+  onAccept,
 }: {
   categories: ReviewCategory[];
   editor: EditorData;
   source: CompendiumData;
   proposals: Map<number, ReviewProposal>;
   guidance: ReturnType<typeof useGuidance>;
+  canEdit?: boolean;
+  onAccept?: (
+    category: ReviewCategory,
+    entries: import('./guidedDecisions').GuidedDecision[],
+    revision: string,
+  ) => void;
   onReview: (category?: ReviewCategory, hash?: number) => void;
 }) {
   const [query, setQuery] = useState('');
@@ -210,6 +222,20 @@ export function CategoryReview({
               )}
             </details>
             <button onClick={() => onReview(category)}>Review these one by one</button>
+            {guidance.ready && guidance.proposalInput && (
+              <GuidedPreview
+                key={category.id}
+                canEdit={canEdit && !paused && !guidance.conflict && !guidance.reloading}
+                onAccept={(entries, revision) => onAccept?.(category, entries, revision)}
+                document={guidance.proposalInput}
+                planningRevision={guidance.planningRevision}
+                category={category}
+                proposals={proposals}
+                source={source}
+                baseline={`${editor.bundle.sourceCommit}|${sourceFingerprint(source.tabs)}`}
+                scope={`${bundleUrl}|${compendiumDataUrl}`}
+              />
+            )}
           </section>
         )}
       </div>
