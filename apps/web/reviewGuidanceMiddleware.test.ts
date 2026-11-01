@@ -80,6 +80,35 @@ it('writes readable guidance atomically and reads it from another server without
   expect(await (await phone.get()).json()).toEqual(saved);
   expect(await readdir(directories[0])).toEqual(['review-guidance.json']);
 });
+it('atomically extends legacy comments with readable sample decisions without dropping owner guidance', async () => {
+  const server = await fixture();
+  const first = await (await server.write(document, null)).json();
+  const updated = {
+    ...document,
+    categories: {
+      ...document.categories,
+      'catalog:weapon-trait': {
+        ...document.categories['catalog:weapon-trait'],
+        references: {
+          10: {
+            hash: 10,
+            name: 'Example',
+            categoryId: 'catalog:weapon-trait',
+            evidence: 'entry evidence',
+            baseline: document.baseline,
+            timestamp: '2026-11-01T00:00:00Z',
+            decision: 'no-equivalent',
+            note: 'No matching source',
+          },
+        },
+      },
+    },
+  };
+  expect((await server.write(updated, first.revision)).status).toBe(200);
+  expect(JSON.parse(await readFile(server.file, 'utf8'))).toEqual(updated);
+  const phone = await fixture(server.file);
+  expect((await (await phone.get()).json()).document).toEqual(updated);
+});
 it('rejects stale/concurrent writes from separate Vite servers, retaining the accepted owner comment', async () => {
   const first = await fixture();
   const second = await fixture(first.file);

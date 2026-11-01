@@ -74,6 +74,17 @@
     flex-shrink: 0;
   }
 }
+.categoryReview {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 2 * clamp(1.25rem, 4vw, 3rem));
+  padding-bottom: 0;
+  box-sizing: border-box;
+  > .heading {
+    flex-shrink: 0;
+    margin-bottom: 0.75rem;
+  }
+}
 .heading {
   display: flex;
   align-items: center;
@@ -293,6 +304,10 @@
   .entryReview {
     display: block;
     height: auto;
+  }
+  .categoryReview {
+    height: auto;
+    padding-bottom: 0;
   }
   .entryNav {
     gap: 0.5rem;

@@ -59,7 +59,7 @@ export function MatchReviewPage() {
   );
   return (
     <article
-      className={`${styles.review} ${params.get('view') === 'entries' ? styles.entryReview : ''}`}
+      className={`${styles.review} ${params.get('view') === 'entries' ? styles.entryReview : styles.categoryReview}`}
     >
       <header className={styles.heading}>
         <div>
@@ -307,6 +307,7 @@ export function ReviewQueue({
         <CategoryReview
           categories={categories}
           editor={editor}
+          source={source}
           proposals={proposals}
           guidance={guidance}
           onReview={reviewCategory}

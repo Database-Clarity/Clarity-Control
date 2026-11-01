@@ -87,7 +87,7 @@ function component(preview: ReturnType<typeof createBulkPreview>, page = 0, curr
 }
 
 it('disables category textareas and reload/save controls while disk reload is outstanding', async () => {
-  const { editor, entries, proposals } = fixture();
+  const { editor, source, entries, proposals } = fixture();
   const persistence = new GuidancePersistence(
     'fixture',
     '/guidance',
@@ -99,6 +99,7 @@ it('disables category textareas and reload/save controls while disk reload is ou
   const html = renderToStaticMarkup(
     createElement(CategoryReview, {
       editor,
+      source,
       categories: reviewCategories(entries, editor, proposals, false),
       proposals,
       guidance,

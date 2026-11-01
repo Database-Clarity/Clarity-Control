@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { GuidancePersistence } from './guidancePersistence';
 import type { GuidanceDocument } from './guidanceSchema';
+import type { GuidanceReference } from './guidanceSchema';
 
 const categories = [
   {
@@ -37,6 +38,78 @@ function fixture() {
   return { create, request, cache, storage, document: () => document, writes: () => writes };
 }
 afterEach(() => vi.useRealTimers());
+it('retains typed comments and references during conflicts without overwriting newer disk guidance', async () => {
+  const data = fixture();
+  const first = data.create();
+  await first.start();
+  first.synchronize(categories, 'baseline');
+  await first.flush();
+  const second = data.create();
+  await second.start();
+  first.comment(categories[0].id, 'Latest disk instruction');
+  await first.flush();
+  second.comment(categories[0].id, 'Local note');
+  await second.flush();
+  expect(second.getSnapshot().conflict).toBe(true);
+  second.comment(categories[0].id, 'I can still type after conflict');
+  const reference: GuidanceReference = {
+    categoryId: categories[0].id,
+    hash: 10,
+    name: 'Example',
+    evidence: 'evidence',
+    baseline: 'baseline',
+    timestamp: '2026-11-01T00:00:00Z',
+    decision: 'no-equivalent',
+    note: 'Local reference',
+  };
+  second.reference(categories[0].id, reference);
+  await second.flush();
+  expect(second.getSnapshot().document.categories[categories[0].id]).toMatchObject({
+    comment: 'I can still type after conflict',
+    references: { 10: reference },
+  });
+  expect(data.document()?.categories[categories[0].id].comment).toBe('Latest disk instruction');
+  expect([...data.cache.values()][0]).toContain('Local reference');
+  await second.reloadDisk();
+  first.dispose();
+  second.dispose();
+});
+it('autosaves reference notes and resolutions, preserves legacy comments and retains references through membership changes', async () => {
+  vi.useFakeTimers();
+  const data = fixture();
+  const owner = data.create();
+  await owner.start();
+  owner.synchronize(categories, 'baseline');
+  owner.comment(categories[0].id, 'Existing owner guidance');
+  const reference: GuidanceReference = {
+    categoryId: categories[0].id,
+    hash: 10,
+    name: 'Example',
+    evidence: 'evidence',
+    baseline: 'baseline',
+    timestamp: '2026-11-01T00:00:00Z',
+    decision: 'no-equivalent',
+    note: 'No source',
+  };
+  owner.reference(categories[0].id, reference);
+  await vi.advanceTimersByTimeAsync(401);
+  expect(data.document()?.categories[categories[0].id]).toMatchObject({
+    comment: 'Existing owner guidance',
+    references: { 10: reference },
+  });
+  const phone = data.create();
+  await phone.start();
+  expect(phone.getSnapshot().document).toEqual(owner.getSnapshot().document);
+  owner.synchronize([], 'new evidence');
+  expect(owner.getSnapshot().document.categories[categories[0].id]).toMatchObject({
+    active: false,
+    references: { 10: reference },
+    comment: 'Existing owner guidance',
+  });
+  await owner.flush();
+  owner.dispose();
+  phone.dispose();
+});
 it('pauses editing/retries during a delayed reload and preserves text and backup changed after it starts', async () => {
   const data = fixture();
   const owner = data.create();

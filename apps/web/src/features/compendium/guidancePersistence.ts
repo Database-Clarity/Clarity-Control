@@ -2,8 +2,10 @@ import { errorMessage } from '../../services/http';
 import {
   guidanceCacheSchema,
   guidanceResponseSchema,
+  guidanceReferenceSchema,
   type GuidanceCategory,
   type GuidanceDocument,
+  type GuidanceReference,
 } from './guidanceSchema';
 
 interface GuidanceState {
@@ -106,7 +108,7 @@ export class GuidancePersistence {
           ready: true,
           conflict: true,
           error:
-            'Unsaved browser guidance conflicts with disk. Export it or reload disk before continuing.',
+            'Unsaved browser guidance conflicts with disk. You can keep typing locally. Export a backup before reloading disk; disk autosave is paused.',
         });
         return;
       }
@@ -125,8 +127,8 @@ export class GuidancePersistence {
       });
     }
   }
-  synchronize(categories: Omit<GuidanceCategory, 'comment'>[], baseline: string) {
-    if (!this.state.ready || this.state.conflict || this.state.reloading) return;
+  synchronize(categories: Omit<GuidanceCategory, 'comment' | 'references'>[], baseline: string) {
+    if (!this.state.ready || this.state.reloading) return;
     const next = Object.fromEntries(
       Object.entries(this.state.document.categories).map(([id, category]) => [
         id,
@@ -134,18 +136,40 @@ export class GuidancePersistence {
       ]),
     );
     for (const category of categories)
-      next[category.id] = { ...category, comment: next[category.id]?.comment ?? '' };
+      next[category.id] = {
+        ...next[category.id],
+        ...category,
+        comment: next[category.id]?.comment ?? '',
+      };
     const document = { ...this.state.document, baseline, categories: next };
     if (JSON.stringify(document) !== JSON.stringify(this.state.document)) this.change(document);
   }
   comment(id: string, comment: string) {
-    if (!this.state.ready || this.state.conflict) return;
+    if (!this.state.ready) return;
     const category = this.state.document.categories[id];
     if (!category) throw new Error(`Unknown guidance category ${id}`);
     if (comment.length > 100_000) throw new Error('Category guidance exceeds 100,000 characters');
     this.change({
       ...this.state.document,
       categories: { ...this.state.document.categories, [id]: { ...category, comment } },
+    });
+  }
+  reference(id: string, reference: GuidanceReference) {
+    if (!this.state.ready) throw new Error('Guidance is still loading');
+    const category = this.state.document.categories[id];
+    if (!category) throw new Error(`Unknown guidance category ${id}`);
+    const validated = guidanceReferenceSchema.parse(reference);
+    if (validated.categoryId !== id || !category.hashes.includes(validated.hash))
+      throw new Error('Reference must belong to this category');
+    this.change({
+      ...this.state.document,
+      categories: {
+        ...this.state.document.categories,
+        [id]: {
+          ...category,
+          references: { ...category.references, [validated.hash]: validated },
+        },
+      },
     });
   }
   private change(document: GuidanceDocument) {
@@ -188,7 +212,7 @@ export class GuidancePersistence {
       this.cache();
     } catch (error) {
       this.set({
-        error: `Not saved to disk: ${errorMessage(error)}. Export or keep this browser backup; agents cannot read the latest guidance yet.`,
+        error: `Not saved to disk: ${errorMessage(error)}. You can keep editing locally. Export a backup before reloading disk; agents cannot read the latest guidance yet.`,
       });
       this.cache();
     } finally {

@@ -27,6 +27,7 @@ export function LinkPicker({
   onBeforeLinked,
   readOnly = false,
   suggestions,
+  onReference,
 }: {
   base: Tooltip;
   name: string;
@@ -35,12 +36,14 @@ export function LinkPicker({
   onBeforeLinked?(link: NonNullable<Tooltip['compendium']>): void;
   readOnly?: boolean;
   suggestions?: CompendiumSuggestion[];
+  onReference?(match: CompendiumMatch): void;
 }) {
   const data = useCompendiumStore((state) => state.data);
   const user = useAuthStore((state) => state.user);
   const hydrated = useDraftStore((state) => state.hydrated);
   const locked = useSaveState((state) => state.locked);
-  const canEdit = !readOnly && mayDraftLink(user?.role, !!apiUrl, hydrated, locked);
+  const canEdit =
+    !readOnly && (!!onReference || mayDraftLink(user?.role, !!apiUrl, hydrated, locked));
   const [section, setSection] = useState('');
   const updateDraft = useDraftStore((state) => state.updateDraft);
   const [anchorRow, setAnchorRow] = useState<CompendiumMatch['row']>();
@@ -126,15 +129,18 @@ export function LinkPicker({
       setError('This selection cannot be resolved uniquely. Choose a nearby unique name anchor.');
       return;
     }
-    onBeforeLinked?.(link);
-    updateDraft(base, (tooltip) => ({
-      ...tooltip,
-      compendium: link,
-    }));
+    if (onReference) onReference(match);
+    else {
+      onBeforeLinked?.(link);
+      updateDraft(base, (tooltip) => ({
+        ...tooltip,
+        compendium: link,
+      }));
+    }
     try {
       localStorage.setItem(preferenceKey, match.tab.gid);
     } catch (error) {
-      setError(`Link is drafted, but cannot remember tab: ${errorMessage(error)}`);
+      setError(`Selection recorded, but cannot remember tab: ${errorMessage(error)}`);
     }
     onLinked();
   }
@@ -214,7 +220,12 @@ export function LinkPicker({
         Find row by name / section{' '}
         <input value={query} onChange={(event) => setQuery(event.target.value)} />
       </label>
-      <p>Exact name matches appear first. Linking creates a local draft; save it normally.</p>
+      <p>
+        Exact name matches appear first.{' '}
+        {onReference
+          ? 'Choosing a source records a local reference only; no tooltip draft or save.'
+          : 'Linking creates a local draft; save it normally.'}
+      </p>
       {error && <p role="alert">{error}</p>}
       <ul className={styles.rows}>
         {tab &&

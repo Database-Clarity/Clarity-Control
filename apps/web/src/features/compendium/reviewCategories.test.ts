@@ -132,3 +132,23 @@ it('samples different matching reasons and caps samples at five without dropping
   expect(traits.reasons.fuzzy.map((entry) => entry.hash)).toEqual([20]);
   expect(traits.reasons.validated.map((entry) => entry.hash)).toEqual([21]);
 });
+it('covers available subtype and description-pattern variety deterministically, not just alphabetical names', () => {
+  const editor = fixture();
+  editor.items = Object.fromEntries([
+    [20, item(20, 'weapon-trait', 'Simple text')],
+    [21, { ...item(21, 'weapon-trait', 'When you reload, gain a bonus.'), owners: [100, 101] }],
+    [22, { ...item(22, 'weapon-trait', 'Gain 20% damage.'), baseHash: 200 }],
+    [23, item(23, 'weapon-trait', 'First line\nSecond line')],
+    [24, item(24, 'weapon-trait', 'A long description. '.repeat(20))],
+    [25, item(25, 'weapon-trait', 'Simple text')],
+    [26, item(26, 'weapon-trait', 'Simple text')],
+  ]);
+  editor.aliases = {};
+  editor.bundle.tooltips = {};
+  const entries = reviewQueue(editor, source, {}, emptyProgress(), '');
+  const sampleHashes = (input: typeof entries) =>
+    reviewCategories(input, editor, new Map(), false)[0].samples.map((entry) => entry.hash);
+  expect(sampleHashes(entries)).toEqual(expect.arrayContaining([21, 22, 23, 24]));
+  expect(sampleHashes([...entries].reverse())).toEqual(sampleHashes(entries));
+  expect(new Set(sampleHashes(entries)).size).toBe(5);
+});

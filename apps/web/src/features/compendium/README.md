@@ -79,7 +79,7 @@ must cover this new candidate and the preceding responsiveness fix.
 
 ## Rapid review workspace
 
-The review route lands on **Step 1: guide categories**. Canonical queue entries are
+The review route lands on **Resolve a few examples**. Canonical queue entries are
 partitioned by the generator's exact `categoryId` (stable `catalog:<encoded id>`
 identities), including enhanced entries that own distinct text, custom entries
 and explicit unknown-category fallbacks. The catalog supplies labels, ordering
@@ -89,10 +89,19 @@ one category and one matching-reason subgroup. Missing manifest descriptions
 resolver candidate are distinct; pending/failed matching is never reported as
 no candidate. Research navigation hints are not resolver proposals.
 
-Cards show counts, local decision/draft status, a comment box, up to five
-representative samples covering matching reasons, and incremental browse (20
-entries at a time). Expand samples/subgroups for full manifest/authored and
-proposed-source descriptions. No item-by-item owner decision is required.
+A category list shows sample progress and entry counts. Each category has up to five
+deterministic representative samples covering resolver states, available catalog structure
+(shared owners, enhanced, aliased, custom or single items), description patterns and source
+sections. There is no separate item-subtype field in this catalog; none is fabricated.
+Select a sample to compare full manifest/authored and styled source descriptions inline.
+Accept proposed link, Pick other, No equivalent and Skip record local references, not tooltip
+drafts. The existing full row/cell picker validates manual choices without requiring sign-in
+in this reference-only mode; ordinary linking keeps its role/API/storage/save-lock gates.
+Notes per sample and the category comment are optional. Skip and note-only examples do
+not count as resolved. Previously annotated examples remain reachable if matching changes
+the suggested sample selection. Evidence changes flag old decisions and exclude them from
+progress. Clear decision removes a resolution while preserving its note. Category browse
+remains incremental (20 entries at a time); desktop panels scroll internally, phone panels stack.
 **Review these one by one** scopes the existing rapid review to the category;
 **Review all one by one** retains the full queue. URL query parameters preserve
 back/forward navigation. Category mode does not handle rapid-review shortcuts.
@@ -101,7 +110,7 @@ back/forward navigation. Category mode does not handle rapid-review shortcuts.
 
 In Vite development only, `GET/POST /__review-guidance` reads/writes
 `apps/web/review-guidance.json` (ignored, beside this worktree's web package).
-Comments autosave after 400 ms idle and on blur; the browser backup updates on
+Comments, notes and reference decisions autosave after 400 ms idle and on blur; the browser backup updates on
 each keystroke. The UI explicitly distinguishes disk success, pending,
 local-only failure, browser backup failure and conflicts. Agents read this file
 directly; no owner export is needed. Phones using this same dev server read the
@@ -109,12 +118,18 @@ same file. A different origin/server has a separate browser backup but shares
 the disk file when it uses this worktree.
 
 The version-1 document records dataset URLs, source revision/content fingerprint,
-category rule/name/count/ordered hashes, active state and comment. Updated
-membership preserves comments by stable id; removed categories remain inactive
+category rule/name/count/ordered hashes, active state and comment. Optional category
+`references`, keyed by entry hash, extend existing version-1 files without dropping comments.
+References record hash/name/categoryId, decision, note, timestamp, baseline and entry evidence;
+accepted/picked sources additionally record a validated link with styled snapshot and
+sourceHash/name/tab/row. Source hashes fingerprint the selected location and styled content,
+not a fabricated numeric item hash. Updated
+membership preserves comments and reference records by stable id; removed categories remain inactive
 with their last membership for audit. Disk writes require same-origin JSON,
 schema validation and an exact file revision. A file lock serializes separate
 Vite processes; temp-file fsync/rename replaces the file atomically. Conflicts
-never overwrite disk or silently merge owner text. Export the unsaved backup,
+never overwrite disk or silently merge owner text. A stale browser backup or HTTP 409
+pauses disk autosave but no longer disables local typing or sample resolution. Export the unsaved backup,
 then explicitly reload disk guidance to reconcile. Reload pauses comment
 editing and save retries until its disk read completes.
 If guidance changes during that read, the new text and pending browser backup
@@ -124,11 +139,14 @@ crash produces a visible error; remove only that specific lock after verifying
 no guidance writer owns it. Production builds and `vite preview` have no write
 endpoint: comments there are explicitly browser-only until exported/retried on
 the dev server. Guidance is local owner planning, not authentication, a review
-decision, a normal draft, or permission to save/publish.
+blanket category approval, a normal draft, or permission to save/publish.
 
-Step 2 (separate agent task) reads active comments and recorded membership,
-checks the baseline against current evidence, then proposes decisions with
+Step 2 (separate agent task) reads resolved sample references, notes, active comments and
+recorded membership, checks the baseline and individual source evidence, then explains the
+mapping pattern per category and proposes decisions supported by those references.
+Report confidence, supporting reference identities and uncertain/uncovered items with
 per-entry reasons through normal drafts or a separate versioned decisions file.
+Skipped, note-only and stale samples are not resolved references.
 It must not silently accept fuzzy matches or infer approval from guidance.
 Uncovered/ambiguous cases become one follow-up question per category; changed
 baselines require renewed evidence, not stale category-wide application.

@@ -78,25 +78,72 @@ export function reviewCategories(
   }
   for (const group of groups.values()) {
     group.entries.sort((a, b) => a.name.localeCompare(b.name) || a.hash - b.hash);
-    // Cover distinct matching reasons, then spread the remaining samples across the category.
-    const samples = new Map<number, ReviewEntry>();
     for (const entries of Object.values(group.reasons)) {
       entries.sort((a, b) => a.name.localeCompare(b.name) || a.hash - b.hash);
-      if (entries[0]) samples.set(entries[0].hash, entries[0]);
     }
-    for (
-      let i = 0;
-      samples.size < Math.min(5, group.entries.length) && i < group.entries.length;
-      i++
-    ) {
-      const entry = group.entries[Math.floor((i * group.entries.length) / 5)] ?? group.entries[i];
-      samples.set(entry.hash, entry);
+    const features = new Map(
+      group.entries.map((entry) => {
+        const items = manifest.get(entry.hash) ?? [];
+        const description =
+          items.find((item) => item.inGameDescription.trim())?.inGameDescription ??
+          entry.base.text.en?.text ??
+          '';
+        const subtype = items.some((item) => (item.owners?.length ?? 0) > 1)
+          ? 'shared'
+          : items.some((item) => item.baseHash)
+            ? 'enhanced'
+            : items.length > 1
+              ? 'aliased'
+              : entry.base.custom
+                ? 'custom'
+                : 'single';
+        const pattern = !description.trim()
+          ? 'missing'
+          : description.includes('\n')
+            ? 'multiline'
+            : /\b(after|while|when|if|on)\b/i.test(description)
+              ? 'conditional'
+              : /\d/.test(description)
+                ? 'numeric'
+                : description.length > 160
+                  ? 'long'
+                  : 'short';
+        const reason = Object.entries(group.reasons).find(([, entries]) =>
+          entries.some((candidate) => candidate.hash === entry.hash),
+        )?.[0];
+        const proposal = proposals.get(entry.hash);
+        const match = proposal?.match ?? proposal?.candidates[0];
+        return [
+          entry.hash,
+          [
+            `reason:${reason}`,
+            `subtype:${subtype}`,
+            `pattern:${pattern}`,
+            `source:${match?.tab.gid ?? ''}:${match?.row.section ?? ''}`,
+          ],
+        ] as const;
+      }),
+    );
+    const covered = new Set<string>();
+    const samples: ReviewEntry[] = [];
+    // Greedy coverage prioritizes resolver states, then available catalog structure and text patterns.
+    while (samples.length < Math.min(5, group.entries.length)) {
+      const remaining = group.entries.filter(
+        (entry) => !samples.some((sample) => sample.hash === entry.hash),
+      );
+      const score = (entry: ReviewEntry) =>
+        features
+          .get(entry.hash)!
+          .reduce(
+            (sum, feature, index) => sum + (covered.has(feature) ? 0 : [100, 20, 10, 5][index]),
+            0,
+          );
+      remaining.sort((a, b) => score(b) - score(a) || a.hash - b.hash);
+      const entry = remaining[0];
+      samples.push(entry);
+      for (const feature of features.get(entry.hash)!) covered.add(feature);
     }
-    for (const entry of group.entries) {
-      if (samples.size >= Math.min(5, group.entries.length)) break;
-      samples.set(entry.hash, entry);
-    }
-    group.samples = [...samples.values()].slice(0, 5);
+    group.samples = samples;
   }
   return [...groups.values()].sort((a, b) => {
     const order = (id: string) =>
