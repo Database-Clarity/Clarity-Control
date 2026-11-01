@@ -9,14 +9,10 @@ interface PlaceholderPageProps {
 export function PlaceholderPage({ title, children }: PlaceholderPageProps) {
   return (
     <section className={styles.page}>
-      <p className={styles.eyebrow}>Clarity editor / v2 foundation</p>
+      <p className={styles.eyebrow}>Clarity editor</p>
       <h1>{title}</h1>
       <div className={styles.panel}>
         <p>{children}</p>
-        <p className={styles.note}>
-          This is a navigation preview. Data loading, editing, and account actions are not connected
-          yet.
-        </p>
       </div>
     </section>
   );
