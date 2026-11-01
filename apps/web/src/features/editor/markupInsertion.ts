@@ -45,7 +45,83 @@ export const markupOptions: MarkupOption[] = [
   { id: 'title', label: 'title', group: 'Reference', kind: 'title', name: 'title' },
 ];
 
-export function markupTransaction(state: EditorState, option: MarkupOption) {
+interface ProtectedRange {
+  from: number;
+  to: number;
+  incomplete?: boolean;
+  protectStart?: boolean;
+}
+
+function protectedRanges(state: EditorState) {
+  const text = state.doc.toString();
+  const tokens: ProtectedRange[] = [];
+  const tables: ProtectedRange[] = [];
+  let tableStart: number | undefined;
+  for (let number = 1; number <= state.doc.lines; number++) {
+    const line = state.doc.line(number);
+    for (const match of line.text.matchAll(/<[^>\n]*(?:>|$)/g)) {
+      tokens.push({
+        from: line.from + match.index,
+        to: line.from + match.index + match[0].length,
+        incomplete: !match[0].endsWith('>'),
+        protectStart: match[0].startsWith('< table ') || match[0] === '<$>',
+      });
+    }
+    for (const match of line.text.matchAll(/#[a-zA-Z0-9]+|\$\{[^}\n]*(?:}|$)/g)) {
+      tokens.push({
+        from: line.from + match.index,
+        to: line.from + match.index + match[0].length,
+        incomplete: match[0].startsWith('${') && !match[0].endsWith('}'),
+      });
+    }
+    if (line.text.startsWith('< table ') && tableStart === undefined) tableStart = line.from;
+    if (tableStart !== undefined) {
+      for (const match of line.text.matchAll(/\|[bchr\d-]*/g)) {
+        tokens.push({
+          from: line.from + match.index,
+          to: line.from + match.index + match[0].length,
+          protectStart: true,
+        });
+      }
+      if (line.text === '<$>') {
+        tables.push({ from: tableStart, to: line.to });
+        tableStart = undefined;
+      }
+    }
+  }
+  if (tableStart !== undefined)
+    tables.push({ from: tableStart, to: text.length, incomplete: true });
+  return { tokens, tables };
+}
+
+function intersects(from: number, to: number, protectedRange: ProtectedRange) {
+  if (from === to) {
+    return (
+      (from > protectedRange.from ||
+        (protectedRange.protectStart && from === protectedRange.from)) &&
+      (from < protectedRange.to || (protectedRange.incomplete && from === protectedRange.to))
+    );
+  }
+  return from < protectedRange.to && to > protectedRange.from;
+}
+
+export function markupTransaction(state: EditorState, option: MarkupOption): Transaction | null {
+  const { tokens, tables } = protectedRanges(state);
+  const unsafe = state.selection.ranges.some((range) => {
+    const insertAtHead = option.kind === 'icon' || option.kind === 'line';
+    const from = insertAtHead ? range.head : range.from;
+    const to = insertAtHead ? range.head : range.to;
+    const selected = state.sliceDoc(from, to);
+    return (
+      tokens.some((token) => intersects(from, to, token)) ||
+      (!insertAtHead && selected.includes('/>')) ||
+      ((option.kind === 'link' || option.kind === 'title') && /(^|\n| )\[/.test(selected)) ||
+      (option.kind === 'table' &&
+        (selected.includes('|') || tables.some((table) => intersects(from, to, table))))
+    );
+  });
+  if (unsafe) return null;
+
   const changes = state.changeByRange((range) => {
     const selected = state.sliceDoc(range.from, range.to);
     if (option.kind === 'icon' || option.kind === 'line') {
@@ -105,9 +181,15 @@ export function markupTransaction(state: EditorState, option: MarkupOption) {
   });
 }
 
-export function insertMarkup(view: EditorView, option: MarkupOption): boolean {
-  if (view.state.readOnly || view.compositionStarted || view.composing) return false;
-  view.dispatch(markupTransaction(view.state, option));
+export function insertMarkup(
+  view: EditorView,
+  option: MarkupOption,
+): 'inserted' | 'read-only' | 'composing' | 'unsupported' {
+  if (view.state.readOnly) return 'read-only';
+  if (view.compositionStarted || view.composing) return 'composing';
+  const transaction = markupTransaction(view.state, option);
+  if (!transaction) return 'unsupported';
+  view.dispatch(transaction);
   view.focus();
-  return true;
+  return 'inserted';
 }

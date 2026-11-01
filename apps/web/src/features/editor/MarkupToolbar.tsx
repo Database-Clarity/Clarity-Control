@@ -34,10 +34,17 @@ export function MarkupToolbar({ editor }: { editor: RefObject<EditorView | null>
     const option = markupOptions.find((item) => item.id === choice);
     if (!editor.current || !option) {
       setMessage('The markup editor is not ready.');
-    } else if (!insertMarkup(editor.current, option)) {
-      setMessage('Finish composing text before inserting markup.');
     } else {
-      setMessage('');
+      const result = insertMarkup(editor.current, option);
+      setMessage(
+        result === 'composing'
+          ? 'Finish composing text before inserting markup.'
+          : result === 'read-only'
+            ? 'The markup editor is read-only.'
+            : result === 'unsupported'
+              ? 'Cannot insert markup here without breaking existing syntax. Select plain text outside markup.'
+              : '',
+      );
     }
   }
 
