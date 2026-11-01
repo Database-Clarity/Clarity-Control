@@ -43,9 +43,13 @@ afterEach(() => {
 
 async function mount(scope?: 'ghost' | 'mixed') {
   const cache = new Map<string, string>();
+  let backupFailure = false;
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => cache.get(key) ?? null,
-    setItem: (key: string, value: string) => cache.set(key, value),
+    setItem: (key: string, value: string) => {
+      if (backupFailure && key.includes(':pre-renewal:')) throw new Error('quota');
+      cache.set(key, value);
+    },
   });
   const f = guidedFixture();
   if (scope) {
@@ -160,6 +164,9 @@ async function mount(scope?: 'ghost' | 'mixed') {
     click,
     frozen,
     request,
+    failBackups: () => {
+      backupFailure = true;
+    },
     conflict: () => {
       conflict = true;
     },
@@ -187,6 +194,46 @@ it.each([false, true])(
       await f.click('Accept all high');
       expect(Object.keys(useDraftStore.getState().drafts).sort()).toEqual(['101', '102']);
       expect(useDraftStore.getState().drafts[100]).toBeUndefined();
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+it.each(['ghost', 'mixed'] as const)(
+  'retains %s exclusions and Restore when stale-guidance renewal cannot back up',
+  async (scope) => {
+    const f = await mount(scope);
+    try {
+      const original = structuredClone(f.props().guidance.document);
+      f.failBackups();
+      await act(async () => {
+        f.props().guidance.persistence.importBackup({
+          ...original,
+          baseline: 'stale-baseline',
+        });
+      });
+      const p = f.props();
+      expect(p.guidance.document.baseline).toBe('stale-baseline');
+      expect(p.guidance.document.categories).toEqual(original.categories);
+      expect(p.guidance.localError).toContain('renewal backup failed');
+      expect(f.host.textContent).toContain(`Not needed (${scope === 'ghost' ? 6 : 1})`);
+      expect(f.button('Restore to scope')).toBeTruthy();
+      const group = guidedDecisions(
+        p.guidance.proposalInput!,
+        p.categories,
+        p.proposals,
+        f.source,
+        f.baseline,
+        f.document.scope,
+      )[0];
+      expect(group.high).toBe(0);
+      expect(group.medium).toBe(0);
+      expect(group.outOfScope).toBe(scope === 'ghost' ? 6 : 1);
+      expect(group.samples).not.toContain(scope === 'ghost' ? 100 : 5699512);
+      await act(async () => p.onRestore!(scope === 'ghost' ? 100 : 5699512));
+      expect(f.host.textContent).toContain(`Not needed (${scope === 'ghost' ? 5 : 0})`);
+      expect(useDraftStore.getState().drafts).toEqual({});
     } finally {
       await f.close();
     }

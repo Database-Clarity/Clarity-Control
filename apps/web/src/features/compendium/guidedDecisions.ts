@@ -139,8 +139,6 @@ export function guidedDecisions(
             action: 'preserve',
             reason: 'Existing link, draft or human review decision preserved.',
           };
-        if (!compatible)
-          return { ...result, reason: 'Scope or baseline differs; proposal withheld.' };
         const scopeRule = classifyScope(entry, record.id);
         if (scopeRule)
           return {
@@ -150,6 +148,8 @@ export function guidedDecisions(
             ruleId: scopeRule,
             reason: `Out of scope: ${scopeRule}.`,
           };
+        if (!compatible)
+          return { ...result, reason: 'Scope or baseline differs; proposal withheld.' };
         const reference = usable.get(hash);
         if (reference)
           return {

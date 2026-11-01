@@ -14,6 +14,14 @@ writes a new directory, never overwrites a report or the input, and creates no e
 contains the complete high/medium/owner/out-of-scope tiers, per-entry rules, source snapshots
 and evidence. `reasonGroups` includes only in-scope entries; `out-of-scope.json` retains the
 excluded membership separately, just like the review page's collapsed Not needed list.
+Current stat/ghost exclusions remain visible and restorable even if a stale-guidance
+renewal is blocked by a backup failure; that never bypasses baseline gates for links.
+Weapon scope requires a proven first/second-column use plus a complete stat-only
+description, nonzero unconditional investment stats and no extra manifest perks.
+Additional uses of that same inventory item in later columns do not change its
+proven stat-only effect. Audited recoil-control and rate-of-fire wording is supported;
+functional highlighting, unknown text and stat-bearing armor mods with blank
+descriptions remain in scope.
 
 A reference renews only if its existing sample evidence matches the current canonical category
 entry and its selected link still resolves to the same source fingerprint. Only the baseline

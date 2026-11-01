@@ -16,7 +16,8 @@ const sample = (hash: number) =>
 
 describe('manifest exclusion rules', () => {
   it.each([830282363, 194952923, 360593482, 893526895, 911046886, 1617987574])(
-    'preserves functional lead-in behavior for real item %i', (hash) => {
+    'preserves functional lead-in behavior for real item %i',
+    (hash) => {
       expect(manifestRule(sample(hash), 'catalog:weapon-perk', support(5699512))).toBeUndefined();
     },
   );
@@ -35,6 +36,22 @@ describe('manifest exclusion rules', () => {
     entry.manifestFacts!.item.inventory!.description += '\n• Increases damage after a kill';
     expect(manifestRule(entry, 'catalog:weapon-perk', support(5699512))).toBeUndefined();
     entry.manifestFacts!.item.inventory!.redacted = true;
+    expect(manifestRule(entry, 'catalog:weapon-perk', support(5699512))).toBeUndefined();
+  });
+  it.each([839105230, 791862061, 3142289711])(
+    'recognizes audited stat wording and first-two-column use for real item %i',
+    (hash) => {
+      expect(manifestRule(sample(hash), 'catalog:weapon-perk', support(5699512))?.ruleId).toBe(
+        'manifest-weapon-stat',
+      );
+    },
+  );
+  it('requires positive first-two-column evidence even for a pure-stat item', () => {
+    const entry = sample(3142289711);
+    entry.manifestFacts!.item.plugUsages = entry.manifestFacts!.item.plugUsages.map((usage) => ({
+      ...usage,
+      ordinal: 2,
+    }));
     expect(manifestRule(entry, 'catalog:weapon-perk', support(5699512))).toBeUndefined();
   });
   it('rejects future fizzle', () => {
