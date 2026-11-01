@@ -1,3 +1,4 @@
+import { guidanceDiagnostic } from './guidanceDiagnostic';
 import { useState } from 'react';
 import type { CompendiumData } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
@@ -50,6 +51,7 @@ export function CategoryReview({
   ) => void;
   onReview: (category?: ReviewCategory, hash?: number) => void;
 }) {
+  const [deliveryStatus, setDeliveryStatus] = useState<string | null>(null);
   const [localQuery, setLocalQuery] = useState('');
   const [localCategoryId, setLocalCategoryId] = useState('');
   const [selected, setSelected] = useState<Record<string, number>>({});
@@ -90,14 +92,21 @@ export function CategoryReview({
   const entry = entries.find((entry) => entry.hash === selectedHash) ?? entries[0];
   const paused = !guidance.ready || guidance.reloading;
   function exportGuidance() {
-    const url = URL.createObjectURL(
-      new Blob([JSON.stringify(guidance.document, null, 2)], { type: 'application/json' }),
-    );
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'review-guidance.json';
-    link.click();
-    URL.revokeObjectURL(url);
+    let url: string | undefined;
+    try {
+      url = URL.createObjectURL(
+        new Blob([JSON.stringify(guidance.document, null, 2)], { type: 'application/json' }),
+      );
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'review-guidance.json';
+      link.click();
+      setImportError(null);
+    } catch (error) {
+      setImportError(`Backup export failed: ${guidanceDiagnostic(error)}. Keep this page open.`);
+    } finally {
+      if (url) URL.revokeObjectURL(url);
+    }
   }
   return (
     <section className={styles.categories} aria-label="Category guidance">
@@ -110,76 +119,99 @@ export function CategoryReview({
       </div>
       <div className={styles.persistence}>
         <p role="status">
-          {!guidance.ready
-            ? 'Loading owner guidance...'
-            : guidance.reloading
-              ? 'Reloading disk guidance; editing is paused...'
-              : guidance.saving
-                ? 'Saving examples and notes to disk...'
-                : guidance.diskSaved
-                  ? 'Saved to apps/web/review-guidance.json. Agents can read your examples and notes.'
-                  : 'Examples and notes are not saved to disk yet.'}
+          {guidance.localError
+            ? 'Browser backup needs attention'
+            : (deliveryStatus ??
+              (!guidance.ready
+                ? 'Loading guidance…'
+                : guidance.reloading
+                  ? 'Reloading guidance…'
+                  : guidance.saving
+                    ? 'Saving to dev disk…'
+                    : guidance.localError
+                      ? 'Browser backup needs attention'
+                      : guidance.error || guidance.conflict
+                        ? 'Guidance needs attention'
+                        : guidance.diskSaved
+                          ? 'Saved to dev disk'
+                          : guidance.browserSaved
+                            ? 'Saved in this browser'
+                            : 'Browser guidance not saved yet'))}
         </p>
-        {guidance.error && <p role="alert">{guidance.error}</p>}
-        {guidance.renewalNotice && <p role="status">{guidance.renewalNotice}</p>}
-        {guidance.localError && <p role="alert">{guidance.localError}</p>}
-        <SendGuidance document={guidance.document} ready={guidance.ready} />
         <details>
-          <summary>Backup / disk recovery</summary>
-          <div>
-            <button onClick={exportGuidance} disabled={!guidance.ready}>
-              Export backup
-            </button>
-            <label>
-              Import guidance backup
-              <input
-                type="file"
-                accept="application/json,.json"
-                disabled={paused || guidance.saving || guidance.conflict}
-                onChange={async (event) => {
-                  const file = event.target.files?.[0];
-                  event.target.value = '';
-                  if (!file) return;
-                  if (
-                    !window.confirm(
-                      'Replace browser examples and notes with this backup? Export a backup first to keep the current guidance.',
+          <summary>Details</summary>
+          <p>
+            Examples and notes stay in this browser. Send to agents confirms delivery separately;
+            export keeps a portable backup.
+          </p>
+          {guidance.error && <p role="alert">{guidance.error}</p>}
+          {guidance.renewalNotice && <p role="status">{guidance.renewalNotice}</p>}
+          {guidance.localError && <p role="alert">{guidance.localError}</p>}
+          <SendGuidance
+            document={guidance.document}
+            ready={guidance.ready}
+            onStatus={setDeliveryStatus}
+          />
+          <details>
+            <summary>Backup / recovery</summary>
+            <div>
+              <button onClick={exportGuidance} disabled={!guidance.ready}>
+                Export backup
+              </button>
+              <label>
+                Import guidance backup
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  disabled={paused || guidance.saving || guidance.conflict}
+                  onChange={async (event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = '';
+                    if (!file) return;
+                    if (
+                      !window.confirm(
+                        'Replace browser examples and notes with this backup? Export a backup first to keep the current guidance.',
+                      )
                     )
-                  )
-                    return;
-                  try {
-                    const raw = await file.text();
-                    // A reload, edit or save while reading must not be overwritten.
-                    if (guidance.persistence.getSnapshot().document !== guidance.document)
-                      throw new Error('Guidance changed while reading the backup. Import again.');
-                    guidance.persistence.importBackup(JSON.parse(raw));
-                    setImportError(null);
-                  } catch (error) {
-                    setImportError(
-                      error instanceof Error ? error.message : 'Could not import guidance.',
-                    );
-                  }
-                }}
-              />
-            </label>
-            {importError && <p role="alert">{importError}</p>}
-            {guidance.error && !guidance.conflict && !guidance.reloading && (
-              <button onClick={() => void guidance.persistence.flush()}>Retry disk save</button>
-            )}
-            <button
-              disabled={!guidance.ready || guidance.saving || guidance.reloading}
-              onClick={() => {
-                if (
-                  guidance.diskSaved ||
-                  window.confirm(
-                    'Discard unsaved browser examples and notes and reload disk? Export a backup first to keep them.',
-                  )
-                )
-                  void guidance.persistence.reloadDisk();
-              }}
-            >
-              Reload disk guidance
-            </button>
-          </div>
+                      return;
+                    try {
+                      const raw = await file.text();
+                      // A reload, edit or save while reading must not be overwritten.
+                      if (guidance.persistence.getSnapshot().document !== guidance.document)
+                        throw new Error('Guidance changed while reading the backup. Import again.');
+                      guidance.persistence.importBackup(JSON.parse(raw));
+                      setImportError(null);
+                    } catch (error) {
+                      setImportError(guidanceDiagnostic(error));
+                    }
+                  }}
+                />
+              </label>
+              {importError && <p role="alert">{importError}</p>}
+              {guidance.diskAvailable &&
+                guidance.error &&
+                !guidance.conflict &&
+                !guidance.reloading && (
+                  <button onClick={() => void guidance.persistence.flush()}>Retry disk save</button>
+                )}
+              {guidance.diskAvailable && (
+                <button
+                  disabled={!guidance.ready || guidance.saving || guidance.reloading}
+                  onClick={() => {
+                    if (
+                      guidance.diskSaved ||
+                      window.confirm(
+                        'Discard unsaved browser examples and notes and reload disk? Export a backup first to keep them.',
+                      )
+                    )
+                      void guidance.persistence.reloadDisk();
+                  }}
+                >
+                  Reload disk guidance
+                </button>
+              )}
+            </div>
+          </details>
         </details>
       </div>
       <div className={styles.workspace}>
@@ -250,18 +282,23 @@ export function CategoryReview({
                 guidance={guidance}
               />
             )}
-            <label className={styles.categoryNote}>
-              Owner guidance for {category.name}
-              <textarea
-                rows={2}
-                maxLength={100_000}
-                disabled={paused}
-                value={guidance.document.categories[category.id]?.comment ?? ''}
-                placeholder="Any rule agents should use for this category?"
-                onChange={(event) => guidance.persistence.comment(category.id, event.target.value)}
-                onBlur={() => void guidance.persistence.flush()}
-              />
-            </label>
+            <details className={styles.categoryNote}>
+              <summary>Owner guidance for {category.name}</summary>
+              <label>
+                Owner guidance for {category.name}
+                <textarea
+                  rows={2}
+                  maxLength={100_000}
+                  disabled={paused}
+                  value={guidance.document.categories[category.id]?.comment ?? ''}
+                  placeholder="Any rule agents should use for this category?"
+                  onChange={(event) =>
+                    guidance.persistence.comment(category.id, event.target.value)
+                  }
+                  onBlur={() => void guidance.persistence.flush()}
+                />
+              </label>
+            </details>
             <details className={styles.browse}>
               <summary>Browse / category definition ({category.entries.length} entries)</summary>
               <p>{category.rule}</p>

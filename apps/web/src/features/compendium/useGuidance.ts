@@ -5,7 +5,12 @@ import { compendiumDataUrl } from '../../services/compendium';
 import { GuidancePersistence } from './guidancePersistence';
 import type { ReviewCategory } from './reviewCategories';
 
-export function useGuidance(categories: ReviewCategory[], baseline: string, source: CompendiumData, enabled: boolean) {
+export function useGuidance(
+  categories: ReviewCategory[],
+  baseline: string,
+  source: CompendiumData,
+  enabled: boolean,
+) {
   const persistence = useMemo(
     () =>
       new GuidancePersistence(
@@ -15,6 +20,8 @@ export function useGuidance(categories: ReviewCategory[], baseline: string, sour
           getItem: (key) => localStorage.getItem(key),
           setItem: (key, value) => localStorage.setItem(key, value),
         },
+        undefined,
+        import.meta.env.DEV,
       ),
     [],
   );

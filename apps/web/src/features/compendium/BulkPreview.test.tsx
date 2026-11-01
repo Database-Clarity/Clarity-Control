@@ -106,7 +106,7 @@ it('disables category textareas and reload/save controls while disk reload is ou
       onReview: vi.fn(),
     }),
   );
-  expect(html).toContain('Reloading disk guidance; editing is paused');
+  expect(html).toContain('Reloading guidance');
   expect(html).toMatch(/<textarea[^>]*disabled=""/);
   expect(html).toMatch(/<button disabled="">Reload disk guidance/);
   expect(html).not.toContain('Retry disk save');

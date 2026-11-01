@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   compendiumCellAt,
   selectCompendiumCells,
@@ -29,6 +29,16 @@ export function CellPicker({
   referenceOnly?: boolean;
   onChoose(match: CompendiumMatch): void;
 }) {
+  const list = useRef<HTMLDivElement>(null);
+  const returnCell = useRef('');
+  const [detail, setDetail] = useState<{ row: number; col: number }>();
+  useEffect(() => {
+    if (detail) list.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    else
+      list.current
+        ?.querySelector<HTMLButtonElement>(`[data-cell-address="${returnCell.current}"]`)
+        ?.focus();
+  }, [detail]);
   const [anchor, setAnchor] = useState<CompendiumPosition | undefined>(initial?.anchor);
   const [query, setQuery] = useState('');
   const [offsets, setOffsets] = useState<CompendiumCellOffset[]>([]);
@@ -89,6 +99,69 @@ export function CellPicker({
             Name anchor: {row?.name}. Select description cells in reading order; click again to
             remove. Numbers show selection order.
           </p>
+          <div ref={list} className={styles.phoneCells} aria-label="Description cell list">
+            {detail ? (
+              <section aria-label="Cell detail">
+                <button type="button" onClick={() => setDetail(undefined)}>
+                  Back to cells
+                </button>
+                <p>
+                  Row {detail.row}, column {detail.col + 1}
+                </p>
+                {(() => {
+                  const entry = compendiumCellAt(tab, detail);
+                  if (!entry) return null;
+                  const offset = { dRow: entry.row - anchor.row, dCol: entry.col - anchor.col };
+                  const selected = offsets.findIndex(
+                    (value) => value.dRow === offset.dRow && value.dCol === offset.dCol,
+                  );
+                  return (
+                    <>
+                      <RichCell cell={entry.cell} />
+                      <button
+                        type="button"
+                        aria-pressed={selected >= 0}
+                        disabled={selected < 0 && offsets.length >= 256}
+                        onClick={() =>
+                          setOffsets(
+                            selected >= 0
+                              ? offsets.filter((_, i) => i !== selected)
+                              : [...offsets, offset],
+                          )
+                        }
+                      >
+                        {selected >= 0 ? `Remove cell (${selected + 1})` : 'Select cell next'}
+                      </button>
+                    </>
+                  );
+                })()}
+              </section>
+            ) : (
+              tab.grid
+                .filter((entry) => entry.row >= firstRow && entry.row <= lastRow)
+                .map((entry) => {
+                  const selected = offsets.findIndex(
+                    (value) =>
+                      value.dRow === entry.row - anchor.row &&
+                      value.dCol === entry.col - anchor.col,
+                  );
+                  return (
+                    <button
+                      type="button"
+                      key={`${entry.row}:${entry.col}`}
+                      data-cell-address={`${entry.row}:${entry.col}`}
+                      onClick={() => {
+                        returnCell.current = `${entry.row}:${entry.col}`;
+                        setDetail({ row: entry.row, col: entry.col });
+                      }}
+                    >
+                      Row {entry.row}, column {entry.col + 1}
+                      {selected >= 0 ? ` (${selected + 1})` : ''}: {entry.cell.plain.slice(0, 160)}
+                    </button>
+                  );
+                })
+            )}
+          </div>
           <div
             className={styles.sheetScroll}
             role="region"

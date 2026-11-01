@@ -70,7 +70,7 @@ function button(text: string, within: ParentNode = host) {
 }
 
 function control<T extends HTMLInputElement | HTMLSelectElement>(label: string) {
-  const found = [...host.querySelectorAll('label')]
+  const found = [...document.querySelectorAll('label')]
     .find((element) => element.textContent?.trim().startsWith(label))
     ?.querySelector<T>('input, select');
   if (!found) throw new Error(`Missing control ${label}`);
@@ -524,12 +524,14 @@ describe('category filtering and history', () => {
   it('manual picker linking advances the route and Undo restores the pre-link entry', async () => {
     await mount();
     await click('Pick other');
-    const picker = host.querySelector('[aria-label="Pick another source"]')!;
+    const picker = document.querySelector('dialog[open][aria-label="Choose Compendium source"]')!;
     await change('Find row by name / section', 'Sample 105');
     await click('Exact match: Sample 105', picker);
     expect(selected()).toBe('Sample 101');
     expect(route().searchParams.get('hash')).toBe('101');
-    expect(host.querySelector('[aria-label="Pick another source"]')).toBeNull();
+    expect(
+      document.querySelector('dialog[open][aria-label="Choose Compendium source"]'),
+    ).toBeNull();
     expect(useDraftStore.getState().drafts[100].next.compendium?.rowKey).toBe('Sample 105');
     await click('Undo last');
     expect(selected()).toBe('Sample 100');
@@ -615,17 +617,16 @@ describe('Browse and save-dialog keyboard ownership', () => {
     expect(progress().decisions).toEqual({});
   });
 
-  it('keeps picker Escape owned by the workspace, but not while Browse is open', async () => {
-    await mount();
-    await key('p', window);
-    expect(host.querySelector('[aria-label="Pick another source"]')).not.toBeNull();
-    await click('Browse');
-    await key('Escape', button('Close'));
-    expect(host.querySelector('[aria-label="Pick another source"]')).not.toBeNull();
+  it('keeps Escape and decision keys owned by the modal picker', async () => {
+    await mount('/compendium/review?view=entries');
+    await click('Pick other');
+    expect(document.querySelector('dialog[open]')).not.toBeNull();
+    const before = progress();
+    await key('a', window);
+    await key('s', window);
+    expect(progress()).toEqual(before);
     await key('Escape', window);
-    expect(host.querySelector('[aria-label="Pick another source"]')).toBeNull();
-    expect(selected()).toBe('Sample 100');
-    expect(useDraftStore.getState().drafts).toEqual({});
+    expect(document.querySelector('dialog[open]')).toBeNull();
   });
 
   it.each([false, true])(

@@ -1,7 +1,7 @@
 import type { CompendiumData } from '@clarity/core';
 import type { ReviewCategory } from './reviewCategories';
 import { rebaselineGuidance } from './rebaselineGuidance';
-import { errorMessage } from '../../services/http';
+import { guidanceDiagnostic as errorMessage } from './guidanceDiagnostic';
 import {
   guidanceCacheSchema,
   guidanceResponseSchema,
@@ -13,6 +13,8 @@ import {
 } from './guidanceSchema';
 
 interface GuidanceState {
+  browserSaved: boolean;
+  diskAvailable: boolean;
   document: GuidanceDocument;
   // Frozen membership/baseline from the last read, with current owner references/comments.
   planningRevision: number;
@@ -41,9 +43,12 @@ export class GuidancePersistence {
     private readonly endpoint: string,
     private readonly storage: Pick<Storage, 'getItem' | 'setItem'>,
     private readonly request: typeof fetch = (input, init) => fetch(input, init),
+    private readonly diskAvailable = true,
   ) {
     this.key = `clarity-review-guidance:v1:${encodeURIComponent(scope)}`;
     this.state = {
+      browserSaved: false,
+      diskAvailable,
       document: { version: 1, scope, baseline: '', categories: {} },
       planningRevision: 0,
       ready: false,
@@ -83,17 +88,17 @@ export class GuidancePersistence {
           pending: this.pending,
         }),
       );
-      this.set({ localError: this.recoveryError });
+      this.set({ browserSaved: true, localError: this.recoveryError });
     } catch (error) {
       this.set({
-        localError: `Browser backup failed: ${errorMessage(error)}. Keep this page open until disk save succeeds.`,
+        browserSaved: false,
+        localError: `Browser backup failed: ${errorMessage(error)}. Keep this page open and export a backup.`,
       });
     }
   }
   private async disk() {
     const response = await this.request(this.endpoint, { cache: 'no-store' });
-    if (!response.ok)
-      throw new Error(`Guidance read HTTP ${response.status}: ${await response.text()}`);
+    if (!response.ok) throw new Error(`Guidance read HTTP ${response.status}`);
     const result = guidanceResponseSchema.parse(await response.json());
     if (result.document && result.document.scope !== this.state.document.scope)
       throw new Error('The guidance file belongs to another dataset. It has not been overwritten.');
@@ -116,6 +121,11 @@ export class GuidancePersistence {
     } catch (error) {
       this.recoveryError = `Browser backup could not be recovered: ${errorMessage(error)}`;
       this.set({ localError: this.recoveryError });
+    }
+    if (!this.diskAvailable) {
+      this.set({ ready: true, proposalInput: this.state.document });
+      this.cache();
+      return;
     }
     try {
       const disk = await this.disk();
@@ -145,7 +155,8 @@ export class GuidancePersistence {
     }
   }
   renew(categories: ReviewCategory[], source: CompendiumData, baseline: string): boolean {
-    if (!this.state.ready || this.state.reloading || this.state.conflict || this.state.saving) return false;
+    if (!this.state.ready || this.state.reloading || this.state.conflict || this.state.saving)
+      return false;
     const original = this.state.document;
     if (!original.baseline || original.baseline === baseline) return true;
     const result = rebaselineGuidance(original, categories, source, baseline, original.scope);
@@ -154,14 +165,22 @@ export class GuidancePersistence {
       const prefix = `${this.key}:pre-renewal:`;
       let suffix = Date.now();
       while (this.storage.getItem(prefix + suffix) !== null) suffix++;
-      this.storage.setItem(prefix + suffix, JSON.stringify({ document: original, revision: this.revision, pending: this.pending }));
+      this.storage.setItem(
+        prefix + suffix,
+        JSON.stringify({ document: original, revision: this.revision, pending: this.pending }),
+      );
     } catch (error) {
-      this.set({ localError: `Guidance renewal backup failed: ${errorMessage(error)}. Guidance was not renewed.` });
+      this.set({
+        localError: `Guidance renewal backup failed: ${errorMessage(error)}. Guidance was not renewed.`,
+      });
       return false;
     }
     this.change(result.document);
-    this.set({ proposalInput: result.document, planningRevision: this.state.planningRevision + 1,
-      renewalNotice: `${result.renewed.length} references carried over, ${result.changed.length} need re-check` });
+    this.set({
+      proposalInput: result.document,
+      planningRevision: this.state.planningRevision + 1,
+      renewalNotice: `${result.renewed.length} references carried over, ${result.changed.length} need re-check`,
+    });
     return true;
   }
   synchronize(categories: Omit<GuidanceCategory, 'comment' | 'references'>[], baseline: string) {
@@ -253,6 +272,7 @@ export class GuidancePersistence {
     this.schedule();
   }
   private schedule() {
+    if (!this.diskAvailable) return;
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       void this.flush();
@@ -260,6 +280,10 @@ export class GuidancePersistence {
   }
   async flush() {
     clearTimeout(this.timer);
+    if (!this.diskAvailable) {
+      this.cache();
+      return;
+    }
     if (!this.pending || this.state.saving || this.state.conflict || this.state.reloading) return;
     const document = this.state.document;
     this.set({ saving: true, error: null });
@@ -271,7 +295,7 @@ export class GuidancePersistence {
       });
       if (!response.ok) {
         if (response.status === 409) this.set({ conflict: true });
-        throw new Error(`Guidance save HTTP ${response.status}: ${await response.text()}`);
+        throw new Error(`Guidance save HTTP ${response.status}`);
       }
       const saved = guidanceResponseSchema.parse(await response.json());
       if (
@@ -295,6 +319,7 @@ export class GuidancePersistence {
     }
   }
   async reloadDisk() {
+    if (!this.diskAvailable) return;
     if (this.state.saving || this.state.reloading) return;
     clearTimeout(this.timer);
     const document = this.state.document;

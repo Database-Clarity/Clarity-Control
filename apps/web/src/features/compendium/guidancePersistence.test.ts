@@ -425,3 +425,64 @@ it('imports validated same-scope backups, freezes planning membership and reject
   await writer.flush();
   writer.dispose();
 });
+
+it('keeps hosted guidance in the browser across reloads without any dev endpoint access', async () => {
+  const f = fixture();
+  const hosted = () =>
+    new GuidancePersistence('scope', '/__review-guidance', f.storage, f.request, false);
+  const first = hosted();
+  await first.start();
+  first.synchronize(categories, 'baseline');
+  first.comment(categories[0].id, 'Keep this hosted note');
+  first.reference(categories[0].id, {
+    categoryId: categories[0].id,
+    hash: 10,
+    name: 'Example',
+    evidence: 'evidence',
+    baseline: 'baseline',
+    timestamp: '2026-11-01T00:00:00Z',
+    decision: 'skipped',
+    note: 'Revisit later',
+  });
+  await first.flush();
+  expect(first.getSnapshot()).toMatchObject({
+    browserSaved: true,
+    diskAvailable: false,
+    diskSaved: false,
+    error: null,
+  });
+  first.dispose();
+  const second = hosted();
+  await second.start();
+  expect(second.getSnapshot().document.categories[categories[0].id].comment).toBe(
+    'Keep this hosted note',
+  );
+  expect(second.getSnapshot().document.categories[categories[0].id].references?.[10].decision).toBe(
+    'skipped',
+  );
+  await second.reloadDisk();
+  second.dispose();
+  expect(f.request).not.toHaveBeenCalled();
+});
+it('does not claim hosted browser persistence after storage fails', async () => {
+  const request = vi.fn<typeof fetch>();
+  const persistence = new GuidancePersistence(
+    'scope',
+    '/__review-guidance',
+    {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error('<html>quota</html>' + 'x'.repeat(1000));
+      },
+    },
+    request,
+    false,
+  );
+  await persistence.start();
+  expect(persistence.getSnapshot().browserSaved).toBe(false);
+  expect(persistence.getSnapshot().localError).toContain('Browser backup failed');
+  expect(persistence.getSnapshot().localError).not.toContain('<html>');
+  expect(persistence.getSnapshot().localError!.length).toBeLessThan(350);
+  persistence.dispose();
+  expect(request).not.toHaveBeenCalled();
+});

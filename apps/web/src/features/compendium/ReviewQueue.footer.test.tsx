@@ -42,6 +42,18 @@ const observers: {
 
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+    configurable: true,
+    value() {
+      this.setAttribute('open', '');
+    },
+  });
+  Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+    configurable: true,
+    value() {
+      this.removeAttribute('open');
+    },
+  });
   fixture = guidedFixture();
   fixture.document.scope = `${bundleUrl}|${compendiumDataUrl}`;
   captured.proposals = fixture.proposals;
@@ -61,10 +73,15 @@ beforeEach(() => {
   vi.stubGlobal(
     'ResizeObserver',
     class {
-      constructor(notify: () => void) {
-        observers.push({ notify, observe: this.observe, disconnect: this.disconnect });
-      }
-      observe = vi.fn();
+      constructor(private notify: () => void) {}
+      observe = vi.fn((node: Element) => {
+        if (node.matches('footer[aria-label="Review actions"]'))
+          observers.push({
+            notify: this.notify,
+            observe: this.observe,
+            disconnect: this.disconnect,
+          });
+      });
       disconnect = vi.fn();
     },
   );
@@ -146,8 +163,14 @@ describe.each([true, false])('conditional footer with ResizeObserver=%s', (obser
     expect(page().style.getPropertyValue(property)).toBe('197px');
     if (observed) expect(observers[0].observe).toHaveBeenCalledWith(first, { box: 'border-box' });
     await click('Pick other');
-    expect(host.querySelector('[aria-label="Pick another source"]')).not.toBeNull();
-    await click('Close picker');
+    expect(
+      document.querySelector('dialog[open][aria-label="Choose Compendium source"]'),
+    ).not.toBeNull();
+    await act(async () =>
+      [...document.querySelectorAll<HTMLButtonElement>('dialog[open] button')]
+        .find((node) => node.textContent?.trim() === 'Back')!
+        .click(),
+    );
     await click('Bulk preview');
     expect(host.querySelector('[aria-label="Bulk accept preview"]')).not.toBeNull();
     await click('Cancel');
@@ -173,7 +196,11 @@ describe.each([true, false])('conditional footer with ResizeObserver=%s', (obser
     else window.dispatchEvent(new Event('resize'));
     expect(page().style.getPropertyValue(property)).toBe('101px');
     await click('Pick other');
-    await click('Close picker');
+    await act(async () =>
+      [...document.querySelectorAll<HTMLButtonElement>('dialog[open] button')]
+        .find((node) => node.textContent?.trim() === 'Back')!
+        .click(),
+    );
     await click('Bulk preview');
     const article = page();
     await act(async () => root.unmount());
@@ -186,7 +213,7 @@ describe.each([true, false])('conditional footer with ResizeObserver=%s', (obser
       expect(article.style.getPropertyValue(property)).toBe('17px');
     } else {
       const listeners = add.mock.calls.filter(([event]) => event === 'resize');
-      expect(listeners).toHaveLength(2);
+      expect(listeners).toHaveLength(4);
       for (const [, listener] of listeners) expect(remove).toHaveBeenCalledWith('resize', listener);
       window.dispatchEvent(new Event('resize'));
       expect(article.style.getPropertyValue(property)).toBe('17px');

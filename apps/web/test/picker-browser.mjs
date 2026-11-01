@@ -1,4 +1,4 @@
-/* global document, window */
+/* global document, window, Node */
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -40,9 +40,9 @@ try {
     args: ['--allow-file-access-from-files', '--disable-background-networking'],
   });
   for (const [name, viewport] of [
-    ['desktop', { width: 1920, height: 1080 }],
-    ['laptop', { width: 1366, height: 768 }],
+    ['desktop', { width: 1440, height: 900 }],
     ['phone', { width: 390, height: 844 }],
+    ['short-phone', { width: 390, height: 500 }],
   ]) {
     const context = await browser.newContext({ viewport });
     const network = [];
@@ -62,90 +62,138 @@ try {
       clientHeight: document.documentElement.clientHeight,
     }));
     assert.equal(size.width, size.clientWidth, `${name}: horizontal document overflow`);
-    if (name !== 'phone') {
-      assert.equal(size.height, size.clientHeight, `${name}: collapsed document scroll`);
-      const comparison = page.getByRole('region', { name: 'Sample entry' });
-      const dimensions = await comparison.evaluate((node) => ({
-        scrollHeight: node.scrollHeight,
-        clientHeight: node.clientHeight,
-        category: node.closest('section[aria-label="Synthetic traits"]')?.getBoundingClientRect()
-          .height,
-      }));
-      assert.ok(
-        dimensions.scrollHeight > dimensions.clientHeight,
-        `${name}: long comparison should scroll internally: ${JSON.stringify(dimensions)}`,
+    const phone = viewport.width === 390;
+    const owner = page.getByText('Owner guidance for Synthetic traits', { exact: true }).first();
+    const note = page.getByText('Example note', { exact: true });
+    await owner.click();
+    await page.getByLabel('Owner guidance for Synthetic traits').fill('Category note retained');
+    await note.click();
+    await page.getByLabel('Note for Sample 101 (optional)').fill('Sample note retained');
+    await note.click();
+    await owner.click();
+    const pick = page.getByRole('button', { name: 'Pick other' });
+    await pick.click();
+    const dialog = page.getByRole('dialog', { name: 'Choose Compendium source' });
+    await dialog.waitFor();
+    assert.equal(await dialog.evaluate((node) => node.contains(document.activeElement)), true);
+    const modalSize = await dialog.evaluate((node) => ({
+      width: node.scrollWidth,
+      client: node.clientWidth,
+      height: node.getBoundingClientRect().height,
+    }));
+    assert.equal(modalSize.width, modalSize.client, `${name}: picker horizontal overflow`);
+    if (phone) assert.equal(modalSize.height, viewport.height);
+    const controlsFirst = await dialog.evaluate((node) => {
+      const search = node.querySelector('input');
+      const rationale = [...node.querySelectorAll('summary')].find((el) =>
+        el.textContent.includes('Why these'),
       );
-    }
-
-    await page
-      .getByLabel('Owner guidance for Synthetic traits')
-      .fill('Category note remains visible');
-    await page.getByLabel('Note for Sample 101 (optional)').fill('Sample note remains visible');
-    await page.getByRole('button', { name: 'Pick other' }).click();
-    await page.getByLabel('Find row by name / section').fill('Sample 100');
-    await page.getByRole('button', { name: 'Pick description cells near this name' }).click();
-    const first = page.getByRole('button', { name: /^Row 100, column 2: First part/ });
-    const second = page.getByRole('button', { name: 'Row 101, column 2: Second part' });
-    const confirm = page.getByRole('button', { name: 'Use selected cells (local reference)' });
-    await first.click();
-    await second.click();
-    if (name !== 'phone') {
-      const sample = page.getByRole('region', { name: 'Resolve sample Sample 101' });
-      await sample.evaluate((node) => {
-        node.scrollTop = 0;
-      });
-      await sample.focus();
-      await page.keyboard.press('End');
-      await page.waitForFunction((node) => node.scrollTop > 0, await sample.elementHandle());
-    }
-    await page.getByLabel('Note for Sample 101 (optional)').click();
-    await page.getByLabel('Owner guidance for Synthetic traits').click();
-    await page.getByRole('button', { name: 'Clear selection' }).click();
-    assert.equal(await confirm.isDisabled(), true, `${name}: cleared selection must not confirm`);
-    await first.click();
-    await page.getByRole('button', { name: 'Close picker' }).click();
-    assert.equal(await page.getByText('Other source selected', { exact: false }).count(), 0);
-
-    await page.getByRole('button', { name: 'Pick other' }).click();
-    await page.getByLabel('Find row by name / section').fill('Sample 100');
-    await page.getByRole('button', { name: 'Pick description cells near this name' }).click();
-    await first.click();
-    await second.click();
-    await confirm.scrollIntoViewIfNeeded();
-    const centerHit = await confirm.evaluate((node) => {
-      const rect = node.getBoundingClientRect();
-      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-      return hit === node || node.contains(hit);
+      return (
+        !!(search.compareDocumentPosition(rationale) & Node.DOCUMENT_POSITION_FOLLOWING) &&
+        !rationale.parentElement.open
+      );
     });
-    assert.equal(centerHit, true, `${name}: confirmation is covered`);
+    assert.equal(controlsFirst, true);
+    const backgroundBefore = await page.evaluate(() => JSON.stringify(window.pickerFixture.read()));
+    await page.keyboard.press('a');
+    await page.keyboard.press('s');
+    assert.equal(
+      await page.evaluate(() => JSON.stringify(window.pickerFixture.read())),
+      backgroundBefore,
+    );
+    await page.getByLabel('Find row by name / section').fill('Sample 100');
+    await page.getByRole('button', { name: 'Pick description cells near this name' }).click();
+    const first = () =>
+      page.getByRole('button', { name: /^Row 100, column 2(?: \(\d+\))?: First part/ });
+    const second = () =>
+      page.getByRole('button', { name: /^Row 101, column 2(?: \(\d+\))?: Second part/ });
+    async function selectCell(locator) {
+      await locator.click();
+      if (phone) {
+        await page.getByRole('region', { name: 'Cell detail' }).waitFor();
+        await page.getByRole('button', { name: 'Select cell next' }).click();
+        await page.getByRole('button', { name: 'Back to cells' }).click();
+        assert.equal(
+          await locator.evaluate((node) => document.activeElement === node),
+          true,
+          'detail Back restores cell focus',
+        );
+      }
+    }
+    // Author order deliberately differs from sheet order.
+    await selectCell(second());
+    await selectCell(first());
+    await page.getByLabel('Compendium tab').selectOption('other-sheet');
+    await page.getByLabel('Compendium tab').selectOption('1662574278');
+    await page.getByRole('button', { name: 'Pick description cells near this name' }).click();
+    const confirm = page.getByRole('button', { name: 'Use selected cells (local reference)' });
+    assert.equal(await confirm.isEnabled(), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await dialog.isVisible(), false);
+    assert.equal(await pick.evaluate((node) => document.activeElement === node), true);
+    await pick.click();
+    assert.equal(await confirm.isEnabled(), true, 'Back retains selection');
+    if (phone) {
+      const targets = await dialog
+        .locator('button:visible, select:visible, input:visible, summary:visible')
+        .evaluateAll((nodes) =>
+          nodes.map((node) => ({
+            text: node.textContent?.slice(0, 50),
+            height: node.getBoundingClientRect().height,
+          })),
+        );
+      assert.deepEqual(
+        targets.filter((node) => node.height < 44),
+        [],
+        `${name}: short targets`,
+      );
+      const beforeWheel = await page.evaluate(() => window.scrollY);
+      await page.mouse.wheel(0, 600);
+      assert.equal(await page.evaluate(() => window.scrollY), beforeWheel, 'modal owns scrolling');
+    }
+    // Native Tab containment at both ends.
+    await dialog.getByRole('button', { name: 'Back', exact: true }).focus();
+    await page.keyboard.press('Shift+Tab');
+    assert.equal(await dialog.evaluate((node) => node.contains(document.activeElement)), true);
     await confirm.click();
     await page.getByText('Other source selected', { exact: false }).waitFor();
-    await page.getByText('Chosen source description').click();
-    assert.ok(await page.getByText('First part', { exact: false }).count());
-    await page.getByLabel('Note for Sample 101 (optional)').click();
-    await page.getByLabel('Owner guidance for Synthetic traits').click();
-    await page.getByRole('button', { name: 'Pick other' }).click();
-    await page.getByRole('button', { name: 'Close picker' }).click();
+    await owner.click();
+    await note.click();
     assert.equal(
       await page.getByLabel('Owner guidance for Synthetic traits').inputValue(),
-      'Category note remains visible',
+      'Category note retained',
     );
     assert.equal(
       await page.getByLabel('Note for Sample 101 (optional)').inputValue(),
-      'Sample note remains visible',
+      'Sample note retained',
     );
+    await page.getByLabel('Note for Sample 101 (optional)').scrollIntoViewIfNeeded();
+    const actions = page
+      .getByRole('region', { name: 'Resolve sample Sample 101' })
+      .getByRole('button');
+    if (phone) {
+      for (const label of ['Accept proposed link', 'Pick other', 'No equivalent', 'Skip']) {
+        const rect = await actions.filter({ hasText: label }).first().boundingBox();
+        assert.ok(
+          rect.height >= 44 && rect.y >= 0 && rect.y + rect.height <= viewport.height,
+          `${name}: decision ${label} reachable ${JSON.stringify(rect)}`,
+        );
+      }
+    }
     const state = await page.evaluate(() => window.pickerFixture.read());
     const reference = state.document.categories['catalog:weapon-trait'].references['101'];
     assert.equal(reference.decision, 'picked');
     assert.deepEqual(reference.link.cells, [
-      { dRow: 0, dCol: 1 },
       { dRow: 1, dCol: 1 },
+      { dRow: 0, dCol: 1 },
     ]);
     assert.match(reference.link.snapshot.plain, /First part/);
     assert.match(reference.link.snapshot.plain, /Second part/);
     assert.deepEqual(state.drafts, {});
     await page.getByRole('button', { name: 'Toggle ordinary picker' }).click();
     const draft = page.getByRole('button', { name: 'Use selected cells (local draft)' });
+    await page.getByLabel('Find row by name / section').fill('Sample 100');
+    await page.getByRole('button', { name: 'Pick description cells near this name' }).click();
     await draft.waitFor();
     assert.equal(
       await draft.isDisabled(),
@@ -159,7 +207,9 @@ try {
     assert.deepEqual(network, []);
     assert.deepEqual(errors, []);
     await context.close();
-    console.log(`${name}: picker pointer, cancel, reference and draft checks passed`);
+    console.log(
+      `${name}: modal, focus, order, retention, geometry, sticky actions and draft gates passed`,
+    );
   }
 } finally {
   await browser?.close();

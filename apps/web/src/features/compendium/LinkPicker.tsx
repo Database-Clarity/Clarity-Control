@@ -49,6 +49,14 @@ export function LinkPicker({
   const [anchorRow, setAnchorRow] = useState<CompendiumMatch['row']>();
   const [gid, setGid] = useState('');
   const [query, setQuery] = useState(name);
+  const [visited, setVisited] = useState<
+    Record<string, { gid: string; row?: CompendiumMatch['row'] }>
+  >({});
+  const cellKey = `${gid}:${anchorRow?.rowIndex}:${anchorRow?.anchor?.col}`;
+  useEffect(() => {
+    if (gid)
+      setVisited((old) => (old[cellKey] ? old : { ...old, [cellKey]: { gid, row: anchorRow } }));
+  }, [gid, anchorRow, cellKey]);
   const [error, setError] = useState<string | null>(null);
   const preferenceKey = `clarity-compendium-tab:${category}`;
   useEffect(() => {
@@ -149,35 +157,6 @@ export function LinkPicker({
   return (
     <section aria-label="Link a Compendium row">
       <h3>Choose tab and row</h3>
-      <p>Suggested places to look (not confirmed matches):</p>
-      {!(suggestions ?? categorySuggestions(data, category, name)).length && (
-        <p>No category-based location is established. Search any tab below.</p>
-      )}
-      <ul className={styles.rows}>
-        {(suggestions ?? categorySuggestions(data, category, name)).map((hint, index) => (
-          <li key={index}>
-            <button
-              type="button"
-              onClick={() => {
-                const target = data.tabs.find((entry) => entry.gid === hint.gid);
-                if (!target) return;
-                setGid(hint.gid);
-                setSection(hint.section ?? '');
-                setQuery('');
-                setAnchorRow(suggestionAnchor(target, hint));
-              }}
-            >
-              {data.tabs.find((entry) => entry.gid === hint.gid)?.name ?? hint.gid}{' '}
-              {hint.section && `/ ${hint.section}`}
-            </button>
-            <p>{hint.rationale}</p>
-          </li>
-        ))}
-      </ul>
-      <p>
-        All tabs remain available. Search parsed names/sections below, or all grid text in the cell
-        picker.
-      </p>
       <label>
         Compendium tab{' '}
         <select
@@ -220,6 +199,39 @@ export function LinkPicker({
         Find row by name / section{' '}
         <input value={query} onChange={(event) => setQuery(event.target.value)} />
       </label>
+      <details>
+        <summary>Why these locations? / source details</summary>
+        <p>Suggested places to look (not confirmed matches):</p>
+        {!(suggestions ?? categorySuggestions(data, category, name)).length && (
+          <p>No category-based location is established. Search any tab below.</p>
+        )}
+        <ul className={styles.rows}>
+          {(suggestions ?? categorySuggestions(data, category, name)).map((hint, index) => (
+            <li key={index}>
+              <button
+                type="button"
+                onClick={() => {
+                  const target = data.tabs.find((entry) => entry.gid === hint.gid);
+                  if (!target) return;
+                  setGid(hint.gid);
+                  setSection(hint.section ?? '');
+                  setQuery('');
+                  setAnchorRow(suggestionAnchor(target, hint));
+                }}
+              >
+                {data.tabs.find((entry) => entry.gid === hint.gid)?.name ?? hint.gid}{' '}
+                {hint.section && `/ ${hint.section}`}
+              </button>
+              <p>{hint.rationale}</p>
+            </li>
+          ))}
+        </ul>
+        <p>
+          All tabs remain available. Search parsed names/sections below, or all grid text in the
+          cell picker.
+        </p>
+        <p>Source fetched: {data.fetchedAt}</p>
+      </details>
       <p>
         Exact name matches appear first.{' '}
         {onReference
@@ -245,17 +257,23 @@ export function LinkPicker({
             </li>
           ))}
       </ul>
-      {tab && (
-        <CellPicker
-          key={`${gid}:${anchorRow?.rowIndex}:${anchorRow?.anchor?.col}`}
-          tab={tab}
-          data={data}
-          initial={anchorRow}
-          onChoose={choose}
-          readOnly={!canEdit}
-          referenceOnly={!!onReference}
-        />
-      )}
+      {Object.entries(visited).map(([key, saved]) => {
+        const savedTab = data.tabs.find((entry) => entry.gid === saved.gid);
+        return (
+          savedTab && (
+            <div key={key} hidden={key !== cellKey}>
+              <CellPicker
+                tab={savedTab}
+                data={data}
+                initial={saved.row}
+                onChoose={choose}
+                readOnly={!canEdit}
+                referenceOnly={!!onReference}
+              />
+            </div>
+          )
+        );
+      })}
       {!rows.length && <p>No matching rows. Choose another tab or search.</p>}
       {rows.length > 100 && <p>Showing 100 of {rows.length}; refine the search.</p>}
     </section>
