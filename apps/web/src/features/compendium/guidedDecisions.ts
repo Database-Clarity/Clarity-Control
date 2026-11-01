@@ -360,7 +360,7 @@ export function guidedDecisions(
         name: category?.name ?? record.name,
         comment: record.comment,
         pattern:
-          'Unique normalized name in an owner-demonstrated tab; fragment prefixes and explicitly approved shared armor families normalized. Exotic name lines, catalyst suffixes and separated fuzzy names require confirmation. No-equivalent decisions never generalize.',
+          'Unique normalized name in an owner-demonstrated tab; fragment prefixes and explicitly approved shared armor families normalized. Exotic name lines, catalyst suffixes and separated fuzzy names require confirmation. No-equivalent families require current owner support and explicit manifest predicates; missing names never prove exclusion.',
         issues,
         entries: decisions,
         high,

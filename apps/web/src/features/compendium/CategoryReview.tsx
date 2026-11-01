@@ -258,6 +258,7 @@ export function CategoryReview({
             <button onClick={() => onReview(category)}>Review these one by one</button>
             {guidance.ready && guidance.proposalInput && (
               <GuidedPreview
+                categories={categories}
                 key={category.id}
                 canEdit={canEdit && !paused && !guidance.conflict && !guidance.reloading}
                 onAccept={(entries, revision) => onAccept?.(category, entries, revision)}

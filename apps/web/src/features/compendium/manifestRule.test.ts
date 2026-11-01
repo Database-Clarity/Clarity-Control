@@ -15,6 +15,11 @@ const sample = (hash: number) =>
   }) as ReviewSample;
 
 describe('manifest exclusion rules', () => {
+  it.each([830282363, 194952923, 360593482, 893526895, 911046886, 1617987574])(
+    'preserves functional lead-in behavior for real item %i', (hash) => {
+      expect(manifestRule(sample(hash), 'catalog:weapon-perk', support(5699512))).toBeUndefined();
+    },
+  );
   it.each([
     [5699512, 'catalog:weapon-perk', 'manifest-weapon-stat'],
     [309000506, 'catalog:armor-mod-general', 'manifest-armor-stat'],

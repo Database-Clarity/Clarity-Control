@@ -7,6 +7,42 @@ const statLine = new RegExp(
   `^(?:(?:Slightly|Moderately|Greatly) )?(?:increases|decreases) ${stat}\\.?$`,
   'i',
 );
+// Exact, audited descriptive lead-ins. Unknown text must remain for owner review;
+// a stat bullet never proves that an unrelated first sentence is harmless.
+const statLeadIns = new Set([
+  'High stiffness for quick handling.', 'Sturdy iron sights.',
+  'Agile, snappy scope. Short zoom.', 'Powerful scope. Long zoom.',
+  'This weapon can fire longer distances.', 'Durable yet light bowstring.',
+  'Reduces weight for faster reloads.', 'Light sniper scope. Short zoom.',
+  'Long-distance Häkke scope. Long zoom.', 'Combat sniper scope. Short zoom.',
+  'Heavy, high capacity drum.', 'Balanced shotgun barrel.',
+  'Omolon post sight. Short zoom.', 'Light and stable shaft material.',
+  'Snapshot sight. Short zoom.', 'Lightweight sniper sight. Medium zoom.',
+  'Stable Sidearm sight.', 'Sharp Hand Cannon sight.', 'Vicious scope. Long zoom.',
+  'Light flexible sight. Medium zoom.', 'Far scope. Long zoom.',
+  'Lightweight sight. Short zoom.', 'Strong battery life.', 'Pinpoint Sidearm sight.',
+  'Agile Hand Cannon sight.', 'Ultra-light barrel.', 'Focused scope. Long zoom.',
+  'Barrel optimized for distance.', 'Agile post sights. Short zoom.',
+  'Agile iron sights. Short zoom.', 'Durable ranged barrel.',
+  'Accurate Hand Cannon sight.', 'Agile sight. Short zoom.', 'Large heavy battery.',
+  'Rugged and simple iron sights. Short zoom.', 'Circular iron sights. Short zoom.',
+  'Omolon Post sights. Short zoom.', 'Superior scope. Short zoom.',
+  'Assault scope. Long zoom.', 'Häkke marksman scope. Long zoom.',
+  'Lightweight, agile battery.', 'Balanced scope. Medium zoom.', 'Strong optics. Long zoom.',
+  'Ocular sights. Long zoom.', 'Red-dot. Medium zoom.', 'Improves stability.',
+  'Barrel optimized for recoil reduction.', 'Distance optimizations.',
+  'Agile Sidearm sight.', 'Precision scope. Long zoom.', 'Accurized sight. Medium zoom.',
+  'Ranged scope. Long zoom.', 'Ranged shotgun barrel.', 'Häkke holo sights. Medium zoom.',
+  'Thin-lens scope. Short zoom.', 'Balanced Sidearm sight.',
+  'SUROS projection sight. Short zoom.', 'Dual strength barrel.',
+  'SUROS lightweight red-dot sight. Short zoom.', 'SUROS holo sights. Medium zoom.',
+  'SUROS ranged combat scope. Long zoom.', 'Lightweight scope. Short zoom.',
+  'Stable Hand Cannon sight.', 'Optimized for extended range.', 'Pinpoint Hand Cannon sight.',
+  'Accurate Sidearm sight.', 'This weapon has multiple small improvements.',
+  'Sharp Sidearm sight.', 'Omolon red-dot. Medium zoom.', 'Balanced Hand Cannon sight.',
+  'Light, flexible sight. Short zoom.', 'Scrappy scope. Medium zoom.',
+  'Balanced scope. Short zoom.',
+]);
 function pure(text: string, flavor = false): boolean {
   const lines = text
     .split(/\r?\n/)
@@ -14,7 +50,10 @@ function pure(text: string, flavor = false): boolean {
     .filter(Boolean);
   if (!lines.length) return false;
   const bullets = lines.filter((line) => line.startsWith('•'));
-  if (flavor && bullets.length && !lines[0].startsWith('•')) lines.shift();
+  if (flavor && bullets.length && !lines[0].startsWith('•')) {
+    if (!statLeadIns.has(lines[0])) return false;
+    lines.shift();
+  }
   return (
     lines.length > 0 &&
     (!flavor || lines.every((line) => line.startsWith('•'))) &&

@@ -255,7 +255,7 @@ export function ReviewQueue({
       return;
     const group = guidedDecisions(
       latest.proposalInput,
-      [category],
+      categories,
       proposals,
       source,
       `${editor.bundle.sourceCommit}|${fingerprint}`,

@@ -15,6 +15,7 @@ export function GuidedPreview({
   document,
   planningRevision = 0,
   category,
+  categories,
   proposals,
   source,
   baseline,
@@ -25,6 +26,7 @@ export function GuidedPreview({
   document: GuidanceDocument;
   planningRevision?: number;
   category: ReviewCategory;
+  categories?: ReviewCategory[];
   proposals: Map<number, ReviewProposal>;
   source: CompendiumData;
   baseline: string;
@@ -40,10 +42,10 @@ export function GuidedPreview({
   const [limit, setLimit] = useState(20);
   const group = useMemo(
     () =>
-      guidedDecisions(document, [category], proposals, source, baseline, scope).find(
+      guidedDecisions(document, categories ?? [category], proposals, source, baseline, scope).find(
         (group) => group.id === category.id,
       ),
-    [document, category, proposals, source, baseline, scope],
+    [document, category, categories, proposals, source, baseline, scope],
   );
   if (!group) return null;
   const current =
