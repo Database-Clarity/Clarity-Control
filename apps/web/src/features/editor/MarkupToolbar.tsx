@@ -1,12 +1,19 @@
 import { useEffect, useState, type RefObject } from 'react';
 import type { EditorView } from '@codemirror/view';
+import type { MarkupGlobals } from '@clarity/core';
 import { insertMarkup, markupOptions } from './markupInsertion';
 import styles from './ClarityEditor.module.scss';
 
 const preferenceKey = 'clarity-translator-markup-toolbar';
 const groups = [...new Set(markupOptions.map((option) => option.group))];
 
-export function MarkupToolbar({ editor }: { editor: RefObject<EditorView | null> }) {
+export function MarkupToolbar({
+  editor,
+  globals,
+}: {
+  editor: RefObject<EditorView | null>;
+  globals: MarkupGlobals;
+}) {
   const [open, setOpen] = useState(false);
   const [choice, setChoice] = useState(markupOptions[0].id);
   const [message, setMessage] = useState('');
@@ -35,7 +42,7 @@ export function MarkupToolbar({ editor }: { editor: RefObject<EditorView | null>
     if (!editor.current || !option) {
       setMessage('The markup editor is not ready.');
     } else {
-      const result = insertMarkup(editor.current, option);
+      const result = insertMarkup(editor.current, option, globals);
       setMessage(
         result === 'composing'
           ? 'Finish composing text before inserting markup.'

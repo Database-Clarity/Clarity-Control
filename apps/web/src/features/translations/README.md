@@ -27,6 +27,8 @@ tokens, incomplete markup, variables and table boundaries. Link and title labels
 are also declined because the reference parser would interpret that bracket as part of the target.
 Lines joined or affected by comments, variables or math are conservatively protected, and line
 styles are declined when the renderer cannot consume another marker on that line or table row.
+Imports and variable expansions that could create comment delimiters also prevent insertion,
+because their renderer effects can span other authored lines.
 Edit existing markup directly when a toolbar operation is declined.
 
 Outdated order and the red "exported in English" flag use the same strict greater-than-90-day

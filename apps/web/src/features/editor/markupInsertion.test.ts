@@ -435,6 +435,34 @@ describe('markup insertion', () => {
     }
   });
 
+  test.each(['inline:blue', 'link', 'title', 'table:wide', 'icon:solar', 'line:blue'])(
+    'rejects %s when a global variable creates a multiline comment',
+    (id) => {
+      const doc = '<bold Damage > #join\nignored\n*/10 />';
+      const expandedGlobals = { variables: 'var join = /*', titles: '' };
+      const point = doc.indexOf('10');
+      const state = EditorState.create({ doc, selection: { anchor: point, head: point + 2 } });
+      expect(parseMarkup(doc, expandedGlobals).lines[0].linesContent).toEqual([
+        { text: 'Damage > 10', classNames: ['bold'] },
+      ]);
+      expect(markupTransaction(state, option(id), expandedGlobals)).toBeNull();
+      expect(state.doc.toString()).toBe(doc);
+    },
+  );
+
+  test('protects comment boundaries created by empty variables and imported text', () => {
+    const doc = '/#empty* hidden\n*/visible';
+    const globals = { variables: 'var empty = empty', titles: '' };
+    const state = EditorState.create({ doc, selection: { anchor: doc.indexOf('visible') } });
+    expect(parseMarkup(doc, globals).lines[0].linesContent?.[0].text).toBe('visible');
+    expect(markupTransaction(state, option('line:blue'), globals)).toBeNull();
+    const imported = EditorState.create({
+      doc: 'import main from 42\nplain',
+      selection: { anchor: 25 },
+    });
+    expect(markupTransaction(imported, option('inline:bold'))).toBeNull();
+  });
+
   test('declines repeated and existing line markers without altering history or preview', () => {
     let state = EditorState.create({ doc: 'French text', extensions: history() });
     state = insert(state, option('line:blue'));

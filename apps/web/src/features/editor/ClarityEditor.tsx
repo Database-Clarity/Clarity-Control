@@ -166,7 +166,7 @@ export function ClarityEditor({
 
   return (
     <div className={styles.editor}>
-      {markupToolbar && !readOnly && <MarkupToolbar editor={view} />}
+      {markupToolbar && !readOnly && <MarkupToolbar editor={view} globals={globals} />}
       <div ref={host} />
       <details className={styles.help}>
         <summary>{issues.length ? `${issues.length} markup issue(s)` : 'Markup help'}</summary>

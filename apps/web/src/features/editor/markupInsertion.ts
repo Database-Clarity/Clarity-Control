@@ -2,13 +2,17 @@ import { isolateHistory } from '@codemirror/commands';
 import { EditorSelection, EditorState, Transaction } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import {
+  extractVariables,
   markupColors,
   markupCommentContext,
   markupEmpty,
   markupIcons,
+  markupImports,
   markupInlineRanges,
   markupLineClasses,
   markupTableClasses,
+  markupVariableReferences,
+  type MarkupGlobals,
 } from '@clarity/core';
 
 type MarkupKind = 'inline' | 'icon' | 'line' | 'link' | 'title' | 'table';
@@ -141,8 +145,23 @@ function intersects(from: number, to: number, protectedRange: ProtectedRange) {
   );
 }
 
-export function markupTransaction(state: EditorState, option: MarkupOption): Transaction | null {
-  const context = markupCommentContext(state.doc.toString());
+export function markupTransaction(
+  state: EditorState,
+  option: MarkupOption,
+  globals: MarkupGlobals = { variables: '', titles: '' },
+): Transaction | null {
+  const text = state.doc.toString();
+  const variables = { ...extractVariables(text), ...extractVariables(globals.variables) };
+  // Expansion precedes comment removal and can create a comment spanning unrelated lines.
+  if (
+    markupImports(text).length ||
+    markupVariableReferences(text).some((reference) => {
+      const value = variables[reference.slice(1)];
+      return value !== undefined && (value === '' || /[/*]/.test(value));
+    })
+  )
+    return null;
+  const context = markupCommentContext(text);
   const { tokens, tables } = protectedRanges(state, context.comments);
   const unsafe = state.selection.ranges.some((range) => {
     const insertAtHead = option.kind === 'icon' || option.kind === 'line';
@@ -244,10 +263,11 @@ export function markupTransaction(state: EditorState, option: MarkupOption): Tra
 export function insertMarkup(
   view: EditorView,
   option: MarkupOption,
+  globals: MarkupGlobals = { variables: '', titles: '' },
 ): 'inserted' | 'read-only' | 'composing' | 'unsupported' {
   if (view.state.readOnly) return 'read-only';
   if (view.compositionStarted || view.composing) return 'composing';
-  const transaction = markupTransaction(view.state, option);
+  const transaction = markupTransaction(view.state, option, globals);
   if (!transaction) return 'unsupported';
   view.dispatch(transaction);
   view.focus();
