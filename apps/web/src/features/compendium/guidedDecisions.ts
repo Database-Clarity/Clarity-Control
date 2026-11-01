@@ -169,7 +169,7 @@ export function guidedDecisions(
             ...result,
             reason: 'Category comment needs agent interpretation; no automatic rule applied.',
           };
-        const manifestDecision = manifestRule(entry, record.id, globalUsable);
+        const manifestDecision = !entry.scopeRestored && manifestRule(entry, record.id, globalUsable);
         if (manifestDecision) return { ...result, ...manifestDecision };
         if (record.id === 'catalog:armor-mod-seasonal')
           return {
