@@ -139,7 +139,8 @@
   flex-direction: column;
   gap: 0.4rem;
   flex: 1;
-  min-height: 0;
+  min-height: 6rem;
+  overflow: auto;
   > [role='status'] {
     font-size: 0.8rem;
   }
@@ -217,6 +218,9 @@
     max-height: 12rem;
   }
   .category {
+    overflow: visible;
+  }
+  .sample {
     overflow: visible;
   }
   .comparison section,

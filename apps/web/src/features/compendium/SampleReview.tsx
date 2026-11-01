@@ -65,7 +65,7 @@ export function SampleReview({
     }
   }
   return (
-    <section className={styles.sample} aria-label={`Resolve sample ${entry.name}`}>
+    <section className={styles.sample} aria-label={`Resolve sample ${entry.name}`} tabIndex={0}>
       <div className={styles.comparison}>
         <section aria-label="Sample entry">
           <h3>

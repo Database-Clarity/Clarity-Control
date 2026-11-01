@@ -253,6 +253,7 @@ export function LinkPicker({
           initial={anchorRow}
           onChoose={choose}
           readOnly={!canEdit}
+          referenceOnly={!!onReference}
         />
       )}
       {!rows.length && <p>No matching rows. Choose another tab or search.</p>}

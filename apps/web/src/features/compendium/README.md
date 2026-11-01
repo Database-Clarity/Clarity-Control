@@ -55,6 +55,9 @@ identity; stale/unavailable anchors cannot create drafts by themselves. This
 increment adds no bulk matching rules or static per-tooltip guess list.
 
 Run root `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`.
+Run `npm run test:picker-browser` with an installed Chromium browser (or set
+`PICKER_BROWSER` to its executable) for the offline synthetic picker pointer regression.
+It uses an in-memory guidance document and starts no server.
 Queue regressions live in `reviewQueue.test.ts`; relative-cell confirmation and
 English/translation save invariants remain in selection/enricher/core tests.
 Changed UI still requires independent wide/narrow rendered verification.

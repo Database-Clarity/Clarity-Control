@@ -49,6 +49,7 @@ it('applies the category viewport budget to the route itself, with internal over
   expect(category).toContain('padding-bottom: 0;');
   expect(css).not.toContain('.entryReview .categoryReview');
   expect(categoryCss.match(/(?:^|\n)\.category \{([^}]+)\}/)?.[1]).toContain('overflow: auto;');
+  expect(categoryCss.match(/(?:^|\n)\.sample \{([^}]+)\}/)?.[1]).toContain('overflow: auto;');
   expect(categoryCss.match(/(?:^|\n)\.comparison section \{([^}]+)\}/)?.[1]).toContain(
     'overflow: auto;',
   );

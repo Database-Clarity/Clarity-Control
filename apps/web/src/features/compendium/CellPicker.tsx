@@ -20,11 +20,13 @@ export function CellPicker({
   initial,
   onChoose,
   readOnly = false,
+  referenceOnly = false,
 }: {
   tab: CompendiumSheet;
   data: CompendiumData;
   initial?: CompendiumRow;
   readOnly?: boolean;
+  referenceOnly?: boolean;
   onChoose(match: CompendiumMatch): void;
 }) {
   const [anchor, setAnchor] = useState<CompendiumPosition | undefined>(initial?.anchor);
@@ -173,7 +175,9 @@ export function CellPicker({
               if (accepted && selection) onChoose(selection);
             }}
           >
-            Use selected cells (local draft)
+            {referenceOnly
+              ? 'Use selected cells (local reference)'
+              : 'Use selected cells (local draft)'}
           </button>
         </>
       )}
