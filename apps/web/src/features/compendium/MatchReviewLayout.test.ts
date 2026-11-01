@@ -36,10 +36,9 @@ it('keeps the phone review actions and overlay above the measured save dock', ()
   expect(mobile).toContain('calc(5rem + env(safe-area-inset-bottom, 0px))');
   expect(layoutCss).toContain('calc(5rem + env(safe-area-inset-bottom, 0px))');
 });
-it('keeps the mobile review sidebar compact without hiding the stepper elsewhere', () => {
-  expect(layoutCss).toMatch(
-    /@media \(max-width: 700px\)[\s\S]*\.reviewMode \.sidebar \.stepper[^}]*display: none;/,
-  );
+it('bounds the mobile context-aware sidebar without hiding the Editor stepper globally', () => {
+  expect(layoutCss).toMatch(/\.sidebar\[data-open=true\] \{[^}]*height: 100dvh;/);
+  expect(layoutCss).toMatch(/\.sidebar\[data-open=true\] \.sidebarBody \{[^}]*overflow-y: auto;/);
   expect(layoutCss.match(/(?:^|\n)\.stepper \{([^}]+)\}/)?.[1]).not.toContain('display: none');
 });
 it('applies the category viewport budget to the route itself, with internal overflow and phone scrolling', () => {

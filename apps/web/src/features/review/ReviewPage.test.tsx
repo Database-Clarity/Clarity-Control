@@ -69,6 +69,17 @@ async function click(label: string) {
   await act(async () => button(label).click());
   await flush();
 }
+function ReturnPage() {
+  return createElement('p', null, 'Compendium workspace');
+}
+async function chooseWorkspace(path: string) {
+  await act(async () => {
+    const select = host.querySelector<HTMLSelectElement>('aside select');
+    if (!select) throw new Error('Workspace selector is missing');
+    select.value = path;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
 async function mount() {
   await act(async () =>
     root.render(
@@ -82,6 +93,7 @@ async function mount() {
             Route,
             { element: createElement(Layout) },
             createElement(Route, { path: '/review', element: createElement(ReviewPage) }),
+            createElement(Route, { path: '/compendium', element: createElement(ReturnPage) }),
           ),
         ),
       ),
@@ -179,6 +191,38 @@ it('keeps successful acknowledgment and notice through a real-store lagging refr
   bundle.tooltips[10] = structuredClone(tooltip);
   await refresh();
   expect(host.textContent).toContain('1 pending / 0 selected');
+});
+
+it('selects pending changes from the sidebar and restores the selected item after returning', async () => {
+  const second = structuredClone(tooltip);
+  second.hash = 20;
+  second.text.en!.text = 'Second saved edit';
+  bundle.tooltips[20] = second;
+  await mount();
+  await waitFor(() => expect(host.textContent).toContain('2 pending / 0 selected'));
+  expect(host.textContent).toContain('1 of 2');
+
+  const sidebarLink = host.querySelector<HTMLAnchorElement>(
+    '[aria-label="Pending saved changes"] a[href="/review?hash=20"]',
+  );
+  expect(sidebarLink).not.toBeNull();
+  await act(async () => sidebarLink!.click());
+  expect(host.textContent).toContain('2 of 2');
+  expect(
+    host.querySelector('[aria-label="Pending saved changes"] a[aria-current="page"]')?.textContent,
+  ).toContain('Tooltip 20');
+
+  const workspace = host.querySelector<HTMLSelectElement>('aside select')!;
+  await act(async () => {
+    workspace.value = '/compendium';
+    workspace.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await chooseWorkspace('/review');
+  await waitFor(() => expect(host.textContent).toContain('2 pending / 0 selected'));
+  expect(host.textContent).toContain('2 of 2');
+  expect(
+    host.querySelector('[aria-label="Pending saved changes"] a[aria-current="page"]')?.textContent,
+  ).toContain('Tooltip 20');
 });
 
 it('retires acknowledgment when the bundle reports a superseding marker without catching up first', async () => {

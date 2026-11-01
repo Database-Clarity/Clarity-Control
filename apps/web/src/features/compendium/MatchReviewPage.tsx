@@ -33,6 +33,7 @@ import {
   type BulkPreviewState,
   type BulkProposal,
 } from './BulkPreview';
+import { useSidebarQueueStore } from '../navigation/sidebarQueue';
 
 const labels = {
   open: 'Unresolved',
@@ -107,6 +108,7 @@ export function ReviewQueue({
   storageKey: string;
 }) {
   const { progress, update, error } = useReviewProgress(storageKey);
+  const setSidebarCategories = useSidebarQueueStore((state) => state.setCompendiumCategories);
   const [params, setParams] = useSearchParams();
   const categoryView = params.get('view') !== 'entries';
   const groupId = params.get('group');
@@ -188,6 +190,9 @@ export function ReviewQueue({
       }),
     [entries, editor, proposals, matching, proposalError, scopeState.hashes],
   );
+  useEffect(() => {
+    setSidebarCategories(categories.map(({ id, name }) => ({ id, name })));
+  }, [categories, setSidebarCategories]);
   const guidance = useGuidance(
     categories,
     `${editor.bundle.sourceCommit}|${fingerprint}`,
@@ -205,14 +210,21 @@ export function ReviewQueue({
   const filtered = scopedEntries.filter(
     (entry) =>
       (!groupId || categoryId(entry.category) === groupId) &&
-      (!progress.category || entry.category === progress.category) &&
-      (!progress.query ||
-        `${entry.name} ${entry.hash}`.toLowerCase().includes(progress.query.toLowerCase())) &&
-      (progress.filter === 'all' || entry.status === progress.filter) &&
-      (proposalFilter === 'all' ||
+      (groupId ||
+        (!progress.category || entry.category === progress.category) &&
+          (!progress.query ||
+            `${entry.name} ${entry.hash}`.toLowerCase().includes(progress.query.toLowerCase())) &&
+          (progress.filter === 'all' || entry.status === progress.filter)) &&
+      (groupId ? entry.status === 'open' : true) &&
+      (groupId ||
+        proposalFilter === 'all' ||
         (proposalFilter === 'yes') === !!proposals.get(entry.hash)?.link),
   );
-  const selected = filtered.find((entry) => entry.hash === progress.selected) ?? filtered[0];
+  const routeHash = params.get('hash');
+  const selected =
+    filtered.find((entry) => String(entry.hash) === routeHash) ??
+    filtered.find((entry) => entry.hash === progress.selected) ??
+    filtered[0];
   const index = selected ? filtered.indexOf(selected) : -1;
   const proposal = selected && proposals.get(selected.hash);
   const hints = selected
@@ -238,6 +250,12 @@ export function ReviewQueue({
     filtered.map((entry) => entry.hash),
     index,
   );
+  useEffect(() => {
+    if (!selected || params.get('hash') === String(selected.hash)) return;
+    const next = new URLSearchParams(params);
+    next.set('hash', String(selected.hash));
+    setParams(next, { replace: true });
+  }, [selected, params, setParams]);
   function keepEntryVisible() {
     if (window.matchMedia('(max-width: 700px)').matches)
       requestAnimationFrame(() =>
