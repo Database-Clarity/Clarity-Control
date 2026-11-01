@@ -827,7 +827,9 @@ export function ReviewQueue({
       )}
       <footer ref={setActionBar} className={styles.actionBar} aria-label="Review actions">
         <p className={styles.actionConsequence}>
-          Links create local drafts, not saves · Skip/No equivalent stay in browser.
+          {canEdit
+            ? 'Links create local drafts, not saves · Skip/No equivalent stay in browser.'
+            : 'Browsing only · linking unavailable · Pick other previews sources; Skip/No equivalent stay in browser.'}
         </p>
         <button
           className={styles.primary}
