@@ -5,6 +5,8 @@ import type { applyReviewProgress } from './reviewQueue';
 import { sourceFingerprint } from './reviewProgress';
 import { loadManifestFacts, type ManifestFacts } from './manifestFacts';
 
+const catalogFacts = loadManifestFacts();
+
 export type ReviewEntry = ReturnType<typeof applyReviewProgress>[number];
 export type ReviewSample = ReviewEntry & {
   sampleEvidence: string;
@@ -41,7 +43,7 @@ export function reviewCategories(
   failed = false,
 ): ReviewCategory[] {
   const manifest = groupManifestItems(editor.items, editor.aliases);
-  const facts = loadManifestFacts();
+  const facts = catalogFacts;
   const groups = new Map<string, ReviewCategory>();
   for (const entry of entries) {
     const id = categoryId(entry.category);
