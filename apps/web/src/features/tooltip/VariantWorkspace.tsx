@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import styles from './TooltipPage.module.scss';
 import { useWorkspaceDivider } from './useWorkspaceDivider';
 
@@ -25,6 +25,10 @@ export function VariantWorkspace({ source, editor, preview }: VariantWorkspacePr
   const prefix = useId();
   const [active, setActive] = useState<Panel>('translation');
   const tabs = useRef<Partial<Record<Panel, HTMLButtonElement | null>>>({});
+  const activePanel = !source && active === 'source' ? 'translation' : active;
+  useEffect(() => {
+    if (!source && active === 'source') setActive('translation');
+  }, [source, active]);
   const visiblePanels = source
     ? panels
     : panels
@@ -32,7 +36,7 @@ export function VariantWorkspace({ source, editor, preview }: VariantWorkspacePr
         .map((panel) => (panel.id === 'translation' ? { ...panel, label: 'Source' } : panel));
   const content: Record<Panel, ReactNode> = { source, translation: editor, preview };
   function onKeyDown(event: KeyboardEvent) {
-    const index = visiblePanels.findIndex((panel) => panel.id === active);
+    const index = visiblePanels.findIndex((panel) => panel.id === activePanel);
     const target =
       event.key === 'ArrowRight'
         ? (index + 1) % visiblePanels.length
@@ -61,9 +65,9 @@ export function VariantWorkspace({ source, editor, preview }: VariantWorkspacePr
             type="button"
             role="tab"
             id={`${prefix}-tab-${id}`}
-            aria-selected={active === id}
+            aria-selected={activePanel === id}
             aria-controls={`${prefix}-panel-${id}`}
-            tabIndex={active === id ? 0 : -1}
+            tabIndex={activePanel === id ? 0 : -1}
             onClick={() => setActive(id)}
           >
             {label}
@@ -77,7 +81,7 @@ export function VariantWorkspace({ source, editor, preview }: VariantWorkspacePr
           id={`${prefix}-panel-${id}`}
           aria-labelledby={`${prefix}-tab-${id}`}
           data-panel={id}
-          data-active={active === id}
+          data-active={activePanel === id}
           className={styles.panel}
         >
           {content[id]}

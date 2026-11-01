@@ -86,6 +86,29 @@ describe('workspace divider', () => {
     press(tabs[1], 'Home');
     expect(tabs[0].getAttribute('aria-selected')).toBe('true');
   });
+  it('falls back to the editor when Source disappears and keeps the tabs usable', () => {
+    render(true);
+    let tabs = host.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+    expect([...tabs].map((tab) => tab.textContent)).toEqual(['Source', 'Translation', 'Preview']);
+    act(() => tabs[0].click());
+    expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+
+    render(false);
+    tabs = host.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+    expect([...tabs].map((tab) => tab.textContent)).toEqual(['Source', 'Preview']);
+    expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+    expect(tabs[0].tabIndex).toBe(0);
+    expect(host.querySelector('[data-panel="translation"]')?.getAttribute('data-active')).toBe('true');
+    expect(host.querySelector('[data-panel="translation"]')?.textContent).toBe('Editor');
+
+    act(() => tabs[1].click());
+    expect(tabs[1].getAttribute('aria-selected')).toBe('true');
+    expect(host.querySelector('[data-panel="preview"]')?.getAttribute('data-active')).toBe('true');
+
+    render(true);
+    tabs = host.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+    expect(tabs[2].getAttribute('aria-selected')).toBe('true');
+  });
   it('restores a saved split, clamps to the container and responds to resize', () => {
     localStorage.setItem(key, '90');
     const divider = render();
