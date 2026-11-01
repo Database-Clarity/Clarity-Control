@@ -1,7 +1,7 @@
 import { guidedDecisions, guidedRevision, type GuidedDecision } from './guidedDecisions';
 import { importContext } from './importContext';
 import { researchSuggestions } from './researchSuggestions';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { CompendiumData, Tooltip } from '@clarity/core';
 import { groupManifestItems } from './manifestItems';
@@ -125,8 +125,10 @@ export function ReviewQueue({
       };
     }
   });
+  const scopeRef = useRef(scopeState);
   function restoreScope(hash: number) {
-    const hashes = new Set(scopeState.hashes);
+    if (scopeRef.current.hashes.has(hash)) return;
+    const hashes = new Set(scopeRef.current.hashes);
     hashes.add(hash);
     let error = '';
     try {
@@ -134,7 +136,10 @@ export function ReviewQueue({
     } catch {
       error = 'Could not save restored scope to local storage.';
     }
-    setScopeState({ hashes, error });
+    const next = { hashes, error };
+    scopeRef.current = next;
+    setScopeState(next);
+    setBulk(undefined);
   }
   const [message, setMessage] = useState('');
   const [proposalFilter, setProposalFilter] = useState('all');
@@ -301,6 +306,10 @@ export function ReviewQueue({
   }
   function acceptGuided(category: ReviewCategory, decisions: GuidedDecision[], revision: string) {
     // Read authoritative state at invocation: a captured handler may predate a synchronous edit.
+    if (scopeRef.current.hashes !== scopeState.hashes) {
+      setMessage('Review scope changed. Open a new preview.');
+      return;
+    }
     const latest = guidance.persistence.getSnapshot();
     if (
       !mayDraftLink(
@@ -371,6 +380,7 @@ export function ReviewQueue({
   function acceptBulk(visible: BulkProposal[]) {
     if (!canEdit || !bulk || !visible.length) return;
     if (
+      scopeRef.current.hashes !== scopeState.hashes ||
       !bulkPreviewCurrent(bulk, editor, source, entries, proposals, useDraftStore.getState().drafts)
     ) {
       setMessage('Preview evidence or drafts changed. Cancel and open a new preview.');

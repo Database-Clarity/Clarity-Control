@@ -53,6 +53,7 @@ try {
     entries.map((entry) => [entry.hash, rapid.proposalFor(entry.base, editor, source)]),
   );
   const categories = categoriesModule.reviewCategories(entries, editor, proposals, false);
+  const { inScopeCategory } = await load('apps/web/src/features/compendium/reviewScope.ts');
   const scope = `${bundleModule.bundleUrl}|${sourceUrl}`;
   let renewal;
   if (renew) {
@@ -87,15 +88,17 @@ try {
     owner: groups.reduce((sum, group) => sum + group.unresolved, 0),
     currentQueueCount: entries.length,
     reasonGroups: Object.fromEntries(
-      categories.map((category) => [
-        category.id,
-        Object.fromEntries(
-          Object.entries(category.reasons).map(([reason, entries]) => [
-            reason,
-            entries.map((entry) => entry.hash),
-          ]),
-        ),
-      ]),
+      categories
+        .map(inScopeCategory)
+        .map((category) => [
+          category.id,
+          Object.fromEntries(
+            Object.entries(category.reasons).map(([reason, entries]) => [
+              reason,
+              entries.map((entry) => entry.hash),
+            ]),
+          ),
+        ]),
     ),
     groups,
   };

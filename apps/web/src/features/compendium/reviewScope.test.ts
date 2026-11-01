@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 import { guidedFixture } from '../../../test/guided-fixture';
 import { guidedDecisions } from './guidedDecisions';
 import { loadManifestFacts } from './manifestFacts';
-import { classifyScope, scopeConfig } from './reviewScope';
+import { classifyScope, inScopeCategory, scopeConfig } from './reviewScope';
 
 it('classifies ghost mods and stat-only manifest entries while protecting decisions', () => {
   const f = guidedFixture();
@@ -55,4 +55,27 @@ it('keeps references and entries while scope takes precedence over an explicit r
   expect(group.outOfScope).toBe(1);
   expect(group.referenceEvidence).toHaveLength(Object.keys(record.references!).length);
   expect(group.entries).toHaveLength(record.hashes.length);
+  expect(group.samples).not.toContain(category.entries[0].hash);
+});
+
+it('projects only in-scope owner reasons and samples while preserving canonical categories', () => {
+  const f = guidedFixture();
+  const category = f.categories[0];
+  category.id = 'catalog:ghost-mod';
+  const original = JSON.stringify(category);
+  const ghost = inScopeCategory(category);
+  expect(ghost.entries).toEqual([]);
+  expect(ghost.samples).toEqual([]);
+  expect(Object.values(ghost.reasons).flat()).toEqual([]);
+  expect(JSON.stringify(category)).toBe(original);
+  category.id = 'catalog:weapon-perk';
+  const excluded = category.entries[0];
+  excluded.manifestFacts = {
+    item: structuredClone(loadManifestFacts().items['5699512']),
+    version: 'test',
+  };
+  const mixed = inScopeCategory(category);
+  expect(mixed.entries).toHaveLength(category.entries.length - 1);
+  expect(mixed.samples).not.toContain(excluded);
+  expect(Object.values(mixed.reasons).flat()).not.toContain(excluded);
 });

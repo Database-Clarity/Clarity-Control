@@ -169,7 +169,8 @@ export function guidedDecisions(
             ...result,
             reason: 'Category comment needs agent interpretation; no automatic rule applied.',
           };
-        const manifestDecision = !entry.scopeRestored && manifestRule(entry, record.id, globalUsable);
+        const manifestDecision =
+          !entry.scopeRestored && manifestRule(entry, record.id, globalUsable);
         if (manifestDecision) return { ...result, ...manifestDecision };
         if (record.id === 'catalog:armor-mod-seasonal')
           return {
@@ -364,8 +365,9 @@ export function guidedDecisions(
       // Deterministic stratification by outcome, with remaining exceptions available in full below.
       const stratum = (entry: GuidedDecision) =>
         `${entry.ruleId}:${entry.confidence}:${entry.action}`;
-      const samples = [...new Set(decisions.map(stratum))]
-        .flatMap((kind) => decisions.filter((entry) => stratum(entry) === kind).slice(0, 2))
+      const actionable = decisions.filter((entry) => entry.confidence !== 'out-of-scope');
+      const samples = [...new Set(actionable.map(stratum))]
+        .flatMap((kind) => actionable.filter((entry) => stratum(entry) === kind).slice(0, 2))
         .map((entry) => entry.hash);
       return {
         id: record.id,

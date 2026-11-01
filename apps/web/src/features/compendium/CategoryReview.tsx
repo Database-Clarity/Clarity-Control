@@ -12,6 +12,7 @@ import { GuidedPreview } from './GuidedPreview';
 import { bundleUrl } from '../../services/bundle';
 import { compendiumDataUrl } from '../../services/compendium';
 import { sourceFingerprint } from './reviewProgress';
+import { inScopeCategory } from './reviewScope';
 
 export function CategoryReview({
   categories,
@@ -43,9 +44,11 @@ export function CategoryReview({
   const [selected, setSelected] = useState<Record<string, number>>({});
   const [browsing, setBrowsing] = useState(20);
   const [importError, setImportError] = useState<string | null>(null);
-  const filtered = categories.filter((category) =>
-    `${category.name} ${category.group}`.toLowerCase().includes(query.toLowerCase()),
-  );
+  const filtered = categories
+    .map(inScopeCategory)
+    .filter((category) =>
+      `${category.name} ${category.group}`.toLowerCase().includes(query.toLowerCase()),
+    );
   const category = filtered.find((category) => category.id === categoryId) ?? filtered[0];
   function samples(group: ReviewCategory) {
     const references = guidance.document.categories[group.id]?.references ?? {};

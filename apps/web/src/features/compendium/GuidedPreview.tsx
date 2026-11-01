@@ -55,6 +55,7 @@ export function GuidedPreview({
     (planningRevision === preview.planningRevision &&
       guidedRevision([group]) === guidedRevision([preview.group]));
   const shown = preview?.group ?? group;
+  const actionable = group.entries.filter((entry) => entry.confidence !== 'out-of-scope');
   const candidates = shown.entries.filter(
     (entry) => entry.confidence === preview?.tier && entry.action === 'link',
   );
@@ -154,11 +155,11 @@ export function GuidedPreview({
         .map((entry) => (
           <Decision key={entry.hash} entry={entry} />
         ))}
-      <h4>Full recorded scope</h4>
-      {group.entries.slice(0, limit).map((entry) => (
+      <h4>In-scope proposals</h4>
+      {actionable.slice(0, limit).map((entry) => (
         <Decision key={entry.hash} entry={entry} />
       ))}
-      {limit < group.entries.length && (
+      {limit < actionable.length && (
         <button onClick={() => setLimit(limit + 20)}>Show 20 more proposals</button>
       )}
     </details>
