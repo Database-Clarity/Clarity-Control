@@ -3,6 +3,11 @@ import { Link } from 'react-router-dom';
 import type { Tooltip } from '@clarity/core';
 import { getPushedVersion } from '../../services/history';
 import { errorMessage } from '../../services/http';
+import { useAuthStore } from '../../stores/auth';
+import { useDraftStore } from '../../stores/drafts';
+import { useSaveState } from '../../services/save/state';
+import { replaceDraft } from '../../services/save/drafts';
+import { revertDraft } from '../history/revert';
 import { TooltipDiff } from '../history/TooltipDiff';
 import type { PendingTooltip } from './model';
 
@@ -10,6 +15,48 @@ export function ReviewDetail({ entry }: { entry: PendingTooltip }) {
   const [live, setLive] = useState<{ tooltip: Tooltip | null; pushedHash: string | null }>();
   const [error, setError] = useState<string>();
   const [attempt, setAttempt] = useState(0);
+  const [confirm, setConfirm] = useState(false);
+  const [notice, setNotice] = useState<string>();
+  const user = useAuthStore((state) => state.user);
+  const draft = useDraftStore((state) => state.drafts[entry.tooltip.hash]);
+  const hydrated = useDraftStore((state) => state.hydrated);
+  const locked = useSaveState((state) => state.locked);
+  const canLoad =
+    !!user?.role &&
+    (user.role !== 'translator' || !!user.languages?.length) &&
+    hydrated &&
+    !locked &&
+    !!live?.tooltip &&
+    !!live.pushedHash;
+  function loadDraft() {
+    const currentUser = useAuthStore.getState().user;
+    const state = useDraftStore.getState();
+    if (
+      !currentUser?.role ||
+      (currentUser.role === 'translator' && !currentUser.languages?.length) ||
+      !state.hydrated ||
+      useSaveState.getState().locked ||
+      !live?.tooltip ||
+      !live.pushedHash
+    )
+      return;
+    try {
+      replaceDraft(
+        entry.tooltip,
+        revertDraft(
+          state.drafts[entry.tooltip.hash]?.next ?? entry.tooltip,
+          live.tooltip,
+          currentUser,
+        ),
+      );
+      setConfirm(false);
+      setNotice(
+        'Last pushed version loaded as a local draft. Review it in the editor; nothing was saved or pushed.',
+      );
+    } catch (reason) {
+      setError(errorMessage(reason));
+    }
+  }
   useEffect(() => {
     const controller = new AbortController();
     setLive(undefined);
@@ -41,6 +88,28 @@ export function ReviewDetail({ entry }: { entry: PendingTooltip }) {
         <>
           {!live.pushedHash && <p>No recorded live version. All saved text is new.</p>}
           <TooltipDiff before={live.tooltip} current={entry.tooltip} />
+          {notice && <p role="status">{notice}</p>}
+          {user?.role === 'translator' && (
+            <p>Only your assigned translation languages will be loaded.</p>
+          )}
+          {!confirm ? (
+            <button type="button" disabled={!canLoad} onClick={() => setConfirm(true)}>
+              Load last pushed as draft
+            </button>
+          ) : (
+            <div>
+              <p>
+                This replaces {draft ? 'the existing local draft' : 'the editor content'} for this
+                tooltip. It does not save or push.
+              </p>
+              <button type="button" disabled={!canLoad} onClick={loadDraft}>
+                Confirm load as draft
+              </button>{' '}
+              <button type="button" onClick={() => setConfirm(false)}>
+                Cancel
+              </button>
+            </div>
+          )}
         </>
       )}
     </section>

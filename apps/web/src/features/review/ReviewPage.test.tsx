@@ -328,3 +328,51 @@ it('retires acknowledgment when its tooltip is removed from the bundle', async (
   await refresh();
   expect(useReviewSession.getState().acknowledgments).toEqual({});
 });
+
+it('loads the pushed snapshot into a local draft only after confirmation', async () => {
+  const live = structuredClone(tooltip);
+  live.text.en!.text = 'Pushed text';
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ tooltip: live, pushedHash: 'digest' })),
+  );
+  await mount();
+  await waitFor(() => expect(button('Load last pushed as draft').disabled).toBe(false));
+  await click('Load last pushed as draft');
+  expect(useDraftStore.getState().drafts[10]).toBeUndefined();
+  await click('Confirm load as draft');
+  expect(useDraftStore.getState().drafts[10].next).toEqual(live);
+  expect(useDraftStore.getState().drafts[10].base).toEqual(tooltip);
+  expect(post).not.toHaveBeenCalled();
+});
+
+it('protects existing drafts on cancel and restricts translators to assigned languages', async () => {
+  const live = structuredClone(tooltip);
+  live.text.en!.text = 'Pushed English';
+  live.text.de = { text: 'Pushed German', updatedAt: '2026-01-01T00:00:00Z', updatedBy: 'fixture' };
+  const existing = structuredClone(tooltip);
+  existing.text.en!.text = 'Existing draft';
+  useDraftStore.setState({ drafts: { 10: { base: tooltip, next: existing } } });
+  useAuthStore.setState({ user: { ...user, role: 'translator', languages: ['de'] } });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ tooltip: live, pushedHash: 'digest' })),
+  );
+  await mount();
+  await waitFor(() => expect(button('Load last pushed as draft').disabled).toBe(false));
+  await click('Load last pushed as draft');
+  expect(host.textContent).toContain('existing local draft');
+  await click('Cancel');
+  expect(useDraftStore.getState().drafts[10].next).toEqual(existing);
+  await click('Load last pushed as draft');
+  await click('Confirm load as draft');
+  expect(useDraftStore.getState().drafts[10].next.text.en!.text).toBe('Existing draft');
+  expect(useDraftStore.getState().drafts[10].next.text.de!.text).toBe('Pushed German');
+  expect(post).not.toHaveBeenCalled();
+});
+
+it('disables loading when no pushed snapshot is available', async () => {
+  await mount();
+  await waitFor(() => expect(button('Load last pushed as draft').disabled).toBe(true));
+  expect(useDraftStore.getState().drafts).toEqual({});
+});
