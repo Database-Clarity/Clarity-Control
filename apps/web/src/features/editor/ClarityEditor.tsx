@@ -22,6 +22,7 @@ import { clarityHighlighting, clarityLanguage } from './language';
 import { tableFormattingTransaction } from './formatTable';
 import { saveDockScrollMargins } from './scrollMargins';
 import { validationDiagnostics } from './diagnostics';
+import { MarkupToolbar } from './MarkupToolbar';
 import styles from './ClarityEditor.module.scss';
 
 export interface ClarityEditorProps {
@@ -32,6 +33,7 @@ export interface ClarityEditorProps {
   readOnly?: boolean;
   requireEnglish?: boolean;
   highlightLine?: number;
+  markupToolbar?: boolean;
 }
 
 function configuration(
@@ -64,6 +66,7 @@ export function ClarityEditor({
   readOnly = false,
   requireEnglish = true,
   highlightLine,
+  markupToolbar = false,
 }: ClarityEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
@@ -163,6 +166,7 @@ export function ClarityEditor({
 
   return (
     <div className={styles.editor}>
+      {markupToolbar && !readOnly && <MarkupToolbar editor={view} />}
       <div ref={host} />
       <details className={styles.help}>
         <summary>{issues.length ? `${issues.length} markup issue(s)` : 'Markup help'}</summary>

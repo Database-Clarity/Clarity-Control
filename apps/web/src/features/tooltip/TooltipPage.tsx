@@ -145,6 +145,7 @@ export function TooltipPage() {
                     globals={globals}
                     requireEnglish={variant > 3}
                     readOnly={access.reason !== null}
+                    markupToolbar={lang !== 'en'}
                     highlightLine={
                       Number(search.get('variant') ?? hash) === variant ? highlightLine : undefined
                     }

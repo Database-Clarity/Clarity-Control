@@ -53,6 +53,37 @@
     color: white;
   }
 }
+.toolbar {
+  padding: 6px;
+  border-bottom: 1px solid #454545;
+  button,
+  select {
+    max-width: 100%;
+  }
+  p {
+    margin: 6px 0 0;
+  }
+  @include theme.mobile-or-coarse {
+    button,
+    select {
+      min-width: 44px;
+      min-height: 44px;
+      font-size: 16px;
+    }
+  }
+}
+.toolbarControls {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  label {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+}
 .help {
   padding: 6px 10px;
   color: #bdbdbd;

@@ -148,6 +148,7 @@ describe('translator tooltip page', () => {
     expect(props.lang).toBe('de');
     expect(props.value).toBe('Deutscher Text');
     expect(props.readOnly).toBe(false);
+    expect(props.markupToolbar).toBe(true);
     expect(html).not.toContain('Read-only');
     expect(html).not.toContain('Switch to');
   });
@@ -217,6 +218,7 @@ describe('translator tooltip page', () => {
   it('shows no reason, no source and no tablist for an editor on English', () => {
     useAuthStore.setState({ user: editor });
     const html = render('/t/10');
+    expect(vi.mocked(ClarityEditor).mock.calls[0][0].markupToolbar).toBe(false);
     expect(html).not.toContain('Read-only');
     expect(html).not.toContain('English source');
     expect(html).not.toContain('role="tablist"');
