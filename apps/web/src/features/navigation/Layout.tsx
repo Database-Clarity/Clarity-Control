@@ -1,33 +1,45 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { useAuthStore } from '../../stores/auth';
 import { AuthStatus } from '../auth/AuthStatus';
+import { SavePanel } from '../../services/save/SavePanel';
+import { dockHeightProperty, trackDockHeight } from '../../services/save/dock';
 import { TooltipNavigation } from './TooltipNavigation';
+import { visibleLinks } from './links';
 import { CompendiumBadge } from '../compendium/CompendiumBadge';
 import styles from './Layout.module.scss';
-
-const links = [
-  { to: '/', label: 'Tooltip editor' },
-  { to: '/review', label: 'Review changes' },
-  { to: '/compendium', label: 'Compendium' },
-  { to: '/drift', label: 'Bungie drift' },
-  { to: '/translations', label: 'Translations' },
-  { to: '/globals', label: 'Globals' },
-  { to: '/admin', label: 'Administration' },
-];
 
 export function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
+  const workspaceLinks = visibleLinks(user);
+  const [navOpen, setNavOpen] = useState(false);
+  const layout = useRef<HTMLDivElement>(null);
   const { data, status, error, load } = useDataStore();
   const { hydrated, pending, error: draftError, hydrate, retry } = useDraftStore();
   useEffect(() => {
     void load();
     void hydrate();
   }, [load, hydrate]);
+  useEffect(() => {
+    setNavOpen(false);
+  }, [location.pathname]);
+  useEffect(() => {
+    // Reserve the dock's real height (wrapped notices, large text, safe area) below the content.
+    const root = layout.current;
+    const dock = root?.querySelector<HTMLElement>(`.${styles.saveDock}`);
+    if (!root || !dock) return;
+    const stop = trackDockHeight(dock, (height) =>
+      root.style.setProperty(dockHeightProperty, height),
+    );
+    return () => {
+      stop();
+      root.style.removeProperty(dockHeightProperty);
+    };
+  }, []);
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
       if (pending || draftError) {
@@ -41,6 +53,7 @@ export function Layout() {
 
   return (
     <div
+      ref={layout}
       className={`${styles.layout} ${location.pathname === '/compendium/review' ? styles.reviewMode : ''}`}
     >
       <a
@@ -53,30 +66,39 @@ export function Layout() {
       >
         Skip to content
       </a>
-      <aside className={styles.sidebar}>
+      <aside id="sidebar" className={styles.sidebar} data-open={navOpen}>
         <header className={styles.brand}>
           <strong>Clarity</strong>
           <span>Description editor v2</span>
         </header>
+        <button
+          type="button"
+          className={styles.navToggle}
+          aria-expanded={navOpen}
+          aria-controls="sidebar"
+          onClick={() => setNavOpen((open) => !open)}
+        >
+          Browse
+        </button>
         {data && <TooltipNavigation data={data} />}
         <label className={styles.pageSelection}>
           Workspace
           <select
             value={
-              links.find(({ to }) => to !== '/' && location.pathname.startsWith(to))?.to ?? '/'
+              workspaceLinks.find(({ to }) => to !== '/' && location.pathname.startsWith(to))?.to ??
+              '/'
             }
             onChange={(event) => navigate(event.target.value)}
           >
-            {links
-              .filter(({ to }) => to !== '/admin' || user?.role === 'maintainer')
-              .map(({ to, label }) => (
-                <option key={to} value={to}>
-                  {label}
-                </option>
-              ))}
+            {workspaceLinks.map(({ to, label }) => (
+              <option key={to} value={to}>
+                {label}
+              </option>
+            ))}
           </select>
         </label>
         <AuthStatus />
+        <SavePanel className={styles.saveDock} />
         <CompendiumBadge />
         <p className={styles.status}>
           {data && `Data revision ${data.bundle.sourceCommit.slice(0, 8)}`}

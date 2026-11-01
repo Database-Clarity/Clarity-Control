@@ -2,7 +2,33 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { setSession } from '../../services/api';
 import { errorMessage } from '../../services/http';
+import { takeReturnPath } from '../../services/returnPath';
 import { useAuthStore } from '../../stores/auth';
+
+export type CallbackOutcome =
+  { kind: 'error'; message: string } | { kind: 'signed-in'; to: string };
+
+/** Store the session from the callback query and choose where to send the user next. */
+export function completeCallback(
+  parameters: URLSearchParams,
+  dependencies: { setSession: (token: string) => void; takeReturnPath: () => string } = {
+    setSession,
+    takeReturnPath,
+  },
+): CallbackOutcome {
+  const session = parameters.get('session');
+  if (!session)
+    return {
+      kind: 'error',
+      message: parameters.get('error') ?? 'Login callback contains no session. Sign in again.',
+    };
+  try {
+    dependencies.setSession(session);
+  } catch (reason) {
+    return { kind: 'error', message: `Cannot retain login session: ${errorMessage(reason)}` };
+  }
+  return { kind: 'signed-in', to: dependencies.takeReturnPath() };
+}
 
 export function AuthCallback() {
   const { search } = useLocation();
@@ -14,21 +40,15 @@ export function AuthCallback() {
     if (consumed.current) return;
     consumed.current = true;
     const parameters = new URLSearchParams(search);
-    const session = parameters.get('session');
     // Remove the token from the visible URL and browser history before rendering data.
     navigate('/auth/callback', { replace: true });
-    if (!session) {
-      setError(parameters.get('error') ?? 'Login callback contains no session. Sign in again.');
-      return;
-    }
-    try {
-      setSession(session);
-    } catch (reason) {
-      setError(`Cannot retain login session: ${errorMessage(reason)}`);
+    const outcome = completeCallback(parameters);
+    if (outcome.kind === 'error') {
+      setError(outcome.message);
       return;
     }
     void load();
-    navigate('/', { replace: true });
+    navigate(outcome.to, { replace: true });
   }, [search, navigate, load]);
   return error ? (
     <p role="alert">

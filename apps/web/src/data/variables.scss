@@ -4,3 +4,28 @@ $button-background-color: hsl(0, 0%, 20%);
 $orange-color: hsl(38, 80%, 56%);
 
 $red-color: hsl(0, 80%, 56%);
+
+// Shared narrow-screen breakpoint: phones and narrow windows (<= 700px).
+$mobile-max-width: 700px;
+
+@mixin mobile {
+  @media (max-width: $mobile-max-width) {
+    @content;
+  }
+}
+
+@mixin coarse-pointer {
+  @media (pointer: coarse) {
+    @content;
+  }
+}
+
+// Rules that apply on narrow screens and on touch devices (iOS focus zoom, tap targets).
+@mixin mobile-or-coarse {
+  @include mobile {
+    @content;
+  }
+  @include coarse-pointer {
+    @content;
+  }
+}
