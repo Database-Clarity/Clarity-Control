@@ -231,6 +231,7 @@
       display: block;
       grid-column: 1 / -1;
       grid-row: 2;
+      align-self: stretch;
       min-height: 0;
       overflow-x: hidden;
       overflow-y: auto;

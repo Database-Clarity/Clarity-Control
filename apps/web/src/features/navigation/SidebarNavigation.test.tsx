@@ -211,7 +211,7 @@ describe('context-aware sidebar navigation', () => {
     ).not.toBeNull();
   });
 
-  it('bounds the drawer to the viewport and keeps one scroll body with the close control outside it', async () => {
+  it('assigns one stretched scroll body below Close in the bounded drawer grid', async () => {
     await mount('/review');
     await click(host.querySelector<HTMLButtonElement>('[aria-controls="sidebar"]')!);
     const sidebar = host.querySelector<HTMLElement>('#sidebar')!;
@@ -219,12 +219,17 @@ describe('context-aware sidebar navigation', () => {
     const close = sidebar.querySelector<HTMLButtonElement>('[aria-controls="sidebar"]')!;
     expect(close.parentElement).toBe(sidebar);
     expect(body.contains(close)).toBe(false);
-    expect(body.querySelectorAll('.sidebarBody')).toHaveLength(0);
+    expect(sidebar.querySelectorAll(`.${styles.sidebarBody}`)).toHaveLength(1);
 
     const css = readFileSync('apps/web/src/features/navigation/Layout.module.scss', 'utf8');
+    const openBody = css.match(/&\[data-open='true'\] \.sidebarBody\s*\{([^}]+)\}/)?.[1];
+    expect(openBody).toBeDefined();
+    expect(openBody).toMatch(/grid-row:\s*2/);
+    expect(openBody).toMatch(/align-self:\s*stretch/);
+    expect(openBody).toMatch(/min-height:\s*0/);
+    expect(openBody).toMatch(/overflow-y:\s*auto/);
     expect(css).toMatch(/height:\s*100dvh/);
     expect(css).toMatch(/grid-template-rows:\s*auto minmax\(0,\s*1fr\)/);
-    expect(css).toMatch(/overflow-y:\s*auto/);
     expect(css).toMatch(/overflow-wrap:\s*anywhere/);
   });
 });
