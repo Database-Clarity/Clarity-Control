@@ -5,6 +5,7 @@ import { getPushedVersion } from '../../services/history';
 import { errorMessage } from '../../services/http';
 import { useAuthStore } from '../../stores/auth';
 import { useDraftStore } from '../../stores/drafts';
+import { useDataStore } from '../../stores/data';
 import { useSaveState } from '../../services/save/state';
 import { replaceDraft } from '../../services/save/drafts';
 import { revertDraft } from '../history/revert';
@@ -41,13 +42,20 @@ export function ReviewDetail({ entry }: { entry: PendingTooltip }) {
     )
       return;
     try {
+      const saved = useDataStore.getState().data?.bundle.tooltips[entry.tooltip.hash];
+      if (!saved) throw new Error('The saved tooltip is no longer available.');
+      const existing = state.drafts[saved.hash];
+      // Rebase only the fields this restore replaces; retain the old merge base
+      // for any other local changes, including changes outside translator access.
+      const base = revertDraft(existing?.base ?? saved, saved, currentUser);
       replaceDraft(
-        entry.tooltip,
+        base,
         revertDraft(
-          state.drafts[entry.tooltip.hash]?.next ?? entry.tooltip,
+          existing?.next ?? saved,
           live.tooltip,
           currentUser,
         ),
+        true,
       );
       setConfirm(false);
       setNotice(
