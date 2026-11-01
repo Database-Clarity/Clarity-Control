@@ -4,9 +4,10 @@
   "main": "src/index.ts",
   "compatibility_date": "2025-11-01",
   "workers_dev": true,
+  "account_id": "c5ec2772673dc72f5e58587ef4c80ff8",
   "vars": {
     "SITE_ORIGIN": "https://database-clarity.github.io",
-    "SITE_URL": "https://database-clarity.github.io/Description-editor/",
+    "SITE_URL": "https://database-clarity.github.io/Description-editor/v2/",
     "GITHUB_OWNER": "Database-Clarity",
     "GITHUB_REPO": "Live-Clarity-Database",
     "DATA_BRANCH": "editor-data",
@@ -14,5 +15,10 @@
     "GENERATOR_OWNER": "Database-Clarity",
     "GENERATOR_REPO": "Description-data-generator",
     "GENERATOR_BRANCH": "v2",
+    "GITHUB_APP_ID": "5561594",
+    "GITHUB_APP_SLUG": "clarity-editor-backend",
+    "GITHUB_INSTALLATION_ID": "177372397",
+    "GITHUB_CLIENT_ID": "Iv23lieVGtlnUyreJ7o4",
+    "OAUTH_CALLBACK_URL": "https://clarity-editor-api.cboweris.workers.dev/auth/callback",
   },
 }
