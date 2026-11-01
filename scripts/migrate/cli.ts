@@ -1,5 +1,5 @@
 import { parseArgs } from 'node:util';
-import { prepareMigration, readJson, writeMigration } from './migrate.js';
+import { prepareMigration, readJson, readMigration, writeMigration } from './migrate.js';
 
 const repository = 'https://raw.githubusercontent.com/Database-Clarity/Live-Clarity-Database';
 
@@ -17,12 +17,13 @@ async function main() {
       output: { type: 'string' },
       intermediate: { type: 'string' },
       live: { type: 'string' },
+      owner: { type: 'string' },
       help: { type: 'boolean' },
     },
   });
   if (values.help) {
     console.log(
-      'npm run migrate -- --output <editor-data checkout> [--intermediate <file> --live <file>]',
+      'npm run migrate -- --output <editor-data checkout> [--intermediate <file> --live <file>] [--owner <identity.json>]',
     );
     return;
   }
@@ -30,14 +31,15 @@ async function main() {
   if (Boolean(values.intermediate) !== Boolean(values.live)) {
     throw new Error('--intermediate and --live must be provided together');
   }
-  const [intermediate, live, owner] = await Promise.all([
+  const [intermediate, live, owner, existing] = await Promise.all([
     values.intermediate
       ? readJson(values.intermediate)
       : fetchJson(`${repository}/intermediate/intermediateDescriptions.json`),
     values.live
       ? readJson(values.live)
       : fetchJson(`${repository}/converter/liveDescriptions.json`),
-    fetchJson('https://api.github.com/users/StardustD2'),
+    values.owner ? readJson(values.owner) : fetchJson('https://api.github.com/users/StardustD2'),
+    readMigration(values.output),
   ]);
   if (
     typeof owner !== 'object' ||
@@ -51,9 +53,12 @@ async function main() {
   ) {
     throw new Error('GitHub returned an invalid StardustD2 identity');
   }
-  const result = await prepareMigration(intermediate, live, {
-    users: { [owner.id]: { login: owner.login, role: 'maintainer' } },
-  });
+  const result = await prepareMigration(
+    intermediate,
+    live,
+    { users: { [owner.id]: { login: owner.login, role: 'maintainer' } } },
+    existing,
+  );
   await writeMigration(values.output, result);
   console.log(
     JSON.stringify(
@@ -61,7 +66,10 @@ async function main() {
         intermediate: result.tooltips.length,
         live: result.liveCount,
         pending: result.pending,
-        maintainer: `${owner.login} (${owner.id})`,
+        preserved: result.preserved,
+        permissions: existing
+          ? 'preserved editor-data assignments'
+          : `${owner.login} (${owner.id})`,
         output: values.output,
       },
       null,

@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,7 +11,14 @@ import {
   pushedSchema,
   tooltipSchema,
 } from '@clarity/core';
-import { formatJson, prepareMigration, readJson, writeMigration } from './migrate.js';
+import {
+  formatJson,
+  prepareMigration,
+  readJson,
+  readMigration,
+  writeMigration,
+} from './migrate.js';
+import { foldFrames } from './foldFrames.js';
 import { buildBundle } from './template/scripts/build-bundle.mjs';
 
 const owner = { users: { '117818418': { login: 'StardustD2', role: 'maintainer' } } };
@@ -109,6 +116,159 @@ describe('migration', () => {
     const result = await prepareMigration(database('draft'), database('live'), owner);
     await expect(writeMigration(root, result)).rejects.toThrow('Unexpected entry');
     expect(await readFile(join(root, 'tooltips', 'notes.txt'), 'utf8')).toBe('preserve');
+  });
+
+  it('preserves authored v2 tooltips, permissions and pending/published markers on rerun', async () => {
+    const root = await temporaryDirectory();
+    const existing = await prepareMigration(database('old'), database('old'), owner);
+    existing.tooltips[0].text.en = {
+      text: 'v2 edit',
+      updatedAt: '2026-10-31T00:00:00Z',
+      updatedBy: 'editor',
+    };
+    existing.tooltips[0].text.de = {
+      text: 'Deutsch',
+      updatedAt: '2026-10-31T01:00:00Z',
+      updatedBy: 'translator',
+      sourceUpdatedAt: '2026-10-31T00:00:00Z',
+    };
+    existing.tooltips[0].associated = [100];
+    existing.tooltips[0].bungieSnapshot = {
+      description: 'reviewed',
+      snapshotAt: '2026-10-31T00:00:00Z',
+    };
+    existing.tooltips[0].compendium = {
+      gid: '123',
+      rowKey: 'example',
+      snapshot: { plain: 'reviewed', runs: [{ text: 'reviewed', bold: true }] },
+      snapshotAt: '2026-10-31T00:00:00Z',
+      cells: [{ dRow: 1, dCol: 2 }],
+      parts: ['part'],
+    };
+    existing.tooltips.push({
+      hash: 100,
+      text: {},
+      associated: [],
+      custom: { name: 'New v2 item', categoryId: 'custom' },
+    });
+    existing.permissions.users['123'] = {
+      login: 'translator',
+      role: 'translator',
+      languages: ['de'],
+    };
+    delete existing.pushed['42'];
+    existing.pushed['100'] = 'b'.repeat(64);
+    await writeMigration(root, existing);
+    const stored = await readMigration(root);
+    const incoming = database('legacy overwrite');
+    Object.assign(incoming.perks, database('new legacy', 43).perks);
+    const rerun = await prepareMigration(incoming, database('legacy live'), owner, stored);
+    expect(rerun.preserved).toBe(2);
+    expect(rerun.tooltips.find(({ hash }) => hash === 42)).toEqual(existing.tooltips[0]);
+    expect(rerun.tooltips.find(({ hash }) => hash === 100)).toEqual(existing.tooltips[1]);
+    expect(rerun.tooltips.find(({ hash }) => hash === 43)?.text.en?.text).toBe('new legacy');
+    expect(rerun.permissions).toEqual(existing.permissions);
+    expect(rerun.pushed).toEqual({ 100: 'b'.repeat(64) });
+    await writeMigration(root, rerun);
+    expect(formatJson(await readMigration(root))).toBe(
+      formatJson({
+        tooltips: rerun.tooltips,
+        permissions: rerun.permissions,
+        pushed: rerun.pushed,
+      }),
+    );
+    expect(
+      formatJson(
+        await prepareMigration(incoming, database('legacy live'), owner, await readMigration(root)),
+      ),
+    ).toBe(formatJson({ ...rerun, preserved: 3 }));
+  });
+
+  it('preserving a staged canonical still allows a nonempty legacy member to repair its blank', async () => {
+    const existing = await prepareMigration(database('', 10), database('', 10), owner);
+    existing.tooltips[0].text.en!.updatedAt = '2026-10-31T00:00:00Z';
+    existing.tooltips[0].bungieSnapshot = {
+      description: 'retained',
+      snapshotAt: '2026-10-31T00:00:00Z',
+    };
+    const rerun = await prepareMigration(
+      database('member', 20),
+      database('member', 20),
+      owner,
+      existing,
+    );
+    const folded = foldFrames(rerun.tooltips, { 20: { to: 10, kind: 'frame' } }, rerun.pushed, {});
+    expect(folded.tooltips).toHaveLength(1);
+    expect(folded.tooltips[0].text.en?.text).toBe('member');
+    expect(folded.tooltips[0].bungieSnapshot).toEqual(existing.tooltips[0].bungieSnapshot);
+    expect(folded.pushed).toEqual({});
+    expect(existing.tooltips[0].text.en?.text).toBe('');
+  });
+
+  it('rejects partial, malformed or mismatched existing data before a rerun', async () => {
+    const root = await temporaryDirectory();
+    expect(await readMigration(root)).toBeUndefined();
+    await mkdir(join(root, 'tooltips'));
+    await expect(readMigration(root)).rejects.toThrow();
+    await writeMigration(root, await prepareMigration(database('draft'), database('live'), owner));
+    await writeFile(
+      join(root, 'tooltips', '42.json'),
+      formatJson({
+        ...migrateLegacy(database('draft'))[0],
+        hash: 43,
+      }),
+    );
+    await expect(readMigration(root)).rejects.toThrow('hash mismatch');
+    await writeMigration(root, await prepareMigration(database('draft'), database('live'), owner));
+    await writeFile(join(root, 'config', 'permissions.json'), '{"users":{"bad":{}}}');
+    await expect(readMigration(root)).rejects.toThrow();
+  });
+
+  it('CLI preserves existing data with pinned offline inputs and refuses an invalid owner', async () => {
+    const root = await temporaryDirectory();
+    const output = join(root, 'output');
+    const existing = await prepareMigration(database('v2 draft'), database('published'), owner);
+    existing.permissions.users['123'] = { login: 'editor', role: 'editor' };
+    await writeMigration(output, existing);
+    for (const [name, value] of [
+      ['intermediate', database('legacy overwrite')],
+      ['live', database('published')],
+      ['owner', { id: 117818418, login: 'StardustD2' }],
+    ] as const) {
+      await writeFile(join(root, `${name}.json`), formatJson(value));
+    }
+    const args = [
+      fileURLToPath(new URL('./node_modules/tsx/dist/cli.mjs', import.meta.url)),
+      fileURLToPath(new URL('./cli.ts', import.meta.url)),
+      '--output',
+      output,
+      '--intermediate',
+      join(root, 'intermediate.json'),
+      '--live',
+      join(root, 'live.json'),
+      '--owner',
+      join(root, 'owner.json'),
+    ];
+    const log = execFileSync(process.execPath, args, { encoding: 'utf8' });
+    expect(JSON.parse(log)).toMatchObject({ preserved: 1, pending: 1 });
+    expect(formatJson(await readMigration(output))).toBe(
+      formatJson({
+        tooltips: existing.tooltips,
+        permissions: existing.permissions,
+        pushed: existing.pushed,
+      }),
+    );
+    await writeFile(join(root, 'owner.json'), '{"id":117818418,"login":"wrong"}');
+    const failed = spawnSync(process.execPath, args, { encoding: 'utf8' });
+    expect(failed.status).toBe(1);
+    expect(failed.stderr).toContain('invalid StardustD2 identity');
+    expect(formatJson(await readMigration(output))).toBe(
+      formatJson({
+        tooltips: existing.tooltips,
+        permissions: existing.permissions,
+        pushed: existing.pushed,
+      }),
+    );
   });
 });
 
