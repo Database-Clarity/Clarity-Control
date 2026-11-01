@@ -6,6 +6,7 @@ import type { ReviewCategory, ReviewSample } from './reviewCategories';
 import type { ReviewProposal } from './rapidReview';
 import { referenceCurrent } from './sampleReferences';
 import { sourceFingerprint } from './reviewProgress';
+import { manifestRule } from './manifestRule';
 
 export interface GuidedDecision {
   hash: number;
@@ -68,6 +69,23 @@ export function guidedDecisions(
   scope: string,
 ): GuidedCategory[] {
   const current = new Map(categories.map((category) => [category.id, category]));
+  const globalUsable = new Map<number, GuidanceReference>();
+  if (document.scope === scope && document.baseline === baseline) {
+    for (const record of Object.values(document.categories)) {
+      if (!record.active) continue;
+      const category = current.get(record.id);
+      for (const ref of Object.values(record.references ?? {})) {
+        const entry = category?.entries.find((candidate) => candidate.hash === ref.hash);
+        if (
+          entry &&
+          record.hashes.includes(ref.hash) &&
+          ref.decision === 'no-equivalent' &&
+          referenceCurrent(ref, entry, baseline, source)
+        )
+          globalUsable.set(ref.hash, ref);
+      }
+    }
+  }
   return Object.values(document.categories)
     .filter((record) => record.active)
     .map((record) => {
@@ -140,6 +158,8 @@ export function guidedDecisions(
             ...result,
             reason: 'Category comment needs agent interpretation; no automatic rule applied.',
           };
+        const manifestDecision = manifestRule(entry, record.id, globalUsable);
+        if (manifestDecision) return { ...result, ...manifestDecision };
         if (record.id === 'catalog:armor-mod-seasonal')
           return {
             ...result,
