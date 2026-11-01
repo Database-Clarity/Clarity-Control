@@ -40,7 +40,9 @@ export function Layout() {
   }, [pending, draftError]);
 
   return (
-    <div className={styles.layout}>
+    <div
+      className={`${styles.layout} ${location.pathname === '/compendium/review' ? styles.reviewMode : ''}`}
+    >
       <a
         className={styles.skipLink}
         href="#main-content"

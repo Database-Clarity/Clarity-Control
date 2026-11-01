@@ -76,3 +76,85 @@ current in-game descriptions. Draft/save authorization and local provisional neg
 decisions retain their existing behavior. Progress changes do not recompute source
 evidence or the selected item's navigation hints. Source/browser independent review
 must cover this new candidate and the preceding responsiveness fix.
+
+## Rapid review workspace
+
+The review route lands on **Step 1: guide categories**. Canonical queue entries are
+partitioned by the generator's exact `categoryId` (stable `catalog:<encoded id>`
+identities), including enhanced entries that own distinct text, custom entries
+and explicit unknown-category fallbacks. The catalog supplies labels, ordering
+and meaningful armor/weapon/subclass/ghost groupings. Each entry belongs to exactly
+one category and one matching-reason subgroup. Missing manifest descriptions
+(including all alias members), validated proposals, fuzzy-only candidates and no
+resolver candidate are distinct; pending/failed matching is never reported as
+no candidate. Research navigation hints are not resolver proposals.
+
+Cards show counts, local decision/draft status, a comment box, up to five
+representative samples covering matching reasons, and incremental browse (20
+entries at a time). Expand samples/subgroups for full manifest/authored and
+proposed-source descriptions. No item-by-item owner decision is required.
+**Review these one by one** scopes the existing rapid review to the category;
+**Review all one by one** retains the full queue. URL query parameters preserve
+back/forward navigation. Category mode does not handle rapid-review shortcuts.
+
+### Owner guidance and later steps
+
+In Vite development only, `GET/POST /__review-guidance` reads/writes
+`apps/web/review-guidance.json` (ignored, beside this worktree's web package).
+Comments autosave after 400 ms idle and on blur; the browser backup updates on
+each keystroke. The UI explicitly distinguishes disk success, pending,
+local-only failure, browser backup failure and conflicts. Agents read this file
+directly; no owner export is needed. Phones using this same dev server read the
+same file. A different origin/server has a separate browser backup but shares
+the disk file when it uses this worktree.
+
+The version-1 document records dataset URLs, source revision/content fingerprint,
+category rule/name/count/ordered hashes, active state and comment. Updated
+membership preserves comments by stable id; removed categories remain inactive
+with their last membership for audit. Disk writes require same-origin JSON,
+schema validation and an exact file revision. A file lock serializes separate
+Vite processes; temp-file fsync/rename replaces the file atomically. Conflicts
+never overwrite disk or silently merge owner text. Export the unsaved backup,
+then explicitly reload disk guidance to reconcile. Reload pauses comment
+editing and save retries until its disk read completes.
+If guidance changes during that read, the new text and pending browser backup
+are retained instead of acknowledging the older disk document. Reload cannot
+overlap a save or another reload. A leftover `.lock` after a
+crash produces a visible error; remove only that specific lock after verifying
+no guidance writer owns it. Production builds and `vite preview` have no write
+endpoint: comments there are explicitly browser-only until exported/retried on
+the dev server. Guidance is local owner planning, not authentication, a review
+decision, a normal draft, or permission to save/publish.
+
+Step 2 (separate agent task) reads active comments and recorded membership,
+checks the baseline against current evidence, then proposes decisions with
+per-entry reasons through normal drafts or a separate versioned decisions file.
+It must not silently accept fuzzy matches or infer approval from guidance.
+Uncovered/ambiguous cases become one follow-up question per category; changed
+baselines require renewed evidence, not stale category-wide application.
+Step 3 (later UI) presents a small sample stratified by proposal type plus all
+flagged exceptions. Owner approval/rejection covers the exact category decision
+set and evidence revision, not arbitrary future membership. Rejections with new
+comments loop back to step 2. Accepted link changes still use normal draft/save,
+roles and Worker gates; no data publication is part of these steps.
+
+### Individual review
+
+Individual review shows one entry beside its proposed source and nearby styled sheet cells.
+A/P/N/S/U accept, open the picker, mark no equivalent, skip, and undo. Shortcuts ignore
+text fields, modifiers, repeat events, and open overlays. Escape closes either overlay.
+Actions remain in the fixed bottom bar. On phones the panels stack and decisions bring
+the next entry into view. Unusually long descriptions scroll inside desktop panels.
+
+Proposal matching uses the existing core auto-link resolver in a dedicated Web Worker,
+once per editor/source revision. Only round-trippable whole-description proposals enter
+bulk preview; fuzzy candidates and research hints require manual selection. Bulk preview
+freezes the category/search/status/proposal-filter membership at opening.
+Acceptance creates drafts only for the currently displayed page (up to ten),
+then closes the preview; undisplayed pages are never accepted. Changed source,
+catalog, entry evidence, proposals, local decisions or drafts invalidate the
+preview and require reopening it. Bulk accept and undo use atomic normal draft updates.
+Undo is one in-memory transaction (including a bulk transaction), restores only link
+metadata and local progress, and refuses changed links or a changed saved data revision.
+It never rolls back text/association edits or a remote save. Reopen remains available for
+local skip/no-equivalent decisions. Normal draft storage, roles and Worker save are unchanged.

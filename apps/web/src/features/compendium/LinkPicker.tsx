@@ -24,6 +24,7 @@ export function LinkPicker({
   name,
   category,
   onLinked,
+  onBeforeLinked,
   readOnly = false,
   suggestions,
 }: {
@@ -31,6 +32,7 @@ export function LinkPicker({
   name: string;
   category: string;
   onLinked(): void;
+  onBeforeLinked?(link: NonNullable<Tooltip['compendium']>): void;
   readOnly?: boolean;
   suggestions?: CompendiumSuggestion[];
 }) {
@@ -124,6 +126,7 @@ export function LinkPicker({
       setError('This selection cannot be resolved uniquely. Choose a nearby unique name anchor.');
       return;
     }
+    onBeforeLinked?.(link);
     updateDraft(base, (tooltip) => ({
       ...tooltip,
       compendium: link,

@@ -11,6 +11,7 @@ interface DraftState {
   hydrate(): Promise<void>;
   edit(base: Tooltip, lang: Lang, text: string, author: string): void;
   updateDraft(base: Tooltip, update: (tooltip: Tooltip) => Tooltip): void;
+  updateDrafts(updates: { base: Tooltip; update: (tooltip: Tooltip) => Tooltip }[]): void;
   discard(hash: number): void;
   retry(): void;
   flush(): Promise<void>;
@@ -84,13 +85,19 @@ export function createDraftStore(storage: DraftStorage) {
         persist(drafts);
       },
       updateDraft(base, update) {
+        get().updateDrafts([{ base, update }]);
+      },
+      updateDrafts(updates) {
         if (!get().hydrated) throw new Error('Drafts must finish recovery before editing');
-        const draft = get().drafts[base.hash] ?? { base, next: base };
-        const next = update(structuredClone(draft.next));
-        if (next.hash !== base.hash)
-          throw new Error('A draft update cannot change the tooltip hash');
-        const drafts: Drafts = { ...get().drafts, [base.hash]: { base: draft.base, next } };
-        if (JSON.stringify(next) === JSON.stringify(draft.base)) delete drafts[base.hash];
+        const drafts: Drafts = { ...get().drafts };
+        for (const { base, update } of updates) {
+          const draft = drafts[base.hash] ?? { base, next: base };
+          const next = update(structuredClone(draft.next));
+          if (next.hash !== base.hash)
+            throw new Error('A draft update cannot change the tooltip hash');
+          drafts[base.hash] = { base: draft.base, next };
+          if (JSON.stringify(next) === JSON.stringify(draft.base)) delete drafts[base.hash];
+        }
         set({ drafts });
         persist(drafts);
       },

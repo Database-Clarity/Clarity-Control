@@ -7,3 +7,6 @@ coverage
 .env
 .env.*
 !.env.example
+apps/web/review-guidance.json
+apps/web/review-guidance.json.lock
+apps/web/review-guidance.json.*.tmp

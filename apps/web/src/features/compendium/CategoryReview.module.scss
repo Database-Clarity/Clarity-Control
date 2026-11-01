@@ -1,0 +1,130 @@
+.categories {
+  min-width: 0;
+  textarea {
+    box-sizing: border-box;
+    width: 100%;
+    resize: vertical;
+    min-height: 6rem;
+    font: inherit;
+    line-height: 1.5;
+    padding: 0.65rem;
+    color: inherit;
+    background: #151a24;
+    border: 1px solid #66758b;
+    border-radius: 0.4rem;
+  }
+  textarea:focus-visible {
+    outline: 2px solid #87beff;
+    outline-offset: 3px;
+  }
+  details {
+    margin: 0.7rem 0;
+    summary {
+      cursor: pointer;
+      padding: 0.4rem 0;
+    }
+  }
+}
+.intro {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 1rem;
+  margin-top: 1rem;
+  p {
+    margin: 0.5rem 0;
+    color: #aab8cc;
+  }
+}
+.persistence {
+  border: 1px solid #424e62;
+  padding: 0.8rem 1rem;
+  margin: 1rem 0;
+  border-radius: 0.5rem;
+  p {
+    margin-top: 0;
+    overflow-wrap: anywhere;
+  }
+  div {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+}
+.search {
+  max-width: 28rem;
+  margin: 1rem 0;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.category {
+  min-width: 0;
+  padding: 1rem;
+  background: #1c2130;
+  border: 1px solid #424e62;
+  border-radius: 0.6rem;
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    gap: 0.75rem;
+  }
+  h3 {
+    font-size: 1.05rem;
+    margin: 0.4rem 0;
+  }
+  small,
+  .breakdown {
+    color: #aab8cc;
+  }
+  label {
+    margin-top: 1rem;
+  }
+  p {
+    overflow-wrap: anywhere;
+  }
+}
+.breakdown,
+.source {
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.reasons {
+  font-size: 0.85rem;
+  border-bottom: 1px solid #424e62;
+}
+.samples {
+  padding-left: 1.2rem;
+  margin: 0.5rem 0;
+  max-height: 26rem;
+  overflow: auto;
+  li {
+    padding: 0.5rem 0;
+    border-top: 1px solid #424e62;
+    overflow-wrap: anywhere;
+  }
+  p {
+    white-space: pre-wrap;
+    line-height: 1.5;
+    margin: 0.5rem 0;
+  }
+}
+.source {
+  color: #b6e3cd;
+}
+@media (max-width: 1000px) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 700px) {
+  .intro {
+    flex-wrap: wrap;
+  }
+  .category header {
+    flex-wrap: wrap;
+  }
+}
