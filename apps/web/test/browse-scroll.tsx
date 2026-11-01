@@ -123,12 +123,16 @@ const path =
     ? '/t/100?lang=de'
     : workspace === 'compendium-sample'
       ? '/compendium/review'
-      : workspace === 'compendium-entry'
+      : workspace === 'compendium-entry' && params.get('initial') === 'entries'
         ? '/compendium/review?view=entries&hash=100'
-        : workspace === 'compendium'
-          ? '/compendium?group=fixture-category-18'
-          : '/review?hash=105';
-createRoot(document.getElementById('root')!).render(
+        : workspace === 'compendium-entry'
+          ? '/compendium/review'
+          : workspace === 'compendium'
+            ? '/compendium?group=fixture-category-18'
+            : '/review?hash=105';
+const root = createRoot(document.getElementById('root')!);
+window.addEventListener('review-fixture-unmount', () => root.unmount(), { once: true });
+root.render(
   <MemoryRouter initialEntries={[path]}>
     <Routes>
       <Route element={<Layout />}>
@@ -149,7 +153,7 @@ createRoot(document.getElementById('root')!).render(
   </MemoryRouter>,
 );
 
-function assert(condition: boolean, message: string): asserts condition {
+function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
@@ -239,6 +243,21 @@ async function run() {
         resultCount: string;
       }
     | undefined;
+  if (
+    workspace === 'compendium-entry' &&
+    params.get('initial') !== 'entries' &&
+    !document.querySelector('footer[aria-label="Review actions"]')
+  ) {
+    await waitFor(
+      () => document.querySelector('[aria-label="Category guidance"]') !== null,
+      'initial category mount',
+    );
+    const review = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent?.trim() === 'Review all one by one',
+    );
+    assert(review, 'Missing category-to-entry action');
+    review.click();
+  }
   await waitFor(
     () =>
       workspace === 'review'
@@ -291,8 +310,11 @@ async function run() {
       buttons: ReturnType<typeof rect>[];
     }[] = [];
     const evidence = document.querySelectorAll<HTMLElement>('[aria-label="Entry to review"] pre');
+    const categoryInputs = document.querySelectorAll<HTMLTextAreaElement>(
+      '[aria-label="Category guidance"] textarea',
+    );
     const target = sample
-      ? document.querySelector<HTMLTextAreaElement>('[aria-label="Category guidance"] textarea')
+      ? categoryInputs.item(categoryInputs.length - 1)
       : evidence.item(evidence.length - 1);
     assert(target !== null, 'Missing final sample input or review evidence');
     if (innerWidth <= 700) {
@@ -302,20 +324,39 @@ async function run() {
         'Phone decision actions must remain reachable',
       );
     }
-    if (sample && innerWidth <= 700) {
+    async function measureSample(phase: string) {
+      assert(target, 'Missing final category input');
+      if (innerWidth > 700) {
+        await scrollToEnd(target);
+        assertActionTargets(actionButtons, `Sample ${phase} actions`);
+        assertVisible(target, `Sample ${phase} LAST category input`);
+        actionMeasurements.push({
+          phase: `${phase}-full-scroll-end`,
+          actions: rect(actionRegion),
+          buttons: actionButtons.map(rect),
+        });
+        return;
+      }
       const page = document.scrollingElement as HTMLElement;
+      page.scrollTop = 0;
+      await nextFrame();
       const maxScroll = page.scrollHeight - page.clientHeight;
       const actionBottom = actionRegion.getBoundingClientRect().bottom + page.scrollTop;
       const firstActionScroll = Math.min(maxScroll, Math.max(0, actionBottom - innerHeight));
       const positions = [
         firstActionScroll,
-        Math.floor((firstActionScroll + maxScroll) / 2),
+        ...[0.25, 0.5, 0.75].map((fraction) =>
+          Math.floor(firstActionScroll + (maxScroll - firstActionScroll) * fraction),
+        ),
         maxScroll,
       ];
       for (const [index, scrollTop] of positions.entries()) {
         page.scrollTop = scrollTop;
         await nextFrame();
-        assertActionTargets(actionButtons, `Sample actions at scroll position ${index + 1}`);
+        assertActionTargets(
+          actionButtons,
+          `Sample ${phase} actions at scroll position ${index + 1}`,
+        );
         const actionBounds = rect(actionRegion);
         const targetBounds = rect(target);
         if (targetBounds.bottom > 0 && targetBounds.y < innerHeight) {
@@ -325,20 +366,33 @@ async function run() {
           );
         }
         actionMeasurements.push({
-          phase: `document-${page.scrollTop}-of-${maxScroll}`,
+          phase: `${phase}-document-${page.scrollTop}-of-${maxScroll}`,
           actions: actionBounds,
           buttons: actionButtons.map((button) => rect(button)),
         });
       }
       assert(page.scrollTop === maxScroll, 'Sample fixture did not reach the full document end');
-    } else if (sample) {
-      await scrollToEnd(target);
-      assertActionTargets(actionButtons, `${sample ? 'Sample' : 'Entry'} actions at full scroll`);
-      actionMeasurements.push({
-        phase: 'full-scroll-end',
-        actions: rect(actionRegion),
-        buttons: actionButtons.map((button) => rect(button)),
-      });
+      assertVisible(target, `Sample ${phase} LAST category input`);
+      const sampleInputs = document.querySelectorAll<HTMLTextAreaElement>(
+        '[aria-label^="Resolve sample"] textarea',
+      );
+      const lastSampleInput = sampleInputs.item(sampleInputs.length - 1);
+      assert(lastSampleInput, 'Missing final sample note');
+      assertVisible(lastSampleInput, `Sample ${phase} final sample note`);
+    }
+    if (sample) {
+      await measureSample('closed');
+      const pick = actionButtons.find((button) => button.textContent?.trim() === 'Pick other');
+      assert(pick, 'Missing sample Pick other action');
+      pick.click();
+      await waitFor(
+        () =>
+          [...document.querySelectorAll('[aria-label^="Resolve sample"] button')].some(
+            (button) => button.textContent?.trim() === 'Close picker',
+          ),
+        'actual sample picker expands',
+      );
+      await measureSample('expanded');
     } else {
       target.scrollIntoView({ block: 'end' });
       await nextFrame();
@@ -378,111 +432,169 @@ async function run() {
     );
     let overlays: Record<string, unknown> | undefined;
     if (!sample) {
-      const footer = document.querySelector<HTMLElement>('footer[aria-label="Review actions"]')!;
-      const page = footer.closest<HTMLElement>('article')!;
-      const measuredHeight = Number.parseFloat(
-        getComputedStyle(page).getPropertyValue('--review-action-bar-height'),
-      );
-      assert(
-        Number.isFinite(measuredHeight) &&
-          Math.abs(measuredHeight - footer.getBoundingClientRect().height) < 1,
-        'Overlay reservation must match the measured action bar height',
-      );
+      async function measureOverlays() {
+        const footer = document.querySelector<HTMLElement>('footer[aria-label="Review actions"]')!;
+        const buttons = [...footer.querySelectorAll<HTMLButtonElement>('button')];
+        assertActionTargets(buttons, 'Current footer actions before opening overlays');
+        const page = footer.closest<HTMLElement>('article')!;
+        const measuredHeight = Number.parseFloat(
+          getComputedStyle(page).getPropertyValue('--review-action-bar-height'),
+        );
+        assert(
+          Number.isFinite(measuredHeight) &&
+            Math.abs(measuredHeight - footer.getBoundingClientRect().height) < 1,
+          'Overlay reservation must match the measured action bar height',
+        );
 
-      const pick = [...footer.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
-        button.textContent?.trim().startsWith('Pick other'),
-      )!;
-      pick.click();
-      await waitFor(
-        () => document.querySelector('[aria-label="Pick another source"]') !== null,
-        'picker opens',
-      );
-      const picker = document.querySelector<HTMLElement>('[aria-label="Pick another source"]')!;
-      await scrollOverlayToEnd(picker);
-      const pickerButtons = [...picker.querySelectorAll<HTMLButtonElement>('button')];
-      const pickerLastButton = pickerButtons.at(-1)!;
-      const pickerLastContent = picker.lastElementChild as HTMLElement;
-      const footerBounds = rect(footer);
-      const pickerBounds = rect(picker);
-      const pickerContentBounds = rect(pickerLastContent);
-      assert(
-        pickerBounds.bottom <= footerBounds.y + 1,
-        `Picker extends behind the review actions: ${JSON.stringify({ pickerBounds, footerBounds })}`,
-      );
-      assertVisible(pickerLastButton, 'Final picker control');
-      assert(
-        pickerContentBounds.bottom <= footerBounds.y + 1 &&
-          pickerContentBounds.bottom > pickerBounds.y - 1,
-        `Final picker evidence is not visible above the action bar: ${JSON.stringify({ pickerContentBounds, pickerBounds, footerBounds })}`,
-      );
-      const pickerResult = {
-        viewport: [innerWidth, innerHeight],
-        scrollTop: picker.scrollTop,
-        maxScroll: picker.scrollHeight - picker.clientHeight,
-        overlay: pickerBounds,
-        finalContent: pickerContentBounds,
-        finalControl: rect(pickerLastButton),
-        footer: footerBounds,
-      };
-      picker.querySelector<HTMLButtonElement>('header button')?.click();
-      await waitFor(
-        () => document.querySelector('[aria-label="Pick another source"]') === null,
-        'picker closes without a decision',
-      );
-
-      const bulkButton = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
-        (button) => button.textContent?.trim() === 'Bulk preview (6)',
-      )!;
-      bulkButton.click();
-      await waitFor(
-        () => document.querySelector('[aria-label="Bulk accept preview"]') !== null,
-        'bulk preview opens',
-      );
-      const bulk = document.querySelector<HTMLElement>('[aria-label="Bulk accept preview"]')!;
-      await scrollOverlayToEnd(bulk);
-      const bulkFooterBounds = rect(footer);
-      const bulkBounds = rect(bulk);
-      const bulkButtons = [...bulk.querySelectorAll<HTMLButtonElement>('button')];
-      const bulkLastButton = bulkButtons.at(-1)!;
-      const bulkList = [...bulk.children].find(
-        (child): child is HTMLElement =>
-          child instanceof HTMLElement &&
-          [...child.children].some((entry) => entry.tagName === 'SECTION'),
-      );
-      const bulkLastEntry = bulkList?.lastElementChild as HTMLElement | undefined;
-      const bulkLastEvidence = bulkLastEntry?.lastElementChild as HTMLElement | undefined;
-      assert(
-        bulkBounds.bottom <= bulkFooterBounds.y + 1,
-        `Bulk preview extends behind the review actions: ${JSON.stringify({ bulkBounds, bulkFooterBounds })}`,
-      );
-      assertVisible(bulkLastButton, 'Final bulk control');
-      assert(
-        !!bulkLastEvidence &&
-          rect(bulkLastEvidence).bottom <= bulkFooterBounds.y + 1 &&
-          rect(bulkLastEvidence).bottom > bulkBounds.y - 1,
-        `Final bulk evidence is not visible above the action bar: ${JSON.stringify({ evidence: bulkLastEvidence ? rect(bulkLastEvidence) : null, bulkBounds, bulkFooterBounds })}`,
-      );
-      overlays = {
-        picker: pickerResult,
-        bulk: {
+        const pick = [...footer.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
+          button.textContent?.trim().startsWith('Pick other'),
+        )!;
+        pick.click();
+        await waitFor(
+          () => document.querySelector('[aria-label="Pick another source"]') !== null,
+          'picker opens',
+        );
+        const picker = document.querySelector<HTMLElement>('[aria-label="Pick another source"]')!;
+        await scrollOverlayToEnd(picker);
+        const pickerButtons = [...picker.querySelectorAll<HTMLButtonElement>('button')];
+        const pickerLastButton = pickerButtons.at(-1)!;
+        const pickerContent =
+          picker.querySelector<HTMLElement>('[aria-label="Pick description cells"]') ??
+          picker.querySelector<HTMLElement>('[aria-label="Link a Compendium row"]');
+        assert(pickerContent, 'Missing actual picker content');
+        const pickerLastContent = pickerContent.lastElementChild as HTMLElement;
+        const footerBounds = rect(footer);
+        const pickerBounds = rect(picker);
+        const pickerContentBounds = rect(pickerLastContent);
+        assert(
+          pickerBounds.bottom <= footerBounds.y + 1,
+          `Picker extends behind the review actions: ${JSON.stringify({ pickerBounds, footerBounds })}`,
+        );
+        assertVisible(pickerLastButton, 'Final picker control');
+        assertVisible(pickerLastContent, 'Final picker evidence');
+        assertActionTargets(buttons, 'Current footer actions with picker open');
+        assert(
+          pickerContentBounds.bottom <= footerBounds.y + 1 &&
+            pickerContentBounds.bottom > pickerBounds.y - 1,
+          `Final picker evidence is not visible above the action bar: ${JSON.stringify({ pickerContentBounds, pickerBounds, footerBounds })}`,
+        );
+        const pickerResult = {
           viewport: [innerWidth, innerHeight],
-          scrollTop: bulk.scrollTop,
-          maxScroll: bulk.scrollHeight - bulk.clientHeight,
-          overlay: bulkBounds,
-          finalEvidence: bulkLastEvidence ? rect(bulkLastEvidence) : null,
-          finalControl: rect(bulkLastButton),
-          footer: bulkFooterBounds,
-        },
-      };
-      assert(
-        Object.keys(useDraftStore.getState().drafts).length === 0,
-        'Overlay fixture created drafts',
+          scrollTop: picker.scrollTop,
+          maxScroll: picker.scrollHeight - picker.clientHeight,
+          overlay: pickerBounds,
+          finalContent: pickerContentBounds,
+          finalControl: rect(pickerLastButton),
+          footer: footerBounds,
+        };
+        picker.querySelector<HTMLButtonElement>('header button')?.click();
+        await waitFor(
+          () => document.querySelector('[aria-label="Pick another source"]') === null,
+          'picker closes without a decision',
+        );
+
+        const bulkButton = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+          (button) => button.textContent?.trim() === 'Bulk preview (6)',
+        )!;
+        bulkButton.click();
+        await waitFor(
+          () => document.querySelector('[aria-label="Bulk accept preview"]') !== null,
+          'bulk preview opens',
+        );
+        const bulk = document.querySelector<HTMLElement>('[aria-label="Bulk accept preview"]')!;
+        await scrollOverlayToEnd(bulk);
+        const bulkFooterBounds = rect(footer);
+        const bulkBounds = rect(bulk);
+        const bulkButtons = [...bulk.querySelectorAll<HTMLButtonElement>('button')];
+        const bulkLastButton = bulkButtons.at(-1)!;
+        const bulkList = [...bulk.children].find(
+          (child): child is HTMLElement =>
+            child instanceof HTMLElement &&
+            [...child.children].some((entry) => entry.tagName === 'SECTION'),
+        );
+        const bulkLastEntry = bulkList?.lastElementChild as HTMLElement | undefined;
+        const bulkLastEvidence = bulkLastEntry?.lastElementChild as HTMLElement | undefined;
+        assert(
+          bulkBounds.bottom <= bulkFooterBounds.y + 1,
+          `Bulk preview extends behind the review actions: ${JSON.stringify({ bulkBounds, bulkFooterBounds })}`,
+        );
+        assertVisible(bulkLastButton, 'Final bulk control');
+        assertActionTargets(buttons, 'Current footer actions with bulk open');
+        assert(
+          !!bulkLastEvidence &&
+            rect(bulkLastEvidence).bottom <= bulkFooterBounds.y + 1 &&
+            rect(bulkLastEvidence).bottom > bulkBounds.y - 1,
+          `Final bulk evidence is not visible above the action bar: ${JSON.stringify({ evidence: bulkLastEvidence ? rect(bulkLastEvidence) : null, bulkBounds, bulkFooterBounds })}`,
+        );
+        const measurements = {
+          actions: rect(footer),
+          buttons: buttons.map(rect),
+          picker: pickerResult,
+          bulk: {
+            viewport: [innerWidth, innerHeight],
+            scrollTop: bulk.scrollTop,
+            maxScroll: bulk.scrollHeight - bulk.clientHeight,
+            overlay: bulkBounds,
+            finalEvidence: bulkLastEvidence ? rect(bulkLastEvidence) : null,
+            finalControl: rect(bulkLastButton),
+            footer: bulkFooterBounds,
+          },
+        };
+        assert(
+          Object.keys(useDraftStore.getState().drafts).length === 0,
+          'Overlay fixture created drafts',
+        );
+        return measurements;
+      }
+      const initial = await measureOverlays();
+      const bulk = document.querySelector<HTMLElement>('[aria-label="Bulk accept preview"]')!;
+      const cancel = [...bulk.querySelectorAll<HTMLButtonElement>('button')].find(
+        (button) => button.textContent?.trim() === 'Cancel',
       );
+      assert(cancel, 'Missing bulk Cancel');
+      cancel.click();
+      const oldFooter = document.querySelector<HTMLElement>('footer[aria-label="Review actions"]')!;
+      const article = oldFooter.closest<HTMLElement>('article')!;
+      const back = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+        (button) => button.textContent?.trim() === 'Back to category guidance',
+      );
+      assert(back, 'Missing entries-to-category action');
+      back.click();
+      await waitFor(
+        () =>
+          document.querySelector('[aria-label="Category guidance"]') !== null &&
+          !oldFooter.isConnected,
+        'category returns without remounting the fixture',
+      );
+      await nextFrame();
+      assert(
+        article.style.getPropertyValue('--review-action-bar-height') === '',
+        'Removed footer left a stale reservation',
+      );
+      const review = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+        (button) => button.textContent?.trim() === 'Review all one by one',
+      );
+      assert(review, 'Missing return to entries');
+      review.click();
+      await waitFor(
+        () => document.querySelector('footer[aria-label="Review actions"]') !== null,
+        'replacement footer mounts',
+      );
+      await nextFrame();
+      assert(
+        document.querySelector('footer[aria-label="Review actions"]') !== oldFooter,
+        'Footer target was not replaced',
+      );
+      overlays = { initial, replacement: await measureOverlays() };
     }
     return {
       fixture: workspace,
       viewport: [innerWidth, innerHeight],
-      actions: rect(actionRegion),
+      actions: rect(
+        sample
+          ? actionRegion
+          : document.querySelector<HTMLElement>('footer[aria-label="Review actions"]')!,
+      ),
       consequence,
       actionMeasurements,
       target: finalTarget,
@@ -531,7 +643,8 @@ async function run() {
       );
     clearFilters.focus();
     assert(document.activeElement === clearFilters, 'Clear filters must remain keyboard focusable');
-    clearFilters.click();
+    if (params.get('keyboard') === 'true') clearFilters.setAttribute('data-keyboard-ready', '');
+    else clearFilters.click();
     await waitFor(
       () =>
         search.value === '' &&

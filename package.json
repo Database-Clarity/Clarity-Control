@@ -17,6 +17,7 @@
     "lint": "eslint .",
     "test": "vitest run --passWithNoTests",
     "test:picker-browser": "node apps/web/test/picker-browser.mjs",
+    "test:review-browser": "node apps/web/test/review-browser.mjs",
     "format": "prettier --write ."
   },
   "devDependencies": {

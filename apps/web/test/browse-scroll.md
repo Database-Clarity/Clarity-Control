@@ -49,3 +49,24 @@ sample actions are checked from first reachability through the full document
 end; picker and bulk overlays must stop above the actual measured decision
 bar and keep their final evidence/controls reachable. No fixture decision is
 submitted.
+
+`npm run test:review-browser` builds this fixture into a temporary directory
+and runs the network-blocked installed Chromium/Edge browser at all three
+viewports. Set `PICKER_BROWSER` to override the browser executable and
+`REVIEW_BROWSER_OUTPUT` to retain PNGs and geometry JSON. It presses actual
+keyboard Enter on the empty-state Clear filters button, not a scripted click.
+
+Sample cases check closed and ACTUAL expanded Pick other at intermediate and
+full document scroll positions, with the LAST category input and sample note
+visible. Entry cases start in category guidance by default, enter entries,
+check picker AND bulk ends, return to category, and check both overlays again
+after footer replacement without remounting ReviewQueue. `initial=entries`
+also covers the original direct-entry route. The runner resizes these live
+overlays across all three viewports and repeats without ResizeObserver.
+Native observer wrappers replay detached-footer callbacks against the real
+replacement layout; full unmount must disconnect observers and clear the
+owned reservation even after delayed callbacks or a resize.
+Mounted `ReviewQueue.footer.test.tsx` separately verifies delayed detached
+observer callbacks, prior inline reservation restoration and full-unmount
+observer/resize-listener cleanup; its mocked dimensions are not browser
+geometry evidence.

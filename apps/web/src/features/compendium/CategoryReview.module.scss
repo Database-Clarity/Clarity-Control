@@ -240,6 +240,7 @@
   }
   .actions {
     position: sticky;
+    top: 0;
     bottom: var(--save-dock-height, calc(5rem + env(safe-area-inset-bottom, 0px)));
     z-index: 4;
     margin-inline: -0.75rem;

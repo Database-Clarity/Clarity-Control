@@ -114,7 +114,7 @@ export function ReviewQueue({
   source: CompendiumData;
   storageKey: string;
 }) {
-  const actionBar = useRef<HTMLElement>(null);
+  const [actionBar, setActionBar] = useState<HTMLElement | null>(null);
   const { progress, update, error } = useReviewProgress(storageKey);
   const setSidebarCategories = useSidebarQueueStore((state) => state.setCompendiumCategories);
   const [params, setParams] = useSearchParams();
@@ -160,29 +160,37 @@ export function ReviewQueue({
   const user = useAuthStore((state) => state.user);
   const locked = useSaveState((state) => state.locked);
   useLayoutEffect(() => {
-    const actions = actionBar.current;
+    const actions = actionBar;
     const page = actions?.closest('article');
     if (!page || !actions) return;
-    const updateHeight = () =>
-      page.style.setProperty(
-        '--review-action-bar-height',
-        `${actions.getBoundingClientRect().height}px`,
-      );
+    const property = '--review-action-bar-height';
+    const previous = page.style.getPropertyValue(property);
+    const priority = page.style.getPropertyPriority(property);
+    let active = true;
+    const updateHeight = () => {
+      if (!active || !actions.isConnected) return;
+      page.style.setProperty(property, `${actions.getBoundingClientRect().height}px`);
+    };
+    const restoreHeight = () => {
+      active = false;
+      if (previous) page.style.setProperty(property, previous, priority);
+      else page.style.removeProperty(property);
+    };
     updateHeight();
     if (typeof ResizeObserver === 'undefined') {
       window.addEventListener('resize', updateHeight);
       return () => {
         window.removeEventListener('resize', updateHeight);
-        page.style.removeProperty('--review-action-bar-height');
+        restoreHeight();
       };
     }
     const observer = new ResizeObserver(updateHeight);
     observer.observe(actions, { box: 'border-box' });
     return () => {
+      restoreHeight();
       observer.disconnect();
-      page.style.removeProperty('--review-action-bar-height');
     };
-  }, []);
+  }, [actionBar]);
   const fingerprint = useMemo(() => sourceFingerprint(source.tabs), [source]);
   const evidence = useMemo(
     () => reviewEvidence(editor, source, drafts, fingerprint),
@@ -817,7 +825,7 @@ export function ReviewQueue({
           onAccept={acceptBulk}
         />
       )}
-      <footer ref={actionBar} className={styles.actionBar} aria-label="Review actions">
+      <footer ref={setActionBar} className={styles.actionBar} aria-label="Review actions">
         <p className={styles.actionConsequence}>
           Links create local drafts, not saves · Skip/No equivalent stay in browser.
         </p>
