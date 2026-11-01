@@ -3,6 +3,7 @@
 These are instructions for the owner to carry out later. Creating this Worker
 package does **not** deploy it, publish any tooltip, or merge anything into main.
 Keep `LIVE_BRANCH=converter-v2-test` until an explicit production cut-over.
+After setup, use the [owner acceptance checklist](OWNER-ACCEPTANCE.md).
 
 ## 1. Prepare the computer and Cloudflare account
 
