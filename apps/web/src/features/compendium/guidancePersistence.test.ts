@@ -37,6 +37,97 @@ function fixture() {
   return { create, request, cache, storage, document: () => document, writes: () => writes };
 }
 afterEach(() => vi.useRealTimers());
+it('pauses editing/retries during a delayed reload and preserves text and backup changed after it starts', async () => {
+  const data = fixture();
+  const owner = data.create();
+  await owner.start();
+  owner.synchronize(categories, 'baseline');
+  owner.comment(categories[0].id, 'Previously saved');
+  await owner.flush();
+  const original = data.request.getMockImplementation()!;
+  let release = () => {};
+  data.request.mockImplementationOnce(async (url, init) => {
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return original(url, init);
+  });
+  const reloading = owner.reloadDisk();
+  expect(owner.getSnapshot().reloading).toBe(true);
+  owner.comment(categories[0].id, 'New owner instruction typed while reloading');
+  owner.synchronize([], 'changed membership while reloading');
+  const reads = data.request.mock.calls.length;
+  await owner.reloadDisk();
+  await owner.flush();
+  expect(data.request).toHaveBeenCalledTimes(reads);
+  release();
+  await reloading;
+  expect(owner.getSnapshot()).toMatchObject({ reloading: false, diskSaved: false });
+  expect(owner.getSnapshot().document.categories[categories[0].id]).toMatchObject({
+    comment: 'New owner instruction typed while reloading',
+    active: true,
+  });
+  expect(owner.getSnapshot().error).toContain('browser comments retained');
+  expect(JSON.parse([...data.cache.values()][0])).toMatchObject({
+    pending: true,
+    document: {
+      categories: {
+        [categories[0].id]: {
+          comment: 'New owner instruction typed while reloading',
+        },
+      },
+    },
+  });
+  expect(data.document()?.categories[categories[0].id].comment).toBe('Previously saved');
+  await owner.flush();
+  expect(owner.getSnapshot().diskSaved).toBe(true);
+  expect(data.document()?.categories[categories[0].id].comment).toBe(
+    'New owner instruction typed while reloading',
+  );
+  owner.dispose();
+});
+it('does not start a reload over an outstanding save, then reloads its exact acknowledgement', async () => {
+  const data = fixture();
+  const owner = data.create();
+  await owner.start();
+  owner.synchronize(categories, 'baseline');
+  owner.comment(categories[0].id, 'Saved after delay');
+  const original = data.request.getMockImplementation()!;
+  let release = () => {};
+  data.request.mockImplementationOnce(async (url, init) => {
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return original(url, init);
+  });
+  const saving = owner.flush();
+  const calls = data.request.mock.calls.length;
+  await owner.reloadDisk();
+  expect(data.request).toHaveBeenCalledTimes(calls);
+  expect(owner.getSnapshot()).toMatchObject({ saving: true, reloading: false });
+  release();
+  await saving;
+  await owner.reloadDisk();
+  expect(owner.getSnapshot()).toMatchObject({ saving: false, reloading: false, diskSaved: true });
+  expect(owner.getSnapshot().document.categories[categories[0].id].comment).toBe(
+    'Saved after delay',
+  );
+  owner.dispose();
+});
+it('reenables editing after a failed reload without discarding the pending backup', async () => {
+  const data = fixture();
+  const owner = data.create();
+  await owner.start();
+  owner.synchronize(categories, 'baseline');
+  owner.comment(categories[0].id, 'Keep this unsaved text');
+  data.request.mockRejectedValueOnce(new Error('offline'));
+  await owner.reloadDisk();
+  expect(owner.getSnapshot()).toMatchObject({ reloading: false, diskSaved: false });
+  expect(owner.getSnapshot().error).toContain('browser comments retained');
+  expect([...data.cache.values()][0]).toContain('Keep this unsaved text');
+  await owner.flush();
+  owner.dispose();
+});
 it('autosaves as the owner types, persists definitions and reloads comments without exporting', async () => {
   vi.useFakeTimers();
   const fixtureData = fixture();

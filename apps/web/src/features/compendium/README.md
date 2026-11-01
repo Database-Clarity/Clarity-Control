@@ -115,7 +115,11 @@ with their last membership for audit. Disk writes require same-origin JSON,
 schema validation and an exact file revision. A file lock serializes separate
 Vite processes; temp-file fsync/rename replaces the file atomically. Conflicts
 never overwrite disk or silently merge owner text. Export the unsaved backup,
-then explicitly reload disk guidance to reconcile. A leftover `.lock` after a
+then explicitly reload disk guidance to reconcile. Reload pauses comment
+editing and save retries until its disk read completes.
+If guidance changes during that read, the new text and pending browser backup
+are retained instead of acknowledging the older disk document. Reload cannot
+overlap a save or another reload. A leftover `.lock` after a
 crash produces a visible error; remove only that specific lock after verifying
 no guidance writer owns it. Production builds and `vite preview` have no write
 endpoint: comments there are explicitly browser-only until exported/retried on
@@ -145,7 +149,11 @@ the next entry into view. Unusually long descriptions scroll inside desktop pane
 Proposal matching uses the existing core auto-link resolver in a dedicated Web Worker,
 once per editor/source revision. Only round-trippable whole-description proposals enter
 bulk preview; fuzzy candidates and research hints require manual selection. Bulk preview
-respects category, search, status and proposal filters and creates normal local drafts.
+freezes the category/search/status/proposal-filter membership at opening.
+Acceptance creates drafts only for the currently displayed page (up to ten),
+then closes the preview; undisplayed pages are never accepted. Changed source,
+catalog, entry evidence, proposals, local decisions or drafts invalidate the
+preview and require reopening it. Bulk accept and undo use atomic normal draft updates.
 Undo is one in-memory transaction (including a bulk transaction), restores only link
 metadata and local progress, and refuses changed links or a changed saved data revision.
 It never rolls back text/association edits or a remote save. Reopen remains available for

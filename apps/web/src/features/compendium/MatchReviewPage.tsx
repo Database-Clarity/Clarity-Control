@@ -24,6 +24,13 @@ import { useProposals } from './useProposals';
 import { CategoryReview } from './CategoryReview';
 import { categoryId, reviewCategories, type ReviewCategory } from './reviewCategories';
 import { useGuidance } from './useGuidance';
+import {
+  BulkPreview,
+  bulkPreviewCurrent,
+  createBulkPreview,
+  type BulkPreviewState,
+  type BulkProposal,
+} from './BulkPreview';
 
 const labels = {
   open: 'Unresolved',
@@ -39,6 +46,7 @@ type Undo = {
 };
 
 export function MatchReviewPage() {
+  const [params] = useSearchParams();
   const editor = useDataStore((state) => state.data);
   const { data, load, loading, error } = useCompendiumStore();
   const { user, loading: authLoading } = useAuthStore();
@@ -50,7 +58,9 @@ export function MatchReviewPage() {
     user?.id,
   );
   return (
-    <article className={styles.review}>
+    <article
+      className={`${styles.review} ${params.get('view') === 'entries' ? styles.entryReview : ''}`}
+    >
       <header className={styles.heading}>
         <div>
           <Link to="/compendium">← Compendium</Link>
@@ -69,9 +79,9 @@ export function MatchReviewPage() {
               progress only. Changed evidence reopens these decisions.
             </p>
             <p>
-              Bulk preview contains only validated resolver proposals. Check their scope before
-              accepting. Undo restores link metadata only, preserving text and association edits.
-              Shortcuts are disabled while typing or using the picker.
+              Bulk preview contains only validated resolver proposals. Accept applies only to the
+              current preview page. Undo restores link metadata only, preserving text and
+              association edits. Shortcuts are disabled while typing or using the picker.
             </p>
           </div>
         </details>
@@ -101,7 +111,7 @@ export function ReviewQueue({
   const [message, setMessage] = useState('');
   const [proposalFilter, setProposalFilter] = useState('all');
   const [picker, setPicker] = useState(false);
-  const [bulk, setBulk] = useState(false);
+  const [bulk, setBulk] = useState<BulkPreviewState>();
   const [bulkPage, setBulkPage] = useState(0);
   const [undo, setUndo] = useState<Undo>();
   const { drafts, hydrated } = useDraftStore();
@@ -152,6 +162,8 @@ export function ReviewQueue({
   const bulkEntries = filtered.filter(
     (entry) => entry.status === 'open' && proposals.get(entry.hash)?.link,
   );
+  const bulkCurrent =
+    !!bulk && bulkPreviewCurrent(bulk, editor, source, entries, proposals, drafts);
   const completed = entries.filter((entry) => entry.status !== 'open').length;
   const nextHash = advanceHash(
     filtered.map((entry) => entry.hash),
@@ -223,42 +235,48 @@ export function ReviewQueue({
     setCandidate(0);
     setMessage('Last decision undone.');
   }
-  function acceptBulk() {
-    if (!canEdit || !bulkEntries.length) return;
+  function acceptBulk(visible: BulkProposal[]) {
+    if (!canEdit || !bulk || !visible.length) return;
+    if (
+      !bulkPreviewCurrent(bulk, editor, source, entries, proposals, useDraftStore.getState().drafts)
+    ) {
+      setMessage('Preview evidence or drafts changed. Cancel and open a new preview.');
+      return;
+    }
     snapshot(
-      bulkEntries.map((entry) => ({
+      visible.map(({ entry, link }) => ({
         base: entry.base,
         before: entry.next.compendium,
-        after: proposals.get(entry.hash)!.link,
+        after: link,
       })),
     );
     useDraftStore.getState().updateDrafts(
-      bulkEntries.map((entry) => ({
+      visible.map(({ entry, link }) => ({
         base: entry.base,
-        update: (next) => ({ ...next, compendium: proposals.get(entry.hash)!.link }),
+        update: (next) => ({ ...next, compendium: link }),
       })),
     );
     update((state) =>
-      bulkEntries.reduce(
-        (next, entry) => recordDecision(next, entry.hash, entry.evidence, 'open', undefined),
+      visible.reduce(
+        (next, { entry }) => recordDecision(next, entry.hash, entry.evidence, 'open', undefined),
         state,
       ),
     );
-    setMessage(`${bulkEntries.length} links drafted, not saved.`);
-    setBulk(false);
+    setMessage(`${visible.length} links drafted, not saved.`);
+    setBulk(undefined);
   }
   useEffect(() => {
     if (categoryView) return;
     function keydown(event: KeyboardEvent) {
       if (event.key === 'Escape' && (picker || bulk)) {
         setPicker(false);
-        setBulk(false);
+        setBulk(undefined);
         return;
       }
       const target = event.target instanceof Element ? event.target : undefined;
       const action = shortcutAction(
         event,
-        picker || bulk || !!target?.closest('input, textarea, select, [contenteditable="true"]'),
+        picker || !!bulk || !!target?.closest('input, textarea, select, [contenteditable="true"]'),
       );
       if (!action || event.repeat) return;
       event.preventDefault();
@@ -301,7 +319,7 @@ export function ReviewQueue({
         <button
           onClick={() => {
             setPicker(false);
-            setBulk(false);
+            setBulk(undefined);
             setParams({});
           }}
         >
@@ -385,7 +403,7 @@ export function ReviewQueue({
         <button
           onClick={() => {
             setBulkPage(0);
-            setBulk(true);
+            setBulk(createBulkPreview(editor, source, bulkEntries, proposals));
           }}
           disabled={!bulkEntries.length}
         >
@@ -539,77 +557,35 @@ export function ReviewQueue({
         </section>
       )}
       {bulk && (
-        <section
-          className={styles.overlay}
-          role="dialog"
-          aria-modal="false"
-          aria-label="Bulk accept preview"
-        >
-          <header>
-            <div>
-              <h2>Review {bulkEntries.length} proposals</h2>
-              <p>Current filters · validated resolver matches only · local drafts</p>
-            </div>
-            <button autoFocus onClick={() => setBulk(false)}>
-              Cancel
-            </button>
-          </header>
-          <p>
-            Preview page {bulkPage + 1} / {Math.max(1, Math.ceil(bulkEntries.length / 10))} · 10
-            proposals per page
-          </p>
-          <button disabled={bulkPage === 0} onClick={() => setBulkPage(bulkPage - 1)}>
-            Previous proposals
-          </button>{' '}
-          <button
-            disabled={(bulkPage + 1) * 10 >= bulkEntries.length}
-            onClick={() => setBulkPage(bulkPage + 1)}
-          >
-            Next proposals
-          </button>
-          <div className={styles.bulkList}>
-            {bulkEntries.slice(bulkPage * 10, bulkPage * 10 + 10).map((entry) => (
-              <section key={entry.hash}>
-                <h3>
-                  {entry.name} · {entry.hash}
-                </h3>
-                <div className={styles.bulkCompare}>
-                  <pre>{entry.next.text.en?.text || 'No English text yet.'}</pre>
-                  <div>
-                    <ProposalContext match={proposals.get(entry.hash)?.match} source={source} />
-                  </div>
-                </div>
-              </section>
-            ))}
-          </div>
-          <button
-            className={styles.primary}
-            disabled={!canEdit || !bulkEntries.length}
-            onClick={acceptBulk}
-          >
-            Accept {bulkEntries.length} proposals as drafts
-          </button>
-        </section>
+        <BulkPreview
+          preview={bulk}
+          page={bulkPage}
+          canEdit={canEdit}
+          current={bulkCurrent}
+          onPage={setBulkPage}
+          onCancel={() => setBulk(undefined)}
+          onAccept={acceptBulk}
+        />
       )}
       <footer className={styles.actionBar} aria-label="Review actions">
         <button
           className={styles.primary}
-          disabled={!canEdit || !proposal?.link || selected?.status !== 'open' || picker || bulk}
+          disabled={!canEdit || !proposal?.link || selected?.status !== 'open' || picker || !!bulk}
           onClick={accept}
         >
           Accept proposed link <kbd>A</kbd>
         </button>
-        <button disabled={!selected || bulk} onClick={() => setPicker(!picker)}>
+        <button disabled={!selected || !!bulk} onClick={() => setPicker(!picker)}>
           Pick other <kbd>P</kbd>
         </button>
-        <button disabled={!selected || picker || bulk} onClick={() => decide('no-equivalent')}>
+        <button disabled={!selected || picker || !!bulk} onClick={() => decide('no-equivalent')}>
           No equivalent <kbd>N</kbd>
         </button>
-        <button disabled={!selected || picker || bulk} onClick={() => decide('skipped')}>
+        <button disabled={!selected || picker || !!bulk} onClick={() => decide('skipped')}>
           Skip <kbd>S</kbd>
         </button>
         <button
-          disabled={!undo || locked || (undo.links.length > 0 && !canEdit) || picker || bulk}
+          disabled={!undo || locked || (undo.links.length > 0 && !canEdit) || picker || !!bulk}
           onClick={undoLast}
         >
           Undo last <kbd>U</kbd>

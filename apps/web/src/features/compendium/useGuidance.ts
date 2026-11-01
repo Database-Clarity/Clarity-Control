@@ -34,6 +34,14 @@ export function useGuidance(categories: ReviewCategory[], baseline: string) {
       })),
       baseline,
     );
-  }, [persistence, categories, baseline, state.ready, state.conflict, state.document]);
+  }, [
+    persistence,
+    categories,
+    baseline,
+    state.ready,
+    state.conflict,
+    state.reloading,
+    state.document,
+  ]);
   return { ...state, persistence };
 }

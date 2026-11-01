@@ -84,11 +84,13 @@ export function CategoryReview({
         <p role="status">
           {!guidance.ready
             ? 'Loading owner guidance...'
-            : guidance.saving
-              ? 'Saving guidance to disk...'
-              : guidance.diskSaved
-                ? 'Guidance saved to apps/web/review-guidance.json. Agents can read it.'
-                : 'Guidance has not been saved to disk yet.'}
+            : guidance.reloading
+              ? 'Reloading disk guidance; editing is paused...'
+              : guidance.saving
+                ? 'Saving guidance to disk...'
+                : guidance.diskSaved
+                  ? 'Guidance saved to apps/web/review-guidance.json. Agents can read it.'
+                  : 'Guidance has not been saved to disk yet.'}
         </p>
         {guidance.error && <p role="alert">{guidance.error}</p>}
         {guidance.localError && <p role="alert">{guidance.localError}</p>}
@@ -96,11 +98,11 @@ export function CategoryReview({
           <button onClick={exportGuidance} disabled={!guidance.ready}>
             Export backup
           </button>
-          {guidance.error && !guidance.conflict && (
+          {guidance.error && !guidance.conflict && !guidance.reloading && (
             <button onClick={() => void guidance.persistence.flush()}>Retry disk save</button>
           )}
           <button
-            disabled={!guidance.ready || guidance.saving}
+            disabled={!guidance.ready || guidance.saving || guidance.reloading}
             onClick={() => {
               if (
                 guidance.diskSaved ||
@@ -162,7 +164,7 @@ export function CategoryReview({
               <textarea
                 rows={4}
                 maxLength={100_000}
-                disabled={!guidance.ready || guidance.conflict}
+                disabled={!guidance.ready || guidance.conflict || guidance.reloading}
                 value={guidance.document.categories[category.id]?.comment ?? ''}
                 placeholder="What should agents link, ignore, investigate, or ask you about?"
                 onChange={(event) => guidance.persistence.comment(category.id, event.target.value)}

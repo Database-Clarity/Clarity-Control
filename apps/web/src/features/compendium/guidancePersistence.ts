@@ -10,6 +10,7 @@ interface GuidanceState {
   document: GuidanceDocument;
   ready: boolean;
   saving: boolean;
+  reloading: boolean;
   diskSaved: boolean;
   conflict: boolean;
   error: string | null;
@@ -36,6 +37,7 @@ export class GuidancePersistence {
       document: { version: 1, scope, baseline: '', categories: {} },
       ready: false,
       saving: false,
+      reloading: false,
       diskSaved: false,
       conflict: false,
       error: null,
@@ -124,7 +126,7 @@ export class GuidancePersistence {
     }
   }
   synchronize(categories: Omit<GuidanceCategory, 'comment'>[], baseline: string) {
-    if (!this.state.ready || this.state.conflict) return;
+    if (!this.state.ready || this.state.conflict || this.state.reloading) return;
     const next = Object.fromEntries(
       Object.entries(this.state.document.categories).map(([id, category]) => [
         id,
@@ -160,7 +162,7 @@ export class GuidancePersistence {
   }
   async flush() {
     clearTimeout(this.timer);
-    if (!this.pending || this.state.saving || this.state.conflict) return;
+    if (!this.pending || this.state.saving || this.state.conflict || this.state.reloading) return;
     const document = this.state.document;
     this.set({ saving: true, error: null });
     try {
@@ -195,10 +197,20 @@ export class GuidancePersistence {
     }
   }
   async reloadDisk() {
-    if (this.state.saving) return;
+    if (this.state.saving || this.state.reloading) return;
     clearTimeout(this.timer);
+    const document = this.state.document;
+    this.set({ reloading: true });
     try {
       const disk = await this.disk();
+      if (document !== this.state.document) {
+        this.set({
+          error:
+            'Guidance changed while reloading; browser comments retained. Reload again to discard them.',
+          diskSaved: false,
+        });
+        return;
+      }
       this.revision = disk.revision;
       this.pending = false;
       this.set({
@@ -213,6 +225,8 @@ export class GuidancePersistence {
       this.set({
         error: `Could not reload disk; browser comments retained: ${errorMessage(error)}`,
       });
+    } finally {
+      this.set({ reloading: false });
     }
   }
   dispose() {

@@ -28,6 +28,11 @@
   button {
     cursor: pointer;
   }
+  input,
+  select {
+    min-width: 0;
+    width: 100%;
+  }
   button:disabled {
     opacity: 0.45;
     cursor: default;
@@ -58,6 +63,15 @@
     border-radius: 0.2rem;
     padding: 0 0.25rem;
     font-size: 0.75rem;
+  }
+}
+.entryReview {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 2 * clamp(1.25rem, 4vw, 3rem));
+  box-sizing: border-box;
+  > * {
+    flex-shrink: 0;
   }
 }
 .heading {
@@ -122,6 +136,8 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 1rem;
+  flex: 1;
+  min-height: 0;
 }
 .card {
   min-width: 0;
@@ -129,7 +145,7 @@
   border-radius: 0.6rem;
   background: #1c2130;
   padding: 1.2rem;
-  height: clamp(16rem, calc(100dvh - 30rem), 42rem);
+  min-height: 0;
   overflow: auto;
   box-sizing: border-box;
 }
@@ -224,7 +240,7 @@
 }
 .bulkCompare {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 1rem;
 }
 .empty {
@@ -273,6 +289,10 @@
   }
   .review {
     padding-bottom: 9rem;
+  }
+  .entryReview {
+    display: block;
+    height: auto;
   }
   .entryNav {
     gap: 0.5rem;
