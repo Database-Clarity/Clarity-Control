@@ -6,6 +6,7 @@ import { reasonLabels, type ReviewCategory } from './reviewCategories';
 import type { useGuidance } from './useGuidance';
 import { referenceCurrent } from './sampleReferences';
 import { SampleReview } from './SampleReview';
+import { SendGuidance } from './SendGuidance';
 import styles from './CategoryReview.module.scss';
 
 export function CategoryReview({
@@ -87,6 +88,7 @@ export function CategoryReview({
         </p>
         {guidance.error && <p role="alert">{guidance.error}</p>}
         {guidance.localError && <p role="alert">{guidance.localError}</p>}
+        <SendGuidance document={guidance.document} ready={guidance.ready} />
         <details>
           <summary>Backup / disk recovery</summary>
           <div>

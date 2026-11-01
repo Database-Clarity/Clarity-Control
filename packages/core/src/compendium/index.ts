@@ -5,3 +5,4 @@ export * from './diff.js';
 export * from './resolve.js';
 export * from './link.js';
 export * from './cells.js';
+export * from './guidance.js';

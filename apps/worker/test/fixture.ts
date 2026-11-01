@@ -192,7 +192,10 @@ export class Fixture {
       throw new Error('Repository operation did not use the installation token');
     }
     if (this.upstreamStatus) return this.response({}, this.upstreamStatus);
-    const path = url.pathname.replace('/repos/test-org/scratch', '');
+    const path = url.pathname.replace(
+      '/repos/' + this.env.GITHUB_OWNER + '/' + this.env.GITHUB_REPO,
+      '',
+    );
     if (path.startsWith('/git/ref/heads/')) {
       const branch = decodeURIComponent(path.slice('/git/ref/heads/'.length));
       return this.response({
