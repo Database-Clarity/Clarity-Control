@@ -5,7 +5,7 @@ import { errorMessage } from '../../services/http';
 import { groupManifestItems } from './manifestItems';
 import type { ReviewProposal } from './rapidReview';
 import type { GuidanceReference } from './guidanceSchema';
-import type { ReviewCategory, ReviewEntry } from './reviewCategories';
+import type { ReviewCategory, ReviewSample } from './reviewCategories';
 import type { useGuidance } from './useGuidance';
 import { referenceCurrent, sampleReference } from './sampleReferences';
 import { LinkPicker } from './LinkPicker';
@@ -26,7 +26,7 @@ export function SampleReview({
   proposal,
   guidance,
 }: {
-  entry: ReviewEntry;
+  entry: ReviewSample;
   category: ReviewCategory;
   editor: EditorData;
   source: CompendiumData;

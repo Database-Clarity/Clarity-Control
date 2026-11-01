@@ -152,3 +152,18 @@ it('covers available subtype and description-pattern variety deterministically, 
   expect(sampleHashes([...entries].reverse())).toEqual(sampleHashes(entries));
   expect(new Set(sampleHashes(entries)).size).toBe(5);
 });
+it('fingerprints displayed manifest and alias evidence independently of the authored bundle revision', () => {
+  const editor = fixture();
+  const entries = reviewQueue(editor, source, {}, emptyProgress(), '');
+  const evidence = () =>
+    reviewCategories(entries, editor, new Map(), false)
+      .flatMap((category) => category.entries)
+      .find((entry) => entry.hash === 15)!.sampleEvidence;
+  const original = evidence();
+  editor.items[16].inGameDescription = 'Changed alias mechanics';
+  expect(evidence()).not.toBe(original);
+  const changed = evidence();
+  editor.items[15].owners = [100, 101];
+  expect(evidence()).not.toBe(changed);
+  expect(editor.bundle.sourceCommit).toBe('test');
+});

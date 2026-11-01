@@ -2,8 +2,10 @@ import type { EditorData } from '../../stores/data';
 import { groupManifestItems } from './manifestItems';
 import type { ReviewProposal } from './rapidReview';
 import type { applyReviewProgress } from './reviewQueue';
+import { sourceFingerprint } from './reviewProgress';
 
 export type ReviewEntry = ReturnType<typeof applyReviewProgress>[number];
+export type ReviewSample = ReviewEntry & { sampleEvidence: string };
 export const reasonLabels = {
   validated: 'Validated proposals',
   fuzzy: 'Fuzzy candidates only',
@@ -18,9 +20,9 @@ export interface ReviewCategory {
   name: string;
   group: string;
   rule: string;
-  entries: ReviewEntry[];
-  reasons: Record<CategoryReason, ReviewEntry[]>;
-  samples: ReviewEntry[];
+  entries: ReviewSample[];
+  reasons: Record<CategoryReason, ReviewSample[]>;
+  samples: ReviewSample[];
 }
 
 export function categoryId(category: string) {
@@ -73,8 +75,25 @@ export function reviewCategories(
             : proposal?.candidates.length
               ? 'fuzzy'
               : 'none';
-    group.entries.push(entry);
-    group.reasons[reason].push(entry);
+    const sample = {
+      ...entry,
+      sampleEvidence: sourceFingerprint([
+        entry.hash,
+        entry.evidence,
+        (manifest.get(entry.hash) ?? [])
+          .map((item) => ({
+            hash: item.hash,
+            name: item.name,
+            categoryId: item.categoryId,
+            description: item.inGameDescription,
+            baseHash: item.baseHash,
+            owners: item.owners,
+          }))
+          .sort((a, b) => a.hash - b.hash),
+      ]),
+    };
+    group.entries.push(sample);
+    group.reasons[reason].push(sample);
   }
   for (const group of groups.values()) {
     group.entries.sort((a, b) => a.name.localeCompare(b.name) || a.hash - b.hash);
@@ -125,13 +144,13 @@ export function reviewCategories(
       }),
     );
     const covered = new Set<string>();
-    const samples: ReviewEntry[] = [];
+    const samples: ReviewSample[] = [];
     // Greedy coverage prioritizes resolver states, then available catalog structure and text patterns.
     while (samples.length < Math.min(5, group.entries.length)) {
       const remaining = group.entries.filter(
         (entry) => !samples.some((sample) => sample.hash === entry.hash),
       );
-      const score = (entry: ReviewEntry) =>
+      const score = (entry: ReviewSample) =>
         features
           .get(entry.hash)!
           .reduce(

@@ -66,8 +66,16 @@ function fixture() {
       tooltips: { 10: { hash: 10, text: {}, associated: [] } },
     },
   };
-  const entry = reviewQueue(editor, source, {}, emptyProgress(), sourceFingerprint(source.tabs))[0];
-  const proposal = proposalFor(entry.base, editor, source);
+  const queued = reviewQueue(
+    editor,
+    source,
+    {},
+    emptyProgress(),
+    sourceFingerprint(source.tabs),
+  )[0];
+  const proposal = proposalFor(queued.base, editor, source);
+  const entry = reviewCategories([queued], editor, new Map([[queued.hash, proposal]]), false)[0]
+    .entries[0];
   return { source, editor, entry, proposal };
 }
 afterEach(() => {
@@ -116,7 +124,11 @@ it('invalidates references after entry/baseline/source changes and distinguishes
     proposal.match,
     source,
   );
-  expect(referenceCurrent(reference, { ...entry, evidence: 'changed' }, 'baseline', source)).toBe(
+  expect(
+    referenceCurrent(reference, { ...entry, sampleEvidence: 'changed' }, 'baseline', source),
+  ).toBe(false);
+  expect(referenceCurrent(reference, { ...entry, hash: 11 }, 'baseline', source)).toBe(false);
+  expect(referenceCurrent(reference, { ...entry, category: 'other' }, 'baseline', source)).toBe(
     false,
   );
   expect(referenceCurrent(reference, entry, 'new baseline', source)).toBe(false);

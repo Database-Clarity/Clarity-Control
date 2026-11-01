@@ -1,11 +1,11 @@
 import { resolveCompendiumLink, type CompendiumData, type CompendiumMatch } from '@clarity/core';
 import type { GuidanceReference } from './guidanceSchema';
-import type { ReviewEntry } from './reviewCategories';
+import { categoryId, type ReviewSample } from './reviewCategories';
 import { sourceFingerprint } from './reviewProgress';
 import { confirmCompendiumSelection } from './selection';
 
 export function sampleReference(
-  entry: ReviewEntry,
+  entry: ReviewSample,
   categoryId: string,
   baseline: string,
   note: string,
@@ -17,7 +17,7 @@ export function sampleReference(
     hash: entry.hash,
     name: entry.name,
     categoryId,
-    evidence: entry.evidence,
+    evidence: entry.sampleEvidence,
     baseline,
     note,
     timestamp: new Date().toISOString(),
@@ -46,11 +46,17 @@ export function sampleReference(
 
 export function referenceCurrent(
   reference: GuidanceReference | undefined,
-  entry: ReviewEntry,
+  entry: ReviewSample,
   baseline: string,
   source: CompendiumData,
 ) {
-  if (!reference || reference.evidence !== entry.evidence || reference.baseline !== baseline)
+  if (
+    !reference ||
+    reference.hash !== entry.hash ||
+    reference.categoryId !== categoryId(entry.category) ||
+    reference.evidence !== entry.sampleEvidence ||
+    reference.baseline !== baseline
+  )
     return false;
   if (!reference.link) return true;
   const resolved = resolveCompendiumLink(reference.link, source);

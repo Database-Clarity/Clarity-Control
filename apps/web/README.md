@@ -162,3 +162,16 @@ feature services must validate its body and handle non-success statuses.
 Run root `npm test` for catalog/history/draft/API tests, including actual IndexedDB
 transactions via fake-indexeddb. Put component styles in `*.module.scss` and shared
 domain logic in `packages/core`.
+
+## Vite config loading
+
+Development and build use Vite's module runner for configuration loading. The local guidance
+middleware shares the core Compendium link schema; `@clarity/core` exports TypeScript sources,
+so the default bundled config's externalized Node import cannot resolve its `.js` source imports.
+The runner transpiles linked workspace modules without duplicating the schema or emitting core files.
+
+For signed-out sample review acceptance, use `test/compendium-samples.html#/compendium/review`
+on an owned strict-port dev server in a dedicated checkout with synthetic guidance only.
+The fixture renders the real app with 24 synthetic categories, blocks all fetches except that
+checkout's local guidance endpoint, and preserves its seeded legacy/archived comments across reloads.
+Never run it on a server/checkout containing real owner guidance.

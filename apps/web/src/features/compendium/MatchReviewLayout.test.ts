@@ -6,6 +6,9 @@ const css = compile(fileURLToPath(new URL('./MatchReview.module.scss', import.me
 const layoutCss = compile(
   fileURLToPath(new URL('../navigation/Layout.module.scss', import.meta.url)),
 ).css;
+const categoryCss = compile(
+  fileURLToPath(new URL('./CategoryReview.module.scss', import.meta.url)),
+).css;
 it('lets real catalog selects shrink inside narrow phone filter tracks', () => {
   const controls = css.match(/\.review input,\s*\.review select \{([^}]+)\}/)?.[1];
   expect(controls).toContain('min-width: 0;');
@@ -38,4 +41,22 @@ it('keeps the mobile review sidebar compact without hiding the stepper elsewhere
     /@media \(max-width: 700px\)[\s\S]*\.reviewMode \.sidebar \.stepper[^}]*display: none;/,
   );
   expect(layoutCss.match(/(?:^|\n)\.stepper \{([^}]+)\}/)?.[1]).not.toContain('display: none');
+});
+it('applies the category viewport budget to the route itself, with internal overflow and phone scrolling', () => {
+  const category = css.match(/(?:^|\n)\.categoryReview \{([^}]+)\}/)?.[1];
+  expect(category).toContain('display: flex;');
+  expect(category).toContain('height: calc(100dvh - 2 * clamp(1.25rem, 4vw, 3rem));');
+  expect(category).toContain('padding-bottom: 0;');
+  expect(css).not.toContain('.entryReview .categoryReview');
+  expect(categoryCss.match(/(?:^|\n)\.category \{([^}]+)\}/)?.[1]).toContain('overflow: auto;');
+  expect(categoryCss.match(/(?:^|\n)\.comparison section \{([^}]+)\}/)?.[1]).toContain(
+    'overflow: auto;',
+  );
+  expect(categoryCss.match(/(?:^|\n)\.categoryButtons \{([^}]+)\}/)?.[1]).toContain(
+    'grid-auto-rows: max-content;',
+  );
+  expect(css).toMatch(/@media \(max-width: 700px\)[\s\S]*\.categoryReview \{[^}]*height: auto;/);
+  expect(categoryCss).toMatch(
+    /@media \(max-width: 700px\)[\s\S]*\.category \{[^}]*overflow: visible;/,
+  );
 });

@@ -123,7 +123,9 @@ category rule/name/count/ordered hashes, active state and comment. Optional cate
 References record hash/name/categoryId, decision, note, timestamp, baseline and entry evidence;
 accepted/picked sources additionally record a validated link with styled snapshot and
 sourceHash/name/tab/row. Source hashes fingerprint the selected location and styled content,
-not a fabricated numeric item hash. Updated
+not a fabricated numeric item hash. Sample evidence also covers the displayed manifest
+descriptions and alias membership/catalog structure, which can change independently of the
+authored bundle revision. Updated
 membership preserves comments and reference records by stable id; removed categories remain inactive
 with their last membership for audit. Disk writes require same-origin JSON,
 schema validation and an exact file revision. A file lock serializes separate
