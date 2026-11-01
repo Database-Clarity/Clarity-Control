@@ -3,11 +3,11 @@ import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import type { Drafts } from '../draftStorage';
 
-export function replaceDraft(base: Tooltip, next: Tooltip): void {
+export function replaceDraft(base: Tooltip, next: Tooltip, resetBase = false): void {
   if (base.hash !== next.hash) throw new Error('Cannot replace a draft with a different tooltip.');
   const state = useDraftStore.getState();
   if (!state.hydrated) throw new Error('Draft recovery must finish before editing.');
-  const original = state.drafts[base.hash]?.base ?? base;
+  const original = resetBase ? base : (state.drafts[base.hash]?.base ?? base);
   const drafts: Drafts = { ...state.drafts, [base.hash]: { base: original, next } };
   if (stableStringify(original) === stableStringify(next)) delete drafts[base.hash];
   useDraftStore.setState({ drafts });

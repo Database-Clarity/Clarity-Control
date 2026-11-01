@@ -3,7 +3,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { publishableHash, type Tooltip } from '@clarity/core';
+import { merge3, publishableHash, type Tooltip } from '@clarity/core';
 import { Layout } from '../navigation/Layout';
 import { ReviewPage } from './ReviewPage';
 import { useDataStore } from '../../stores/data';
@@ -328,3 +328,87 @@ it('retires acknowledgment when its tooltip is removed from the bundle', async (
   await refresh();
   expect(useReviewSession.getState().acknowledgments).toEqual({});
 });
+
+it('loads the pushed snapshot into a local draft only after confirmation', async () => {
+  const live = structuredClone(tooltip);
+  live.text.en!.text = 'Pushed text';
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ tooltip: live, pushedHash: 'digest' })),
+  );
+  await mount();
+  await waitFor(() => expect(button('Load last pushed as draft').disabled).toBe(false));
+  await click('Load last pushed as draft');
+  expect(useDraftStore.getState().drafts[10]).toBeUndefined();
+  await click('Confirm load as draft');
+  expect(useDraftStore.getState().drafts[10].next).toEqual(live);
+  expect(useDraftStore.getState().drafts[10].base).toEqual(tooltip);
+  expect(post).not.toHaveBeenCalled();
+});
+
+it('protects existing drafts on cancel and restricts translators to assigned languages', async () => {
+  const live = structuredClone(tooltip);
+  live.text.en!.text = 'Pushed English';
+  live.text.de = { text: 'Pushed German', updatedAt: '2026-01-01T00:00:00Z', updatedBy: 'fixture' };
+  const existing = structuredClone(tooltip);
+  existing.text.en!.text = 'Existing draft';
+  useDraftStore.setState({ drafts: { 10: { base: tooltip, next: existing } } });
+  useAuthStore.setState({ user: { ...user, role: 'translator', languages: ['de'] } });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ tooltip: live, pushedHash: 'digest' })),
+  );
+  await mount();
+  await waitFor(() => expect(button('Load last pushed as draft').disabled).toBe(false));
+  await click('Load last pushed as draft');
+  expect(host.textContent).toContain('existing local draft');
+  await click('Cancel');
+  expect(useDraftStore.getState().drafts[10].next).toEqual(existing);
+  await click('Load last pushed as draft');
+  await click('Confirm load as draft');
+  expect(useDraftStore.getState().drafts[10].next.text.en!.text).toBe('Existing draft');
+  expect(useDraftStore.getState().drafts[10].next.text.de!.text).toBe('Pushed German');
+  expect(post).not.toHaveBeenCalled();
+});
+
+it('disables loading when no pushed snapshot is available', async () => {
+  await mount();
+  await waitFor(() => expect(button('Load last pushed as draft').disabled).toBe(true));
+  expect(useDraftStore.getState().drafts).toEqual({});
+});
+
+it.each(['maintainer', 'translator'] as const)(
+  'stages a pushed snapshot equal to a stale base for %s and keeps the correct editing base',
+  async (role) => {
+    const live = structuredClone(tooltip);
+    live.text.de = { text: 'Pushed German', updatedAt: '2026-01-01T00:00:00Z', updatedBy: 'fixture' };
+    const saved = structuredClone(tooltip);
+    saved.text.de = { ...live.text.de, text: 'Saved German' };
+    bundle.tooltips[10] = saved;
+    const local = structuredClone(live);
+    local.text.de!.text = 'Unsaved German';
+    if (role === 'translator') local.text.en!.text = 'Unrelated local English';
+    useDraftStore.setState({ drafts: { 10: { base: live, next: local } } });
+    useAuthStore.setState({ user: { ...user, role, languages: ['de'] } });
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      void url;
+      void init;
+      return Response.json({ tooltip: live, pushedHash: 'digest' });
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+    await mount();
+    await waitFor(() => expect(button('Load last pushed as draft').disabled).toBe(false));
+    await click('Load last pushed as draft');
+    await click('Confirm load as draft');
+    const draft = useDraftStore.getState().drafts[10];
+    expect(draft.base.text.de).toEqual(saved.text.de);
+    expect(draft.next.text.de).toEqual(live.text.de);
+    if (role === 'translator') expect(draft.next.text.en).toEqual(local.text.en);
+    const merged = merge3(draft.base, saved, draft.next);
+    expect(merged.ok).toBe(true);
+    if (merged.ok) expect(merged.merged.text.de).toEqual(live.text.de);
+    useDraftStore.getState().edit(saved, 'de', 'Further edit', 'fixture');
+    expect(useDraftStore.getState().drafts[10].base.text.de).toEqual(saved.text.de);
+    expect(fetchSpy.mock.calls.every((call) => !call[1] || (call[1] as RequestInit).method === 'GET')).toBe(true);
+  },
+);
