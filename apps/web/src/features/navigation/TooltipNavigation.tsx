@@ -1,3 +1,4 @@
+import { languageLabel } from '../../languageLabels';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { resolveAlias } from '@clarity/core';
@@ -112,7 +113,7 @@ export function TooltipNavigation({ data }: { data: EditorData }) {
               </button>
               {Object.entries(draft.next.text).map(([language, value]) => (
                 <div key={language}>
-                  <strong>{language}</strong>
+                  <strong>{languageLabel(language)}</strong>
                   <pre className={styles.recoveredText}>{value.text}</pre>
                 </div>
               ))}

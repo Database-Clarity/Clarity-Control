@@ -1,3 +1,4 @@
+import { languageLabel } from '../../languageLabels';
 import { useEffect, useState, type FormEvent } from 'react';
 import { languages, type Permissions } from '@clarity/core';
 import { apiUrl } from '../../services/api';
@@ -182,7 +183,7 @@ export function AdminPage() {
                                 <label key={lang}>
                                   <input
                                     type="checkbox"
-                                    aria-label={`${access.login}: ${lang}`}
+                                    aria-label={`${access.login}: ${languageLabel(lang)}`}
                                     checked={access.languages?.includes(lang) ?? false}
                                     onChange={(event) =>
                                       update(id, {
@@ -194,7 +195,7 @@ export function AdminPage() {
                                       })
                                     }
                                   />{' '}
-                                  {lang}
+                                  {languageLabel(lang)}
                                 </label>
                               ))}
                               {!access.languages?.length && (

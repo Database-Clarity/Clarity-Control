@@ -1,3 +1,4 @@
+import { languageLabel } from '../../languageLabels';
 import type { Lang } from '@clarity/core';
 import type { User } from '../../services/api';
 import { canEditLanguage } from '../auth/permissions';
@@ -36,7 +37,7 @@ export function editorAccess({
       return { reason: 'Read-only: no languages are assigned to your translator account.' };
     }
     return {
-      reason: `Read-only: you can translate ${assigned.join(', ')}, not ${lang}.`,
+      reason: `Read-only: you can translate ${assigned.map(languageLabel).join(', ')}, not ${languageLabel(lang)}.`,
       switchTo: firstAssignedLanguage(user),
     };
   }

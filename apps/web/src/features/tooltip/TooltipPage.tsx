@@ -1,3 +1,4 @@
+import { languageLabel } from '../../languageLabels';
 import { useMemo, useState } from 'react';
 import { Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { languages, langSchema, type Lang, type MarkupGlobals } from '@clarity/core';
@@ -22,6 +23,7 @@ import { useSaveState } from '../../services/save/state';
 import { AssociationsPanel } from '../associations/AssociationsPanel';
 import { editorAccess } from './access';
 import { defaultLanguage, withLanguage } from './language';
+import { LanguageSummary } from './LanguageSummary';
 import { TranslationSource } from './TranslationSource';
 import { VariantWorkspace } from './VariantWorkspace';
 import { CompendiumPanel } from '../compendium/CompendiumPanel';
@@ -80,7 +82,7 @@ export function TooltipPage() {
           >
             {languages.map((language) => (
               <option key={language} value={language}>
-                {language}
+                {languageLabel(language)}
               </option>
             ))}
           </select>
@@ -125,8 +127,9 @@ export function TooltipPage() {
                 lang === 'en' ? undefined : <TranslationSource text={tooltip.text.en?.text} />
               }
               editor={
-                <section aria-label={`${entry?.name ?? variant} editor (${lang})`}>
-                  <h3>Clarity text ({lang})</h3>
+                <section aria-label={`${entry?.name ?? variant} editor (${languageLabel(lang)})`}>
+                  <h3>Clarity text ({languageLabel(lang)})</h3>
+                  <LanguageSummary base={base} lang={lang} draft={tooltip.text[lang]?.text !== base.text[lang]?.text} />
                   {access.reason && (
                     <p role="status" className={styles.reason}>
                       {access.reason}
@@ -134,7 +137,7 @@ export function TooltipPage() {
                         <>
                           {' '}
                           <button type="button" onClick={() => changeLanguage(switchTo)}>
-                            Switch to {switchTo}
+                            Switch to {languageLabel(switchTo)}
                           </button>
                         </>
                       )}

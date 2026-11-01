@@ -36,7 +36,7 @@ describe('editor read-only reason', () => {
   });
   it('names the assigned languages and offers the first one to a translator on the wrong language', () => {
     expect(editorAccess({ ...ready, user: translator(['fr', 'de']), lang: 'en' })).toEqual({
-      reason: 'Read-only: you can translate fr, de, not en.',
+      reason: 'Read-only: you can translate French, German, not English.',
       switchTo: 'fr',
     });
   });

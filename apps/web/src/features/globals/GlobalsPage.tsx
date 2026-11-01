@@ -1,3 +1,4 @@
+import { languageLabel } from '../../languageLabels';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { globalTooltipCount } from '@clarity/core';
@@ -69,7 +70,7 @@ export function GlobalDetailPage() {
             <summary>Definitions</summary>
             {Object.entries(entry.definitions).map(([lang, value]) => (
               <pre key={lang}>
-                {lang}: {value}
+                {languageLabel(lang)}: {value}
               </pre>
             ))}
           </details>

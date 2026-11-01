@@ -1,3 +1,4 @@
+import { languageLabel } from '../../languageLabels';
 import { languages, type Tooltip } from '@clarity/core';
 import { WordDiff } from '../../ui/diff';
 import styles from './History.module.scss';
@@ -7,8 +8,8 @@ export function TooltipDiff({ before, current }: { before: Tooltip | null; curre
   return (
     <div className={styles.diff}>
       {changed.map((lang) => (
-        <section key={lang} aria-label={`${lang} comparison`}>
-          <h4>{lang}</h4>
+        <section key={lang} aria-label={`${languageLabel(lang)} comparison`}>
+          <h4>{languageLabel(lang)}</h4>
           <div className={styles.columns}>
             <div>
               <strong>Previous / live</strong>

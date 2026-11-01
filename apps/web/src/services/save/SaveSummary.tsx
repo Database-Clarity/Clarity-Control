@@ -1,3 +1,4 @@
+import { languageLabel } from '../../languageLabels';
 import { languages, stableStringify, type TooltipValidationIssue } from '@clarity/core';
 import { Link } from 'react-router-dom';
 import type { Change } from '../api';
@@ -57,7 +58,7 @@ export function SaveSummary({
               .filter((lang) => (base?.text[lang]?.text ?? '') !== (next.text[lang]?.text ?? ''))
               .map((lang) => (
                 <section key={lang}>
-                  <h4>{lang}</h4>
+                  <h4>{languageLabel(lang)}</h4>
                   <WordDiff
                     before={base?.text[lang]?.text ?? ''}
                     after={next.text[lang]?.text ?? ''}

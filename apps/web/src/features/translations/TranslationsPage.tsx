@@ -1,3 +1,4 @@
+import { languageLabel } from '../../languageLabels';
 import { useDeferredValue, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { translationQueue, type Tooltip, type TranslationQueueEntry } from '@clarity/core';
@@ -46,7 +47,7 @@ function Cards({
                 <small>({tooltip.hash})</small>
               </h2>
               <p>
-                <span className={styles.badge}>{language}</span>{' '}
+                <span className={styles.badge}>{languageLabel(language)}</span>{' '}
                 <span className={state === 'missing' ? styles.warning : undefined}>
                   {state === 'missing' && 'Not translated yet'}
                   {state === 'current' && 'Up to date'}
@@ -127,7 +128,7 @@ export function TranslationsPage() {
         the gap exceeds 90 days, so it is exported in English). Only tooltips with English text are
         listed. Local drafts are not included.
       </p>
-      {translator && <p>Your assigned languages: {available.join(', ') || 'none'}.</p>}
+      {translator && <p>Your assigned languages: {available.map(languageLabel).join(', ') || 'none'}.</p>}
       <div className={styles.filters}>
         <div role="group" aria-label="Translation status" className={styles.chips}>
           {worklistFilters.map((filter) => (
@@ -153,12 +154,12 @@ export function TranslationsPage() {
             <option value="all">{translator ? 'All assigned languages' : 'All languages'}</option>
             {available.map((lang) => (
               <option key={lang} value={lang}>
-                {lang}
+                {languageLabel(lang)}
               </option>
             ))}
             {language !== 'all' && !available.some((lang) => lang === language) && (
               <option value={language} disabled>
-                Unavailable language ({language})
+                Unavailable language ({languageLabel(language)})
               </option>
             )}
           </select>
