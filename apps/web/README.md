@@ -25,6 +25,9 @@ be hosted below a GitHub Pages repository path.
   Shared exotic perks display owner names from the item catalog or the generator's
   optional `ownerNames` metadata. Older catalogs and missing or blank names fall
   back to hashes; these display-only names are never published as tooltip data.
+  The sidebar shows the active workspace's tooltip, Compendium category, or pending-change
+  queue. Phone Browse owns interaction until Close/Escape; workspace shortcuts are suspended,
+  while native save/conflict dialogs retain their own keyboard handling.
 - `src/ui/`: shared components and base styles.
 - `src/services/`: generator, authored bundle, worker API, and native IndexedDB access.
 - `src/stores/`: loaded data and per-tooltip `{base,next}` drafts. Draft recovery
@@ -111,6 +114,11 @@ copy only after confirmation. Export first to preserve conflicting notes.
 This dev-only endpoint is absent from production/preview and never saves
 Tooltip data. See `features/compendium/README.md` for persistence and the later
 agent-proposal/category-approval stages.
+
+Individual entry review keeps the selected hash and query/category/status/proposal filters
+in the route. Fresh category links start unresolved with cleared filters; changing filters
+within a category still permits revisiting and reopening local decisions. Back/Forward
+restores the route's selection and filters, and Undo restores the pre-decision entry.
 
 ## Worker connection
 

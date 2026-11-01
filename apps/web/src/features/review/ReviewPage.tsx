@@ -17,6 +17,7 @@ import { ReviewDetail } from './ReviewDetail';
 import { ReviewRow } from './ReviewRow';
 import { acknowledgedMarkers, publishReviewed, useReviewSession } from './session';
 import { useSidebarQueueStore } from '../navigation/sidebarQueue';
+import { workspaceShortcutsBlocked } from '../../ui/interaction';
 import styles from './Review.module.scss';
 
 const pageSize = 15;
@@ -96,6 +97,7 @@ export function ReviewPage() {
   }, [user]);
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
+      if (workspaceShortcutsBlocked(event)) return;
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || pushing) return;
       if (
         event.target instanceof Element &&

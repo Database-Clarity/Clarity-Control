@@ -41,6 +41,21 @@ it('bounds the mobile context-aware sidebar without hiding the Editor stepper gl
   expect(layoutCss).toMatch(/\.sidebar\[data-open=true\] \.sidebarBody \{[^}]*overflow-y: auto;/);
   expect(layoutCss.match(/(?:^|\n)\.stepper \{([^}]+)\}/)?.[1]).not.toContain('display: none');
 });
+it('gives category and pending queue links 44px phone/coarse targets without changing desktop density', () => {
+  const desktop = layoutCss.match(/(?:^|\n)\.sidebarNavigation a \{([^}]+)\}/)?.[1];
+  expect(desktop).toContain('padding: 0.35rem 0;');
+  expect(desktop).not.toContain('min-height');
+  for (const media of ['(max-width: 700px)', '(pointer: coarse)']) {
+    const targets = layoutCss.match(
+      new RegExp(
+        `@media ${media.replace(/[()]/g, '\\$&')} \\{\\s*\\.sidebarNavigation a \\{([^}]+)\\}`,
+      ),
+    )?.[1];
+    expect(targets).toContain('min-height: 44px;');
+    expect(targets).toContain('box-sizing: border-box;');
+    expect(targets).toContain('align-items: center;');
+  }
+});
 it('applies the category viewport budget to the route itself, with internal overflow and phone scrolling', () => {
   const category = css.match(/(?:^|\n)\.categoryReview \{([^}]+)\}/)?.[1];
   expect(category).toContain('display: flex;');

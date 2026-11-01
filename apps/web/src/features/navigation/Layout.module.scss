@@ -319,6 +319,15 @@
 }
 
 @include theme.mobile-or-coarse {
+  .sidebarNavigation a {
+    min-height: 44px;
+    box-sizing: border-box;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 0.25rem;
+  }
+
   .sidebar,
   .saveDock {
     button,

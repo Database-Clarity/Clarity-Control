@@ -239,6 +239,29 @@ it('retires acknowledgment when the bundle reports a superseding marker without 
   expect(useReviewSession.getState().acknowledgments).toEqual({});
 });
 
+it('suspends pending-review window shortcuts during Browse and restores them on close', async () => {
+  const second = structuredClone(tooltip);
+  second.hash = 20;
+  bundle.tooltips[20] = second;
+  await mount();
+  await waitFor(() => expect(host.textContent).toContain('2 pending / 0 selected'));
+  await click('Browse');
+  await act(async () =>
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })),
+  );
+  expect(host.textContent).toContain('1 of 2');
+  expect(host.textContent).toContain('2 pending / 0 selected');
+  expect(post).not.toHaveBeenCalled();
+  await click('Close');
+  await act(async () =>
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })),
+  );
+  expect(host.textContent).toContain('2 of 2');
+  expect(
+    host.querySelector('[aria-label="Pending saved changes"] a[aria-current="page"]')?.textContent,
+  ).toContain('Tooltip 20');
+});
+
 it('distinguishes failed refresh from failed push and preserves success on retry', async () => {
   await mount();
   vi.mocked(loadBundle).mockRejectedValueOnce(Error('synthetic bundle unavailable'));

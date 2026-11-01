@@ -64,6 +64,8 @@ export function Layout() {
     document.body.style.overflow = 'hidden';
     browseButton.current?.focus();
     const keydown = (event: KeyboardEvent) => {
+      // A native save/conflict dialog owns focus and Escape above Browse.
+      if (document.querySelector('dialog[open]')) return;
       if (event.key === 'Escape') {
         event.preventDefault();
         restoreBrowseFocus.current = true;

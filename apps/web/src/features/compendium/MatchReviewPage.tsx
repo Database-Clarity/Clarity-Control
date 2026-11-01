@@ -15,7 +15,12 @@ import { useDraftStore } from '../../stores/drafts';
 import { useCompendiumStore } from './store';
 import { LinkPicker } from './LinkPicker';
 import { applyReviewProgress, mayDraftLink, reviewEvidence } from './reviewQueue';
-import { reviewStorageKey, sourceFingerprint, type ReviewProgress } from './reviewProgress';
+import {
+  progressSchema,
+  reviewStorageKey,
+  sourceFingerprint,
+  type ReviewProgress,
+} from './reviewProgress';
 import { useReviewProgress } from './useReviewProgress';
 import { advanceHash, recordDecision, restoreLink, shortcutAction } from './rapidReview';
 import { ProposalContext } from './ProposalContext';
@@ -34,6 +39,7 @@ import {
   type BulkProposal,
 } from './BulkPreview';
 import { useSidebarQueueStore } from '../navigation/sidebarQueue';
+import { workspaceShortcutsBlocked } from '../../ui/interaction';
 
 const labels = {
   open: 'Unresolved',
@@ -44,6 +50,7 @@ const labels = {
 };
 type Undo = {
   progress: ReviewProgress;
+  params?: string;
   links: { base: Tooltip; before: Tooltip['compendium']; after: Tooltip['compendium'] }[];
   revision: string;
 };
@@ -144,7 +151,6 @@ export function ReviewQueue({
     setBulk(undefined);
   }
   const [message, setMessage] = useState('');
-  const [proposalFilter, setProposalFilter] = useState('all');
   const [picker, setPicker] = useState(false);
   const [bulk, setBulk] = useState<BulkPreviewState>();
   const [bulkPage, setBulkPage] = useState(0);
@@ -207,17 +213,23 @@ export function ReviewQueue({
     ),
   );
   const scopedEntries = entries.filter((entry) => inScope.has(entry.hash));
+  const routeFilter = progressSchema.shape.filter.safeParse(params.get('status'));
+  // New category links reset stale filters; normalized URLs retain each history entry's filters.
+  const queueProgress: ReviewProgress = {
+    ...progress,
+    query: params.get('query') ?? (groupId ? '' : progress.query),
+    category: groupId ? '' : (params.get('category') ?? progress.category),
+    filter: routeFilter.success ? routeFilter.data : groupId ? 'open' : progress.filter,
+  };
+  const proposalFilter = params.get('proposal') ?? 'all';
   const filtered = scopedEntries.filter(
     (entry) =>
       (!groupId || categoryId(entry.category) === groupId) &&
-      (groupId ||
-        (!progress.category || entry.category === progress.category) &&
-          (!progress.query ||
-            `${entry.name} ${entry.hash}`.toLowerCase().includes(progress.query.toLowerCase())) &&
-          (progress.filter === 'all' || entry.status === progress.filter)) &&
-      (groupId ? entry.status === 'open' : true) &&
-      (groupId ||
-        proposalFilter === 'all' ||
+      (!queueProgress.category || entry.category === queueProgress.category) &&
+      (!queueProgress.query ||
+        `${entry.name} ${entry.hash}`.toLowerCase().includes(queueProgress.query.toLowerCase())) &&
+      (queueProgress.filter === 'all' || entry.status === queueProgress.filter) &&
+      (proposalFilter === 'all' ||
         (proposalFilter === 'yes') === !!proposals.get(entry.hash)?.link),
   );
   const routeHash = params.get('hash');
@@ -250,12 +262,25 @@ export function ReviewQueue({
     filtered.map((entry) => entry.hash),
     index,
   );
+  function selectionParams(
+    hash: number | undefined,
+    state = queueProgress,
+    next = new URLSearchParams(params),
+  ) {
+    next.set('query', state.query);
+    next.set('category', state.category);
+    next.set('status', state.filter);
+    next.set('proposal', next.get('proposal') ?? 'all');
+    if (hash === undefined) next.delete('hash');
+    else next.set('hash', String(hash));
+    return next;
+  }
   useEffect(() => {
-    if (!selected || params.get('hash') === String(selected.hash)) return;
-    const next = new URLSearchParams(params);
-    next.set('hash', String(selected.hash));
+    if (categoryView) return;
+    const next = selectionParams(selected?.hash);
+    if (next.toString() === params.toString()) return;
     setParams(next, { replace: true });
-  }, [selected, params, setParams]);
+  });
   function keepEntryVisible() {
     if (window.matchMedia('(max-width: 700px)').matches)
       requestAnimationFrame(() =>
@@ -266,16 +291,23 @@ export function ReviewQueue({
   }
   function choose(hash?: number) {
     update((state) => ({ ...state, selected: hash }));
+    setParams(selectionParams(hash));
     setCandidate(0);
     setPicker(false);
   }
   function snapshot(links: Undo['links'] = []) {
-    setUndo({ progress, links, revision: editor.bundle.sourceCommit });
+    setUndo({
+      progress: categoryView ? progress : { ...queueProgress, selected: selected?.hash },
+      params: categoryView ? undefined : selectionParams(selected?.hash).toString(),
+      links,
+      revision: editor.bundle.sourceCommit,
+    });
   }
   function decide(kind: 'skipped' | 'no-equivalent') {
     if (!selected) return;
     snapshot();
     update((state) => recordDecision(state, selected.hash, selected.evidence, kind, nextHash));
+    setParams(selectionParams(nextHash), { replace: true });
     setCandidate(0);
     setPicker(false);
     setMessage(`${selected.name}: ${labels[kind]}.`);
@@ -288,6 +320,7 @@ export function ReviewQueue({
       .getState()
       .updateDraft(selected.base, (next) => ({ ...next, compendium: proposal.link }));
     update((state) => recordDecision(state, selected.hash, selected.evidence, 'open', nextHash));
+    setParams(selectionParams(nextHash), { replace: true });
     setCandidate(0);
     setMessage(`${selected.name}: link drafted, not saved.`);
     keepEntryVisible();
@@ -317,6 +350,11 @@ export function ReviewQueue({
       })),
     );
     update(() => undo.progress);
+    if (undo.params !== undefined)
+      setParams(
+        selectionParams(undo.progress.selected, undo.progress, new URLSearchParams(undo.params)),
+        { replace: true },
+      );
     setUndo(undefined);
     setPicker(false);
     setCandidate(0);
@@ -423,12 +461,14 @@ export function ReviewQueue({
         state,
       ),
     );
+    setParams(selectionParams(undefined), { replace: true });
     setMessage(`${visible.length} links drafted, not saved.`);
     setBulk(undefined);
   }
   useEffect(() => {
     if (categoryView) return;
     function keydown(event: KeyboardEvent) {
+      if (workspaceShortcutsBlocked(event)) return;
       if (event.key === 'Escape' && (picker || bulk)) {
         setPicker(false);
         setBulk(undefined);
@@ -450,15 +490,27 @@ export function ReviewQueue({
     window.addEventListener('keydown', keydown);
     return () => window.removeEventListener('keydown', keydown);
   });
-  function filter(patch: Partial<ReviewProgress>) {
-    update((state) => ({ ...state, ...patch, selected: undefined }));
+  function filter(patch: Partial<ReviewProgress>, next = new URLSearchParams(params)) {
+    const state = { ...queueProgress, ...patch, selected: undefined };
+    update(() => state);
+    setParams(selectionParams(undefined, state, next), { replace: true });
     setCandidate(0);
     setPicker(false);
   }
   function reviewCategory(category?: ReviewCategory, hash?: number) {
-    filter({ category: '', query: '', filter: 'open', selected: hash });
-    setProposalFilter('all');
-    setParams(category ? { view: 'entries', group: category.id } : { view: 'entries' });
+    const state = { ...progress, category: '', query: '', filter: 'open' as const, selected: hash };
+    update(() => state);
+    setCandidate(0);
+    setPicker(false);
+    setParams(
+      selectionParams(
+        hash,
+        state,
+        new URLSearchParams(
+          category ? { view: 'entries', group: category.id } : { view: 'entries' },
+        ),
+      ),
+    );
   }
   if (categoryView)
     return (
@@ -516,7 +568,7 @@ export function ReviewQueue({
         <label>
           Find entry
           <input
-            value={progress.query}
+            value={queueProgress.query}
             placeholder="Name or hash"
             onChange={(e) => filter({ query: e.target.value })}
           />
@@ -528,11 +580,12 @@ export function ReviewQueue({
               groupId
                 ? (categories.find((category) => category.id === groupId)?.entries[0]?.category ??
                   '')
-                : progress.category
+                : queueProgress.category
             }
             onChange={(e) => {
-              setParams({ view: 'entries' });
-              filter({ category: e.target.value });
+              const next = new URLSearchParams(params);
+              next.delete('group');
+              filter({ category: e.target.value }, next);
             }}
           >
             <option value="">All categories</option>
@@ -546,7 +599,7 @@ export function ReviewQueue({
         <label>
           Show
           <select
-            value={progress.filter}
+            value={queueProgress.filter}
             onChange={(e) => filter({ filter: e.target.value as ReviewProgress['filter'] })}
           >
             <option value="all">All entries</option>
@@ -562,8 +615,9 @@ export function ReviewQueue({
           <select
             value={proposalFilter}
             onChange={(e) => {
-              setProposalFilter(e.target.value);
-              choose();
+              const next = new URLSearchParams(params);
+              next.set('proposal', e.target.value);
+              filter({}, next);
             }}
           >
             <option value="all">With or without</option>
@@ -611,6 +665,7 @@ export function ReviewQueue({
                   update((state) =>
                     recordDecision(state, selected.hash, selected.evidence, 'open', selected.hash),
                   );
+                  setParams(selectionParams(selected.hash), { replace: true });
                 }}
               >
                 Reopen decision
@@ -703,6 +758,7 @@ export function ReviewQueue({
                   update((state) =>
                     recordDecision(state, selected.hash, selected.evidence, 'open', nextHash),
                   );
+                  setParams(selectionParams(nextHash), { replace: true });
                   setPicker(false);
                   setCandidate(0);
                   setMessage(`${selected.name}: link drafted, not saved.`);
@@ -718,9 +774,7 @@ export function ReviewQueue({
           <p>Change filters to revisit decisions or find more entries.</p>
           <button
             onClick={() => {
-              filter({ filter: 'open', query: '', category: '' });
-              setProposalFilter('all');
-              setParams({ view: 'entries' });
+              reviewCategory();
             }}
           >
             Show all unresolved
