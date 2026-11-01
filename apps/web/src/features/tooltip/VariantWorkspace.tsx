@@ -1,5 +1,6 @@
 import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import styles from './TooltipPage.module.scss';
+import { useWorkspaceDivider } from './useWorkspaceDivider';
 
 type Panel = 'source' | 'translation' | 'preview';
 const panels: { id: Panel; label: string }[] = [
@@ -20,13 +21,15 @@ interface VariantWorkspaceProps {
  * at a time; hidden panels stay mounted (CSS only) so editor cursor and undo history survive.
  */
 export function VariantWorkspace({ source, editor, preview }: VariantWorkspaceProps) {
+  const { container, separator, style } = useWorkspaceDivider();
   const prefix = useId();
   const [active, setActive] = useState<Panel>('translation');
   const tabs = useRef<Partial<Record<Panel, HTMLButtonElement | null>>>({});
   if (!source) {
     return (
-      <div className={styles.columns}>
+      <div className={styles.columns} ref={container} style={style}>
         {editor}
+        {separator}
         {preview}
       </div>
     );
@@ -51,7 +54,7 @@ export function VariantWorkspace({ source, editor, preview }: VariantWorkspacePr
     tabs.current[next]?.focus();
   }
   return (
-    <div className={styles.workspace}>
+    <div className={styles.workspace} ref={container} style={style}>
       <div role="tablist" aria-label="Tooltip panels" className={styles.tabs} onKeyDown={onKeyDown}>
         {panels.map(({ id, label }) => (
           <button
@@ -84,6 +87,7 @@ export function VariantWorkspace({ source, editor, preview }: VariantWorkspacePr
           {content[id]}
         </div>
       ))}
+      {separator}
     </div>
   );
 }

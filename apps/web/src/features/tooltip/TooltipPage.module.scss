@@ -105,3 +105,24 @@
     display: none;
   }
 }
+
+.divider {
+  display: none;
+}
+
+@media (min-width: 1001px) {
+  .columns, .workspace {
+    grid-template-columns: minmax(0, var(--editor-width)) 16px minmax(0, 1fr);
+    column-gap: 0;
+  }
+  .workspace .panel[data-panel='translation'] { grid-column: 1; grid-row: 2; }
+  .workspace .panel[data-panel='preview'] { grid-column: 3; grid-row: 2; }
+  .workspace .divider { grid-column: 2; grid-row: 2; }
+  .divider {
+    display: block;
+    cursor: col-resize;
+    touch-action: none;
+    background: linear-gradient(to right, transparent 7px, theme.$button-border-color 7px, theme.$button-border-color 9px, transparent 9px);
+    &:focus-visible { outline: 2px solid theme.$orange-color; outline-offset: -2px; }
+  }
+}
