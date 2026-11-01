@@ -277,8 +277,8 @@ try {
           viewport,
         ]) {
           await page.setViewportSize(resized);
-          for (const overlayName of ['Bulk accept preview', 'Pick another source']) {
-            if (overlayName === 'Pick another source') {
+          for (const overlayName of ['Bulk accept preview', 'Choose Compendium source']) {
+            if (overlayName === 'Choose Compendium source') {
               await page.getByRole('button', { name: 'Cancel', exact: true }).click();
               await page.getByRole('button', { name: /^Pick other/ }).click();
             }
@@ -320,7 +320,9 @@ try {
                 };
               });
             assert.ok(
-              resize.overlay.bottom <= resize.footer.y + 1,
+              overlayName === 'Choose Compendium source'
+                ? resize.overlay.bottom <= resized.height
+                : resize.overlay.bottom <= resize.footer.y + 1,
               'Resized overlay overlaps footer',
             );
             assert.ok(
@@ -336,8 +338,8 @@ try {
               'Resize remounted footer',
             );
             resizes.push({ viewport: resized, overlayName, ...resize });
-            if (overlayName === 'Pick another source') {
-              await page.getByRole('button', { name: 'Close picker', exact: true }).click();
+            if (overlayName === 'Choose Compendium source') {
+              await page.getByRole('button', { name: 'Back', exact: true }).click();
               await page.getByRole('button', { name: 'Bulk preview (6)', exact: true }).click();
             }
           }

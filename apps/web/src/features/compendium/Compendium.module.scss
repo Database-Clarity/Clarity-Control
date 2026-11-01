@@ -215,3 +215,25 @@
   overflow-wrap: anywhere;
   font: inherit;
 }
+
+.phoneCells {
+  display: none;
+}
+@media (max-width: 700px) {
+  .sheetScroll {
+    display: none;
+  }
+  .phoneCells {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+  .phoneCells button {
+    min-height: 44px;
+    width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: left;
+  }
+}

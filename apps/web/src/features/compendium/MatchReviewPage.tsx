@@ -13,6 +13,7 @@ import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { useCompendiumStore } from './store';
+import { PickerStage } from './PickerStage';
 import { LinkPicker } from './LinkPicker';
 import { applyReviewProgress, mayDraftLink, reviewEvidence } from './reviewQueue';
 import {
@@ -837,42 +838,29 @@ export function ReviewQueue({
               )}
             </section>
           </div>
-          {picker && (
-            <section
-              className={styles.overlay}
-              role="dialog"
-              aria-modal="false"
-              aria-label="Pick another source"
-            >
-              <header>
-                <h2>Pick another source</h2>
-                <button autoFocus onClick={() => setPicker(false)}>
-                  Close picker
-                </button>
-              </header>
-              <LinkPicker
-                key={selected.hash}
-                base={selected.base}
-                name={selected.name}
-                category={selected.category}
-                suggestions={hints}
-                readOnly={!canEdit}
-                onBeforeLinked={(link) =>
-                  snapshot([{ base: selected.base, before: selected.next.compendium, after: link }])
-                }
-                onLinked={() => {
-                  update((state) =>
-                    recordDecision(state, selected.hash, selected.evidence, 'open', nextHash),
-                  );
-                  setParams(selectionParams(nextHash), { replace: true });
-                  setPicker(false);
-                  setCandidate(0);
-                  setMessage(`${selected.name}: link drafted, not saved.`);
-                  keepEntryVisible();
-                }}
-              />
-            </section>
-          )}
+          <PickerStage open={picker} onBack={() => setPicker(false)}>
+            <LinkPicker
+              key={selected.hash}
+              base={selected.base}
+              name={selected.name}
+              category={selected.category}
+              suggestions={hints}
+              readOnly={!canEdit}
+              onBeforeLinked={(link) =>
+                snapshot([{ base: selected.base, before: selected.next.compendium, after: link }])
+              }
+              onLinked={() => {
+                update((state) =>
+                  recordDecision(state, selected.hash, selected.evidence, 'open', nextHash),
+                );
+                setParams(selectionParams(nextHash), { replace: true });
+                setPicker(false);
+                setCandidate(0);
+                setMessage(`${selected.name}: link drafted, not saved.`);
+                keepEntryVisible();
+              }}
+            />
+          </PickerStage>
         </>
       ) : (
         <section className={styles.empty}>

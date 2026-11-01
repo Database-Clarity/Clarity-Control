@@ -44,7 +44,7 @@ it('keeps the phone review actions and overlay above the measured save dock', ()
   const reviewMobile = reviewCss.slice(reviewCss.indexOf('@media (max-width: 700px)'));
   const emptyActionRule = reviewMobile.match(/([^{}]*\.empty button[^{}]*)\{([^{}]*)\}/);
   expect(emptyActionRule?.[2]).toContain('min-height: 44px;');
-  expect(categoryCss).toMatch(/@media \(max-width: 700px\)[\s\S]*\.actions \{\s*position: sticky;/);
+  expect(categoryCss).toMatch(/@media \(max-width: 700px\)[\s\S]*\.actions \{\s*position: fixed;/);
   expect(categoryCss).toContain('.actionEyebrow');
 });
 it('bounds the mobile context-aware sidebar without hiding the Editor stepper globally', () => {
@@ -74,9 +74,9 @@ it('applies the category viewport budget to the route itself, with internal over
   expect(category).toContain('padding-bottom: 0;');
   expect(css).not.toContain('.entryReview .categoryReview');
   expect(categoryCss.match(/(?:^|\n)\.category \{([^}]+)\}/)?.[1]).toContain('overflow: auto;');
-  expect(categoryCss.match(/(?:^|\n)\.sample \{([^}]+)\}/)?.[1]).toContain('overflow: auto;');
+  expect(categoryCss.match(/(?:^|\n)\.sample \{([^}]+)\}/)?.[1]).toContain('overflow: visible;');
   expect(categoryCss.match(/(?:^|\n)\.comparison section \{([^}]+)\}/)?.[1]).toContain(
-    'overflow: auto;',
+    'overflow: visible;',
   );
   expect(categoryCss.match(/(?:^|\n)\.categoryButtons \{([^}]+)\}/)?.[1]).toContain(
     'grid-auto-rows: max-content;',

@@ -41,6 +41,7 @@ const source: CompendiumData = {
     },
   ],
 };
+source.tabs.push({ ...source.tabs[0], gid: 'other-sheet', name: 'Other sheet' });
 const base: Tooltip = { hash: 101, text: {}, associated: [] };
 const editor: EditorData = {
   categories: [{ id: 'weapon-trait', label: 'Synthetic traits', group: 'Fixture', order: 1 }],

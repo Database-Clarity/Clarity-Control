@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { z } from 'zod';
 import { apiRequest } from '../../services/api';
-import { errorMessage } from '../../services/http';
+import { guidanceDiagnostic as errorMessage } from './guidanceDiagnostic';
 import { useAuthStore } from '../../stores/auth';
 import type { GuidanceDocument } from './guidanceSchema';
 
@@ -15,17 +15,48 @@ const stateSchema = z.object({
 });
 const resultSchema = z.object({
   commit: z.string().regex(/^[0-9a-f]{40}$/),
-  url: z.string().url(),
+  url: z
+    .string()
+    .url()
+    .refine((value) => new URL(value).protocol === 'https:'),
 });
 
-export function SendGuidance({ document, ready }: { document: GuidanceDocument; ready: boolean }) {
+export function SendGuidance({
+  document,
+  ready,
+  onStatus,
+}: {
+  document: GuidanceDocument;
+  ready: boolean;
+  onStatus?(status: string | null): void;
+}) {
   const user = useAuthStore((state) => state.user);
   const [revision, setRevision] = useState<string | null | undefined>();
   const [message, setMessage] = useState('');
   const [commit, setCommit] = useState<string>();
   const [sending, setSending] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [sentDocument, setSentDocument] = useState<GuidanceDocument>();
+  useEffect(() => {
+    onStatus?.(
+      user?.role !== 'maintainer'
+        ? null
+        : sending
+          ? 'Sending guidance…'
+          : failed
+            ? 'Guidance delivery needs attention'
+            : commit
+              ? document === sentDocument
+                ? 'Guidance sent to agents'
+                : 'New browser edits; send to agents again'
+              : null,
+    );
+  }, [onStatus, user?.role, sending, failed, commit, document, sentDocument]);
   async function load() {
     setRevision(undefined);
+    setCommit(undefined);
+    setFailed(false);
+    setMessage('Loading send status…');
     try {
       const response = await apiRequest(endpoint);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -37,6 +68,7 @@ export function SendGuidance({ document, ready }: { document: GuidanceDocument; 
           : 'No previous submission exists.',
       );
     } catch (error) {
+      setFailed(true);
       setMessage(`Send unavailable: ${errorMessage(error)}. Export a backup instead.`);
     }
   }
@@ -51,6 +83,8 @@ export function SendGuidance({ document, ready }: { document: GuidanceDocument; 
     )
       return;
     setSending(true);
+    setMessage('Sending guidance…');
+    setFailed(false);
     setCommit(undefined);
     try {
       const response = await apiRequest(endpoint, {
@@ -65,10 +99,12 @@ export function SendGuidance({ document, ready }: { document: GuidanceDocument; 
             : `HTTP ${response.status}`,
         );
       const result = resultSchema.parse(await response.json());
+      setSentDocument(document);
       setCommit(result.url);
       setRevision(undefined);
       setMessage('Guidance sent. Reload status before sending again.');
     } catch (error) {
+      setFailed(true);
       setRevision(undefined);
       setMessage(`Send failed: ${errorMessage(error)} Export a backup instead.`);
     } finally {
@@ -87,7 +123,7 @@ export function SendGuidance({ document, ready }: { document: GuidanceDocument; 
       <button disabled={sending} onClick={() => void load()}>
         Reload send status
       </button>
-      <p role="status">{message}</p>
+      <p role={failed ? 'alert' : 'status'}>{message}</p>
       {commit && (
         <a href={commit} target="_blank" rel="noreferrer">
           View submitted commit

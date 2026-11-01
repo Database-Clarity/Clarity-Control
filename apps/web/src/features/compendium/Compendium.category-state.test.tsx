@@ -332,3 +332,93 @@ it('keeps zero/populated linked counts aligned with existing canonical selectors
     );
   expect(button(`Tooltips without links (${expectedMissing.length})`)).toBeTruthy();
 });
+
+it('keeps notes mounted through disclosures and modal Back without background decisions', async () => {
+  Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+    configurable: true,
+    value() {
+      this.setAttribute('open', '');
+    },
+  });
+  Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+    configurable: true,
+    value() {
+      this.removeAttribute('open');
+    },
+  });
+  await mount('/compendium');
+  const sample = host.querySelector('[aria-label^="Resolve sample "]')!;
+  const note = sample.querySelector<HTMLTextAreaElement>('textarea')!;
+  const disclosure = note.closest('details')!;
+  expect(disclosure.open).toBe(false);
+  await act(async () => {
+    disclosure.querySelector('summary')!.click();
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
+      note,
+      'Unsaved owner reasoning',
+    );
+    note.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => disclosure.querySelector('summary')!.click());
+  expect(note.value).toBe('Unsaved owner reasoning');
+  const pick = button('Pick other', sample);
+  pick.focus();
+  await act(async () => pick.click());
+  const modal = document.querySelector<HTMLDialogElement>('dialog[open]')!;
+  expect(modal).not.toBeNull();
+  expect(modal.contains(document.activeElement)).toBe(true);
+  const before = storageWrites.length;
+  await act(async () => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', bubbles: true }));
+  });
+  expect(storageWrites).toHaveLength(before);
+  await act(async () => button('Back', modal).click());
+  expect(document.querySelector('dialog[open]')).toBeNull();
+  expect(document.activeElement).toBe(pick);
+  expect(note.value).toBe('Unsaved owner reasoning');
+  expect(disclosure.open).toBe(false);
+});
+
+it('keeps category decisions as local references and exposes export failures', async () => {
+  await mount('/compendium');
+  const scope = `${bundleUrl}|${compendiumDataUrl}`;
+  const cacheKey = `clarity-review-guidance:v1:${encodeURIComponent(scope)}`;
+  const read = () =>
+    JSON.parse(localStorage.getItem(cacheKey)!).document.categories['catalog:weapon-trait']
+      .references[100];
+  const initialRoute = route().search;
+  for (const [action, decision] of [
+    ['No equivalent', 'no-equivalent'],
+    ['Skip', 'skipped'],
+    ['Accept proposed link', 'accepted'],
+  ]) {
+    await click(action);
+    expect(read().decision).toBe(decision);
+    expect(route().search).toBe(initialRoute);
+    expect(useDraftStore.getState().drafts).toEqual({});
+  }
+  await click('Clear decision');
+  expect(read().decision).toBeUndefined();
+  const descriptor = Object.getOwnPropertyDescriptor(URL, 'createObjectURL');
+  Object.defineProperty(URL, 'createObjectURL', {
+    configurable: true,
+    value: () => {
+      throw new Error('<html>download unavailable</html>');
+    },
+  });
+  try {
+    await act(async () => {
+      [...host.querySelectorAll('summary')].find((node) => node.textContent === 'Details')!.click();
+      [...host.querySelectorAll('summary')]
+        .find((node) => node.textContent === 'Backup / recovery')!
+        .click();
+    });
+    await click('Export backup');
+    expect(host.textContent).toContain('Backup export failed: download unavailable');
+    expect(host.querySelector('html')).toBeNull();
+  } finally {
+    if (descriptor) Object.defineProperty(URL, 'createObjectURL', descriptor);
+    else Reflect.deleteProperty(URL, 'createObjectURL');
+  }
+});

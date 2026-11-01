@@ -184,7 +184,7 @@ it('keeps signed-out category inputs editable during disk conflicts while ordina
     }),
   );
   expect(html).not.toMatch(/<textarea[^>]*disabled/);
-  expect(html).toMatch(/<button>Accept proposed link/);
+  expect(html).toMatch(/<button disabled="">Accept proposed link/);
   expect(html).toContain('0/1 samples resolved');
   const ordinary = renderToStaticMarkup(
     createElement(LinkPicker, {

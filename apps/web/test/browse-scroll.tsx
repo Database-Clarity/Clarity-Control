@@ -509,7 +509,9 @@ async function run() {
   if (workspace === 'compendium-sample' || workspace === 'compendium-entry') {
     const sample = workspace === 'compendium-sample';
     const firstAction = document.querySelector<HTMLElement>(
-      sample ? '[aria-label^="Resolve sample"] button' : 'footer[aria-label="Review actions"]',
+      sample
+        ? '[aria-label^="Resolve sample"] [class*=actions] button'
+        : 'footer[aria-label="Review actions"]',
     )!;
     const actionRegion = sample ? firstAction.parentElement! : firstAction;
     const consequence = actionRegion.querySelector('p')?.textContent?.trim() ?? '';
@@ -532,6 +534,15 @@ async function run() {
       buttons: ReturnType<typeof rect>[];
     }[] = [];
     const evidence = document.querySelectorAll<HTMLElement>('[aria-label="Entry to review"] pre');
+    if (sample) {
+      for (const textarea of document.querySelectorAll<HTMLTextAreaElement>(
+        '[aria-label="Category guidance"] textarea',
+      )) {
+        const disclosure = textarea.closest('details');
+        if (disclosure) disclosure.open = true;
+      }
+      await nextFrame();
+    }
     const categoryInputs = document.querySelectorAll<HTMLTextAreaElement>(
       '[aria-label="Category guidance"] textarea',
     );
@@ -541,10 +552,7 @@ async function run() {
     assert(target !== null, 'Missing final sample input or review evidence');
     if (innerWidth <= 700) {
       const position = getComputedStyle(actionRegion).position;
-      assert(
-        position === (sample ? 'sticky' : 'fixed'),
-        'Phone decision actions must remain reachable',
-      );
+      assert(position === 'fixed', 'Phone decision actions must remain reachable');
     }
     async function measureSample(phase: string) {
       assert(target, 'Missing final category input');
@@ -609,12 +617,14 @@ async function run() {
       pick.click();
       await waitFor(
         () =>
-          [...document.querySelectorAll('[aria-label^="Resolve sample"] button')].some(
-            (button) => button.textContent?.trim() === 'Close picker',
-          ),
-        'actual sample picker expands',
+          document.querySelector('dialog[open][aria-label="Choose Compendium source"]') !== null,
+        'actual sample modal opens',
       );
-      await measureSample('expanded');
+      const dialog = document.querySelector<HTMLDialogElement>('dialog[open]')!;
+      assert(dialog.contains(document.activeElement), 'Picker owns focus');
+      dialog.querySelector<HTMLButtonElement>('header button')!.click();
+      await waitFor(() => !dialog.open, 'sample picker Back');
+      await measureSample('returned');
     } else {
       target.scrollIntoView({ block: 'end' });
       await nextFrame();
@@ -670,10 +680,13 @@ async function run() {
         )!;
         pick.click();
         await waitFor(
-          () => document.querySelector('[aria-label="Pick another source"]') !== null,
+          () =>
+            document.querySelector('dialog[open][aria-label="Choose Compendium source"]') !== null,
           'picker opens',
         );
-        const picker = document.querySelector<HTMLElement>('[aria-label="Pick another source"]')!;
+        const picker = document.querySelector<HTMLElement>(
+          'dialog[open][aria-label="Choose Compendium source"]',
+        )!;
         await scrollOverlayToEnd(picker);
         const pickerButtons = [...picker.querySelectorAll<HTMLButtonElement>('button')];
         const pickerLastButton = pickerButtons.at(-1)!;
@@ -686,14 +699,14 @@ async function run() {
         const pickerBounds = rect(picker);
         const pickerContentBounds = rect(pickerLastContent);
         assert(
-          pickerBounds.bottom <= footerBounds.y + 1,
+          pickerBounds.bottom <= innerHeight + 1,
           `Picker extends behind the review actions: ${JSON.stringify({ pickerBounds, footerBounds })}`,
         );
         assertVisible(pickerLastButton, 'Final picker control');
         assertVisible(pickerLastContent, 'Final picker evidence');
-        assertActionTargets(buttons, 'Current footer actions with picker open');
+        assert(picker.contains(document.activeElement), 'Modal owns focus above the inert footer');
         assert(
-          pickerContentBounds.bottom <= footerBounds.y + 1 &&
+          pickerContentBounds.bottom <= innerHeight + 1 &&
             pickerContentBounds.bottom > pickerBounds.y - 1,
           `Final picker evidence is not visible above the action bar: ${JSON.stringify({ pickerContentBounds, pickerBounds, footerBounds })}`,
         );
@@ -708,7 +721,8 @@ async function run() {
         };
         picker.querySelector<HTMLButtonElement>('header button')?.click();
         await waitFor(
-          () => document.querySelector('[aria-label="Pick another source"]') === null,
+          () =>
+            document.querySelector('dialog[open][aria-label="Choose Compendium source"]') === null,
           'picker closes without a decision',
         );
 

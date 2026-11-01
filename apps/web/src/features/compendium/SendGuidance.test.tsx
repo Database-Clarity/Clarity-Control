@@ -54,3 +54,50 @@ it('offers export fallback when the backend is unavailable', async () => {
   expect(element.querySelector('button')?.disabled).toBe(true);
   await act(async () => root.unmount());
 });
+
+it.each([true, false])(
+  'distinguishes pending delivery from confirmed receipt or failure (%s)',
+  async (success) => {
+    useAuthStore.setState({ user: { id: 1, login: 'alice', role: 'maintainer' } });
+    let finish!: (value: Response) => void;
+    mocked
+      .mockResolvedValueOnce(Response.json({ revision: null, document: null }))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve;
+          }),
+      );
+    const status = vi.fn();
+    const element = document.createElement('div');
+    document.body.append(element);
+    const root = createRoot(element);
+    await act(async () =>
+      root.render(<SendGuidance document={documentValue} ready onStatus={status} />),
+    );
+    await act(async () => element.querySelector('button')!.click());
+    expect(status).toHaveBeenLastCalledWith('Sending guidance…');
+    expect(element.textContent).toContain('Sending guidance');
+    expect(element.textContent).not.toContain('Guidance sent');
+    expect(element.querySelector('a')).toBeNull();
+    expect(element.querySelector('button')!.disabled).toBe(true);
+    await act(async () =>
+      finish(
+        success
+          ? Response.json({ commit: 'a'.repeat(40), url: 'https://github.com/example/commit' })
+          : new Response('<html>private failure</html>', { status: 503 }),
+      ),
+    );
+    expect(status).toHaveBeenLastCalledWith(
+      success ? 'Guidance sent to agents' : 'Guidance delivery needs attention',
+    );
+    expect(element.textContent).toContain(success ? 'Guidance sent' : 'Send failed');
+    if (!success) {
+      expect(element.querySelector('[role="alert"]')).not.toBeNull();
+      expect(element.textContent).toContain('Export a backup');
+      expect(element.textContent).not.toContain('private failure');
+      expect(element.querySelector('a')).toBeNull();
+    }
+    await act(async () => root.unmount());
+  },
+);
