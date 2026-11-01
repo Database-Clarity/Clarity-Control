@@ -40,7 +40,10 @@ export function sharedPerkLabel(hash: number, data: EditorData): string | undefi
   if (!owners || owners.length < 2) return undefined;
   const names = owners.map(
     (owner) =>
-      itemFor(owner, data)?.name.trim() || item.ownerNames?.[owner]?.trim() || String(owner),
+      data.items[owner]?.name.trim() ||
+      data.bundle.tooltips[owner]?.custom?.name.trim() ||
+      item.ownerNames?.[owner]?.trim() ||
+      String(owner),
   );
   return `Shared perk — used on: ${names.join(', ')}`;
 }

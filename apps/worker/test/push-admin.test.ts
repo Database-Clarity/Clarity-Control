@@ -45,7 +45,7 @@ describe('push-live', () => {
       123: await publishableHash(tooltip()),
     });
   });
-  it('ignores retired weapon facts and never writes owners', async () => {
+  it('ignores retired weapon facts and never writes owner metadata', async () => {
     fixture.aliases = { 456: { to: 123, kind: 'frame' } };
     fixture.canonicalFacts = {
       weaponTypes: ['Bow', 'Sniper'],
@@ -67,7 +67,10 @@ describe('push-live', () => {
     expect(published['123']).not.toHaveProperty('weaponTypes');
     expect(published['456']).toMatchObject({ aliasOf: 123 });
     expect(published['456']).not.toHaveProperty('weaponTypes');
-    expect(JSON.stringify(fixture.live)).not.toContain('owners');
+    for (const hash of ['123', '456']) {
+      expect(published[hash]).not.toHaveProperty('owners');
+      expect(published[hash]).not.toHaveProperty('ownerNames');
+    }
   });
   it('publishes without the retired label service and preserves existing settings', async () => {
     fixture.weaponTypeStatus = 500;
