@@ -295,7 +295,7 @@ async function run() {
       consequence ===
         (sample
           ? 'Saves as example · no tooltip change'
-          : 'Links create local drafts, not saves · Skip/No equivalent stay in browser.'),
+          : 'Browsing only · linking unavailable · Pick other previews sources; Skip/No equivalent stay in browser.'),
       'Decision consequence must appear inside its action region',
     );
     const actionButtons = [...actionRegion.querySelectorAll<HTMLButtonElement>('button')];
