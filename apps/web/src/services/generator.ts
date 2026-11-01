@@ -19,6 +19,7 @@ export const itemSchema = z.object({
   categoryId: z.string(),
   inGameDescription: z.string(),
   itemHash: hashSchema.optional(),
+  itemName: z.string().optional(),
   enhancedHash: hashSchema.optional(),
   enhancedHashes: z.array(hashSchema).optional(),
   baseHash: hashSchema.optional(),

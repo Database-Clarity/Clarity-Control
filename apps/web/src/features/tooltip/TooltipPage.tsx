@@ -10,6 +10,7 @@ import {
   canonicalHash,
   itemFor,
   sharedPerkLabel,
+  singleOwnerLabel,
   tooltipFor,
   variantHashes,
 } from '../navigation/catalog';
@@ -68,6 +69,7 @@ export function TooltipPage() {
               item?.categoryId}{' '}
             / {hash}
           </p>
+          {singleOwnerLabel(hash, data) && <p role="note">{singleOwnerLabel(hash, data)}</p>}
           {sharedPerkLabel(hash, data) && <p role="note">{sharedPerkLabel(hash, data)}</p>}
         </div>
         <label>

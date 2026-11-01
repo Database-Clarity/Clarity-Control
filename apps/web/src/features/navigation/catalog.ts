@@ -48,6 +48,18 @@ export function sharedPerkLabel(hash: number, data: EditorData): string | undefi
   return `Shared perk — used on: ${names.join(', ')}`;
 }
 
+/** Single owning item identity, with catalog and embedded metadata fallbacks. */
+export function singleOwnerLabel(hash: number, data: EditorData): string | undefined {
+  const item = itemFor(hash, data);
+  if (!item || (item.owners?.length ?? 0) > 1) return undefined;
+  const owner = item.itemHash ?? item.owners?.[0];
+  if (owner === undefined) return undefined;
+  const name = data.items[owner]?.name.trim() ||
+    data.bundle.tooltips[owner]?.custom?.name.trim() ||
+    item.ownerNames?.[owner]?.trim() || item.itemName?.trim();
+  return `Owner: ${name ? `${name} / ` : ''}${owner}`;
+}
+
 const variants = new WeakMap<EditorData, Map<number, number[]>>();
 export function variantHashes(hash: number, data: EditorData): number[] {
   let index = variants.get(data);
@@ -92,6 +104,7 @@ function matchesOwner(item: Item, data: EditorData, search: string): boolean {
       data.items[owner]?.name,
       data.bundle.tooltips[owner]?.custom?.name,
       item.ownerNames?.[owner],
+      owner === item.itemHash ? item.itemName : undefined,
     ].some((value) => value?.toLocaleLowerCase().includes(search)),
   );
 }
