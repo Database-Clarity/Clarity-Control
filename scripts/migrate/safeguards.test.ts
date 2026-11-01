@@ -66,6 +66,27 @@ afterEach(async () => {
 });
 
 describe('rerun safeguards', () => {
+  it('preserves unchanged authored JSON bytes and retains CRLF for changed JSON', async () => {
+    const root = await fixture();
+    const path = join(root, 'tooltips', '10.json');
+    const authored = JSON.stringify(tooltip, null, 4).replace(/\n/g, '\r\n') + '\r\n';
+    await writeFile(path, authored);
+    await writeFile(join(root, 'config', 'permissions.json'), JSON.stringify(owner) + '\r\n');
+    const before = await inventory(root);
+    await writeMigration(root, initial);
+    expect(await inventory(root)).toEqual(before);
+    const next = { ...initial, tooltips: [{ ...tooltip, associated: [123] }] };
+    const plan = await planMigration(root, next);
+    expect(plan).toHaveLength(1);
+    await commitFiles(root, plan, { approvedPlan: dataDiff(plan) });
+    const changed = await readFile(path, 'utf8');
+    expect(changed).toContain('\r\n');
+    expect(changed).not.toMatch(/(?<!\r)\n/);
+    expect(await readFile(join(root, 'config', 'permissions.json'), 'utf8')).toBe(
+      JSON.stringify(owner) + '\r\n',
+    );
+  });
+
   it('diffs authored templates and every changed existing data file, refusing implicit overwrites', async () => {
     const root = await fixture();
     for (const file of [

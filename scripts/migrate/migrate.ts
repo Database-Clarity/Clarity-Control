@@ -109,8 +109,15 @@ export async function planMigration(output: string, data: MigrationData) {
   const root = resolve(output);
   const tooltipDirectory = join(root, 'tooltips');
   const changes: FileChange[] = [];
-  const add = async (file: string, after: string | null) => {
+  const add = async (file: string, after: string | null, json?: unknown) => {
     const change = await planFile(root, file, after);
+    if (change?.before && json !== undefined) {
+      const previous = change.before.toString('utf8');
+      if (stableStringify(JSON.parse(previous)) === stableStringify(json)) return;
+      if (after !== null && previous.includes('\r\n') && !/(?<!\r)\n/.test(previous)) {
+        change.after = after.replace(/\n/g, '\r\n');
+      }
+    }
     if (change) changes.push(change);
   };
   const expected = new Set(data.tooltips.map(({ hash }) => `${hash}.json`));
@@ -126,7 +133,7 @@ export async function planMigration(output: string, data: MigrationData) {
   }
   for (const tooltip of data.tooltips) {
     tooltipSchema.parse(tooltip);
-    await add(join('tooltips', `${tooltip.hash}.json`), formatJson(tooltip));
+    await add(join('tooltips', `${tooltip.hash}.json`), formatJson(tooltip), tooltip);
   }
   for (const entry of entries) {
     if (!expected.has(entry.name)) await add(join('tooltips', entry.name), null);
@@ -135,7 +142,7 @@ export async function planMigration(output: string, data: MigrationData) {
     [join('config', 'permissions.json'), permissionsSchema.parse(data.permissions)],
     [join('live', 'pushed.json'), pushedSchema.parse(data.pushed)],
   ] as const) {
-    await add(file, formatJson(value));
+    await add(file, formatJson(value), value);
   }
   const template = fileURLToPath(new URL('./template/', import.meta.url));
   for (const file of [

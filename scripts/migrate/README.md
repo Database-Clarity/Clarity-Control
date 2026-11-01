@@ -31,7 +31,9 @@ digests and the checked-in bundle workflow/script/README templates. The low-leve
 tooltip files omitted from the prepared result; the CLI rerun retains existing
 tooltips. Unexpected entries in `tooltips` are rejected. Other output files are
 left alone. JSON keys are stable, with 2-space indentation and a final newline.
-Rerunning on the same inputs produces identical data files.
+Rerunning on the same inputs produces identical data files. Existing JSON whose
+value is unchanged is preserved byte-for-byte (including authored ordering and
+line endings); changed JSON retains an existing uniform CRLF newline convention.
 
 **No changed existing file is implicitly overwritten or deleted**, including
 authored README, workflow, script, tooltip, config, marker or archive files.
