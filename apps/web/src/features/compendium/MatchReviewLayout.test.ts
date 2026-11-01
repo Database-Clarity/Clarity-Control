@@ -9,6 +9,9 @@ const layoutCss = compile(
 const categoryCss = compile(
   fileURLToPath(new URL('./CategoryReview.module.scss', import.meta.url)),
 ).css;
+const reviewCss = compile(
+  fileURLToPath(new URL('../review/Review.module.scss', import.meta.url)),
+).css;
 it('lets real catalog selects shrink inside narrow phone filter tracks', () => {
   const controls = css.match(/\.review input,\s*\.review select \{([^}]+)\}/)?.[1];
   expect(controls).toContain('min-width: 0;');
@@ -32,9 +35,17 @@ it('budgets desktop panels from remaining viewport space, with phone document sc
 it('keeps the phone review actions and overlay above the measured save dock', () => {
   const mobile = css.slice(css.indexOf('@media (max-width: 700px)'));
   expect(mobile).toMatch(/\.actionBar \{[^}]*bottom: var\(--save-dock-height,/);
-  expect(mobile).toMatch(/\.overlay \{[^}]*var\(--save-dock-height,/);
+  expect(mobile).toMatch(/\.overlay \{[^}]*--review-action-bar-height/);
+  expect(css).toContain('var(--review-action-bar-height, 0px)');
   expect(mobile).toContain('calc(5rem + env(safe-area-inset-bottom, 0px))');
   expect(layoutCss).toContain('calc(5rem + env(safe-area-inset-bottom, 0px))');
+  expect(css).toMatch(/\.actionBar button \{\s*min-height: 44px;\s*\}/);
+  expect(css).toContain('.actionConsequence');
+  const reviewMobile = reviewCss.slice(reviewCss.indexOf('@media (max-width: 700px)'));
+  const emptyActionRule = reviewMobile.match(/([^{}]*\.empty button[^{}]*)\{([^{}]*)\}/);
+  expect(emptyActionRule?.[2]).toContain('min-height: 44px;');
+  expect(categoryCss).toMatch(/@media \(max-width: 700px\)[\s\S]*\.actions \{\s*position: sticky;/);
+  expect(categoryCss).toContain('.actionEyebrow');
 });
 it('bounds the mobile context-aware sidebar without hiding the Editor stepper globally', () => {
   expect(layoutCss).toMatch(/\.sidebar\[data-open=true\] \{[^}]*height: 100dvh;/);
@@ -74,4 +85,5 @@ it('applies the category viewport budget to the route itself, with internal over
   expect(categoryCss).toMatch(
     /@media \(max-width: 700px\)[\s\S]*\.category \{[^}]*overflow: visible;/,
   );
+  expect(categoryCss).not.toContain('padding-bottom: 14rem;');
 });

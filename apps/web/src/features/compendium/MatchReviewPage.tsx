@@ -1,7 +1,7 @@
 import { guidedDecisions, guidedRevision, type GuidedDecision } from './guidedDecisions';
 import { importContext } from './importContext';
 import { researchSuggestions } from './researchSuggestions';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { CompendiumData, Tooltip } from '@clarity/core';
 import { groupManifestItems } from './manifestItems';
@@ -114,6 +114,7 @@ export function ReviewQueue({
   source: CompendiumData;
   storageKey: string;
 }) {
+  const [actionBar, setActionBar] = useState<HTMLElement | null>(null);
   const { progress, update, error } = useReviewProgress(storageKey);
   const setSidebarCategories = useSidebarQueueStore((state) => state.setCompendiumCategories);
   const [params, setParams] = useSearchParams();
@@ -158,6 +159,38 @@ export function ReviewQueue({
   const { drafts, hydrated } = useDraftStore();
   const user = useAuthStore((state) => state.user);
   const locked = useSaveState((state) => state.locked);
+  useLayoutEffect(() => {
+    const actions = actionBar;
+    const page = actions?.closest('article');
+    if (!page || !actions) return;
+    const property = '--review-action-bar-height';
+    const previous = page.style.getPropertyValue(property);
+    const priority = page.style.getPropertyPriority(property);
+    let active = true;
+    const updateHeight = () => {
+      if (!active || !actions.isConnected) return;
+      page.style.setProperty(property, `${actions.getBoundingClientRect().height}px`);
+    };
+    const restoreHeight = () => {
+      active = false;
+      if (previous) page.style.setProperty(property, previous, priority);
+      else page.style.removeProperty(property);
+    };
+    updateHeight();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateHeight);
+      return () => {
+        window.removeEventListener('resize', updateHeight);
+        restoreHeight();
+      };
+    }
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(actions, { box: 'border-box' });
+    return () => {
+      restoreHeight();
+      observer.disconnect();
+    };
+  }, [actionBar]);
   const fingerprint = useMemo(() => sourceFingerprint(source.tabs), [source]);
   const evidence = useMemo(
     () => reviewEvidence(editor, source, drafts, fingerprint),
@@ -792,7 +825,12 @@ export function ReviewQueue({
           onAccept={acceptBulk}
         />
       )}
-      <footer className={styles.actionBar} aria-label="Review actions">
+      <footer ref={setActionBar} className={styles.actionBar} aria-label="Review actions">
+        <p className={styles.actionConsequence}>
+          {canEdit
+            ? 'Links create local drafts, not saves · Skip/No equivalent stay in browser.'
+            : 'Browsing only · linking unavailable · Pick other previews sources; Skip/No equivalent stay in browser.'}
+        </p>
         <button
           className={styles.primary}
           disabled={!canEdit || !proposal?.link || selected?.status !== 'open' || picker || !!bulk}

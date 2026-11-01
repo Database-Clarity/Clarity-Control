@@ -11,6 +11,7 @@ import { replaceDraft } from '../../services/save/drafts';
 import { revertDraft } from '../history/revert';
 import { TooltipDiff } from '../history/TooltipDiff';
 import type { PendingTooltip } from './model';
+import styles from './Review.module.scss';
 
 export function ReviewDetail({ entry }: { entry: PendingTooltip }) {
   const [live, setLive] = useState<{ tooltip: Tooltip | null; pushedHash: string | null }>();
@@ -81,6 +82,9 @@ export function ReviewDetail({ entry }: { entry: PendingTooltip }) {
   }, [entry.tooltip.hash, attempt]);
   return (
     <section aria-label="Selected change">
+      <p className={styles.detailIdentity}>
+        {entry.category} <small>· {entry.categoryId} · #{entry.tooltip.hash}</small>
+      </p>
       <h2>{entry.name}</h2>
       <Link to={`/t/${entry.tooltip.hash}`}>Open tooltip editor and history</Link>
       {error && (

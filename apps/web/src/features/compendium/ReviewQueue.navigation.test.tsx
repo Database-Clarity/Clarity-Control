@@ -237,6 +237,25 @@ afterEach(async () => {
 });
 
 describe('reviewed URL/decision reproductions', () => {
+  it('states local consequences inside the individual decision bar', async () => {
+    await mount();
+    const bar = host.querySelector<HTMLElement>('footer[aria-label="Review actions"]')!;
+    expect(bar.querySelector('p')?.textContent).toBe(
+      'Links create local drafts, not saves · Skip/No equivalent stay in browser.',
+    );
+    expect(
+      [...bar.querySelectorAll('button')].map((element) => element.textContent?.trim()),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Accept proposed link'),
+        expect.stringContaining('Pick other'),
+        expect.stringContaining('No equivalent'),
+        expect.stringContaining('Skip'),
+      ]),
+    );
+    expect(bar.querySelectorAll('button')).toHaveLength(5);
+  });
+
   it('Next changes the mounted entry and URL from 100 to 101 in All entries', async () => {
     await mount();
     await change('Show', 'all');
@@ -245,6 +264,43 @@ describe('reviewed URL/decision reproductions', () => {
     expect(selected()).toBe('Sample 101');
     expect(route().searchParams.get('hash')).toBe('101');
     expect(progress().selected).toBe(101);
+  });
+
+  it('matches the in-bar consequence to current linking permissions without changing actions', async () => {
+    await mount();
+    const bar = host.querySelector<HTMLElement>('footer[aria-label="Review actions"]')!;
+    const drafts = useDraftStore.getState().drafts;
+    const decisions = progress().decisions;
+    const user = useAuthStore.getState().user;
+    expect(button('Accept proposed link', bar).disabled).toBe(false);
+
+    await act(async () => useAuthStore.setState({ user: null }));
+    expect(bar.querySelector('p')?.textContent).toBe(
+      'Browsing only · linking unavailable · Pick other previews sources; Skip/No equivalent stay in browser.',
+    );
+    expect(button('Accept proposed link', bar).disabled).toBe(true);
+    expect(button('Pick other', bar).disabled).toBe(false);
+    expect(button('No equivalent', bar).disabled).toBe(false);
+    expect(button('Skip', bar).disabled).toBe(false);
+
+    await click('Pick other', bar);
+    expect(button('Accept proposed link', bar).disabled).toBe(true);
+    expect(bar.querySelector('p')?.textContent).toContain('linking unavailable');
+    await click('Pick other', bar);
+
+    await act(async () => useAuthStore.setState({ user }));
+    expect(bar.querySelector('p')?.textContent).toContain('Links create local drafts, not saves');
+    expect(button('Accept proposed link', bar).disabled).toBe(false);
+
+    await act(async () => useSaveState.setState({ locked: true }));
+    expect(bar.querySelector('p')?.textContent).toContain('linking unavailable');
+    expect(button('Accept proposed link', bar).disabled).toBe(true);
+    await act(async () => useSaveState.setState({ locked: false }));
+
+    expect(bar.querySelector('p')?.textContent).toContain('Links create local drafts, not saves');
+    expect(button('Accept proposed link', bar).disabled).toBe(false);
+    expect(useDraftStore.getState().drafts).toBe(drafts);
+    expect(progress().decisions).toEqual(decisions);
   });
 
   it('Skip advances in All entries while keeping the local decision reachable', async () => {

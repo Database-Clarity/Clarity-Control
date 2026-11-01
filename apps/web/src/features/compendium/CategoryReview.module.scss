@@ -180,10 +180,17 @@
 .actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.35rem;
   button {
     font-size: 0.8rem;
   }
+}
+.actionEyebrow {
+  flex: 1 0 100%;
+  margin: 0;
+  color: #a9b9d0;
+  font-size: 0.75rem;
 }
 .picker,
 .browse[open] {
@@ -230,5 +237,16 @@
   }
   .actions button {
     flex: 1 1 40%;
+  }
+  .actions {
+    position: sticky;
+    top: 0;
+    bottom: var(--save-dock-height, calc(5rem + env(safe-area-inset-bottom, 0px)));
+    z-index: 4;
+    margin-inline: -0.75rem;
+    padding: 0.5rem 0.75rem;
+    background: #131923f5;
+    border-block: 1px solid #58667d;
+    box-shadow: 0 -8px 30px #0003;
   }
 }
