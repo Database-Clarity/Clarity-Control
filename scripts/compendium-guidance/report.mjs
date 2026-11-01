@@ -83,6 +83,7 @@ try {
     revision: guided.guidedRevision(groups),
     high: groups.reduce((sum, group) => sum + group.high, 0),
     medium: groups.reduce((sum, group) => sum + group.medium, 0),
+    outOfScope: groups.reduce((sum, group) => sum + group.outOfScope, 0),
     owner: groups.reduce((sum, group) => sum + group.unresolved, 0),
     currentQueueCount: entries.length,
     reasonGroups: Object.fromEntries(
@@ -132,6 +133,17 @@ try {
     { flag: 'wx' },
   );
   await writeFile(
+    path.join(output, 'out-of-scope.json'),
+    JSON.stringify(
+      groups.flatMap((group) =>
+        group.entries.filter((entry) => entry.confidence === 'out-of-scope'),
+      ),
+      null,
+      2,
+    ),
+    { flag: 'wx' },
+  );
+  await writeFile(
     path.join(output, 'summary.md'),
     [
       '# Guided Compendium proposal preview',
@@ -141,13 +153,13 @@ try {
       `Guidance baseline: ${document.baseline}`,
       `Current baseline: ${baseline}`,
       `Baseline matches: ${result.baselineMatches}`,
-      `High confidence: ${result.high}; medium: ${result.medium}; owner/unresolved: ${result.owner}. No drafts or writes to remote data.`,
+      `High confidence: ${result.high}; medium: ${result.medium}; owner/unresolved: ${result.owner}; out of scope: ${result.outOfScope}. No drafts or writes to remote data.`,
       '',
-      '| Category | High | Medium | Owner | Issues |',
-      '| --- | ---: | ---: | ---: | --- |',
+      '| Category | High | Medium | Owner | Out of scope | Issues |',
+      '| --- | ---: | ---: | ---: | ---: | --- |',
       ...groups.map(
         (group) =>
-          `| ${group.id} | ${group.high} | ${group.medium} | ${group.unresolved} | ${group.issues.length} |`,
+          `| ${group.id} | ${group.high} | ${group.medium} | ${group.unresolved} | ${group.outOfScope} | ${group.issues.length} |`,
       ),
       '',
       'Full per-entry scope, evidence, supporting references, source snapshots and reasons: proposals.json.',
@@ -159,6 +171,7 @@ try {
       high: result.high,
       medium: result.medium,
       owner: result.owner,
+      outOfScope: result.outOfScope,
       baselineMatches: result.baselineMatches,
       baseline,
       output,

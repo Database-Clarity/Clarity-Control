@@ -7,14 +7,15 @@ import type { ReviewProposal } from './rapidReview';
 import { referenceCurrent } from './sampleReferences';
 import { sourceFingerprint } from './reviewProgress';
 import { manifestRule } from './manifestRule';
+import { classifyScope } from './reviewScope';
 
 export interface GuidedDecision {
   hash: number;
   name: string;
   categoryId: string;
-  confidence: 'high' | 'medium' | 'unresolved';
+  confidence: 'high' | 'medium' | 'unresolved' | 'out-of-scope';
   ruleId: string;
-  action: 'link' | 'no-equivalent' | 'owner' | 'preserve';
+  action: 'link' | 'no-equivalent' | 'owner' | 'preserve' | 'out-of-scope';
   reason: string;
   references: number[];
   evidence?: string;
@@ -29,6 +30,7 @@ export interface GuidedCategory {
   entries: GuidedDecision[];
   high: number;
   unresolved: number;
+  outOfScope: number;
   medium: number;
   ownerNote: string;
   samples: number[];
@@ -139,6 +141,15 @@ export function guidedDecisions(
           };
         if (!compatible)
           return { ...result, reason: 'Scope or baseline differs; proposal withheld.' };
+        const scopeRule = classifyScope(entry, record.id);
+        if (scopeRule)
+          return {
+            ...result,
+            action: 'out-of-scope',
+            confidence: 'out-of-scope',
+            ruleId: scopeRule,
+            reason: `Out of scope: ${scopeRule}.`,
+          };
         const reference = usable.get(hash);
         if (reference)
           return {
@@ -349,6 +360,7 @@ export function guidedDecisions(
       const decisions = record.hashes.map(decide);
       const medium = decisions.filter((entry) => entry.confidence === 'medium').length;
       const high = decisions.filter((entry) => entry.confidence === 'high').length;
+      const outOfScope = decisions.filter((entry) => entry.confidence === 'out-of-scope').length;
       // Deterministic stratification by outcome, with remaining exceptions available in full below.
       const stratum = (entry: GuidedDecision) =>
         `${entry.ruleId}:${entry.confidence}:${entry.action}`;
@@ -365,7 +377,8 @@ export function guidedDecisions(
         entries: decisions,
         high,
         medium,
-        unresolved: decisions.length - high - medium,
+        outOfScope,
+        unresolved: decisions.length - high - medium - outOfScope,
         ownerNote: decisions.some((entry) => entry.confidence === 'unresolved')
           ? `Provide a source row or confirm no equivalent for representative exceptions: ${decisions
               .filter((entry) => entry.confidence === 'unresolved')

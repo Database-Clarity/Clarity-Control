@@ -10,6 +10,7 @@ const catalogFacts = loadManifestFacts();
 export type ReviewEntry = ReturnType<typeof applyReviewProgress>[number];
 export type ReviewSample = ReviewEntry & {
   sampleEvidence: string;
+  scopeRestored?: boolean;
   manifestFacts?: { item: ManifestFacts['items'][string]; version: string };
 };
 export const reasonLabels = {
