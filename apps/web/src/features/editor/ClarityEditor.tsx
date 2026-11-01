@@ -20,6 +20,7 @@ import { markupLanguage, validateText, type Lang, type MarkupGlobals } from '@cl
 import { clarityCompletions } from './completion';
 import { clarityHighlighting, clarityLanguage } from './language';
 import { tableFormattingTransaction } from './formatTable';
+import { saveDockScrollMargins } from './scrollMargins';
 import { validationDiagnostics } from './diagnostics';
 import styles from './ClarityEditor.module.scss';
 
@@ -91,6 +92,7 @@ export function ClarityEditor({
       highlightActiveLine(),
       drawSelection(),
       EditorView.lineWrapping,
+      saveDockScrollMargins(),
       history(),
       indentOnInput(),
       bracketMatching(),

@@ -1,3 +1,5 @@
+@use '../../data/variables' as theme;
+
 .editor {
   min-width: 0;
   border: 1px solid #454545;
@@ -6,6 +8,20 @@
     color: #fff;
     min-height: 220px;
     font-size: 14px;
+  }
+  @include theme.mobile-or-coarse {
+    // 16px stops iOS focus zoom; the gutter's width is better spent on text on a phone.
+    :global(.cm-editor) {
+      min-height: max(220px, 40dvh);
+      font-size: 16px;
+    }
+    :global(.cm-gutters) {
+      display: none;
+    }
+    :global(.cm-tooltip-autocomplete > ul) {
+      // CodeMirror's own rule is `max-width: 700px` with equal specificity.
+      max-width: min(90vw, 20rem) !important;
+    }
   }
   :global(.cm-scroller) {
     font-family: Consolas, monospace;

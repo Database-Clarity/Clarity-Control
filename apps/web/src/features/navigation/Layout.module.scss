@@ -27,6 +27,20 @@
   }
 }
 
+.stepper {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+
+  span {
+    text-align: center;
+    color: hsl(0, 0%, 72%);
+    font-size: 0.8rem;
+  }
+}
+
 .tooltipNavigation label,
 .pageSelection {
   display: grid;
@@ -96,9 +110,31 @@
   }
 }
 
-@media (max-width: 700px) {
+.navToggle {
+  display: none;
+}
+
+// Shift+Scroll and arrow keys cannot be used on touch devices.
+@include theme.coarse-pointer {
+  .pointerHelp {
+    display: none;
+  }
+}
+
+// .saveDock has no desktop rules: the save panel stays in the sidebar flow where AuthStatus put it.
+
+@include theme.mobile {
   .layout {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .main {
+    padding: 0.75rem;
+    // --save-dock-height is the measured border-box height of the fixed dock (set in Layout.tsx);
+    // the fallback only applies until it is measured or when ResizeObserver is unavailable.
+    padding-bottom: calc(
+      0.75rem + var(--save-dock-height, calc(5rem + env(safe-area-inset-bottom, 0px)))
+    );
   }
 
   .sidebar {
@@ -106,12 +142,78 @@
     position: static;
     border-right: 0;
     border-bottom: 1px solid theme.$button-border-color;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+
+    > * {
+      grid-column: 1 / -1;
+    }
+
+    > .brand {
+      grid-column: 1;
+      margin-bottom: 0;
+    }
+
+    > .navToggle {
+      display: block;
+      grid-column: 2;
+    }
+
+    // Hidden, not unmounted, so the search box keeps its value while the drawer is closed.
+    &[data-open='false'] > :not(.brand, .navToggle, .stepper, .saveDock) {
+      display: none;
+    }
+
+    &[data-open='true'] > .brand {
+      margin-bottom: 0.75rem;
+    }
+  }
+
+  .saveDock {
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: 2;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    padding: 0.5rem 0.75rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
+    background: hsl(240, 7%, 14%);
+    border-top: 1px solid theme.$button-border-color;
+    box-sizing: border-box;
+
+    &[data-idle='true'] {
+      display: none;
+    }
+
+    > p {
+      margin: 0;
+    }
+
+    > p[role='status'] {
+      flex-basis: 100%;
+    }
+  }
+}
+
+@include theme.mobile-or-coarse {
+  .sidebar,
+  .saveDock {
+    button,
+    select,
+    input:not([type='checkbox'], [type='radio']),
+    summary {
+      min-height: 44px;
+    }
   }
 }
 
 @media (max-width: 700px) {
   .reviewMode .sidebar {
     .tooltipNavigation,
+    .stepper,
     .status,
     .brand span {
       display: none;
