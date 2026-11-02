@@ -1,14 +1,16 @@
 // @vitest-environment jsdom
-import { act, createElement, type ReactNode } from 'react';
+import { act, createElement, useRef, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { Link, MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defaultSyncedSettings } from '@clarity/core';
 import { fakeServer } from '../../stores/settings.testSupport';
 import { layoutKey, settingsKey, useSettingsStore } from '../../stores/settings';
 import { CommitAuthor } from '../history/CommitAuthor';
 import { SettingsNotice } from './SettingsChoice';
-import { SettingsPage } from './SettingsPage';
+import { RememberRoute, SettingsRedirect } from './SettingsRedirect';
+import { SettingsPopover } from './SettingsPopover';
+import { useSettingsPanel } from './panel';
 import { SettingsSync } from './SettingsSync';
 import { MarkupToolbar } from '../editor/MarkupToolbar';
 import type { MarkupGlobals } from '@clarity/core';
@@ -44,6 +46,7 @@ beforeEach(async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   localStorage.clear();
   holder.server = fakeServer();
+  useSettingsPanel.setState({ open: false, returnTo: '/' });
   await useSettingsStore.getState().activate(null);
   useSettingsStore.getState().update(defaultSyncedSettings);
   useSettingsStore.getState().updateDevice({ remembered: {} });
@@ -57,24 +60,58 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function render(node: ReactNode, path = '/settings') {
+function Where() {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  return (
+    <>
+      <output data-testid="path">{pathname}</output>
+      <button type="button" onClick={() => navigate(-1)}>
+        Back
+      </button>
+    </>
+  );
+}
+/** The layout's settings wiring: sync, route memory, the Settings button, the popover. */
+function Shell({ children }: { children?: ReactNode }) {
+  const layout = useRef<HTMLDivElement>(null);
+  const open = useSettingsPanel((state) => state.open);
+  return (
+    <>
+      <div ref={layout} data-testid="layout">
+        <SettingsSync />
+        <RememberRoute />
+        <Where />
+        <Link to="/settings">Settings link</Link>
+        <button
+          type="button"
+          className="settings-link"
+          onClick={() => useSettingsPanel.getState().show()}
+        >
+          Settings
+        </button>
+        <Routes>
+          <Route path="settings" element={<SettingsRedirect />} />
+          <Route path="*" element={<p>Page content</p>} />
+        </Routes>
+        {children}
+        {!open && <SettingsNotice />}
+      </div>
+      <SettingsPopover layout={layout} />
+    </>
+  );
+}
+async function render(node: ReactNode = null, entries = ['/archive']) {
   await act(async () =>
     root.render(
-      createElement(
-        MemoryRouter,
-        { initialEntries: [path] },
-        createElement(
-          Routes,
-          null,
-          createElement(Route, { path: 'settings', element: node }),
-          createElement(Route, { path: '/', element: createElement('p', null, 'Editor home') }),
-        ),
-      ),
+      <MemoryRouter initialEntries={entries}>
+        <Shell>{node}</Shell>
+      </MemoryRouter>,
     ),
   );
 }
 const field = (label: string) =>
-  [...host.querySelectorAll('label')]
+  [...document.querySelectorAll('label')]
     .find((element) => element.textContent?.startsWith(label))!
     .querySelector('select')!;
 async function choose(label: string, value: string) {
@@ -85,28 +122,41 @@ async function choose(label: string, value: string) {
   });
 }
 const button = (text: string) =>
-  [...host.querySelectorAll('button')].find((element) => element.textContent?.includes(text))!;
+  [...document.querySelectorAll('button')].find((element) => element.textContent?.includes(text))!;
+const popover = () => document.querySelector<HTMLElement>('[role="dialog"]');
+const path = () => document.querySelector('[data-testid="path"]')!.textContent;
+const layoutInert = () => document.querySelector('[data-testid="layout"]')!.hasAttribute('inert');
+async function openSettings() {
+  const opener = button('Settings');
+  opener.focus();
+  await act(async () => opener.click());
+}
+const closeButton = () =>
+  document.querySelector<HTMLElement>('button[aria-label="Close settings"]')!;
+const press = (key: string, init: KeyboardEventInit = {}) =>
+  act(async () => {
+    (document.activeElement ?? document.body).dispatchEvent(
+      new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }),
+    );
+  });
 
-describe('Settings page', () => {
-  it('applies changes live without a remount and does not sync while still on the page', async () => {
+describe('Settings popover', () => {
+  it('applies changes live behind the popover and does not sync while open', async () => {
     await act(async () => useSettingsStore.getState().activate(editor));
     await render(
-      createElement(
-        'div',
-        null,
-        createElement(SettingsPage),
-        createElement(CommitAuthor, {
-          entry: {
-            commit: 'a'.repeat(40),
-            author: 'alice',
-            login: null,
-            avatar: null,
-            date: '2023-02-12T20:12:00Z',
-            message: 'x',
-          },
-        }),
-      ),
+      <CommitAuthor
+        entry={{
+          commit: 'a'.repeat(40),
+          author: 'alice',
+          login: null,
+          avatar: null,
+          date: '2023-02-12T20:12:00Z',
+          message: 'x',
+        }}
+      />,
     );
+    await openSettings();
+    expect(popover()).not.toBeNull();
     await choose('Time zone', 'UTC');
     await choose('Date format', 'iso');
     const time = host.querySelector('time')!;
@@ -118,13 +168,26 @@ describe('Settings page', () => {
     await choose('Time display', 'relative');
     expect(time.textContent).toMatch(/ago$/);
     expect(time.title).toContain('12 Feb 2023, 20:12 UTC');
-    expect(host.textContent).toContain('Syncs to your account when you leave Settings');
+    expect(document.body.textContent).toContain('Syncs to your account when you leave Settings');
     expect(holder.server.calls.put).toHaveLength(0);
   });
 
-  it('syncs when the user leaves the page', async () => {
+  it.each([
+    ['the Close button', () => act(async () => closeButton().click())],
+    ['Escape', () => press('Escape')],
+    [
+      'a click outside',
+      () =>
+        act(async () => {
+          document
+            .querySelector('[data-testid="settings-backdrop"]')!
+            .dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+        }),
+    ],
+  ])('closing with %s syncs once and returns focus to the button', async (_name, close) => {
     await act(async () => useSettingsStore.getState().activate(editor));
-    await render(createElement(SettingsPage));
+    await render();
+    await openSettings();
     await choose('Markup toolbar', 'open');
     await choose('English source shows', 'current');
     expect(holder.server.calls.put).toHaveLength(0);
@@ -133,32 +196,83 @@ describe('Settings page', () => {
       markupToolbar: 'open',
       englishSource: 'current',
     });
-    expect(host.textContent).toContain(
+    expect(document.body.textContent).toContain(
       'Starting values for new devices (synced to your account). Toggling the toolbar or source view inside the editor is remembered on this device only. Choosing here also applies on this device.',
     );
-    await act(async () => host.querySelector<HTMLAnchorElement>('a[href="/"]')!.click());
-    expect(host.textContent).toContain('Editor home');
+    await close();
+    expect(popover()).toBeNull();
     expect(holder.server.calls.put).toHaveLength(1);
     expect(holder.server.remote.settings).toMatchObject({
       markupToolbar: 'open',
       englishSource: 'current',
     });
     expect(useSettingsStore.getState().status).toBe('synced');
+    expect(document.activeElement).toBe(button('Settings'));
+    expect(layoutInert()).toBe(false);
+  });
+
+  it('moves focus in, traps Tab and Shift+Tab, and keeps the page behind inert', async () => {
+    await render();
+    await openSettings();
+    const dialog = popover()!;
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(layoutInert()).toBe(true);
+    const items = [...dialog.querySelectorAll<HTMLElement>('button, select')];
+    items.at(-1)!.focus();
+    await press('Tab');
+    expect(document.activeElement).toBe(items[0]);
+    await press('Tab', { shiftKey: true });
+    expect(document.activeElement).toBe(items.at(-1));
   });
 
   it('keeps device settings local and applies large text immediately', async () => {
     await act(async () => useSettingsStore.getState().activate(editor));
     localStorage.setItem(layoutKey, '70');
-    await render(createElement(SettingsPage));
+    await render();
+    await openSettings();
     await choose('Text size', 'large');
     expect(document.documentElement.dataset.textSize).toBe('large');
     await act(async () => button('Reset editor layout').click());
     expect(localStorage.getItem(layoutKey)).toBeNull();
-    await act(async () => root.render(createElement('p', null, 'left')));
+    await act(async () => closeButton().click());
     expect(holder.server.calls.put).toHaveLength(0);
-    await render(createElement(SettingsPage));
+    await openSettings();
     await choose('Text size', 'default');
     expect(document.documentElement.dataset.textSize).toBeUndefined();
+  });
+
+  it('opens on /settings over the page it came from and replaces the URL', async () => {
+    await render(null, ['/', '/archive']);
+    await act(async () =>
+      document.querySelector<HTMLAnchorElement>('a[href="/settings"]')!.click(),
+    );
+    expect(path()).toBe('/archive');
+    expect(popover()).not.toBeNull();
+    await act(async () => closeButton().click());
+    expect(popover()).toBeNull();
+    // Back leaves the replaced entry; it never lands on (or reopens) /settings.
+    await act(async () => button('Back').click());
+    expect(path()).not.toBe('/settings');
+    expect(popover()).toBeNull();
+  });
+
+  it('opens a direct /settings visit over home', async () => {
+    await render(null, ['/settings']);
+    expect(path()).toBe('/');
+    expect(popover()).not.toBeNull();
+  });
+
+  it('becomes a full-screen sheet with a clear Close button on phones', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('700px') }));
+    await render();
+    await openSettings();
+    const dialog = popover()!;
+    // No anchoring on phones: the stylesheet makes it fill the screen.
+    expect(dialog.getAttribute('style')).toBeNull();
+    expect(closeButton().textContent).toBe('Close');
+    await act(async () => closeButton().click());
+    expect(popover()).toBeNull();
   });
 
   it('prompts after a reload with unsynced changes and can discard them', async () => {
@@ -174,7 +288,7 @@ describe('Settings page', () => {
       }),
     );
     await act(async () => useSettingsStore.getState().activate(editor));
-    await render(createElement(SettingsNotice));
+    await render();
     expect(host.textContent).toContain('Unsynced settings changes');
     // Each value cell names its column, so the rows still read when stacked on phones.
     expect([...host.querySelectorAll('td')].map((cell) => cell.getAttribute('data-label'))).toEqual(
@@ -185,18 +299,17 @@ describe('Settings page', () => {
     expect(holder.server.calls.put).toHaveLength(0);
     await act(async () => button('Use synced settings').click());
     expect(useSettingsStore.getState().settings.dateFormat).toBe('mdy');
-    expect(host.textContent).toBe('');
+    expect(host.textContent).not.toContain('Unsynced settings changes');
     expect(holder.server.calls.put).toHaveLength(0);
   });
 
   it('shows both copies when another device synced first, and keeps this one on request', async () => {
     await act(async () => useSettingsStore.getState().activate(editor));
-    await render(createElement('div', null, createElement(SettingsPage)));
+    await render();
+    await openSettings();
     await choose('Time zone', 'Asia/Tokyo');
     holder.server.set({ ...defaultSyncedSettings, timeZone: 'Europe/Berlin' });
-    await act(async () =>
-      root.render(createElement(MemoryRouter, null, createElement(SettingsNotice))),
-    );
+    await act(async () => closeButton().click());
     expect(host.textContent).toContain('Settings changed on another device');
     expect(host.textContent).toContain('Asia/Tokyo');
     expect(host.textContent).toContain('Europe/Berlin');
@@ -206,14 +319,13 @@ describe('Settings page', () => {
     expect(useSettingsStore.getState().status).toBe('synced');
   });
 
-  it('shows a not-synced notice with a retry after a failed exit sync', async () => {
+  it('shows a not-synced notice with a retry after a failed close sync', async () => {
     await act(async () => useSettingsStore.getState().activate(editor));
-    await render(createElement(SettingsPage));
+    await render();
+    await openSettings();
     await choose('Date format', 'iso');
     holder.server.fail('server answered HTTP 503');
-    await act(async () =>
-      root.render(createElement(MemoryRouter, null, createElement(SettingsNotice))),
-    );
+    await act(async () => closeButton().click());
     expect(host.textContent).toContain('Settings not synced: server answered HTTP 503');
     // The technical cause stays available as a tooltip, not in the sentence.
     expect(host.querySelector('[role="alert"]')?.getAttribute('title')).toBe('HTTP 503');
@@ -228,8 +340,9 @@ describe('Settings page', () => {
     useSettingsStore.getState().updateDevice({ remembered: {} });
     await act(async () => useSettingsStore.getState().sync());
     const puts = holder.server.calls.put.length;
-    const toolbar = () =>
-      createElement(MarkupToolbar, { editor: { current: null }, globals: {} as MarkupGlobals });
+    const toolbar = () => (
+      <MarkupToolbar editor={{ current: null }} globals={{} as MarkupGlobals} />
+    );
     await render(toolbar());
     // No remembered click yet: the synced default applies.
     expect(button('Hide markup tools')).toBeTruthy();
@@ -242,22 +355,10 @@ describe('Settings page', () => {
     expect(holder.server.calls.put).toHaveLength(puts);
   });
 
-  it('ignores tab switches while open, and shows the global notice when a queued exit fails', async () => {
+  it('ignores tab switches while open, and shows the global notice when a queued close fails', async () => {
     await act(async () => useSettingsStore.getState().activate(editor));
-    const page = () =>
-      createElement('div', null, createElement(SettingsSync), createElement(SettingsPage));
-    const elsewhere = () =>
-      act(async () =>
-        root.render(
-          createElement(
-            MemoryRouter,
-            null,
-            createElement(SettingsSync),
-            createElement(SettingsNotice),
-          ),
-        ),
-      );
-    await render(page());
+    await render();
+    await openSettings();
     await choose('Date format', 'iso');
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
     await act(async () => {
@@ -267,10 +368,10 @@ describe('Settings page', () => {
     Reflect.deleteProperty(document, 'visibilityState');
     expect(holder.server.calls.put).toHaveLength(0);
     holder.server.hold();
-    await elsewhere(); // leave: first PUT is held
-    await render(page());
+    await act(async () => closeButton().click()); // first PUT is held
+    await openSettings();
     await choose('Time display', 'date');
-    await elsewhere(); // leave again while the first PUT is out: queued
+    await act(async () => closeButton().click()); // close again while the first PUT is out: queued
     expect(holder.server.calls.put).toHaveLength(1);
     holder.server.fail('server answered HTTP 503');
     await act(async () => holder.server.release());
@@ -279,17 +380,18 @@ describe('Settings page', () => {
     holder.server.fail('');
     await act(async () => button('Retry sync').click());
     expect(holder.server.remote.settings).toMatchObject({ dateFormat: 'iso', timeDisplay: 'date' });
-    expect(host.textContent).toBe('');
+    expect(host.textContent).not.toContain('Settings not synced');
   });
 
   it('works signed out, saving on this device only', async () => {
-    await render(createElement(SettingsPage));
-    expect(host.textContent).toContain('Sign in to sync');
+    await render();
+    await openSettings();
+    expect(document.body.textContent).toContain('Sign in to sync');
     await choose('Date format', 'iso');
     expect(JSON.parse(localStorage.getItem(settingsKey('anonymous'))!).settings.dateFormat).toBe(
       'iso',
     );
-    for (const select of host.querySelectorAll('select')) expect(select.disabled).toBe(false);
+    for (const select of document.querySelectorAll('select')) expect(select.disabled).toBe(false);
     expect(holder.server.calls).toEqual({ get: 0, put: [] });
   });
 });
