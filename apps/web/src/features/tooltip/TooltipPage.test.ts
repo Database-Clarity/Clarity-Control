@@ -222,7 +222,7 @@ describe('tooltip screen composition', () => {
     });
     const markup = render('/t/10?lang=fr');
     expect(markup).toContain('English changes since this translation');
-    expect(markup).toContain('aria-expanded="true"');
+    expect(markup).toContain('aria-pressed="true"');
     expect(markup).not.toContain('data-compendium-hash');
     translated.text.fr.sourceUpdatedAt = '2026-10-27T00:00:00Z';
     expect(render('/t/10?lang=fr')).not.toContain('English changes since this translation');

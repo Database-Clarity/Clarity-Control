@@ -11,8 +11,9 @@ everyone else sees all of them. Each card is a single tap target linking to
 `/t/<hash>?lang=<language>`; "Open next" opens the first listed entry that still needs work.
 Lists render 50 cards at a time.
 
-On a non-English tooltip, each variant keeps its Compendium panel with the preview. On phones,
-open the Preview tab to see it; the Source and Translation tabs remain available.
+On a non-English tooltip, outdated translations show English changes in the Source panel. A
+single toggle switches to current English and remembers the choice locally. Translators do not
+see Compendium panels; other roles can open the Preview tab on phones to see them.
 Canonical alias redirects preserve a valid requested language, while dropping line and variant
 highlights tied to the old route.
 

@@ -32,7 +32,6 @@ import { defaultLanguage, withLanguage } from './language';
 import { LanguageSummary } from './LanguageSummary';
 import { TranslationSource } from './TranslationSource';
 import { VariantWorkspace } from './VariantWorkspace';
-import { EnglishDiff } from '../translations/EnglishDiff';
 import { CompendiumPanel } from '../compendium/CompendiumPanel';
 import styles from './TooltipPage.module.scss';
 
@@ -169,21 +168,19 @@ export function TooltipPage() {
             <VariantWorkspace
               source={
                 lang === 'en' ? undefined : (
-                  <>
-                    <TranslationSource text={tooltip.text.en?.text} />
-                    {translation?.state === 'outdated' && translation.sourceUpdatedAt && (
-                      <section aria-label="English changes since this translation">
-                        <h3>English changes since this translation</h3>
-                        <EnglishDiff
-                          key={`${variant}:${lang}`}
-                          hash={variant}
-                          sourceUpdatedAt={translation.sourceUpdatedAt}
-                          current={base.text.en?.text ?? ''}
-                          initiallyExpanded
-                        />
-                      </section>
-                    )}
-                  </>
+                  <TranslationSource
+                    key={`${variant}:${lang}`}
+                    text={tooltip.text.en?.text}
+                    diff={
+                      translation?.state === 'outdated' && translation.sourceUpdatedAt
+                        ? {
+                            hash: variant,
+                            sourceUpdatedAt: translation.sourceUpdatedAt,
+                            current: base.text.en?.text ?? '',
+                          }
+                        : undefined
+                    }
+                  />
                 )
               }
               editor={
