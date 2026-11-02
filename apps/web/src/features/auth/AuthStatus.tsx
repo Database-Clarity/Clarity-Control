@@ -1,7 +1,7 @@
 import { languageLabel } from '../../languageLabels';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { apiUrl, loginUrl } from '../../services/api';
+import { apiUrl, loginUrl, rememberSignIn, subscribeSession } from '../../services/api';
 import { rememberReturnPath } from '../../services/returnPath';
 import { useAuthStore } from '../../stores/auth';
 import { useSettingsPanel } from '../settings/panel';
@@ -24,8 +24,12 @@ const settingsLink = (
 function AuthIdentity() {
   const { user, loading, error, load, logout } = useAuthStore();
   const location = useLocation();
+  const [remember, setRemember] = useState(false);
   useEffect(() => {
     void load();
+    return subscribeSession(() => {
+      void load();
+    });
   }, [load]);
   if (!apiUrl)
     return (
@@ -64,7 +68,21 @@ function AuthIdentity() {
   return (
     <p role="status">
       Read-only: sign in to edit.{' '}
-      <a href={loginUrl()} onClick={() => rememberReturnPath(location)}>
+      <label style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, gap: 6 }}>
+        <input
+          type="checkbox"
+          checked={remember}
+          onChange={(event) => setRemember(event.target.checked)}
+        />
+        Keep me signed in on this device
+      </label>{' '}
+      <a
+        href={loginUrl()}
+        onClick={() => {
+          rememberSignIn(remember);
+          rememberReturnPath(location);
+        }}
+      >
         Sign in with GitHub
       </a>{' '}
       {settingsLink}

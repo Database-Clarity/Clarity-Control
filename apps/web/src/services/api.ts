@@ -35,15 +35,10 @@ export type SaveResult =
   | { kind: 'conflicts'; conflicts: z.infer<typeof conflictSchema>[] }
   | { kind: 'retry'; error: string };
 
-const sessionKey = 'clarity-editor-session';
-export function setSession(token: string): void {
-  sessionStorage.setItem(sessionKey, z.string().min(1).max(8192).parse(token));
-}
-export function clearSession(): void {
-  sessionStorage.removeItem(sessionKey);
-}
+export { setSession, clearSession, subscribeSession, rememberSignIn } from './session';
+import { sessionToken, clearSession } from './session';
 function authorization(): Record<string, string> {
-  const token = sessionStorage.getItem(sessionKey);
+  const token = sessionToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -67,11 +62,16 @@ export function loginUrl(): string {
 }
 
 export async function getMe(): Promise<User | null> {
+  const headers = authorization();
   const response = await fetch(endpoint('/me'), {
     credentials: 'omit',
-    headers: authorization(),
+    headers,
   });
-  if (response.status === 401) return null;
+  if (response.status === 401) {
+    if (headers.Authorization && headers.Authorization === authorization().Authorization)
+      clearSession();
+    return null;
+  }
   if (!response.ok) return failure(response);
   return userSchema.parse(await response.json());
 }

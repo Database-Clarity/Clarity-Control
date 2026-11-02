@@ -64,3 +64,38 @@
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }
+
+// Compact desktop controls; keep the phone sheet's existing spacing.
+@media (min-width: 701px) {
+  .header {
+    padding: 0.25rem 0.5rem 0.25rem 0.75rem;
+  }
+  .body > div {
+    padding: 0.5rem 0.75rem 0.75rem;
+    gap: 0.5rem;
+    > p {
+      font-size: 0.8rem;
+      line-height: 1.35;
+    }
+    fieldset {
+      gap: 0.25rem;
+      padding: 0.25rem 0.5rem 0.5rem;
+      legend {
+        font-size: 0.9rem;
+      }
+      p {
+        font-size: 0.8rem;
+        line-height: 1.35;
+      }
+      label {
+        grid-template-columns: minmax(8rem, 0.8fr) minmax(0, 1.2fr);
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.9rem;
+      }
+      select {
+        min-width: 0;
+      }
+    }
+  }
+}
