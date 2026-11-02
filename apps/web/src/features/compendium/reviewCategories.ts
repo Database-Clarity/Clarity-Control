@@ -1,5 +1,5 @@
 import type { CompendiumData } from '@clarity/core';
-import { sunsetArtifact } from './artifactIdentity';
+import { notCurrentArtifact } from './artifactIdentity';
 import type { EditorData } from '../../stores/data';
 import { groupManifestItems } from './manifestItems';
 import type { ReviewProposal } from './rapidReview';
@@ -127,7 +127,7 @@ export function reviewCategories(
       ]),
     };
     if (source && id === 'catalog:armor-mod-seasonal')
-      sample.artifactSunset = sunsetArtifact(sample, source);
+      sample.artifactSunset = notCurrentArtifact(sample, source);
     group.entries.push(sample);
     group.reasons[reason].push(sample);
   }

@@ -13,7 +13,14 @@ it('counts no-equivalent decisions separately from links', () => {
         ],
       },
     ]),
-  ).toEqual({ linked: 2, highLinks: 1, highNoEquivalent: 1, excludedSunset: 0, artifactAbsent: 0 });
+  ).toEqual({
+    linked: 2,
+    highLinks: 1,
+    highNoEquivalent: 1,
+    excludedSunset: 0,
+    artifactAbsent: 0,
+    excludedParentLinks: 0,
+  });
 });
 
 import { extract } from '../compendium-guidance/manifest-facts.mjs';
@@ -36,4 +43,17 @@ it('artifact parent extraction ignores reused preview identity', () => {
   expect(result[7].artifactMemberships).toEqual([
     { source: 'socket', artifactHash: 1, artifactName: 'Current', ownerHash: 2 },
   ]);
+});
+
+it('counts owner-excluded parent links separately from high links and exclusions without links', () => {
+  expect(
+    countActions([
+      {
+        entries: [
+          { action: 'link', confidence: 'out-of-scope', ruleId: 'manifest-weapon-stat' },
+          { action: 'out-of-scope', confidence: 'out-of-scope', ruleId: 'artifact-source-absent' },
+        ],
+      },
+    ]),
+  ).toMatchObject({ linked: 1, highLinks: 0, excludedParentLinks: 1, artifactAbsent: 1 });
 });

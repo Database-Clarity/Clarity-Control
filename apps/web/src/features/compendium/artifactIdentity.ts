@@ -1,5 +1,9 @@
 import { normaliseCompendiumName, type CompendiumData } from '@clarity/core';
+import { approvedAbsentArtifact } from './ownerExceptions';
+import { loadManifestFacts } from './manifestFacts';
 import type { ReviewSample } from './reviewCategories';
+
+const facts = loadManifestFacts();
 
 // The sheet's named artifact sections are its currently equippable artifact list.
 export function artifactSections(source: CompendiumData) {
@@ -28,5 +32,34 @@ export function sunsetArtifact(entry: ReviewSample, source: CompendiumData) {
         (cell) => normaliseCompendiumName(cell.cell.plain) === normaliseCompendiumName(name),
       ),
     )
+  );
+}
+
+export function currentArtifactOwners(hash: number, source?: CompendiumData | null) {
+  const sections = source ? artifactSections(source) : [];
+  return new Map(
+    (facts.items[hash]?.artifactMemberships ?? [])
+      .filter(
+        (m) =>
+          m.source === 'socket' &&
+          sections.some(
+            (s) =>
+              normaliseCompendiumName(s.cell.plain) ===
+              normaliseCompendiumName(m.artifactName ?? ''),
+          ),
+      )
+      .map((m) => [m.artifactHash, m.artifactName!]),
+  );
+}
+export function notCurrentArtifact(entry: ReviewSample, source: CompendiumData) {
+  const sections = artifactSections(source);
+  return (
+    sunsetArtifact(entry, source) ||
+    (sections.length > 0 &&
+      artifactParents(entry).length === 0 &&
+      approvedAbsentArtifact(entry) &&
+      !source.tabs
+        .find((t) => t.gid === '473308249')!
+        .rows.some((row) => row.nameNorm === normaliseCompendiumName(entry.name)))
   );
 }

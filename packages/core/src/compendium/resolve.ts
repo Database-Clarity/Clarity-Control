@@ -191,7 +191,22 @@ export function combineCompendiumMatches(matches: CompendiumMatch[]): Compendium
         entry.cell.plain.trim() !== row.name,
     );
     const qualifier = /[([]([^()[\]]+)[)\]]\s*$/.exec(row.name)?.[1];
-    return qualifier ?? context?.cell.plain.trim() ?? row.section ?? `Part ${index + 1}`;
+    // Artifact rows share names across current artifacts. A neighboring perk name
+    // is not an artifact identity; reuse the actual enclosing artifact heading.
+    const artifact =
+      tab.gid === '473308249'
+        ? tab.grid
+            ?.filter(
+              (cell) =>
+                cell.col === 3 &&
+                cell.row < row.rowIndex &&
+                /\s\([^()]+\)\s*$/.test(cell.cell.plain),
+            )
+            .sort((a, b) => b.row - a.row)[0]?.cell.plain
+        : undefined;
+    return (
+      artifact ?? qualifier ?? context?.cell.plain.trim() ?? row.section ?? `Part ${index + 1}`
+    );
   });
   return {
     tab: first.tab,

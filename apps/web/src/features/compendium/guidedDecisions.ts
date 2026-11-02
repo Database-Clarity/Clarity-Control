@@ -1,4 +1,5 @@
 import {
+  combineCompendiumMatches,
   compendiumIdentifiers,
   compendiumNameVariants,
   compendiumPreferredTabs,
@@ -15,7 +16,8 @@ import type { ReviewProposal } from './rapidReview';
 import { referenceCurrent } from './sampleReferences';
 import { sourceFingerprint } from './reviewProgress';
 import { manifestRule } from './manifestRule';
-import { artifactParents, artifactSections, sunsetArtifact } from './artifactIdentity';
+import { artifactParents, artifactSections, notCurrentArtifact } from './artifactIdentity';
+import { approvedExoticStat } from './ownerExceptions';
 import { classifyScope } from './reviewScope';
 
 export interface GuidedDecision {
@@ -68,6 +70,50 @@ function editDistance(a: string, b: string): number {
     previous = current;
   }
   return previous[b.length];
+}
+
+function exoticParentLink(
+  entry: ReviewSample,
+  category: string,
+  proposal: ReviewProposal | undefined,
+  source: CompendiumData,
+) {
+  const parentNames = new Set((entry.exoticParentNames ?? []).map(normaliseCompendiumName));
+  const parentCards = source.tabs
+    .filter((tab) => tab.name === 'Exotic Weapons')
+    .flatMap((tab) =>
+      tab.rows
+        .filter((row) => {
+          const identifiers = compendiumIdentifiers(row.name).map(normaliseCompendiumName);
+          return identifiers.some((name) => parentNames.has(name));
+        })
+        .map((row) => ({ tab, row })),
+    );
+  // Generic barrels/guards/ornaments can be catalogued as exotic perks.
+  // Their parent alone does not establish a standalone perk identity.
+  const eligible =
+    category === 'catalog:weapon-perk-exotic' && !approvedExoticStat(entry, category)
+      ? parentCards.filter(({ row }) =>
+          compendiumIdentifiers(row.name)
+            .map(normaliseCompendiumName)
+            .includes(normaliseCompendiumName(entry.name)),
+        )
+      : parentCards;
+  const selected =
+    eligible.length === 1
+      ? eligible[0]
+      : eligible.find(
+          ({ tab, row }) =>
+            proposal?.match &&
+            !proposal.match.parts &&
+            proposal.match.tab.gid === tab.gid &&
+            proposal.match.row.rowIndex === row.rowIndex &&
+            proposal.match.row.anchor?.col === row.anchor?.col &&
+            sameCell(proposal.match.row.cell, row.cell),
+        );
+  const link = selected && stableSelection(selected, source);
+
+  return link && !link.parts ? link : undefined;
 }
 
 // Pure planning only. No drafts, progress, guidance writes, authentication or save calls.
@@ -149,14 +195,22 @@ export function guidedDecisions(
             reason: 'Existing link, draft or human review decision preserved.',
           };
         const scopeRule = classifyScope(entry, record.id);
-        if (scopeRule)
+        if (scopeRule) {
+          const link =
+            compatible && approvedExoticStat(entry, record.id)
+              ? exoticParentLink(entry, record.id, proposals.get(hash), source)
+              : undefined;
           return {
             ...result,
-            action: 'out-of-scope',
+            action: link ? 'link' : 'out-of-scope',
             confidence: 'out-of-scope',
+            link: link || undefined,
             ruleId: scopeRule,
-            reason: `Out of scope: ${scopeRule}.`,
+            reason: ['artifact-sunset', 'artifact-source-absent'].includes(scopeRule)
+              ? 'not in a current artifact'
+              : `Out of scope: ${scopeRule}; no tooltip needed.${link ? ' Owner-approved exotic parent link.' : ''}`,
           };
+        }
         if (!compatible)
           return { ...result, reason: 'Scope or baseline differs; proposal withheld.' };
         const reference = usable.get(hash);
@@ -183,13 +237,13 @@ export function guidedDecisions(
         if (manifestDecision) return { ...result, ...manifestDecision };
         if (record.id === 'catalog:armor-mod-seasonal') {
           const artifactNames = new Set(artifactParents(entry));
-          if (sunsetArtifact(entry, source))
+          if (notCurrentArtifact(entry, source))
             return {
               ...result,
               action: 'out-of-scope',
               confidence: 'out-of-scope',
-              ruleId: 'artifact-sunset',
-              reason: `Excluded: parent artifact(s) ${[...artifactNames].join(', ')} absent from the sheet current list.`,
+              ruleId: artifactNames.size ? 'artifact-sunset' : 'artifact-source-absent',
+              reason: 'not in a current artifact',
             };
           const tab = source.tabs.find((candidate) => candidate.gid === '473308249');
           const headers = artifactSections(source);
@@ -210,6 +264,24 @@ export function guidedDecisions(
               )
               .map((row) => ({ tab: tab!, row }));
           });
+          if (
+            matches.length > 1 &&
+            matchingHeaders.length === matches.length &&
+            tab!.rows.filter((row) => row.nameNorm === normaliseCompendiumName(entry.name))
+              .length === matches.length
+          ) {
+            const combined = combineCompendiumMatches(matches);
+            const link = combined && stableSelection(combined, source);
+            if (link?.parts?.length === matches.length)
+              return {
+                ...result,
+                action: 'link',
+                confidence: 'high',
+                link,
+                ruleId: 'artifact-manifest-section',
+                reason: `Shared perk — used on: ${[...artifactNames].join(', ')}`,
+              };
+          }
           if (matches.length === 1) {
             const match = matches[0];
             const anchor = match.row.anchor;
@@ -319,51 +391,18 @@ export function guidedDecisions(
             'catalog:weapon-catalyst-exotic',
           ].includes(record.id)
         ) {
-          const parentNames = new Set((entry.exoticParentNames ?? []).map(normaliseCompendiumName));
-          const parentCards = source.tabs
-            .filter((tab) => tab.name === 'Exotic Weapons')
-            .flatMap((tab) =>
-              tab.rows
-                .filter((row) => {
-                  const identifiers = compendiumIdentifiers(row.name).map(normaliseCompendiumName);
-                  return identifiers.some((name) => parentNames.has(name));
-                })
-                .map((row) => ({ tab, row })),
-            );
-          // Generic barrels/guards/ornaments can be catalogued as exotic perks.
-          // Their parent alone does not establish a standalone perk identity.
-          const eligible =
-            record.id === 'catalog:weapon-perk-exotic'
-              ? parentCards.filter(({ row }) =>
-                  compendiumIdentifiers(row.name)
-                    .map(normaliseCompendiumName)
-                    .includes(normaliseCompendiumName(entry.name)),
-                )
-              : parentCards;
-          const proposal = proposals.get(hash);
-          const selected =
-            eligible.length === 1
-              ? eligible[0]
-              : eligible.find(
-                  ({ tab, row }) =>
-                    proposal?.match &&
-                    !proposal.match.parts &&
-                    proposal.match.tab.gid === tab.gid &&
-                    proposal.match.row.rowIndex === row.rowIndex &&
-                    proposal.match.row.anchor?.col === row.anchor?.col &&
-                    sameCell(proposal.match.row.cell, row.cell),
-                );
-          const link = selected && stableSelection(selected, source);
-          if (link && !link.parts)
+          const link = exoticParentLink(entry, record.id, proposals.get(hash), source);
+          if (link)
             return {
               ...result,
               action: 'link',
               confidence: 'high',
               link,
               ruleId: 'exotic-catalog-parent',
-              reason: `Catalog exotic socket parent resolves to ${selected!.row.name}.`,
+              reason: `Catalog exotic socket parent resolves to ${link.rowKey}.`,
             };
         }
+
         // Learn the tab from every current positive sample, including picked renames.
         // Section labels are layout headings, not category boundaries (e.g. Armor Mods slots).
         const positive = [...usable.values()].filter((ref) => ref.link);

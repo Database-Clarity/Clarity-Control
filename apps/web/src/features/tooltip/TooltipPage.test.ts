@@ -1,3 +1,6 @@
+import { compendiumDataSchema } from '@clarity/core';
+import { useCompendiumStore } from '../compendium/store';
+import frozen from '../compendium/fixtures/frozen-matcher.json';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { StaticRouter, Route, Routes } from 'react-router-dom';
@@ -12,6 +15,17 @@ import { useDraftStore } from '../../stores/drafts';
 import { useAuthStore } from '../../stores/auth';
 import { apiUrl } from '../../services/api';
 
+vi.mock('../compendium/store', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../compendium/store')>();
+  return {
+    ...actual,
+    useCompendiumStore: Object.assign(
+      (selector: (state: ReturnType<typeof actual.useCompendiumStore.getState>) => unknown) =>
+        selector(actual.useCompendiumStore.getState()),
+      actual.useCompendiumStore,
+    ),
+  };
+});
 vi.mock('../editor', () => ({
   ClarityEditor: vi.fn((props: ClarityEditorProps) => createElement('div', null, props.value)),
 }));
@@ -243,6 +257,41 @@ describe('tooltip screen composition', () => {
     expect(render()).toContain('Shared perk — used on: Exotic &lt;A&gt;, Exotic &lt;B&gt;');
     useDataStore.setState({ data: owned([20]) });
     expect(render()).not.toContain('Shared perk');
+  });
+  it('reuses the shared-perk editor note for current artifact parents', () => {
+    const previous = useCompendiumStore.getState().data;
+    const source = compendiumDataSchema.parse({
+      fetchedAt: '2026-11-02T00:00:00Z',
+      tabs: [frozen.artifactSource],
+    });
+    try {
+      useCompendiumStore.setState({ data: source });
+      useDataStore.setState({
+        data: {
+          ...data,
+          items: {
+            ...data.items,
+            2903198437: {
+              hash: 2903198437,
+              name: 'Armorsmith',
+              categoryId: 'armor-mod-seasonal',
+              icon: '',
+              inGameDescription: '',
+            },
+          },
+        },
+      });
+      expect(render('/t/2903198437')).toContain(
+        'Shared perk — used on: Encrypted Data Disk, Queensfoil Censer',
+      );
+      source.tabs[0].grid = source.tabs[0].grid!.filter(
+        (c) => !c.cell.plain.startsWith('Queensfoil Censer ('),
+      );
+      useCompendiumStore.setState({ data: structuredClone(source) });
+      expect(render('/t/2903198437')).not.toContain('Shared perk — used on:');
+    } finally {
+      useCompendiumStore.setState({ data: previous });
+    }
   });
   it('sends an enhanced edit to that exact tooltip with the signed-in author and loaded base', () => {
     render();

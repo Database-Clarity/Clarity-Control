@@ -1,3 +1,4 @@
+import { useCompendiumStore } from '../compendium/store';
 import { languageLabel } from '../../languageLabels';
 import { useMemo, useState } from 'react';
 import { Navigate, useParams, useSearchParams } from 'react-router-dom';
@@ -36,6 +37,7 @@ import { CompendiumPanel } from '../compendium/CompendiumPanel';
 import styles from './TooltipPage.module.scss';
 
 export function TooltipPage() {
+  const compendiumSource = useCompendiumStore((state) => state.data);
   const { hash: parameter } = useParams();
   const [search, setSearch] = useSearchParams();
   const data = useDataStore((state) => state.data);
@@ -92,9 +94,9 @@ export function TooltipPage() {
               {singleOwnerLabel(hash, data)}
             </p>
           )}
-          {sharedPerkLabel(hash, data) && (
+          {sharedPerkLabel(hash, data, compendiumSource) && (
             <p role="note" className={styles.identityOwner}>
-              {sharedPerkLabel(hash, data)}
+              {sharedPerkLabel(hash, data, compendiumSource)}
             </p>
           )}
         </div>
