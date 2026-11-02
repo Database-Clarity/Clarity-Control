@@ -85,6 +85,8 @@ export interface SettingsState {
   status: SyncStatus;
   reason: DeviceReason;
   error: string;
+  /** Technical cause of `error` (HTTP status, exception), for a tooltip. */
+  errorDetail: string;
   /** Problems reading or writing this browser's copy. */
   notice: string;
   choice: SettingsChoice | null;
@@ -328,6 +330,7 @@ export function createSettingsStore({
         status: pending.length ? 'unsynced' : 'synced',
         choice: null,
         error: '',
+        errorDetail: '',
       });
       persist();
     }
@@ -368,7 +371,7 @@ export function createSettingsStore({
         });
         return;
       }
-      set({ status: 'error', error: result.error });
+      set({ status: 'error', error: result.error, errorDetail: result.detail });
       // One more attempt with the latest state if the user left meanwhile; a second failure
       // stays as the global "not synced" notice with Retry.
       return flushQueued();
@@ -382,7 +385,11 @@ export function createSettingsStore({
       } catch (error) {
         if (token === activation) {
           exitQueued = false;
-          set({ status: 'error', error: errorMessage(error) });
+          set({
+            status: 'error',
+            error: 'your synced settings could not be loaded',
+            errorDetail: errorMessage(error),
+          });
         }
         return;
       }
@@ -430,6 +437,7 @@ export function createSettingsStore({
       status: 'device',
       reason: syncEnabled ? 'signed-out' : 'no-api',
       error: '',
+      errorDetail: '',
       notice: initialNotice,
       choice: null,
 
@@ -451,6 +459,7 @@ export function createSettingsStore({
           notice,
           choice: null,
           error: '',
+          errorDetail: '',
           status: canSync ? 'loading' : 'device',
           reason: !syncEnabled ? 'no-api' : user ? 'no-role' : 'signed-out',
         });
@@ -538,6 +547,7 @@ export function createSettingsStore({
           choice: null,
           status: 'synced',
           error: '',
+          errorDetail: '',
         });
         persist();
       },

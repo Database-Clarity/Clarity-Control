@@ -134,7 +134,7 @@ describe('Settings page', () => {
       englishSource: 'current',
     });
     expect(host.textContent).toContain(
-      'Default for new devices; your last choice on this device is remembered.',
+      'Starting values for new devices (synced to your account). Toggling the toolbar or source view inside the editor is remembered on this device only. Choosing here also applies on this device.',
     );
     await act(async () => host.querySelector<HTMLAnchorElement>('a[href="/"]')!.click());
     expect(host.textContent).toContain('Editor home');
@@ -176,10 +176,14 @@ describe('Settings page', () => {
     await act(async () => useSettingsStore.getState().activate(editor));
     await render(createElement(SettingsNotice));
     expect(host.textContent).toContain('Unsynced settings changes');
+    // Each value cell names its column, so the rows still read when stacked on phones.
+    expect([...host.querySelectorAll('td')].map((cell) => cell.getAttribute('data-label'))).toEqual(
+      ['This device', 'Synced copy'],
+    );
     expect(host.textContent).toContain('YYYY-MM-DD (2023-02-12)');
     expect(host.textContent).toContain('MM/DD/YYYY (02/12/2023)');
     expect(holder.server.calls.put).toHaveLength(0);
-    await act(async () => button('Discard and use synced').click());
+    await act(async () => button('Use synced settings').click());
     expect(useSettingsStore.getState().settings.dateFormat).toBe('mdy');
     expect(host.textContent).toBe('');
     expect(holder.server.calls.put).toHaveLength(0);
@@ -197,7 +201,7 @@ describe('Settings page', () => {
     expect(host.textContent).toContain('Asia/Tokyo');
     expect(host.textContent).toContain('Europe/Berlin');
     expect(holder.server.remote.settings?.timeZone).toBe('Europe/Berlin');
-    await act(async () => button('Sync now (keep this device)').click());
+    await act(async () => button("Keep this device's settings").click());
     expect(holder.server.remote.settings?.timeZone).toBe('Asia/Tokyo');
     expect(useSettingsStore.getState().status).toBe('synced');
   });
@@ -211,6 +215,8 @@ describe('Settings page', () => {
       root.render(createElement(MemoryRouter, null, createElement(SettingsNotice))),
     );
     expect(host.textContent).toContain('Settings not synced: server answered HTTP 503');
+    // The technical cause stays available as a tooltip, not in the sentence.
+    expect(host.querySelector('[role="alert"]')?.getAttribute('title')).toBe('HTTP 503');
     holder.server.fail('');
     await act(async () => button('Retry sync').click());
     expect(useSettingsStore.getState()).toMatchObject({ status: 'synced', pending: [] });

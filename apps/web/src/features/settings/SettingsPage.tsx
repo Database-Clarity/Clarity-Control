@@ -52,7 +52,7 @@ export function SettingsPage() {
     <article className={styles.page}>
       <Link to="/">Back to the editor</Link>
       <h1>Settings</h1>
-      <p role="status" className={styles.status}>
+      <p role="status" className={styles.status} title={state.errorDetail || undefined}>
         {syncStatusText(state)}{' '}
         {state.status === 'error' && (
           <button type="button" onClick={() => void retry()}>
@@ -97,9 +97,9 @@ export function SettingsPage() {
       <fieldset>
         <legend>Editor</legend>
         <p className={styles.hint}>
-          Default for new devices; your last choice on this device is remembered. Choosing a default
-          here also applies it on this device. Defaults sync to your account when signed in; the
-          remembered choices never do.
+          Starting values for new devices (synced to your account). Toggling the toolbar or source
+          view inside the editor is remembered on this device only. Choosing here also applies on
+          this device.
         </p>
         <label>
           Markup toolbar

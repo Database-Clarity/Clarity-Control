@@ -80,6 +80,13 @@
   text-align: left;
   padding: 0.25rem 0.5rem 0.25rem 0;
   vertical-align: top;
+  // Never split words mid-letter (the page itself uses overflow-wrap: anywhere).
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: manual;
+}
+.choice thead th:first-child {
+  white-space: nowrap;
 }
 .notice {
   margin-top: 0;
@@ -88,6 +95,35 @@
 @include theme.mobile {
   .page {
     padding: 0.75rem;
+  }
+  // Phones: one block per setting, each value headed by its column name.
+  .choice table,
+  .choice tbody,
+  .choice tr,
+  .choice th,
+  .choice td {
+    display: block;
+  }
+  .choice thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .choice tbody tr {
+    padding: 0.5rem 0;
+    border-top: 1px solid theme.$button-border-color;
+  }
+  .choice tbody th {
+    padding: 0 0 0.25rem;
+  }
+  .choice td {
+    padding: 0 0 0.25rem 0.75rem;
+  }
+  .choice td::before {
+    content: attr(data-label) ': ';
+    font-weight: bold;
   }
   .actions button {
     width: 100%;

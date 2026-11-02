@@ -32,7 +32,7 @@ export function fakeServer(initial: RemoteSettings = { settings: null, revision:
       calls.put.push({ settings, revision, keepalive });
       // A held PUT is answered only on release(), with the server state at that moment.
       if (holding) await new Promise<void>((resolve) => held.push(resolve));
-      if (failing) return { kind: 'failed', error: failing };
+      if (failing) return { kind: 'failed', error: failing, detail: 'HTTP 503' };
       if (revision !== remote.revision)
         return { kind: 'conflict', remote: structuredClone(remote) };
       remote = { settings, revision: String(++sequence).padStart(40, 'a') };

@@ -107,7 +107,18 @@ export type RemoteSettings = z.infer<typeof remoteSettingsSchema>;
 export type SettingsPutResult =
   | { kind: 'synced'; remote: RemoteSettings }
   | { kind: 'conflict'; remote: RemoteSettings }
-  | { kind: 'failed'; error: string };
+  /** `error` is for people; `detail` keeps the technical cause (shown as a tooltip). */
+  | { kind: 'failed'; error: string; detail: string };
+
+/** Plain-language reason for a failed settings sync. */
+export function syncFailureText(status: number | null): string {
+  if (status === null) return 'the connection failed (you may be offline)';
+  if (status === 401) return 'sign in again to sync';
+  if (status === 403) return 'this account cannot sync settings';
+  if (status === 409) return 'the server was busy';
+  if (status === 400 || status === 413) return 'the server did not accept these settings';
+  return 'the server is unavailable';
+}
 
 /** Synced settings for the signed-in user; `settings` is null before the first sync. */
 export async function getSettings(): Promise<RemoteSettings> {
@@ -136,14 +147,14 @@ export async function putSettings(
     const error = z.object({ error: z.string() }).safeParse(value);
     return {
       kind: 'failed',
-      error:
-        response.status === 401
-          ? 'sign in again to sync'
-          : error.success
-            ? error.data.error
-            : `server answered HTTP ${response.status}`,
+      error: syncFailureText(response.status),
+      detail: `HTTP ${response.status}${error.success ? `: ${error.data.error}` : ''}`,
     };
   } catch (error) {
-    return { kind: 'failed', error: error instanceof Error ? error.message : String(error) };
+    return {
+      kind: 'failed',
+      error: syncFailureText(null),
+      detail: error instanceof Error ? error.message : String(error),
+    };
   }
 }

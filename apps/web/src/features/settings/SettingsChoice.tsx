@@ -11,6 +11,7 @@ export function SettingsChoice() {
   const useRemote = useSettingsStore((state) => state.useRemote);
   if (!choice) return null;
   const remote = choice.remote.settings;
+  const remoteLabel = remote ? 'Synced copy' : 'Synced copy (none yet)';
   const differences = syncedKeys.filter((key) => !remote || remote[key] !== choice.local[key]);
   return (
     <section className={styles.choice} aria-label="Choose settings to keep">
@@ -39,25 +40,26 @@ export function SettingsChoice() {
           <tr>
             <th scope="col">Setting</th>
             <th scope="col">This device</th>
-            <th scope="col">{remote ? 'Synced copy' : 'Synced copy (none yet)'}</th>
+            <th scope="col">{remoteLabel}</th>
           </tr>
         </thead>
         <tbody>
           {differences.map((key) => (
             <tr key={key}>
               <th scope="row">{settingLabels[key]}</th>
-              <td>{valueLabel(key, choice.local[key])}</td>
-              <td>{remote ? valueLabel(key, remote[key]) : '-'}</td>
+              {/* data-label heads each value when the rows stack on phones. */}
+              <td data-label="This device">{valueLabel(key, choice.local[key])}</td>
+              <td data-label={remoteLabel}>{remote ? valueLabel(key, remote[key]) : '-'}</td>
             </tr>
           ))}
         </tbody>
       </table>
       <div className={styles.actions}>
         <button type="button" disabled={status === 'syncing'} onClick={() => void keepLocal()}>
-          Sync now (keep this device)
+          Keep this device's settings
         </button>
         <button type="button" disabled={status === 'syncing'} onClick={useRemote}>
-          {remote ? 'Discard and use synced' : 'Discard changes'}
+          {remote ? 'Use synced settings' : 'Discard changes'}
         </button>
       </div>
     </section>
@@ -66,11 +68,11 @@ export function SettingsChoice() {
 
 /** Shown outside the Settings page when a sync needs the user: a choice or a failed sync. */
 export function SettingsNotice() {
-  const { status, error, pending, retry } = useSettingsStore();
+  const { status, error, errorDetail, pending, retry } = useSettingsStore();
   if (status === 'choice') return <SettingsChoice />;
   if (status !== 'error' || !pending.length) return null;
   return (
-    <p role="alert" className={styles.notice}>
+    <p role="alert" className={styles.notice} title={errorDetail || undefined}>
       Settings not synced: {error}. Your changes are kept on this device.{' '}
       <button type="button" onClick={() => void retry()}>
         Retry sync
