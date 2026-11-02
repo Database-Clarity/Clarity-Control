@@ -57,3 +57,37 @@ h1 {
 }
 
 // The Settings button beside Sign out opens the settings popover; it is a native button already.
+
+// Local latin-only faces are fetched by the browser only when a selected family uses them.
+@font-face {
+  font-family: 'Fira Code';
+  src: url('@fontsource/fira-code/files/fira-code-latin-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+:root[data-editor-font='fira-code'] {
+  --editor-font: 'Fira Code', Consolas, monospace;
+}
+:root[data-editor-font='jetbrains-mono'] {
+  --editor-font: 'JetBrains Mono', Consolas, monospace;
+}
+:root[data-editor-font='system'] {
+  --editor-font: ui-monospace, monospace;
+}
+// Prevent programming symbol substitutions in both UI and editor text.
+*,
+*::before,
+*::after {
+  font-variant-ligatures: none;
+  font-feature-settings:
+    'liga' 0,
+    'calt' 0;
+}

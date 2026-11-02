@@ -242,6 +242,20 @@ describe('Settings popover', () => {
     expect(document.documentElement.dataset.textSize).toBeUndefined();
   });
 
+  it('applies the editor font immediately and keeps it local on close', async () => {
+    await act(async () => useSettingsStore.getState().activate(editor));
+    await render();
+    await openSettings();
+    expect(field('Editor font').value).toBe('default');
+    await choose('Editor font', 'fira-code');
+    expect(document.documentElement.dataset.editorFont).toBe('fira-code');
+    await act(async () => closeButton().click());
+    expect(holder.server.calls.put).toHaveLength(0);
+    await openSettings();
+    expect(field('Editor font').value).toBe('fira-code');
+    await choose('Editor font', 'default');
+  });
+
   it('opens on /settings over the page it came from and replaces the URL', async () => {
     await render(null, ['/', '/archive']);
     await act(async () =>
