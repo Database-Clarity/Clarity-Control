@@ -11,7 +11,7 @@ import {
   type CompendiumData,
 } from '@clarity/core';
 import { confirmCompendiumSelection } from './selection';
-import { RichCell } from './RichCell';
+import { Multiline, RichCell } from './RichCell';
 import styles from './Compendium.module.scss';
 
 export function CellPicker({
@@ -87,7 +87,7 @@ export function CellPicker({
           <li key={`${entry.row}:${entry.col}`}>
             <button type="button" onClick={() => pickAnchor({ row: entry.row, col: entry.col })}>
               Use anchor at row {entry.row}, column {entry.col + 1}:{' '}
-              {entry.cell.plain.slice(0, 160)}
+              <Multiline>{entry.cell.plain.slice(0, 160)}</Multiline>
             </button>
           </li>
         ))}
@@ -156,7 +156,8 @@ export function CellPicker({
                       }}
                     >
                       Row {entry.row}, column {entry.col + 1}
-                      {selected >= 0 ? ` (${selected + 1})` : ''}: {entry.cell.plain.slice(0, 160)}
+                      {selected >= 0 ? ` (${selected + 1})` : ''}:{' '}
+                      <Multiline>{entry.cell.plain.slice(0, 160)}</Multiline>
                     </button>
                   );
                 })

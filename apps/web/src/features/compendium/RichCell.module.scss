@@ -1,0 +1,6 @@
+// Compendium text contains "\n" line breaks; keep them (and blank lines) wherever a cell is shown,
+// regardless of the surrounding element's white-space (buttons, list rows, cards).
+.multiline {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

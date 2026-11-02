@@ -1,5 +1,6 @@
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import type { CompendiumCell, CompendiumRun } from '@clarity/core';
+import styles from './RichCell.module.scss';
 
 function runStyle(run: CompendiumRun): CSSProperties {
   return {
@@ -12,9 +13,16 @@ function runStyle(run: CompendiumRun): CSSProperties {
       'none',
   };
 }
+export function Multiline({ children }: { children: ReactNode }) {
+  return (
+    <span className={styles.multiline} data-multiline="true">
+      {children}
+    </span>
+  );
+}
 export function RichCell({ cell, links = true }: { cell: CompendiumCell; links?: boolean }) {
   return (
-    <>
+    <Multiline>
       {cell.runs.map((run, index) => {
         const content = <span style={runStyle(run)}>{run.text}</span>;
         return run.href && links ? (
@@ -25,6 +33,6 @@ export function RichCell({ cell, links = true }: { cell: CompendiumCell; links?:
           <span key={index}>{content}</span>
         );
       })}
-    </>
+    </Multiline>
   );
 }
