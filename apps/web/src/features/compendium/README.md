@@ -1,5 +1,12 @@
 # Compendium review
 
+The central [matching rules and maintainer decisions](MATCHING-RULES.md) reference
+records every runtime rule ID, validation/counterexamples, owner exceptions and
+unresolved investigation. Regenerate its decision tables with
+`node scripts/compendium-guidance/matching-rules.mjs`; tests enforce rule coverage
+and decision-data/document synchronization.
+
+
 `#/compendium` opens **Review matches**, the category-review workload also
 available at `#/compendium/review`. Its **Linked sources changed** tab keeps the
 previous linked-change and unlinked-tooltip lists. The counters name their

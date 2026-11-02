@@ -1,6 +1,7 @@
 // Read-only remote inputs and owner guidance; only writes the explicitly named new output directory.
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { countActions } from './accounting.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
@@ -52,7 +53,14 @@ try {
   const proposals = new Map(
     entries.map((entry) => [entry.hash, rapid.proposalFor(entry.base, editor, source)]),
   );
-  const categories = categoriesModule.reviewCategories(entries, editor, proposals, false);
+  const categories = categoriesModule.reviewCategories(
+    entries,
+    editor,
+    proposals,
+    false,
+    false,
+    source,
+  );
   const { inScopeCategory } = await load('apps/web/src/features/compendium/reviewScope.ts');
   const scope = `${bundleModule.bundleUrl}|${sourceUrl}`;
   let renewal;
@@ -83,6 +91,7 @@ try {
     scope: document.scope,
     revision: guided.guidedRevision(groups),
     high: groups.reduce((sum, group) => sum + group.high, 0),
+    ...countActions(groups),
     medium: groups.reduce((sum, group) => sum + group.medium, 0),
     outOfScope: groups.reduce((sum, group) => sum + group.outOfScope, 0),
     owner: groups.reduce((sum, group) => sum + group.unresolved, 0),
@@ -157,6 +166,8 @@ try {
       `Current baseline: ${baseline}`,
       `Baseline matches: ${result.baselineMatches}`,
       `High confidence: ${result.high}; medium: ${result.medium}; owner/unresolved: ${result.owner}; out of scope: ${result.outOfScope}. No drafts or writes to remote data.`,
+      `Artifact exclusions (sunset): ${result.excludedSunset}; excluded artifacts without current parents/named sources: ${result.artifactAbsent}; excluded parent links: ${result.excludedParentLinks}.`,
+      `Links: ${result.linked} (${result.highLinks} high); high no-equivalent decisions: ${result.highNoEquivalent}.`,
       '',
       '| Category | High | Medium | Owner | Out of scope | Issues |',
       '| --- | ---: | ---: | ---: | ---: | --- |',
@@ -172,6 +183,11 @@ try {
   console.log(
     JSON.stringify({
       high: result.high,
+      linked: result.linked,
+      excludedSunset: result.excludedSunset,
+      artifactAbsent: result.artifactAbsent,
+      excludedParentLinks: result.excludedParentLinks,
+      highNoEquivalent: result.highNoEquivalent,
       medium: result.medium,
       owner: result.owner,
       outOfScope: result.outOfScope,

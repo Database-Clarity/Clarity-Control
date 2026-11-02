@@ -1,3 +1,4 @@
+import { useCompendiumStore } from '../compendium/store';
 import { languageLabel } from '../../languageLabels';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -23,6 +24,7 @@ import {
 import styles from './Layout.module.scss';
 
 export function TooltipNavigation({ data }: { data: EditorData }) {
+  const compendiumSource = useCompendiumStore((state) => state.data);
   const [query, setQuery] = useState('');
   const groups = useMemo(() => navigationGroups(data, query), [data, query]);
   const drafts = useDraftStore((state) => state.drafts);
@@ -173,16 +175,23 @@ export function TooltipNavigation({ data }: { data: EditorData }) {
             {items.map((item) => {
               const dirty = variantHashes(item.hash, data).some((variant) => drafts[variant]);
               return (
-                <option key={item.hash} value={item.hash} title={sharedPerkLabel(item.hash, data)}>
+                <option
+                  key={item.hash}
+                  value={item.hash}
+                  title={sharedPerkLabel(item.hash, data, compendiumSource)}
+                >
                   {dirty ? '* ' : ''}
-                  {item.name} ({item.hash}){sharedPerkLabel(item.hash, data) && ' · shared perk'}
+                  {item.name} ({item.hash})
+                  {sharedPerkLabel(item.hash, data, compendiumSource) && ' · shared perk'}
                   {frameGroupSize(item.hash, data) > 1 && ` ×${frameGroupSize(item.hash, data)}`}
                 </option>
               );
             })}
           </select>
         </label>
-        {sharedPerkLabel(hash, data) && <small role="note">{sharedPerkLabel(hash, data)}</small>}
+        {sharedPerkLabel(hash, data, compendiumSource) && (
+          <small role="note">{sharedPerkLabel(hash, data, compendiumSource)}</small>
+        )}
         <small id="tooltip-stepping-help">
           <span className={styles.pointerHelp}>
             Shift+Scroll anywhere steps within this category and stops at its ends. Arrow keys on

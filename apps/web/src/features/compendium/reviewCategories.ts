@@ -1,3 +1,6 @@
+import { classifyItem, type ItemClassification } from './itemClassification';
+import type { CompendiumData } from '@clarity/core';
+import { notCurrentArtifact } from './artifactIdentity';
 import type { EditorData } from '../../stores/data';
 import { groupManifestItems } from './manifestItems';
 import type { ReviewProposal } from './rapidReview';
@@ -10,7 +13,10 @@ const catalogFacts = loadManifestFacts();
 export type ReviewEntry = ReturnType<typeof applyReviewProgress>[number];
 export type ReviewSample = ReviewEntry & {
   sampleEvidence: string;
+  classification?: ItemClassification;
+  exoticParentNames?: string[];
   scopeRestored?: boolean;
+  artifactSunset?: boolean;
   manifestFacts?: { item: ManifestFacts['items'][string]; version: string };
 };
 export const reasonLabels = {
@@ -42,6 +48,7 @@ export function reviewCategories(
   proposals: Map<number, ReviewProposal>,
   matching: boolean,
   failed = false,
+  source?: CompendiumData,
 ): ReviewCategory[] {
   const manifest = groupManifestItems(editor.items, editor.aliases);
   const facts = catalogFacts;
@@ -98,10 +105,22 @@ export function reviewCategories(
       );
     const sample: ReviewSample = {
       ...entry,
+      classification:
+        editor.items[entry.hash] && classifyItem(editor.items[entry.hash], entry.next),
+      exoticParentNames: [
+        ...new Set(
+          items
+            .flatMap((item) => [item.itemName, ...Object.values(item.ownerNames ?? {})])
+            .filter((name): name is string => !!name),
+        ),
+      ],
       ...(agreed ? { manifestFacts: { item: fact, version: facts.source.manifestVersion } } : {}),
       sampleEvidence: sourceFingerprint([
         entry.hash,
         entry.evidence,
+        ...(entry.next.custom?.categoryId === 'attachment-effect'
+          ? [entry.next.custom.categoryId]
+          : []),
         (manifest.get(entry.hash) ?? [])
           .map((item) => ({
             hash: item.hash,
@@ -114,6 +133,8 @@ export function reviewCategories(
           .sort((a, b) => a.hash - b.hash),
       ]),
     };
+    if (source && id === 'catalog:armor-mod-seasonal')
+      sample.artifactSunset = notCurrentArtifact(sample, source);
     group.entries.push(sample);
     group.reasons[reason].push(sample);
   }

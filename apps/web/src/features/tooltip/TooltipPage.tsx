@@ -1,3 +1,6 @@
+import { AttachmentCategoryControl } from './AttachmentCategoryControl';
+import { classifyItem, categoryLabel } from '../compendium/itemClassification';
+import { useCompendiumStore } from '../compendium/store';
 import { languageLabel } from '../../languageLabels';
 import { useMemo, useState } from 'react';
 import { Navigate, useParams, useSearchParams } from 'react-router-dom';
@@ -36,6 +39,7 @@ import { CompendiumPanel } from '../compendium/CompendiumPanel';
 import styles from './TooltipPage.module.scss';
 
 export function TooltipPage() {
+  const compendiumSource = useCompendiumStore((state) => state.data);
   const { hash: parameter } = useParams();
   const [search, setSearch] = useSearchParams();
   const data = useDataStore((state) => state.data);
@@ -76,6 +80,8 @@ export function TooltipPage() {
     lang,
   });
   const primarySwitchTo = primaryAccess.switchTo;
+  const effectiveCategory =
+    item && (classifyItem(item, primaryTooltip)?.categoryId ?? item.categoryId);
   return (
     <article>
       <header className={styles.header}>
@@ -83,18 +89,20 @@ export function TooltipPage() {
         <div className={styles.identityText}>
           <h1>{item?.name ?? `Tooltip ${hash}`}</h1>
           <p>
-            {data.categories.find((category) => category.id === item?.categoryId)?.label ??
-              item?.categoryId}{' '}
+            {categoryLabel(effectiveCategory ?? '') ??
+              data.categories.find((category) => category.id === effectiveCategory)?.label ??
+              effectiveCategory}{' '}
             / {hash}
           </p>
+          {item && <AttachmentCategoryControl base={primaryBase} item={item} />}
           {singleOwnerLabel(hash, data) && (
             <p role="note" className={styles.identityOwner}>
               {singleOwnerLabel(hash, data)}
             </p>
           )}
-          {sharedPerkLabel(hash, data) && (
+          {sharedPerkLabel(hash, data, compendiumSource) && (
             <p role="note" className={styles.identityOwner}>
-              {sharedPerkLabel(hash, data)}
+              {sharedPerkLabel(hash, data, compendiumSource)}
             </p>
           )}
         </div>

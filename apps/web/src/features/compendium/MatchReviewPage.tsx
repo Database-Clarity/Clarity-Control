@@ -234,7 +234,7 @@ export function ReviewQueue({
   const { proposals, loading: matching, error: proposalError } = useProposals(editor, source);
   const categories = useMemo(
     () =>
-      reviewCategories(entries, editor, proposals, matching, !!proposalError).map((category) => {
+      reviewCategories(entries, editor, proposals, matching, !!proposalError, source).map((category) => {
         const decorated = new Map(
           category.entries.map((entry) => [
             entry.hash,
@@ -257,7 +257,7 @@ export function ReviewQueue({
           ) as typeof category.reasons,
         };
       }),
-    [entries, editor, proposals, matching, proposalError, scopeState.hashes],
+    [entries, editor, proposals, matching, proposalError, scopeState.hashes, source],
   );
   useEffect(() => {
     setSidebarCategories(categories.map(({ id, name }) => ({ id, name })));

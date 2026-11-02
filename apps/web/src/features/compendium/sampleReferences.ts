@@ -1,4 +1,11 @@
-import { resolveCompendiumLink, type CompendiumData, type CompendiumMatch } from '@clarity/core';
+import {
+  resolveCompendiumLink,
+  normaliseCompendiumName,
+  normaliseRuns,
+  sameCell,
+  type CompendiumData,
+  type CompendiumMatch,
+} from '@clarity/core';
 import type { GuidanceReference } from './guidanceSchema';
 import { categoryId, type ReviewSample } from './reviewCategories';
 import { sourceFingerprint } from './reviewProgress';
@@ -59,12 +66,42 @@ export function referenceCurrent(
   )
     return false;
   if (!reference.link) return true;
+  return !!currentReferenceLink(reference, source);
+}
+
+// A formatter-only change must not invalidate an approval of unchanged source
+// bodies. Replay the previously saved labels against current complete rows, and
+// require BOTH the old source hash and exact styled snapshot to agree.
+export function currentReferenceLink(reference: GuidanceReference, source: CompendiumData) {
+  if (!reference.link) return;
   const resolved = resolveCompendiumLink(reference.link, source);
-  if (!('row' in resolved)) return false;
-  const link = confirmCompendiumSelection(resolved, source);
-  return (
-    !!link &&
-    sourceFingerprint([link.gid, link.rowKey, link.section, link.cells, link.snapshot]) ===
-      reference.sourceHash
+  if (!('row' in resolved)) return;
+  const confirmed = confirmCompendiumSelection(resolved, source);
+  if (!confirmed) return;
+  const link = { ...confirmed, snapshotAt: reference.link.snapshotAt };
+  const fingerprint = (candidate: typeof link) =>
+    sourceFingerprint([
+      candidate.gid,
+      candidate.rowKey,
+      candidate.section,
+      candidate.cells,
+      candidate.snapshot,
+    ]);
+  if (fingerprint(link) === reference.sourceHash) return link;
+  const old = reference.link;
+  if (old.cells || !old.parts?.length || fingerprint(old) !== reference.sourceHash) return;
+  const rows = source.tabs
+    .filter((tab) => tab.gid === old.gid)
+    .flatMap((tab) => tab.rows)
+    .filter((row) => row.nameNorm === normaliseCompendiumName(old.rowKey))
+    .sort((a, b) => a.rowIndex - b.rowIndex || (a.anchor?.col ?? 0) - (b.anchor?.col ?? 0));
+  if (rows.length !== old.parts.length) return;
+  const replay = normaliseRuns(
+    rows.flatMap((row, index) => [
+      ...(index ? [{ text: '\n\n' }] : []),
+      { text: `${old.parts![index]}\n`, bold: true },
+      ...row.cell.runs,
+    ]),
   );
+  return sameCell(replay, old.snapshot) ? link : undefined;
 }

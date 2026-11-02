@@ -1,4 +1,6 @@
-import { resolveAlias, type Tooltip } from '@clarity/core';
+import { classifyItem, derivedCategories } from '../compendium/itemClassification';
+import { currentArtifactOwners } from '../compendium/artifactIdentity';
+import { resolveAlias, type Tooltip, type CompendiumData } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import type { Category, Item } from '../../services/generator';
 
@@ -34,8 +36,16 @@ export function itemFor(hash: number, data: EditorData): Item | undefined {
 }
 
 /** "Shared perk — used on: A, B" for perks owned by 2+ exotics; undefined otherwise. */
-export function sharedPerkLabel(hash: number, data: EditorData): string | undefined {
+export function sharedPerkLabel(
+  hash: number,
+  data: EditorData,
+  source?: CompendiumData | null,
+): string | undefined {
   const item = data.items[hash];
+  if (item?.categoryId === 'armor-mod-seasonal') {
+    const names = [...new Set(currentArtifactOwners(hash, source).values())];
+    return names.length > 1 ? `Shared perk — used on: ${names.join(', ')}` : undefined;
+  }
   const owners = item?.owners;
   if (!owners || owners.length < 2) return undefined;
   const names = owners.map(
@@ -151,15 +161,22 @@ export function navigationGroups(data: EditorData, query: string): CategoryGroup
           }) ||
           matchingAliases.has(item.hash)),
     );
-  const categories = [...data.categories];
-  for (const item of items) {
+  const classifiedItems = items.map((item) => {
+    const c = classifyItem(item, data.bundle.tooltips[item.hash]);
+    return c ? { ...item, categoryId: c.categoryId } : item;
+  });
+  const categories = [
+    ...data.categories,
+    ...derivedCategories.filter((c) => !data.categories.some((existing) => existing.id === c.id)),
+  ];
+  for (const item of classifiedItems) {
     if (!categories.some((category) => category.id === item.categoryId)) {
       categories.push({ id: item.categoryId, label: item.categoryId, group: 'Other', order: 9999 });
     }
   }
   const groups = new Map<string, CategoryGroup>();
   for (const category of categories.sort((a, b) => a.order - b.order)) {
-    const entries = items
+    const entries = classifiedItems
       .filter((item) => item.categoryId === category.id)
       .sort((a, b) => a.name.localeCompare(b.name) || a.hash - b.hash);
     if (!entries.length) continue;

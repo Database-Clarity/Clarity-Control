@@ -1,12 +1,25 @@
-import { normaliseCompendiumName, type CompendiumData, type CompendiumLink } from '@clarity/core';
+import { inferredSiphonDecision } from './safeSourceRules';
+import {
+  combineCompendiumMatches,
+  compendiumIdentifiers,
+  compendiumNameVariants,
+  compendiumPreferredTabs,
+  sameCell,
+  normaliseCompendiumName,
+  type CompendiumData,
+  type CompendiumLink,
+} from '@clarity/core';
 import { compendiumSimilarity } from '@clarity/core';
 import { confirmCompendiumSelection } from './selection';
 import type { GuidanceDocument, GuidanceReference } from './guidanceSchema';
 import type { ReviewCategory, ReviewSample } from './reviewCategories';
 import type { ReviewProposal } from './rapidReview';
-import { referenceCurrent } from './sampleReferences';
+import { referenceCurrent, currentReferenceLink } from './sampleReferences';
 import { sourceFingerprint } from './reviewProgress';
 import { manifestRule } from './manifestRule';
+import { artifactParents, artifactSections, notCurrentArtifact } from './artifactIdentity';
+import { tentativeOwnerDecision, reviewedOwnerDecision } from './ownerReviewed';
+import { approvedExoticStat } from './ownerExceptions';
 import { classifyScope } from './reviewScope';
 
 export interface GuidedDecision {
@@ -61,6 +74,50 @@ function editDistance(a: string, b: string): number {
   return previous[b.length];
 }
 
+function exoticParentLink(
+  entry: ReviewSample,
+  category: string,
+  proposal: ReviewProposal | undefined,
+  source: CompendiumData,
+) {
+  const parentNames = new Set((entry.exoticParentNames ?? []).map(normaliseCompendiumName));
+  const parentCards = source.tabs
+    .filter((tab) => tab.name === 'Exotic Weapons')
+    .flatMap((tab) =>
+      tab.rows
+        .filter((row) => {
+          const identifiers = compendiumIdentifiers(row.name).map(normaliseCompendiumName);
+          return identifiers.some((name) => parentNames.has(name));
+        })
+        .map((row) => ({ tab, row })),
+    );
+  // Generic barrels/guards/ornaments can be catalogued as exotic perks.
+  // Their parent alone does not establish a standalone perk identity.
+  const eligible =
+    category === 'catalog:weapon-perk-exotic' && !approvedExoticStat(entry, category)
+      ? parentCards.filter(({ row }) =>
+          compendiumIdentifiers(row.name)
+            .map(normaliseCompendiumName)
+            .includes(normaliseCompendiumName(entry.name)),
+        )
+      : parentCards;
+  const selected =
+    eligible.length === 1
+      ? eligible[0]
+      : eligible.find(
+          ({ tab, row }) =>
+            proposal?.match &&
+            !proposal.match.parts &&
+            proposal.match.tab.gid === tab.gid &&
+            proposal.match.row.rowIndex === row.rowIndex &&
+            proposal.match.row.anchor?.col === row.anchor?.col &&
+            sameCell(proposal.match.row.cell, row.cell),
+        );
+  const link = selected && stableSelection(selected, source);
+
+  return link && !link.parts ? link : undefined;
+}
+
 // Pure planning only. No drafts, progress, guidance writes, authentication or save calls.
 export function guidedDecisions(
   document: GuidanceDocument,
@@ -70,6 +127,7 @@ export function guidedDecisions(
   baseline: string,
   scope: string,
 ): GuidedCategory[] {
+  const sheetFingerprint = sourceFingerprint(source.tabs);
   const current = new Map(categories.map((category) => [category.id, category]));
   const globalUsable = new Map<number, GuidanceReference>();
   if (document.scope === scope && document.baseline === baseline) {
@@ -140,16 +198,37 @@ export function guidedDecisions(
             reason: 'Existing link, draft or human review decision preserved.',
           };
         const scopeRule = classifyScope(entry, record.id);
-        if (scopeRule)
+        if (scopeRule) {
+          const link =
+            compatible && approvedExoticStat(entry, record.id)
+              ? exoticParentLink(entry, record.id, proposals.get(hash), source)
+              : undefined;
           return {
             ...result,
-            action: 'out-of-scope',
+            action: link ? 'link' : 'out-of-scope',
             confidence: 'out-of-scope',
+            link: link || undefined,
             ruleId: scopeRule,
-            reason: `Out of scope: ${scopeRule}.`,
+            reason: ['artifact-sunset', 'artifact-source-absent'].includes(scopeRule)
+              ? 'not in a current artifact'
+              : entry.classification?.excluded
+                ? entry.classification.reason
+                : `Out of scope: ${scopeRule}; no tooltip needed.${link ? ' Owner-approved exotic parent link.' : ''}`,
           };
+        }
         if (!compatible)
           return { ...result, reason: 'Scope or baseline differs; proposal withheld.' };
+        const classification = entry.classification;
+        if (
+          classification &&
+          [
+            'attachment-source-investigation',
+            'artifact-identity-unresolved',
+            'optional-movement',
+            'owner-classification-evidence-changed',
+          ].includes(classification.ruleId)
+        )
+          return { ...result, ruleId: classification.ruleId, reason: classification.reason };
         const reference = usable.get(hash);
         if (reference)
           return {
@@ -157,9 +236,22 @@ export function guidedDecisions(
             action: reference.link ? 'link' : 'no-equivalent',
             confidence: 'high',
             ruleId: 'explicit-owner',
-            link: reference.link,
+            link: reference.link ? currentReferenceLink(reference, source) : undefined,
             references: [hash],
             reason: 'Current explicit owner reference; applies to this entry only.',
+          };
+        const familyDecision = inferredSiphonDecision(entry, source);
+        if (familyDecision) return { ...result, ...familyDecision };
+        const reviewed = reviewedOwnerDecision(entry, proposals.get(hash), source);
+        if (reviewed) return { ...result, ...reviewed };
+        if (tentativeOwnerDecision(entry, sheetFingerprint))
+          return {
+            ...result,
+            action: 'no-equivalent',
+            confidence: 'high',
+            ruleId: 'owner-tentative-no-equivalent',
+            reason:
+              'Owner: no equivalent for now (absent/incidental source). Reopens when sheet or entry evidence changes.',
           };
         // Never override an unresolved/stale/skipped/note-only owner sample with an inferred rule.
         if (record.references?.[hash])
@@ -170,12 +262,99 @@ export function guidedDecisions(
             reason: 'Category comment needs agent interpretation; no automatic rule applied.',
           };
         const manifestDecision =
-          !entry.scopeRestored && manifestRule(entry, record.id, globalUsable);
+          !entry.scopeRestored &&
+          entry.classification?.categoryId !== 'attachment-effect' &&
+          manifestRule(entry, record.id, globalUsable);
         if (manifestDecision) return { ...result, ...manifestDecision };
-        if (record.id === 'catalog:armor-mod-seasonal')
+        if (record.id === 'catalog:armor-mod-seasonal') {
+          const artifactNames = new Set(artifactParents(entry));
+          if (notCurrentArtifact(entry, source))
+            return {
+              ...result,
+              action: 'out-of-scope',
+              confidence: 'out-of-scope',
+              ruleId: artifactNames.size ? 'artifact-sunset' : 'artifact-source-absent',
+              reason: 'not in a current artifact',
+            };
+          const tab = source.tabs.find((candidate) => candidate.gid === '473308249');
+          const headers = artifactSections(source);
+          const matchingHeaders = headers.filter((cell) =>
+            [...artifactNames].some((name) => cell.cell.plain.startsWith(`${name} (`)),
+          );
+          const matches = matchingHeaders.flatMap((header) => {
+            const next = Math.min(
+              ...headers.filter((cell) => cell.row > header.row).map((cell) => cell.row),
+              Infinity,
+            );
+            return (tab?.rows ?? [])
+              .filter(
+                (row) =>
+                  row.rowIndex > header.row &&
+                  row.rowIndex < next &&
+                  row.nameNorm === normaliseCompendiumName(entry.name),
+              )
+              .map((row) => ({ tab: tab!, row }));
+          });
+          if (
+            matches.length > 1 &&
+            matchingHeaders.length === matches.length &&
+            tab!.rows.filter((row) => row.nameNorm === normaliseCompendiumName(entry.name))
+              .length === matches.length
+          ) {
+            const combined = combineCompendiumMatches(matches);
+            const link = combined && stableSelection(combined, source);
+            if (link?.parts?.length === matches.length)
+              return {
+                ...result,
+                action: 'link',
+                confidence: 'high',
+                link,
+                ruleId: 'artifact-manifest-section',
+                reason: `Shared perk — used on: ${[...artifactNames].join(', ')}`,
+              };
+          }
+          if (matches.length === 1) {
+            const match = matches[0];
+            const anchor = match.row.anchor;
+            const descriptions = (match.tab.grid ?? []).filter(
+              (cell) =>
+                anchor &&
+                cell.row > anchor.row &&
+                cell.row <= anchor.row + 2 &&
+                Math.abs(cell.col - anchor.col) <= 1 &&
+                sameCell(cell.cell, match.row.cell),
+            );
+            const link =
+              anchor &&
+              descriptions.length === 1 &&
+              stableSelection(
+                {
+                  ...match,
+                  cells: [
+                    {
+                      dRow: descriptions[0].row - anchor.row,
+                      dCol: descriptions[0].col - anchor.col,
+                    },
+                  ],
+                },
+                source,
+              );
+            if (link && !link.parts)
+              return {
+                ...result,
+                action: 'link',
+                confidence: 'high',
+                link,
+                ruleId: 'artifact-manifest-section',
+                reason: `Manifest artifact ${[...artifactNames].join(', ')} matches its sheet section.`,
+              };
+          }
           return {
             ...result,
-            ruleId: 'owner-artifact-identity',
+            ruleId:
+              tab && !tab.rows.some((row) => row.nameNorm === normaliseCompendiumName(entry.name))
+                ? 'artifact-source-absent'
+                : 'owner-artifact-identity',
             reason:
               'Current artifact identity is not established by a name or learned tab. Select a current-artifact source explicitly. Anchors: ' +
               source.tabs
@@ -194,6 +373,67 @@ export function guidedDecisions(
                 )
                 .join('; '),
           };
+        }
+        if (record.id === 'catalog:armor-mod-general') {
+          const proposal = proposals.get(hash);
+          const match = proposal?.match;
+          const variants = new Set(
+            compendiumNameVariants(
+              'armor-mod-general',
+              /^(?:(?:Arc|Solar|Void|Stasis|Strand)\/(?:Arc|Solar|Void|Stasis|Strand) (?:Dual Siphon|Siphon Combo)|Thermodynamic Siphon)$/.test(
+                entry.name,
+              )
+                ? 'Siphon'
+                : entry.name,
+            ).map(normaliseCompendiumName),
+          );
+          if (
+            match &&
+            proposal.link &&
+            !proposal.link.parts &&
+            !match.parts &&
+            compendiumPreferredTabs('armor-mod-general', entry.name).includes(match.tab.gid) &&
+            (compendiumIdentifiers(match.row.name).some((name) =>
+              variants.has(normaliseCompendiumName(name)),
+            ) ||
+              (/^(?:(?:Arc|Solar|Void|Stasis|Strand|Harmonic) Resistance|Concussive Dampener|Melee Damage Resistance|Sniper Damage Resistance)$/.test(
+                entry.name,
+              ) &&
+                normaliseCompendiumName(match.row.name) === 'resistance' &&
+                /Concussive Dampener.*Melee|Melee.*Concussive Dampener/s.test(
+                  match.row.cell.plain,
+                )))
+          ) {
+            return {
+              ...result,
+              action: 'link',
+              confidence: 'high',
+              link: proposal.link,
+              ruleId: 'armor-core-variant',
+              reason: 'Core armor variant resolved uniquely in its configured tab.',
+            };
+          }
+        }
+        if (
+          [
+            'catalog:weapon-perk-exotic',
+            'catalog:weapon-trait-exotic',
+            'catalog:weapon-frame-exotic',
+            'catalog:weapon-catalyst-exotic',
+          ].includes(record.id)
+        ) {
+          const link = exoticParentLink(entry, record.id, proposals.get(hash), source);
+          if (link)
+            return {
+              ...result,
+              action: 'link',
+              confidence: 'high',
+              link,
+              ruleId: 'exotic-catalog-parent',
+              reason: `Catalog exotic socket parent resolves to ${link.rowKey}.`,
+            };
+        }
+
         // Learn the tab from every current positive sample, including picked renames.
         // Section labels are layout headings, not category boundaries (e.g. Armor Mods slots).
         const positive = [...usable.values()].filter((ref) => ref.link);

@@ -4,6 +4,135 @@ import { expect, it } from 'vitest';
 import { guidedFixture } from '../../../test/guided-fixture';
 import { guidedDecisions, guidedRevision } from './guidedDecisions';
 import { GuidedPreview } from './GuidedPreview';
+import { proposalFor } from './rapidReview';
+import { loadManifestFacts } from './manifestFacts';
+
+it('chooses an artifact section using manifest membership when names repeat', () => {
+  const f = guidedFixture(),
+    category = f.categories[0],
+    record = f.document.categories[category.id];
+  delete f.document.categories[category.id];
+  category.id = record.id = 'catalog:armor-mod-seasonal';
+  f.document.categories[record.id] = record;
+  const entry = category.entries[2];
+  entry.name = 'Armorsmith';
+  const facts = loadManifestFacts();
+  entry.manifestFacts = { item: facts.items['2903198437'], version: facts.source.manifestVersion };
+  const tab = f.source.tabs[0];
+  tab.gid = '473308249';
+  tab.name = 'Artifact Perks';
+  tab.grid = [
+    {
+      row: 1,
+      col: 3,
+      cell: { plain: 'Other Artifact (Other)', runs: [{ text: 'Other Artifact (Other)' }] },
+    },
+    {
+      row: 20,
+      col: 3,
+      cell: {
+        plain: 'Encrypted Data Disk (Reclamation)',
+        runs: [{ text: 'Encrypted Data Disk (Reclamation)' }],
+      },
+    },
+  ];
+  tab.rows = [
+    { ...tab.rows[0], rowIndex: 10, name: 'Armorsmith', nameNorm: 'armorsmith', section: 'Other' },
+    {
+      ...tab.rows[1],
+      rowIndex: 30,
+      name: 'Armorsmith',
+      nameNorm: 'armorsmith',
+      section: 'Reclamation',
+    },
+  ];
+  tab.rows[0].anchor = { row: 10, col: 2 };
+  tab.rows[1].anchor = { row: 30, col: 2 };
+  tab.grid.push({ row: 31, col: 1, cell: tab.rows[1].cell });
+  const decision = guidedDecisions(
+    f.document,
+    f.categories,
+    f.proposals,
+    f.source,
+    f.baseline,
+    f.scope,
+  )[0].entries[2];
+  expect(decision).toMatchObject({
+    action: 'link',
+    ruleId: 'artifact-manifest-section',
+    link: { section: 'Reclamation' },
+  });
+  // The old preview family falsely says Implement of Curiosity. Only socket parents count.
+  const decide = () =>
+    guidedDecisions(f.document, f.categories, f.proposals, f.source, f.baseline, f.scope)[0]
+      .entries[2];
+  entry.manifestFacts.item.artifactMemberships = [
+    { source: 'socket', artifactHash: 1, artifactName: 'Sunset Artifact', ownerHash: 2 },
+  ];
+  expect(decide()).toMatchObject({ action: 'out-of-scope', ruleId: 'artifact-sunset' });
+  entry.manifestFacts.item.artifactMemberships[0].artifactName = 'Other Artifact';
+  tab.grid.push({ row: 11, col: 1, cell: tab.rows[0].cell });
+  expect(decide()).toMatchObject({ action: 'link', link: { section: 'Other' } });
+  entry.manifestFacts.item.artifactMemberships[0].artifactName = 'Unknown Artifact';
+  expect(decide().link).toBeUndefined();
+});
+
+it('requires catalog parent and perk identity on the exotic card', () => {
+  const f = guidedFixture();
+  const category = f.categories[0];
+  const record = f.document.categories[category.id];
+  delete f.document.categories[category.id];
+  category.id = record.id = 'catalog:weapon-frame-exotic';
+  f.document.categories[record.id] = record;
+  const entry = category.entries[2];
+  entry.name = 'Cranial Spike II';
+  entry.exoticParentNames = ["Dead Man's Tale", 'Another exotic'];
+  const tab = f.source.tabs[0];
+  tab.name = 'Exotic Weapons';
+  tab.rows[2].name = "Dead Man's Tale\nCranial Spike I–IV";
+  tab.rows[2].nameNorm = 'dead man s tale cranial spike i iv';
+  const decide = () =>
+    guidedDecisions(f.document, f.categories, f.proposals, f.source, f.baseline, f.scope)[0]
+      .entries[2];
+  expect(decide()).toMatchObject({ action: 'link', ruleId: 'exotic-catalog-parent' });
+  tab.rows[0].name = 'Another exotic';
+  f.proposals.set(entry.hash, { match: { tab, row: tab.rows[2] }, candidates: [] });
+  expect(decide()).toMatchObject({ action: 'link', ruleId: 'exotic-catalog-parent' });
+  f.proposals.delete(entry.hash);
+  expect(decide().ruleId).not.toBe('exotic-catalog-parent');
+  entry.exoticParentNames = [];
+  entry.name = 'Default Ornament';
+  expect(decide().ruleId).not.toBe('exotic-catalog-parent');
+});
+
+it('uses core armor variants while protecting multipart and owner samples', () => {
+  for (const [name, row, gid] of [
+    ['Harmonic Dexterity', 'Dexterity', '1934379638'],
+    ['Set Bonus: AION Adapter', 'AION Adapter', '1287885342'],
+  ]) {
+    const f = guidedFixture();
+    const category = f.categories[0];
+    const record = f.document.categories[category.id];
+    delete f.document.categories[category.id];
+    category.id = record.id = 'catalog:armor-mod-general';
+    f.document.categories[record.id] = record;
+    const entry = category.entries[2];
+    entry.name = name;
+    f.editor.items[entry.hash].name = name;
+    f.editor.items[entry.hash].categoryId = 'armor-mod-general';
+    f.source.tabs[0].gid = gid;
+    f.source.tabs[0].name = gid === '1287885342' ? 'Armor Perks' : 'Armor Mods';
+    f.source.tabs[0].rows[2].name = row;
+    f.source.tabs[0].rows[2].nameNorm = row.toLowerCase();
+    f.proposals.set(entry.hash, proposalFor(entry.base, f.editor, f.source));
+    const decide = () =>
+      guidedDecisions(f.document, f.categories, f.proposals, f.source, f.baseline, f.scope)[0]
+        .entries[2];
+    expect(decide()).toMatchObject({ action: 'link', ruleId: 'armor-core-variant' });
+    record.references![entry.hash] = { ...record.references![104], hash: entry.hash };
+    expect(decide().action).toBe('owner');
+  }
+});
 
 it('offers a close typo only for confirmation and preserves owner samples', () => {
   const f = guidedFixture();
@@ -198,7 +327,7 @@ import { sampleReference } from './sampleReferences';
 import { sourceFingerprint } from './reviewProgress';
 
 it.each(['Blastwave Striders', 'Swarmers', 'Armorsmith'])(
-  'withholds actual %s card anchors instead of promoting resolver-generated neighboring headings',
+  'validates actual %s card anchors without promoting neighboring headings',
   (name) => {
     const f = guidedFixture();
     const realTab = structuredClone(
@@ -226,13 +355,13 @@ it.each(['Blastwave Striders', 'Swarmers', 'Armorsmith'])(
     };
     f.categories[0].entries.find((entry) => entry.hash === 102)!.name = name;
     const match = combineCompendiumMatches(rows.map((row) => ({ tab: realTab, row })))!;
+    if (name !== 'Armorsmith') {
+      expect(match.parts).toBeUndefined();
+      expect(match.row.cell).toEqual(rows[0].cell);
+      return; // one merged armour card, not an unverified multipart source
+    }
     expect(match.parts).toHaveLength(2);
-    const expected =
-      name === 'Blastwave Striders'
-        ? ["The Dragon's Shadow", 'Wraithmetal Mail']
-        : name === 'Swarmers'
-          ? ['Speedloader Slacks', 'Tight Fit']
-          : ['Kinetic Synthesis', 'Anti-Champion Nosecone'];
+    const expected = ['Kinetic Synthesis', 'Anti-Champion Nosecone'];
     expect(match.parts).toEqual(expected);
     f.proposals.set(102, {
       match,

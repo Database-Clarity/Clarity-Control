@@ -1,4 +1,6 @@
 import type { GuidanceReference } from './guidanceSchema';
+import { artifactParents } from './artifactIdentity';
+import { approvedExoticStat } from './ownerExceptions';
 import { manifestRule } from './manifestRule';
 import type { ReviewCategory, ReviewSample } from './reviewCategories';
 
@@ -17,9 +19,14 @@ export function classifyScope(
     entry.base.compendium ||
     entry.next.compendium ||
     entry.status !== 'open' ||
-    entry.scopeRestored
+    (entry.scopeRestored && !entry.artifactSunset && !approvedExoticStat(entry, category))
   )
     return undefined;
+  if (entry.classification?.excluded) return entry.classification.ruleId;
+  if (entry.classification?.categoryId === 'attachment-effect') return undefined;
+  if (category === 'catalog:armor-mod-seasonal' && entry.artifactSunset)
+    return artifactParents(entry).length ? 'artifact-sunset' : 'artifact-source-absent';
+  if (approvedExoticStat(entry, category)) return 'manifest-weapon-stat';
   if (category === 'catalog:ghost-mod' && !config.includeGhostMods) return 'ghost-mod';
   const rule = manifestRule(entry, category, statSupport)?.ruleId;
   return rule === 'manifest-weapon-stat' || rule === 'manifest-armor-stat' ? rule : undefined;
