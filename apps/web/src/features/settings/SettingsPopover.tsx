@@ -10,20 +10,26 @@ const focusable =
 const phone = '(max-width: 700px)';
 const width = 480;
 const margin = 8;
+const gap = 6;
+// Keep a visible bottom edge: never run the popover to the viewport edge.
+const edge = 20;
 
-/** Fixed position beside the opening button: right of it when there is room, else under it. */
+/** Fixed position under (or, in the lower half of the screen, above) the opening button. */
 function anchor(button: Element | null): CSSProperties {
   if (!button || window.matchMedia?.(phone).matches) return {};
   const rect = button.getBoundingClientRect();
-  const left = Math.max(margin, Math.min(rect.right + margin, window.innerWidth - width - margin));
-  const fromBottom = rect.top > window.innerHeight / 2;
-  return fromBottom
-    ? {
-        left,
-        bottom: Math.max(margin, window.innerHeight - rect.bottom),
-        maxHeight: rect.bottom - margin,
-      }
-    : { left, top: Math.max(margin, rect.top), maxHeight: window.innerHeight - rect.top - margin };
+  const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin));
+  if (rect.top > window.innerHeight / 2)
+    return {
+      left,
+      bottom: window.innerHeight - rect.top + gap,
+      maxHeight: Math.max(240, rect.top - gap - edge),
+    };
+  return {
+    left,
+    top: rect.bottom + gap,
+    maxHeight: Math.max(240, window.innerHeight - rect.bottom - gap - edge),
+  };
 }
 
 /** Mounted only while open: mounting enters Settings, unmounting leaves it (and syncs once). */
