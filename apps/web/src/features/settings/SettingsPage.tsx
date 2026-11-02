@@ -23,7 +23,10 @@ export function SettingsPage() {
   const zones = useMemo(timeZones, []);
   const [layoutReset, setLayoutReset] = useState(false);
   // Synced settings go to the account only when the user leaves this page.
-  useEffect(() => () => void useSettingsStore.getState().sync(), []);
+  useEffect(() => {
+    useSettingsStore.getState().enterSettings();
+    return () => void useSettingsStore.getState().leaveSettings();
+  }, []);
   const zoneOptions =
     settings.timeZone === 'auto' || settings.timeZone === 'UTC' || zones.includes(settings.timeZone)
       ? zones

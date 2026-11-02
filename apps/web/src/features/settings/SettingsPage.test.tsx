@@ -9,6 +9,7 @@ import { layoutKey, settingsKey, useSettingsStore } from '../../stores/settings'
 import { CommitAuthor } from '../history/CommitAuthor';
 import { SettingsNotice } from './SettingsChoice';
 import { SettingsPage } from './SettingsPage';
+import { SettingsSync } from './SettingsSync';
 import { MarkupToolbar } from '../editor/MarkupToolbar';
 import type { MarkupGlobals } from '@clarity/core';
 
@@ -233,6 +234,46 @@ describe('Settings page', () => {
     expect(useSettingsStore.getState()).toMatchObject({ pending: [], status: 'synced' });
     expect(useSettingsStore.getState().settings.markupToolbar).toBe('open');
     expect(holder.server.calls.put).toHaveLength(puts);
+  });
+
+  it('ignores tab switches while open, and shows the global notice when a queued exit fails', async () => {
+    await act(async () => useSettingsStore.getState().activate(editor));
+    const page = () =>
+      createElement('div', null, createElement(SettingsSync), createElement(SettingsPage));
+    const elsewhere = () =>
+      act(async () =>
+        root.render(
+          createElement(
+            MemoryRouter,
+            null,
+            createElement(SettingsSync),
+            createElement(SettingsNotice),
+          ),
+        ),
+      );
+    await render(page());
+    await choose('Date format', 'iso');
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('pagehide'));
+    });
+    Reflect.deleteProperty(document, 'visibilityState');
+    expect(holder.server.calls.put).toHaveLength(0);
+    holder.server.hold();
+    await elsewhere(); // leave: first PUT is held
+    await render(page());
+    await choose('Time display', 'date');
+    await elsewhere(); // leave again while the first PUT is out: queued
+    expect(holder.server.calls.put).toHaveLength(1);
+    holder.server.fail('server answered HTTP 503');
+    await act(async () => holder.server.release());
+    expect(holder.server.calls.put).toHaveLength(2);
+    expect(host.textContent).toContain('Settings not synced: server answered HTTP 503');
+    holder.server.fail('');
+    await act(async () => button('Retry sync').click());
+    expect(holder.server.remote.settings).toMatchObject({ dateFormat: 'iso', timeDisplay: 'date' });
+    expect(host.textContent).toBe('');
   });
 
   it('works signed out, saving on this device only', async () => {

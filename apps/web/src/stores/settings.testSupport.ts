@@ -20,6 +20,8 @@ export function fakeServer(initial: RemoteSettings = { settings: null, revision:
     put: [] as { settings: SyncedSettings; revision: string | null; keepalive?: boolean }[],
   };
   let failing = '';
+  let holding = false;
+  const held: (() => void)[] = [];
   const api: SettingsApi = {
     async get() {
       calls.get++;
@@ -28,6 +30,8 @@ export function fakeServer(initial: RemoteSettings = { settings: null, revision:
     },
     async put(settings, revision, keepalive) {
       calls.put.push({ settings, revision, keepalive });
+      // A held PUT is answered only on release(), with the server state at that moment.
+      if (holding) await new Promise<void>((resolve) => held.push(resolve));
       if (failing) return { kind: 'failed', error: failing };
       if (revision !== remote.revision)
         return { kind: 'conflict', remote: structuredClone(remote) };
@@ -47,6 +51,19 @@ export function fakeServer(initial: RemoteSettings = { settings: null, revision:
     },
     fail(message: string) {
       failing = message;
+    },
+    /** Hold every later PUT until `release()`. */
+    hold() {
+      holding = true;
+    },
+    /** Answer the oldest held PUT (and stop holding new ones) and let it settle. */
+    async release() {
+      holding = false;
+      held.shift()?.();
+      for (let tick = 0; tick < 20; tick++) await Promise.resolve();
+    },
+    get waiting() {
+      return held.length;
     },
   };
 }

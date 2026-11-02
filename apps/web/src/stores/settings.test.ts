@@ -314,3 +314,122 @@ describe('settings store: sync', () => {
     expect(server.calls).toEqual({ get: 0, put: [] });
   });
 });
+
+describe('settings store: Settings exit, tab hide and late responses', () => {
+  const ticks = async () => {
+    for (let tick = 0; tick < 20; tick++) await Promise.resolve();
+  };
+
+  it('never syncs on tab hide while Settings is open, but does for leftovers after leaving', async () => {
+    const { values, storage } = memoryStorage();
+    const server = fakeServer();
+    const store = make(storage, server);
+    await store.getState().activate(editor);
+    store.getState().enterSettings();
+    store.getState().update({ dateFormat: 'iso' });
+    store.getState().syncOnHide();
+    await ticks();
+    expect(server.calls.put).toHaveLength(0);
+    // A close now relies on the persisted marker and the next-load prompt.
+    expect(JSON.parse(values.get(settingsKey('7'))!).pending).toEqual(['dateFormat']);
+    server.fail('offline');
+    await store.getState().leaveSettings();
+    expect(store.getState()).toMatchObject({ status: 'error', pending: ['dateFormat'] });
+    server.fail('');
+    store.getState().syncOnHide();
+    await ticks();
+    expect(server.calls.put.at(-1)).toMatchObject({ keepalive: true });
+    expect(store.getState()).toMatchObject({ status: 'synced', pending: [] });
+  });
+
+  it('queues an exit made while a sync is in flight and sends the latest state after it settles', async () => {
+    const server = fakeServer();
+    const store = make(memoryStorage().storage, server);
+    await store.getState().activate(editor);
+    store.getState().enterSettings();
+    store.getState().update({ dateFormat: 'iso' });
+    server.hold();
+    const first = store.getState().leaveSettings();
+    store.getState().enterSettings();
+    store.getState().update({ timeDisplay: 'date' });
+    await store.getState().leaveSettings();
+    expect(server.calls.put).toHaveLength(1);
+    await server.release();
+    await first;
+    expect(server.calls.put).toHaveLength(2);
+    // Based on the first PUT's answer, so no false conflict.
+    expect(server.calls.put[1].revision).toBe('1'.padStart(40, 'a'));
+    expect(server.remote.settings).toMatchObject({ dateFormat: 'iso', timeDisplay: 'date' });
+    expect(store.getState()).toMatchObject({ status: 'synced', pending: [], choice: null });
+  });
+
+  it('does not send edits made while back on Settings when the earlier sync settles', async () => {
+    const server = fakeServer();
+    const store = make(memoryStorage().storage, server);
+    await store.getState().activate(editor);
+    store.getState().enterSettings();
+    store.getState().update({ dateFormat: 'iso' });
+    server.hold();
+    const first = store.getState().leaveSettings();
+    store.getState().enterSettings();
+    store.getState().update({ timeDisplay: 'date' });
+    await server.release();
+    await first;
+    expect(server.calls.put).toHaveLength(1);
+    expect(store.getState()).toMatchObject({ status: 'unsynced', pending: ['timeDisplay'] });
+    await store.getState().leaveSettings();
+    expect(server.calls.put).toHaveLength(2);
+    expect(store.getState()).toMatchObject({ status: 'synced', pending: [] });
+  });
+
+  it('ends in the not-synced error state, changes kept, when the queued sync fails too', async () => {
+    const server = fakeServer();
+    const store = make(memoryStorage().storage, server);
+    await store.getState().activate(editor);
+    store.getState().enterSettings();
+    store.getState().update({ dateFormat: 'iso' });
+    server.hold();
+    const first = store.getState().leaveSettings();
+    store.getState().enterSettings();
+    store.getState().update({ timeDisplay: 'date' });
+    await store.getState().leaveSettings();
+    server.fail('server answered HTTP 503');
+    await server.release();
+    await first;
+    expect(server.calls.put).toHaveLength(2);
+    expect(store.getState()).toMatchObject({
+      status: 'error',
+      error: 'server answered HTTP 503',
+      pending: ['dateFormat', 'timeDisplay'],
+    });
+  });
+
+  it('ignores a late response from before a reactivation', async () => {
+    const { storage } = memoryStorage();
+    const server = fakeServer();
+    const store = make(storage, server);
+    await store.getState().activate(editor);
+    store.getState().enterSettings();
+    store.getState().update({ dateFormat: 'iso' });
+    server.hold();
+    const first = store.getState().leaveSettings();
+    // Same user reactivated (e.g. login re-checked) while the PUT is still out: the pending
+    // marker is recovered and needs a choice.
+    await store.getState().activate(editor);
+    expect(store.getState()).toMatchObject({ status: 'choice', revision: null });
+    expect(store.getState().choice?.recovered).toBe(true);
+    // The old PUT now succeeds on the server, but its answer must not clear the choice.
+    await server.release();
+    await first;
+    expect(store.getState()).toMatchObject({
+      status: 'choice',
+      revision: null,
+      pending: ['dateFormat'],
+    });
+    expect(store.getState().choice?.recovered).toBe(true);
+    store.getState().update({ timeZone: 'UTC' });
+    store.getState().syncOnHide();
+    await ticks();
+    expect(server.calls.put).toHaveLength(1);
+  });
+});

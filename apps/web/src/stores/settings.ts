@@ -97,6 +97,10 @@ export interface SettingsState {
   sync(options?: { keepalive?: boolean }): Promise<void>;
   /** Best-effort sync when the tab is hidden or closed, only for this visit's own edits. */
   syncOnHide(): void;
+  /** The Settings page mounted: its edits wait for the exit. */
+  enterSettings(): void;
+  /** The Settings page unmounted: sync now, or as soon as a running request settles. */
+  leaveSettings(): Promise<void>;
   keepLocal(): Promise<void>;
   useRemote(): void;
   retry(): Promise<void>;
@@ -282,8 +286,13 @@ export function createSettingsStore({
   let recovered = false;
   /** Changes made during this visit, eligible for the best-effort sync on tab hide. */
   let sessionEdits = false;
-  /** The user left Settings while the account copy was still loading: sync once it lands. */
-  let exitRequested = false;
+  /** The Settings page is open; nothing syncs until it closes (hide/close included). */
+  let onSettings = false;
+  /**
+   * The user left Settings while a GET or PUT was running: sync the latest state once it
+   * settles (unless they are back on Settings by then).
+   */
+  let exitQueued = false;
 
   const legacy = migrateLegacy()?.settings;
   const legacyRemembered: Remembered = {
@@ -323,16 +332,31 @@ export function createSettingsStore({
       persist();
     }
 
+    async function flushQueued(): Promise<void> {
+      if (!exitQueued || onSettings) return;
+      exitQueued = false;
+      await get().sync();
+    }
+
     async function send(settings: SyncedSettings, revision: string | null, keepalive = false) {
-      const scope = get().scope;
+      // Responses from an earlier activation (sign-out, user switch, same-user reload) are
+      // ignored: they must not overwrite newer local state, revision or a pending choice.
+      const token = activation;
       inFlight = true;
       set({ status: 'syncing', error: '' });
       const result = await api.put(settings, revision, keepalive);
+      if (token !== activation) return;
       inFlight = false;
-      if (get().scope !== scope) return;
-      if (result.kind === 'synced') return synced(result.remote, settings);
+      if (result.kind === 'synced') {
+        synced(result.remote, settings);
+        return flushQueued();
+      }
       if (result.kind === 'conflict') {
-        if (same(result.remote.settings, get().settings)) return synced(result.remote, settings);
+        if (same(result.remote.settings, get().settings)) {
+          synced(result.remote, settings);
+          return flushQueued();
+        }
+        exitQueued = false;
         set({
           status: 'choice',
           choice: {
@@ -345,6 +369,9 @@ export function createSettingsStore({
         return;
       }
       set({ status: 'error', error: result.error });
+      // One more attempt with the latest state if the user left meanwhile; a second failure
+      // stays as the global "not synced" notice with Retry.
+      return flushQueued();
     }
 
     async function refresh(token: number): Promise<void> {
@@ -353,7 +380,10 @@ export function createSettingsStore({
       try {
         remote = await api.get();
       } catch (error) {
-        if (token === activation) set({ status: 'error', error: errorMessage(error) });
+        if (token === activation) {
+          exitQueued = false;
+          set({ status: 'error', error: errorMessage(error) });
+        }
         return;
       }
       if (token !== activation) return;
@@ -361,8 +391,12 @@ export function createSettingsStore({
       const state = get();
       uploadNeeded = remote.settings === null;
       if (state.pending.length) {
-        if (same(remote.settings, state.settings)) return synced(remote, state.settings);
+        if (same(remote.settings, state.settings)) {
+          synced(remote, state.settings);
+          return flushQueued();
+        }
         if (recovered) {
+          exitQueued = false;
           set({
             status: 'choice',
             choice: { local: state.settings, remote, recovered: true, since: state.pendingSince },
@@ -375,11 +409,7 @@ export function createSettingsStore({
         for (const key of state.pending) Object.assign(settings, { [key]: state.settings[key] });
         set({ settings, revision: remote.revision, status: 'unsynced' });
         persist();
-        if (exitRequested) {
-          exitRequested = false;
-          await get().sync();
-        }
-        return;
+        return flushQueued();
       }
       if (remote.settings) {
         set({ settings: remote.settings, revision: remote.revision, status: 'synced' });
@@ -390,6 +420,7 @@ export function createSettingsStore({
         });
       }
       persist();
+      return flushQueued();
     }
 
     return {
@@ -410,7 +441,8 @@ export function createSettingsStore({
         remoteLoaded = false;
         uploadNeeded = false;
         sessionEdits = false;
-        exitRequested = false;
+        exitQueued = false;
+        inFlight = false;
         recovered = canSync && copy.pending.length > 0;
         set({
           scope,
@@ -461,7 +493,7 @@ export function createSettingsStore({
 
       async sync({ keepalive = false } = {}) {
         const state = get();
-        if (canSync && state.status === 'loading' && !keepalive) exitRequested = true;
+        if (canSync && !keepalive && (inFlight || state.status === 'loading')) exitQueued = true;
         if (!canSync || inFlight || state.choice || state.status === 'loading') return;
         if (!state.pending.length && !(uploadNeeded && remoteLoaded)) return;
         if (uploadNeeded && !state.pending.length && same(state.settings, defaultSyncedSettings))
@@ -470,7 +502,19 @@ export function createSettingsStore({
       },
 
       syncOnHide() {
-        if (sessionEdits && !recovered) void get().sync({ keepalive: true });
+        // Only changes still pending after the user left Settings; a close while Settings is
+        // open is handled by the persisted marker and the next-load prompt.
+        if (!onSettings && sessionEdits && !recovered) void get().sync({ keepalive: true });
+      },
+
+      enterSettings() {
+        onSettings = true;
+        exitQueued = false;
+      },
+
+      async leaveSettings() {
+        onSettings = false;
+        await get().sync();
       },
 
       async keepLocal() {
