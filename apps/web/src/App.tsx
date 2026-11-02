@@ -9,6 +9,7 @@ import { GlobalDetailPage, GlobalsPage } from './features/globals/GlobalsPage';
 import { Layout } from './features/navigation/Layout';
 import { ReviewPage } from './features/review/ReviewPage';
 import { LostTextPage } from './features/lost-text/LostTextPage';
+import { SettingsPage } from './features/settings/SettingsPage';
 import { DriftPage } from './features/drift/DriftPage';
 import { TranslationsPage } from './features/translations/TranslationsPage';
 import { PlaceholderPage } from './ui/PlaceholderPage';
@@ -30,6 +31,7 @@ export function App() {
         <Route path="globals" element={<GlobalsPage />} />
         <Route path="globals/:kind/:name" element={<GlobalDetailPage />} />
         <Route path="admin" element={<AdminPage />} />
+        <Route path="settings" element={<SettingsPage />} />
         <Route
           path="*"
           element={

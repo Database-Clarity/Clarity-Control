@@ -8,6 +8,7 @@ import artifact from './lost-text.json';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
+import { useSettingsStore } from '../../stores/settings';
 
 vi.mock('../preview/TooltipPreview', () => ({
   TooltipPreview: ({ text }: { text: string }) => <div>{text}</div>,
@@ -123,13 +124,14 @@ it('redirects translators away from a direct checker URL', () => {
 });
 
 it('explains classes, action consequences and dates before taking an action', () => {
+  useSettingsStore.getState().update({ dateFormat: 'dmy', timeZone: 'UTC', timeDisplay: 'date' });
   render('/lost-text?item=1885400500:en');
   expect(container.textContent).toContain('Historical text (last non-empty)');
   expect(container.textContent).not.toContain('Recovered text');
   expect(container.textContent).toContain('Recover creates an unsaved local draft');
   expect(container.textContent).toContain('in this browser only');
   expect(container.textContent).toContain('2 of 480 records shown');
-  expect(container.querySelector('time')?.textContent).toContain('12 Feb 2023');
+  expect(container.querySelector('time')?.textContent).toBe('12 Feb 2023');
   expect(container.querySelector('time')?.title).toBe('2023-02-12T20:12:46+01:00');
   expect(container.textContent).toContain(
     'Unclear — authorship or manifest evidence is inconclusive',

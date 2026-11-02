@@ -10,6 +10,8 @@ import { TooltipNavigation } from './TooltipNavigation';
 import { visibleLinks } from './links';
 import { CompendiumSidebarNavigation, ReviewSidebarNavigation } from './SidebarNavigation';
 import { CompendiumBadge } from '../compendium/CompendiumBadge';
+import { SettingsNotice } from '../settings/SettingsChoice';
+import { SettingsSync } from '../settings/SettingsSync';
 import styles from './Layout.module.scss';
 
 function workspacePath(pathname: string) {
@@ -225,6 +227,8 @@ export function Layout() {
         tabIndex={-1}
         aria-hidden={navOpen || undefined}
       >
+        <SettingsSync />
+        {location.pathname !== '/settings' && <SettingsNotice />}
         {draftError && (
           <p role="alert">
             {draftError}{' '}

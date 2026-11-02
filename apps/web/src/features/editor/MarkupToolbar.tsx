@@ -1,10 +1,10 @@
-import { useEffect, useState, type RefObject } from 'react';
+import { useState, type RefObject } from 'react';
 import type { EditorView } from '@codemirror/view';
 import type { MarkupGlobals } from '@clarity/core';
 import { insertMarkup, markupOptions } from './markupInsertion';
+import { useSettingsStore } from '../../stores/settings';
 import styles from './ClarityEditor.module.scss';
 
-const preferenceKey = 'clarity-translator-markup-toolbar';
 const groups = [...new Set(markupOptions.map((option) => option.group))];
 
 export function MarkupToolbar({
@@ -14,27 +14,16 @@ export function MarkupToolbar({
   editor: RefObject<EditorView | null>;
   globals: MarkupGlobals;
 }) {
-  const [open, setOpen] = useState(false);
+  // The default comes from Settings; toggling here changes this view only.
+  const [open, setOpen] = useState(
+    () => useSettingsStore.getState().settings.markupToolbar === 'open',
+  );
   const [choice, setChoice] = useState(markupOptions[0].id);
   const [message, setMessage] = useState('');
 
-  useEffect(() => {
-    try {
-      setOpen(localStorage.getItem(preferenceKey) === 'open');
-    } catch {
-      setMessage('Cannot read the saved markup toolbar preference.');
-    }
-  }, []);
-
   function toggle() {
-    const next = !open;
-    setOpen(next);
-    try {
-      localStorage.setItem(preferenceKey, next ? 'open' : 'closed');
-      setMessage('');
-    } catch {
-      setMessage('Cannot save the markup toolbar preference.');
-    }
+    setOpen(!open);
+    setMessage('');
   }
 
   function insert() {

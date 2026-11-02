@@ -17,6 +17,7 @@ import { replaceDraft } from '../../services/save/drafts';
 import { errorMessage } from '../../services/http';
 import { TooltipPreview } from '../preview/TooltipPreview';
 import { tooltipImports } from '../../services/tooltipImports';
+import { When } from '../../ui/When';
 import styles from './LostText.module.scss';
 
 const parsed = artifactSchema.safeParse(artifact);
@@ -190,16 +191,7 @@ export function LostTextPage() {
               {selected.classification}: {selected.reason}
             </p>
             <p>
-              Cleared{' '}
-              <time dateTime={selected.clearingDate} title={selected.clearingDate}>
-                {new Intl.DateTimeFormat('en-GB', {
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric',
-                  timeZone: 'UTC',
-                }).format(new Date(selected.clearingDate))}
-              </time>{' '}
-              by {selected.clearingAuthor}.{' '}
+              Cleared <When value={selected.clearingDate} /> by {selected.clearingAuthor}.{' '}
               <a
                 href={`https://github.com/Database-Clarity/Live-Clarity-Database/commit/${selected.clearingCommit}`}
                 target="_blank"

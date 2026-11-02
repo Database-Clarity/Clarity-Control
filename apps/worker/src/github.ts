@@ -118,11 +118,15 @@ export class GitHub {
     return file;
   }
 
-  private credits(user: Identity) {
+  /** `null` credits the bot as author too, so the commit names no user (synced settings). */
+  private credits(user: Identity | null) {
     const bot = `${this.env.GITHUB_APP_SLUG}[bot]`;
+    const committer = { name: bot, email: `${bot}@users.noreply.github.com` };
     return {
-      author: { name: user.login, email: `${user.id}+${user.login}@users.noreply.github.com` },
-      committer: { name: bot, email: `${bot}@users.noreply.github.com` },
+      author: user
+        ? { name: user.login, email: `${user.id}+${user.login}@users.noreply.github.com` }
+        : committer,
+      committer,
     };
   }
 
@@ -130,7 +134,7 @@ export class GitHub {
     head: string,
     files: Record<string, unknown>,
     message: string,
-    user: Identity,
+    user: Identity | null,
   ): Promise<string> {
     const parent = commitSchema.parse(await this.result(`/git/commits/${head}`));
     const tree = shaSchema.parse(

@@ -1,0 +1,95 @@
+@use '../../data/variables' as theme;
+
+.page {
+  padding: 1.25rem;
+  max-width: 40rem;
+  margin: auto;
+  display: grid;
+  gap: 1rem;
+  overflow-wrap: anywhere;
+}
+.page h1 {
+  margin: 0;
+}
+.page > a {
+  justify-self: start;
+}
+.page fieldset {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0.75rem 1rem 1rem;
+  border: 1px solid theme.$button-border-color;
+  border-radius: 6px;
+}
+.page legend {
+  font-weight: bold;
+  padding: 0 0.25rem;
+}
+.page label {
+  display: grid;
+  gap: 0.25rem;
+}
+.page button,
+.page select,
+.page a,
+.choice button,
+.notice button {
+  min-height: 44px;
+  font: inherit;
+}
+.page a {
+  display: inline-flex;
+  align-items: center;
+}
+.page select {
+  width: 100%;
+}
+.hint,
+.example {
+  margin: 0;
+  font-size: 0.85rem;
+  opacity: 0.85;
+}
+.status {
+  margin: 0;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+.choice {
+  border: 1px solid theme.$orange-color;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+.choice h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+}
+.choice table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5rem 0 0.75rem;
+}
+.choice th,
+.choice td {
+  text-align: left;
+  padding: 0.25rem 0.5rem 0.25rem 0;
+  vertical-align: top;
+}
+.notice {
+  margin-top: 0;
+}
+
+@include theme.mobile {
+  .page {
+    padding: 0.75rem;
+  }
+  .actions button {
+    width: 100%;
+  }
+}

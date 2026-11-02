@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { vi } from 'vitest';
 import { type Aliases, type Permissions, type Tooltip } from '@clarity/core';
@@ -208,7 +209,12 @@ export class Fixture {
       const value = name === 'liveDescriptions.json' ? this.live : this.snapshots.get(ref)?.[name];
       if (value === undefined) return this.response({ message: 'Not Found' }, 404);
       return this.response({
-        sha: name === 'liveDescriptions.json' ? this.liveFileSha : sha(4),
+        sha:
+          name === 'liveDescriptions.json'
+            ? this.liveFileSha
+            : name.startsWith('user-settings/')
+              ? gitBlobSha(value)
+              : sha(4),
         encoding: this.largeFile && name === 'liveDescriptions.json' ? 'none' : 'base64',
         content:
           this.largeFile && name === 'liveDescriptions.json'
@@ -275,6 +281,14 @@ export class Fixture {
     if (path === '/commits') return this.response(this.history);
     throw new Error(`Unexpected mock request: ${method} ${url.href}`);
   }
+}
+
+/** The blob SHA GitHub reports for a file written as pretty JSON by `GitHub.commit`. */
+export function gitBlobSha(value: unknown): string {
+  const content = Buffer.from(`${JSON.stringify(value, null, 2)}\n`, 'utf8');
+  return createHash('sha1')
+    .update(Buffer.concat([Buffer.from(`blob ${content.byteLength}\0`), content]))
+    .digest('hex');
 }
 
 function expectGoogleUrl(url: URL) {

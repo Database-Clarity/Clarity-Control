@@ -28,6 +28,8 @@ never from a request or token. Permissions are read on every request and retry
 | `GET /history/:hash?page=1`               | Authorized member token                                                  | `{ page, commits: [{ commit, author, date, message }] }`, 30 per page  |
 | `GET /history/:hash?commit=<40-char SHA>` | Authorized member token                                                  | `{ commit, tooltip }`                                                  |
 | `GET /history/:hash?live=1`               | Authorized member token                                                  | `{ pushedHash: string \| null, tooltip: Tooltip \| null }`             |
+| `GET /settings`                           | Authorized member token                                                  | `{ settings: SyncedSettings \| null, revision, unreadable }`           |
+| `PUT /settings`                           | `{ settings, revision: string \| null }`, at most 4096 bytes             | `{ settings, revision }`; 409 `{ error, settings, revision }`          |
 
 History entries additionally include `login` and `avatar` (nullable); `author`
 retains the git-name fallback. Push-live accepts an optional `expected` map of
@@ -45,6 +47,20 @@ GitHub identity and are not persisted. A signed-in, unconfigured user gets
 `role: null` and cannot read history or write. All data commits name the editor
 as author (`login`, `<id>+<login>@users.noreply.github.com`) and the App bot as
 committer. The installation token is restricted to the configured repository.
+
+### Synced user settings
+
+`/settings` stores one file per user on the data branch at
+`user-settings/<HMAC-SHA256(file-id key, user id)>.json`. The content is
+`{ v: 1, iv, ct }`: AES-256-GCM with a random nonce, the plaintext padded to
+256-byte blocks and the file id bound as associated data. Both keys are derived
+with HKDF-SHA256 from `SESSION_SECRET` (salt and info `clarity-user-settings-v1/...`),
+so the public repository shows neither the user nor the values. These commits use
+the bot as author and committer with the fixed message `Update synced settings`.
+`revision` is the file's blob SHA: a PUT with a stale revision gets 409 and the
+stored copy, and identical content is not rewritten. Rotating `SESSION_SECRET`
+signs everyone out and orphans these files: clients then keep their browser copy
+and upload a fresh file on the next sync.
 
 ### Save and conflicts
 

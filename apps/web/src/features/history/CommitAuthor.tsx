@@ -1,4 +1,5 @@
 import type { HistoryCommit } from '../../services/history';
+import { When } from '../../ui/When';
 import styles from './History.module.scss';
 
 export function CommitAuthor({ entry }: { entry: HistoryCommit }) {
@@ -11,11 +12,7 @@ export function CommitAuthor({ entry }: { entry: HistoryCommit }) {
         (entry.author ?? 'Unknown author')
       )}
       {' · '}
-      {entry.date ? (
-        <time dateTime={entry.date}>{new Date(entry.date).toLocaleString()}</time>
-      ) : (
-        'Unknown date'
-      )}
+      <When value={entry.date} fallback="Unknown date" />
     </span>
   );
 }

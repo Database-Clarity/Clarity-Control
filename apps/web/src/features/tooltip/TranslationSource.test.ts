@@ -3,6 +3,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { TranslationSource } from './TranslationSource';
+import { useSettingsStore } from '../../stores/settings';
 
 vi.mock('../translations/EnglishDiff', () => ({
   EnglishDiffContent: () => createElement('div', null, 'Diff content'),
@@ -17,7 +18,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
 });
 afterEach(() => vi.unstubAllGlobals());
-it('switches views and remembers the choice on remount, with no toggle for current translations', async () => {
+it('starts from the Settings default, switches this view only, with no toggle for current translations', async () => {
   const host = document.createElement('div');
   document.body.append(host);
   let root = createRoot(host);
@@ -34,6 +35,13 @@ it('switches views and remembers the choice on remount, with no toggle for curre
   expect(host.textContent).toContain('Current source');
   expect(host.textContent).not.toContain('Diff content');
   await act(async () => root.unmount());
+  root = createRoot(host);
+  await act(async () => root.render(createElement(TranslationSource, props)));
+  // A view toggle is not a setting: a new view starts from the Settings default again.
+  expect(host.querySelector('button')?.getAttribute('aria-pressed')).toBe('true');
+  expect(useSettingsStore.getState().pending).toEqual([]);
+  await act(async () => root.unmount());
+  useSettingsStore.getState().update({ englishSource: 'current' });
   root = createRoot(host);
   await act(async () => root.render(createElement(TranslationSource, props)));
   expect(host.querySelector('button')?.getAttribute('aria-pressed')).toBe('false');
