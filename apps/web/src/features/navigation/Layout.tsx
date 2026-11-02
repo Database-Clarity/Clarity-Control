@@ -74,7 +74,8 @@ export function Layout() {
     for (const { element } of previousInert) element.setAttribute('inert', '');
     browseButton.current?.focus();
     const keydown = (event: KeyboardEvent) => {
-      // A native save/conflict dialog owns focus and Escape above Browse.
+      // A native save/conflict dialog or the settings popover owns focus and Escape above Browse.
+      if (useSettingsPanel.getState().open) return;
       if (document.querySelector('dialog[open]')) return;
       if (event.key === 'Escape') {
         event.preventDefault();
