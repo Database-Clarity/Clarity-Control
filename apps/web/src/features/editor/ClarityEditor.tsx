@@ -17,7 +17,14 @@ import {
   highlightActiveLine,
   drawSelection,
 } from '@codemirror/view';
-import { markupLanguage, validateText, type Lang, type MarkupGlobals } from '@clarity/core';
+import {
+  glyphWarnings,
+  canReplaceGlyph,
+  markupLanguage,
+  validateText,
+  type Lang,
+  type MarkupGlobals,
+} from '@clarity/core';
 import { clarityCompletions } from './completion';
 import { clarityHighlighting, clarityLanguage } from './language';
 import { tableFormattingTransaction } from './formatTable';
@@ -79,6 +86,34 @@ export function ClarityEditor({
     () => validateText(value, lang, globals, requireEnglish),
     [value, lang, globals, requireEnglish],
   );
+  const glyphs = useMemo(() => {
+    const groups = new Map<
+      string,
+      { warning: ReturnType<typeof glyphWarnings>[number]; count: number }
+    >();
+    for (const warning of glyphWarnings(value)) {
+      const group = groups.get(warning.character);
+      if (group) group.count++;
+      else groups.set(warning.character, { warning, count: 1 });
+    }
+    return [...groups.values()];
+  }, [value]);
+
+  function replaceGlyph(character: string, replacement: string) {
+    const editor = view.current;
+    if (!editor || editor.state.readOnly) return;
+    const from = editor.state.doc.toString().indexOf(character);
+    if (from < 0) return;
+    const text = editor.state.doc.toString();
+    const warning = glyphWarnings(text.slice(from, from + character.length))[0];
+    if (!warning || !canReplaceGlyph(text, { ...warning, from })) return;
+    editor.dispatch({
+      changes: { from, to: from + character.length, insert: replacement },
+      selection: { anchor: from + replacement.length },
+      scrollIntoView: true,
+    });
+    editor.focus();
+  }
 
   useEffect(() => {
     callback.current = onChange;
@@ -171,6 +206,34 @@ export function ClarityEditor({
     <div className={styles.editor}>
       {markupToolbar && !readOnly && <MarkupToolbar editor={view} globals={globals} />}
       <div ref={host} />
+      <div role="status" aria-live="polite" className={styles.glyphStatus}>
+        {glyphs.length > 0 && (
+          <details open>
+            <summary>
+              Character display warning ({glyphs.reduce((sum, group) => sum + group.count, 0)}) —
+              saving is allowed
+            </summary>
+            <ul aria-label="Character display warnings">
+              {glyphs.slice(0, 6).map(({ warning, count }) => (
+                <li key={warning.character}>
+                  {warning.message} {count > 1 && `(${count} occurrences)`}{' '}
+                  {!readOnly && canReplaceGlyph(value, warning) && (
+                    <button
+                      type="button"
+                      onClick={() => replaceGlyph(warning.character, warning.replacement!)}
+                    >
+                      Replace first {warning.codePoint} with {warning.replacement}
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+            {glyphs.length > 6 && (
+              <p>{glyphs.length - 6} more character types highlighted in the editor.</p>
+            )}
+          </details>
+        )}
+      </div>
       <details className={styles.help}>
         <summary>{issues.length ? `${issues.length} markup issue(s)` : 'Markup help'}</summary>
         <p>
@@ -183,11 +246,14 @@ export function ClarityEditor({
         </p>
         {issues.length > 0 && (
           <ul aria-label="Markup issues">
-            {issues.map((issue, index) => (
+            {issues.slice(0, 50).map((issue, index) => (
               <li key={index}>
                 {issue.severity}: {issue.message}
               </li>
             ))}
+            {issues.length > 50 && (
+              <li>{issues.length - 50} more issues highlighted in the editor.</li>
+            )}
           </ul>
         )}
       </details>

@@ -8,6 +8,23 @@ const translator: Me = { ...user, role: 'translator', languages: ['fr'] };
 const next = { ...tooltip, text: { ...tooltip.text, en: { ...english, text: 'Changed English' } } };
 
 describe('save preparation', () => {
+  it('surfaces glyph warnings in save review and allows preparation', async () => {
+    const change = {
+      hash: 123,
+      base: tooltip,
+      next: { ...next, text: { en: { ...english, text: 'Damage 🠚 higher' } } },
+    };
+    expect(validateChanges([change], editorData())).toEqual([
+      expect.objectContaining({
+        severity: 'warning',
+        hash: 123,
+        lang: 'en',
+        message: expect.stringContaining('U+1F81A'),
+      }),
+    ]);
+    const prepared = await prepareChanges([change], user, editorData());
+    expect(prepared[0].next.text.en?.text).toBe('Damage 🠚 higher');
+  });
   it('blocks malformed source before any enrichment/network request', async () => {
     const fetch = vi.spyOn(globalThis, 'fetch');
     try {

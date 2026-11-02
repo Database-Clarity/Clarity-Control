@@ -3,6 +3,7 @@ import { parseMarkup } from '../markup/index.js';
 import { prepareMarkup } from '../markup/prepare.js';
 import type { MarkupGlobals } from '../markup/types.js';
 import type { Tooltip } from '../schemas.js';
+import { glyphWarnings } from './glyphs.js';
 
 export interface ValidationIssue {
   severity: 'error' | 'warning';
@@ -43,7 +44,15 @@ export function validateText(
       add('warning', `Unknown title "${match[1]}".`, match[0]);
     }
   }
-  return issues;
+  return [
+    ...issues,
+    ...glyphWarnings(text).map(({ from, to, message }) => ({
+      severity: 'warning' as const,
+      from,
+      to,
+      message,
+    })),
+  ];
 }
 
 export function validateTooltip(
