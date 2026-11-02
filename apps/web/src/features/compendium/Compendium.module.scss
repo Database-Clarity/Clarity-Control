@@ -237,3 +237,17 @@
     text-align: left;
   }
 }
+
+.diffModes {
+  display: flex;
+  gap: 0.25rem;
+  margin-block-end: 0.35rem;
+  button[aria-pressed='true'] {
+    font-weight: 700;
+    text-decoration: underline;
+  }
+}
+.diffLine {
+  display: block;
+  min-height: 1lh;
+}
