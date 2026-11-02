@@ -56,21 +56,4 @@ h1 {
   font-size: 112.5%;
 }
 
-// The Settings entry beside Sign out: navigation, so a link, dressed like the native buttons.
-a.settings-link {
-  display: inline-flex;
-  align-items: center;
-  padding: 1px 6px;
-  border: 1px solid theme.$button-border-color;
-  border-radius: 3px;
-  background: theme.$button-background-color;
-  color: inherit;
-  text-decoration: none;
-}
-
-@include theme.mobile-or-coarse {
-  a.settings-link {
-    min-height: 44px;
-    padding: 0 0.75rem;
-  }
-}
+// The Settings button beside Sign out opens the settings popover; it is a native button already.

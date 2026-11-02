@@ -1,0 +1,66 @@
+@use '../../data/variables' as theme;
+
+// Transparent on purpose: the page behind stays fully visible so setting changes show live.
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+}
+.popover {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  box-sizing: border-box;
+  width: min(30rem, calc(100vw - 1rem));
+  max-height: calc(100dvh - 2rem);
+  display: flex;
+  flex-direction: column;
+  color: inherit;
+  background: #242429;
+  border: 1px solid #74747e;
+  border-radius: 0.5rem;
+  box-shadow: 0 0.5rem 2rem #000a;
+  outline: none;
+}
+.header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0.75rem 0.5rem 1rem;
+  border-bottom: 1px solid #74747e;
+  h2 {
+    margin: 0;
+    font-size: 1.15rem;
+  }
+  button {
+    font: inherit;
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@include theme.mobile {
+  .popover {
+    inset: 0 !important;
+    width: 100%;
+    max-height: none;
+    height: 100dvh;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .header {
+    padding-top: calc(0.5rem + env(safe-area-inset-top, 0px));
+  }
+  .body {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}

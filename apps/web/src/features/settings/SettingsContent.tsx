@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useMemo, useState } from 'react';
 import { dateFormats, timeDisplays, type SyncedSettings } from '@clarity/core';
 import { useSettingsStore } from '../../stores/settings';
 import { exactDate, formatDate } from '../../services/format/date';
@@ -17,16 +16,11 @@ function timeZones(): string[] {
   }
 }
 
-export function SettingsPage() {
+export function SettingsContent() {
   const state = useSettingsStore();
   const { settings, device, update, updateDevice, remember, retry, resetLayout } = state;
   const zones = useMemo(timeZones, []);
   const [layoutReset, setLayoutReset] = useState(false);
-  // Synced settings go to the account only when the user leaves this page.
-  useEffect(() => {
-    useSettingsStore.getState().enterSettings();
-    return () => void useSettingsStore.getState().leaveSettings();
-  }, []);
   const zoneOptions =
     settings.timeZone === 'auto' || settings.timeZone === 'UTC' || zones.includes(settings.timeZone)
       ? zones
@@ -49,9 +43,7 @@ export function SettingsPage() {
     </select>
   );
   return (
-    <article className={styles.page}>
-      <Link to="/">Back to the editor</Link>
-      <h1>Settings</h1>
+    <div className={styles.page}>
       <p role="status" className={styles.status} title={state.errorDetail || undefined}>
         {syncStatusText(state)}{' '}
         {state.status === 'error' && (
@@ -140,6 +132,6 @@ export function SettingsPage() {
           )}
         </div>
       </fieldset>
-    </article>
+    </div>
   );
 }

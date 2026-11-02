@@ -1,18 +1,24 @@
 import { languageLabel } from '../../languageLabels';
 import { useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { apiUrl, loginUrl } from '../../services/api';
 import { rememberReturnPath } from '../../services/returnPath';
 import { useAuthStore } from '../../stores/auth';
+import { useSettingsPanel } from '../settings/panel';
 
 export function AuthStatus() {
   return <AuthIdentity />;
 }
 
 const settingsLink = (
-  <Link to="/settings" className="settings-link">
+  <button
+    type="button"
+    className="settings-link"
+    aria-haspopup="dialog"
+    onClick={() => useSettingsPanel.getState().show()}
+  >
     Settings
-  </Link>
+  </button>
 );
 
 function AuthIdentity() {

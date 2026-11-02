@@ -12,6 +12,9 @@ import { CompendiumSidebarNavigation, ReviewSidebarNavigation } from './SidebarN
 import { CompendiumBadge } from '../compendium/CompendiumBadge';
 import { SettingsNotice } from '../settings/SettingsChoice';
 import { SettingsSync } from '../settings/SettingsSync';
+import { SettingsPopover } from '../settings/SettingsPopover';
+import { RememberRoute } from '../settings/SettingsRedirect';
+import { useSettingsPanel } from '../settings/panel';
 import styles from './Layout.module.scss';
 
 function workspacePath(pathname: string) {
@@ -37,6 +40,7 @@ export function Layout() {
   const restoreBrowseFocus = useRef(false);
   const { data, status, error, load } = useDataStore();
   const { hydrated, pending, error: draftError, hydrate, retry } = useDraftStore();
+  const settingsOpen = useSettingsPanel((state) => state.open);
   const isEditor = location.pathname.startsWith('/t/');
   const isCompendium = location.pathname.startsWith('/compendium');
   const isReview = location.pathname === '/review';
@@ -70,7 +74,8 @@ export function Layout() {
     for (const { element } of previousInert) element.setAttribute('inert', '');
     browseButton.current?.focus();
     const keydown = (event: KeyboardEvent) => {
-      // A native save/conflict dialog owns focus and Escape above Browse.
+      // A native save/conflict dialog or the settings popover owns focus and Escape above Browse.
+      if (useSettingsPanel.getState().open) return;
       if (document.querySelector('dialog[open]')) return;
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -228,7 +233,8 @@ export function Layout() {
         aria-hidden={navOpen || undefined}
       >
         <SettingsSync />
-        {location.pathname !== '/settings' && <SettingsNotice />}
+        <RememberRoute />
+        {!settingsOpen && <SettingsNotice />}
         {draftError && (
           <p role="alert">
             {draftError}{' '}
@@ -251,6 +257,7 @@ export function Layout() {
         {!hydrated && !draftError && <p role="status">Recovering local drafts...</p>}
         {status === 'ready' && hydrated && <Outlet />}
       </main>
+      <SettingsPopover layout={layout} />
     </div>
   );
 }
