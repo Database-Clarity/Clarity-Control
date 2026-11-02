@@ -17,7 +17,7 @@ import {
   associateArchive,
   inactiveArchiveHashes,
 } from './archive';
-import { formatArchiveDate } from './archiveFormat';
+import { When } from '../../ui/When';
 import styles from './ArchivePage.module.scss';
 
 export function ArchivePage() {
@@ -183,13 +183,7 @@ export function ArchivePage() {
                     <strong>{tooltip.archive ? 'Confirmed' : 'Unconfirmed'}</strong> ·{' '}
                     {tooltip.archive ? (
                       <>
-                        Removed{' '}
-                        <time
-                          dateTime={tooltip.archive.removedAt}
-                          title={tooltip.archive.removedAt}
-                        >
-                          {formatArchiveDate(tooltip.archive.removedAt)}
-                        </time>
+                        Removed <When value={tooltip.archive.removedAt} />
                       </>
                     ) : (
                       'removal detected from the current manifest'
@@ -233,11 +227,8 @@ export function ArchivePage() {
                   {current.archive ? (
                     <>
                       {' '}
-                      · Removed{' '}
-                      <time dateTime={current.archive.removedAt} title={current.archive.removedAt}>
-                        {formatArchiveDate(current.archive.removedAt)}
-                      </time>
-                      . Name and category are saved from the last manifest.
+                      · Removed <When value={current.archive.removedAt} />. Name and category are
+                      saved from the last manifest.
                     </>
                   ) : (
                     ' · Removed from the manifest, not yet confirmed. Confirming saves the name and category so this stays readable if the catalog changes.'

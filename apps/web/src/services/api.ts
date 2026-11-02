@@ -1,4 +1,11 @@
-import { hashSchema, langSchema, tooltipSchema, type Tooltip } from '@clarity/core';
+import {
+  hashSchema,
+  langSchema,
+  syncedSettingsSchema,
+  tooltipSchema,
+  type SyncedSettings,
+  type Tooltip,
+} from '@clarity/core';
 import { z } from 'zod';
 
 export const apiUrl = import.meta.env.VITE_API_URL?.trim().replace(/\/+$/, '') || undefined;
@@ -90,4 +97,64 @@ export async function save(changes: Change[], message: string): Promise<SaveResu
     })
     .parse(await response.json());
   return { kind: 'saved', ...data };
+}
+
+const remoteSettingsSchema = z.object({
+  settings: syncedSettingsSchema.nullable(),
+  revision: z.string().nullable(),
+});
+export type RemoteSettings = z.infer<typeof remoteSettingsSchema>;
+export type SettingsPutResult =
+  | { kind: 'synced'; remote: RemoteSettings }
+  | { kind: 'conflict'; remote: RemoteSettings }
+  /** `error` is for people; `detail` keeps the technical cause (shown as a tooltip). */
+  | { kind: 'failed'; error: string; detail: string };
+
+/** Plain-language reason for a failed settings sync. */
+export function syncFailureText(status: number | null): string {
+  if (status === null) return 'the connection failed (you may be offline)';
+  if (status === 401) return 'sign in again to sync';
+  if (status === 403) return 'this account cannot sync settings';
+  if (status === 409) return 'the server was busy';
+  if (status === 400 || status === 413) return 'the server did not accept these settings';
+  return 'the server is unavailable';
+}
+
+/** Synced settings for the signed-in user; `settings` is null before the first sync. */
+export async function getSettings(): Promise<RemoteSettings> {
+  const response = await apiRequest('/settings');
+  if (!response.ok) return failure(response);
+  return remoteSettingsSchema.parse(await response.json());
+}
+
+/** Never throws: sync failures keep the local copy and surface as `failed`. */
+export async function putSettings(
+  settings: SyncedSettings,
+  revision: string | null,
+  keepalive = false,
+): Promise<SettingsPutResult> {
+  try {
+    const response = await apiRequest('/settings', {
+      method: 'PUT',
+      keepalive,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settings, revision }),
+    });
+    const value: unknown = await response.json().catch(() => null);
+    const remote = remoteSettingsSchema.safeParse(value);
+    if (response.ok && remote.success) return { kind: 'synced', remote: remote.data };
+    if (response.status === 409 && remote.success) return { kind: 'conflict', remote: remote.data };
+    const error = z.object({ error: z.string() }).safeParse(value);
+    return {
+      kind: 'failed',
+      error: syncFailureText(response.status),
+      detail: `HTTP ${response.status}${error.success ? `: ${error.data.error}` : ''}`,
+    };
+  } catch (error) {
+    return {
+      kind: 'failed',
+      error: syncFailureText(null),
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
 }

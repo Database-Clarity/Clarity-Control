@@ -16,7 +16,11 @@ export const json = (body: unknown, status = 200) =>
     headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
   });
 
-export async function body<T>(request: Request, schema: z.ZodType<T>): Promise<T> {
+export async function body<T>(
+  request: Request,
+  schema: z.ZodType<T>,
+  maxBytes = 2_000_000,
+): Promise<T> {
   const reader = request.body?.getReader();
   const decoder = new TextDecoder('utf-8', { fatal: true });
   let text = '';
@@ -27,9 +31,12 @@ export async function body<T>(request: Request, schema: z.ZodType<T>): Promise<T
         const chunk = await reader.read();
         if (chunk.done) break;
         size += chunk.value.byteLength;
-        if (size > 2_000_000) {
+        if (size > maxBytes) {
           await reader.cancel();
-          throw new HttpError(413, 'Request exceeds 2 MB');
+          throw new HttpError(
+            413,
+            `Request exceeds ${maxBytes >= 1_000_000 ? `${maxBytes / 1_000_000} MB` : `${maxBytes} bytes`}`,
+          );
         }
         text += decoder.decode(chunk.value, { stream: true });
       }

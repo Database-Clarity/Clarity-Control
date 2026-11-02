@@ -86,4 +86,36 @@ describe('worker client', () => {
     await expect(api.save([], 'test')).rejects.toThrow('read-only');
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+
+  it('reports settings sync failures in plain words, keeping the technical cause apart', async () => {
+    const settings = {
+      dateFormat: 'auto',
+      timeDisplay: 'datetime',
+      timeZone: 'auto',
+      markupToolbar: 'closed',
+      englishSource: 'changes',
+    } as const;
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ error: 'GitHub refused' }), { status: 503 }),
+        ),
+    );
+    const api = await import('./api');
+    expect(await api.putSettings(settings, null)).toEqual({
+      kind: 'failed',
+      error: 'the server is unavailable',
+      detail: 'HTTP 503: GitHub refused',
+    });
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+    expect(await api.putSettings(settings, null)).toEqual({
+      kind: 'failed',
+      error: 'the connection failed (you may be offline)',
+      detail: 'Failed to fetch',
+    });
+    expect(api.syncFailureText(401)).toBe('sign in again to sync');
+    expect(api.syncFailureText(413)).toBe('the server did not accept these settings');
+  });
 });

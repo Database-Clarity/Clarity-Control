@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useAuthStore } from '../../stores/auth';
 import { apiUrl } from '../../services/api';
 import { useCompendiumStore } from './store';
+import { When } from '../../ui/When';
 import styles from './Compendium.module.scss';
 
 export function CompendiumFreshness({ staleOnly = false }: { staleOnly?: boolean }) {
@@ -16,7 +17,7 @@ export function CompendiumFreshness({ staleOnly = false }: { staleOnly?: boolean
     <section aria-label="Compendium freshness">
       {data && (
         <p>
-          Source fetched {new Date(data.fetchedAt).toLocaleString()} (
+          Source fetched <When value={data.fetchedAt} /> (
           {age !== null && age >= 60 * 60_000
             ? `${Math.floor(age / 3600_000)} hours old`
             : 'less than an hour old'}

@@ -1,10 +1,10 @@
-import { useEffect, useState, type RefObject } from 'react';
+import { useState, type RefObject } from 'react';
 import type { EditorView } from '@codemirror/view';
 import type { MarkupGlobals } from '@clarity/core';
 import { insertMarkup, markupOptions } from './markupInsertion';
+import { useSettingsStore } from '../../stores/settings';
 import styles from './ClarityEditor.module.scss';
 
-const preferenceKey = 'clarity-translator-markup-toolbar';
 const groups = [...new Set(markupOptions.map((option) => option.group))];
 
 export function MarkupToolbar({
@@ -14,27 +14,17 @@ export function MarkupToolbar({
   editor: RefObject<EditorView | null>;
   globals: MarkupGlobals;
 }) {
-  const [open, setOpen] = useState(false);
+  // The last click is remembered on this device; Settings gives the default until then.
+  const remembered = useSettingsStore((state) => state.device.remembered.markupToolbar);
+  const fallback = useSettingsStore((state) => state.settings.markupToolbar);
+  const remember = useSettingsStore((state) => state.remember);
+  const open = (remembered ?? fallback) === 'open';
   const [choice, setChoice] = useState(markupOptions[0].id);
   const [message, setMessage] = useState('');
 
-  useEffect(() => {
-    try {
-      setOpen(localStorage.getItem(preferenceKey) === 'open');
-    } catch {
-      setMessage('Cannot read the saved markup toolbar preference.');
-    }
-  }, []);
-
   function toggle() {
-    const next = !open;
-    setOpen(next);
-    try {
-      localStorage.setItem(preferenceKey, next ? 'open' : 'closed');
-      setMessage('');
-    } catch {
-      setMessage('Cannot save the markup toolbar preference.');
-    }
+    remember({ markupToolbar: open ? 'closed' : 'open' });
+    setMessage('');
   }
 
   function insert() {

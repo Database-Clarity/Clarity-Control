@@ -28,6 +28,8 @@ never from a request or token. Permissions are read on every request and retry
 | `GET /history/:hash?page=1`               | Authorized member token                                                  | `{ page, commits: [{ commit, author, date, message }] }`, 30 per page  |
 | `GET /history/:hash?commit=<40-char SHA>` | Authorized member token                                                  | `{ commit, tooltip }`                                                  |
 | `GET /history/:hash?live=1`               | Authorized member token                                                  | `{ pushedHash: string \| null, tooltip: Tooltip \| null }`             |
+| `GET /settings`                           | Authorized member token                                                  | `{ settings: SyncedSettings \| null, revision, unreadable }`           |
+| `PUT /settings`                           | `{ settings, revision: string \| null }`, at most 4096 bytes             | `{ settings, revision }`; 409 `{ error, settings, revision }`          |
 
 History entries additionally include `login` and `avatar` (nullable); `author`
 retains the git-name fallback. Push-live accepts an optional `expected` map of
@@ -45,6 +47,24 @@ GitHub identity and are not persisted. A signed-in, unconfigured user gets
 `role: null` and cannot read history or write. All data commits name the editor
 as author (`login`, `<id>+<login>@users.noreply.github.com`) and the App bot as
 committer. The installation token is restricted to the configured repository.
+
+### Synced user settings
+
+`/settings` never touches the data branch. It writes `settings.json` on a separate
+branch (`SETTINGS_BRANCH`, default `editor-settings`; created as a root commit on the
+first sync): `{ v: 1, entries: { <HMAC-SHA256(id key, user id)>: { iv, ct } } }`.
+Every entry is AES-256-GCM under one server-wide key, with the entry id as associated
+data and the plaintext padded to a fixed 512-byte bucket. Both keys are derived with
+HKDF-SHA256 from `SESSION_SECRET` (salt and info `clarity-user-settings-v1/...`). Each
+sync re-encrypts every entry with fresh nonces in one commit, so a commit does not show
+whose settings changed. Settings commits use the bot as author and committer, the
+fixed message `Update synced settings`, and a date rounded down to the UTC hour.
+`revision` is a random id inside the ciphertext, so other users' syncs never cause
+conflicts. A PUT with a stale revision gets 409 and the stored copy. Identical
+settings are not rewritten. A ref race retries up to three times. Unreadable entries
+are reported to their owner as `unreadable` and dropped on the next re-encryption.
+Rotating `SESSION_SECRET` signs everyone out and makes every entry unreadable;
+clients keep their browser copy and re-upload on the next sync.
 
 ### Save and conflicts
 

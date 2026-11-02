@@ -8,6 +8,7 @@ import { HttpError, json } from './http.js';
 import { permissions } from './permissions.js';
 import { pushLive } from './push.js';
 import { save } from './save.js';
+import { userSettings } from './settings.js';
 import type { Context, Env } from './types.js';
 
 async function route(request: Request, env: Env): Promise<Response> {
@@ -36,6 +37,9 @@ async function route(request: Request, env: Env): Promise<Response> {
   }
   if (request.method === 'POST' && path === '/save') return save(request, github, user);
   if (request.method === 'POST' && path === '/push-live') return pushLive(request, github, user);
+  if (['GET', 'PUT'].includes(request.method) && path === '/settings') {
+    return userSettings(request, github, user);
+  }
   if (['GET', 'PUT'].includes(request.method) && path === '/permissions') {
     return managePermissions(request, github, user);
   }

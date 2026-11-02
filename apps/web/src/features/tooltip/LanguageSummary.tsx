@@ -1,9 +1,10 @@
 import type { Lang, Tooltip } from '@clarity/core';
+import { When } from '../../ui/When';
 
-function date(value: string | number | undefined): string {
+/** Epoch 0 (and missing or invalid values) mean "never recorded" in migrated data. */
+function known(value: string | number | undefined): string | number | undefined {
   const time = value === undefined ? NaN : typeof value === 'number' ? value : Date.parse(value);
-  const parsed = new Date(time);
-  return time > 0 && Number.isFinite(parsed.getTime()) ? parsed.toISOString() : 'unknown time';
+  return time > 0 && Number.isFinite(time) ? value : undefined;
 }
 
 export function LanguageSummary({
@@ -17,26 +18,23 @@ export function LanguageSummary({
 }) {
   const entry = base.text[lang];
   const legacy = base.legacy;
-  const iso = date(entry?.updatedAt);
-  const shortDate =
-    iso === 'unknown time'
-      ? iso
-      : new Date(iso).toLocaleDateString(undefined, {
-          day: 'numeric',
-          month: 'short',
-          timeZone: 'UTC',
-        });
   return (
     <details>
       <summary>
         {draft && 'Local draft · '}
-        {entry
-          ? `Edited by ${entry.updatedBy || 'unknown author'} · ${shortDate}`
-          : 'No saved language text'}
+        {entry ? (
+          <>
+            Edited by {entry.updatedBy || 'unknown author'} ·{' '}
+            <When value={known(entry.updatedAt)} />
+          </>
+        ) : (
+          'No saved language text'
+        )}
       </summary>
       <p>
-        Saved language edit: {entry?.updatedBy || 'unknown author'}, {iso}. Legacy tooltip upload:{' '}
-        {legacy?.uploadedBy || 'unknown author'}, {date(legacy?.lastUpload)}.
+        Saved language edit: {entry?.updatedBy || 'unknown author'},{' '}
+        <When value={known(entry?.updatedAt)} />. Legacy tooltip upload:{' '}
+        {legacy?.uploadedBy || 'unknown author'}, <When value={known(legacy?.lastUpload)} />.
       </p>
     </details>
   );

@@ -10,6 +10,7 @@ import {
 import { useDraftStore } from '../../stores/drafts';
 import { errorMessage } from '../../services/http';
 import { useCompendiumStore } from './store';
+import { When } from '../../ui/When';
 import styles from './Compendium.module.scss';
 import { CellPicker } from './CellPicker';
 import { confirmCompendiumSelection } from './selection';
@@ -230,7 +231,9 @@ export function LinkPicker({
           All tabs remain available. Search parsed names/sections below, or all grid text in the
           cell picker.
         </p>
-        <p>Source fetched: {data.fetchedAt}</p>
+        <p>
+          Source fetched: <When value={data.fetchedAt} />
+        </p>
       </details>
       <p>
         Exact name matches appear first.{' '}

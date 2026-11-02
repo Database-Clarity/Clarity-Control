@@ -7,6 +7,7 @@ import { reviewSaveChanges, useSaveState } from '../../services/save/state';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { WordDiff } from '../../ui/diff';
+import { When } from '../../ui/When';
 import { canEditTooltipFields } from '../auth/permissions';
 import { reviewedSnapshot } from './review';
 import styles from './Status.module.scss';
@@ -76,7 +77,9 @@ export function DriftPage() {
             <Link to={`/t/${tooltip.hash}`}>{data.items[tooltip.hash]?.name ?? tooltip.hash}</Link>{' '}
             <small>({tooltip.hash})</small>
           </h2>
-          <p className={styles.muted}>Snapshot: {tooltip.bungieSnapshot?.snapshotAt}</p>
+          <p className={styles.muted}>
+            Snapshot: <When value={tooltip.bungieSnapshot?.snapshotAt} fallback="none" />
+          </p>
           <WordDiff before={tooltip.bungieSnapshot?.description ?? ''} after={description} />
           <button
             type="button"

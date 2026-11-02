@@ -69,10 +69,11 @@ it('produces identical review evidence for removed tooltips with or without the 
 });
 
 it('formats dates and archive history lines readably', () => {
-  expect(formatArchiveDate('2026-02-15T00:00:00Z')).toBe('15 Feb 2026');
-  expect(formatArchiveDate('not a date')).toBe('not a date');
+  const utcDay = { dateFormat: 'dmy', timeDisplay: 'date', timeZone: 'UTC' } as const;
+  expect(formatArchiveDate('2026-02-15T00:00:00Z', utcDay)).toBe('15 Feb 2026');
+  expect(formatArchiveDate('not a date', utcDay)).toBe('not a date');
   expect(archiveChangeLine(undefined, undefined)).toBeUndefined();
-  expect(archiveChangeLine(undefined, removed.archive)).toBe(
+  expect(archiveChangeLine(undefined, removed.archive, utcDay)).toBe(
     'Archive: archived as "Gone" (removed 2 Nov 2026)',
   );
   expect(archiveChangeLine(removed.archive, undefined)).toContain('restored');

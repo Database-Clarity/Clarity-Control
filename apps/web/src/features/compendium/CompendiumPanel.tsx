@@ -10,6 +10,7 @@ import { CompendiumDiff } from './CompendiumDiff';
 import { RichCell } from './RichCell';
 import { LinkPicker } from './LinkPicker';
 import { useCompendiumStore } from './store';
+import { When } from '../../ui/When';
 import styles from './Compendium.module.scss';
 import { confirmCompendiumSelection } from './selection';
 
@@ -54,7 +55,9 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
         </p>
       )}
       {compendium && (
-        <small>Source fetched {new Date(compendium.fetchedAt).toLocaleString()}</small>
+        <small>
+          Source fetched <When value={compendium.fetchedAt} />
+        </small>
       )}
       {!link && <p>No Compendium row linked yet.</p>}
       {link && (
@@ -62,7 +65,9 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
           <p>
             {link.rowKey} {link.section && `/ ${link.section}`} / tab {link.gid}
           </p>
-          <small>Snapshot {new Date(link.snapshotAt).toLocaleString()}</small>
+          <small>
+            Snapshot <When value={link.snapshotAt} />
+          </small>
           {match && (
             <>
               <p className={match.status === 'ok' ? undefined : styles.warning}>

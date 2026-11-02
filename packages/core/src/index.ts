@@ -12,3 +12,4 @@ export * from './validation/index.js';
 export * from './globals/index.js';
 export * from './status/index.js';
 export * from './compendium/index.js';
+export * from './settings.js';

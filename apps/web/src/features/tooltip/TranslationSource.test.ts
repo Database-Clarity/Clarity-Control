@@ -3,6 +3,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { TranslationSource } from './TranslationSource';
+import { useSettingsStore } from '../../stores/settings';
 
 vi.mock('../translations/EnglishDiff', () => ({
   EnglishDiffContent: () => createElement('div', null, 'Diff content'),
@@ -17,7 +18,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
 });
 afterEach(() => vi.unstubAllGlobals());
-it('switches views and remembers the choice on remount, with no toggle for current translations', async () => {
+it('remembers the last click on this device, starting from the Settings default, with no toggle for current translations', async () => {
   const host = document.createElement('div');
   document.body.append(host);
   let root = createRoot(host);
@@ -36,7 +37,12 @@ it('switches views and remembers the choice on remount, with no toggle for curre
   await act(async () => root.unmount());
   root = createRoot(host);
   await act(async () => root.render(createElement(TranslationSource, props)));
+  // Remembered on this device, but never a synced change (no pending marker, no prompt).
   expect(host.querySelector('button')?.getAttribute('aria-pressed')).toBe('false');
+  const state = useSettingsStore.getState();
+  expect(state.device.remembered.englishSource).toBe('current');
+  expect(state.settings.englishSource).toBe('changes');
+  expect(state.pending).toEqual([]);
   await act(async () => host.querySelector('button')!.click());
   expect(host.textContent).toContain('Diff content');
   await act(async () => root.render(createElement(TranslationSource, { text: 'Current source' })));
