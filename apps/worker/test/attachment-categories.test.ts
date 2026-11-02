@@ -8,11 +8,22 @@ const promoted: Tooltip = {
 };
 it('enforces editor-or-higher category promotion on the server', () => {
   for (const role of ['trial', 'translator'] as const)
-    expect(() => checkEdit({ login: 'tester', role }, base, promoted)).toThrow('editor role or higher');
+    expect(() => checkEdit({ login: 'tester', role }, base, promoted)).toThrow(
+      'editor role or higher',
+    );
   for (const role of ['editor', 'maintainer'] as const)
     expect(() => checkEdit({ login: 'tester', role }, base, promoted)).not.toThrow();
   expect(() =>
     checkEdit({ login: 'tester', role: 'trial' }, promoted, { ...promoted, associated: [11] }),
   ).not.toThrow();
-  expect(() => checkEdit({ login: 'tester', role: 'trial' }, promoted, base)).toThrow('editor role or higher');
+  expect(() => checkEdit({ login: 'tester', role: 'trial' }, promoted, base)).toThrow(
+    'editor role or higher',
+  );
+});
+it('allows editors to demote a promotion and still blocks translators', () => {
+  for (const role of ['editor', 'maintainer'] as const)
+    expect(() => checkEdit({ login: 'tester', role }, promoted, base)).not.toThrow();
+  expect(() => checkEdit({ login: 'tester', role: 'translator' }, promoted, base)).toThrow(
+    'editor role or higher',
+  );
 });
