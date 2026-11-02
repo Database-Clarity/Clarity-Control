@@ -92,6 +92,24 @@
     margin: 6px 0;
   }
 }
+.glyphStatus {
+  color: #f2ce7e;
+  font-size: 12px;
+  details {
+    padding: 6px 10px;
+  }
+  ul {
+    margin: 4px 0;
+    padding-left: 18px;
+  }
+  li {
+    margin: 3px 0;
+    overflow-wrap: anywhere;
+  }
+  button {
+    font-size: inherit;
+  }
+}
 .editor :global(.clarity-validation-error) {
   text-decoration: underline wavy #ff9595;
   text-underline-offset: 3px;
