@@ -327,7 +327,7 @@ import { sampleReference } from './sampleReferences';
 import { sourceFingerprint } from './reviewProgress';
 
 it.each(['Blastwave Striders', 'Swarmers', 'Armorsmith'])(
-  'withholds actual %s card anchors instead of promoting resolver-generated neighboring headings',
+  'validates actual %s card anchors without promoting neighboring headings',
   (name) => {
     const f = guidedFixture();
     const realTab = structuredClone(
@@ -355,13 +355,13 @@ it.each(['Blastwave Striders', 'Swarmers', 'Armorsmith'])(
     };
     f.categories[0].entries.find((entry) => entry.hash === 102)!.name = name;
     const match = combineCompendiumMatches(rows.map((row) => ({ tab: realTab, row })))!;
+    if (name !== 'Armorsmith') {
+      expect(match.parts).toBeUndefined();
+      expect(match.row.cell).toEqual(rows[0].cell);
+      return; // one merged armour card, not an unverified multipart source
+    }
     expect(match.parts).toHaveLength(2);
-    const expected =
-      name === 'Blastwave Striders'
-        ? ["The Dragon's Shadow", 'Wraithmetal Mail']
-        : name === 'Swarmers'
-          ? ['Speedloader Slacks', 'Tight Fit']
-          : ['Kinetic Synthesis', 'Anti-Champion Nosecone'];
+    const expected = ['Kinetic Synthesis', 'Anti-Champion Nosecone'];
     expect(match.parts).toEqual(expected);
     f.proposals.set(102, {
       match,

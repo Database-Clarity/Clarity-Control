@@ -163,9 +163,31 @@ function categoryOf({ tab, row }: CompendiumMatch): string | undefined {
 // Combine only the same named thing in one tab; explicit category boundaries stay ambiguous.
 export function combineCompendiumMatches(matches: CompendiumMatch[]): CompendiumMatch | undefined {
   if (!matches.length) return undefined;
-  const sorted = [...matches].sort(
+  let sorted = [...matches].sort(
     (a, b) =>
       a.row.rowIndex - b.row.rowIndex || (a.row.anchor?.col ?? 0) - (b.row.anchor?.col ?? 0),
+  );
+  // Exotic armour can repeat its item name at the bottom of one merged card.
+  // Deduplicate only anchors inside the SAME physical description cell.
+  sorted = sorted.filter(
+    (match, index) =>
+      !sorted
+        .slice(0, index)
+        .some(
+          (previous) =>
+            match.tab.gid === '1500097863' &&
+            previous.tab.gid === match.tab.gid &&
+            match.row.nameNorm === previous.row.nameNorm &&
+            match.row.anchor?.col === previous.row.anchor?.col &&
+            sameCell(match.row.cell, previous.row.cell) &&
+            match.tab.grid?.some(
+              (cell) =>
+                cell.col === (match.row.anchor?.col ?? -2) + 2 &&
+                cell.row <= previous.row.rowIndex &&
+                cell.row + (cell.rowSpan ?? 1) > match.row.rowIndex &&
+                sameCell(cell.cell, match.row.cell),
+            ),
+        ),
   );
   const first = sorted[0];
   const categories = new Set(

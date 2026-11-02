@@ -200,6 +200,7 @@ export function parseCompendiumSheet(html: string, tab: string, tabName?: string
   let groups: CompendiumColumns[] | undefined = config?.cards ? config.groups : undefined;
   let section: string | undefined;
   const rows: CompendiumSheet['rows'] = [];
+  const armorCards = new Map<string, HtmlElement[]>();
   const sources = new Map<HtmlElement, CompendiumSheet['rows'][number]>();
   const seenDescriptions = new Map<HtmlElement, Set<HtmlElement>>();
   for (const [gridIndex, { row, cells }] of grid.entries()) {
@@ -258,6 +259,20 @@ export function parseCompendiumSheet(html: string, tab: string, tabName?: string
         .filter(Boolean)
         .join(' ');
       if (!name || !rowKey || !descriptions.length) continue;
+      if (config?.name === 'Exotic Armors') {
+        const key = `${name.col}:${normaliseCompendiumName(rowKey)}`;
+        const previous = armorCards.get(key);
+        if (
+          previous &&
+          previous.length === descriptions.length &&
+          descriptions.every((entry, index) => entry.element === previous[index])
+        )
+          continue;
+        armorCards.set(
+          key,
+          descriptions.map((entry) => entry.element),
+        );
+      }
       for (const description of descriptions) seen!.add(description.element);
       seenDescriptions.set(name.element, seen!);
       const combined = normaliseRuns(

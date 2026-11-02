@@ -17,6 +17,7 @@ import { referenceCurrent } from './sampleReferences';
 import { sourceFingerprint } from './reviewProgress';
 import { manifestRule } from './manifestRule';
 import { artifactParents, artifactSections, notCurrentArtifact } from './artifactIdentity';
+import { tentativeOwnerDecision, reviewedOwnerDecision } from './ownerReviewed';
 import { approvedExoticStat } from './ownerExceptions';
 import { classifyScope } from './reviewScope';
 
@@ -125,6 +126,7 @@ export function guidedDecisions(
   baseline: string,
   scope: string,
 ): GuidedCategory[] {
+  const sheetFingerprint = sourceFingerprint(source.tabs);
   const current = new Map(categories.map((category) => [category.id, category]));
   const globalUsable = new Map<number, GuidanceReference>();
   if (document.scope === scope && document.baseline === baseline) {
@@ -223,6 +225,17 @@ export function guidedDecisions(
             link: reference.link,
             references: [hash],
             reason: 'Current explicit owner reference; applies to this entry only.',
+          };
+        const reviewed = reviewedOwnerDecision(entry, proposals.get(hash), source);
+        if (reviewed) return { ...result, ...reviewed };
+        if (tentativeOwnerDecision(entry, sheetFingerprint))
+          return {
+            ...result,
+            action: 'no-equivalent',
+            confidence: 'high',
+            ruleId: 'owner-tentative-no-equivalent',
+            reason:
+              'Owner: no equivalent for now (absent/incidental source). Reopens when sheet or entry evidence changes.',
           };
         // Never override an unresolved/stale/skipped/note-only owner sample with an inferred rule.
         if (record.references?.[hash])
