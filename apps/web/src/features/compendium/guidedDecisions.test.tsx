@@ -4,6 +4,36 @@ import { expect, it } from 'vitest';
 import { guidedFixture } from '../../../test/guided-fixture';
 import { guidedDecisions, guidedRevision } from './guidedDecisions';
 import { GuidedPreview } from './GuidedPreview';
+import { proposalFor } from './rapidReview';
+
+it('uses core armor variants while protecting multipart and owner samples', () => {
+  for (const [name, row, gid] of [
+    ['Harmonic Dexterity', 'Dexterity', '1934379638'],
+    ['Set Bonus: AION Adapter', 'AION Adapter', '1287885342'],
+  ]) {
+    const f = guidedFixture();
+    const category = f.categories[0];
+    const record = f.document.categories[category.id];
+    delete f.document.categories[category.id];
+    category.id = record.id = 'catalog:armor-mod-general';
+    f.document.categories[record.id] = record;
+    const entry = category.entries[2];
+    entry.name = name;
+    f.editor.items[entry.hash].name = name;
+    f.editor.items[entry.hash].categoryId = 'armor-mod-general';
+    f.source.tabs[0].gid = gid;
+    f.source.tabs[0].name = gid === '1287885342' ? 'Armor Perks' : 'Armor Mods';
+    f.source.tabs[0].rows[2].name = row;
+    f.source.tabs[0].rows[2].nameNorm = row.toLowerCase();
+    f.proposals.set(entry.hash, proposalFor(entry.base, f.editor, f.source));
+    const decide = () =>
+      guidedDecisions(f.document, f.categories, f.proposals, f.source, f.baseline, f.scope)[0]
+        .entries[2];
+    expect(decide()).toMatchObject({ action: 'link', ruleId: 'armor-core-variant' });
+    record.references![entry.hash] = { ...record.references![104], hash: entry.hash };
+    expect(decide().action).toBe('owner');
+  }
+});
 
 it('offers a close typo only for confirmation and preserves owner samples', () => {
   const f = guidedFixture();

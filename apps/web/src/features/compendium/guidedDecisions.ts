@@ -1,4 +1,11 @@
-import { normaliseCompendiumName, type CompendiumData, type CompendiumLink } from '@clarity/core';
+import {
+  compendiumIdentifiers,
+  compendiumNameVariants,
+  compendiumPreferredTabs,
+  normaliseCompendiumName,
+  type CompendiumData,
+  type CompendiumLink,
+} from '@clarity/core';
 import { compendiumSimilarity } from '@clarity/core';
 import { confirmCompendiumSelection } from './selection';
 import type { GuidanceDocument, GuidanceReference } from './guidanceSchema';
@@ -194,6 +201,32 @@ export function guidedDecisions(
                 )
                 .join('; '),
           };
+        if (record.id === 'catalog:armor-mod-general') {
+          const proposal = proposals.get(hash);
+          const match = proposal?.match;
+          const variants = new Set(
+            compendiumNameVariants('armor-mod-general', entry.name).map(normaliseCompendiumName),
+          );
+          if (
+            match &&
+            proposal.link &&
+            !proposal.link.parts &&
+            !match.parts &&
+            compendiumPreferredTabs('armor-mod-general', entry.name).includes(match.tab.gid) &&
+            compendiumIdentifiers(match.row.name).some((name) =>
+              variants.has(normaliseCompendiumName(name)),
+            )
+          ) {
+            return {
+              ...result,
+              action: 'link',
+              confidence: 'high',
+              link: proposal.link,
+              ruleId: 'armor-core-variant',
+              reason: 'Core armor variant resolved uniquely in its configured tab.',
+            };
+          }
+        }
         // Learn the tab from every current positive sample, including picked renames.
         // Section labels are layout headings, not category boundaries (e.g. Armor Mods slots).
         const positive = [...usable.values()].filter((ref) => ref.link);
