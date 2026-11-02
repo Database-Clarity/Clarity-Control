@@ -5,6 +5,86 @@ import { guidedFixture } from '../../../test/guided-fixture';
 import { guidedDecisions, guidedRevision } from './guidedDecisions';
 import { GuidedPreview } from './GuidedPreview';
 import { proposalFor } from './rapidReview';
+import { loadManifestFacts } from './manifestFacts';
+
+it('chooses an artifact section using manifest membership when names repeat', () => {
+  const f = guidedFixture(),
+    category = f.categories[0],
+    record = f.document.categories[category.id];
+  delete f.document.categories[category.id];
+  category.id = record.id = 'catalog:armor-mod-seasonal';
+  f.document.categories[record.id] = record;
+  const entry = category.entries[2];
+  entry.name = 'Armorsmith';
+  const facts = loadManifestFacts();
+  entry.manifestFacts = { item: facts.items['2903198437'], version: facts.source.manifestVersion };
+  const tab = f.source.tabs[0];
+  tab.gid = '473308249';
+  tab.name = 'Artifact Perks';
+  tab.grid = [
+    {
+      row: 1,
+      col: 3,
+      cell: { plain: 'Other Artifact (Other)', runs: [{ text: 'Other Artifact (Other)' }] },
+    },
+    {
+      row: 20,
+      col: 3,
+      cell: {
+        plain: 'Implement of Curiosity (Reclamation)',
+        runs: [{ text: 'Implement of Curiosity (Reclamation)' }],
+      },
+    },
+  ];
+  tab.rows = [
+    { ...tab.rows[0], rowIndex: 10, name: 'Armorsmith', nameNorm: 'armorsmith', section: 'Other' },
+    {
+      ...tab.rows[1],
+      rowIndex: 30,
+      name: 'Armorsmith',
+      nameNorm: 'armorsmith',
+      section: 'Reclamation',
+    },
+  ];
+  tab.rows[0].anchor = { row: 10, col: 2 };
+  tab.rows[1].anchor = { row: 30, col: 2 };
+  tab.grid.push({ row: 31, col: 1, cell: tab.rows[1].cell });
+  const decision = guidedDecisions(
+    f.document,
+    f.categories,
+    f.proposals,
+    f.source,
+    f.baseline,
+    f.scope,
+  )[0].entries[2];
+  expect(decision).toMatchObject({
+    action: 'link',
+    ruleId: 'artifact-manifest-section',
+    link: { section: 'Reclamation' },
+  });
+});
+
+it('requires catalog parent and perk identity on the exotic card', () => {
+  const f = guidedFixture();
+  const category = f.categories[0];
+  const record = f.document.categories[category.id];
+  delete f.document.categories[category.id];
+  category.id = record.id = 'catalog:weapon-frame-exotic';
+  f.document.categories[record.id] = record;
+  const entry = category.entries[2];
+  entry.name = 'Cranial Spike II';
+  entry.exoticParentNames = ["Dead Man's Tale", 'Another exotic'];
+  const tab = f.source.tabs[0];
+  tab.name = 'Exotic Weapons';
+  tab.rows[2].name = "Dead Man's Tale\nCranial Spike I–IV";
+  tab.rows[2].nameNorm = 'dead man s tale cranial spike i iv';
+  const decide = () =>
+    guidedDecisions(f.document, f.categories, f.proposals, f.source, f.baseline, f.scope)[0]
+      .entries[2];
+  expect(decide()).toMatchObject({ action: 'link', ruleId: 'exotic-catalog-parent' });
+  entry.name = 'Default Ornament';
+  expect(decide().ruleId).not.toBe('exotic-catalog-parent');
+});
 
 it('uses core armor variants while protecting multipart and owner samples', () => {
   for (const [name, row, gid] of [

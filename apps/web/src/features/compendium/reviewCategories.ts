@@ -10,6 +10,7 @@ const catalogFacts = loadManifestFacts();
 export type ReviewEntry = ReturnType<typeof applyReviewProgress>[number];
 export type ReviewSample = ReviewEntry & {
   sampleEvidence: string;
+  exoticParentNames?: string[];
   scopeRestored?: boolean;
   manifestFacts?: { item: ManifestFacts['items'][string]; version: string };
 };
@@ -98,6 +99,13 @@ export function reviewCategories(
       );
     const sample: ReviewSample = {
       ...entry,
+      exoticParentNames: [
+        ...new Set(
+          items
+            .flatMap((item) => [item.itemName, ...Object.values(item.ownerNames ?? {})])
+            .filter((name): name is string => !!name),
+        ),
+      ],
       ...(agreed ? { manifestFacts: { item: fact, version: facts.source.manifestVersion } } : {}),
       sampleEvidence: sourceFingerprint([
         entry.hash,

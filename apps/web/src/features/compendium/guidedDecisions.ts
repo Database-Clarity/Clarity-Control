@@ -2,6 +2,7 @@ import {
   compendiumIdentifiers,
   compendiumNameVariants,
   compendiumPreferredTabs,
+  sameCell,
   normaliseCompendiumName,
   type CompendiumData,
   type CompendiumLink,
@@ -179,7 +180,69 @@ export function guidedDecisions(
         const manifestDecision =
           !entry.scopeRestored && manifestRule(entry, record.id, globalUsable);
         if (manifestDecision) return { ...result, ...manifestDecision };
-        if (record.id === 'catalog:armor-mod-seasonal')
+        if (record.id === 'catalog:armor-mod-seasonal') {
+          const artifactNames = new Set(
+            (entry.manifestFacts?.item.artifactMemberships ?? [])
+              .map((membership) => membership.artifactName)
+              .filter((name): name is string => !!name),
+          );
+          const tab = source.tabs.find((candidate) => candidate.gid === '473308249');
+          const headers = (tab?.grid ?? []).filter(
+            (cell) => cell.col === 3 && /\s\([^()]+\)\s*$/.test(cell.cell.plain),
+          );
+          const matchingHeaders = headers.filter((cell) =>
+            [...artifactNames].some((name) => cell.cell.plain.startsWith(`${name} (`)),
+          );
+          const matches = matchingHeaders.flatMap((header) => {
+            const next = Math.min(
+              ...headers.filter((cell) => cell.row > header.row).map((cell) => cell.row),
+              Infinity,
+            );
+            return (tab?.rows ?? [])
+              .filter(
+                (row) =>
+                  row.rowIndex > header.row &&
+                  row.rowIndex < next &&
+                  row.nameNorm === normaliseCompendiumName(entry.name),
+              )
+              .map((row) => ({ tab: tab!, row }));
+          });
+          if (matches.length === 1) {
+            const match = matches[0];
+            const anchor = match.row.anchor;
+            const descriptions = (match.tab.grid ?? []).filter(
+              (cell) =>
+                anchor &&
+                cell.row > anchor.row &&
+                cell.row <= anchor.row + 2 &&
+                Math.abs(cell.col - anchor.col) <= 1 &&
+                sameCell(cell.cell, match.row.cell),
+            );
+            const link =
+              anchor &&
+              descriptions.length === 1 &&
+              stableSelection(
+                {
+                  ...match,
+                  cells: [
+                    {
+                      dRow: descriptions[0].row - anchor.row,
+                      dCol: descriptions[0].col - anchor.col,
+                    },
+                  ],
+                },
+                source,
+              );
+            if (link && !link.parts)
+              return {
+                ...result,
+                action: 'link',
+                confidence: 'high',
+                link,
+                ruleId: 'artifact-manifest-section',
+                reason: `Manifest artifact ${[...artifactNames].join(', ')} matches its sheet section.`,
+              };
+          }
           return {
             ...result,
             ruleId: 'owner-artifact-identity',
@@ -201,6 +264,7 @@ export function guidedDecisions(
                 )
                 .join('; '),
           };
+        }
         if (record.id === 'catalog:armor-mod-general') {
           const proposal = proposals.get(hash);
           const match = proposal?.match;
@@ -213,9 +277,16 @@ export function guidedDecisions(
             !proposal.link.parts &&
             !match.parts &&
             compendiumPreferredTabs('armor-mod-general', entry.name).includes(match.tab.gid) &&
-            compendiumIdentifiers(match.row.name).some((name) =>
+            (compendiumIdentifiers(match.row.name).some((name) =>
               variants.has(normaliseCompendiumName(name)),
-            )
+            ) ||
+              (/^(?:Concussive Dampener|Melee Damage Resistance|Sniper Damage Resistance)$/.test(
+                entry.name,
+              ) &&
+                normaliseCompendiumName(match.row.name).startsWith('resistance ') &&
+                /Concussive Dampener.*Melee|Melee.*Concussive Dampener/s.test(
+                  match.row.cell.plain,
+                )))
           ) {
             return {
               ...result,
@@ -226,6 +297,51 @@ export function guidedDecisions(
               reason: 'Core armor variant resolved uniquely in its configured tab.',
             };
           }
+        }
+        if (
+          [
+            'catalog:weapon-perk-exotic',
+            'catalog:weapon-trait-exotic',
+            'catalog:weapon-frame-exotic',
+            'catalog:weapon-catalyst-exotic',
+          ].includes(record.id)
+        ) {
+          const parentNames = new Set((entry.exoticParentNames ?? []).map(normaliseCompendiumName));
+          const identity = normaliseCompendiumName(entry.name);
+          const parentCards = source.tabs
+            .filter((tab) => tab.name === 'Exotic Weapons')
+            .flatMap((tab) =>
+              tab.rows
+                .filter((row) => {
+                  const identifiers = compendiumIdentifiers(row.name).map(normaliseCompendiumName);
+                  return identifiers.some((name) => parentNames.has(name));
+                })
+                .map((row) => ({ tab, row })),
+            );
+          const matches = parentCards.filter(({ row }) =>
+            compendiumIdentifiers(row.name).map(normaliseCompendiumName).includes(identity),
+          );
+          const proposal = proposals.get(hash);
+          const selected =
+            parentCards.length === 1 && matches.length === 1
+              ? matches[0]
+              : matches.find(
+                  ({ tab, row }) =>
+                    proposal?.match &&
+                    !proposal.match.parts &&
+                    proposal.match.tab.gid === tab.gid &&
+                    proposal.match.row.rowIndex === row.rowIndex,
+                );
+          const link = selected && stableSelection(selected, source);
+          if (link && !link.parts)
+            return {
+              ...result,
+              action: 'link',
+              confidence: 'high',
+              link,
+              ruleId: 'exotic-catalog-parent',
+              reason: `Catalog parent and perk identity resolve to ${selected!.row.name}.`,
+            };
         }
         // Learn the tab from every current positive sample, including picked renames.
         // Section labels are layout headings, not category boundaries (e.g. Armor Mods slots).
