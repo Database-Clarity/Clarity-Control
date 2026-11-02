@@ -7,7 +7,7 @@ import { proposalFor } from '../src/features/compendium/rapidReview';
 import { sampleReference } from '../src/features/compendium/sampleReferences';
 import type { GuidanceDocument } from '../src/features/compendium/guidanceSchema';
 
-export function guidedFixture() {
+export function guidedFixture(cellText = (i: number) => `Mechanics ${i}`) {
   const timestamp = '2026-11-01T00:00:00Z';
   const source: CompendiumData = {
     fetchedAt: timestamp,
@@ -20,7 +20,7 @@ export function guidedFixture() {
           name: `Sample ${100 + i}`,
           nameNorm: `sample ${100 + i}`,
           section: 'Traits',
-          cell: { plain: `Mechanics ${i}`, runs: [{ text: `Mechanics ${i}` }] },
+          cell: { plain: cellText(i), runs: [{ text: cellText(i) }] },
         })),
       },
     ],
