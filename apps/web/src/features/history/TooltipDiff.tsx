@@ -8,6 +8,7 @@ import {
   classifyItem,
   effectCategory,
 } from '../compendium/itemClassification';
+import { archiveChangeLine } from '../archive/archiveFormat';
 import styles from './History.module.scss';
 
 const switchable = [attachmentCategory, effectCategory];
@@ -75,11 +76,8 @@ export function TooltipDiff({
           {current.associated.join(', ') || '(none)'}
         </p>
       )}
-      {JSON.stringify(before?.archive) !== JSON.stringify(current.archive) && (
-        <p>
-          Archive: {JSON.stringify(before?.archive) ?? '(none)'} →{' '}
-          {JSON.stringify(current.archive) ?? '(none)'}
-        </p>
+      {archiveChangeLine(before?.archive, current.archive) && (
+        <p>{archiveChangeLine(before?.archive, current.archive)}</p>
       )}
       {identityLines(before, current, item).map((line) => (
         <p key={line}>{line}</p>

@@ -1,4 +1,3 @@
-import { archiveIdentity } from '../archive/archive';
 import { classifyItem, derivedCategories } from '../compendium/itemClassification';
 import { currentArtifactOwners } from '../compendium/artifactIdentity';
 import { resolveAlias, type Tooltip, type CompendiumData } from '@clarity/core';
@@ -32,16 +31,7 @@ export function itemFor(hash: number, data: EditorData): Item | undefined {
   const item = data.items[hash];
   if (item) return item;
   const custom = data.bundle.tooltips[hash]?.custom;
-  if (!custom) {
-    const tooltip = data.bundle.tooltips[hash];
-    if (!tooltip || hash <= 3) return undefined;
-    return {
-      hash,
-      ...archiveIdentity(tooltip, data),
-      icon: tooltip.archive?.lastSeen.icon ?? '',
-      inGameDescription: '',
-    };
-  }
+  if (!custom) return undefined;
   return { hash, ...custom, icon: '', inGameDescription: '' };
 }
 

@@ -235,22 +235,14 @@ export function Layout() {
         )}
         {pending > 0 && <p role="status">Saving local drafts...</p>}
         {status === 'loading' && <p role="status">Loading manifest and tooltip data...</p>}
+        {error && location.pathname === '/archive' && <h1>Archive</h1>}
         {error && (
           <p role="alert">
-            {location.pathname === '/archive'
-              ? 'Manifest looks incomplete — archive view paused'
-              : 'Cannot load editor data'}
-            : {error}{' '}
+            Cannot load editor data: {error}{' '}
             <button type="button" onClick={() => void load()}>
               Retry data loading
             </button>
           </p>
-        )}
-        {error && location.pathname === '/archive' && (
-          <details>
-            <summary>Details</summary>
-            <p>{error}</p>
-          </details>
         )}
         {!hydrated && !draftError && <p role="status">Recovering local drafts...</p>}
         {status === 'ready' && hydrated && <Outlet />}

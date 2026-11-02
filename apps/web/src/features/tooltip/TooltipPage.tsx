@@ -1,4 +1,5 @@
 import { ArchiveIcon } from '../archive/ArchiveIcon';
+import { archiveCategoryLabel, archivedItemFor } from '../archive/archive';
 import { AttachmentCategoryControl } from './AttachmentCategoryControl';
 import { classifyItem, categoryLabel } from '../compendium/itemClassification';
 import { useCompendiumStore } from '../compendium/store';
@@ -19,7 +20,6 @@ import { useDraftStore } from '../../stores/drafts';
 import { useAuthStore } from '../../stores/auth';
 import {
   canonicalHash,
-  itemFor,
   sharedPerkLabel,
   singleOwnerLabel,
   tooltipFor,
@@ -78,7 +78,7 @@ export function TooltipPage({
   const canonical = canonicalHash(hash, data);
   if (!readOnly && hash !== canonical)
     return <Navigate to={tooltipPath(canonical, search.toString())} replace />;
-  const item = itemFor(hash, data);
+  const item = archivedItemFor(hash, data);
   if (!item && !data.bundle.tooltips[hash]) return <h1>Tooltip {hash} not found</h1>;
   const primaryBase = tooltipFor(hash, data);
   readOnly ||= hash > 3 && !data.items[hash] && !primaryBase.custom;
@@ -105,9 +105,11 @@ export function TooltipPage({
         <div className={styles.identityText}>
           <h1>{item?.name ?? `Tooltip ${hash}`}</h1>
           <p>
-            {categoryLabel(effectiveCategory ?? '') ??
-              data.categories.find((category) => category.id === effectiveCategory)?.label ??
-              effectiveCategory}{' '}
+            {readOnly
+              ? archiveCategoryLabel(effectiveCategory ?? 'unknown', data)
+              : (categoryLabel(effectiveCategory ?? '') ??
+                data.categories.find((category) => category.id === effectiveCategory)?.label ??
+                effectiveCategory)}{' '}
             / {hash}
           </p>
           {!readOnly && item && <AttachmentCategoryControl base={primaryBase} item={item} />}
@@ -144,7 +146,7 @@ export function TooltipPage({
               draft={primaryTooltip.text[lang]?.text !== primaryBase.text[lang]?.text}
             />
           </div>
-          {primaryAccess.reason && (
+          {primaryAccess.reason && !readOnly && (
             <details>
               <summary>Read-only details</summary>
               <p role="status" className={styles.reason}>
@@ -162,18 +164,23 @@ export function TooltipPage({
           )}
         </div>
       </header>
+      {readOnly && (
+        <p role="status" className={styles.archivedNotice}>
+          {primaryAccess.reason}
+        </p>
+      )}
       {variantHashes(hash, data).map((variant) => {
         const base = tooltipFor(variant, data);
         const tooltip = drafts[variant]?.next ?? base;
-        const entry = itemFor(variant, data);
+        const entry = archivedItemFor(variant, data);
         const category = data.categories.find((category) => category.id === entry?.categoryId);
         const globals: MarkupGlobals = { ...sharedGlobals, type: category?.legacyType };
         const value = tooltip.text[lang]?.text ?? '';
         const translation = translationQueue([base], [lang], data.aliases)[0];
         const panels = (
           <>
-            {!readOnly && item && <AssociationsPanel hash={variant} />}
-            <HistoryPanel hash={variant} readOnly={readOnly || !item} />
+            {!readOnly && <AssociationsPanel hash={variant} />}
+            <HistoryPanel hash={variant} readOnly={readOnly} />
           </>
         );
         return (
@@ -190,6 +197,7 @@ export function TooltipPage({
               )}
             </header>
             <VariantWorkspace
+              initialPanel={readOnly ? 'preview' : undefined}
               source={
                 lang === 'en' ? undefined : (
                   <TranslationSource
@@ -216,7 +224,7 @@ export function TooltipPage({
                       lang={lang}
                       draft={tooltip.text[lang]?.text !== base.text[lang]?.text}
                     />
-                    {primaryAccess.reason && (
+                    {primaryAccess.reason && !readOnly && (
                       <p role="status" className={styles.reason}>
                         {primaryAccess.reason}
                         {primarySwitchTo && (
@@ -252,14 +260,16 @@ export function TooltipPage({
                     lang={lang}
                     name={entry?.name ?? `Tooltip ${variant}`}
                     icon={entry?.icon || undefined}
-                    categoryLabel={category?.label ?? entry?.categoryId}
+                    categoryLabel={
+                      readOnly && entry
+                        ? archiveCategoryLabel(entry.categoryId, data)
+                        : (category?.label ?? entry?.categoryId)
+                    }
                     globals={globals}
                     archiveIcon={readOnly}
                     tooltipHash={variant}
                   />
-                  {!readOnly && item && user?.role !== 'translator' && (
-                    <CompendiumPanel base={base} />
-                  )}
+                  {!readOnly && user?.role !== 'translator' && <CompendiumPanel base={base} />}
                 </div>
               }
             />

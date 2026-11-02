@@ -50,3 +50,14 @@
     min-height: 100dvh;
   }
 }
+
+.status {
+  border-left: 3px solid #888;
+  padding: 0.25rem 0.75rem;
+  margin: 0.75rem 0;
+}
+.consequence {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  max-width: 28rem;
+}

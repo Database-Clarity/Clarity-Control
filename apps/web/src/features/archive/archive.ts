@@ -1,6 +1,7 @@
 import { languages, type Lang, type Tooltip } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
-import { classifyItem } from '../compendium/itemClassification';
+import { categoryLabel, classifyItem } from '../compendium/itemClassification';
+import { itemFor } from '../navigation/catalog';
 import { loadManifestFacts } from '../compendium/manifestFacts';
 import triage from '../compendium/owner-triage.json';
 
@@ -22,6 +23,22 @@ export function archiveIdentity(tooltip: Tooltip, data: EditorData) {
       manifestVersion: archiveManifestVersion,
     }
   );
+}
+/** Archive/tooltip-page only: shared itemFor must not see removed or orphan tooltips. */
+export function archivedItemFor(hash: number, data: EditorData) {
+  const item = itemFor(hash, data);
+  const tooltip = data.bundle.tooltips[hash];
+  if (item || !tooltip || hash <= 3) return item;
+  return {
+    hash,
+    ...archiveIdentity(tooltip, data),
+    icon: tooltip.archive?.lastSeen.icon ?? '',
+    inGameDescription: '',
+  };
+}
+export function archiveCategoryLabel(id: string, data: EditorData): string {
+  if (id === 'unknown') return 'Category not yet snapshotted';
+  return categoryLabel(id) ?? data.categories.find((category) => category.id === id)?.label ?? id;
 }
 export function inactiveArchiveHashes(data: EditorData): Set<number> {
   const inactive = new Set<number>();
