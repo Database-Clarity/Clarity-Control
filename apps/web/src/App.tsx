@@ -9,6 +9,7 @@ import { GlobalDetailPage, GlobalsPage } from './features/globals/GlobalsPage';
 import { Layout } from './features/navigation/Layout';
 import { ReviewPage } from './features/review/ReviewPage';
 import { LostTextPage } from './features/lost-text/LostTextPage';
+import { ArchivePage } from './features/archive/ArchivePage';
 import { DriftPage } from './features/drift/DriftPage';
 import { TranslationsPage } from './features/translations/TranslationsPage';
 import { PlaceholderPage } from './ui/PlaceholderPage';
@@ -24,6 +25,7 @@ export function App() {
         <Route path="review" element={<ReviewPage />} />
         <Route path="compendium/review" element={<MatchReviewPage />} />
         <Route path="compendium" element={<MatchReviewPage />} />
+        <Route path="archive" element={<ArchivePage />} />
         <Route path="drift" element={<DriftPage />} />
         <Route path="lost-text" element={<LostTextPage />} />
         <Route path="translations" element={<TranslationsPage />} />

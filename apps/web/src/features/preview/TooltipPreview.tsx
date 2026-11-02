@@ -1,3 +1,4 @@
+import { ArchiveIcon } from '../archive/ArchiveIcon';
 import { languageLabel } from '../../languageLabels';
 import { useId, useMemo } from 'react';
 import { Link } from 'react-router-dom';
@@ -23,6 +24,7 @@ export interface TooltipPreviewProps {
   categoryLabel?: string;
   globals: MarkupGlobals;
   tooltipHash?: number;
+  archiveIcon?: boolean;
 }
 
 function classNames(names?: (string | undefined)[]) {
@@ -101,13 +103,18 @@ export function TooltipPreview({
   categoryLabel,
   globals,
   tooltipHash,
+  archiveIcon = false,
 }: TooltipPreviewProps) {
   const parsed = useMemo(() => parseMarkup(text, globals), [text, globals]);
   const iconUrl = icon?.startsWith('/common/') ? `https://www.bungie.net${icon}` : icon;
   return (
     <section className={styles.preview} lang={markupLanguage(lang)} aria-label={`${name} preview`}>
       <header className={styles.header}>
-        {iconUrl && linkUrl(iconUrl) && <img className={styles.icon} src={iconUrl} alt="" />}
+        {archiveIcon ? (
+          <ArchiveIcon icon={icon} />
+        ) : (
+          iconUrl && linkUrl(iconUrl) && <img className={styles.icon} src={iconUrl} alt="" />
+        )}
         <div>
           <div className={styles.name}>{name}</div>
           {categoryLabel && <div className={styles.category}>{categoryLabel}</div>}

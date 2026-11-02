@@ -235,6 +235,7 @@ export function Layout() {
         )}
         {pending > 0 && <p role="status">Saving local drafts...</p>}
         {status === 'loading' && <p role="status">Loading manifest and tooltip data...</p>}
+        {error && location.pathname === '/archive' && <h1>Archive</h1>}
         {error && (
           <p role="alert">
             Cannot load editor data: {error}{' '}

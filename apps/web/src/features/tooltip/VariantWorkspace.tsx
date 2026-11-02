@@ -14,16 +14,23 @@ interface VariantWorkspaceProps {
   source?: ReactNode;
   editor: ReactNode;
   preview: ReactNode;
+  /** Panel shown first; defaults to the editor. */
+  initialPanel?: Panel;
 }
 
 /**
  * Lays out source / editor / preview. At the shared mobile breakpoint the tablist shows one panel
  * at a time; hidden panels stay mounted (CSS only) so editor cursor and undo history survive.
  */
-export function VariantWorkspace({ source, editor, preview }: VariantWorkspaceProps) {
+export function VariantWorkspace({
+  source,
+  editor,
+  preview,
+  initialPanel = 'translation',
+}: VariantWorkspaceProps) {
   const { container, separator, style } = useWorkspaceDivider();
   const prefix = useId();
-  const [active, setActive] = useState<Panel>('translation');
+  const [active, setActive] = useState<Panel>(initialPanel);
   const tabs = useRef<Partial<Record<Panel, HTMLButtonElement | null>>>({});
   const activePanel = !source && active === 'source' ? 'translation' : active;
   useEffect(() => {
