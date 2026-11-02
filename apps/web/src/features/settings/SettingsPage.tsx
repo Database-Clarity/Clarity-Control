@@ -19,7 +19,7 @@ function timeZones(): string[] {
 
 export function SettingsPage() {
   const state = useSettingsStore();
-  const { settings, device, update, updateDevice, retry, resetLayout } = state;
+  const { settings, device, update, updateDevice, remember, retry, resetLayout } = state;
   const zones = useMemo(timeZones, []);
   const [layoutReset, setLayoutReset] = useState(false);
   // Synced settings go to the account only when the user leaves this page.
@@ -31,7 +31,12 @@ export function SettingsPage() {
   const select = <K extends keyof SyncedSettings>(key: K, values: readonly SyncedSettings[K][]) => (
     <select
       value={settings[key]}
-      onChange={(event) => update({ [key]: event.target.value } as Partial<SyncedSettings>)}
+      onChange={(event) => {
+        const patch = { [key]: event.target.value } as Partial<SyncedSettings>;
+        update(patch);
+        // A default chosen on this device also replaces this device's remembered toggle.
+        if (key === 'markupToolbar' || key === 'englishSource') remember(patch);
+      }}
     >
       {values.map((value) => (
         <option key={value} value={value}>
@@ -89,8 +94,9 @@ export function SettingsPage() {
       <fieldset>
         <legend>Editor</legend>
         <p className={styles.hint}>
-          Synced to your account when signed in. The buttons in the editor still switch the current
-          view.
+          Default for new devices; your last choice on this device is remembered. Choosing a default
+          here also applies it on this device. Defaults sync to your account when signed in; the
+          remembered choices never do.
         </p>
         <label>
           Markup toolbar

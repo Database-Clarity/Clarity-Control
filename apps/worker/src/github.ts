@@ -118,33 +118,46 @@ export class GitHub {
     return file;
   }
 
-  /** `null` credits the bot as author too, so the commit names no user (synced settings). */
-  private credits(user: Identity | null) {
+  private credits(user: Identity) {
     const bot = `${this.env.GITHUB_APP_SLUG}[bot]`;
-    const committer = { name: bot, email: `${bot}@users.noreply.github.com` };
     return {
-      author: user
-        ? { name: user.login, email: `${user.id}+${user.login}@users.noreply.github.com` }
-        : committer,
-      committer,
+      author: { name: user.login, email: `${user.id}+${user.login}@users.noreply.github.com` },
+      committer: { name: bot, email: `${bot}@users.noreply.github.com` },
     };
   }
 
-  async commit(
-    head: string,
+  /** Bot as author and committer, with an explicit date: the commit names no user. */
+  private botCredits(date: string) {
+    const bot = `${this.env.GITHUB_APP_SLUG}[bot]`;
+    const identity = { name: bot, email: `${bot}@users.noreply.github.com`, date };
+    return { author: identity, committer: identity };
+  }
+
+  /** Branch head, or null when the branch does not exist yet. */
+  async headOrNull(branch: string): Promise<string | null> {
+    const response = await this.request(`/git/ref/heads/${encodeURIComponent(branch)}`);
+    if (response.status === 404) return null;
+    if (!response.ok) throw new HttpError(502, `GitHub ref read failed (${response.status})`);
+    return refSchema.parse(await response.json()).object.sha;
+  }
+
+  private async write(
+    branch: string,
+    head: string | null,
     files: Record<string, unknown>,
     message: string,
-    user: Identity | null,
+    credits: object,
   ): Promise<string> {
-    const parent = commitSchema.parse(await this.result(`/git/commits/${head}`));
+    const parent = head ? commitSchema.parse(await this.result(`/git/commits/${head}`)) : null;
     const tree = shaSchema.parse(
       await this.result('/git/trees', 'POST', {
-        base_tree: parent.tree.sha,
+        ...(parent ? { base_tree: parent.tree.sha } : {}),
         tree: Object.entries(files).map(([path, value]) => ({
           path,
           mode: '100644',
           type: 'blob',
-          content: `${JSON.stringify(value, null, 2)}\n`,
+          content: `${JSON.stringify(value, null, 2)}
+`,
         })),
       }),
     );
@@ -152,18 +165,42 @@ export class GitHub {
       await this.result('/git/commits', 'POST', {
         message,
         tree: tree.sha,
-        parents: [head],
-        ...this.credits(user),
+        parents: head ? [head] : [],
+        ...credits,
       }),
     );
-    const update = await this.request(
-      `/git/refs/heads/${encodeURIComponent(this.env.DATA_BRANCH)}`,
-      'PATCH',
-      { sha: commit.sha, force: false },
-    );
-    if (update.status === 409 || update.status === 422) throw new RefRace('Data branch moved');
+    const update = head
+      ? await this.request(`/git/refs/heads/${encodeURIComponent(branch)}`, 'PATCH', {
+          sha: commit.sha,
+          force: false,
+        })
+      : await this.request('/git/refs', 'POST', { ref: `refs/heads/${branch}`, sha: commit.sha });
+    if (update.status === 409 || update.status === 422) throw new RefRace(`${branch} moved`);
     if (!update.ok) throw new HttpError(502, `GitHub ref update failed (${update.status})`);
     return commit.sha;
+  }
+
+  async commit(
+    head: string,
+    files: Record<string, unknown>,
+    message: string,
+    user: Identity,
+  ): Promise<string> {
+    return this.write(this.env.DATA_BRANCH, head, files, message, this.credits(user));
+  }
+
+  /**
+   * Commit authored and committed by the bot on `branch`, which is created as a new root
+   * history when `head` is null. Used by synced settings, never by tooltip data.
+   */
+  async commitAsBot(
+    branch: string,
+    head: string | null,
+    files: Record<string, unknown>,
+    message: string,
+    date: string,
+  ): Promise<string> {
+    return this.write(branch, head, files, message, this.botCredits(date));
   }
 
   async putLive(sha: string, value: unknown, user: Identity): Promise<string> {

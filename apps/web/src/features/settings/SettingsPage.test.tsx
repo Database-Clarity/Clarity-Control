@@ -9,6 +9,8 @@ import { layoutKey, settingsKey, useSettingsStore } from '../../stores/settings'
 import { CommitAuthor } from '../history/CommitAuthor';
 import { SettingsNotice } from './SettingsChoice';
 import { SettingsPage } from './SettingsPage';
+import { MarkupToolbar } from '../editor/MarkupToolbar';
+import type { MarkupGlobals } from '@clarity/core';
 
 const holder = vi.hoisted(() => {
   // Node's own (flag-gated) localStorage shadows jsdom's; install a real one before the
@@ -43,6 +45,7 @@ beforeEach(async () => {
   holder.server = fakeServer();
   await useSettingsStore.getState().activate(null);
   useSettingsStore.getState().update(defaultSyncedSettings);
+  useSettingsStore.getState().updateDevice({ remembered: {} });
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -124,6 +127,14 @@ describe('Settings page', () => {
     await choose('Markup toolbar', 'open');
     await choose('English source shows', 'current');
     expect(holder.server.calls.put).toHaveLength(0);
+    // Choosing a default here also applies it to this device's remembered toggles.
+    expect(useSettingsStore.getState().device.remembered).toEqual({
+      markupToolbar: 'open',
+      englishSource: 'current',
+    });
+    expect(host.textContent).toContain(
+      'Default for new devices; your last choice on this device is remembered.',
+    );
     await act(async () => host.querySelector<HTMLAnchorElement>('a[href="/"]')!.click());
     expect(host.textContent).toContain('Editor home');
     expect(holder.server.calls.put).toHaveLength(1);
@@ -202,6 +213,26 @@ describe('Settings page', () => {
     holder.server.fail('');
     await act(async () => button('Retry sync').click());
     expect(useSettingsStore.getState()).toMatchObject({ status: 'synced', pending: [] });
+  });
+
+  it('remembers the markup toolbar per device without syncing or prompting', async () => {
+    await act(async () => useSettingsStore.getState().activate(editor));
+    useSettingsStore.getState().update({ markupToolbar: 'open' });
+    useSettingsStore.getState().updateDevice({ remembered: {} });
+    await act(async () => useSettingsStore.getState().sync());
+    const puts = holder.server.calls.put.length;
+    const toolbar = () =>
+      createElement(MarkupToolbar, { editor: { current: null }, globals: {} as MarkupGlobals });
+    await render(toolbar());
+    // No remembered click yet: the synced default applies.
+    expect(button('Hide markup tools')).toBeTruthy();
+    await act(async () => button('Hide markup tools').click());
+    await act(async () => root.render(createElement('p')));
+    await render(toolbar());
+    expect(button('Show markup tools')).toBeTruthy();
+    expect(useSettingsStore.getState()).toMatchObject({ pending: [], status: 'synced' });
+    expect(useSettingsStore.getState().settings.markupToolbar).toBe('open');
+    expect(holder.server.calls.put).toHaveLength(puts);
   });
 
   it('works signed out, saving on this device only', async () => {

@@ -50,17 +50,21 @@ committer. The installation token is restricted to the configured repository.
 
 ### Synced user settings
 
-`/settings` stores one file per user on the data branch at
-`user-settings/<HMAC-SHA256(file-id key, user id)>.json`. The content is
-`{ v: 1, iv, ct }`: AES-256-GCM with a random nonce, the plaintext padded to
-256-byte blocks and the file id bound as associated data. Both keys are derived
-with HKDF-SHA256 from `SESSION_SECRET` (salt and info `clarity-user-settings-v1/...`),
-so the public repository shows neither the user nor the values. These commits use
-the bot as author and committer with the fixed message `Update synced settings`.
-`revision` is the file's blob SHA: a PUT with a stale revision gets 409 and the
-stored copy, and identical content is not rewritten. Rotating `SESSION_SECRET`
-signs everyone out and orphans these files: clients then keep their browser copy
-and upload a fresh file on the next sync.
+`/settings` never touches the data branch. It writes `settings.json` on a separate
+branch (`SETTINGS_BRANCH`, default `editor-settings`; created as a root commit on the
+first sync): `{ v: 1, entries: { <HMAC-SHA256(id key, user id)>: { iv, ct } } }`.
+Every entry is AES-256-GCM under one server-wide key, with the entry id as associated
+data and the plaintext padded to a fixed 512-byte bucket. Both keys are derived with
+HKDF-SHA256 from `SESSION_SECRET` (salt and info `clarity-user-settings-v1/...`). Each
+sync re-encrypts every entry with fresh nonces in one commit, so a commit does not show
+whose settings changed. Settings commits use the bot as author and committer, the
+fixed message `Update synced settings`, and a date rounded down to the UTC hour.
+`revision` is a random id inside the ciphertext, so other users' syncs never cause
+conflicts. A PUT with a stale revision gets 409 and the stored copy. Identical
+settings are not rewritten. A ref race retries up to three times. Unreadable entries
+are reported to their owner as `unreadable` and dropped on the next re-encryption.
+Rotating `SESSION_SECRET` signs everyone out and makes every entry unreadable;
+clients keep their browser copy and re-upload on the next sync.
 
 ### Save and conflicts
 

@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { EnglishDiffContent } from '../translations/EnglishDiff';
 import { useSettingsStore } from '../../stores/settings';
 import styles from './TooltipPage.module.scss';
@@ -12,11 +11,12 @@ export function TranslationSource({
   text: string | undefined;
   diff?: { hash: number; sourceUpdatedAt: string; current: string };
 }) {
-  // The default comes from Settings; toggling here changes this view only.
-  const [showChanges, setShowChanges] = useState(
-    () => useSettingsStore.getState().settings.englishSource === 'changes',
-  );
-  const toggle = () => setShowChanges(!showChanges);
+  // The last click is remembered on this device; Settings gives the default until then.
+  const remembered = useSettingsStore((state) => state.device.remembered.englishSource);
+  const fallback = useSettingsStore((state) => state.settings.englishSource);
+  const remember = useSettingsStore((state) => state.remember);
+  const showChanges = (remembered ?? fallback) === 'changes';
+  const toggle = () => remember({ englishSource: showChanges ? 'current' : 'changes' });
 
   return (
     <>

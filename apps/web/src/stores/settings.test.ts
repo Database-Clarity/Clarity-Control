@@ -30,11 +30,18 @@ describe('settings store: local storage', () => {
       markupToolbar: 'open',
       englishSource: 'current',
     });
+    // The old keys were this device's last clicks: they also become its remembered choices.
+    expect(store.getState().device.remembered).toEqual({
+      markupToolbar: 'open',
+      englishSource: 'current',
+    });
     expect(values.has(legacyToolbarKey)).toBe(false);
     expect(values.has(legacySourceKey)).toBe(false);
     expect(JSON.parse(values.get(settingsKey('anonymous'))!).settings.markupToolbar).toBe('open');
-    // A second load keeps the migrated values from the new key.
-    expect(make(storage, fakeServer()).getState().settings.englishSource).toBe('current');
+    // A second load keeps the migrated values from the new keys.
+    const again = make(storage, fakeServer()).getState();
+    expect(again.settings.englishSource).toBe('current');
+    expect(again.device.remembered.markupToolbar).toBe('open');
   });
 
   it('falls back to defaults with a visible notice on corrupted data, field by field', () => {
@@ -61,7 +68,7 @@ describe('settings store: local storage', () => {
     const store = make(storage, server);
     await store.getState().activate(editor);
     store.getState().updateDevice({ textSize: 'large' });
-    expect(JSON.parse(values.get(deviceKey)!)).toEqual({ textSize: 'large' });
+    expect(JSON.parse(values.get(deviceKey)!)).toEqual({ textSize: 'large', remembered: {} });
     expect(values.get(settingsKey('7'))).not.toContain('textSize');
     expect(store.getState().pending).toEqual([]);
     await store.getState().sync();
@@ -86,6 +93,33 @@ describe('settings store: local storage', () => {
     expect(store.getState().reason).toBe('no-role');
     await store.getState().activate(editor);
     expect(store.getState().settings.dateFormat).toBe('mdy');
+  });
+});
+
+describe('settings store: remembered editor toggles', () => {
+  it('remembers clicks per device: never pending, never synced, never prompted after a reload', async () => {
+    const { values, storage } = memoryStorage();
+    const server = fakeServer();
+    const store = make(storage, server);
+    await store.getState().activate(editor);
+    store.getState().remember({ markupToolbar: 'open' });
+    store.getState().remember({ englishSource: 'current' });
+    expect(store.getState()).toMatchObject({ pending: [], status: 'synced' });
+    expect(store.getState().settings).toEqual(defaultSyncedSettings);
+    expect(JSON.parse(values.get(deviceKey)!).remembered).toEqual({
+      markupToolbar: 'open',
+      englishSource: 'current',
+    });
+    await store.getState().sync();
+    store.getState().syncOnHide();
+    await Promise.resolve();
+    expect(server.calls.put).toHaveLength(0);
+    const reloaded = make(storage, server);
+    await reloaded.getState().activate(editor);
+    expect(reloaded.getState()).toMatchObject({ status: 'synced', choice: null });
+    expect(reloaded.getState().device.remembered.markupToolbar).toBe('open');
+    // Another device (fresh storage) starts from the synced default instead.
+    expect(make(memoryStorage().storage, server).getState().device.remembered).toEqual({});
   });
 });
 

@@ -18,7 +18,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
 });
 afterEach(() => vi.unstubAllGlobals());
-it('starts from the Settings default, switches this view only, with no toggle for current translations', async () => {
+it('remembers the last click on this device, starting from the Settings default, with no toggle for current translations', async () => {
   const host = document.createElement('div');
   document.body.append(host);
   let root = createRoot(host);
@@ -37,14 +37,12 @@ it('starts from the Settings default, switches this view only, with no toggle fo
   await act(async () => root.unmount());
   root = createRoot(host);
   await act(async () => root.render(createElement(TranslationSource, props)));
-  // A view toggle is not a setting: a new view starts from the Settings default again.
-  expect(host.querySelector('button')?.getAttribute('aria-pressed')).toBe('true');
-  expect(useSettingsStore.getState().pending).toEqual([]);
-  await act(async () => root.unmount());
-  useSettingsStore.getState().update({ englishSource: 'current' });
-  root = createRoot(host);
-  await act(async () => root.render(createElement(TranslationSource, props)));
+  // Remembered on this device, but never a synced change (no pending marker, no prompt).
   expect(host.querySelector('button')?.getAttribute('aria-pressed')).toBe('false');
+  const state = useSettingsStore.getState();
+  expect(state.device.remembered.englishSource).toBe('current');
+  expect(state.settings.englishSource).toBe('changes');
+  expect(state.pending).toEqual([]);
   await act(async () => host.querySelector('button')!.click());
   expect(host.textContent).toContain('Diff content');
   await act(async () => root.render(createElement(TranslationSource, { text: 'Current source' })));

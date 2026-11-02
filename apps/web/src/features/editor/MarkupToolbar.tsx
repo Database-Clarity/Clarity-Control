@@ -14,15 +14,16 @@ export function MarkupToolbar({
   editor: RefObject<EditorView | null>;
   globals: MarkupGlobals;
 }) {
-  // The default comes from Settings; toggling here changes this view only.
-  const [open, setOpen] = useState(
-    () => useSettingsStore.getState().settings.markupToolbar === 'open',
-  );
+  // The last click is remembered on this device; Settings gives the default until then.
+  const remembered = useSettingsStore((state) => state.device.remembered.markupToolbar);
+  const fallback = useSettingsStore((state) => state.settings.markupToolbar);
+  const remember = useSettingsStore((state) => state.remember);
+  const open = (remembered ?? fallback) === 'open';
   const [choice, setChoice] = useState(markupOptions[0].id);
   const [message, setMessage] = useState('');
 
   function toggle() {
-    setOpen(!open);
+    remember({ markupToolbar: open ? 'closed' : 'open' });
     setMessage('');
   }
 

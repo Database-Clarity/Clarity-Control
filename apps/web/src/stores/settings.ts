@@ -24,9 +24,18 @@ import { errorMessage } from '../services/http';
  */
 export type SyncedKey = keyof SyncedSettings;
 export const syncedKeys = Object.keys(defaultSyncedSettings) as SyncedKey[];
-export const deviceSettingsSchema = z.object({ textSize: z.enum(['default', 'large']) });
+/** Editor view toggles whose last click is remembered on this device (never synced). */
+export const rememberedSchema = z.object({
+  markupToolbar: syncedSettingsSchema.shape.markupToolbar.optional(),
+  englishSource: syncedSettingsSchema.shape.englishSource.optional(),
+});
+export type Remembered = z.infer<typeof rememberedSchema>;
+export const deviceSettingsSchema = z.object({
+  textSize: z.enum(['default', 'large']),
+  remembered: rememberedSchema,
+});
 export type DeviceSettings = z.infer<typeof deviceSettingsSchema>;
-export const defaultDeviceSettings: DeviceSettings = { textSize: 'default' };
+export const defaultDeviceSettings: DeviceSettings = { textSize: 'default', remembered: {} };
 
 export const settingsKey = (scope: string) => `clarity-settings:v1:${scope}`;
 export const deviceKey = 'clarity-settings:device:v1';
@@ -82,6 +91,8 @@ export interface SettingsState {
   activate(user: { id: number | string; role: string | null } | null): Promise<void>;
   update(patch: Partial<SyncedSettings>): void;
   updateDevice(patch: Partial<DeviceSettings>): void;
+  /** Remembers an editor toggle on this device only: no sync, no pending marker, no prompt. */
+  remember(patch: Remembered): void;
   /** Called when leaving the Settings page; no-op unless changes are waiting. */
   sync(options?: { keepalive?: boolean }): Promise<void>;
   /** Best-effort sync when the tab is hidden or closed, only for this visit's own edits. */
@@ -238,17 +249,27 @@ export function createSettingsStore({
     return copy;
   }
 
-  function loadDevice(): DeviceSettings {
+  /** Field-wise like the synced copy; the old toggle keys seed this device's remembered state. */
+  function loadDevice(legacy: Remembered): DeviceSettings {
+    let record: Record<string, unknown> = {};
     try {
       const raw = read(deviceKey);
-      const record: unknown = raw === null ? {} : JSON.parse(raw);
-      const result = deviceSettingsSchema.shape.textSize.safeParse(
-        (record as Record<string, unknown> | null)?.textSize,
-      );
-      return { textSize: result.success ? result.data : 'default' };
+      const parsed: unknown = raw === null ? {} : JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') record = parsed as Record<string, unknown>;
     } catch {
-      return { ...defaultDeviceSettings };
+      /* Defaults below. */
     }
+    const textSize = deviceSettingsSchema.shape.textSize.safeParse(record.textSize);
+    const stored =
+      record.remembered && typeof record.remembered === 'object'
+        ? (record.remembered as Record<string, unknown>)
+        : {};
+    const remembered: Remembered = { ...legacy };
+    for (const key of ['markupToolbar', 'englishSource'] as const) {
+      const result = rememberedSchema.shape[key].safeParse(stored[key]);
+      if (result.success && result.data) Object.assign(remembered, { [key]: result.data });
+    }
+    return { textSize: textSize.success ? textSize.data : 'default', remembered };
   }
 
   let activation = 0;
@@ -264,9 +285,15 @@ export function createSettingsStore({
   /** The user left Settings while the account copy was still loading: sync once it lands. */
   let exitRequested = false;
 
+  const legacy = migrateLegacy()?.settings;
+  const legacyRemembered: Remembered = {
+    ...(read(legacyToolbarKey) !== null && legacy ? { markupToolbar: legacy.markupToolbar } : {}),
+    ...(read(legacySourceKey) !== null && legacy ? { englishSource: legacy.englishSource } : {}),
+  };
+  const device = loadDevice(legacyRemembered);
+  if (Object.keys(legacyRemembered).length) write(deviceKey, device);
   const initial = load('anonymous');
   const initialNotice = notice;
-  const device = loadDevice();
   applyDeviceSettings(device);
 
   return create<SettingsState>((set, get) => {
@@ -420,6 +447,10 @@ export function createSettingsStore({
           ...(['synced', 'error'].includes(state.status) ? { status: 'unsynced' as const } : {}),
         });
         persist();
+      },
+
+      remember(patch) {
+        get().updateDevice({ remembered: { ...get().device.remembered, ...patch } });
       },
 
       updateDevice(patch) {

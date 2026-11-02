@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { vi } from 'vitest';
 import { type Aliases, type Permissions, type Tooltip } from '@clarity/core';
@@ -23,7 +22,7 @@ export const config: Permissions = {
 
 const objectSchema = z.record(z.string(), z.unknown());
 const treeSchema = z.object({
-  base_tree: z.string(),
+  base_tree: z.string().optional(),
   tree: z.array(z.object({ path: z.string(), content: z.string() })),
 });
 const commitSchema = z.object({
@@ -36,6 +35,9 @@ const putSchema = z.object({ sha: z.string(), content: z.string(), branch: z.str
 export class Fixture {
   env: Env;
   dataHead = sha(1);
+  /** Head of the synced-settings branch; null until the first sync creates it. */
+  settingsHead: string | null = null;
+  settingsRaces = 0;
   liveHead = sha(2);
   liveFileSha = sha(3);
   sequence = 10;
@@ -199,6 +201,11 @@ export class Fixture {
     );
     if (path.startsWith('/git/ref/heads/')) {
       const branch = decodeURIComponent(path.slice('/git/ref/heads/'.length));
+      if (branch === 'editor-settings') {
+        return this.settingsHead
+          ? this.response({ object: { sha: this.settingsHead } })
+          : this.response({ message: 'Not Found' }, 404);
+      }
       return this.response({
         object: { sha: branch === this.env.DATA_BRANCH ? this.dataHead : this.liveHead },
       });
@@ -209,12 +216,7 @@ export class Fixture {
       const value = name === 'liveDescriptions.json' ? this.live : this.snapshots.get(ref)?.[name];
       if (value === undefined) return this.response({ message: 'Not Found' }, 404);
       return this.response({
-        sha:
-          name === 'liveDescriptions.json'
-            ? this.liveFileSha
-            : name.startsWith('user-settings/')
-              ? gitBlobSha(value)
-              : sha(4),
+        sha: name === 'liveDescriptions.json' ? this.liveFileSha : sha(4),
         encoding: this.largeFile && name === 'liveDescriptions.json' ? 'none' : 'base64',
         content:
           this.largeFile && name === 'liveDescriptions.json'
@@ -237,7 +239,7 @@ export class Fixture {
       const input = treeSchema.parse(raw);
       const id = sha(this.sequence++);
       this.snapshots.set(id, {
-        ...this.snapshots.get(input.base_tree),
+        ...(input.base_tree ? this.snapshots.get(input.base_tree) : {}),
         ...Object.fromEntries(input.tree.map((entry) => [entry.path, JSON.parse(entry.content)])),
       });
       return this.response({ sha: id });
@@ -248,6 +250,19 @@ export class Fixture {
       this.commits.push(objectSchema.parse(raw));
       this.snapshots.set(id, this.snapshots.get(input.tree)!);
       return this.response({ sha: id });
+    }
+    if (path === '/git/refs/heads/editor-settings' && method === 'PATCH') {
+      if (this.settingsRaces-- > 0) return this.response({}, 422);
+      this.settingsHead = z.object({ sha: z.string(), force: z.literal(false) }).parse(raw).sha;
+      return this.response({ object: { sha: this.settingsHead } });
+    }
+    if (path === '/git/refs' && method === 'POST') {
+      const input = z
+        .object({ ref: z.literal('refs/heads/editor-settings'), sha: z.string() })
+        .parse(raw);
+      if (this.settingsHead || this.settingsRaces-- > 0) return this.response({}, 422);
+      this.settingsHead = input.sha;
+      return this.response({ object: { sha: input.sha } });
     }
     if (path.startsWith('/git/refs/heads/') && method === 'PATCH') {
       if (this.patchRaces-- > 0) return this.response({}, 422);
@@ -281,14 +296,6 @@ export class Fixture {
     if (path === '/commits') return this.response(this.history);
     throw new Error(`Unexpected mock request: ${method} ${url.href}`);
   }
-}
-
-/** The blob SHA GitHub reports for a file written as pretty JSON by `GitHub.commit`. */
-export function gitBlobSha(value: unknown): string {
-  const content = Buffer.from(`${JSON.stringify(value, null, 2)}\n`, 'utf8');
-  return createHash('sha1')
-    .update(Buffer.concat([Buffer.from(`blob ${content.byteLength}\0`), content]))
-    .digest('hex');
 }
 
 function expectGoogleUrl(url: URL) {
