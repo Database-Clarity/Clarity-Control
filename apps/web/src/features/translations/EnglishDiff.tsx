@@ -9,12 +9,14 @@ export function EnglishDiff({
   hash,
   sourceUpdatedAt,
   current,
+  initiallyExpanded = false,
 }: {
   hash: number;
   sourceUpdatedAt: string;
   current: string;
+  initiallyExpanded?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(initiallyExpanded);
   const [source, setSource] = useState<TranslationSource | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
