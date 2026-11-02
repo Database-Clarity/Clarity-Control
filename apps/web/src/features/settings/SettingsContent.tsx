@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { dateFormats, timeDisplays, type SyncedSettings } from '@clarity/core';
-import { useSettingsStore } from '../../stores/settings';
+import { useSettingsStore, editorFonts } from '../../stores/settings';
 import { exactDate, formatDate } from '../../services/format/date';
 import { browserTimeZone, syncStatusText, valueLabel } from './labels';
 import { SettingsChoice } from './SettingsChoice';
@@ -105,6 +105,29 @@ export function SettingsContent() {
       <fieldset>
         <legend>This device</legend>
         <p className={styles.hint}>Kept in this browser only; never synced.</p>
+        <label>
+          Editor font
+          <select
+            value={device.editorFont}
+            onChange={(event) =>
+              updateDevice({ editorFont: event.target.value as typeof device.editorFont })
+            }
+          >
+            {editorFonts.map((font) => (
+              <option key={font} value={font}>
+                {
+                  {
+                    default: 'Default',
+                    'fira-code': 'Fira Code',
+                    'jetbrains-mono': 'JetBrains Mono',
+                    system: 'System monospace',
+                  }[font]
+                }
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className={styles.hint}>Ligatures are off so typed symbols stay distinct.</p>
         <label>
           Text size
           <select

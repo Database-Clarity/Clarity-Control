@@ -30,12 +30,18 @@ export const rememberedSchema = z.object({
   englishSource: syncedSettingsSchema.shape.englishSource.optional(),
 });
 export type Remembered = z.infer<typeof rememberedSchema>;
+export const editorFonts = ['default', 'fira-code', 'jetbrains-mono', 'system'] as const;
 export const deviceSettingsSchema = z.object({
+  editorFont: z.enum(editorFonts),
   textSize: z.enum(['default', 'large']),
   remembered: rememberedSchema,
 });
 export type DeviceSettings = z.infer<typeof deviceSettingsSchema>;
-export const defaultDeviceSettings: DeviceSettings = { textSize: 'default', remembered: {} };
+export const defaultDeviceSettings: DeviceSettings = {
+  textSize: 'default',
+  editorFont: 'default',
+  remembered: {},
+};
 
 export const settingsKey = (scope: string) => `clarity-settings:v1:${scope}`;
 export const deviceKey = 'clarity-settings:device:v1';
@@ -128,6 +134,7 @@ function browserStorage(): SettingsStorage {
 
 export function applyDeviceSettings(device: DeviceSettings): void {
   if (typeof document === 'undefined') return;
+  document.documentElement.dataset.editorFont = device.editorFont;
   if (device.textSize === 'large') document.documentElement.dataset.textSize = 'large';
   else delete document.documentElement.dataset.textSize;
 }
@@ -265,6 +272,7 @@ export function createSettingsStore({
     } catch {
       /* Defaults below. */
     }
+    const editorFont = deviceSettingsSchema.shape.editorFont.safeParse(record.editorFont);
     const textSize = deviceSettingsSchema.shape.textSize.safeParse(record.textSize);
     const stored =
       record.remembered && typeof record.remembered === 'object'
@@ -275,7 +283,11 @@ export function createSettingsStore({
       const result = rememberedSchema.shape[key].safeParse(stored[key]);
       if (result.success && result.data) Object.assign(remembered, { [key]: result.data });
     }
-    return { textSize: textSize.success ? textSize.data : 'default', remembered };
+    return {
+      textSize: textSize.success ? textSize.data : 'default',
+      editorFont: editorFont.success ? editorFont.data : 'default',
+      remembered,
+    };
   }
 
   let activation = 0;
