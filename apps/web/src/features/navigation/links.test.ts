@@ -2,7 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { links, visibleLinks } from './links';
 
 const paths = (role: Parameters<typeof visibleLinks>[0]) => visibleLinks(role).map(({ to }) => to);
-const all = ['/', '/review', '/compendium', '/drift', '/translations', '/globals', '/admin'];
+const all = [
+  '/',
+  '/review',
+  '/compendium',
+  '/drift',
+  '/lost-text',
+  '/translations',
+  '/globals',
+  '/admin',
+];
 
 describe('visibleLinks', () => {
   it('lists every workspace page in order', () => {
