@@ -28,6 +28,22 @@ export const tooltipSchema = z
       })
       .strict()
       .optional(),
+    archive: z
+      .object({
+        removedAt: timestampSchema,
+        lastSeen: z
+          .object({
+            name: z.string(),
+            categoryId: z.string(),
+            icon: z.string().optional(),
+            manifestVersion: z.string(),
+          })
+          .strict(),
+        successor: hashSchema.optional(),
+        note: z.string().optional(),
+      })
+      .strict()
+      .optional(),
     legacy: legacyMetadataSchema.optional(),
   })
   .strict();

@@ -131,3 +131,50 @@ export function translationQueue(
       a.language.localeCompare(b.language),
   );
 }
+
+export interface ArchiveItem {
+  categoryId: string;
+  baseHash?: number;
+  enhancedHash?: number;
+  enhancedHashes?: number[];
+}
+
+/** Pure detection only: absence never writes archival metadata. */
+export function removedFromManifest(
+  tooltips: readonly Tooltip[],
+  items: Readonly<Record<string, ArchiveItem>> | null | undefined,
+  aliases: Aliases = {},
+  inactiveHashes: ReadonlySet<number> = new Set(),
+): { paused: boolean; removed: Tooltip[]; returned: Tooltip[] } {
+  if (!items || !Object.keys(items).length) return { paused: true, removed: [], returned: [] };
+  const presentMembers = new Set<number>();
+  for (const [hash, item] of Object.entries(items)) {
+    presentMembers.add(resolveAlias(Number(hash), aliases));
+    for (const member of [item.baseHash, item.enhancedHash, ...(item.enhancedHashes ?? [])]) {
+      if (member !== undefined) presentMembers.add(member);
+    }
+  }
+  const tracked = tooltips.filter(
+    (tooltip) =>
+      tooltip.hash > 3 &&
+      !tooltip.custom &&
+      !inactiveHashes.has(tooltip.hash) &&
+      items[tooltip.hash]?.categoryId !== 'inactive-placeholder' &&
+      tooltip.archive?.lastSeen.categoryId !== 'inactive-placeholder',
+  );
+  const missing = tracked.filter(
+    (tooltip) =>
+      !items[tooltip.hash] &&
+      !presentMembers.has(tooltip.hash) &&
+      !presentMembers.has(resolveAlias(tooltip.hash, aliases)),
+  );
+  // Previously confirmed removals are not a new simultaneous disappearance.
+  const newlyMissing = missing.filter((tooltip) => !tooltip.archive);
+  if (newlyMissing.length > tracked.length * 0.05)
+    return { paused: true, removed: [], returned: [] };
+  return {
+    paused: false,
+    removed: missing,
+    returned: tracked.filter((tooltip) => tooltip.archive && items[tooltip.hash]),
+  };
+}

@@ -237,11 +237,20 @@ export function Layout() {
         {status === 'loading' && <p role="status">Loading manifest and tooltip data...</p>}
         {error && (
           <p role="alert">
-            Cannot load editor data: {error}{' '}
+            {location.pathname === '/archive'
+              ? 'Manifest looks incomplete — archive view paused'
+              : 'Cannot load editor data'}
+            : {error}{' '}
             <button type="button" onClick={() => void load()}>
               Retry data loading
             </button>
           </p>
+        )}
+        {error && location.pathname === '/archive' && (
+          <details>
+            <summary>Details</summary>
+            <p>{error}</p>
+          </details>
         )}
         {!hydrated && !draftError && <p role="status">Recovering local drafts...</p>}
         {status === 'ready' && hydrated && <Outlet />}

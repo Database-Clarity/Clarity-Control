@@ -75,6 +75,12 @@ export function TooltipDiff({
           {current.associated.join(', ') || '(none)'}
         </p>
       )}
+      {JSON.stringify(before?.archive) !== JSON.stringify(current.archive) && (
+        <p>
+          Archive: {JSON.stringify(before?.archive) ?? '(none)'} →{' '}
+          {JSON.stringify(current.archive) ?? '(none)'}
+        </p>
+      )}
       {identityLines(before, current, item).map((line) => (
         <p key={line}>{line}</p>
       ))}
