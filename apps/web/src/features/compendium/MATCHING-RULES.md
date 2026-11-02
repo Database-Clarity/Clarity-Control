@@ -49,6 +49,12 @@ This is the central reference for matching, scope, category placement and withhe
 | <!-- ruleId: manifest-adept-mod --> `manifest-adept-mod` | Original owner-supported Adept predicate requires stats, exact requirement perk and stat-only description. Named decision-7 Adept negatives are separate explicit records. | Existing manifestRule tests for perk/requirement/template guards; effect-bearing Adept perks are not swept in. |
 | <!-- ruleId: ghost-mod --> `ghost-mod` | Existing ghost-mod scope excluded by default; config can include it. No change from triage. | Existing reviewScope config/preservation tests; real non-ghost descriptions and saved links are not removed by a name match. |
 
+### Attachment category switch identity guard
+
+The two-way switch is enabled only when the tooltip has no `custom` identity, or `custom` exactly matches what the switch writes: the manifest name and the opposite of the native owner/manifest attachment category. Returning to the native category removes that override, restoring the original tooltip JSON even after save/reload. Other custom identities disable both buttons with a note directing users to the identity editor; the updater also leaves them untouched. This includes a manifest-named custom in the native attachment category or a non-attachment category, and any differently named custom.
+
+No provenance or schema field is added. Accepted limitation (owner decision): a pre-existing custom byte-identical to a switch-created override is indistinguishable and remains switchable; removing it yields the same visible native classification. Regressions in `AttachmentCategoryControl.switch.test.tsx` cover guarded identities before/after save/reload, saved switch overrides in both directions, and identity changes in a draft.
+
 ### Core candidate and saved-link mechanics
 
 These are shared subroutines used by the runtime rule families above, not additional owner approvals. `config.ts` supplies category tab preferences; `OLD` tabs are excluded. Fragment prefixes route Spark/Ember/Echo/Whisper/Thread/Facet to Arc/Solar/Void/Stasis/Strand/Prismatic respectively. Set Bonus armour names prefer Armor Perks; ordinary armour mods prefer Armor Mods. Exotic weapon traits/frames/catalysts prefer Exotic Weapons, exotic armour prefers Exotic Armors/Exotic Class, and ordinary weapon perks prefer Weapon Perks. Unknown category routing remains a hint, never identity evidence.

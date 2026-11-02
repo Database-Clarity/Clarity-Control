@@ -61,10 +61,49 @@ it('promote then demote round-trips to byte-identical tooltip JSON, also after s
     expect(JSON.stringify(demoteTooltip(saved))).toBe(JSON.stringify(base));
   }
 });
-it('keeps a differently-named custom identity when moving back', () => {
-  const saved: Tooltip = { ...empty, custom: { name: 'Mine', categoryId: 'weapon-attachment' } };
-  const back = demoteTooltip(promoteTooltip(saved, item));
-  expect(back).toEqual(saved);
+it.each([
+  { name: item.name, categoryId: 'weapon-attachment' },
+  { name: item.name, categoryId: 'weapon-perk' },
+  { name: 'Mine', categoryId: 'weapon-perk' },
+  { name: 'Mine', categoryId: 'weapon-attachment' },
+  { name: 'Mine', categoryId: 'attachment-effect' },
+])('disables independent custom identity %j before and after save/reload', async (custom) => {
+  const original: Tooltip = { ...withText, custom };
+  const bytes = JSON.stringify(original);
+  for (const base of [original, JSON.parse(bytes) as Tooltip]) {
+    await render(base);
+    expect(buttons().every((button) => button.disabled)).toBe(true);
+    expect(host.textContent).toContain(
+      'This item has its own custom identity; change its category in the identity editor.',
+    );
+    for (const button of buttons()) await act(async () => button.click());
+    expect(update).not.toHaveBeenCalled();
+    expect(host.querySelector('[role=alert]')).toBeNull();
+    // Guard the updater too, including when an identity is edited after rendering.
+    expect(promoteTooltip(base, item)).toBe(base);
+    expect(demoteTooltip(base)).toBe(base);
+    expect(JSON.stringify(base)).toBe(bytes);
+  }
+});
+it('disables the switch when an independent identity is introduced in a draft', async () => {
+  const next = { ...empty, custom: { name: item.name, categoryId: 'weapon-perk' } };
+  draftOf(next);
+  await render(empty);
+  expect(buttons().every((button) => button.disabled)).toBe(true);
+  expect(host.textContent).toContain('This item has its own custom identity');
+});
+it('accepts a pre-existing identity identical to a saved switch override', async () => {
+  const saved: Tooltip = JSON.parse(
+    JSON.stringify({
+      ...empty,
+      custom: { name: item.name, categoryId: 'attachment-effect' },
+    }),
+  );
+  await render(saved);
+  expect(buttons().every((button) => !button.disabled)).toBe(true);
+  await act(async () => buttons()[0].click());
+  const [, change] = update.mock.calls.at(-1)!;
+  expect(JSON.stringify(change(saved))).toBe(JSON.stringify(empty));
 });
 it('switches a native Attachment Effect to Weapon Attachments and back, byte-identical', async () => {
   const native = { ...empty, hash: nativeEffect.hash };

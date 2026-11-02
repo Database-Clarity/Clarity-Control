@@ -13,22 +13,29 @@ import {
 } from '../compendium/itemClassification';
 import styles from './TooltipPage.module.scss';
 
-/**
- * Move a tooltip to `target`. Returning to the item's native category removes the override:
- * a custom identity that only restates the manifest name is dropped entirely, so the file is
- * byte-identical to the pre-switch one (also after saving in between).
- */
+// Only an exact switch-shaped override can be removed without remembering prior identity.
+// A pre-existing identical override is indistinguishable and returns to native classification.
+function canSwitchCategory(tooltip: Tooltip, item: Pick<Item, 'name'>, native: string): boolean {
+  const opposite = native === attachmentCategory ? effectCategory : attachmentCategory;
+  return (
+    [attachmentCategory, effectCategory].includes(native) &&
+    (!tooltip.custom ||
+      (tooltip.custom.name === item.name && tooltip.custom.categoryId === opposite))
+  );
+}
+
+/** Preserve independent custom identities; remove switch overrides on return to native. */
 export function setTooltipCategory(
   tooltip: Tooltip,
   item: Pick<Item, 'name'>,
   target: string,
   native: string,
 ): Tooltip {
+  if (!canSwitchCategory(tooltip, item, native)) return tooltip;
   const { custom, ...rest } = tooltip;
   if (target === native) {
     if (!custom) return tooltip;
-    if (custom.name === item.name) return rest;
-    return { ...rest, custom: { ...custom, categoryId: target } };
+    return rest;
   }
   return { ...rest, custom: { name: custom?.name ?? item.name, categoryId: target } };
 }
@@ -50,8 +57,13 @@ export function AttachmentCategoryControl({ base, item }: { base: Tooltip; item:
     return null;
   const isEffect = classification.categoryId === effectCategory;
   const native = classifyItem(item)?.categoryId ?? classification.categoryId;
+  const hasOwnIdentity = !canSwitchCategory(next, item, native);
   const allowed =
-    !!apiUrl && hydrated && !saving && (user?.role === 'editor' || user?.role === 'maintainer');
+    !hasOwnIdentity &&
+    !!apiUrl &&
+    hydrated &&
+    !saving &&
+    (user?.role === 'editor' || user?.role === 'maintainer');
   const move = (target: string) =>
     updateDraft(base, (tooltip) => setTooltipCategory(tooltip, item, target, native));
   const choose = (target: string) => {
@@ -81,7 +93,7 @@ export function AttachmentCategoryControl({ base, item }: { base: Tooltip; item:
           );
         })}
       </div>
-      {confirming && (
+      {confirming && !hasOwnIdentity && (
         <div role="alert">
           <p>Text is kept but this item will no longer be listed as needing a tooltip.</p>
           <button
@@ -100,7 +112,9 @@ export function AttachmentCategoryControl({ base, item }: { base: Tooltip; item:
         </div>
       )}
       <small>
-        This creates a category draft; use the normal save flow. Editor role or higher required.
+        {hasOwnIdentity
+          ? 'This item has its own custom identity; change its category in the identity editor.'
+          : 'This creates a category draft; use the normal save flow. Editor role or higher required.'}
       </small>
     </div>
   );
