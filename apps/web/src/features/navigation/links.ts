@@ -11,6 +11,7 @@ export const links: readonly NavLink[] = [
   { to: '/compendium', label: 'Compendium' },
   { to: '/drift', label: 'Bungie drift' },
   { to: '/lost-text', label: 'Lost-tooltip checker' },
+  { to: '/archive', label: 'Archive' },
   { to: '/translations', label: 'Translations' },
   { to: '/globals', label: 'Globals' },
   { to: '/admin', label: 'Administration' },

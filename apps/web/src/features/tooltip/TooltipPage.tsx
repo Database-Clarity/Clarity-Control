@@ -1,3 +1,5 @@
+import { ArchiveIcon } from '../archive/ArchiveIcon';
+import { archiveCategoryLabel, archivedItemFor } from '../archive/archive';
 import { AttachmentCategoryControl } from './AttachmentCategoryControl';
 import { classifyItem, categoryLabel } from '../compendium/itemClassification';
 import { useCompendiumStore } from '../compendium/store';
@@ -18,7 +20,6 @@ import { useDraftStore } from '../../stores/drafts';
 import { useAuthStore } from '../../stores/auth';
 import {
   canonicalHash,
-  itemFor,
   sharedPerkLabel,
   singleOwnerLabel,
   tooltipFor,
@@ -38,7 +39,13 @@ import { VariantWorkspace } from './VariantWorkspace';
 import { CompendiumPanel } from '../compendium/CompendiumPanel';
 import styles from './TooltipPage.module.scss';
 
-export function TooltipPage() {
+export function TooltipPage({
+  hashOverride,
+  readOnly = false,
+}: {
+  hashOverride?: number;
+  readOnly?: boolean;
+}) {
   const compendiumSource = useCompendiumStore((state) => state.data);
   const { hash: parameter } = useParams();
   const [search, setSearch] = useSearchParams();
@@ -61,16 +68,20 @@ export function TooltipPage() {
     return { variables: imports[2] ?? '', titles: imports[3] ?? '', imports };
   }, [data, drafts, lang]);
   if (!data) return null;
-  if (!parameter || !/^(0|[1-9]\d*)$/.test(parameter) || Number(parameter) > 0xffffffff) {
+  if (
+    hashOverride === undefined &&
+    (!parameter || !/^(0|[1-9]\d*)$/.test(parameter) || Number(parameter) > 0xffffffff)
+  ) {
     return <h1>Invalid tooltip hash</h1>;
   }
-  const hash = Number(parameter);
+  const hash = hashOverride ?? Number(parameter);
   const canonical = canonicalHash(hash, data);
-  if (hash !== canonical)
+  if (!readOnly && hash !== canonical)
     return <Navigate to={tooltipPath(canonical, search.toString())} replace />;
-  const item = itemFor(hash, data);
+  const item = archivedItemFor(hash, data);
   if (!item && !data.bundle.tooltips[hash]) return <h1>Tooltip {hash} not found</h1>;
   const primaryBase = tooltipFor(hash, data);
+  readOnly ||= hash > 3 && !data.items[hash] && !primaryBase.custom;
   const primaryTooltip = drafts[hash]?.next ?? primaryBase;
   const primaryAccess = editorAccess({
     apiConfigured: Boolean(apiUrl),
@@ -79,22 +90,29 @@ export function TooltipPage() {
     user,
     lang,
   });
+  if (readOnly || (!item && hash > 3)) primaryAccess.reason = 'Archived tooltip — read only';
   const primarySwitchTo = primaryAccess.switchTo;
   const effectiveCategory =
     item && (classifyItem(item, primaryTooltip)?.categoryId ?? item.categoryId);
   return (
     <article>
       <header className={styles.header}>
-        {item?.icon && <img src={`https://www.bungie.net${item.icon}`} alt="" />}
+        {readOnly ? (
+          <ArchiveIcon icon={item?.icon} />
+        ) : (
+          item?.icon && <img src={`https://www.bungie.net${item.icon}`} alt="" />
+        )}
         <div className={styles.identityText}>
           <h1>{item?.name ?? `Tooltip ${hash}`}</h1>
           <p>
-            {categoryLabel(effectiveCategory ?? '') ??
-              data.categories.find((category) => category.id === effectiveCategory)?.label ??
-              effectiveCategory}{' '}
+            {readOnly
+              ? archiveCategoryLabel(effectiveCategory ?? 'unknown', data)
+              : (categoryLabel(effectiveCategory ?? '') ??
+                data.categories.find((category) => category.id === effectiveCategory)?.label ??
+                effectiveCategory)}{' '}
             / {hash}
           </p>
-          {item && <AttachmentCategoryControl base={primaryBase} item={item} />}
+          {!readOnly && item && <AttachmentCategoryControl base={primaryBase} item={item} />}
           {singleOwnerLabel(hash, data) && (
             <p role="note" className={styles.identityOwner}>
               {singleOwnerLabel(hash, data)}
@@ -128,7 +146,7 @@ export function TooltipPage() {
               draft={primaryTooltip.text[lang]?.text !== primaryBase.text[lang]?.text}
             />
           </div>
-          {primaryAccess.reason && (
+          {primaryAccess.reason && !readOnly && (
             <details>
               <summary>Read-only details</summary>
               <p role="status" className={styles.reason}>
@@ -146,18 +164,23 @@ export function TooltipPage() {
           )}
         </div>
       </header>
+      {readOnly && (
+        <p role="status" className={styles.archivedNotice}>
+          {primaryAccess.reason}
+        </p>
+      )}
       {variantHashes(hash, data).map((variant) => {
         const base = tooltipFor(variant, data);
         const tooltip = drafts[variant]?.next ?? base;
-        const entry = itemFor(variant, data);
+        const entry = archivedItemFor(variant, data);
         const category = data.categories.find((category) => category.id === entry?.categoryId);
         const globals: MarkupGlobals = { ...sharedGlobals, type: category?.legacyType };
         const value = tooltip.text[lang]?.text ?? '';
         const translation = translationQueue([base], [lang], data.aliases)[0];
         const panels = (
           <>
-            <AssociationsPanel hash={variant} />
-            <HistoryPanel hash={variant} />
+            {!readOnly && <AssociationsPanel hash={variant} />}
+            <HistoryPanel hash={variant} readOnly={readOnly} />
           </>
         );
         return (
@@ -167,13 +190,14 @@ export function TooltipPage() {
                 {entry?.name ?? `Tooltip ${variant}`} {variant !== hash && '(enhanced variant)'}
               </h2>
               <small>{variant}</small>
-              {drafts[variant] && (
+              {!readOnly && drafts[variant] && (
                 <button type="button" disabled={saving} onClick={() => discard(variant)}>
                   Discard this tooltip's draft
                 </button>
               )}
             </header>
             <VariantWorkspace
+              initialPanel={readOnly ? 'preview' : undefined}
               source={
                 lang === 'en' ? undefined : (
                   <TranslationSource
@@ -200,7 +224,7 @@ export function TooltipPage() {
                       lang={lang}
                       draft={tooltip.text[lang]?.text !== base.text[lang]?.text}
                     />
-                    {primaryAccess.reason && (
+                    {primaryAccess.reason && !readOnly && (
                       <p role="status" className={styles.reason}>
                         {primaryAccess.reason}
                         {primarySwitchTo && (
@@ -236,11 +260,16 @@ export function TooltipPage() {
                     lang={lang}
                     name={entry?.name ?? `Tooltip ${variant}`}
                     icon={entry?.icon || undefined}
-                    categoryLabel={category?.label ?? entry?.categoryId}
+                    categoryLabel={
+                      readOnly && entry
+                        ? archiveCategoryLabel(entry.categoryId, data)
+                        : (category?.label ?? entry?.categoryId)
+                    }
                     globals={globals}
+                    archiveIcon={readOnly}
                     tooltipHash={variant}
                   />
-                  {user?.role !== 'translator' && <CompendiumPanel base={base} />}
+                  {!readOnly && user?.role !== 'translator' && <CompendiumPanel base={base} />}
                 </div>
               }
             />

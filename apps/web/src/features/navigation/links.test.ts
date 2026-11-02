@@ -8,6 +8,7 @@ const all = [
   '/compendium',
   '/drift',
   '/lost-text',
+  '/archive',
   '/translations',
   '/globals',
   '/admin',

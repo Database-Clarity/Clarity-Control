@@ -1,0 +1,425 @@
+import { useLayoutEffect, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { languages, removedFromManifest, type Lang } from '@clarity/core';
+import { useDataStore } from '../../stores/data';
+import { useAuthStore } from '../../stores/auth';
+import { useDraftStore } from '../../stores/drafts';
+import { useSaveState } from '../../services/save/state';
+import { apiUrl } from '../../services/api';
+import { TooltipPage } from '../tooltip/TooltipPage';
+import { canonicalHash, tooltipFor } from '../navigation/catalog';
+import { WordDiff } from '../../ui/diff';
+import { languageLabel } from '../../languageLabels';
+import { tooltipPath } from '../navigation/stepping';
+import {
+  archiveCategoryLabel,
+  archiveIdentity,
+  associateArchive,
+  inactiveArchiveHashes,
+} from './archive';
+import { When } from '../../ui/When';
+import styles from './ArchivePage.module.scss';
+
+export function ArchivePage() {
+  const { data, status, error, load } = useDataStore();
+  const user = useAuthStore((state) => state.user);
+  const { drafts, hydrated, updateDraft, updateDrafts } = useDraftStore();
+  const locked = useSaveState((state) => state.locked);
+  const [params, setParams] = useSearchParams();
+  const [query, setQuery] = useState('');
+  const [returned, setReturned] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const [targetQuery, setTargetQuery] = useState('');
+  const [targetHash, setTargetHash] = useState<number>();
+  const [selected, setSelected] = useState<Lang[]>([]);
+  const [notice, setNotice] = useState('');
+  const [replaceDraft, setReplaceDraft] = useState(false);
+  const scroll = useRef(0);
+  const selectedHash = params.get('item');
+  const listRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!selectedHash && listRef.current) window.scrollTo(0, scroll.current);
+    else if (selectedHash) window.scrollTo(0, 0);
+  }, [selectedHash]);
+  if (status === 'error' || error)
+    return (
+      <article className={styles.page}>
+        <h1>Archive</h1>
+        <p role="alert">
+          Couldn't load data — retry{' '}
+          <button type="button" onClick={() => void load()}>
+            Retry data loading
+          </button>
+        </p>
+        <details>
+          <summary>Details</summary>
+          {error}
+        </details>
+      </article>
+    );
+  if (!data) return <p role="status">Loading Archive…</p>;
+  const result = removedFromManifest(
+    Object.values(data.bundle.tooltips),
+    data.items,
+    data.aliases,
+    inactiveArchiveHashes(data),
+  );
+  if (result.paused)
+    return (
+      <article className={styles.page}>
+        <h1>Archive</h1>
+        <p role="alert">Manifest looks incomplete — archive view paused</p>
+        <p>
+          The generated item list is empty or too many tracked tooltips vanished at once, so nothing
+          is listed and nothing is written until the next complete manifest.
+        </p>
+      </article>
+    );
+  const entries = returned ? result.returned : result.removed;
+  const base = [...result.removed, ...result.returned].find(
+    (entry) => String(entry.hash) === selectedHash,
+  );
+  const current = base && (drafts[base.hash]?.next ?? base);
+  const canAct = Boolean(apiUrl && hydrated && !locked && user?.role === 'maintainer');
+  const canRestore = Boolean(
+    apiUrl && hydrated && !locked && ['maintainer', 'editor'].includes(user?.role ?? ''),
+  );
+  const targetBase = targetHash === undefined ? undefined : tooltipFor(targetHash, data);
+  const targetDraft = targetBase && drafts[targetBase.hash];
+  const target = targetBase && (targetDraft?.next ?? targetBase);
+  const staged = current?.archive?.successor !== undefined;
+  function back() {
+    const next = new URLSearchParams(params);
+    next.delete('item');
+    setParams(next);
+    setPicking(false);
+    setTargetHash(undefined);
+    setReplaceDraft(false);
+    setNotice('');
+  }
+  function confirmArchive() {
+    if (!base || !current || !canAct) return;
+    updateDraft(base, (next) => ({
+      ...next,
+      archive: {
+        removedAt: new Date().toISOString(),
+        lastSeen: archiveIdentity(current, data!),
+        note: 'Identity from retained catalog evidence; confirmation staged by maintainer.',
+      },
+    }));
+    setNotice('Archive confirmation staged → Review changes and save the draft.');
+  }
+  function associate() {
+    if (!canAct || !base || !current || !targetBase || !target || !data!.items[target.hash]) return;
+    if (current.archive?.successor !== undefined || (targetDraft && !replaceDraft)) return;
+    const change = associateArchive(
+      current,
+      target,
+      selected,
+      user!.login,
+      new Date().toISOString(),
+    );
+    updateDrafts([
+      { base, update: () => change.source },
+      { base: targetBase, update: () => change.target },
+    ]);
+    setPicking(false);
+    setNotice('Association staged → Review changes and save both drafts.');
+  }
+  return (
+    <article className={styles.page}>
+      <div ref={listRef} hidden={Boolean(selectedHash)}>
+        <h1>Archive</h1>
+        <p>
+          Removed tooltips appear immediately. Confirmation and reuse use local drafts and normal
+          save review.
+        </p>
+        <label>
+          Filter by name or hash
+          <input value={query} onChange={(event) => setQuery(event.target.value)} />
+        </label>
+        <label>
+          View
+          <select
+            value={returned ? 'returned' : 'removed'}
+            onChange={(event) => setReturned(event.target.value === 'returned')}
+          >
+            <option value="removed">Removed</option>
+            <option value="returned">Returned</option>
+          </select>
+        </label>
+        {!entries.length && (
+          <p>
+            {returned
+              ? 'No archived tooltips have returned.'
+              : 'No tracked tooltips have left the manifest.'}
+          </p>
+        )}
+        <ul>
+          {entries
+            .filter((tooltip) =>
+              `${archiveIdentity(tooltip, data).name} ${tooltip.hash}`
+                .toLocaleLowerCase()
+                .includes(query.toLocaleLowerCase()),
+            )
+            .map((tooltip) => {
+              const identity = archiveIdentity(tooltip, data);
+              return (
+                <li key={tooltip.hash} className={styles.card}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      scroll.current = window.scrollY;
+                      const next = new URLSearchParams(params);
+                      next.set('item', String(tooltip.hash));
+                      setParams(next);
+                    }}
+                  >
+                    {identity.name}
+                    {identity.name === `Tooltip ${tooltip.hash}` ? '' : ` (${tooltip.hash})`}
+                  </button>
+                  <p>{archiveCategoryLabel(identity.categoryId, data)}</p>
+                  <p>
+                    <strong>{tooltip.archive ? 'Confirmed' : 'Unconfirmed'}</strong> ·{' '}
+                    {tooltip.archive ? (
+                      <>
+                        Removed <When value={tooltip.archive.removedAt} />
+                      </>
+                    ) : (
+                      'removal detected from the current manifest'
+                    )}
+                    {data.items[tooltip.hash] && ' · back in manifest'}
+                  </p>
+                  <p>
+                    Languages:{' '}
+                    {languages
+                      .filter((lang) => tooltip.text[lang]?.text.trim())
+                      .map(languageLabel)
+                      .join(', ') || 'none'}
+                  </p>
+                  {tooltip.archive?.successor !== undefined && (
+                    <p>
+                      Successor:{' '}
+                      <Link to={tooltipPath(tooltip.archive.successor, '')}>
+                        {data.items[tooltip.archive.successor]?.name ?? 'Tooltip'} (
+                        {tooltip.archive.successor})
+                      </Link>
+                    </p>
+                  )}
+                </li>
+              );
+            })}
+        </ul>
+      </div>
+      {selectedHash && (
+        <>
+          <button type="button" onClick={back}>
+            Back to Archive
+          </button>
+          {!base || !current ? (
+            <p>This tooltip is no longer in this Archive filter.</p>
+          ) : (
+            <>
+              {notice && <p role="status">{notice}</p>}
+              <section className={styles.status} aria-label="Archive status">
+                <p>
+                  <strong>{current.archive ? 'Confirmed' : 'Unconfirmed'}</strong>
+                  {current.archive ? (
+                    <>
+                      {' '}
+                      · Removed <When value={current.archive.removedAt} />. Name and category are
+                      saved from the last manifest.
+                    </>
+                  ) : (
+                    ' · Removed from the manifest, not yet confirmed. Confirming saves the name and category so this stays readable if the catalog changes.'
+                  )}
+                  {data.items[base.hash] && ' This item is back in the current manifest.'}
+                </p>
+                {current.archive?.successor !== undefined && (
+                  <p>
+                    Superseded by{' '}
+                    <Link to={tooltipPath(current.archive.successor, '')}>
+                      {data.items[current.archive.successor]?.name ?? 'Tooltip'} (
+                      {current.archive.successor})
+                    </Link>
+                    {drafts[base.hash] && ' — staged as a local draft'}.
+                  </p>
+                )}
+                {!canAct && !canRestore && (
+                  <p>Only maintainers can confirm, restore or move archived text.</p>
+                )}
+              </section>
+              <div className={styles.actions}>
+                {!current.archive && !data.items[base.hash] && user?.role === 'maintainer' && (
+                  <div>
+                    <button type="button" disabled={!canAct} onClick={confirmArchive}>
+                      Confirm archival
+                    </button>
+                    <p className={styles.consequence}>
+                      Confirm archival: saves the name and category as they were, as a local draft.
+                      Nothing is saved until review.
+                    </p>
+                  </div>
+                )}
+                {current.archive && data.items[base.hash] && canRestore && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updateDraft(base, (next) => {
+                          delete next.archive;
+                          return next;
+                        });
+                        setNotice('Restore staged → Review changes and save the draft.');
+                      }}
+                    >
+                      Restore
+                    </button>
+                    <p className={styles.consequence}>
+                      Restore: clears the archive flag as a local draft. Text is untouched. Nothing
+                      is saved until review.
+                    </p>
+                  </div>
+                )}
+                {!data.items[base.hash] &&
+                  user?.role === 'maintainer' &&
+                  (staged ? (
+                    <p className={styles.consequence}>
+                      Association staged → Review changes and save the drafts.
+                    </p>
+                  ) : (
+                    <div>
+                      <button
+                        type="button"
+                        disabled={!canAct || !current.archive}
+                        onClick={() => {
+                          setPicking(true);
+                          setSelected(
+                            languages.filter((lang) => Boolean(current.text[lang]?.text.trim())),
+                          );
+                        }}
+                      >
+                        Associate with new item…
+                      </button>
+                      <p className={styles.consequence}>
+                        {current.archive
+                          ? 'Associate: copies chosen languages into a local draft on the new item and marks this one superseded. Nothing is saved until review.'
+                          : 'Confirm archival first, then you can associate this text with a new item.'}
+                      </p>
+                    </div>
+                  ))}
+              </div>
+              {picking ? (
+                <section className={styles.picker} aria-label="Associate with new item">
+                  <h2>Choose a current manifest item</h2>
+                  <p>
+                    Name matches are hints only. Choose the destination and review every language
+                    before creating drafts.
+                  </p>
+                  <label>
+                    Search items
+                    <input
+                      value={targetQuery}
+                      onChange={(event) => setTargetQuery(event.target.value)}
+                    />
+                  </label>
+                  {targetQuery.trim() && (
+                    <ul>
+                      {Object.values(data.items)
+                        .filter(
+                          (item) =>
+                            item.hash !== base.hash &&
+                            canonicalHash(item.hash, data) === item.hash &&
+                            `${item.name} ${item.hash}`
+                              .toLocaleLowerCase()
+                              .includes(targetQuery.toLocaleLowerCase()),
+                        )
+                        .slice(0, 100)
+                        .map((item) => (
+                          <li key={item.hash}>
+                            <button type="button" onClick={() => setTargetHash(item.hash)}>
+                              {item.name} ({item.hash})
+                            </button>
+                          </li>
+                        ))}
+                    </ul>
+                  )}
+                  {target && (
+                    <>
+                      <h3>
+                        Destination: {data.items[target.hash].name} ({target.hash})
+                      </h3>
+                      {languages
+                        .filter((lang) => current.text[lang]?.text.trim())
+                        .map((lang) => (
+                          <section key={lang}>
+                            <label>
+                              <input
+                                type="checkbox"
+                                checked={selected.includes(lang)}
+                                onChange={(event) =>
+                                  setSelected((old) =>
+                                    event.target.checked
+                                      ? [...old, lang]
+                                      : old.filter((value) => value !== lang),
+                                  )
+                                }
+                              />
+                              Copy {languageLabel(lang)}
+                            </label>
+                            <div className={styles.comparison}>
+                              <div>
+                                <h4>Archived text</h4>
+                                <pre>{current.text[lang]?.text}</pre>
+                              </div>
+                              <div>
+                                <h4>Destination current text</h4>
+                                <pre>{target.text[lang]?.text ?? '(empty)'}</pre>
+                              </div>
+                            </div>
+                            <p className={styles.consequence}>
+                              Changes the draft would make to {data.items[target.hash].name} (
+                              {target.hash}), {languageLabel(lang)}:
+                            </p>
+                            <WordDiff
+                              before={target.text[lang]?.text ?? ''}
+                              after={current.text[lang]?.text ?? ''}
+                            />
+                          </section>
+                        ))}
+                      {targetDraft && (
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={replaceDraft}
+                            onChange={(event) => setReplaceDraft(event.target.checked)}
+                          />
+                          This item already has a local draft. Replace the selected languages in
+                          that draft.
+                        </label>
+                      )}
+                      <button
+                        type="button"
+                        disabled={
+                          !canAct || !selected.length || Boolean(targetDraft && !replaceDraft)
+                        }
+                        onClick={associate}
+                      >
+                        Confirm association as drafts
+                      </button>
+                    </>
+                  )}
+                  <button type="button" onClick={() => setPicking(false)}>
+                    Cancel association
+                  </button>
+                </section>
+              ) : (
+                <TooltipPage hashOverride={base.hash} readOnly />
+              )}
+            </>
+          )}
+        </>
+      )}
+    </article>
+  );
+}

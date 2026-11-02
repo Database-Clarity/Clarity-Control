@@ -13,7 +13,7 @@ import { TooltipDiff } from './TooltipDiff';
 import { revertDraft } from './revert';
 import styles from './History.module.scss';
 
-export function HistoryPanel({ hash }: { hash: number }) {
+export function HistoryPanel({ hash, readOnly = false }: { hash: number; readOnly?: boolean }) {
   const [open, setOpen] = useState(false);
   const user = useAuthStore((state) => state.user);
   return (
@@ -22,13 +22,13 @@ export function HistoryPanel({ hash }: { hash: number }) {
       {!apiUrl || !user?.role ? (
         <p>Sign in as a configured member to view this tooltip's history.</p>
       ) : (
-        open && <HistoryContent key={`${hash}:${user.id}`} hash={hash} />
+        open && <HistoryContent key={`${hash}:${user.id}`} hash={hash} readOnly={readOnly} />
       )}
     </details>
   );
 }
 
-function HistoryContent({ hash }: { hash: number }) {
+function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: boolean }) {
   const user = useAuthStore((state) => state.user);
   const base = useDataStore((state) => state.data?.bundle.tooltips[hash]);
   const data = useDataStore((state) => state.data);
@@ -166,24 +166,25 @@ function HistoryContent({ hash }: { hash: number }) {
               Revert restores only your assigned translation languages; other fields stay unchanged.
             </p>
           )}
-          {!confirm ? (
-            <button type="button" disabled={!hydrated || !base} onClick={() => setConfirm(true)}>
-              Revert to this
-            </button>
-          ) : (
-            <div>
-              <p>
-                This replaces {draft ? 'the existing local draft' : 'the editor content'} for this
-                tooltip. It does not save or push.
-              </p>
-              <button type="button" onClick={restore}>
-                Load this version as draft
-              </button>{' '}
-              <button type="button" onClick={() => setConfirm(false)}>
-                Cancel revert
+          {!readOnly &&
+            (!confirm ? (
+              <button type="button" disabled={!hydrated || !base} onClick={() => setConfirm(true)}>
+                Revert to this
               </button>
-            </div>
-          )}
+            ) : (
+              <div>
+                <p>
+                  This replaces {draft ? 'the existing local draft' : 'the editor content'} for this
+                  tooltip. It does not save or push.
+                </p>
+                <button type="button" onClick={restore}>
+                  Load this version as draft
+                </button>{' '}
+                <button type="button" onClick={() => setConfirm(false)}>
+                  Cancel revert
+                </button>
+              </div>
+            ))}
         </>
       )}
     </section>

@@ -22,6 +22,12 @@ export function requireAccess(
 }
 
 export function checkEdit(access: Access, base: Tooltip | null, next: Tooltip): void {
+  if (
+    JSON.stringify(base?.archive) !== JSON.stringify(next.archive) &&
+    access.role !== 'maintainer' &&
+    !(access.role === 'editor' && base?.archive && !next.archive)
+  )
+    throw new HttpError(403, 'Archive changes require maintainer role');
   const categoryChanged = base?.custom?.categoryId !== next.custom?.categoryId;
   const attachmentCategoryChange = [base?.custom?.categoryId, next.custom?.categoryId].some(
     (category) => category === 'weapon-attachment' || category === 'attachment-effect',

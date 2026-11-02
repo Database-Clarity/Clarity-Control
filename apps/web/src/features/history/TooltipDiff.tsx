@@ -8,6 +8,8 @@ import {
   classifyItem,
   effectCategory,
 } from '../compendium/itemClassification';
+import { archiveChangeLine } from '../archive/archiveFormat';
+import { useSyncedSettings } from '../../stores/settings';
 import styles from './History.module.scss';
 
 const switchable = [attachmentCategory, effectCategory];
@@ -47,6 +49,7 @@ export function TooltipDiff({
   item?: Item;
 }) {
   const changed = languages.filter((lang) => before?.text[lang]?.text !== current.text[lang]?.text);
+  const dateSettings = useSyncedSettings();
   return (
     <div className={styles.diff}>
       {changed.map((lang) => (
@@ -74,6 +77,9 @@ export function TooltipDiff({
           Associated tooltips: {before?.associated.join(', ') || '(none)'} →{' '}
           {current.associated.join(', ') || '(none)'}
         </p>
+      )}
+      {archiveChangeLine(before?.archive, current.archive, dateSettings) && (
+        <p>{archiveChangeLine(before?.archive, current.archive, dateSettings)}</p>
       )}
       {identityLines(before, current, item).map((line) => (
         <p key={line}>{line}</p>
