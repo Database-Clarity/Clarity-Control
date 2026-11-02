@@ -26,7 +26,6 @@ export function LostTextPage() {
   const { drafts, hydrated } = useDraftStore();
   const locked = useSaveState((s) => s.locked);
   const [params, setParams] = useSearchParams();
-  const [copies, setCopies] = useState(false);
   const [showDismissed, setShowDismissed] = useState(false);
   const [classFilter, setClassFilter] = useState('');
   const [query, setQuery] = useState('');
@@ -70,8 +69,8 @@ export function LostTextPage() {
     result.records,
     data.bundle.tooltips,
     progress.decisions,
-    copies,
-    classFilter,
+    classFilter !== '',
+    classFilter === 'all' ? '' : classFilter,
     showDismissed,
   ).filter((r) => `${r.name} ${r.hash}`.toLowerCase().includes(query.trim().toLowerCase()));
   const selected = result.records.find((r) => recordKey(r) === params.get('item'));
@@ -129,15 +128,19 @@ export function LostTextPage() {
           <label>
             Authorship class
             <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
-              <option value="">All visible classes</option>
-              {['human', 'unclear', 'manifest-copy', 'placeholder'].map((c) => (
-                <option key={c}>{c}</option>
-              ))}
+              <option value="">Possibly authored — human and unclear</option>
+              <option value="all">All classes — including copies and placeholders</option>
+              <option value="human">
+                Human — authorship evidence, differs from available manifest
+              </option>
+              <option value="unclear">
+                Unclear — authorship or manifest evidence is inconclusive
+              </option>
+              <option value="manifest-copy">
+                Manifest copy — matches an available manifest description
+              </option>
+              <option value="placeholder">Placeholder — only comments or import directives</option>
             </select>
-          </label>
-          <label className={styles.check}>
-            <input type="checkbox" checked={copies} onChange={(e) => setCopies(e.target.checked)} />
-            Show auto-filled copies and placeholders
           </label>
           <label className={styles.check}>
             <input
@@ -147,6 +150,9 @@ export function LostTextPage() {
             />
             Show dismissed
           </label>
+          <p role="status">
+            {rows.length} of {result.records.length} records shown
+          </p>
           {!rows.length && (
             <p>
               No blank tooltips with earlier authored text found.
@@ -184,7 +190,16 @@ export function LostTextPage() {
               {selected.classification}: {selected.reason}
             </p>
             <p>
-              Cleared by {selected.clearingAuthor}, {selected.clearingDate}.{' '}
+              Cleared{' '}
+              <time dateTime={selected.clearingDate} title={selected.clearingDate}>
+                {new Intl.DateTimeFormat('en-GB', {
+                  day: 'numeric',
+                  month: 'short',
+                  year: 'numeric',
+                  timeZone: 'UTC',
+                }).format(new Date(selected.clearingDate))}
+              </time>{' '}
+              by {selected.clearingAuthor}.{' '}
               <a
                 href={`https://github.com/Database-Clarity/Live-Clarity-Database/commit/${selected.clearingCommit}`}
                 target="_blank"
@@ -203,7 +218,8 @@ export function LostTextPage() {
                 {selected.lastNonemptyCommit.slice(0, 12)}
               </a>
             </p>
-            <h3>Recovered text</h3>
+            <h3>Historical text (last non-empty)</h3>
+            <p>Current saved text: {base?.text[selected.lang]?.text || '(blank)'}</p>
             <TooltipPreview
               text={selected.text}
               lang={selected.lang}
@@ -214,14 +230,16 @@ export function LostTextPage() {
               <summary>Historical source text</summary>
               <pre>{selected.text}</pre>
             </details>
-            <h3>Current saved text</h3>
-            <pre>{base?.text[selected.lang]?.text || '(blank)'}</pre>
             {current?.text[selected.lang]?.text.trim() && (
               <p>A local draft or saved text already exists. Review it in the editor first.</p>
             )}
             <div className={styles.actions}>
               {editable && (
                 <>
+                  <p className={styles.consequences}>
+                    Recover creates an unsaved local draft; nothing is saved automatically. Dismiss
+                    hides this record for you in this browser only; it reopens if history changes.
+                  </p>
                   <button
                     type="button"
                     disabled={

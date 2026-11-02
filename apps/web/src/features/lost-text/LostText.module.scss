@@ -11,6 +11,7 @@
   align-items: start;
 }
 .list {
+  min-width: 0;
   display: grid;
   gap: 0.5rem;
 }
@@ -86,4 +87,16 @@
   .actions > * {
     flex: 1 1 auto;
   }
+}
+
+.list select,
+.list input:not([type='checkbox']) {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.consequences {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.875rem;
 }

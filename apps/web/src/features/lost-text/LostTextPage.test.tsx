@@ -76,7 +76,7 @@ it('opens detail, renders old/current text and recovers only into a local draft'
   const fetch = vi.spyOn(globalThis, 'fetch');
   render();
   click('Ricochet Rounds');
-  expect(container.textContent).toContain('Current saved text(blank)');
+  expect(container.textContent).toContain('Current saved text: (blank)');
   expect(container.querySelector('a[href*="/commit/"]')).toBeTruthy();
   click('Recover as draft');
   expect(useDraftStore.getState().drafts[hash].next.text.en?.text).toContain('sharper angles');
@@ -88,7 +88,7 @@ it('dismisses locally and can show dismissed records again', () => {
   click('Dismiss');
   expect(localStorage.getItem('clarity-lost-text:v1:1')).toContain('1885400500:en');
   expect(container.textContent).not.toContain('en · human');
-  const input = container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')[1];
+  const input = container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')[0];
   act(() => input.click());
   expect(container.textContent).toContain('en · human');
 });
@@ -120,4 +120,33 @@ it('redirects translators away from a direct checker URL', () => {
   });
   render();
   expect(container.textContent).not.toContain('Lost-tooltip checker');
+});
+
+it('explains classes, action consequences and dates before taking an action', () => {
+  render('/lost-text?item=1885400500:en');
+  expect(container.textContent).toContain('Historical text (last non-empty)');
+  expect(container.textContent).not.toContain('Recovered text');
+  expect(container.textContent).toContain('Recover creates an unsaved local draft');
+  expect(container.textContent).toContain('in this browser only');
+  expect(container.textContent).toContain('2 of 480 records shown');
+  expect(container.querySelector('time')?.textContent).toContain('12 Feb 2023');
+  expect(container.querySelector('time')?.title).toBe('2023-02-12T20:12:46+01:00');
+  expect(container.textContent).toContain(
+    'Unclear — authorship or manifest evidence is inconclusive',
+  );
+  expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
+});
+it('selects copies directly without an overlapping include-copies checkbox', () => {
+  render();
+  const select = container.querySelector('select')!;
+  act(() => {
+    select.value = 'manifest-copy';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  expect(container.textContent).toContain('0 of 480 records shown');
+  act(() => {
+    select.value = 'human';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  expect(container.textContent).toContain('2 of 480 records shown');
 });
