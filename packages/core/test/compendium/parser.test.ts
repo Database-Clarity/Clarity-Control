@@ -160,3 +160,48 @@ describe('word and style diff', () => {
     expect(parts[0].kind).toBe('style');
   });
 });
+
+describe('source cell alignment', () => {
+  it.each(['weapon', 'arc', 'armor'])(
+    'retains published %s fixture alignment in grid and descriptions',
+    (name) => {
+      const gid = { weapon: '1662574278', arc: '618967225', armor: '1287885342' }[name]!;
+      const sheet = parseCompendiumSheet(fixture(name), gid);
+      expect(
+        sheet.grid!.some(({ cell }) => cell.runs.some((run) => run.textAlign === 'center')),
+      ).toBe(true);
+      expect(
+        sheet.rows.some(({ cell }) => cell.runs.some((run) => run.textAlign === 'center')),
+      ).toBe(true);
+    },
+  );
+  it('resolves class specificity, inherited alignment, inline overrides and mixed joined cells', () => {
+    const sheet = parseCompendiumSheet(
+      `<style>
+      .ritz .waffle .s1 {text-align:center;color:#6FA8DC;font-weight:700}
+      .s1 {text-align:right} .left {text-align:left}
+      </style><div class="ritz"><table class="waffle">
+      <tr><td>Name</td><td>Description</td><td>Description</td><td>Description</td></tr>
+      <tr><td>Test</td><td class="s1">Centre<br><i>second</i></td>
+      <td class="left">Left</td><td class="s1" style="text-align:right">Right</td></tr>
+      </table></div>`,
+      '999',
+    );
+    const cell = sheet.rows[0].cell;
+    expect(cell.plain).toBe('Centre\nsecond\nLeft\nRight');
+    expect(cell.runs.filter((run) => run.text.trim()).map((run) => run.textAlign)).toEqual([
+      'center',
+      'center',
+      'left',
+      'right',
+    ]);
+    expect(cell.runs[1]).toMatchObject({ italic: true, bold: true, color: '#6fa8dc' });
+    expect(compendiumCellSchema.parse(cell)).toEqual(cell);
+    const old = { plain: 'Centre', runs: [{ text: 'Centre' }] };
+    expect(compendiumCellSchema.parse(old)).toEqual(old);
+    expect(
+      diffCompendium(old, { plain: 'Centre', runs: [{ text: 'Centre', textAlign: 'center' }] })[0]
+        .kind,
+    ).toBe('style');
+  });
+});

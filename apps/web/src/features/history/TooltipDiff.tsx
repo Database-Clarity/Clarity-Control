@@ -1,6 +1,7 @@
 import type { Item } from '../../services/generator';
 import { languageLabel } from '../../languageLabels';
-import { languages, type Tooltip } from '@clarity/core';
+import { languages, sameCell, type Tooltip } from '@clarity/core';
+import { CompendiumDiff } from '../compendium/CompendiumDiff';
 import { WordDiff } from '../../ui/diff';
 import {
   attachmentCategory,
@@ -12,6 +13,7 @@ import { archiveChangeLine } from '../archive/archiveFormat';
 import { useSyncedSettings } from '../../stores/settings';
 import styles from './History.module.scss';
 
+const emptyCell = { plain: '', runs: [] };
 const switchable = [attachmentCategory, effectCategory];
 const customText = (tooltip: Tooltip | null) => JSON.stringify(tooltip?.custom) ?? '(none)';
 /**
@@ -71,6 +73,16 @@ export function TooltipDiff({
           />
         </section>
       ))}
+      {(before?.compendium || current.compendium) &&
+        !sameCell(
+          before?.compendium?.snapshot ?? emptyCell,
+          current.compendium?.snapshot ?? emptyCell,
+        ) && (
+          <CompendiumDiff
+            before={before?.compendium?.snapshot ?? emptyCell}
+            after={current.compendium?.snapshot ?? emptyCell}
+          />
+        )}
       {!changed.length && <p>No language text changes.</p>}
       {JSON.stringify(before?.associated ?? []) !== JSON.stringify(current.associated) && (
         <p>

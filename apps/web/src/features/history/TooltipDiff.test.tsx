@@ -1,6 +1,8 @@
 import { expect, it } from 'vitest';
 import type { Tooltip } from '@clarity/core';
-import { identityLines } from './TooltipDiff';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { createElement } from 'react';
+import { identityLines, TooltipDiff } from './TooltipDiff';
 import fixture from '../compendium/fixtures/triage.json';
 
 const item = fixture.items['2467967826'] as never as Parameters<typeof identityLines>[2] & {
@@ -47,4 +49,26 @@ it('keeps the raw line for other custom changes or when the item is unknown', ()
     /^Custom identity:/,
   );
   expect(identityLines(other, other, item)).toEqual([]);
+});
+
+it('shows styled Compendium snapshot edits, additions and removals in history/review', () => {
+  const linked = (text: string): Tooltip => ({
+    ...plain,
+    compendium: {
+      gid: '1',
+      rowKey: 'Fixture',
+      snapshotAt: '2026-11-02T00:00:00Z',
+      snapshot: { plain: text, runs: [{ text, textAlign: 'center' }] },
+    },
+  });
+  for (const [before, current] of [
+    [linked('old'), linked('new')],
+    [plain, linked('new')],
+    [linked('old'), plain],
+  ]) {
+    const html = renderToStaticMarkup(createElement(TooltipDiff, { before, current }));
+    expect(html).toContain('Compendium diff view');
+    expect(html).toContain('Before / After');
+    expect(html).toContain('text-align:center');
+  }
 });

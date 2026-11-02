@@ -60,7 +60,7 @@ describe('compendium newline preservation per surface', () => {
     const after = cellOf('line1\nline2\n\nline4 changed');
     const host = await mount(createElement(CompendiumDiff, { before, after }));
     expect(host.querySelector('[data-multiline]')).not.toBeNull();
-    await click(host, 'Show side-by-side');
+    await click(host, 'Before / After');
     const panes = [...host.querySelectorAll('section section')];
     const snapshot = panes.find((pane) => pane.querySelector('h4')?.textContent === 'Snapshot')!;
     const current = panes.find((pane) => pane.querySelector('h4')?.textContent === 'Current')!;

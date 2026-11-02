@@ -26,6 +26,7 @@ export type SyncedKey = keyof SyncedSettings;
 export const syncedKeys = Object.keys(defaultSyncedSettings) as SyncedKey[];
 /** Editor view toggles whose last click is remembered on this device (never synced). */
 export const rememberedSchema = z.object({
+  compendiumDiff: z.enum(['changes', 'before-after']).optional(),
   markupToolbar: syncedSettingsSchema.shape.markupToolbar.optional(),
   englishSource: syncedSettingsSchema.shape.englishSource.optional(),
 });
@@ -279,7 +280,7 @@ export function createSettingsStore({
         ? (record.remembered as Record<string, unknown>)
         : {};
     const remembered: Remembered = { ...legacy };
-    for (const key of ['markupToolbar', 'englishSource'] as const) {
+    for (const key of ['markupToolbar', 'englishSource', 'compendiumDiff'] as const) {
       const result = rememberedSchema.shape[key].safeParse(stored[key]);
       if (result.success && result.data) Object.assign(remembered, { [key]: result.data });
     }

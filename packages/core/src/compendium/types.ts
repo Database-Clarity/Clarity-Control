@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 export const compendiumStyleSchema = z
   .object({
+    // Carried on runs so concatenated source cells retain their own line alignment.
+    textAlign: z.enum(['left', 'center', 'right', 'justify', 'start', 'end']).optional(),
     color: z
       .string()
       .regex(/^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/)

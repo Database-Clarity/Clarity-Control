@@ -93,6 +93,10 @@ export function colour(value: string): string | undefined {
 }
 function apply(style: CompendiumStyle, css: Declarations): CompendiumStyle {
   const next = { ...style };
+  const alignment = css['text-align'];
+  if (['left', 'center', 'right', 'justify', 'start', 'end'].includes(alignment))
+    next.textAlign = alignment as CompendiumStyle['textAlign'];
+  else if (alignment === 'initial') delete next.textAlign;
   if (css.color && css.color !== 'inherit') {
     const color = colour(css.color);
     if (!color) throw new Error(`Unsupported Compendium text colour: ${css.color}`);

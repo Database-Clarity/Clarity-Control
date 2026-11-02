@@ -1,29 +1,41 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { diffCompendium, type CompendiumCell } from '@clarity/core';
+import { diffCompendium, type CompendiumCell, type CompendiumDiffPart } from '@clarity/core';
 import { RichCell } from './RichCell';
+import { useSettingsStore } from '../../stores/settings';
 import styles from './Compendium.module.scss';
 
 function changes(before: CompendiumCell, after: CompendiumCell): string[] {
   const values = (
     cell: CompendiumCell,
-    key: 'color' | 'bold' | 'italic' | 'underline' | 'strike' | 'sizePt' | 'href',
+    key: 'color' | 'bold' | 'italic' | 'underline' | 'strike' | 'sizePt' | 'href' | 'textAlign',
   ) =>
     [
       ...new Set(
         cell.runs.map((run) =>
-          String(run[key] ?? (key === 'sizePt' ? 'default' : key === 'color' ? 'default' : false)),
+          String(
+            run[key] ??
+              (key === 'sizePt'
+                ? 'default'
+                : key === 'color'
+                  ? 'default'
+                  : key === 'textAlign'
+                    ? 'inherited'
+                    : false),
+          ),
         ),
       ),
     ].join(', ');
-  return (['color', 'bold', 'italic', 'underline', 'strike', 'sizePt', 'href'] as const).flatMap(
-    (key) => {
-      const old = values(before, key);
-      const current = values(after, key);
-      return old === current
-        ? []
-        : [`${key === 'color' ? 'colour' : key}: ${old} \u2192 ${current}`];
-    },
-  );
+  return (
+    ['color', 'bold', 'italic', 'underline', 'strike', 'sizePt', 'href', 'textAlign'] as const
+  ).flatMap((key) => {
+    const old = values(before, key);
+    const current = values(after, key);
+    return old === current
+      ? []
+      : [
+          `${key === 'color' ? 'colour' : key === 'textAlign' ? 'alignment' : key}: ${old} \u2192 ${current}`,
+        ];
+  });
 }
 function StyleChange({ before, after }: { before: CompendiumCell; after: CompendiumCell }) {
   const [open, setOpen] = useState(false);
@@ -87,7 +99,7 @@ function StyleChange({ before, after }: { before: CompendiumCell; after: Compend
           }
         }}
       >
-        <RichCell cell={after} links={false} />
+        <RichCell cell={after} links={false} inline />
       </button>
       <span
         ref={popover}
@@ -126,13 +138,24 @@ export function CompendiumDiff({
   before: CompendiumCell;
   after: CompendiumCell;
 }) {
-  const [sideBySide, setSideBySide] = useState(false);
+  const mode = useSettingsStore((state) => state.device.remembered.compendiumDiff ?? 'changes');
+  const remember = useSettingsStore((state) => state.remember);
+  const sideBySide = mode === 'before-after';
   const parts = useMemo(() => diffCompendium(before, after), [before, after]);
   return (
     <section aria-label="Styled Compendium diff">
-      <button type="button" onClick={() => setSideBySide(!sideBySide)}>
-        {sideBySide ? 'Show inline diff' : 'Show side-by-side'}
-      </button>
+      <div className={styles.diffModes} role="group" aria-label="Compendium diff view">
+        {(['changes', 'before-after'] as const).map((value) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={mode === value}
+            onClick={() => remember({ compendiumDiff: value })}
+          >
+            {value === 'changes' ? 'Changes' : 'Before / After'}
+          </button>
+        ))}
+      </div>
       {sideBySide ? (
         <div className={styles.comparison}>
           <section>
@@ -155,24 +178,69 @@ export function CompendiumDiff({
             changes.
           </p>
           <div className={styles.cell}>
-            {parts.map((part, index) =>
-              part.kind === 'style' ? (
-                <StyleChange key={index} before={part.before!} after={part.after!} />
-              ) : part.kind === 'removed' ? (
-                <del key={index} className={styles.removed}>
-                  <RichCell cell={part.before!} />
-                </del>
-              ) : part.kind === 'added' ? (
-                <ins key={index} className={styles.added}>
-                  <RichCell cell={part.after!} />
-                </ins>
-              ) : (
-                <RichCell key={index} cell={part.after!} />
-              ),
-            )}
+            {diffLines(parts).map((line, lineIndex) => (
+              <span
+                key={lineIndex}
+                className={styles.diffLine}
+                style={{
+                  textAlign: (
+                    line.find((part) => part.after?.plain.trim())?.after ??
+                    line.find((part) => part.before?.plain.trim())?.before
+                  )?.runs[0]?.textAlign,
+                }}
+              >
+                {line.map((part, index) =>
+                  part.kind === 'style' ? (
+                    <StyleChange key={index} before={part.before!} after={part.after!} />
+                  ) : part.kind === 'removed' ? (
+                    <del key={index} className={styles.removed}>
+                      <RichCell cell={part.before!} inline />
+                    </del>
+                  ) : part.kind === 'added' ? (
+                    <ins key={index} className={styles.added}>
+                      <RichCell cell={part.after!} inline />
+                    </ins>
+                  ) : (
+                    <RichCell key={index} cell={part.after!} inline />
+                  ),
+                )}
+              </span>
+            ))}
           </div>
         </>
       )}
     </section>
   );
+}
+
+// Split fragments at line breaks before laying them out; each highlighted word
+// remains inline within its source line, including for mixed-alignment selections.
+function diffLines(parts: CompendiumDiffPart[]): CompendiumDiffPart[][] {
+  const lines: CompendiumDiffPart[][] = [[]];
+  for (const part of parts) {
+    const source = part.after ?? part.before!;
+    let offset = 0;
+    source.plain.split(/(?<=\n)/).forEach((text) => {
+      const slice = (cell: CompendiumCell): CompendiumCell => {
+        let position = 0;
+        return {
+          plain: text,
+          runs: cell.runs.flatMap((run) => {
+            const start = Math.max(0, offset - position);
+            const end = Math.min(run.text.length, offset + text.length - position);
+            position += run.text.length;
+            return end > start ? [{ ...run, text: run.text.slice(start, end) }] : [];
+          }),
+        };
+      };
+      lines.at(-1)!.push({
+        kind: part.kind,
+        ...(part.before ? { before: slice(part.before) } : {}),
+        ...(part.after ? { after: slice(part.after) } : {}),
+      });
+      offset += text.length;
+      if (text.endsWith('\n')) lines.push([]);
+    });
+  }
+  return lines;
 }
