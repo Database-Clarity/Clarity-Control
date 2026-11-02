@@ -53,6 +53,7 @@ describe('Layout workspace links per role', () => {
       'Review changes',
       'Compendium',
       'Bungie drift',
+      'Lost-tooltip checker',
       'Archive',
       'Translations',
       'Globals',

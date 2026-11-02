@@ -7,6 +7,7 @@ const all = [
   '/review',
   '/compendium',
   '/drift',
+  '/lost-text',
   '/archive',
   '/translations',
   '/globals',
