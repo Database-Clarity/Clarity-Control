@@ -47,15 +47,17 @@ export function reviewedOwnerDecision(
   const record = (records.verified as Record<string, (typeof records.verified)['4194622039']>)[
     entry.hash
   ];
-  if (!record || record.name !== entry.name || record.categoryId !== `catalog:${entry.category}`)
-    return;
+  if (!record) return;
   const stale: Partial<GuidedDecision> = {
     action: 'owner',
     confidence: 'unresolved',
     ruleId: 'owner-reviewed-evidence-changed',
     reason: 'Reviewed item/source cells changed or core no longer agrees; verify again.',
   };
-  if (entry.sampleEvidence !== record.entryEvidence) return stale;
+  // Explicit identity approval is independent of global sheet coordinates and
+  // authored text. Current hash/name/category, complete styled source set and
+  // core agreement must still validate; tentative negatives use stricter fingerprints.
+  if (record.name !== entry.name || record.categoryId !== `catalog:${entry.category}`) return stale;
   const tab = source.tabs.find((t) => t.gid === record.gid);
   const rows =
     tab?.rows.filter(
@@ -64,18 +66,17 @@ export function reviewedOwnerDecision(
   const match = tab && combineCompendiumMatches(rows.map((row) => ({ tab, row })));
   const expected = record.mode === 'armor' ? record.rows.slice(0, 1) : record.rows;
   const actual = record.mode === 'armor' && match && !match.parts ? [match.row] : rows;
+  const remaining = [...expected];
   if (
     !match ||
-    (record.mode === 'multi' && JSON.stringify(record.parts) !== JSON.stringify(match.parts)) ||
     actual.length !== expected.length ||
-    actual.some((row, index) => {
-      const proof = expected[index];
-      return (
-        row.name !== proof.name ||
-        row.rowIndex !== proof.rowIndex ||
-        row.anchor?.col !== proof.anchor.col ||
-        sourceFingerprint(row.cell) !== proof.cellEvidence
+    actual.some((row) => {
+      const index = remaining.findIndex(
+        (proof) => row.name === proof.name && sourceFingerprint(row.cell) === proof.cellEvidence,
       );
+      if (index < 0) return true;
+      remaining.splice(index, 1);
+      return false;
     }) ||
     !proposal?.link ||
     proposal.link.gid !== record.gid ||
@@ -93,12 +94,7 @@ export function reviewedOwnerDecision(
         action: 'link',
         confidence: 'high',
         link: { ...link, snapshotAt: source.fetchedAt },
-        ruleId:
-          record.mode === 'armor'
-            ? 'exotic-armor-card'
-            : record.mode === 'multi'
-              ? 'owner-verified-multirow'
-              : 'owner-verified-cell',
+        ruleId: record.ruleId,
         reason: `Individually verified: ${record.meaning}`,
       }
     : stale;

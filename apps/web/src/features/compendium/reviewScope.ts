@@ -22,6 +22,8 @@ export function classifyScope(
     (entry.scopeRestored && !entry.artifactSunset && !approvedExoticStat(entry, category))
   )
     return undefined;
+  if (entry.classification?.excluded) return entry.classification.ruleId;
+  if (entry.classification?.categoryId === 'attachment-effect') return undefined;
   if (category === 'catalog:armor-mod-seasonal' && entry.artifactSunset)
     return artifactParents(entry).length ? 'artifact-sunset' : 'artifact-source-absent';
   if (approvedExoticStat(entry, category)) return 'manifest-weapon-stat';

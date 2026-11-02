@@ -22,6 +22,16 @@ export function requireAccess(
 }
 
 export function checkEdit(access: Access, base: Tooltip | null, next: Tooltip): void {
+  const categoryChanged = base?.custom?.categoryId !== next.custom?.categoryId;
+  const attachmentCategoryChange = [base?.custom?.categoryId, next.custom?.categoryId].some(
+    (category) => category === 'weapon-attachment' || category === 'attachment-effect',
+  );
+  if (
+    categoryChanged &&
+    attachmentCategoryChange &&
+    !['editor', 'maintainer'].includes(access.role)
+  )
+    throw new HttpError(403, 'Attachment category changes require editor role or higher');
   if (access.role !== 'translator') return;
   const withoutAllowed = (value: Tooltip) => ({
     ...value,

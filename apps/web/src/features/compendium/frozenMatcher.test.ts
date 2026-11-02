@@ -4,6 +4,7 @@ import frozen from './fixtures/frozen-matcher.json';
 import { guidedFixture } from '../../../test/guided-fixture';
 import { guidedDecisions } from './guidedDecisions';
 import { proposalFor } from './rapidReview';
+import { classifyItem, attachmentCategory, effectCategory } from './itemClassification';
 import { approvedExoticStat } from './ownerExceptions';
 import type { EditorData } from '../../stores/data';
 
@@ -47,6 +48,18 @@ it('links all 69 frozen armor disagreements to their audited core destinations',
     )[0].entries[0];
     if (item.expected) expect(decision.link, item.name).toMatchObject(item.expected);
     if (approvedExoticStat(item, category.id)) {
+      const catalogItem = f.editor.items[item.hash];
+      const classification = classifyItem(catalogItem);
+      if (classification) {
+        expect(classification).toMatchObject({ categoryId: attachmentCategory, excluded: true });
+        expect(
+          classifyItem(catalogItem, {
+            ...entry.base,
+            custom: { name: item.name, categoryId: effectCategory },
+          }),
+        ).toMatchObject({ excluded: false, origin: 'editor' });
+      }
+
       expect(decision, item.name).toMatchObject({
         action: 'link',
         confidence: 'out-of-scope',

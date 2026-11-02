@@ -5,6 +5,7 @@ import {
   type CompendiumLink,
   type CompendiumRow,
   type CompendiumSheet,
+  type CompendiumGridCell,
 } from './types.js';
 import { compendiumTabs, isTrackedCompendiumTab } from './config.js';
 import { selectCompendiumCells } from './cells.js';
@@ -160,6 +161,30 @@ export function resolveCompendiumLink(
 function categoryOf({ tab, row }: CompendiumMatch): string | undefined {
   return compendiumTabs[tab.gid]?.sectionCategories?.[row.section ?? ''];
 }
+// Recover the physical source components only when their styled concatenation
+// exactly reproduces the parsed description. No guessing from adjacent text.
+export function compendiumDescriptionCells({
+  tab,
+  row,
+}: CompendiumMatch): CompendiumGridCell[] | undefined {
+  if (!row.anchor) return;
+  const cells = (tab.grid ?? [])
+    .filter(
+      (cell) =>
+        cell.col > row.anchor!.col &&
+        cell.row <= row.rowIndex &&
+        cell.row + (cell.rowSpan ?? 1) > row.rowIndex &&
+        cell.cell.plain.trim() &&
+        row.cell.plain.includes(cell.cell.plain),
+    )
+    .sort((a, b) => a.col - b.col);
+  const combined = normaliseRuns(
+    cells.flatMap((cell, index) => [...(index ? [{ text: '\n' }] : []), ...cell.cell.runs]),
+  );
+  return cells.length && sameCell(combined, row.cell) ? cells : undefined;
+}
+const isCooldown = (cell: CompendiumGridCell) =>
+  /(?:^|\n)(?:Base Cooldown|Chunk Scalar):/.test(cell.cell.plain);
 // Combine only the same named thing in one tab; explicit category boundaries stay ambiguous.
 export function combineCompendiumMatches(matches: CompendiumMatch[]): CompendiumMatch | undefined {
   if (!matches.length) return undefined;
@@ -202,11 +227,32 @@ export function combineCompendiumMatches(matches: CompendiumMatch[]): Compendium
     sorted.some(({ tab, row }) => tab.gid !== first.tab.gid || row.nameNorm !== first.row.nameNorm)
   )
     return undefined;
+  if (
+    first.tab.gid === '473308249' &&
+    sorted.some((match) => !sameCell(match.row.cell, first.row.cell))
+  )
+    return undefined;
   if (sorted.length === 1) return { ...first };
+  const components = sorted.map(compendiumDescriptionCells);
+  const shared: CompendiumGridCell[] = [];
+  for (const cells of components)
+    for (const cell of cells ?? []) {
+      if (
+        isCooldown(cell) &&
+        !shared.some((other) => sameCell(other.cell, cell.cell)) &&
+        components.filter((group) => group?.some((other) => sameCell(other.cell, cell.cell)))
+          .length > 1
+      )
+        shared.push(cell);
+    }
+
   const parts = sorted.map(({ tab, row }, index) => {
+    const cooldownLayout =
+      shared.length > 0 && compendiumDescriptionCells({ tab, row })?.some(isCooldown);
     const context = tab.grid?.find(
       (entry) =>
         entry.row === row.rowIndex &&
+        (!cooldownLayout || entry.col < (row.anchor?.col ?? 0)) &&
         entry.col !== row.anchor?.col &&
         entry.cell.plain.trim() &&
         entry.cell.plain !== row.cell.plain &&
@@ -227,7 +273,11 @@ export function combineCompendiumMatches(matches: CompendiumMatch[]): Compendium
             .sort((a, b) => b.row - a.row)[0]?.cell.plain
         : undefined;
     return (
-      artifact ?? qualifier ?? context?.cell.plain.trim() ?? row.section ?? `Part ${index + 1}`
+      artifact ??
+      qualifier ??
+      context?.cell.plain.trim() ??
+      (cooldownLayout ? row.name.split('\n')[0] : row.section) ??
+      `Part ${index + 1}`
     );
   });
   return {
@@ -235,13 +285,25 @@ export function combineCompendiumMatches(matches: CompendiumMatch[]): Compendium
     parts,
     row: {
       ...first.row,
-      cell: normaliseRuns(
-        sorted.flatMap(({ row }, index) => [
-          ...(index ? [{ text: '\n\n' }] : []),
-          { text: `${parts[index]}\n`, bold: true },
-          ...row.cell.runs,
-        ]),
-      ),
+      cell: normaliseRuns([
+        ...sorted.flatMap(({ row }, index) => {
+          const cells = components[index];
+          const body =
+            cells && shared.length
+              ? normaliseRuns(
+                  cells
+                    .filter((cell) => !shared.some((other) => sameCell(other.cell, cell.cell)))
+                    .flatMap((cell, i) => [...(i ? [{ text: '\n' }] : []), ...cell.cell.runs]),
+                )
+              : row.cell;
+          return [
+            ...(index ? [{ text: '\n\n' }] : []),
+            { text: `${parts[index]}\n`, bold: true as const },
+            ...body.runs,
+          ];
+        }),
+        ...shared.flatMap((cell) => [{ text: '\n\n' }, ...cell.cell.runs]),
+      ]),
     },
   };
 }

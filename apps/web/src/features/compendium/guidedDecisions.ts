@@ -1,3 +1,4 @@
+import { inferredSiphonDecision } from './safeSourceRules';
 import {
   combineCompendiumMatches,
   compendiumIdentifiers,
@@ -13,7 +14,7 @@ import { confirmCompendiumSelection } from './selection';
 import type { GuidanceDocument, GuidanceReference } from './guidanceSchema';
 import type { ReviewCategory, ReviewSample } from './reviewCategories';
 import type { ReviewProposal } from './rapidReview';
-import { referenceCurrent } from './sampleReferences';
+import { referenceCurrent, currentReferenceLink } from './sampleReferences';
 import { sourceFingerprint } from './reviewProgress';
 import { manifestRule } from './manifestRule';
 import { artifactParents, artifactSections, notCurrentArtifact } from './artifactIdentity';
@@ -210,11 +211,24 @@ export function guidedDecisions(
             ruleId: scopeRule,
             reason: ['artifact-sunset', 'artifact-source-absent'].includes(scopeRule)
               ? 'not in a current artifact'
-              : `Out of scope: ${scopeRule}; no tooltip needed.${link ? ' Owner-approved exotic parent link.' : ''}`,
+              : entry.classification?.excluded
+                ? entry.classification.reason
+                : `Out of scope: ${scopeRule}; no tooltip needed.${link ? ' Owner-approved exotic parent link.' : ''}`,
           };
         }
         if (!compatible)
           return { ...result, reason: 'Scope or baseline differs; proposal withheld.' };
+        const classification = entry.classification;
+        if (
+          classification &&
+          [
+            'attachment-source-investigation',
+            'artifact-identity-unresolved',
+            'optional-movement',
+            'owner-classification-evidence-changed',
+          ].includes(classification.ruleId)
+        )
+          return { ...result, ruleId: classification.ruleId, reason: classification.reason };
         const reference = usable.get(hash);
         if (reference)
           return {
@@ -222,10 +236,12 @@ export function guidedDecisions(
             action: reference.link ? 'link' : 'no-equivalent',
             confidence: 'high',
             ruleId: 'explicit-owner',
-            link: reference.link,
+            link: reference.link ? currentReferenceLink(reference, source) : undefined,
             references: [hash],
             reason: 'Current explicit owner reference; applies to this entry only.',
           };
+        const familyDecision = inferredSiphonDecision(entry, source);
+        if (familyDecision) return { ...result, ...familyDecision };
         const reviewed = reviewedOwnerDecision(entry, proposals.get(hash), source);
         if (reviewed) return { ...result, ...reviewed };
         if (tentativeOwnerDecision(entry, sheetFingerprint))
@@ -246,7 +262,9 @@ export function guidedDecisions(
             reason: 'Category comment needs agent interpretation; no automatic rule applied.',
           };
         const manifestDecision =
-          !entry.scopeRestored && manifestRule(entry, record.id, globalUsable);
+          !entry.scopeRestored &&
+          entry.classification?.categoryId !== 'attachment-effect' &&
+          manifestRule(entry, record.id, globalUsable);
         if (manifestDecision) return { ...result, ...manifestDecision };
         if (record.id === 'catalog:armor-mod-seasonal') {
           const artifactNames = new Set(artifactParents(entry));

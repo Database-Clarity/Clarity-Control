@@ -1,3 +1,4 @@
+import { classifyItem, type ItemClassification } from './itemClassification';
 import type { CompendiumData } from '@clarity/core';
 import { notCurrentArtifact } from './artifactIdentity';
 import type { EditorData } from '../../stores/data';
@@ -12,6 +13,7 @@ const catalogFacts = loadManifestFacts();
 export type ReviewEntry = ReturnType<typeof applyReviewProgress>[number];
 export type ReviewSample = ReviewEntry & {
   sampleEvidence: string;
+  classification?: ItemClassification;
   exoticParentNames?: string[];
   scopeRestored?: boolean;
   artifactSunset?: boolean;
@@ -103,6 +105,8 @@ export function reviewCategories(
       );
     const sample: ReviewSample = {
       ...entry,
+      classification:
+        editor.items[entry.hash] && classifyItem(editor.items[entry.hash], entry.next),
       exoticParentNames: [
         ...new Set(
           items
@@ -114,6 +118,9 @@ export function reviewCategories(
       sampleEvidence: sourceFingerprint([
         entry.hash,
         entry.evidence,
+        ...(entry.next.custom?.categoryId === 'attachment-effect'
+          ? [entry.next.custom.categoryId]
+          : []),
         (manifest.get(entry.hash) ?? [])
           .map((item) => ({
             hash: item.hash,

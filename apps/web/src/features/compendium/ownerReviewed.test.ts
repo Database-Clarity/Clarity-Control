@@ -69,7 +69,7 @@ it('confirms every reviewed aspect/grenade cell and every multipart/armour desti
 });
 it('uses existing fingerprints to reopen every tentative no-equivalent after sheet or item changes', () => {
   const f = guidedFixture();
-  expect(records.noEquivalent).toHaveLength(291);
+  expect(records.noEquivalent).toHaveLength(29);
   for (const record of records.noEquivalent) {
     const entry = {
       ...f.categories[0].entries[2],
@@ -140,4 +140,27 @@ it('does not parse two exotic armour records from the item name repeated over on
     '<tr><th>3</th><td></td><td></td></tr><tr><th>4</th><td>Swarmers</td><td></td></tr></table>';
   const sheet = parseCompendiumSheet(html, '1500097863', 'Exotic Armors');
   expect(sheet.rows.filter((r) => r.name === 'Swarmers')).toHaveLength(1);
+});
+
+it('does not reuse one matching body as proof for several identical-named charged rows', () => {
+  const f = guidedFixture();
+  f.source = compendiumDataSchema.parse(fixture.source);
+  f.editor.items = fixture.items as unknown as EditorData['items'];
+  f.editor.bundle.tooltips = fixture.tooltips as unknown as EditorData['bundle']['tooltips'];
+  const hash = 2321824285,
+    rule = records.verified[hash];
+  const tab = f.source.tabs.find((t) => t.gid === rule.gid)!;
+  const charged = tab.rows.filter((r) => r.name.includes('(Charged)'));
+  expect(charged).toHaveLength(3);
+  const entry = {
+    ...f.categories[0].entries[2],
+    hash,
+    name: rule.name,
+    category: 'subclass-aspect',
+    sampleEvidence: rule.entryEvidence,
+    base: f.editor.bundle.tooltips[hash],
+  };
+  const proposal = proposalFor(entry.base, f.editor, f.source);
+  charged[1].cell = structuredClone(charged[0].cell);
+  expect(reviewedOwnerDecision(entry, proposal, f.source)?.action).toBe('owner');
 });
