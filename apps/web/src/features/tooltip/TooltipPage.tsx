@@ -1,7 +1,13 @@
 import { languageLabel } from '../../languageLabels';
 import { useMemo, useState } from 'react';
 import { Navigate, useParams, useSearchParams } from 'react-router-dom';
-import { languages, langSchema, type Lang, type MarkupGlobals } from '@clarity/core';
+import {
+  languages,
+  langSchema,
+  translationQueue,
+  type Lang,
+  type MarkupGlobals,
+} from '@clarity/core';
 import { apiUrl } from '../../services/api';
 import { tooltipImports } from '../../services/tooltipImports';
 import { useDataStore } from '../../stores/data';
@@ -139,6 +145,7 @@ export function TooltipPage() {
         const category = data.categories.find((category) => category.id === entry?.categoryId);
         const globals: MarkupGlobals = { ...sharedGlobals, type: category?.legacyType };
         const value = tooltip.text[lang]?.text ?? '';
+        const translation = translationQueue([base], [lang], data.aliases)[0];
         const panels = (
           <>
             <AssociationsPanel hash={variant} />
@@ -160,7 +167,21 @@ export function TooltipPage() {
             </header>
             <VariantWorkspace
               source={
-                lang === 'en' ? undefined : <TranslationSource text={tooltip.text.en?.text} />
+                lang === 'en' ? undefined : (
+                  <TranslationSource
+                    key={`${variant}:${lang}`}
+                    text={tooltip.text.en?.text}
+                    diff={
+                      translation?.state === 'outdated' && translation.sourceUpdatedAt
+                        ? {
+                            hash: variant,
+                            sourceUpdatedAt: translation.sourceUpdatedAt,
+                            current: base.text.en?.text ?? '',
+                          }
+                        : undefined
+                    }
+                  />
+                )
               }
               editor={
                 <section aria-label={`${entry?.name ?? variant} editor (${languageLabel(lang)})`}>
@@ -211,7 +232,7 @@ export function TooltipPage() {
                     globals={globals}
                     tooltipHash={variant}
                   />
-                  <CompendiumPanel base={base} />
+                  {user?.role !== 'translator' && <CompendiumPanel base={base} />}
                 </div>
               }
             />

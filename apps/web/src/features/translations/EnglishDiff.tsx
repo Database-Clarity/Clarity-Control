@@ -15,11 +15,31 @@ export function EnglishDiff({
   current: string;
 }) {
   const [expanded, setExpanded] = useState(false);
+  return (
+    <div>
+      <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+        {expanded ? 'Hide English changes' : 'Show English changes'}
+      </button>
+      {expanded && (
+        <EnglishDiffContent hash={hash} sourceUpdatedAt={sourceUpdatedAt} current={current} />
+      )}
+    </div>
+  );
+}
+
+export function EnglishDiffContent({
+  hash,
+  sourceUpdatedAt,
+  current,
+}: {
+  hash: number;
+  sourceUpdatedAt: string;
+  current: string;
+}) {
   const [source, setSource] = useState<TranslationSource | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
   useEffect(() => {
-    if (!expanded) return;
     const controller = new AbortController();
     setSource(null);
     setError(null);
@@ -31,44 +51,37 @@ export function EnglishDiff({
         if (!controller.signal.aborted) setError(errorMessage(cause));
       });
     return () => controller.abort();
-  }, [expanded, hash, sourceUpdatedAt, retry]);
+  }, [hash, sourceUpdatedAt, retry]);
   return (
-    <div>
-      <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
-        {expanded ? 'Hide English changes' : 'Show English changes'}
-      </button>
-      {expanded && (
-        <section aria-label="English source changes">
-          {!source && !error && <p role="status">Finding the English source in history...</p>}
-          {error && (
-            <p role="alert">
-              History unavailable: {error} Showing current English instead.{' '}
-              <button type="button" onClick={() => setRetry((value) => value + 1)}>
-                Retry history
-              </button>
-            </p>
-          )}
-          {source?.kind === 'found' ? (
-            <>
-              <p>
-                English when translated → current English. Removed words are struck through;
-                additions are underlined.
-              </p>
-              <WordDiff before={source.text} after={current} />
-            </>
-          ) : (
-            (source || error) && (
-              <>
-                {source?.kind === 'missing' && (
-                  <p className={styles.muted}>{source.reason} Showing current English instead.</p>
-                )}
-                <h3>Current English (source diff unavailable)</h3>
-                <p className={styles.text}>{current}</p>
-              </>
-            )
-          )}
-        </section>
+    <section aria-label="English source changes">
+      {!source && !error && <p role="status">Finding the English source in history...</p>}
+      {error && (
+        <p role="alert">
+          History unavailable: {error} Showing current English instead.{' '}
+          <button type="button" onClick={() => setRetry((value) => value + 1)}>
+            Retry history
+          </button>
+        </p>
       )}
-    </div>
+      {source?.kind === 'found' ? (
+        <>
+          <p>
+            English when translated → current English. Removed words are struck through; additions
+            are underlined.
+          </p>
+          <WordDiff before={source.text} after={current} />
+        </>
+      ) : (
+        (source || error) && (
+          <>
+            {source?.kind === 'missing' && (
+              <p className={styles.muted}>{source.reason} Showing current English instead.</p>
+            )}
+            <h3>Current English (source diff unavailable)</h3>
+            <p className={styles.text}>{current}</p>
+          </>
+        )
+      )}
+    </section>
   );
 }

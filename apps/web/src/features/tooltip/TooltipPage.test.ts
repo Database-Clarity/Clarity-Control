@@ -183,7 +183,7 @@ describe('tooltip screen composition', () => {
   it('keeps each Compendium panel attached to its own variant in English and translation workspaces', () => {
     for (const [location, role] of [
       ['/t/10', 'editor'],
-      ['/t/10?lang=fr', 'translator'],
+      ['/t/10?lang=fr', 'maintainer'],
     ] as const) {
       vi.mocked(CompendiumPanel).mockClear();
       useAuthStore.setState({
@@ -196,12 +196,38 @@ describe('tooltip screen composition', () => {
       ]);
       expect(markup).toContain('data-compendium-hash="10"');
       expect(markup).toContain('data-compendium-hash="11"');
-      if (role === 'translator') {
-        expect(markup).toContain('aria-label="Tooltip panels"');
-        expect(markup).toContain('Associations and history');
-        expect(vi.mocked(ClarityEditor).mock.calls.at(-1)?.[0].lang).toBe('fr');
-      }
     }
+  });
+  it('hides Compendium from translators and shows changes only for outdated translations', () => {
+    useAuthStore.setState({
+      user: { id: 1, login: 'alice', role: 'translator', languages: ['fr'] },
+    });
+    const translated = {
+      ...base,
+      text: {
+        ...base.text,
+        fr: {
+          text: 'Bonjour',
+          updatedAt: '2026-10-20T00:00:00Z',
+          updatedBy: 'alice',
+          sourceUpdatedAt: '2026-10-20T00:00:00Z',
+        },
+      },
+    };
+    useDataStore.setState({
+      data: {
+        ...data,
+        bundle: { ...data.bundle, tooltips: { ...data.bundle.tooltips, 10: translated } },
+      },
+    });
+    const markup = render('/t/10?lang=fr');
+    expect(markup).toContain('English changes since this translation');
+    expect(markup).toContain('aria-pressed="true"');
+    expect(markup).not.toContain('data-compendium-hash');
+    translated.text.fr.sourceUpdatedAt = '2026-10-27T00:00:00Z';
+    expect(render('/t/10?lang=fr')).not.toContain('English changes since this translation');
+    useDataStore.setState({ data });
+    expect(render('/t/10?lang=fr')).not.toContain('English changes since this translation');
   });
   it('shows the shared-perk callout in the header only when 2+ exotics own the perk', () => {
     expect(render()).not.toContain('Shared perk');

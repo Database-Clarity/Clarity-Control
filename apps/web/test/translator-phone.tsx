@@ -95,6 +95,7 @@ function size(
 
 async function run() {
   if (window.innerWidth > 700) throw new Error('Run this regression at a width of 700px or less');
+  localStorage.removeItem('clarity-english-source-view');
   const measurements: Record<string, { width: number; height: number }> = {};
   await waitFor(
     () =>
@@ -135,15 +136,34 @@ async function run() {
   }
   size('tooltip language', language, measurements);
   size('discard draft', button("Discard this tooltip's draft"), measurements);
+  button('Source').click();
+  await waitFor(
+    () => document.querySelector('main [aria-label="Show English changes"]') !== null,
+    'source toggle',
+  );
+  const toggle = document.querySelector<HTMLButtonElement>(
+    'main [aria-label="Show English changes"]',
+  )!;
+  size('source toggle', toggle, measurements);
+  if (toggle.getAttribute('aria-pressed') !== 'true')
+    throw new Error('Changes should be selected by default');
+  toggle.click();
+  await waitFor(() => toggle.getAttribute('aria-pressed') === 'false', 'current source');
+  if (
+    !document.querySelector('main [data-panel="source"] pre')?.textContent?.includes('English 10')
+  )
+    throw new Error('Current English missing');
+  toggle.click();
+  await waitFor(() => toggle.getAttribute('aria-pressed') === 'true', 'changes restored');
 
   window.location.hash = '#/t/40?lang=en';
   await waitFor(
     () =>
       window.location.hash === '#/t/10?lang=en' &&
-      document.body.textContent?.includes('Switch to de') === true,
+      document.body.textContent?.includes('Switch to German') === true,
     'read-only shortcut',
   );
-  size('read-only shortcut', button('Switch to de'), measurements);
+  size('read-only shortcut', button('Switch to German'), measurements);
 
   useAuthStore.setState({ user: { id: 2, login: 'fixture-editor', role: 'editor' } });
   window.location.hash = '#/t/40?lang=fr';
