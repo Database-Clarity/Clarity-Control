@@ -4,6 +4,12 @@ describe('worker client', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.stubEnv('VITE_API_URL', 'https://worker.example/');
+    const local = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => local.get(key) ?? null,
+      setItem: (key: string, value: string) => local.set(key, value),
+      removeItem: (key: string) => local.delete(key),
+    });
     const storage = new Map<string, string>();
     vi.stubGlobal('sessionStorage', {
       getItem: (key: string) => storage.get(key) ?? null,
@@ -29,11 +35,12 @@ describe('worker client', () => {
     vi.stubGlobal('fetch', fetch);
     const api = await import('./api');
     expect(api.loginUrl()).toBe('https://worker.example/auth/login');
-    api.setSession('test-session');
+    const token = btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 60 })) + '.signature';
+    api.setSession(token);
     expect((await api.getMe())?.login).toBe('StardustD2');
     expect(fetch).toHaveBeenCalledWith('https://worker.example/me', {
       credentials: 'omit',
-      headers: { Authorization: 'Bearer test-session' },
+      headers: { Authorization: `Bearer ${token}` },
     });
     api.clearSession();
     expect(sessionStorage.getItem('clarity-editor-session')).toBeNull();

@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const session = btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })) + '.signature';
 const commit = 'a'.repeat(40);
 const tooltip = { hash: 123, text: {}, associated: [] };
 describe('history and publishing client', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.stubEnv('VITE_API_URL', 'https://worker.example/');
-    vi.stubGlobal('sessionStorage', { getItem: () => 'test-session' });
+    vi.stubGlobal('sessionStorage', { getItem: () => session });
   });
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -37,7 +38,7 @@ describe('history and publishing client', () => {
       credentials: 'omit',
     });
     expect(new Headers(fetch.mock.calls[0][1].headers).get('Authorization')).toBe(
-      'Bearer test-session',
+      `Bearer ${session}`,
     );
   });
   it('sends selections and reviewed digests, validates push success', async () => {
