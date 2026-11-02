@@ -2,11 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import {
-  AttachmentCategoryControl,
-  demoteTooltip,
-  promoteTooltip,
-} from './AttachmentCategoryControl';
+import { AttachmentCategoryControl, setTooltipCategory } from './AttachmentCategoryControl';
 import { useAuthStore } from '../../stores/auth';
 import { useDraftStore } from '../../stores/drafts';
 import { useSaveState } from '../../services/save/state';
@@ -18,6 +14,11 @@ vi.mock('../../services/api', async (importOriginal) => ({
   apiUrl: 'https://editor.test',
 }));
 const item = fixture.items['2467967826'];
+const nativeEffect = fixture.items['689005463' as keyof typeof fixture.items];
+const promoteTooltip = (t: Tooltip, i: { name: string }) =>
+  setTooltipCategory(t, i, 'attachment-effect', 'weapon-attachment');
+const demoteTooltip = (t: Tooltip) =>
+  setTooltipCategory(t, item, 'weapon-attachment', 'weapon-attachment');
 const withText: Tooltip = {
   hash: item.hash,
   text: { en: { text: 'Original', updatedAt: '2026-11-02T00:00:00Z', updatedBy: 'a' } },
@@ -49,17 +50,53 @@ afterEach(async () => {
   useDraftStore.setState(prev[1] as never);
   useSaveState.setState(prev[2] as never);
 });
-it('promote then demote round-trips to byte-identical tooltip JSON', () => {
+it('promote then demote round-trips to byte-identical tooltip JSON, also after saving', () => {
   for (const base of [empty, withText]) {
-    const back = demoteTooltip(promoteTooltip(base, item), base);
+    const promoted = promoteTooltip(base, item);
+    const back = demoteTooltip(promoted);
     expect(JSON.stringify(back)).toBe(JSON.stringify(base));
     expect('custom' in back).toBe(false);
+    // The promoted state is saved (becomes the new base); a later demotion must still be exact.
+    const saved: Tooltip = JSON.parse(JSON.stringify(promoted));
+    expect(JSON.stringify(demoteTooltip(saved))).toBe(JSON.stringify(base));
   }
 });
-it('restores a pre-existing custom identity instead of deleting it', () => {
+it('keeps a differently-named custom identity when moving back', () => {
   const saved: Tooltip = { ...empty, custom: { name: 'Mine', categoryId: 'weapon-attachment' } };
-  const back = demoteTooltip(promoteTooltip(saved, item), saved);
+  const back = demoteTooltip(promoteTooltip(saved, item));
   expect(back).toEqual(saved);
+});
+it('switches a native Attachment Effect to Weapon Attachments and back, byte-identical', async () => {
+  const native = { ...empty, hash: nativeEffect.hash };
+  for (const role of ['editor', 'maintainer'] as const) {
+    useAuthStore.setState({ user: { id: 1, login: 'e', role } });
+    await act(async () =>
+      root.render(<AttachmentCategoryControl base={native} item={nativeEffect as never} />),
+    );
+    expect(buttons()[1].getAttribute('aria-pressed')).toBe('true');
+    expect(buttons().every((b) => !b.disabled)).toBe(true);
+    await act(async () => buttons()[0].click());
+    const [, change] = update.mock.calls.at(-1)!;
+    const overridden = change(native);
+    expect(overridden.custom).toEqual({ name: nativeEffect.name, categoryId: 'weapon-attachment' });
+    const saved = JSON.parse(JSON.stringify(overridden));
+    const back = setTooltipCategory(saved, nativeEffect, 'attachment-effect', 'attachment-effect');
+    expect(JSON.stringify(back)).toBe(JSON.stringify(native));
+  }
+});
+it('classifies a native effect with the weapon-attachment override as an excluded attachment', async () => {
+  const { classifyItem } = await import('../compendium/itemClassification');
+  const overridden = setTooltipCategory(
+    empty,
+    nativeEffect,
+    'weapon-attachment',
+    'attachment-effect',
+  );
+  expect(classifyItem(nativeEffect as never, overridden)).toMatchObject({
+    categoryId: 'weapon-attachment',
+    excluded: true,
+  });
+  expect(classifyItem(nativeEffect as never, empty)?.categoryId).toBe('attachment-effect');
 });
 it('shows a two-way switch with both labels', async () => {
   await render(empty);

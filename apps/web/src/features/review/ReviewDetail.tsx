@@ -9,6 +9,7 @@ import { useDataStore } from '../../stores/data';
 import { useSaveState } from '../../services/save/state';
 import { replaceDraft } from '../../services/save/drafts';
 import { revertDraft } from '../history/revert';
+import { itemFor } from '../navigation/catalog';
 import { TooltipDiff } from '../history/TooltipDiff';
 import type { PendingTooltip } from './model';
 import styles from './Review.module.scss';
@@ -20,6 +21,8 @@ export function ReviewDetail({ entry }: { entry: PendingTooltip }) {
   const [confirm, setConfirm] = useState(false);
   const [notice, setNotice] = useState<string>();
   const user = useAuthStore((state) => state.user);
+  const catalog = useDataStore((state) => state.data);
+  const reviewItem = catalog ? itemFor(entry.tooltip.hash, catalog) : undefined;
   const draft = useDraftStore((state) => state.drafts[entry.tooltip.hash]);
   const hydrated = useDraftStore((state) => state.hydrated);
   const locked = useSaveState((state) => state.locked);
@@ -49,15 +52,7 @@ export function ReviewDetail({ entry }: { entry: PendingTooltip }) {
       // Rebase only the fields this restore replaces; retain the old merge base
       // for any other local changes, including changes outside translator access.
       const base = revertDraft(existing?.base ?? saved, saved, currentUser);
-      replaceDraft(
-        base,
-        revertDraft(
-          existing?.next ?? saved,
-          live.tooltip,
-          currentUser,
-        ),
-        true,
-      );
+      replaceDraft(base, revertDraft(existing?.next ?? saved, live.tooltip, currentUser), true);
       setConfirm(false);
       setNotice(
         'Last pushed version loaded as a local draft. Review it in the editor; nothing was saved or pushed.',
@@ -83,7 +78,10 @@ export function ReviewDetail({ entry }: { entry: PendingTooltip }) {
   return (
     <section aria-label="Selected change">
       <p className={styles.detailIdentity}>
-        {entry.category} <small>· {entry.categoryId} · #{entry.tooltip.hash}</small>
+        {entry.category}{' '}
+        <small>
+          · {entry.categoryId} · #{entry.tooltip.hash}
+        </small>
       </p>
       <h2>{entry.name}</h2>
       <Link to={`/t/${entry.tooltip.hash}`}>Open tooltip editor and history</Link>
@@ -99,7 +97,7 @@ export function ReviewDetail({ entry }: { entry: PendingTooltip }) {
       {live && (
         <>
           {!live.pushedHash && <p>No recorded live version. All saved text is new.</p>}
-          <TooltipDiff before={live.tooltip} current={entry.tooltip} />
+          <TooltipDiff before={live.tooltip} current={entry.tooltip} item={reviewItem} />
           {notice && <p role="status">{notice}</p>}
           {user?.role === 'translator' && (
             <p>Only your assigned translation languages will be loaded.</p>

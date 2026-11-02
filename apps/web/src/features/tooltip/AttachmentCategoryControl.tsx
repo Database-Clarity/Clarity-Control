@@ -13,22 +13,24 @@ import {
 } from '../compendium/itemClassification';
 import styles from './TooltipPage.module.scss';
 
-export function promoteTooltip(tooltip: Tooltip, item: Pick<Item, 'name'>): Tooltip {
-  return {
-    ...tooltip,
-    custom: { name: tooltip.custom?.name ?? item.name, categoryId: effectCategory },
-  };
-}
-/** Undo a promotion so the saved file is exactly what it was before (no stray `custom`). */
-export function demoteTooltip(tooltip: Tooltip, saved: Tooltip): Tooltip {
+/**
+ * Move a tooltip to `target`. Returning to the item's native category removes the override:
+ * a custom identity that only restates the manifest name is dropped entirely, so the file is
+ * byte-identical to the pre-switch one (also after saving in between).
+ */
+export function setTooltipCategory(
+  tooltip: Tooltip,
+  item: Pick<Item, 'name'>,
+  target: string,
+  native: string,
+): Tooltip {
   const { custom, ...rest } = tooltip;
-  if (!custom) return tooltip;
-  if (!saved.custom) return rest;
-  const previous = saved.custom.categoryId;
-  return {
-    ...rest,
-    custom: { ...custom, categoryId: previous === effectCategory ? attachmentCategory : previous },
-  };
+  if (target === native) {
+    if (!custom) return tooltip;
+    if (custom.name === item.name) return rest;
+    return { ...rest, custom: { ...custom, categoryId: target } };
+  }
+  return { ...rest, custom: { name: custom?.name ?? item.name, categoryId: target } };
 }
 export function hasAuthoredText(tooltip: Tooltip): boolean {
   return Object.values(tooltip.text).some((entry) => !!entry?.text.trim());
@@ -47,34 +49,31 @@ export function AttachmentCategoryControl({ base, item }: { base: Tooltip; item:
   )
     return null;
   const isEffect = classification.categoryId === effectCategory;
-  const canEdit =
+  const native = classifyItem(item)?.categoryId ?? classification.categoryId;
+  const allowed =
     !!apiUrl && hydrated && !saving && (user?.role === 'editor' || user?.role === 'maintainer');
-  // Only an editor promotion (custom.categoryId) can be moved back; owner/manifest effects stay.
-  const canDemote = canEdit && next.custom?.categoryId === effectCategory;
+  const move = (target: string) =>
+    updateDraft(base, (tooltip) => setTooltipCategory(tooltip, item, target, native));
   const choose = (target: string) => {
-    if (target === effectCategory && !isEffect && canEdit) {
+    if (!allowed || target === classification.categoryId) return;
+    if (target === attachmentCategory && hasAuthoredText(next)) setConfirming(true);
+    else {
       setConfirming(false);
-      updateDraft(base, (tooltip) => promoteTooltip(tooltip, item));
-    } else if (target === attachmentCategory && isEffect && canDemote) {
-      if (hasAuthoredText(next)) setConfirming(true);
-      else updateDraft(base, (tooltip) => demoteTooltip(tooltip, base));
+      move(target);
     }
   };
-  const options = [
-    { id: attachmentCategory, disabled: isEffect ? !canDemote : !canEdit },
-    { id: effectCategory, disabled: !canEdit },
-  ];
+  const options = [attachmentCategory, effectCategory];
   return (
     <div>
       <div role="group" aria-label="Attachment category" className={styles.categorySwitch}>
-        {options.map(({ id, disabled }) => {
+        {options.map((id) => {
           const selected = (id === effectCategory) === isEffect;
           return (
             <button
               key={id}
               type="button"
               aria-pressed={selected}
-              disabled={disabled}
+              disabled={!allowed}
               onClick={() => choose(id)}
             >
               {categoryLabel(id)} {id === attachmentCategory ? '(no tooltip)' : '(needs tooltip)'}
@@ -87,10 +86,10 @@ export function AttachmentCategoryControl({ base, item }: { base: Tooltip; item:
           <p>Text is kept but this item will no longer be listed as needing a tooltip.</p>
           <button
             type="button"
-            disabled={!canDemote}
+            disabled={!allowed}
             onClick={() => {
               setConfirming(false);
-              updateDraft(base, (tooltip) => demoteTooltip(tooltip, base));
+              move(attachmentCategory);
             }}
           >
             Move to {categoryLabel(attachmentCategory)}
@@ -102,7 +101,6 @@ export function AttachmentCategoryControl({ base, item }: { base: Tooltip; item:
       )}
       <small>
         This creates a category draft; use the normal save flow. Editor role or higher required.
-        {isEffect && !canDemote && canEdit ? ' Only editor promotions can be moved back.' : ''}
       </small>
     </div>
   );

@@ -1,27 +1,51 @@
+import type { Item } from '../../services/generator';
 import { languageLabel } from '../../languageLabels';
 import { languages, type Tooltip } from '@clarity/core';
 import { WordDiff } from '../../ui/diff';
 import {
   attachmentCategory,
   categoryLabel,
+  classifyItem,
   effectCategory,
 } from '../compendium/itemClassification';
 import styles from './History.module.scss';
 
 const switchable = [attachmentCategory, effectCategory];
-/** Friendly line when the only custom change is an attachment/effect category switch. */
-export function categorySwitchLine(before: Tooltip | null, current: Tooltip): string | undefined {
-  const from = before?.custom?.categoryId ?? attachmentCategory,
-    to = current.custom?.categoryId ?? attachmentCategory;
-  if (from === to || !switchable.includes(from) || !switchable.includes(to)) return;
-  // A differing custom name is a different identity change: keep the raw line.
-  const a = before?.custom?.name,
-    b = current.custom?.name;
-  if (a && b && a !== b) return;
-  return `Category: ${categoryLabel(from)} → ${categoryLabel(to)}`;
+const customText = (tooltip: Tooltip | null) => JSON.stringify(tooltip?.custom) ?? '(none)';
+/**
+ * Identity lines for the custom field. The friendly "Category: X → Y" line is only produced when
+ * the item is known (so a missing custom has a provable native category and name) and any other
+ * identity change (name) is still reported alongside it, never hidden behind it.
+ */
+export function identityLines(
+  before: Tooltip | null,
+  current: Tooltip,
+  item?: Pick<Item, 'name'> & Parameters<typeof classifyItem>[0],
+): string[] {
+  if (JSON.stringify(before?.custom) === JSON.stringify(current.custom)) return [];
+  const raw = `Custom identity: ${customText(before)} → ${customText(current)}`;
+  if (!item) return [raw];
+  const native = classifyItem(item)?.categoryId;
+  const from = before?.custom?.categoryId ?? native,
+    to = current.custom?.categoryId ?? native;
+  if (!from || !to || from === to || !switchable.includes(from) || !switchable.includes(to))
+    return [raw];
+  const lines = [`Category: ${categoryLabel(from)} → ${categoryLabel(to)}`];
+  const a = before?.custom?.name ?? item.name,
+    b = current.custom?.name ?? item.name;
+  if (a !== b) lines.push(`Custom identity name: ${a} → ${b}`);
+  return lines;
 }
 
-export function TooltipDiff({ before, current }: { before: Tooltip | null; current: Tooltip }) {
+export function TooltipDiff({
+  before,
+  current,
+  item,
+}: {
+  before: Tooltip | null;
+  current: Tooltip;
+  item?: Item;
+}) {
   const changed = languages.filter((lang) => before?.text[lang]?.text !== current.text[lang]?.text);
   return (
     <div className={styles.diff}>
@@ -51,14 +75,9 @@ export function TooltipDiff({ before, current }: { before: Tooltip | null; curre
           {current.associated.join(', ') || '(none)'}
         </p>
       )}
-      {categorySwitchLine(before, current) && <p>{categorySwitchLine(before, current)}</p>}
-      {!categorySwitchLine(before, current) &&
-        JSON.stringify(before?.custom) !== JSON.stringify(current.custom) && (
-          <p>
-            Custom identity: {JSON.stringify(before?.custom) ?? '(none)'} →{' '}
-            {JSON.stringify(current.custom) ?? '(none)'}
-          </p>
-        )}
+      {identityLines(before, current, item).map((line) => (
+        <p key={line}>{line}</p>
+      ))}
     </div>
   );
 }

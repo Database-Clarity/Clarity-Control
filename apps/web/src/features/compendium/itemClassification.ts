@@ -262,6 +262,18 @@ export function classifyItem(item: Item, tooltip?: Tooltip): ItemClassification 
       );
   }
   if (
+    tooltip?.custom?.categoryId === attachmentCategory &&
+    result &&
+    [attachmentCategory, effectCategory].includes(result.categoryId)
+  )
+    return classification(
+      attachmentCategory,
+      'editor-attachment-override',
+      'Editor-moved to Weapon Attachments: no tooltip required; owner/manifest classification is overridden only by this draft/saved category.',
+      true,
+      'editor',
+    );
+  if (
     tooltip?.custom?.categoryId === effectCategory &&
     result &&
     [attachmentCategory, effectCategory].includes(result.categoryId)
