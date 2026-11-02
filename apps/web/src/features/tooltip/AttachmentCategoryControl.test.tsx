@@ -44,7 +44,7 @@ it('creates only a normal custom.categoryId draft for editor/maintainer and pres
   for (const role of ['editor', 'maintainer'] as const) {
     useAuthStore.setState({ user: { id: 1, login: 'editor', role } });
     await act(async () => root.render(<AttachmentCategoryControl base={base} item={item} />));
-    const button = host.querySelector('button')!;
+    const button = host.querySelectorAll('button')[1]!;
     expect(button.disabled).toBe(false);
     await act(async () => button.click());
     const [original, change] = update.mock.calls.at(-1)!;

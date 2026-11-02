@@ -257,3 +257,16 @@
     }
   }
 }
+
+.categorySwitch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  button {
+    flex: 1 1 12rem;
+    min-height: 44px;
+    &[aria-pressed='true'] {
+      border-color: theme.$orange-color;
+    }
+  }
+}

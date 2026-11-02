@@ -11,12 +11,18 @@ describe('language presentation', () => {
     expect(languageLabel('')).toBe('Unknown language');
   });
   it('distinguishes saved metadata, missing metadata, and unsaved text', () => {
-    const base: Tooltip = { hash: 1, associated: [], text: { en: { text: 'x', updatedAt: '1970-01-01T00:00:00.000Z', updatedBy: '' } } };
+    const base: Tooltip = {
+      hash: 1,
+      associated: [],
+      text: { en: { text: 'x', updatedAt: '1970-01-01T00:00:00.000Z', updatedBy: '' } },
+    };
     const html = renderToStaticMarkup(<LanguageSummary base={base} lang="en" draft />);
     expect(html).toContain('Local draft');
     expect(html).toContain('unknown author, unknown time');
     expect(html).toContain('<details>');
     expect(html).toContain('Legacy tooltip upload');
-    expect(renderToStaticMarkup(<LanguageSummary base={base} lang="fr" draft={false} />)).toContain('No saved language text');
+    expect(renderToStaticMarkup(<LanguageSummary base={base} lang="fr" draft={false} />)).toContain(
+      'No saved language text',
+    );
   });
 });

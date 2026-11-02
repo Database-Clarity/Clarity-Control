@@ -8,6 +8,7 @@ import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { CommitAuthor } from './CommitAuthor';
+import { itemFor } from '../navigation/catalog';
 import { TooltipDiff } from './TooltipDiff';
 import { revertDraft } from './revert';
 import styles from './History.module.scss';
@@ -30,6 +31,8 @@ export function HistoryPanel({ hash }: { hash: number }) {
 function HistoryContent({ hash }: { hash: number }) {
   const user = useAuthStore((state) => state.user);
   const base = useDataStore((state) => state.data?.bundle.tooltips[hash]);
+  const data = useDataStore((state) => state.data);
+  const item = data ? itemFor(hash, data) : undefined;
   const draft = useDraftStore((state) => state.drafts[hash]);
   const hydrated = useDraftStore((state) => state.hydrated);
   const [commits, setCommits] = useState<HistoryCommit[]>([]);
@@ -151,7 +154,7 @@ function HistoryContent({ hash }: { hash: number }) {
       {version && current && (
         <>
           <h3>Version {version.commit.slice(0, 8)} compared with current draft</h3>
-          <TooltipDiff before={version.tooltip} current={current} />
+          <TooltipDiff before={version.tooltip} current={current} item={item} />
           <details>
             <summary>View complete historical version</summary>
             <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
