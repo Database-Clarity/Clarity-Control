@@ -36,6 +36,12 @@ export function extract(generator, inventory, plugSets, artifacts) {
       const ordinal = [4241085061, 590099826].includes(socketCategoryHash) ? category.socketIndexes.indexOf(socketIndex) : null;
       const push = (hash, source, plugSetHash = null) => {
         if (hash && usages[hash]) add(usages, hash, { ownerHash: owner.hash, ownerItemType: owner.itemType ?? null, socketIndex, socketCategoryHash, ordinal, source, plugSetHash });
+        // Artifact loadout owners reference the real artifact inventory icon. Legacy
+        // preview.artifactHash is shared by every artifact and is not parent identity.
+        const artifact = inventory[owner.displayProperties?.iconHash];
+        if (artifact?.itemType === 28 && memberships[hash])
+          add(memberships, hash, { source: 'socket', artifactHash: artifact.hash,
+            artifactName: artifact.displayProperties?.name, ownerHash: owner.hash });
       };
       push(socket.singleInitialItemHash, 'singleInitialItemHash');
       for (const plug of socket.reusablePlugItems ?? []) push(plug.plugItemHash, 'reusablePlugItems');

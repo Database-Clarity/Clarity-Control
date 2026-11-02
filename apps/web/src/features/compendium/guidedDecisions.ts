@@ -15,6 +15,7 @@ import type { ReviewProposal } from './rapidReview';
 import { referenceCurrent } from './sampleReferences';
 import { sourceFingerprint } from './reviewProgress';
 import { manifestRule } from './manifestRule';
+import { artifactParents, artifactSections, sunsetArtifact } from './artifactIdentity';
 import { classifyScope } from './reviewScope';
 
 export interface GuidedDecision {
@@ -181,15 +182,17 @@ export function guidedDecisions(
           !entry.scopeRestored && manifestRule(entry, record.id, globalUsable);
         if (manifestDecision) return { ...result, ...manifestDecision };
         if (record.id === 'catalog:armor-mod-seasonal') {
-          const artifactNames = new Set(
-            (entry.manifestFacts?.item.artifactMemberships ?? [])
-              .map((membership) => membership.artifactName)
-              .filter((name): name is string => !!name),
-          );
+          const artifactNames = new Set(artifactParents(entry));
+          if (sunsetArtifact(entry, source))
+            return {
+              ...result,
+              action: 'out-of-scope',
+              confidence: 'out-of-scope',
+              ruleId: 'artifact-sunset',
+              reason: `Excluded: parent artifact(s) ${[...artifactNames].join(', ')} absent from the sheet current list.`,
+            };
           const tab = source.tabs.find((candidate) => candidate.gid === '473308249');
-          const headers = (tab?.grid ?? []).filter(
-            (cell) => cell.col === 3 && /\s\([^()]+\)\s*$/.test(cell.cell.plain),
-          );
+          const headers = artifactSections(source);
           const matchingHeaders = headers.filter((cell) =>
             [...artifactNames].some((name) => cell.cell.plain.startsWith(`${name} (`)),
           );
@@ -245,7 +248,10 @@ export function guidedDecisions(
           }
           return {
             ...result,
-            ruleId: 'owner-artifact-identity',
+            ruleId:
+              tab && !tab.rows.some((row) => row.nameNorm === normaliseCompendiumName(entry.name))
+                ? 'artifact-source-absent'
+                : 'owner-artifact-identity',
             reason:
               'Current artifact identity is not established by a name or learned tab. Select a current-artifact source explicitly. Anchors: ' +
               source.tabs
@@ -269,7 +275,14 @@ export function guidedDecisions(
           const proposal = proposals.get(hash);
           const match = proposal?.match;
           const variants = new Set(
-            compendiumNameVariants('armor-mod-general', entry.name).map(normaliseCompendiumName),
+            compendiumNameVariants(
+              'armor-mod-general',
+              /^(?:(?:Arc|Solar|Void|Stasis|Strand)\/(?:Arc|Solar|Void|Stasis|Strand) (?:Dual Siphon|Siphon Combo)|Thermodynamic Siphon)$/.test(
+                entry.name,
+              )
+                ? 'Siphon'
+                : entry.name,
+            ).map(normaliseCompendiumName),
           );
           if (
             match &&
@@ -280,10 +293,10 @@ export function guidedDecisions(
             (compendiumIdentifiers(match.row.name).some((name) =>
               variants.has(normaliseCompendiumName(name)),
             ) ||
-              (/^(?:Concussive Dampener|Melee Damage Resistance|Sniper Damage Resistance)$/.test(
+              (/^(?:(?:Arc|Solar|Void|Stasis|Strand|Harmonic) Resistance|Concussive Dampener|Melee Damage Resistance|Sniper Damage Resistance)$/.test(
                 entry.name,
               ) &&
-                normaliseCompendiumName(match.row.name).startsWith('resistance ') &&
+                normaliseCompendiumName(match.row.name) === 'resistance' &&
                 /Concussive Dampener.*Melee|Melee.*Concussive Dampener/s.test(
                   match.row.cell.plain,
                 )))
@@ -307,7 +320,6 @@ export function guidedDecisions(
           ].includes(record.id)
         ) {
           const parentNames = new Set((entry.exoticParentNames ?? []).map(normaliseCompendiumName));
-          const identity = normaliseCompendiumName(entry.name);
           const parentCards = source.tabs
             .filter((tab) => tab.name === 'Exotic Weapons')
             .flatMap((tab) =>
@@ -318,19 +330,28 @@ export function guidedDecisions(
                 })
                 .map((row) => ({ tab, row })),
             );
-          const matches = parentCards.filter(({ row }) =>
-            compendiumIdentifiers(row.name).map(normaliseCompendiumName).includes(identity),
-          );
+          // Generic barrels/guards/ornaments can be catalogued as exotic perks.
+          // Their parent alone does not establish a standalone perk identity.
+          const eligible =
+            record.id === 'catalog:weapon-perk-exotic'
+              ? parentCards.filter(({ row }) =>
+                  compendiumIdentifiers(row.name)
+                    .map(normaliseCompendiumName)
+                    .includes(normaliseCompendiumName(entry.name)),
+                )
+              : parentCards;
           const proposal = proposals.get(hash);
           const selected =
-            parentCards.length === 1 && matches.length === 1
-              ? matches[0]
-              : matches.find(
+            eligible.length === 1
+              ? eligible[0]
+              : eligible.find(
                   ({ tab, row }) =>
                     proposal?.match &&
                     !proposal.match.parts &&
                     proposal.match.tab.gid === tab.gid &&
-                    proposal.match.row.rowIndex === row.rowIndex,
+                    proposal.match.row.rowIndex === row.rowIndex &&
+                    proposal.match.row.anchor?.col === row.anchor?.col &&
+                    sameCell(proposal.match.row.cell, row.cell),
                 );
           const link = selected && stableSelection(selected, source);
           if (link && !link.parts)
@@ -340,7 +361,7 @@ export function guidedDecisions(
               confidence: 'high',
               link,
               ruleId: 'exotic-catalog-parent',
-              reason: `Catalog parent and perk identity resolve to ${selected!.row.name}.`,
+              reason: `Catalog exotic socket parent resolves to ${selected!.row.name}.`,
             };
         }
         // Learn the tab from every current positive sample, including picked renames.

@@ -13,6 +13,27 @@ it('counts no-equivalent decisions separately from links', () => {
         ],
       },
     ]),
-  ).toEqual({ linked: 2, highLinks: 1, highNoEquivalent: 1 });
+  ).toEqual({ linked: 2, highLinks: 1, highNoEquivalent: 1, excludedSunset: 0, artifactAbsent: 0 });
 });
 
+import { extract } from '../compendium-guidance/manifest-facts.mjs';
+it('artifact parent extraction ignores reused preview identity', () => {
+  const result = extract(
+    { 7: {} },
+    {
+      1: { hash: 1, itemType: 28, displayProperties: { name: 'Current' } },
+      2: {
+        hash: 2,
+        displayProperties: { iconHash: 1 },
+        sockets: {
+          socketEntries: [{ singleInitialItemHash: 7 }],
+        },
+      },
+    },
+    {},
+    {},
+  );
+  expect(result[7].artifactMemberships).toEqual([
+    { source: 'socket', artifactHash: 1, artifactName: 'Current', ownerHash: 2 },
+  ]);
+});

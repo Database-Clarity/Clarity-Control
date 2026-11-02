@@ -1,3 +1,5 @@
+import type { CompendiumData } from '@clarity/core';
+import { sunsetArtifact } from './artifactIdentity';
 import type { EditorData } from '../../stores/data';
 import { groupManifestItems } from './manifestItems';
 import type { ReviewProposal } from './rapidReview';
@@ -12,6 +14,7 @@ export type ReviewSample = ReviewEntry & {
   sampleEvidence: string;
   exoticParentNames?: string[];
   scopeRestored?: boolean;
+  artifactSunset?: boolean;
   manifestFacts?: { item: ManifestFacts['items'][string]; version: string };
 };
 export const reasonLabels = {
@@ -43,6 +46,7 @@ export function reviewCategories(
   proposals: Map<number, ReviewProposal>,
   matching: boolean,
   failed = false,
+  source?: CompendiumData,
 ): ReviewCategory[] {
   const manifest = groupManifestItems(editor.items, editor.aliases);
   const facts = catalogFacts;
@@ -122,6 +126,8 @@ export function reviewCategories(
           .sort((a, b) => a.hash - b.hash),
       ]),
     };
+    if (source && id === 'catalog:armor-mod-seasonal')
+      sample.artifactSunset = sunsetArtifact(sample, source);
     group.entries.push(sample);
     group.reasons[reason].push(sample);
   }

@@ -17,9 +17,10 @@ export function classifyScope(
     entry.base.compendium ||
     entry.next.compendium ||
     entry.status !== 'open' ||
-    entry.scopeRestored
+    (entry.scopeRestored && !entry.artifactSunset)
   )
     return undefined;
+  if (category === 'catalog:armor-mod-seasonal' && entry.artifactSunset) return 'artifact-sunset';
   if (category === 'catalog:ghost-mod' && !config.includeGhostMods) return 'ghost-mod';
   const rule = manifestRule(entry, category, statSupport)?.ruleId;
   return rule === 'manifest-weapon-stat' || rule === 'manifest-armor-stat' ? rule : undefined;

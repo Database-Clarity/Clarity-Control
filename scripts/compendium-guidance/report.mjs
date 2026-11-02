@@ -53,7 +53,14 @@ try {
   const proposals = new Map(
     entries.map((entry) => [entry.hash, rapid.proposalFor(entry.base, editor, source)]),
   );
-  const categories = categoriesModule.reviewCategories(entries, editor, proposals, false);
+  const categories = categoriesModule.reviewCategories(
+    entries,
+    editor,
+    proposals,
+    false,
+    false,
+    source,
+  );
   const { inScopeCategory } = await load('apps/web/src/features/compendium/reviewScope.ts');
   const scope = `${bundleModule.bundleUrl}|${sourceUrl}`;
   let renewal;
@@ -159,6 +166,7 @@ try {
       `Current baseline: ${baseline}`,
       `Baseline matches: ${result.baselineMatches}`,
       `High confidence: ${result.high}; medium: ${result.medium}; owner/unresolved: ${result.owner}; out of scope: ${result.outOfScope}. No drafts or writes to remote data.`,
+      `Artifact exclusions (sunset): ${result.excludedSunset}; absent named artifact sources: ${result.artifactAbsent}.`,
       `Links: ${result.linked} (${result.highLinks} high); high no-equivalent decisions: ${result.highNoEquivalent}.`,
       '',
       '| Category | High | Medium | Owner | Out of scope | Issues |',
@@ -176,6 +184,8 @@ try {
     JSON.stringify({
       high: result.high,
       linked: result.linked,
+      excludedSunset: result.excludedSunset,
+      artifactAbsent: result.artifactAbsent,
       highNoEquivalent: result.highNoEquivalent,
       medium: result.medium,
       owner: result.owner,

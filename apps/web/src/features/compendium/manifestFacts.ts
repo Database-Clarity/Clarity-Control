@@ -15,6 +15,7 @@ const inventory = z.object({
 });
 const usage = z.object({ ownerHash: hash, ownerItemType: nullableHash, socketIndex: hash, socketCategoryHash: nullableHash, ordinal: nullableHash, source: z.enum(['singleInitialItemHash', 'reusablePlugItems', 'randomizedPlugSetHash', 'reusablePlugSetHash']), plugSetHash: nullableHash });
 const membership = z.union([
+  z.object({ source: z.literal('socket'), artifactHash: hash, artifactName: z.string(), ownerHash: hash }),
   z.object({ source: z.literal('artifact'), artifactHash: hash, artifactName: z.string().nullable().optional(), tierIndex: hash, itemIndex: hash, item: rawObject }),
   z.object({ source: z.literal('inventoryPreview'), ownerHash: hash, artifactHash: hash, artifactName: z.string().nullable().optional(), categoryIndex: hash, itemIndex: hash, item: rawObject }),
 ]);

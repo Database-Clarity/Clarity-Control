@@ -31,8 +31,8 @@ it('chooses an artifact section using manifest membership when names repeat', ()
       row: 20,
       col: 3,
       cell: {
-        plain: 'Implement of Curiosity (Reclamation)',
-        runs: [{ text: 'Implement of Curiosity (Reclamation)' }],
+        plain: 'Encrypted Data Disk (Reclamation)',
+        runs: [{ text: 'Encrypted Data Disk (Reclamation)' }],
       },
     },
   ];
@@ -62,6 +62,19 @@ it('chooses an artifact section using manifest membership when names repeat', ()
     ruleId: 'artifact-manifest-section',
     link: { section: 'Reclamation' },
   });
+  // The old preview family falsely says Implement of Curiosity. Only socket parents count.
+  const decide = () =>
+    guidedDecisions(f.document, f.categories, f.proposals, f.source, f.baseline, f.scope)[0]
+      .entries[2];
+  entry.manifestFacts.item.artifactMemberships = [
+    { source: 'socket', artifactHash: 1, artifactName: 'Sunset Artifact', ownerHash: 2 },
+  ];
+  expect(decide()).toMatchObject({ action: 'out-of-scope', ruleId: 'artifact-sunset' });
+  entry.manifestFacts.item.artifactMemberships[0].artifactName = 'Other Artifact';
+  tab.grid.push({ row: 11, col: 1, cell: tab.rows[0].cell });
+  expect(decide()).toMatchObject({ action: 'link', link: { section: 'Other' } });
+  entry.manifestFacts.item.artifactMemberships[0].artifactName = 'Unknown Artifact';
+  expect(decide().link).toBeUndefined();
 });
 
 it('requires catalog parent and perk identity on the exotic card', () => {
@@ -82,6 +95,12 @@ it('requires catalog parent and perk identity on the exotic card', () => {
     guidedDecisions(f.document, f.categories, f.proposals, f.source, f.baseline, f.scope)[0]
       .entries[2];
   expect(decide()).toMatchObject({ action: 'link', ruleId: 'exotic-catalog-parent' });
+  tab.rows[0].name = 'Another exotic';
+  f.proposals.set(entry.hash, { match: { tab, row: tab.rows[2] }, candidates: [] });
+  expect(decide()).toMatchObject({ action: 'link', ruleId: 'exotic-catalog-parent' });
+  f.proposals.delete(entry.hash);
+  expect(decide().ruleId).not.toBe('exotic-catalog-parent');
+  entry.exoticParentNames = [];
   entry.name = 'Default Ornament';
   expect(decide().ruleId).not.toBe('exotic-catalog-parent');
 });
