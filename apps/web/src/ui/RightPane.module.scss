@@ -13,14 +13,14 @@
   display: flex;
   flex: none;
   align-items: center;
-  gap: 6px;
+  gap: 0.25rem;
   min-width: 0;
-  min-height: 28px;
+  min-height: 1.75rem;
   overflow: hidden;
   white-space: nowrap;
   font-size: 0.8125rem;
   @include theme.mobile-or-coarse {
-    min-height: 44px;
+    min-height: max(44px, 2.75rem);
   }
 }
 .title {
@@ -33,7 +33,7 @@
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
-  gap: 4px;
+  gap: 0.1875rem;
   min-width: 0;
   margin-left: auto;
   > * {
@@ -51,24 +51,24 @@
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding-top: 2px;
+  padding-top: 0.125rem;
 }
 
 .segmented {
   display: inline-flex;
   button {
     @include controls.button;
-    min-height: 24px;
-    padding: 0 6px;
+    min-height: 1.5rem;
+    padding: 0 0.3125rem;
     font-size: 0.75rem;
     border-radius: 0;
     white-space: nowrap;
     position: relative;
     &:first-child {
-      border-radius: 4px 0 0 4px;
+      border-radius: 0.25rem 0 0 0.25rem;
     }
     &:last-child {
-      border-radius: 0 4px 4px 0;
+      border-radius: 0 0.25rem 0.25rem 0;
     }
     & + button {
       margin-left: -1px;
@@ -80,7 +80,7 @@
       color: var(--accent-ink);
     }
     @include theme.mobile-or-coarse {
-      min-height: 44px;
+      min-height: max(44px, 2.75rem);
     }
   }
 }

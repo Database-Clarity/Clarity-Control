@@ -1,5 +1,6 @@
 import {
   normaliseRuns,
+  withBackground,
   type CompendiumCell,
   type CompendiumCellOffset,
   type CompendiumGridCell,
@@ -31,7 +32,10 @@ export function selectCompendiumCells(
   );
   if (cells.some((entry) => !entry?.cell.plain.trim()) || new Set(cells).size !== cells.length)
     return undefined;
-  return normaliseRuns(
-    cells.flatMap((entry, index) => [...(index ? [{ text: '\n' }] : []), ...entry!.cell.runs]),
+  return withBackground(
+    normaliseRuns(
+      cells.flatMap((entry, index) => [...(index ? [{ text: '\n' }] : []), ...entry!.cell.runs]),
+    ),
+    cells[0]!.cell.background,
   );
 }

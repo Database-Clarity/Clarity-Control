@@ -69,7 +69,8 @@
   flex: 1 1 0;
   flex-flow: row wrap;
   justify-content: flex-end;
-  gap: 0 0.75rem;
+  // The row gap pushes a wrapped hint fully below the one-line box (no sliver of it shows).
+  gap: 1.25rem 0.75rem;
   min-width: 0;
   height: 1.125rem;
   overflow: hidden;

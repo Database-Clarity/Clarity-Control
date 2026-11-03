@@ -1,4 +1,4 @@
-/* global document, window, getComputedStyle */
+/* global document, window, getComputedStyle, NodeFilter */
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
@@ -6,13 +6,16 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
 
+// Step 5b adds: the "Sheet colours" header toggle (sheet backgrounds vs the editor surface, light
+// theme raised, text AA), the pane following the interface scale (85 / 150 %), and translators
+// seeing the read-only sentence once (status bar) with only a short badge in the pane header.
 // The Compendium / English right pane (overhaul P2 step 5) in the real shell on synthetic data:
 // both themes, 1440 / 1280 / 1024 / 800 / 768 / 390. One 28px pane header (44px on touch), a body
 // that scrolls on its own, the Changes / Before-After switch in the header when the pane is wide
 // and above the diff when it is narrow, the device zoom (70-100 %), no horizontal overflow, no
 // clipped or wrapping controls, and editor text that never moves for any of it.
 const web = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const shots = process.argv[2] ?? resolve(web, '../../.agents/reports/overhaul-p2s5-shots');
+const shots = process.argv[2] ?? resolve(web, '../../.agents/reports/overhaul-p2s5b-shots');
 await mkdir(shots, { recursive: true });
 const port = 5295;
 const url = `http://127.0.0.1:${port}/test/shell.html`;
@@ -263,17 +266,17 @@ try {
       await context.close();
     }
 
-    // 800: the pane header's toggle swaps the main slot to the Compendium.
-    {
-      const { context, page } = await open(theme, { width: 800, height: 800 }, '/t/1001?lang=en');
+    // 800 and 768: the pane header's toggle swaps the main slot to the Compendium.
+    for (const width of [800, 768]) {
+      const { context, page } = await open(theme, { width, height: 800 }, '/t/1001?lang=en');
       const text = await firstLine(page);
       await page.getByRole('button', { name: 'Compendium', exact: true }).click();
       await page.locator('[aria-label="Compendium tools"]').waitFor();
-      await noOverflow(page, `${theme} 800 compendium`);
-      assert.deepEqual(await clipped(page), [], `${theme} 800: header clips`);
-      await page.screenshot({ path: out('compendium-800-swapped') });
+      await noOverflow(page, `${theme} ${width} compendium`);
+      assert.deepEqual(await clipped(page), [], `${theme} ${width}: header clips`);
+      await page.screenshot({ path: out(`compendium-${width}-swapped`) });
       await page.getByRole('button', { name: 'Compendium', exact: true }).click();
-      assert.deepEqual(await firstLine(page), text, `${theme} 800: editor back in place`);
+      assert.deepEqual(await firstLine(page), text, `${theme} ${width}: editor back in place`);
       await context.close();
     }
 
@@ -289,6 +292,193 @@ try {
       assert.deepEqual(await clipped(page), [], `${theme} phone: header clips`);
       await noOverflow(page, `${theme} phone compendium`);
       await page.screenshot({ path: out('compendium-390') });
+      await context.close();
+    }
+
+    // Sheet colours: the header toggle switches the cell between the sheet's own background and
+    // the editor surface (the dark cell, raised a little in the light theme); text stays AA.
+    {
+      const { context, page, errors } = await open(
+        theme,
+        { width: 1280, height: 800 },
+        '/t/1001?lang=en',
+      );
+      const label = `${theme} sheet colours`;
+      const header = page.locator('[aria-label="Compendium tools"]');
+      await header.waitFor();
+      const toggle = header.getByRole('button', { name: 'Sheet colours' });
+      assert.equal(
+        await toggle.getAttribute('aria-pressed'),
+        'true',
+        `${label}: default is sheet colours`,
+      );
+      assert.equal(await headerHeight(page, 'Compendium'), 28, `${label}: header 28px`);
+      const cellInfo = () =>
+        page.evaluate(() => {
+          const cell = document.querySelector('aside[aria-label^="Compendium for"] [data-surface]');
+          const lum = (rgb) => {
+            const [r, g, b] = rgb
+              .match(/\d+/g)
+              .slice(0, 3)
+              .map((v) => {
+                const c = Number(v) / 255;
+                return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+              });
+            return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+          };
+          const ratio = (a, b) => {
+            const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+            return (hi + 0.05) / (lo + 0.05);
+          };
+          const bg = getComputedStyle(cell).backgroundColor;
+          const colours = [...cell.querySelectorAll('span[style*="color"]')].map(
+            (el) => getComputedStyle(el).color,
+          );
+          return {
+            surface: cell.dataset.surface,
+            bg,
+            colours,
+            minContrast: Math.min(
+              ...colours.map((c) => ratio(c, bg)),
+              ratio(getComputedStyle(cell).color, bg),
+            ),
+          };
+        });
+      const text = await firstLine(page);
+      const sheet = await cellInfo();
+      assert.equal(sheet.surface, 'sheet');
+      assert.equal(sheet.bg, 'rgb(232, 220, 200)', `${label}: the sheet's own background`);
+      assert.deepEqual(
+        sheet.colours.slice(0, 1),
+        ['rgb(120, 63, 4)'],
+        `${label}: sheet text colour kept`,
+      );
+      await page.screenshot({ path: out('sheet-colours-on') });
+      await toggle.click();
+      assert.equal(await toggle.getAttribute('aria-pressed'), 'false');
+      const surface = await cellInfo();
+      assert.equal(surface.surface, 'editor');
+      assert.equal(
+        surface.bg,
+        theme === 'light' ? 'rgb(42, 46, 68)' : 'rgb(26, 27, 41)',
+        `${label}: editor surface (light raised a little)`,
+      );
+      assert.ok(
+        surface.minContrast >= 4.5,
+        `${label}: text AA on the editor surface (${surface.minContrast})`,
+      );
+      assert.deepEqual(await firstLine(page), text, `${label}: toggle moved the text`);
+      assert.deepEqual(await clipped(page), [], `${label}: header clips`);
+      await noOverflow(page, label);
+      await page.screenshot({ path: out('sheet-colours-off') });
+      // Remembered on this device across a reload.
+      await page.reload();
+      await page.evaluate(() => {
+        window.shellFixture.role('maintainer');
+        window.shellFixture.variants();
+        window.shellFixture.compendiumRows();
+      });
+      await page.evaluate(() => {
+        window.location.hash = '#/t/1001?lang=en';
+      });
+      await page.locator('[aria-label="Compendium tools"]').waitFor();
+      assert.equal(
+        await page.getByRole('button', { name: 'Sheet colours' }).getAttribute('aria-pressed'),
+        'false',
+        `${label}: choice remembered`,
+      );
+      assert.deepEqual(errors, [], `${label}: page errors`);
+      await context.close();
+    }
+
+    // The pane follows the interface scale: header 28px x scale, no overflow or clipping at either
+    // end, and the Changes / Before-After switch moves above the diff when the pane runs out of room.
+    for (const scale of [85, 150]) {
+      const context = await browser.newContext({
+        viewport: { width: 1440, height: 900 },
+        colorScheme: theme,
+      });
+      await context.addInitScript((value) => {
+        localStorage.setItem('clarity-settings:device:v1', JSON.stringify({ uiScale: value }));
+      }, scale);
+      const page = await context.newPage();
+      const errors = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.goto(url);
+      await page.locator('header').first().waitFor();
+      await page.evaluate(() => {
+        window.shellFixture.role('maintainer');
+        window.shellFixture.variants();
+        window.shellFixture.compendiumRows();
+      });
+      await page.evaluate(() => {
+        window.location.hash = '#/t/1001?lang=en';
+      });
+      await page.locator('[aria-label="Compendium tools"]').waitFor();
+      await page.waitForTimeout(300);
+      const label = `${theme} scale ${scale}`;
+      const height = await headerHeight(page, 'Compendium');
+      assert.equal(
+        height,
+        Math.round((28 * scale) / 100),
+        `${label}: pane header follows the scale (${height}px)`,
+      );
+      const metrics = await page.evaluate(() => {
+        const header = document.querySelector('[aria-label="Compendium tools"]');
+        const buttons = [...header.querySelectorAll('button')].map((b) =>
+          Math.round(b.getBoundingClientRect().height),
+        );
+        const root = parseFloat(getComputedStyle(document.documentElement).fontSize);
+        const body = document.querySelector('aside[aria-label^="Compendium for"] [data-scale] p');
+        return { buttons, root, pad: parseFloat(getComputedStyle(body).marginBottom) };
+      });
+      assert.ok(
+        metrics.buttons.every((h) => h === Math.round((24 * scale) / 100)),
+        `${label}: header controls follow the scale (${metrics.buttons})`,
+      );
+      assert.equal(metrics.pad, (6 * metrics.root) / 16, `${label}: body spacing follows the scale`);
+      assert.deepEqual(await clipped(page), [], `${label}: header clips`);
+      await noOverflow(page, label);
+      if (scale === 150) {
+        assert.equal(
+          await page
+            .locator('[aria-label="Compendium tools"] [aria-label="Compendium diff view"]')
+            .count(),
+          0,
+          `${label}: switch above the diff when the header is out of room`,
+        );
+        assert.equal(await page.locator('[aria-label="Compendium diff view"]').count(), 1);
+      }
+      await page.screenshot({ path: out(`scale-${scale}`) });
+      assert.deepEqual(errors, [], `${label}: page errors`);
+      await context.close();
+    }
+
+    // A translator on English: the pane header badge only says "Read-only"; the sentence is the
+    // status bar's alone (and the badge's tooltip).
+    {
+      const { context, page } = await open(theme, { width: 1280, height: 800 }, '/t/1000?lang=en', {
+        role: 'translator',
+      });
+      const label = `${theme} translator read-only`;
+      const badge = page.locator('[role="status"][title^="Read-only"]').first();
+      await badge.waitFor();
+      assert.equal((await badge.innerText()).trim().split('\n')[0], 'Read-only');
+      const sentence = await badge.getAttribute('title');
+      assert.match(sentence, /you can translate/);
+      const bar = await page.locator('[data-status-reason]').innerText();
+      assert.equal(bar.trim(), sentence, `${label}: the status bar has the sentence`);
+      const visible = await page.evaluate((needle) => {
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        let count = 0;
+        while (walker.nextNode()) {
+          const node = walker.currentNode;
+          if (node.textContent.includes(needle) && node.parentElement.offsetParent) count++;
+        }
+        return count;
+      }, sentence);
+      assert.equal(visible, 1, `${label}: the sentence is on screen once`);
+      await page.screenshot({ path: out('translator-read-only') });
       await context.close();
     }
 

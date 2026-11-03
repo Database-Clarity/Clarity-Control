@@ -74,6 +74,41 @@ describe('grid, cascade, and normalized persistence', () => {
     });
     expect(parseCompendiumSheet(html, '999').rows[0].cell.plain).toBe('A & B\nindex link\nsecond');
   });
+  it('captures each cell background from classes and inline style, never from its text', () => {
+    const html = `<style>.s2 {background-color:#2e3c4e;color:#ccc} .s3 {background-color:var(--gm3-x,#1b130f)}
+    .s4 {background-color:rgba(0,0,0,0)} .s5 {background-color:#ffffff80}</style>
+    <table class="waffle">
+    <tr><th>1</th><td>Name</td><td>Description</td></tr>
+    <tr><th>2</th><td>Classed</td><td class="s2">one</td></tr>
+    <tr><th>3</th><td>Variable</td><td class="s3">two</td></tr>
+    <tr><th>4</th><td>Inline</td><td class="s2" style="background-color:#ABCDEF">three</td></tr>
+    <tr><th>5</th><td>Clear</td><td class="s4">four</td></tr>
+    <tr><th>6</th><td>Translucent</td><td class="s5">five</td></tr>
+    <tr><th>7</th><td>None</td><td>six</td></tr></table>`;
+    const rows = parseCompendiumSheet(html, '999').rows;
+    expect(rows.map((row) => row.cell.background)).toEqual([
+      '#2e3c4e',
+      '#1b130f',
+      '#abcdef',
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    // The background is display-only: same text and styling on another background is the same cell.
+    const [classed] = rows;
+    expect(sameCell(classed.cell, { plain: 'one', runs: classed.cell.runs })).toBe(true);
+    expect(compendiumCellSchema.safeParse(classed.cell).success).toBe(true);
+  });
+  it('keeps the first description background for combined and row-spanned rows', () => {
+    const sheet = parseCompendiumSheet(
+      `<style>.a {background-color:#112233} .b {background-color:#445566}</style>
+      <table><tr><td>Name</td><td>Description</td></tr>
+      <tr><td rowspan="2">Test</td><td class="a">one</td></tr>
+      <tr><td class="b">two</td></tr></table>`,
+      '999',
+    );
+    expect(sheet.rows[0].cell).toMatchObject({ plain: 'one\ntwo', background: '#112233' });
+  });
   it('does not repeat row-spanned descriptions or merged description columns', () => {
     const sheet = parseCompendiumSheet(
       `<table><tr><td>Name</td><td>Description</td></tr>

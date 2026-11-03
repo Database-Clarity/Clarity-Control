@@ -259,10 +259,10 @@ describe('Settings popover', () => {
     useSettingsStore
       .getState()
       .updateDevice({ panes: { 'editor:left': { width: 400, collapsed: false } } });
-    await act(async () => button('Reset pane widths').click());
+    await act(async () => button('Reset pane widths and Compendium zoom').click());
     expect(localStorage.getItem(layoutKey)).toBeNull();
     expect(useSettingsStore.getState().device.panes).toEqual({});
-    expect(popover()!.textContent).toContain('Pane widths reset to their defaults.');
+    expect(popover()!.textContent).toContain('Pane widths and Compendium zoom reset to their defaults.');
     await act(async () => closeButton().click());
     expect(holder.server.calls.put).toHaveLength(0);
     await openSettings();

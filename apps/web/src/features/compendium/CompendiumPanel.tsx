@@ -9,20 +9,23 @@ import { reviewSaveChanges, useSaveState } from '../../services/save/state';
 import { itemFor } from '../navigation/catalog';
 import { CompendiumDiff, CompendiumDiffModeToggle, useCompendiumDiffMode } from './CompendiumDiff';
 import { RichCell } from './RichCell';
+import { SheetCell, SheetColoursToggle } from './sheetSurface';
 import { LinkPicker } from './LinkPicker';
 import { useCompendiumStore } from './store';
 import { When } from '../../ui/When';
 import { RightPane, RightPaneHeader } from '../../ui/RightPane';
 import { useElementWidth } from '../../ui/useElementWidth';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
+import { scaledPx } from '../../ui/scale';
 import styles from './Compendium.module.scss';
 import { confirmCompendiumSelection } from './selection';
 
 /**
- * Below this pane width the Changes / Before-After switch moves from the header to above the diff.
- * Measured: title + switch + Relink + zoom need 364px, so the default 384px pane keeps it in the header.
+ * Below this pane width (design pixels at 100 % interface scale; scaledPx() follows the scale) the
+ * Changes / Before-After switch moves from the header to above the diff. Measured: title + switch +
+ * Relink + sheet colours + zoom need 381px, so the default 384px pane keeps it in the header.
  */
-const HEADER_TOGGLE_MIN = 366;
+const HEADER_TOGGLE_MIN = 383;
 
 /** Compendium zoom (70–100 %), kept on this device: − / value / +. */
 function ScaleControl() {
@@ -67,7 +70,7 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
   const phone = useMedia(phoneQuery);
   const coarse = useMedia('(pointer: coarse)');
   const touch = phone || coarse;
-  const roomy = !touch && (width === undefined || width >= HEADER_TOGGLE_MIN);
+  const roomy = !touch && (width === undefined || width >= scaledPx(HEADER_TOGGLE_MIN));
   const tooltip = draft?.next ?? base;
   const link = tooltip.compendium;
   const canEdit =
@@ -103,9 +106,10 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
               aria-label={picking ? 'Close picker' : link ? 'Pick other row' : 'Link a row'}
               onClick={() => setPicking(!picking)}
             >
-              {picking ? 'Close picker' : link ? 'Relink' : 'Link row'}
+              {picking ? 'Close' : link ? 'Relink' : 'Link row'}
             </button>
           )}
+          <SheetColoursToggle />
           <ScaleControl />
         </RightPaneHeader>
       }
@@ -206,9 +210,9 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
                         {candidate.row.section && `/ ${candidate.row.section}`} (
                         {Math.round(candidate.similarity * 100)}% content match)
                       </p>
-                      <div className={styles.cell}>
+                      <SheetCell background={candidate.row.cell.background}>
                         <RichCell cell={candidate.row.cell} />
-                      </div>
+                      </SheetCell>
                       {canEdit && (
                         <button
                           type="button"
@@ -239,9 +243,9 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
               </p>
             )}
             {!match && (
-              <div className={styles.cell}>
+              <SheetCell>
                 <RichCell cell={link.snapshot} />
-              </div>
+              </SheetCell>
             )}
           </>
         )}

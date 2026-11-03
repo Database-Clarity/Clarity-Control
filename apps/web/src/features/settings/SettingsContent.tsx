@@ -182,9 +182,11 @@ export function SettingsContent() {
               setPanesReset(resetPaneWidths());
             }}
           >
-            Reset pane widths
+            Reset pane widths and Compendium zoom
           </button>
-          {panesReset && <span role="status">Pane widths reset to their defaults.</span>}
+          {panesReset && (
+            <span role="status">Pane widths and Compendium zoom reset to their defaults.</span>
+          )}
         </div>
       </fieldset>
     </div>
