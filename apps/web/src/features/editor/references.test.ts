@@ -114,7 +114,7 @@ describe('variables', () => {
   test('the global wins over a same-named local, as the exporter merges them', () => {
     const resolved = resolveAt('#damage', 2, context('var damage = 1\n#damage', 'en'));
     expect(resolved).toMatchObject({ scope: 'global', value: '25' });
-    expect(resolved.note).toMatch(/Also defined in this tooltip/);
+    expect(resolved.note).toMatch(/Error: also defined in this tooltip/);
   });
   test('an empty variable is found with an empty value', () => {
     expect(resolveAt('#empty1', 2, context('#empty1', 'en'))).toMatchObject({

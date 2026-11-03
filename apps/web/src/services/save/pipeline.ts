@@ -3,6 +3,7 @@ import {
   languages,
   resolveAlias,
   stableStringify,
+  validateGlobalAdditions,
   validateTooltip,
   type TooltipValidationIssue,
 } from '@clarity/core';
@@ -47,8 +48,9 @@ export function validateChanges(changes: Change[], data: EditorData): TooltipVal
   const imports = new Map(
     languages.map((lang) => [lang, tooltipImports(tooltips, {}, lang, data.aliases)]),
   );
-  return changes.flatMap(({ next }) =>
-    validateTooltip(next, (lang) => {
+  return changes.flatMap(({ base, next }) => [
+    ...validateGlobalAdditions({ base, next }, tooltips),
+    ...validateTooltip(next, (lang) => {
       const catalog = imports.get(lang)!;
       const item = data.items[next.hash];
       return {
@@ -58,7 +60,7 @@ export function validateChanges(changes: Change[], data: EditorData): TooltipVal
         type: data.categories.find((category) => category.id === item?.categoryId)?.legacyType,
       };
     }),
-  );
+  ]);
 }
 
 export async function prepareChanges(

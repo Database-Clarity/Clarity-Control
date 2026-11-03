@@ -71,7 +71,7 @@ function configuration(
       'aria-multiline': 'true',
     }),
     autocompletion({ override: [clarityCompletions(globals)] }),
-    validationDiagnostics(lang, globals, requireEnglish),
+    validationDiagnostics(lang, globals, requireEnglish, references.selfHash),
     referenceExtensions({ ...references, lang, globals }),
   ];
 }
@@ -102,8 +102,8 @@ export function ClarityEditor({
   const config = useRef(new Compartment());
   const extensions = useRef<Extension[]>([]);
   const issues = useMemo(
-    () => validateText(value, lang, globals, requireEnglish),
-    [value, lang, globals, requireEnglish],
+    () => validateText(value, lang, globals, requireEnglish, tooltipHash),
+    [value, lang, globals, requireEnglish, tooltipHash],
   );
   const glyphs = useMemo(() => {
     const groups = new Map<
