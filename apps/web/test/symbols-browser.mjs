@@ -105,6 +105,13 @@ async function check(theme, width, height, phone, scale, name) {
     widgets.every((widget) => Math.abs(widget.width - widgets[0].width) <= 0.5),
     `${label}: one width for every symbol ${JSON.stringify([...new Set(widgets.map((w) => w.width))])}`,
   );
+  const rem = await page.evaluate(() =>
+    parseFloat(getComputedStyle(document.documentElement).fontSize),
+  );
+  assert.ok(
+    Math.abs(widgets[0].width - rem) <= 0.5,
+    `${label}: symbol box is 1rem (${widgets[0].width} vs ${rem})`,
+  );
   const drawn = await page.evaluate(() =>
     [...document.querySelectorAll('.cm-symbol-icon')].map(
       (el) => getComputedStyle(el, '::before').backgroundImage !== 'none',
@@ -119,11 +126,18 @@ async function check(theme, width, height, phone, scale, name) {
   await noOverflow(page, `${label} widgets`);
   await page.screenshot({ path: `${shots}/${name}-widgets.png` });
 
+  const insideScroller = (page) =>
+    page.evaluate(() => {
+      const pop = document.querySelector('.cm-symbol-popover').getBoundingClientRect();
+      const scroller = document.querySelector('.cm-scroller').getBoundingClientRect();
+      return pop.top >= scroller.top - 0.5 && pop.bottom <= scroller.bottom + 0.5;
+    });
   const before = await lineTops(page);
   if (!phone) {
     // Hover: a popover with the markup, no line moves.
     await page.locator('.cm-symbol').nth(2).hover();
     await page.locator('.cm-symbol-popover').waitFor();
+    assert.ok(await insideScroller(page), `${label}: line-1 popover stays inside the editor`);
     assert.ok(
       (await page.locator('.cm-symbol-popover code').textContent()).startsWith('<'),
       `${label}: hover popover shows the markup`,
@@ -137,6 +151,7 @@ async function check(theme, width, height, phone, scale, name) {
   // Click selects the symbol: popover with the hint, Enter edits, Esc cancels. Nothing moves.
   await page.locator('.cm-symbol').nth(1).click();
   await page.locator('.cm-symbol-popover').waitFor();
+  assert.ok(await insideScroller(page), `${label}: pinned line-1 popover stays inside the editor`);
   assert.deepEqual(await lineTops(page), before, `${label}: selecting a symbol moved text`);
   await page.keyboard.press('Enter');
   await page.locator('.cm-symbol-input').waitFor();
@@ -152,7 +167,34 @@ async function check(theme, width, height, phone, scale, name) {
 
   // Raw toggle: the markup shows, toggling back restores the exact layout.
   await page.locator('.cm-content').click({ position: { x: 4, y: 4 } });
+  const rawButton = page.locator('[data-editor-status] button[aria-pressed]');
+  if (phone) {
+    // Touch has no shortcut: the status-bar button toggles raw and names the state.
+    assert.equal((await rawButton.textContent()).trim(), 'Markup', `${label}: raw button label`);
+    await rawButton.click();
+    assert.equal((await rawButton.textContent()).trim(), 'Symbols', `${label}: raw state shown`);
+    await rawButton.click();
+    assert.equal(
+      await page.locator('.cm-symbol').count(),
+      widgets.length,
+      `${label}: button toggles back`,
+    );
+  } else {
+    assert.equal(
+      await rawButton.isVisible(),
+      false,
+      `${label}: no raw button on desktop until raw`,
+    );
+  }
   await page.keyboard.press('Control+Shift+.');
+  if (!phone) {
+    assert.equal(
+      (await page.locator('[data-raw-hint]').textContent()).trim(),
+      'Symbols',
+      `${label}: status bar shows raw state`,
+    );
+    assert.equal(await rawButton.isVisible(), true, `${label}: raw state is visible`);
+  }
   assert.equal(await page.locator('.cm-symbol').count(), 0, `${label}: raw view has no widgets`);
   assert.ok(
     await page.evaluate(() => document.querySelector('.cm-content').textContent.includes('<arc/>')),
@@ -166,7 +208,14 @@ async function check(theme, width, height, phone, scale, name) {
     widgets.length,
     `${label}: back to symbols`,
   );
-  assert.deepEqual(await lineTops(page), before, `${label}: toggling back changed the layout`);
+  // Compared relative to line 1: tapping the status-bar button may scroll the page, which is not a reflow.
+  const relative = (tops) =>
+    tops.map(([top, height]) => [Math.round((top - tops[0][0]) * 10) / 10, height]);
+  assert.deepEqual(
+    relative(await lineTops(page)),
+    relative(before),
+    `${label}: toggling back changed the layout`,
+  );
 
   assert.deepEqual(errors, [], `${label}: page errors`);
   await context.close();

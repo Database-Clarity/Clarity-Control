@@ -71,7 +71,7 @@
   :global(.cm-symbol) {
     display: inline-block;
     box-sizing: border-box;
-    width: 16px;
+    width: 1rem;
     text-align: center;
     vertical-align: baseline;
     cursor: default;
@@ -81,17 +81,17 @@
     content: '';
     display: inline-block;
     box-sizing: border-box;
-    height: 10px;
-    vertical-align: -1px;
+    height: 0.625rem;
+    vertical-align: -0.0625rem;
     background: var(--symbol-colour, var(--editor-text));
     outline: 1px solid var(--symbol-edge, transparent);
     outline-offset: -1px;
   }
   :global(.cm-symbol-open)::before {
-    width: 10px;
+    width: 0.625rem;
   }
   :global(.cm-symbol-close)::before {
-    width: 4px;
+    width: 0.25rem;
   }
   :global(.cm-symbol[data-colour='yellow']) {
     --symbol-colour: var(--tag-yellow);

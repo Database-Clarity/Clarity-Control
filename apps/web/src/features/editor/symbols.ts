@@ -5,6 +5,7 @@ import {
   WidgetType,
   keymap,
   showTooltip,
+  tooltips,
   type DecorationSet,
   type Tooltip,
 } from '@codemirror/view';
@@ -318,6 +319,8 @@ export function symbolExtensions(initial: { mode(): SymbolReveal; raw(): boolean
     symbolPopover,
     symbolEvents,
     symbolKeys,
+    // Bound to the scroller so a line-1 popover flips below the line instead of covering the header.
+    tooltips({ tooltipSpace: (view) => view.scrollDOM.getBoundingClientRect() }),
   ];
 }
 

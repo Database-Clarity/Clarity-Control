@@ -216,7 +216,7 @@
   display: inline-block;
   width: 0.75rem;
   height: 0.75rem;
-  margin: 0 2px;
+  margin: 0 0.125rem;
   vertical-align: -1px;
   font-size: 0;
   line-height: 0;
@@ -314,14 +314,14 @@
 
 // Every inline symbol is the same 12px box in both themes, so lines of text keep one rhythm;
 // $size fits the artwork to the box (some artwork carries transparent padding).
-$symbol: 12px;
-@mixin icon($url, $size: 12px 12px) {
+$symbol: 0.75rem;
+@mixin icon($url, $size: 0.75rem 0.75rem) {
   &::before {
     content: '';
     display: inline-block;
     height: $symbol;
     width: $symbol;
-    margin: 0 2px;
+    margin: 0 0.125rem;
     vertical-align: -1px;
     background: url($url) center / $size no-repeat;
   }
@@ -359,19 +359,19 @@ $symbol: 12px;
 .primary {
   @include icon(
     'https://www.bungie.net/common/destiny2_content/icons/99f3733354862047493d8550e46a45ec.png',
-    20px 20px
+    1.25rem 1.25rem
   );
 }
 .special {
   @include icon(
     'https://www.bungie.net/common/destiny2_content/icons/d920203c4fd4571ae7f39eb5249eaecb.png',
-    20px 20px
+    1.25rem 1.25rem
   );
 }
 .heavy {
   @include icon(
     'https://www.bungie.net/common/destiny2_content/icons/78ef0e2b281de7b60c48920223e0f9b1.png',
-    20px 20px
+    1.25rem 1.25rem
   );
 }
 .barrier {

@@ -29,7 +29,7 @@ import {
 import { clarityHighlighting, clarityLanguage } from './language';
 import { tableFormattingTransaction } from './formatTable';
 import { editorScrollMargins } from './scrollMargins';
-import { rawMode, setSymbolReveal, symbolExtensions } from './symbols';
+import { rawMode, setSymbolReveal, symbolExtensions, toggleRawView } from './symbols';
 import { validationDiagnostics } from './diagnostics';
 import { MarkupRow } from './markupRow/MarkupRow';
 import { SuggestChip } from './markupRow/SuggestChip';
@@ -157,6 +157,7 @@ export function ClarityEditor({
   const revealRef = useRef(symbolReveal);
   revealRef.current = symbolReveal;
   const rawRef = useRef(false);
+  const [rawView, setRawView] = useState(false);
   const symbolsOn = useRef(symbols);
   const chipHooks = useRef({
     acceptKey: () => acceptKeyRef.current,
@@ -299,7 +300,10 @@ export function ClarityEditor({
       ),
       EditorView.updateListener.of((update) => {
         const raw = update.state.field(rawMode, false);
-        if (raw !== undefined) rawRef.current = raw;
+        if (raw !== undefined && raw !== rawRef.current) {
+          rawRef.current = raw;
+          setRawView(raw);
+        }
         if (update.docChanged) callback.current(update.state.doc.toString());
         if (update.docChanged || update.selectionSet) {
           const head = update.state.selection.main.head;
@@ -482,6 +486,8 @@ export function ClarityEditor({
         panel={open}
         onPanel={setPanel}
         onSuggest={readOnly ? undefined : () => view.current && openSuggest(view.current)}
+        rawView={symbols ? rawView : undefined}
+        onRawView={() => view.current && toggleRawView(view.current)}
       />
     </div>
   );
