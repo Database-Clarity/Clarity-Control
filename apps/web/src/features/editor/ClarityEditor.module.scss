@@ -65,6 +65,85 @@
     color: var(--text);
     border: 1px solid var(--pop-edge);
   }
+  // ---- symbol widgets (features/editor/symbols.ts): every one is the same 16px box, like the markup
+  // row and the preview (12px symbol + 2px margins). Colour swatches are filled shapes with a dark
+  // outline in the light theme (no rounded dark boxes); popovers float over the text and move nothing.
+  :global(.cm-symbol) {
+    display: inline-block;
+    box-sizing: border-box;
+    width: 1rem;
+    text-align: center;
+    vertical-align: baseline;
+    cursor: default;
+  }
+  :global(.cm-symbol-open)::before,
+  :global(.cm-symbol-close)::before {
+    content: '';
+    display: inline-block;
+    box-sizing: border-box;
+    height: 0.625rem;
+    vertical-align: -0.0625rem;
+    background: var(--symbol-colour, var(--editor-text));
+    outline: 1px solid var(--symbol-edge, transparent);
+    outline-offset: -1px;
+  }
+  :global(.cm-symbol-open)::before {
+    width: 0.625rem;
+  }
+  :global(.cm-symbol-close)::before {
+    width: 0.25rem;
+  }
+  :global(.cm-symbol[data-colour='yellow']) {
+    --symbol-colour: var(--tag-yellow);
+  }
+  :global(.cm-symbol[data-colour='blue']) {
+    --symbol-colour: var(--tag-blue);
+  }
+  :global(.cm-symbol[data-colour='green']) {
+    --symbol-colour: var(--tag-green);
+  }
+  :global(.cm-symbol[data-colour='purple']) {
+    --symbol-colour: var(--tag-purple);
+  }
+  :global(.cm-symbol[data-colour='pve']) {
+    --symbol-colour: var(--tag-pve);
+  }
+  :global(.cm-symbol[data-colour='pvp']) {
+    --symbol-colour: var(--tag-pvp);
+  }
+  :global(:root[data-theme='light']) & :global(.cm-symbol) {
+    --symbol-edge: var(--editor-text);
+  }
+  @media (prefers-color-scheme: light) {
+    :global(:root:not([data-theme])) & :global(.cm-symbol) {
+      --symbol-edge: var(--editor-text);
+    }
+  }
+  :global(.cm-symbol-popover) {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.1875rem 0.375rem;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    code {
+      font-family: var(--editor-font, Consolas, monospace);
+      font-variant-ligatures: none;
+      color: var(--var);
+    }
+  }
+  :global(.cm-symbol-hint) {
+    color: var(--text2);
+  }
+  :global(.cm-symbol-input) {
+    min-width: 10rem;
+    font: inherit;
+    font-family: var(--editor-font, Consolas, monospace);
+    color: var(--text);
+    background: var(--ctl);
+    border: 1px solid var(--ctl-edge);
+  }
+
   // Tab stops left by a snippet: background and underline only, so the text never moves.
   :global(.cm-suggestStop) {
     background: var(--sel);

@@ -44,6 +44,8 @@ export function StatusBar({
   panel,
   onPanel,
   onSuggest,
+  rawView,
+  onRawView,
 }: {
   readOnlyReason: string | null;
   issues: readonly ValidationIssue[];
@@ -56,6 +58,9 @@ export function StatusBar({
   onPanel(panel: StatusPanel | null): void;
   /** Opens the suggestion menu on request (touch has no Ctrl+Space); shown on touch only. */
   onSuggest?(): void;
+  /** Whether symbols show as raw markup; undefined when this editor draws no symbols. */
+  rawView?: boolean;
+  onRawView?(): void;
 }) {
   const errors = issues.filter((issue) => issue.severity === 'error').length;
   const toggle = (next: StatusPanel) => onPanel(panel === next ? null : next);
@@ -88,6 +93,18 @@ export function StatusBar({
           </span>
         )}
       </button>
+      {rawView !== undefined && onRawView && (
+        <button
+          type="button"
+          className={`${styles.item} ${styles.suggest}`}
+          title="Ctrl+Shift+. toggles raw markup"
+          aria-pressed={rawView}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={onRawView}
+        >
+          {rawView ? 'Symbols' : 'Markup'}
+        </button>
+      )}
       {/* A live region so a warning that appears while typing is announced without moving focus. */}
       <span role="status" aria-live="polite" className={styles.live}>
         {glyphCount > 0 && (
@@ -136,6 +153,9 @@ export function StatusBar({
       )}
       {/* Whole hints only: one that does not fit wraps out of the one-line box instead of cutting. */}
       <span className={styles.hints} aria-hidden="true">
+        {rawView !== undefined && (
+          <span data-raw-hint>{rawView ? 'Symbols' : 'Ctrl+Shift+. markup'}</span>
+        )}
         <span>Ctrl+Space suggestions</span>
         <span>Ctrl+F find</span>
         <span>F12 go to definition</span>

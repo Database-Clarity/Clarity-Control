@@ -64,6 +64,9 @@ export function normalizeCompendiumScale(value: unknown): number {
 /** The key that takes a suggestion chip (`Enter` by default; the other key then keeps its usual job). */
 export const suggestAcceptKeys = ['enter', 'tab'] as const;
 export type SuggestAccept = (typeof suggestAcceptKeys)[number];
+/** How a symbol widget shows its markup: in a popover on hover, or as raw text while the caret is on it. */
+export const symbolRevealModes = ['popover', 'caret'] as const;
+export type SymbolReveal = (typeof symbolRevealModes)[number];
 export const deviceSettingsSchema = z.object({
   editorFont: z.enum(editorFonts),
   /** Whole-interface scale in percent (the root font size); 100 is the design size. */
@@ -72,6 +75,7 @@ export const deviceSettingsSchema = z.object({
   panes: z.record(z.string(), paneStateSchema),
   compendiumScale: z.number().transform(normalizeCompendiumScale),
   suggestAccept: z.enum(suggestAcceptKeys),
+  symbolReveal: z.enum(symbolRevealModes),
   remembered: rememberedSchema,
 });
 export type DeviceSettings = z.infer<typeof deviceSettingsSchema>;
@@ -82,6 +86,7 @@ export const defaultDeviceSettings: DeviceSettings = {
   panes: {},
   compendiumScale: defaultCompendiumScale,
   suggestAccept: 'enter',
+  symbolReveal: 'popover',
   remembered: {},
 };
 
@@ -405,6 +410,7 @@ export function createSettingsStore({
         record.suggestAccept === 'tab' || record.suggestAccept === 'enter'
           ? record.suggestAccept
           : 'enter',
+      symbolReveal: record.symbolReveal === 'caret' ? 'caret' : 'popover',
       remembered,
     };
   }

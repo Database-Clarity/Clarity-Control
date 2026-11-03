@@ -365,6 +365,7 @@ export function TooltipPage({
             requireEnglish={false}
             readOnly
             readOnlyReason="Stored form: read only"
+            symbols={false}
             onChange={() => undefined}
           />
         ),

@@ -7,6 +7,7 @@ import {
   uiScaleMin,
   uiScaleStep,
   type SuggestAccept,
+  type SymbolReveal,
 } from '../../stores/settings';
 import { themePreferences, type ThemePreference } from '../../ui/theme';
 import { exactDate, formatDate } from '../../services/format/date';
@@ -159,6 +160,18 @@ export function SettingsContent() {
           >
             <option value="enter">Enter (Shift+Enter makes a new line)</option>
             <option value="tab">Tab (Enter always makes a new line)</option>
+          </select>
+        </label>
+        <label>
+          Show symbol markup
+          <select
+            value={device.symbolReveal}
+            onChange={(event) =>
+              updateDevice({ symbolReveal: event.target.value as SymbolReveal })
+            }
+          >
+            <option value="popover">In a popover on hover (text never moves)</option>
+            <option value="caret">As raw text while the caret is on the symbol</option>
           </select>
         </label>
         <label>

@@ -75,6 +75,7 @@ describe('settings store: local storage', () => {
       panes: {},
       compendiumScale: 100,
       suggestAccept: 'enter',
+      symbolReveal: 'popover',
       remembered: {},
     });
     expect(values.get(settingsKey('7'))).not.toContain('uiScale');
