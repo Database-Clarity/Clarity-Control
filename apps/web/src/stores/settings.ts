@@ -205,6 +205,7 @@ function applyScale() {
   if (applied === 100) root.style.removeProperty('font-size');
   else root.style.fontSize = `${applied}%`;
   root.dataset.uiScale = String(applied);
+  window.dispatchEvent(new Event('clarity-ui-scale'));
 }
 
 const same = (a: SyncedSettings | null, b: SyncedSettings | null) =>

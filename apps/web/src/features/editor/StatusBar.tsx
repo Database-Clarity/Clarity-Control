@@ -98,8 +98,12 @@ export function StatusBar({
           </button>
         )}
       </span>
-      <span className={styles.hints}>
-        Ctrl+Space complete · Ctrl+F find · F12 go to definition · Esc then Tab leaves the editor
+      {/* Whole hints only: one that does not fit wraps out of the one-line box instead of cutting. */}
+      <span className={styles.hints} aria-hidden="true">
+        <span>Ctrl+Space complete</span>
+        <span>Ctrl+F find</span>
+        <span>F12 go to definition</span>
+        <span>Esc then Tab leaves the editor</span>
       </span>
       {preview && (preview.unpreviewed > 0 || preview.collapsed) && (
         <span className={styles.preview} data-attention={preview.unpreviewed > 0 || undefined}>

@@ -75,6 +75,8 @@ const barProblems = (page) =>
     const barRect = bar.getBoundingClientRect();
     if (bar.scrollWidth > bar.clientWidth + 1) problems.push('bar scrolls');
     for (const el of bar.querySelectorAll('button, span')) {
+      // Hints that do not fit wrap out of their one-line box on purpose.
+      if (el.closest('[aria-hidden="true"]')) continue;
       const r = el.getBoundingClientRect();
       if (!r.width) continue;
       if (r.right > barRect.right + 1 || r.bottom > barRect.bottom + 1 || r.top < barRect.top - 1)
@@ -239,6 +241,39 @@ try {
         await context.close();
       }
     }
+  }
+
+  // At 150 % a one-row header would crush the finder: the compact layout follows the scale.
+  for (const theme of ['dark', 'light']) {
+    for (const width of [1280, 1440]) {
+      const { context, page, errors } = await open(theme, { width, height: 800 }, { scale: 150 });
+      const finder = await page.getByRole('combobox', { name: 'Tooltip' }).boundingBox();
+      assert.ok(finder.width >= 200, `${theme} ${width} s150: finder is ${finder.width}px wide`);
+      const select = await page.locator('header select').first().boundingBox();
+      assert.ok(select.width >= 120, `${theme} ${width} s150: category select ${select.width}px`);
+      await noOverflow(page, `${theme} ${width} s150 header`);
+      await page.screenshot({ path: `${shots}/${theme}-${width}-s150-header.png` });
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+  }
+  // The phone's view tabs never break a word at 150 %.
+  {
+    const { context, page } = await open(
+      'light',
+      { width: 390, height: 844 },
+      { phone: true, scale: 150 },
+    );
+    const broken = await page.evaluate(
+      () =>
+        [...document.querySelectorAll('[role="tab"]')].filter(
+          (tab) =>
+            getComputedStyle(tab).whiteSpace !== 'nowrap' ||
+            tab.getBoundingClientRect().height > 80,
+        ).length,
+    );
+    assert.equal(broken, 0, 'phone view tabs stay on one line');
+    await context.close();
   }
 
   // Unpreviewed edits (desktop): hide the preview, edit, and the bar says so and offers it.

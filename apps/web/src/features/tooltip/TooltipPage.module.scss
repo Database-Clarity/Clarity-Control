@@ -64,6 +64,10 @@
   gap: 0.25rem;
   button {
     flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     min-height: max(44px, 2.75rem);
     &[aria-selected='true'] {
       border-color: var(--accent-ink);

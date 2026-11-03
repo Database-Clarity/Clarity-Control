@@ -21,6 +21,11 @@
 
   // Narrow editors give up, in this order: key hint on the preview button, the position, then
   // long labels for short ones. Nothing wraps or ellipsises except the flexible texts.
+  @container (max-width: 40rem) {
+    .hints {
+      display: none;
+    }
+  }
   @container (max-width: 28rem) {
     .position {
       display: none;
@@ -58,12 +63,21 @@
 }
 
 .hints {
+  // One line of whole hints, right-aligned: a hint that does not fit wraps below the box (hidden)
+  // instead of being cut to a stub, and narrow bars drop the lot (see the container query above).
+  display: flex;
   flex: 1 1 0;
+  flex-flow: row wrap;
+  justify-content: flex-end;
+  gap: 0 0.75rem;
   min-width: 0;
+  height: 1.125rem;
   overflow: hidden;
-  text-overflow: ellipsis;
-  text-align: right;
   color: var(--text3);
+
+  > span {
+    flex: none;
+  }
 
   @include theme.mobile-or-coarse {
     display: none;
