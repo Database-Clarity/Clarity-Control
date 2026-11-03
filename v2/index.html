@@ -6,12 +6,51 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content"
     />
-    <meta name="theme-color" content="#1d1d23" />
-    <title>Clarity editor v2</title>
-    <script type="module" crossorigin src="./assets/index-BGapjI9Q.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-rM0gfrmD.css">
+    <meta name="theme-color" content="#1d2024" />
+    <meta name="color-scheme" content="light dark" />
+    <!-- The tab icon follows the browser's own theme, so it uses the media query, not the in-app setting. -->
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="./favicon-dark.svg"
+      media="(prefers-color-scheme: dark)"
+    />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="./favicon-light.svg"
+      media="(prefers-color-scheme: light)"
+    />
+    <title>Clarity Control</title>
+    <script>
+      // Sets the theme before first paint so a reload never flashes the wrong one. Mirrors
+      // src/ui/theme.ts (resolveTheme/applyTheme) and the device key in src/stores/settings.ts.
+      (function () {
+        var theme = 'system';
+        try {
+          var stored = JSON.parse(localStorage.getItem('clarity-settings:device:v1') || '{}');
+          if (stored && (stored.theme === 'light' || stored.theme === 'dark')) theme = stored.theme;
+        } catch (error) {
+          /* Storage is optional; fall back to the system theme. */
+        }
+        if (theme === 'system') {
+          try {
+            theme = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+          } catch (error) {
+            theme = 'dark';
+          }
+        }
+        var root = document.documentElement;
+        root.dataset.theme = theme;
+        root.style.colorScheme = theme;
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', theme === 'light' ? '#d8e7f2' : '#1d2024');
+      })();
+    </script>
+    <script type="module" crossorigin src="./assets/index-CfuQ2xBg.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-DzwUYvHC.css">
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"></div>
   </body>
 </html>
