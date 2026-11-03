@@ -45,10 +45,13 @@ export function TooltipDiff({
   before,
   current,
   item,
+  raw = true,
 }: {
   before: Tooltip | null;
   current: Tooltip;
   item?: Item;
+  /** Show both full texts above the word diff; popovers show the word diff alone. */
+  raw?: boolean;
 }) {
   const changed = languages.filter((lang) => before?.text[lang]?.text !== current.text[lang]?.text);
   const dateSettings = useSyncedSettings();
@@ -57,16 +60,18 @@ export function TooltipDiff({
       {changed.map((lang) => (
         <section key={lang} aria-label={`${languageLabel(lang)} comparison`}>
           <h4>{languageLabel(lang)}</h4>
-          <div className={styles.columns}>
-            <div>
-              <strong>Previous / live</strong>
-              <pre>{before?.text[lang]?.text ?? '(not present)'}</pre>
+          {raw && (
+            <div className={styles.columns}>
+              <div>
+                <strong>Previous / live</strong>
+                <pre>{before?.text[lang]?.text ?? '(not present)'}</pre>
+              </div>
+              <div>
+                <strong>Current</strong>
+                <pre>{current.text[lang]?.text ?? '(not present)'}</pre>
+              </div>
             </div>
-            <div>
-              <strong>Current</strong>
-              <pre>{current.text[lang]?.text ?? '(not present)'}</pre>
-            </div>
-          </div>
+          )}
           <WordDiff
             before={before?.text[lang]?.text ?? ''}
             after={current.text[lang]?.text ?? ''}
