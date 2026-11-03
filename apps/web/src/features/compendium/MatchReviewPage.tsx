@@ -1,3 +1,4 @@
+import { confirmCompendiumSelection } from './selection';
 import { guidedDecisions, guidedRevision, type GuidedDecision } from './guidedDecisions';
 import { importContext } from './importContext';
 import { researchSuggestions } from './researchSuggestions';
@@ -347,6 +348,9 @@ export function ReviewQueue({
     matches[candidate] ??
     matches[0] ??
     (hintTab && hintRow ? { tab: hintTab, row: hintRow } : undefined);
+  const acceptedLink =
+    proposal?.link ??
+    (proposal?.suggested && match ? confirmCompendiumSelection(match, source) : undefined);
   const canEdit = mayDraftLink(user?.role, !!apiUrl, hydrated, locked);
   const bulkEntries = filtered.filter(
     (entry) => entry.status === 'open' && proposals.get(entry.hash)?.link,
@@ -410,11 +414,11 @@ export function ReviewQueue({
     keepEntryVisible();
   }
   function accept() {
-    if (!canEdit || !selected || selected.status !== 'open' || !proposal?.link) return;
-    snapshot([{ base: selected.base, before: selected.next.compendium, after: proposal.link }]);
+    if (!canEdit || !selected || selected.status !== 'open' || !acceptedLink) return;
+    snapshot([{ base: selected.base, before: selected.next.compendium, after: acceptedLink }]);
     useDraftStore
       .getState()
-      .updateDraft(selected.base, (next) => ({ ...next, compendium: proposal.link }));
+      .updateDraft(selected.base, (next) => ({ ...next, compendium: acceptedLink }));
     update((state) => recordDecision(state, selected.hash, selected.evidence, 'open', nextHash));
     setParams(selectionParams(nextHash), { replace: true });
     setCandidate(0);
@@ -824,7 +828,9 @@ export function ReviewQueue({
               <p className={styles.eyebrow}>
                 {proposal?.link
                   ? 'Validated proposal · check scope'
-                  : 'Candidate locations · manual selection required'}
+                  : proposal?.suggested
+                    ? 'Suggested relink · confirmation required'
+                    : 'Candidate locations · manual selection required'}
               </p>
               {matches.length > 1 && (
                 <label>
@@ -903,10 +909,10 @@ export function ReviewQueue({
         </p>
         <button
           className={styles.primary}
-          disabled={!canEdit || !proposal?.link || selected?.status !== 'open' || picker || !!bulk}
+          disabled={!canEdit || !acceptedLink || selected?.status !== 'open' || picker || !!bulk}
           onClick={accept}
         >
-          Accept proposed link <kbd>A</kbd>
+          {proposal?.suggested ? 'Confirm suggested relink' : 'Accept proposed link'} <kbd>A</kbd>
         </button>
         <button disabled={!selected || !!bulk} onClick={() => setPicker(!picker)}>
           Pick other <kbd>P</kbd>

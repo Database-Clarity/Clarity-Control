@@ -126,14 +126,12 @@ it('batches bulk drafts into one persistence operation and rejects invalid batch
   });
   await store.getState().hydrate();
   const link = proposalFor(base, editor, source).link!;
-  store
-    .getState()
-    .updateDrafts(
-      [100, 101, 102].map((hash) => ({
-        base: { ...base, hash },
-        update: (next) => ({ ...next, compendium: link }),
-      })),
-    );
+  store.getState().updateDrafts(
+    [100, 101, 102].map((hash) => ({
+      base: { ...base, hash },
+      update: (next) => ({ ...next, compendium: link }),
+    })),
+  );
   await store.getState().flush();
   expect(writes).toHaveLength(1);
   expect(Object.keys(store.getState().drafts)).toHaveLength(3);
@@ -147,4 +145,22 @@ it('batches bulk drafts into one persistence operation and rejects invalid batch
   expect(store.getState().drafts).toBe(before);
   await store.getState().flush();
   expect(writes).toHaveLength(1);
+});
+
+it('preselects the suggested rename for manual review without enabling bulk acceptance', () => {
+  const linked = {
+    ...base,
+    compendium: {
+      gid: '1',
+      rowKey: 'Gone',
+      snapshotAt: source.fetchedAt,
+      snapshot: { plain: 'Description!', runs: [{ text: 'Description!', bold: true as const }] },
+    },
+  };
+  const proposal = proposalFor(linked, editor, source);
+  expect(proposal.suggested).toBe(true);
+  expect(proposal.candidates[0].row.name).toBe('Test');
+  expect(proposal.link).toBeUndefined();
+  expect(proposal.match).toBeUndefined();
+  expect(linked.compendium.rowKey).toBe('Gone');
 });

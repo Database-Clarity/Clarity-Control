@@ -196,3 +196,39 @@ it.each(['unchanged', 'changed', 'moved', 'missing', 'ambiguous'])(
     expect(linked.compendium.snapshotAt).toBe(now);
   },
 );
+
+it('preserves a similar renamed link as ordered candidates without auto-linking it', () => {
+  const text = 'Grants increased damage for ten seconds.';
+  const linked = {
+    ...tooltip,
+    compendium: {
+      gid: '1',
+      rowKey: 'Old',
+      snapshotAt: now,
+      snapshot: { plain: text, runs: [{ text }] },
+    },
+  };
+  const renamed = { ...row('Renamed'), cell: { plain: text + '!', runs: [{ text: text + '!' }] } };
+  const rival = {
+    ...row('Rival'),
+    rowIndex: 7,
+    cell: {
+      plain: 'Grants increased damage for twelve seconds.',
+      runs: [{ text: 'Grants increased damage for twelve seconds.' }],
+    },
+  };
+  const result = autoLinkCompendium(
+    linked,
+    {},
+    {},
+    {
+      ...data,
+      tabs: [{ ...data.tabs[0], rows: [rival, renamed] }],
+    },
+    now,
+  );
+  expect(result.reason).toBe('ambiguous');
+  expect(result.next).toBeUndefined();
+  expect(result.candidates.map((candidate) => candidate.row.name)).toEqual(['Renamed', 'Rival']);
+  expect(linked.compendium.rowKey).toBe('Old');
+});

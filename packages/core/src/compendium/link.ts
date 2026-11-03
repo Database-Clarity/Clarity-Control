@@ -58,7 +58,7 @@ export function autoLinkCompendium(
   if (tooltip.compendium) {
     const resolved = resolveCompendiumLink(tooltip.compendium, data);
     if ('row' in resolved) return { ...result, reason: 'linked' };
-    return resolved.status === 'candidates'
+    return 'candidates' in resolved
       ? { ...result, reason: 'ambiguous', candidates: resolved.candidates }
       : { ...result, reason: 'unmatched' };
   }

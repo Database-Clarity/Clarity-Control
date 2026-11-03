@@ -279,3 +279,35 @@ it('keeps a similar rename in the repair queue until explicitly confirmed', () =
   const queue = reviewQueue(editor, source, drafts, emptyProgress(), fingerprint);
   expect(queue.find((entry) => entry.hash === 104)).toMatchObject({ status: 'drafted' });
 });
+
+it('keeps duplicate identical rename matches in the candidate repair queue', () => {
+  const duplicateSource = {
+    ...source,
+    tabs: [
+      {
+        ...tab,
+        rows: [
+          row,
+          {
+            ...row,
+            name: 'Other identity',
+            nameNorm: 'other identity',
+            rowIndex: 11,
+            anchor: { row: 11, col: 0 },
+          },
+        ],
+      },
+    ],
+  };
+  const queue = reviewQueue(
+    editor,
+    duplicateSource,
+    {},
+    emptyProgress(),
+    sourceFingerprint(duplicateSource.tabs),
+  );
+  expect(queue.find((entry) => entry.hash === 105)).toMatchObject({
+    status: 'open',
+    reason: 'Needs repair',
+  });
+});
