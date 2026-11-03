@@ -202,3 +202,107 @@ test('manifest drift removes only affected edges and preserves unrelated groups'
   expect(unaffected.aliases).toEqual({ 43: { to: 42, kind: 'name' } });
   expect(unaffected.issues).toHaveLength(1);
 });
+
+test('exotic numbered frames alias to their unnumbered canonical only within its actual owner', () => {
+  const facts: AliasItems = {
+    1: {
+      hash: 1,
+      name: 'Frame',
+      categoryId: 'weapon-frame-exotic',
+      itemHash: 100,
+      plugCategoryHash: 20,
+      inGameDescription: 'Same',
+    },
+    2: {
+      hash: 2,
+      name: 'Frame II',
+      categoryId: 'weapon-frame-exotic',
+      itemHash: 100,
+      plugCategoryHash: 20,
+      inGameDescription: 'Same',
+    },
+    3: {
+      hash: 3,
+      name: 'Frame III',
+      categoryId: 'weapon-frame-exotic',
+      itemHash: 200,
+      plugCategoryHash: 20,
+      inGameDescription: 'Same',
+    },
+    4: {
+      hash: 4,
+      name: 'Frame IV',
+      categoryId: 'weapon-frame',
+      itemHash: 100,
+      plugCategoryHash: 20,
+      inGameDescription: 'Same',
+    },
+  };
+  const decision = aliasGroupsSchema.parse({
+    version: 1,
+    rejected: {},
+    groups: {
+      1: {
+        ...group([1, 2, 3, 4]),
+        basis: { name: 'Frame', categoryId: 'weapon-frame-exotic', exoticFrameOwner: 100 },
+      },
+    },
+  });
+  const result = effectiveAliases({}, decision, facts);
+  expect(result.aliases).toEqual({ 2: { to: 1, kind: 'name' } });
+  expect(result.issues.map((i) => i.member)).toEqual([3, 4]);
+  expect(aliasCanonicalHash(2, facts, result.aliases)).toBe(1);
+  const text = { ...tooltip(), hash: 2 };
+  expect(
+    readAliasProposals(
+      {
+        version: 1,
+        proposals: [
+          {
+            kind: 'S',
+            canonical: 1,
+            members: [1, 2],
+            basis: {
+              name: 'Frame',
+              categoryId: 'weapon-frame-exotic',
+              isEnhanced: false,
+              exotic: true,
+              exoticFrameOwner: 100,
+            },
+            descriptionDiff: 'identical',
+            statsDiff: true,
+            weapons: {},
+          },
+        ],
+      },
+      { 2: text },
+    )[0]?.canonical,
+  ).toBe(1);
+  expect(
+    enhancedWordingNeeded(
+      {
+        ...facts,
+        2: { ...facts[2]!, baseHash: 1, isEnhanced: true, inGameDescription: 'Different' },
+      },
+      {},
+      {},
+    ),
+  ).toEqual([]);
+});
+test('persisted Kind X requires identical wording and DIM provenance', () => {
+  const decision = aliasGroupsSchema.parse({
+    version: 1,
+    rejected: {},
+    groups: { 42: { ...group([42, 43]), kind: 'X' } },
+  });
+  expect(
+    effectiveAliases({}, decision, { ...items, 43: { ...items[43]!, dimBaseHash: 42 } }).aliases[43]
+      ?.to,
+  ).toBe(42);
+  expect(
+    effectiveAliases({}, decision, {
+      ...items,
+      43: { ...items[43]!, dimBaseHash: 42, inGameDescription: 'Longer' },
+    }).aliases,
+  ).toEqual({});
+});

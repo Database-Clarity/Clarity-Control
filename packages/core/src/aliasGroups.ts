@@ -20,7 +20,13 @@ export const aliasGroupsSchema = z
             .min(2)
             .refine((v) => new Set(v).size === v.length),
           kind: z.enum(['S', 'X']),
-          basis: z.object({ name: z.string(), categoryId: z.string() }).strict(),
+          basis: z
+            .object({
+              name: z.string(),
+              categoryId: z.string(),
+              exoticFrameOwner: hashSchema.optional(),
+            })
+            .strict(),
           by: actor,
           at: timestampSchema,
           note: z.string().optional(),
@@ -61,13 +67,20 @@ export interface AliasItem {
   exotic?: boolean;
   plugCategoryHash?: number;
   baseHash?: number;
+  dimBaseHash?: number;
+  itemHash?: number;
+  owners?: number[];
 }
 export type AliasItems = Readonly<Record<string, AliasItem>>;
-const enhanced = (item: AliasItem) => item.isEnhanced ?? item.categoryId.includes('-enhanced');
+const enhanced = (item: AliasItem) =>
+  !exotic(item) && (item.isEnhanced ?? item.categoryId.includes('-enhanced'));
 const exotic = (item: AliasItem) => item.exotic ?? item.categoryId.endsWith('-exotic');
 const name = (item: AliasItem) => item.name.trim().toLowerCase();
 const inScope = (item: AliasItem) =>
   /^(weapon-(perk|trait|mod)|armor-mod|subclass)-?/.test(item.categoryId);
+const owns = (item: AliasItem, owner: number) =>
+  item.itemHash === owner || Boolean(item.owners?.includes(owner));
+const numbered = (item: AliasItem) => / (II|III|IV)$/.test(item.name);
 
 /** Revalidate persisted decisions against current facts. Generated aliases always win. */
 export function effectiveAliases(
@@ -84,7 +97,16 @@ export function effectiveAliases(
   for (const [key, group] of Object.entries(groups.groups)) {
     const canonical = Number(key),
       base = items[key];
-    if (!base || !inScope(base) || generated[key]) {
+    const frameOwner = group.basis.exoticFrameOwner;
+    const exoticFrame = Boolean(
+      base &&
+      group.kind === 'S' &&
+      base.categoryId === 'weapon-frame-exotic' &&
+      frameOwner !== undefined &&
+      owns(base, frameOwner) &&
+      !numbered(base),
+    );
+    if (!base || (!inScope(base) && !exoticFrame) || generated[key]) {
       issues.push({ canonical, reason: 'Canonical missing, excluded, or generated alias' });
       continue;
     }
@@ -97,8 +119,17 @@ export function effectiveAliases(
       const item = items[hash];
       if (
         !item ||
-        !inScope(item) ||
-        name(item) !== name(base) ||
+        (!inScope(item) && !exoticFrame) ||
+        (exoticFrame
+          ? item.categoryId !== 'weapon-frame-exotic' ||
+            !numbered(item) ||
+            frameOwner === undefined ||
+            !owns(item, frameOwner) ||
+            item.name
+              .replace(/ (II|III|IV)$/, '')
+              .trim()
+              .toLowerCase() !== name(base)
+          : name(item) !== name(base)) ||
         exotic(item) !== exotic(base) ||
         enhanced(item) !== enhanced(base) ||
         (group.kind === 'S' &&
@@ -110,7 +141,10 @@ export function effectiveAliases(
         (group.kind === 'X' &&
           (enhanced(item) ||
             enhanced(base) ||
-            !(item.baseHash === canonical || base.baseHash === hash))) ||
+            exotic(item) ||
+            exotic(base) ||
+            item.inGameDescription !== base.inGameDescription ||
+            !(item.dimBaseHash === canonical || base.dimBaseHash === hash))) ||
         (base.categoryId.startsWith('subclass-') &&
           item.inGameDescription !== base.inGameDescription)
       ) {
@@ -171,8 +205,9 @@ export function aliasCanonicalHash(hash: number, items: AliasItems, aliases: Ali
       Object.values(aliases).some((a) => a.kind === 'frame' && resolveAlias(a.to, aliases) === hash)
     )
       return hash;
-    const base = items[hash]?.baseHash;
-    if (base === undefined) return hash;
+    const item = items[hash];
+    const base = item?.baseHash;
+    if (base === undefined || (item && exotic(item))) return hash;
     hash = base;
   }
   throw new Error(`Cyclic tooltip pairing at ${hash}`);
@@ -208,6 +243,7 @@ export const aliasProposalSchema = z
         isEnhanced: z.boolean(),
         exotic: z.boolean(),
         plugCategoryHash: hashSchema.optional(),
+        exoticFrameOwner: hashSchema.optional(),
       })
       .strict(),
     descriptionDiff: z.enum(['identical', 'wording', 'numbers']),
@@ -220,9 +256,24 @@ export const aliasProposalsSchema = z
   .object({
     version: z.literal(1),
     proposals: z.array(aliasProposalSchema),
+    possibleEnhanced: z
+      .array(
+        z
+          .object({
+            baseHash: hashSchema,
+            variantHash: hashSchema,
+            reason: z.literal('possible enhanced — maintainer call'),
+          })
+          .strict(),
+      )
+      .default([]),
   })
   .strict();
 export type AliasProposal = z.infer<typeof aliasProposalSchema>;
+/** Unlabelled DIM pairs stay outside the alias queue until a maintainer determines their meaning. */
+export function readPossibleEnhanced(input: unknown) {
+  return aliasProposalsSchema.parse(input).possibleEnhanced;
+}
 /** Reader enrichment uses editor data only; the generator never selects text. */
 export function readAliasProposals(input: unknown, tooltips: Readonly<Record<string, Tooltip>>) {
   return aliasProposalsSchema.parse(input).proposals.map((proposal) => {
@@ -246,7 +297,10 @@ export function readAliasProposals(input: unknown, tooltips: Readonly<Record<str
         (t) => t?.text.trim() && !inGroupImport.test(t.text.trim()),
       ),
     );
-    const canonical = own.length === 1 ? own[0]! : proposal.canonical;
+    const canonical =
+      proposal.basis.exoticFrameOwner === undefined && own.length === 1
+        ? own[0]!
+        : proposal.canonical;
     const enhancedMarkup = Object.values(tooltips[canonical]?.text ?? {}).some((t) =>
       /enhanced\s*\(|#e\b/.test(t?.text ?? ''),
     );

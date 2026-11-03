@@ -90,7 +90,44 @@ const changedHashes = [...new Set([...Object.keys(exports.before), ...Object.key
     before: exports.before[hash],
     after: exports.after[hash],
   }));
+// Owner-approved parity: only real legendary enhanced perks change export type.
+const manifest = JSON.parse(fs.readFileSync(path.join(auditDir, 'manifest.json'))).manifest
+  .inventoryItem;
+const expectedHashes = Object.keys(exports.before)
+  .filter(
+    (h) =>
+      exports.before[h].type === 'Weapon Perk' &&
+      manifest[h]?.inventory?.tierType !== 6 &&
+      /^Enhanced /.test(manifest[h]?.itemTypeDisplayName ?? ''),
+  )
+  .map(Number)
+  .sort((a, b) => a - b);
+const actualHashes = changedHashes.map((row) => row.hash).sort((a, b) => a - b);
+if (JSON.stringify(expectedHashes) !== JSON.stringify(actualHashes))
+  throw new Error('Unexpected export hash difference');
+for (const row of changedHashes) {
+  if (row.before?.type !== 'Weapon Perk' || row.after?.type !== 'Weapon Trait Enhanced')
+    throw new Error(`Unexpected export type change ${row.hash}`);
+  const { type: beforeType, ...before } = row.before,
+    { type: afterType, ...after } = row.after;
+  void beforeType;
+  void afterType;
+  if (JSON.stringify(before) !== JSON.stringify(after))
+    throw new Error(`Export bytes changed beyond type ${row.hash}`);
+}
+if (JSON.stringify(read('before', 'aliases')) !== JSON.stringify(read('after', 'aliases')))
+  throw new Error('Generated aliases changed before approval');
 const items = read('after', 'items');
+for (const item of Object.values(items)) {
+  if (
+    item.categoryId.endsWith('-exotic') &&
+    (item.baseHash !== undefined ||
+      item.enhancedHash !== undefined ||
+      item.enhancedHashes !== undefined ||
+      item.categoryId.includes('-enhanced'))
+  )
+    throw new Error(`Exotic enhanced mapping ${item.hash}`);
+}
 const proposals = readAliasProposals(read('after', 'aliasProposals'), tooltips);
 // Check the actual emitted facts, with related base/enhanced groups accepted together.
 const decisions = proposals.filter(
@@ -107,7 +144,13 @@ const config = {
       {
         members: p.members,
         kind: p.kind,
-        basis: { name: p.basis.name, categoryId: p.basis.categoryId },
+        basis: {
+          name: p.basis.name,
+          categoryId: p.basis.categoryId,
+          ...(p.basis.exoticFrameOwner === undefined
+            ? {}
+            : { exoticFrameOwner: p.basis.exoticFrameOwner }),
+        },
         by: { id: '1', login: 'audit' },
         at: '2026-11-03T00:00:00Z',
       },
@@ -151,8 +194,12 @@ for (const p of proposals) {
 }
 const report = {
   dataRef,
+  expectedExportHashes: expectedHashes,
+  actualExportHashes: actualHashes,
+  exportParityMatches: true,
   validatedNonSubclassGroups: nonSubclass.length,
   aliasGroupIssues: effective.issues,
+  possibleEnhanced: read('after', 'aliasProposals').possibleEnhanced,
   changedHashes,
   skipped,
   counts,
