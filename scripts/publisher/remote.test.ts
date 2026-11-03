@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, chmodSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -49,7 +49,7 @@ it('simulator and real file:// Git implement the same publication CAS contract',
   const remote = new RemoteRepository(bare(), { fileUrl: pathToFileURL(bare()).href });
   expect(run(remote)).toEqual(run(simulator));
 });
-it('real receive-pack timeout remains unresolved and can reconcile the exact commit', () => {
+it('real receive-pack timeout remains unresolved and can reconcile the exact commit', async () => {
   const upstream = bare();
   class PushTimeoutRepository extends RemoteRepository {
     timeoutPush = true;
@@ -67,9 +67,17 @@ it('real receive-pack timeout remains unresolved and can reconcile the exact com
   });
   const a = repo.commit(undefined, { file: repo.writeBlob('bytes') }, 'base');
   const hook = join(upstream, 'hooks', 'pre-receive');
-  writeFileSync(hook, '#!/bin/sh\nsleep 3\nexit 1\n');
+  const finished = hook + '.finished';
+  writeFileSync(hook, '#!/bin/sh\nsleep 3\ntouch "$0.finished"\nexit 1\n');
   chmodSync(hook, 0o755);
   expect(() => repo.cas(data, undefined, a)).toThrow(TransportUnresolved);
+  // Killing the client may leave receive-pack running. Do not replace the hook until its
+  // original invocation has irrevocably selected rejection, or that timed-out push can land.
+  const deadline = Date.now() + 20_000;
+  while (!existsSync(finished)) {
+    if (Date.now() > deadline) throw new Error('Timed-out receive hook did not finish');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
   // No success inferred from absent ref; retry uses the exact original commit.
   writeFileSync(hook, '#!/bin/sh\nexit 0\n');
   repo.timeoutPush = false;
