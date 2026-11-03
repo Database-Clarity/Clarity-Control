@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
