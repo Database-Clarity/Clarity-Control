@@ -127,6 +127,7 @@ export function guidedDecisions(
   source: CompendiumData,
   baseline: string,
   scope: string,
+  onlyHash?: number,
 ): GuidedCategory[] {
   const sheetFingerprint = sourceFingerprint(source.tabs);
   const current = new Map(categories.map((category) => [category.id, category]));
@@ -148,7 +149,9 @@ export function guidedDecisions(
     }
   }
   return Object.values(document.categories)
-    .filter((record) => record.active)
+    .filter(
+      (record) => record.active && (onlyHash === undefined || record.hashes.includes(onlyHash)),
+    )
     .map((record) => {
       const category = current.get(record.id);
       const entries = new Map(category?.entries.map((entry) => [entry.hash, entry]));
@@ -601,7 +604,9 @@ export function guidedDecisions(
               : 'Confirm source description; token/rename or selected-cell convention needs review.'),
         };
       };
-      const decisions = record.hashes.map(decide);
+      const decisions = record.hashes
+        .filter((hash) => onlyHash === undefined || hash === onlyHash)
+        .map(decide);
       const medium = decisions.filter((entry) => entry.confidence === 'medium').length;
       const high = decisions.filter((entry) => entry.confidence === 'high').length;
       const outOfScope = decisions.filter((entry) => entry.confidence === 'out-of-scope').length;
