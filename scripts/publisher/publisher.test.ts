@@ -17,6 +17,8 @@ import { LocalRepository, RefRace, type Tree } from './git.js';
 import { Publisher, paths, type Options } from './publisher.js';
 import { createRequest } from './request.js';
 import { runPipeline } from './pipeline.js';
+// Configure before registering the Git subprocess tests (Windows runs exceed 20 seconds).
+vi.setConfig({ testTimeout: 60_000 });
 
 it.each([false, true])(
   'pipeline bundles real heads, isolates publish writes, and catches up (bad key=%s)',
@@ -82,8 +84,6 @@ it.each([false, true])(
 import { Fixture, makePrivateKey } from '../../apps/worker/test/fixture.js';
 import { seedPushGroups, pushTime } from '../../apps/worker/test/push-fixture.js';
 
-// Real Git subprocesses are considerably slower on Windows than in-memory unit fixtures.
-vi.setConfig({ testTimeout: 60_000 });
 
 const A = '01K95H00000000000000000001',
   B = '01K95H00000000000000000002';
