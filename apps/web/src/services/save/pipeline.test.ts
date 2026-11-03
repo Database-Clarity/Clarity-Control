@@ -7,6 +7,56 @@ const user: Me = { id: 1, login: 'user', role: 'editor' };
 const translator: Me = { ...user, role: 'translator', languages: ['fr'] };
 const next = { ...tooltip, text: { ...tooltip.text, en: { ...english, text: 'Changed English' } } };
 
+describe('conflict markers block saving', () => {
+  const block = '<<<<<<< mine\nMine\n=======\nTheirs\n>>>>>>> theirs (bob)';
+  const marked = (en: string, fr?: string) => ({
+    ...tooltip,
+    text: {
+      en: { ...english, text: en },
+      ...(fr === undefined ? {} : { fr: { ...english, text: fr } }),
+    },
+  });
+  it('is an error per language that still has a block, and nothing else is reported for it', () => {
+    const issues = validateChanges(
+      [{ hash: 123, base: tooltip, next: marked(`Line\n${block}`, block) }],
+      editorData(),
+    );
+    const errors = issues.filter((issue) => issue.severity === 'error');
+    expect(errors.map((issue) => issue.lang).sort()).toEqual(['en', 'fr']);
+    expect(errors[0]!.message).toContain('unresolved conflict');
+    // The markers themselves raise no markup errors beyond the conflict error.
+    expect(
+      issues.filter((issue) => issue.lang === 'en' && issue.severity === 'error'),
+    ).toHaveLength(1);
+  });
+  it('a stray marker left by a hand edit still blocks', () => {
+    const issues = validateChanges(
+      [{ hash: 123, base: tooltip, next: marked('Line\n>>>>>>> theirs') }],
+      editorData(),
+    );
+    expect(issues.some((issue) => issue.severity === 'error')).toBe(true);
+  });
+  it('is gone once the block is resolved', () => {
+    expect(
+      validateChanges(
+        [{ hash: 123, base: tooltip, next: marked('Line\nMine') }],
+        editorData(),
+      ).filter((issue) => issue.severity === 'error'),
+    ).toEqual([]);
+  });
+  it('prepareChanges refuses a change with markers before any request', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch');
+    try {
+      await expect(
+        prepareChanges([{ hash: 123, base: tooltip, next: marked(block) }], user, editorData()),
+      ).rejects.toThrow('Validation');
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+});
+
 describe('save preparation', () => {
   it('surfaces glyph warnings in save review and allows preparation', async () => {
     const change = {

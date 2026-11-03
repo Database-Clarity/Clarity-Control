@@ -18,16 +18,22 @@ const line = { left: 40, right: 41, top: 100, bottom: 116 };
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.spyOn(EditorView.prototype, 'coordsAtPos').mockReturnValue(line);
-  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
-    left: 0,
-    right: 800,
-    top: 0,
-    bottom: 600,
-    width: 800,
-    height: 600,
-    x: 0,
-    y: 0,
-    toJSON: () => ({}),
+  // The editor spans a 800 x 600 window; the chip itself is a 280 x 26 box.
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    const chip = this.hasAttribute('data-suggest-chip');
+    return {
+      left: 0,
+      right: chip ? 280 : 800,
+      top: 0,
+      bottom: chip ? 26 : 600,
+      width: chip ? 280 : 800,
+      height: chip ? 26 : 600,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    };
   });
   useSettingsStore.getState().updateDevice({ suggestAccept: 'enter' });
   host = document.createElement('div');
@@ -171,6 +177,25 @@ describe('suggestion chips for a typed tag word', () => {
     const menu = mount('Deals ');
     type(menu, '<');
     expect(chipNode()).toBeNull();
+  });
+});
+
+describe('a chip that cannot be seen', () => {
+  it('does not take Enter: the key makes a line break instead', () => {
+    const view = mount('Deals ');
+    type(view, 'Void');
+    expect(chipNode()).not.toBeNull();
+    // The text scrolls out of the editor, so the chip hides itself.
+    vi.mocked(EditorView.prototype.coordsAtPos).mockReturnValue({
+      left: 40,
+      right: 41,
+      top: 900,
+      bottom: 916,
+    });
+    act(() => view.scrollDOM.dispatchEvent(new Event('scroll')));
+    expect(chipNode()!.style.visibility).toBe('hidden');
+    press(view, 'Enter');
+    expect(view.state.doc.toString()).toBe('Deals Void\n');
   });
 });
 

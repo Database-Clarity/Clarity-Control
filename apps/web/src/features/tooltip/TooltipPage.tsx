@@ -8,6 +8,11 @@ import { apiUrl } from '../../services/api';
 import { tooltipImports } from '../../services/tooltipImports';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
+import { usePausedForOtherTab, useConflictStore } from '../../stores/conflicts';
+import { ConflictRows } from '../conflicts/ConflictRows';
+import { previewDrafts } from '../conflicts/previewDrafts';
+import { theirsLabel } from '../conflicts/rebase';
+import type { CompareData } from '../conflicts/CompareView';
 import { useAuthStore } from '../../stores/auth';
 import {
   canonicalHash,
@@ -84,14 +89,18 @@ export function TooltipPage({
   }
   const highlightLine = Number(search.get('line'));
   const drafts = useDraftStore((state) => state.drafts);
+  // Previews, shared globals and references see "mine" where conflict blocks remain in a draft.
+  const shown = useMemo(() => previewDrafts(drafts), [drafts]);
+  const sessions = useConflictStore((state) => state.sessions);
+  const pausedForOtherTab = usePausedForOtherTab();
   const edit = useDraftStore((state) => state.edit);
   const discard = useDraftStore((state) => state.discard);
   const hydrated = useDraftStore((state) => state.hydrated);
   const saving = useSaveState((state) => state.locked);
   const sharedGlobals = useMemo<MarkupGlobals>(() => {
-    const imports = tooltipImports(data?.bundle.tooltips ?? {}, drafts, lang, data?.aliases ?? {});
+    const imports = tooltipImports(data?.bundle.tooltips ?? {}, shown, lang, data?.aliases ?? {});
     return { variables: imports[2] ?? '', titles: imports[3] ?? '', imports };
-  }, [data, drafts, lang]);
+  }, [data, shown, lang]);
   // One globals object per type, so renders that share a type share the object (and its parse).
   const typedGlobals = useMemo(() => {
     const cache = new Map<string | undefined, MarkupGlobals>();
@@ -102,8 +111,8 @@ export function TooltipPage({
     };
   }, [sharedGlobals]);
   const referenceSources = useMemo(
-    () => tooltipTextSources(data?.bundle.tooltips ?? {}, drafts, data?.aliases ?? {}),
-    [data, drafts],
+    () => tooltipTextSources(data?.bundle.tooltips ?? {}, shown, data?.aliases ?? {}),
+    [data, shown],
   );
   // Saved text only, so the suggestion menu's usage counts do not change as you type.
   const usage = useMemo(() => corpusUsage(data?.bundle.tooltips ?? {}), [data?.bundle.tooltips]);
@@ -153,7 +162,12 @@ export function TooltipPage({
     lang,
   });
   if (readOnly || (!item && hash > 3)) access.reason = 'Archived tooltip — read only';
+  else if (pausedForOtherTab && !access.reason)
+    access.reason = 'Paused: another tab changed your drafts. Answer the notice above.';
 
+  // A phone's header row would grow for the pause sentence and push the text down; the status bar
+  // (fixed height) already says it there.
+  const pausedOnPhone = phone && pausedForOtherTab && access.reason?.startsWith('Paused:');
   const hosted = column !== null;
   const nameOf = (variant: number) => archivedItemFor(variant, data)?.name ?? `Tooltip ${variant}`;
   const legacyOf = (variant: number) =>
@@ -162,6 +176,21 @@ export function TooltipPage({
   const globalsFor = (variant: number): MarkupGlobals => typedGlobals(legacyOf(variant));
   const textOf = (variant: number) =>
     (drafts[variant]?.next ?? tooltipFor(variant, data)).text[lang]?.text ?? '';
+  // What the preview renders: the same text with conflict blocks resolved to "mine".
+  const previewTextOf = (variant: number) =>
+    (shown[variant]?.next ?? tooltipFor(variant, data)).text[lang]?.text ?? '';
+  /** The three versions an open conflict started from, for the editor's Compare view. */
+  const conflictSourceOf = (variant: number): CompareData | undefined => {
+    const session = sessions[variant];
+    if (!session) return undefined;
+    const theirs = session.head?.text[lang];
+    return {
+      mine: session.mine.text[lang]?.text ?? '',
+      base: session.base ? (session.base.text[lang]?.text ?? '') : null,
+      theirs: theirs?.text ?? '',
+      theirsLabel: theirsLabel(theirs),
+    };
+  };
 
   // Enhanced versions: previewed next to the base; the ones with text of their own can be opened.
   const others = variantHashes(hash, data).filter((variant) => variant !== hash);
@@ -175,16 +204,16 @@ export function TooltipPage({
   const activeHash = activeVariant ?? hash;
   const activeBase = tooltipFor(activeHash, data);
   const activeTooltip = drafts[activeHash]?.next ?? activeBase;
-  const value = textOf(hash);
+  const value = previewTextOf(hash);
 
   const enhancedViews: EnhancedView[] = previewed.map((variant) => {
     // Derived versions render the base text (drafts included) as their own type; overrides and
     // archived tooltips show the text they hold.
-    const rendered = readOnly ? undefined : enhancedRender(hash, variant, lang, data, drafts);
+    const rendered = readOnly ? undefined : enhancedRender(hash, variant, lang, data, shown);
     return {
       hash: variant,
       name: nameOf(variant),
-      text: rendered ? rendered.text : textOf(variant),
+      text: rendered ? rendered.text : previewTextOf(variant),
       globals: globalsFor(variant),
       derived: rendered?.form === 'derived',
     };
@@ -235,6 +264,14 @@ export function TooltipPage({
   const shared = sharedPerkLabel(hash, data, compendiumSource);
   const rows = (
     <div className={styles.rows}>
+      {!readOnly && (
+        <>
+          <ConflictRows hash={hash} lang={lang} onLanguage={changeLanguage} />
+          {activeHash !== hash && (
+            <ConflictRows hash={activeHash} lang={lang} onLanguage={changeLanguage} />
+          )}
+        </>
+      )}
       {!readOnly && item && <AttachmentCategoryControl base={primaryBase} item={item} />}
       {owner && <NoteRow text={owner} />}
       {shared && <NoteRow text={shared} />}
@@ -274,6 +311,7 @@ export function TooltipPage({
       usage={usage}
       onOpenTooltip={openDefinition}
       markupRow={markupRow.open}
+      conflictSource={conflictSourceOf(variant)}
       highlightLine={variant === activeHash ? highlightLine : undefined}
       onChange={(text) => edit(base, lang, text, user?.login ?? 'local draft')}
     />
@@ -286,7 +324,7 @@ export function TooltipPage({
       draft={!readOnly && Boolean(drafts[activeHash])}
       saving={saving}
       onDiscard={() => discard(activeHash)}
-      reason={access.reason}
+      reason={pausedOnPhone ? null : access.reason}
       switchTo={access.switchTo}
       onSwitch={changeLanguage}
       details={

@@ -224,11 +224,22 @@ export const chipField = StateField.define<ChipState>({
   },
 });
 
+/**
+ * Whether the chip is actually on screen (it hides itself when its text scrolls away or there is no
+ * room for it). Enter and Tab only take an offer the author can see.
+ */
+const shown = new WeakMap<EditorView, boolean>();
+export function markChipShown(view: EditorView, visible: boolean): void {
+  shown.set(view, visible);
+}
+const chipVisible = (view: EditorView) =>
+  Boolean(chipState(view.state)) && shown.get(view) === true;
+
 export const chipState = (state: EditorState): Chip | null =>
   state.field(chipField, false)?.chip ?? null;
 
 export function dismissChip(view: EditorView): boolean {
-  if (!chipState(view.state)) return false;
+  if (!chipVisible(view)) return false;
   view.dispatch({ effects: dismissEffect.of(null) });
   return true;
 }
@@ -236,7 +247,7 @@ export function dismissChip(view: EditorView): boolean {
 /** Takes the offer. False when there was none or the document refused it. */
 export function acceptChip(view: EditorView): boolean {
   const chip = chipState(view.state);
-  if (!chip) return false;
+  if (!chip || !chipVisible(view)) return false;
   const rejection = insertItem(view, chip.item, {
     typed: chip.typed,
     keepSelection: chip.keepSelection,
@@ -271,7 +282,7 @@ export function chipsExtension(): Extension {
         // The line break stays available while an offer shows.
         {
           key: 'Shift-Enter',
-          run: (view) => (chipState(view.state) ? insertNewlineAndIndent(view) : false),
+          run: (view) => (chipVisible(view) ? insertNewlineAndIndent(view) : false),
         },
         { key: 'Escape', run: (view) => dismissChip(view) },
       ]),

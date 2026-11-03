@@ -1,7 +1,7 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import type { EditorView } from '@codemirror/view';
-import { acceptChip, dismissChip, type Chip, type ChipKey } from './chips';
+import { acceptChip, dismissChip, markChipShown, type Chip, type ChipKey } from './chips';
 import { EntryGlyph } from './EntryGlyph';
 import styles from './SuggestChip.module.scss';
 
@@ -77,6 +77,12 @@ export function SuggestChip({
       window.visualViewport?.removeEventListener('resize', measure);
     };
   }, [view, chip]);
+
+  // Enter and Tab take the offer only while it can be seen.
+  useEffect(() => {
+    markChipShown(view, placement !== null);
+    return () => markChipShown(view, false);
+  }, [view, placement]);
 
   const style = {
     '--chip-left': `${placement?.left ?? 0}px`,

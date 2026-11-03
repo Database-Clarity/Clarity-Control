@@ -6,6 +6,7 @@ import { SavePanel } from '../../services/save/SavePanel';
 import { useSaveState } from '../../services/save/state';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
+import { useOpenConflicts } from '../../stores/conflicts';
 import { Dialog } from '../../ui/Dialog';
 import { When } from '../../ui/When';
 import { itemFor } from './catalog';
@@ -93,6 +94,7 @@ export function DraftsContent({ onClose }: { onClose(): void }) {
   const data = useDataStore((state) => state.data);
   const drafts = useDraftStore((state) => state.drafts);
   const discard = useDraftStore((state) => state.discard);
+  const openConflicts = useOpenConflicts();
   const navigate = useNavigate();
   const [confirm, setConfirm] = useState<number | null>(null);
   const rows = Object.entries(drafts)
@@ -113,7 +115,7 @@ export function DraftsContent({ onClose }: { onClose(): void }) {
   };
   return (
     <div className={styles.drafts}>
-      <SavePanel className={styles.summary} onReview={onClose}>
+      <SavePanel className={styles.summary} onReview={onClose} onResolve={open}>
         {data && <RecoveredDrafts data={data} onOpen={open} />}
         {rows.length > 0 && (
           <ul className={styles.list} aria-label="Local drafts">
@@ -129,6 +131,10 @@ export function DraftsContent({ onClose }: { onClose(): void }) {
                 </button>
                 <small className={styles.meta}>
                   {languages.length ? languages.map(languageLabel).join(', ') : 'Other fields'}
+                  {(() => {
+                    const found = openConflicts.find((conflict) => conflict.hash === hash);
+                    return found ? ` · ${found.total} conflict${found.total === 1 ? '' : 's'}` : '';
+                  })()}
                   {time && (
                     <>
                       {' · '}
@@ -200,7 +206,9 @@ export function DraftButton({ iconOnly = false }: { iconOnly?: boolean }) {
   // Back/Forward or any navigation moves the page behind a modal popover: close it.
   useEffect(() => setOpen(false), [pathname, search]);
   const count = Object.keys(drafts).length;
-  const attention = Boolean(draftError) || staleDraftHashes(drafts, data).length > 0;
+  const conflicts = useOpenConflicts();
+  const attention =
+    Boolean(draftError) || staleDraftHashes(drafts, data).length > 0 || conflicts.length > 0;
   // A review in progress belongs to the native dialog, not to this popover.
   useEffect(() => {
     if (reviewing) setOpen(false);

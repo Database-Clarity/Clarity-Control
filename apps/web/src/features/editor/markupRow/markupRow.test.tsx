@@ -304,6 +304,27 @@ describe('the All popover', () => {
   });
 });
 
+const NL = String.fromCharCode(10);
+
+describe('inserting an enhanced section from the popover', () => {
+  it('writes the section with its #e arrow line already filled in, on a line of its own', () => {
+    const view = mount('Reload speed up.');
+    const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (node) => node.textContent?.trim() === 'All',
+    )!;
+    click(button);
+    const section = [
+      ...document.body.querySelectorAll<HTMLButtonElement>('[data-all-button]'),
+    ].find((node) => node.getAttribute('aria-label') === 'Enhanced section')!;
+    click(section);
+    const text = view.state.doc.toString();
+    expect(text.startsWith('Reload speed up.' + NL + 'enhanced (' + NL)).toBe(true);
+    // The #e line is the enhanced arrow line, and it ships with text to replace.
+    expect(text.endsWith(NL + ')')).toBe(true);
+    expect(text.split(NL).some((line) => line.startsWith('#e ') && line.length > 3)).toBe(true);
+  });
+});
+
 describe('Ctrl+. and the remembered row state', () => {
   function Probe() {
     const row = useMarkupRow();

@@ -17,8 +17,10 @@ import {
   drawSelection,
 } from '@codemirror/view';
 import {
+  countConflicts,
   glyphWarnings,
   canReplaceGlyph,
+  maskConflicts,
   markupLanguage,
   validateText,
   type Lang,
@@ -33,12 +35,22 @@ import { SuggestChip } from './markupRow/SuggestChip';
 import { chipHost, chipsExtension, type Chip } from './markupRow/chips';
 import { useSettingsStore, type SuggestAccept } from '../../stores/settings';
 import {
+  ConflictPanel,
   GlyphPanel,
   HelpPanel,
   StatusBar,
   type PreviewStatus,
   type StatusPanel,
 } from './StatusBar';
+import { CompareView, type CompareData } from '../conflicts/CompareView';
+import { phoneQuery, useMedia } from '../../ui/useMedia';
+import {
+  conflictExtensions,
+  conflictHost,
+  conflictsOf,
+  jumpToConflict,
+  resolveBlock,
+} from './conflicts';
 import { referenceExtensions, type ReferenceHost, type TooltipTarget } from './referenceActions';
 import { SuggestMenu } from './suggest/SuggestMenu';
 import {
@@ -65,6 +77,11 @@ export interface ClarityEditorProps {
   preview?: PreviewStatus;
   /** Shows the markup row at the top of the editor (the page decides; Ctrl+. flips it). */
   markupRow?: boolean;
+  /**
+   * The versions an open conflict started from, for Compare. Without them Compare still shows
+   * mine and theirs from the marker block itself.
+   */
+  conflictSource?: CompareData;
   /** Hash of the tooltip being edited; definitions inside it are selected, not navigated to. */
   tooltipHash?: number;
   /** Where every tooltip's text lives, for hover previews and go-to-definition across tooltips. */
@@ -113,6 +130,7 @@ export function ClarityEditor({
   readOnlyReason = null,
   preview,
   markupRow = false,
+  conflictSource,
   tooltipHash,
   referenceSources,
   onOpenTooltip,
@@ -145,10 +163,35 @@ export function ClarityEditor({
   const initial = useRef({ value, lang, globals, readOnly, requireEnglish });
   const config = useRef(new Compartment());
   const extensions = useRef<Extension[]>([]);
+  // Conflict blocks are checked as "mine" only (same offsets), so markers raise no markup errors.
   const issues = useMemo(
-    () => validateText(value, lang, globals, requireEnglish, tooltipHash),
+    () => validateText(maskConflicts(value), lang, globals, requireEnglish, tooltipHash),
     [value, lang, globals, requireEnglish, tooltipHash],
   );
+  const conflictCount = useMemo(() => countConflicts(value), [value]);
+  const compact = useMedia(`${phoneQuery}, (pointer: coarse)`);
+  const [compare, setCompare] = useState<CompareData | null>(null);
+  const [conflictIndex, setConflictIndex] = useState(0);
+  const conflictConfig = useRef(new Compartment());
+  const conflictLive = useRef({ conflictSource });
+  conflictLive.current = { conflictSource };
+
+  /** Compare for one block: the three versions when known, else the block's own two sides. */
+  function openCompare(index: number) {
+    const editor = view.current;
+    const block = editor ? conflictsOf(editor.state).blocks[index] : undefined;
+    const known = conflictLive.current.conflictSource;
+    if (known) setCompare(known);
+    else if (block)
+      setCompare({
+        mine: block.mineLines.join('\n'),
+        base: null,
+        theirs: block.theirsLines.join('\n'),
+        theirsLabel: block.label,
+      });
+  }
+  const compareRef = useRef(openCompare);
+  compareRef.current = openCompare;
   const glyphs = useMemo(() => {
     const groups = new Map<
       string,
@@ -198,6 +241,10 @@ export function ClarityEditor({
       drawSelection(),
       EditorView.lineWrapping,
       editorScrollMargins(),
+      conflictExtensions(),
+      conflictConfig.current.of(
+        conflictHost.of({ compact: false, onCompare: () => undefined, onPanel: () => undefined }),
+      ),
       history(),
       search(),
       indentOnInput(),
@@ -259,23 +306,45 @@ export function ClarityEditor({
     };
   }, []);
 
+  // The conflict actions' host: set again whenever the editor state is rebuilt for a new text.
+  const compactRef = useRef(compact);
+  compactRef.current = compact;
+  const conflictHostExtension = () =>
+    conflictHost.of({
+      compact: compactRef.current,
+      onCompare: (index) => compareRef.current(index),
+      onPanel(index) {
+        setConflictIndex(index);
+        setPanel('conflicts');
+      },
+    });
+  useEffect(() => {
+    view.current?.dispatch({
+      effects: conflictConfig.current.reconfigure(conflictHostExtension()),
+    });
+  }, [compact]);
+
   useEffect(() => {
     const editor = view.current;
     if (!editor || editor.state.doc.toString() === value) return;
     // A different tooltip/language must never undo into the previous document.
     editor.setState(EditorState.create({ doc: value, extensions: extensions.current }));
     editor.dispatch({
-      effects: config.current.reconfigure(
-        configuration(
-          lang,
-          globals,
-          readOnly,
-          requireEnglish,
-          references.current,
-          onSuggest.current,
-          chipHooks.current,
+      effects: [
+        config.current.reconfigure(
+          configuration(
+            lang,
+            globals,
+            readOnly,
+            requireEnglish,
+            references.current,
+            onSuggest.current,
+            chipHooks.current,
+          ),
         ),
-      ),
+        // A rebuilt state starts from the initial extensions: the compartments need their live values.
+        conflictConfig.current.reconfigure(conflictHostExtension()),
+      ],
     });
   }, [value, lang, globals, readOnly, requireEnglish]);
 
@@ -312,7 +381,10 @@ export function ClarityEditor({
 
   const glyphCount = glyphs.reduce((sum, group) => sum + group.count, 0);
   // A panel for something that has gone away closes itself.
-  const open = panel === 'glyphs' && glyphCount === 0 ? null : panel;
+  const open =
+    (panel === 'glyphs' && glyphCount === 0) || (panel === 'conflicts' && conflictCount === 0)
+      ? null
+      : panel;
   return (
     <div className={styles.editor} data-editor-root>
       {markupRow && !readOnly && <MarkupRow view={view} globals={globals} usage={usage} />}
@@ -328,6 +400,38 @@ export function ClarityEditor({
           />
         )}
         {open === 'help' && <HelpPanel issues={issues} onClose={() => setPanel(null)} />}
+        {open === 'conflicts' && (
+          <ConflictPanel
+            index={Math.min(conflictIndex, conflictCount - 1)}
+            count={conflictCount}
+            readOnly={readOnly}
+            onResolve={(choice) => {
+              if (view.current)
+                resolveBlock(view.current, Math.min(conflictIndex, conflictCount - 1), choice);
+              setPanel(null);
+            }}
+            onCompare={() => {
+              setPanel(null);
+              openCompare(conflictIndex);
+            }}
+            onStep={(direction) => {
+              const editor = view.current;
+              if (!editor) return;
+              jumpToConflict(editor, direction);
+              setConflictIndex(conflictsOf(editor.state).active);
+            }}
+            onClose={() => setPanel(null)}
+          />
+        )}
+        {compare && (
+          <CompareView
+            data={compare}
+            onClose={() => {
+              setCompare(null);
+              view.current?.focus();
+            }}
+          />
+        )}
       </div>
       {suggestion && view.current && (
         <SuggestMenu
@@ -348,6 +452,16 @@ export function ClarityEditor({
         line={cursor.line}
         column={cursor.column}
         preview={preview}
+        conflicts={
+          conflictCount > 0
+            ? {
+                count: conflictCount,
+                onNext() {
+                  if (view.current) jumpToConflict(view.current, 1);
+                },
+              }
+            : undefined
+        }
         panel={open}
         onPanel={setPanel}
         onSuggest={readOnly ? undefined : () => view.current && openSuggest(view.current)}
