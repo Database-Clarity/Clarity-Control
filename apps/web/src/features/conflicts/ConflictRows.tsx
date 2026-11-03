@@ -70,10 +70,7 @@ export function ConflictRows({
   return (
     <section aria-label="Conflicts" data-conflict-rows>
       {here > 0 && (
-        <PanelRow
-          label="Conflicts"
-          summary={`${plural(here, 'conflict')} in this text: F8 goes to the next`}
-        />
+        <PanelRow label="Conflicts" summary={`${plural(here, 'conflict')}  · F8 next`} />
       )}
       {others.map((other) => (
         <PanelRow

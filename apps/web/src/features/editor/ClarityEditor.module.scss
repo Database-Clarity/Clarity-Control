@@ -157,7 +157,7 @@
   background: var(--conflict-theirs);
 }
 .editor :global(.cm-conflict-marker) {
-  color: var(--editor-text2);
+  color: var(--text2);
   background: var(--conflict-marker);
 }
 .editor :global(.cm-conflict-open) {

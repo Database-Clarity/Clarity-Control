@@ -160,6 +160,9 @@ export function TooltipPage({
   else if (pausedForOtherTab && !access.reason)
     access.reason = 'Paused: another tab changed your drafts. Answer the notice above.';
 
+  // A phone's header row would grow for the pause sentence and push the text down; the status bar
+  // (fixed height) already says it there.
+  const pausedOnPhone = phone && pausedForOtherTab && access.reason?.startsWith('Paused:');
   const hosted = column !== null;
   const nameOf = (variant: number) => archivedItemFor(variant, data)?.name ?? `Tooltip ${variant}`;
   const legacyOf = (variant: number) =>
@@ -316,7 +319,7 @@ export function TooltipPage({
       draft={!readOnly && Boolean(drafts[activeHash])}
       saving={saving}
       onDiscard={() => discard(activeHash)}
-      reason={access.reason}
+      reason={pausedOnPhone ? null : access.reason}
       switchTo={access.switchTo}
       onSwitch={changeLanguage}
       details={

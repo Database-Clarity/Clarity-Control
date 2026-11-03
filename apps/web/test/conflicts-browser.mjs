@@ -419,6 +419,7 @@ try {
       await page.evaluate(() => window.shellFixture.otherTabWrote());
       const notice = page.getByRole('alert').filter({ hasText: 'changed in another tab' });
       await notice.waitFor();
+      assert.equal((await metrics(page)).first, before.first, `${label}: the pause moved the text`);
       assert.ok(await notice.getByRole('button', { name: 'Reload' }).count(), label);
       assert.ok(await notice.getByRole('button', { name: 'Keep mine' }).count(), label);
       assert.match(await page.locator('[data-editor-status]').innerText(), /Paused/, label);
