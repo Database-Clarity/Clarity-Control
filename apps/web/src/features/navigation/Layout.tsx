@@ -255,7 +255,8 @@ export function Layout() {
           </p>
         )}
         {!hydrated && !draftError && <p role="status">Recovering local drafts...</p>}
-        {status === 'ready' && hydrated && <Outlet />}
+        {/* A failed draft recovery must not hide read-only browsing; edit actions stay gated on `hydrated`. */}
+        {status === 'ready' && (hydrated || Boolean(draftError)) && <Outlet />}
       </main>
       <SettingsPopover layout={layout} />
     </div>

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useNavigate, type NavigateFunction } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { Layout } from './Layout';
 import { useAuthStore } from '../../stores/auth';
@@ -87,4 +87,46 @@ it('keeps keyboard traversal inside the settings sheet opened from the phone Bro
   });
   expect(document.querySelector('[role="dialog"][aria-labelledby]')).toBeNull();
   expect(host.querySelector('#sidebar')?.getAttribute('data-open')).toBe('true');
+});
+
+it('closes the settings popover when Back changes the page behind it', async () => {
+  let go: NavigateFunction | undefined;
+  function Probe() {
+    go = useNavigate();
+    return null;
+  }
+  await act(async () =>
+    root.render(
+      <MemoryRouter initialEntries={['/archive', '/archive?x=1']} initialIndex={1}>
+        <Probe />
+        <Layout />
+      </MemoryRouter>,
+    ),
+  );
+  await act(async () => useSettingsPanel.getState().show());
+  expect(document.querySelector('[role="dialog"][aria-labelledby]')).not.toBeNull();
+  await act(async () => go!(-1));
+  expect(useSettingsPanel.getState().open).toBe(false);
+  expect(document.querySelector('[role="dialog"][aria-labelledby]')).toBeNull();
+});
+
+it('keeps read-only browsing when draft storage (IndexedDB) cannot be opened', async () => {
+  useDraftStore.setState({
+    hydrated: false,
+    drafts: {},
+    error: 'Cannot recover local drafts: blocked. Editing is disabled; browsing is read-only.',
+  });
+  await act(async () =>
+    root.render(
+      <MemoryRouter initialEntries={['/archive']}>
+        <Routes>
+          <Route element={<Layout />}>
+            <Route path="/archive" element={<p>Archive content</p>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    ),
+  );
+  expect(host.textContent).toContain('Cannot recover local drafts');
+  expect(host.textContent).toContain('Archive content');
 });

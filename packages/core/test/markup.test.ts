@@ -184,3 +184,11 @@ test('references inside comments and hidden exports do not create spurious warni
       .diagnostics,
   ).toEqual([]);
 });
+
+test('reports stray <word text instead of silently changing it', () => {
+  const stray = parseMarkup('Rapid kills <blue reload speed />. <blue broken');
+  expect(stray.diagnostics.map((issue) => issue.message)).toEqual([
+    expect.stringContaining('"<blue"'),
+  ]);
+  expect(parseMarkup('Rapid kills <blue reload speed />. Fine.').diagnostics).toEqual([]);
+});

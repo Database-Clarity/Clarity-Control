@@ -99,7 +99,7 @@ export async function publishReviewed(
   } catch (reason) {
     if (current())
       useReviewSession.setState({
-        error: `${errorMessage(reason)} A failed push may have written live data; check the error details before retrying.`,
+        error: `${errorMessage(reason).replace(/[.!?]*$/, '.')} A failed push may have written live data; check the error details before retrying.`,
       });
     return false;
   } finally {

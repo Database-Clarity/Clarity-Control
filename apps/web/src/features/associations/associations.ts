@@ -18,7 +18,9 @@ export function associationCandidates(
   ]);
   for (const hash of hashes) {
     const canonical = resolveAlias(Number(hash), data.aliases);
-    if (excluded.has(canonical)) continue;
+    // Hashes 1-3 are reserved global documents; archived tooltips are retired.
+    if (excluded.has(canonical) || canonical <= 3 || data.bundle.tooltips[canonical]?.archive)
+      continue;
     const item = itemFor(Number(hash), data) ?? itemFor(canonical, data);
     if (!search || hash.includes(search) || item?.name.toLowerCase().includes(search))
       matches.add(canonical);
