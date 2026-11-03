@@ -6,6 +6,7 @@ import {
   aliasVariantHashes,
   enhancedWordingNeeded,
   readAliasProposals,
+  readPossibleEnhanced,
   exportLegacy,
   publishableHash,
   type AliasItems,
@@ -305,4 +306,20 @@ test('persisted Kind X requires identical wording and DIM provenance', () => {
       43: { ...items[43]!, dimBaseHash: 42, inGameDescription: 'Longer' },
     }).aliases,
   ).toEqual({});
+});
+
+test('possible enhanced pairs stay separate from alias proposals and require a maintainer call', () => {
+  const possibleEnhanced = [
+    { baseHash: 42, variantHash: 43, reason: 'possible enhanced — maintainer call' },
+  ];
+  const input = { version: 1, proposals: [], possibleEnhanced };
+  expect(readPossibleEnhanced(input)).toEqual(possibleEnhanced);
+  expect(readAliasProposals(input, {})).toEqual([]);
+  expect(readPossibleEnhanced({ version: 1, proposals: [] })).toEqual([]);
+  expect(() =>
+    readPossibleEnhanced({
+      ...input,
+      possibleEnhanced: [{ ...possibleEnhanced[0], reason: 'alias' }],
+    }),
+  ).toThrow();
 });

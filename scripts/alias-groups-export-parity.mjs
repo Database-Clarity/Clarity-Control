@@ -4,10 +4,10 @@ import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 
-const [auditDir, dataRepo] = process.argv.slice(2);
+const [auditDir, dataRepo, requestedDataRef = 'origin/editor-data'] = process.argv.slice(2);
 if (!auditDir || !dataRepo)
   throw new Error(
-    'Usage: node scripts/alias-groups-export-parity.mjs <audit directory> <editor-data repository>',
+    'Usage: node scripts/alias-groups-export-parity.mjs <audit directory> <editor-data repository> [pinned editor-data ref]',
   );
 const core = path.resolve('node_modules/.cache/alias-groups-core');
 fs.mkdirSync(core, { recursive: true });
@@ -33,7 +33,7 @@ const { exportLegacy } = await import(pathToFileURL(path.join(core, 'exportLegac
 const { readAliasProposals, enhancedWordingNeeded, effectiveAliases } = await import(
   pathToFileURL(path.join(core, 'aliasGroups.js'))
 );
-const dataRef = execFileSync('git', ['-C', dataRepo, 'rev-parse', 'origin/editor-data'], {
+const dataRef = execFileSync('git', ['-C', dataRepo, 'rev-parse', requestedDataRef], {
   encoding: 'utf8',
 }).trim();
 const archive = path.join(auditDir, 'tooltips.tar'),
@@ -118,6 +118,11 @@ for (const row of changedHashes) {
 if (JSON.stringify(read('before', 'aliases')) !== JSON.stringify(read('after', 'aliases')))
   throw new Error('Generated aliases changed before approval');
 const items = read('after', 'items');
+for (const hash of expectedHashes) {
+  const item = items[hash];
+  if (item?.baseHash === undefined || !items[item.baseHash]?.enhancedHashes?.includes(hash))
+    throw new Error(`Corrected exported enhancement ${hash} has no reciprocal base pairing`);
+}
 for (const item of Object.values(items)) {
   if (
     item.categoryId.endsWith('-exotic') &&
@@ -128,7 +133,39 @@ for (const item of Object.values(items)) {
   )
     throw new Error(`Exotic enhanced mapping ${item.hash}`);
 }
-const proposals = readAliasProposals(read('after', 'aliasProposals'), tooltips);
+const proposalInput = read('after', 'aliasProposals');
+const proposals = readAliasProposals(proposalInput, tooltips);
+const owners = (item) =>
+  new Set([...(item.owners ?? []), ...(item.itemHash === undefined ? [] : [item.itemHash])]);
+const numbered = (item) => / (II|III|IV)$/.test(item.name);
+const exoticFrameProposals = proposals.filter((p) => p.basis.exoticFrameOwner !== undefined);
+for (const p of exoticFrameProposals) {
+  const canonical = items[p.canonical];
+  if (p.kind !== 'S' || p.basis.isEnhanced || numbered(canonical))
+    throw new Error(`Invalid exotic frame canonical ${p.canonical}`);
+  for (const hash of p.members) {
+    const item = items[hash];
+    if (
+      item.categoryId !== 'weapon-frame-exotic' ||
+      !owners(item).has(p.basis.exoticFrameOwner) ||
+      (hash !== p.canonical && !numbered(item))
+    )
+      throw new Error(`Exotic frame member ${hash} crosses owner or category boundaries`);
+  }
+}
+const possibleEnhanced = proposalInput.possibleEnhanced ?? [];
+for (const pair of possibleEnhanced) {
+  if (
+    items[pair.variantHash]?.dimBaseHash !== pair.baseHash ||
+    items[pair.variantHash]?.inGameDescription === items[pair.baseHash]?.inGameDescription ||
+    proposals.some((p) => p.members.includes(pair.variantHash))
+  )
+    throw new Error(`Possible enhancement ${pair.variantHash} leaked into alias proposals`);
+}
+for (const p of proposals.filter((p) => p.kind === 'X')) {
+  if (p.descriptionDiff !== 'identical' || p.bulkEligible)
+    throw new Error(`Kind X ${p.canonical} is not an individual identical-wording review`);
+}
 // Check the actual emitted facts, with related base/enhanced groups accepted together.
 const decisions = proposals.filter(
   (p) =>
@@ -199,7 +236,12 @@ const report = {
   exportParityMatches: true,
   validatedNonSubclassGroups: nonSubclass.length,
   aliasGroupIssues: effective.issues,
-  possibleEnhanced: read('after', 'aliasProposals').possibleEnhanced,
+  exoticFrameGroups: exoticFrameProposals.map((p) => ({
+    canonical: p.canonical,
+    members: p.members,
+    owner: p.basis.exoticFrameOwner,
+  })),
+  possibleEnhanced,
   changedHashes,
   skipped,
   counts,

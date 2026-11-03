@@ -45,6 +45,14 @@ describe('generator catalog', () => {
     );
     expect(() => itemSchema.parse({ ...item, ownerNames: { 2: 42 } })).toThrow();
   });
+  it('preserves non-enhanced DIM provenance without creating an enhanced mapping', () => {
+    const twin = itemSchema.parse({ ...item, dimBaseHash: 42 });
+    expect(twin.dimBaseHash).toBe(42);
+    expect(twin.baseHash).toBeUndefined();
+    expect(twin.enhancedHash).toBeUndefined();
+    expect(twin.enhancedHashes).toBeUndefined();
+    expect(() => itemSchema.parse({ ...item, dimBaseHash: -1 })).toThrow();
+  });
   it.each([
     () => new Response('missing', { status: 404 }),
     () => new Response('failure', { status: 500 }),
