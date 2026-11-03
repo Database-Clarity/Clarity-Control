@@ -1,13 +1,23 @@
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { LocalRepository } from './git.js';
 import { Publisher, type Options } from './publisher.js';
+import { runPipeline, verifyRuntime } from './pipeline.js';
 
 // P1-A has no remote write mode. Clone a local snapshot to a disposable simulator; emit artifacts only.
 async function main() {
   const [flag, source, config, output] = process.argv.slice(2);
+  if (flag === '--pipeline-dry-run' && source && config && output) {
+    const pin = verifyRuntime(dirname(fileURLToPath(import.meta.url)));
+    const options = JSON.parse(readFileSync(config, 'utf8'));
+    if (options.publisherSha !== pin.sourceSha || !/^[0-9a-f]{40}$/.test(options.generatorSha))
+      throw new Error('Config requires the publisher source PIN and full generator commit');
+    await runPipeline(source, options, output);
+    return;
+  }
   if (flag !== '--dry-run' || !source || !config || !output)
     throw new Error(
       'Usage: publisher.mjs --dry-run <local repository> <config.json> <artifact directory>',

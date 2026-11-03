@@ -441,11 +441,18 @@ export class Publisher {
     if (prior?.sourceCommit === h) return;
     if (prior && !this.git.ancestor(prior.sourceCommit, h))
       throw new Error('Bundle source would move backwards');
+    const tooltipPaths = Object.keys(t)
+      .filter((p) => p.startsWith('tooltips/'))
+      .sort();
+    if (!tooltipPaths.length) throw new Error('No tooltips found');
     const tooltips = Object.fromEntries(
-      Object.keys(t)
-        .filter((p) => /^tooltips\/\d+\.json$/.test(p))
-        .sort()
-        .map((p) => [p.slice(9, -5), this.read(t, p)]),
+      tooltipPaths.map((p) => {
+        if (!/^tooltips\/(0|[1-9]\d*)\.json$/.test(p)) throw new Error('Unexpected tooltip entry');
+        const hash = p.slice(9, -5),
+          tooltip = tooltipSchema.parse(this.read(t, p));
+        if (String(tooltip.hash) !== hash) throw new Error('Tooltip hash does not match filename');
+        return [hash, tooltip];
+      }),
     );
     const publishQueue = this.queue(h).map((id) => {
       try {
@@ -460,8 +467,8 @@ export class Publisher {
       sourceCommit: h,
       generatedAt: new Date(this.options.now()).toISOString(),
       tooltips,
-      permissions: this.read(t, 'config/permissions.json'),
-      pushed: this.read(t, 'live/pushed.json'),
+      permissions: permissionsSchema.parse(this.read(t, 'config/permissions.json')),
+      pushed: pushedSchema.parse(this.read(t, 'live/pushed.json')),
       publishQueue,
     };
     const c = this.git.commit(
