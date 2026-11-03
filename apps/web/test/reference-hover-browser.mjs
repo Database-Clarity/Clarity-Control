@@ -22,7 +22,7 @@ try {
       const box = await page.evaluate((needle) => {
         const walker = document.createTreeWalker(
           document.querySelector('.cm-content'),
-          NodeFilter.SHOW_TEXT,
+          globalThis.NodeFilter.SHOW_TEXT,
         );
         for (let node = walker.nextNode(); node; node = walker.nextNode()) {
           const index = node.textContent.indexOf(needle);
