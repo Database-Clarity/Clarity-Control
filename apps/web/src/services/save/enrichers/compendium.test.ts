@@ -86,3 +86,10 @@ it('preserves ordered human offsets on English saves and explicit review, leavin
   await expect(compendiumEnricher({ before: linked, next })).rejects.toThrow('relinking');
   expect(linked.compendium.snapshot.plain).toBe('old');
 });
+
+it('records the pinned source the save panel showed instead of fetching another', async () => {
+  const next = { ...base, text: { en: { ...base.text.en!, text: 'Edited' } } };
+  const result = await compendiumEnricher({ before: base, next, compendium: data });
+  expect(result.compendium).toMatchObject({ gid: '2', snapshot: cell });
+  expect(loadCompendium).not.toHaveBeenCalled();
+});

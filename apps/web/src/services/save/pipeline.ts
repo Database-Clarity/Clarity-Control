@@ -1,5 +1,6 @@
 import { languageLabel } from '../../languageLabels';
 import {
+  type CompendiumData,
   languages,
   resolveAlias,
   stableStringify,
@@ -67,6 +68,7 @@ export async function prepareChanges(
   changes: Change[],
   user: Me,
   data: EditorData,
+  compendium?: CompendiumData,
 ): Promise<Change[]> {
   const denied = permissionError(changes, user);
   if (denied) throw new Error(denied);
@@ -82,6 +84,7 @@ export async function prepareChanges(
         next: change.next,
         user,
         item: data.items[change.hash],
+        ...(compendium ? { compendium } : {}),
       }),
     })),
   );

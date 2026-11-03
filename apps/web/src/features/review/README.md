@@ -7,7 +7,9 @@ remain separate review items. Lists are paged in groups of 15 to bound history r
 Up/Down (outside controls) and Previous/Next walk the list without wrapping.
 
 Selection survives navigation, but only still-pending hashes are submitted.
-Editors and maintainers may push at most 100 at once. The request includes the
+Editors and maintainers may push any number at once (the Worker reads them in batches). "Push selected"
+first opens a confirmation listing every tooltip going live (Enter confirms, Esc cancels; a held key or a
+double-click cannot confirm twice). The request includes the
 reviewed content digests; a newer saved version causes a 409 rather than silently
 publishing unreviewed content. Successful responses update the local marker view
 only; the bundle is deliberately not reloaded after a push, because bundle generation

@@ -70,6 +70,11 @@ async function click(label: string) {
   await act(async () => button(label).click());
   await flush();
 }
+// "Push selected" opens a confirmation; this is the whole gesture for one selected tooltip.
+async function push() {
+  await click('Push selected');
+  await click('Push 1 live');
+}
 function ReturnPage() {
   return createElement('p', null, 'Compendium workspace');
 }
@@ -110,6 +115,19 @@ beforeEach(async () => {
     error: undefined,
   });
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  // jsdom has no modal dialogs: show/hide is enough for the confirmation.
+  Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+    configurable: true,
+    value(this: HTMLDialogElement) {
+      this.setAttribute('open', '');
+    },
+  });
+  Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+    configurable: true,
+    value(this: HTMLDialogElement) {
+      this.removeAttribute('open');
+    },
+  });
   bundle = {
     sourceCommit: 'baseline',
     generatedAt: '2026-01-01T00:00:00Z',
@@ -134,7 +152,12 @@ beforeEach(async () => {
   });
   useDataStore.setState({ data: null, status: 'idle', error: null });
   useAuthStore.setState({ user, loading: false, load: async () => {} });
-  useDraftStore.setState({ hydrated: true, hydrate: async () => {}, activate: async () => {}, drafts: {} });
+  useDraftStore.setState({
+    hydrated: true,
+    hydrate: async () => {},
+    activate: async () => {},
+    drafts: {},
+  });
   post = vi.fn(async () => {
     // Exercise real async boundaries instead of depending on one timer tick.
     await new Promise((resolve) => setTimeout(resolve, 25));
@@ -171,7 +194,7 @@ it('keeps the acknowledgment without reloading the bundle, then follows manual r
   await mount();
   expect(host.textContent).toContain('1 pending / 0 selected');
   await click('Select page');
-  await click('Push selected');
+  await push();
   await waitForPush();
   await waitForReview();
   // A push never reloads the bundle: CI/CDN lag would resurrect pre-save text.
@@ -303,7 +326,7 @@ it('shows one anonymous notice, leads with friendly categories, and filters cano
 it('retires acknowledgment when the bundle reports a superseding marker without catching up first', async () => {
   await mount();
   await click('Select page');
-  await click('Push selected');
+  await push();
   await waitForPush();
   await waitForReview();
   const other = structuredClone(tooltip);
@@ -340,7 +363,7 @@ it('suspends pending-review window shortcuts during Browse and restores them on 
 it('does not reload the bundle after a push, so success is never masked by a refresh', async () => {
   await mount();
   await click('Select page');
-  await click('Push selected');
+  await push();
   await waitForPush();
   expect(post).toHaveBeenCalledTimes(1);
   expect(vi.mocked(loadBundle)).toHaveBeenCalledTimes(1);
@@ -356,7 +379,7 @@ it('keeps partial-live error details and never acknowledges a failed publish', a
     new Response('partial live write: liveCommit=synthetic; markers not recorded', { status: 502 }),
   );
   await click('Select page');
-  await click('Push selected');
+  await push();
   await waitForPush();
   expect(host.textContent).toContain(
     'partial live write: liveCommit=synthetic; markers not recorded',
@@ -376,7 +399,7 @@ it('holds the submission lock across unmount and account/role transitions', asyn
     }),
   );
   await click('Select page');
-  await click('Push selected');
+  await push();
   await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
   expect(useReviewSession.getState().pushing).toBe(true);
   await act(async () => root.unmount());
@@ -408,16 +431,18 @@ it('holds the submission lock across unmount and account/role transitions', asyn
 it('aborts before sending when unmounted or account changes during digest calculation', async () => {
   await mount();
   await click('Select page');
+  await click('Push selected');
   await act(async () => {
-    button('Push selected').click();
+    button('Push 1 live').click();
     useAuthStore.setState({ user: { ...user, role: 'translator' } });
   });
   await waitForPush();
   expect(post).not.toHaveBeenCalled();
   await act(async () => useAuthStore.setState({ user }));
   await click('Select page');
+  await click('Push selected');
   await act(async () => {
-    button('Push selected').click();
+    button('Push 1 live').click();
     root.unmount();
   });
   root = createRoot(host);
@@ -442,8 +467,9 @@ it('clears reviewed selection on refresh and leaves keyboard events in controls 
 it('does not submit if the saved snapshot changes while digests are being computed', async () => {
   await mount();
   await click('Select page');
+  await click('Push selected');
   await act(async () => {
-    button('Push selected').click();
+    button('Push 1 live').click();
     const data = useDataStore.getState().data!;
     const newer = structuredClone(data);
     newer.bundle.tooltips[10].text.en!.text = 'Unreviewed concurrent save';
@@ -459,7 +485,7 @@ it('does not submit if the saved snapshot changes while digests are being comput
 it('retires acknowledgment when its tooltip is removed from the bundle', async () => {
   await mount();
   await click('Select page');
-  await click('Push selected');
+  await push();
   await waitForPush();
   await waitForReview();
   expect(Object.keys(useReviewSession.getState().acknowledgments)).toEqual(['10']);
@@ -557,3 +583,107 @@ it.each(['maintainer', 'translator'] as const)(
     ).toBe(true);
   },
 );
+
+it('asks first: lists what goes live, and Cancel or Escape pushes nothing', async () => {
+  const second = structuredClone(tooltip);
+  second.hash = 20;
+  bundle.tooltips[20] = second;
+  vi.mocked(loadGenerator).mockResolvedValue({
+    categories: [],
+    items: Object.fromEntries(
+      [10, 20].map((hash) => [
+        hash,
+        { hash, name: `Name ${hash}`, categoryId: 'other', icon: '', inGameDescription: '' },
+      ]),
+    ) as never,
+    aliases: {},
+  });
+  await mount();
+  await click('Select page');
+  await click('Push selected');
+  const dialog = host.querySelector('dialog')!;
+  expect(dialog.getAttribute('aria-label')).toBe('Push to live');
+  expect(dialog.textContent).toContain('2 tooltips go live');
+  expect([...dialog.querySelectorAll('li')].map((item) => item.textContent)).toEqual([
+    expect.stringContaining('Name 10'),
+    expect.stringContaining('Name 20'),
+  ]);
+  expect(document.activeElement).toBe(button('Push 2 live'));
+  expect(post).not.toHaveBeenCalled();
+  await click('Cancel');
+  expect(host.querySelector('dialog')).toBeNull();
+  expect(post).not.toHaveBeenCalled();
+  expect(host.textContent).toContain('2 pending / 2 selected');
+  await click('Push selected');
+  await act(async () =>
+    host.querySelector('dialog')!.dispatchEvent(new Event('cancel', { cancelable: true })),
+  );
+  expect(host.querySelector('dialog')).toBeNull();
+  expect(post).not.toHaveBeenCalled();
+});
+
+it('confirms once: a double-click or held Enter cannot send a second push', async () => {
+  await mount();
+  await click('Select page');
+  await click('Push selected');
+  const confirm = button('Push 1 live');
+  const held = new KeyboardEvent('keydown', {
+    key: 'Enter',
+    repeat: true,
+    cancelable: true,
+    bubbles: true,
+  });
+  await act(async () => confirm.dispatchEvent(held));
+  expect(held.defaultPrevented).toBe(true);
+  await act(async () => {
+    confirm.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 2 }));
+  });
+  expect(post).not.toHaveBeenCalled();
+  await act(async () => {
+    confirm.click();
+    confirm.click();
+    confirm.click();
+  });
+  await waitForPush();
+  expect(post).toHaveBeenCalledTimes(1);
+});
+
+it('does not cap the selection at 100', async () => {
+  for (let hash = 20; hash < 140; hash++) {
+    bundle.tooltips[hash] = { ...structuredClone(tooltip), hash };
+  }
+  vi.mocked(loadGenerator).mockResolvedValue({
+    categories: [],
+    items: Object.fromEntries(
+      Array.from({ length: 131 }, (_, index) => index + 10).map((hash) => [
+        hash,
+        { hash, name: `Name ${hash}`, categoryId: 'other', icon: '', inGameDescription: '' },
+      ]),
+    ) as never,
+    aliases: {},
+  });
+  post.mockImplementationOnce(async (init) =>
+    Response.json({
+      commit: 'a'.repeat(40),
+      liveCommit: 'b'.repeat(40),
+      pushed: {},
+      branch: 'synthetic-test',
+      hashes: JSON.parse(init?.body as string).hashes.length,
+    }),
+  );
+  await mount();
+  await waitFor(() => expect(host.textContent).toContain('121 pending'));
+  // Select every page, then push all of them.
+  for (let page = 0; page < 9; page++) {
+    await click('Select page');
+    if (page < 8) await click('Next page');
+  }
+  expect(host.textContent).toContain('121 pending / 121 selected');
+  expect(host.textContent).not.toContain('at most 100');
+  expect(button('Push selected').disabled).toBe(false);
+  await click('Push selected');
+  expect(host.querySelectorAll('dialog li')).toHaveLength(121);
+  await click('Push 121 live');
+  await waitForPush();
+  expect(JSON.parse(post.mock.calls[0][0]!.body as string).hashes).toHaveLength(121);
+});

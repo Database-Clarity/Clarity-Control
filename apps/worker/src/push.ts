@@ -6,21 +6,30 @@ import {
   pushedSchema,
   tooltipSchema,
   resolveAlias,
+  type Aliases,
+  type LegacyCatalog,
+  type Permissions,
   type Tooltip,
 } from '@clarity/core';
 import { catalog } from './catalog.js';
-import { RefRace, type GitHub } from './github.js';
+import { blobsPerQuery, RefRace, type GitHub } from './github.js';
 import { body, HttpError, json } from './http.js';
 import { permissions, requireAccess } from './permissions.js';
 import { stampUploads } from './stamp.js';
 import type { Identity } from './types.js';
 
+/**
+ * Not a product limit: a request this large is far past every tooltip there is. The Worker reads
+ * the tooltips in batches (see GitHub.blobs), so the number of GitHub calls barely grows with the
+ * selection; this only keeps one request inside the 48-subrequest budget (see below) and body.
+ */
+const maxHashes = 10_000;
 const pushSchema = z
   .object({
     hashes: z
       .array(hashSchema)
       .min(1)
-      .max(100)
+      .max(maxHashes)
       .refine((hashes) => new Set(hashes).size === hashes.length, 'Duplicate tooltip hash'),
     expected: z.record(z.string(), z.string().regex(/^[0-9a-f]{64}$/)).optional(),
   })
@@ -31,6 +40,69 @@ const liveSchema = z
     databaseSettings: z.record(z.string(), z.unknown()),
   })
   .passthrough();
+const roles: Permissions['users'][string]['role'][] = ['maintainer', 'editor'];
+
+/**
+ * Subrequests (Workers FREE plan: 50 per request; GitHub.subrequestLimit keeps two spare):
+ *   token 1 + catalog 3 (once) +
+ *   write live, per attempt: head 1, permissions 1*, tooltip batches ceil(n/500)*, marker 1*,
+ *     live head 1, live file 2 (contents + blob, it is over 1 MB), PUT 1 = 7 + batches
+ *   record, per attempt: head 1, permissions 1, live head 1, marker 1, commit 4 = 8
+ * (* skipped when the data head did not move since the previous attempt). The total for a
+ * first-try push is 19 + batches, i.e. 25 for all ~2500 tooltips; retries are counted and a
+ * retry that no longer fits stops before touching GitHub, so a push can never run the
+ * platform out of subrequests halfway through (the dangerous point is after the live write).
+ */
+const writeLiveCost = (batches: number) => 7 + batches;
+const recordCost = 8;
+
+interface Loaded {
+  head: string;
+  config: Permissions;
+  tooltips: Tooltip[];
+  snapshots: Record<string, Tooltip>;
+  exportedHashes: Record<string, string>;
+  pushed: Record<string, string>;
+}
+
+async function loadAtHead(
+  github: GitHub,
+  head: string,
+  config: Permissions,
+  canonicalHashes: number[],
+  aliases: Aliases,
+  facts: LegacyCatalog,
+  expected: Record<string, string> | undefined,
+): Promise<Loaded> {
+  const files = await github.files(
+    canonicalHashes.map((hash) => `tooltips/${hash}.json`),
+    head,
+  );
+  const tooltips: Tooltip[] = [];
+  const snapshots: Record<string, Tooltip> = {};
+  const exportedHashes: Record<string, string> = {};
+  for (const [index, hash] of canonicalHashes.entries()) {
+    const file = files[index];
+    if (!file) throw new HttpError(404, `Tooltip ${hash} does not exist`);
+    const tooltip = tooltipSchema.parse(file.value);
+    if (tooltip.hash !== hash) throw new HttpError(502, 'Stored tooltip hash mismatch');
+    tooltips.push(tooltip);
+    snapshots[`live/tooltips/${hash}.json`] = tooltip;
+    exportedHashes[hash] = await publishableHash(tooltip, aliases);
+    if (expected && expected[hash] !== exportedHashes[hash]) {
+      throw new HttpError(409, `Tooltip ${hash} changed since review; refresh saved changes`);
+    }
+  }
+  for (const tooltip of tooltips) {
+    if (!facts[tooltip.hash] && !tooltip.custom) {
+      throw new HttpError(422, `Missing generator facts for tooltip ${tooltip.hash}`);
+    }
+  }
+  // A malformed marker is reported by the marker step below; here it just means "all changed".
+  const pushed =
+    pushedSchema.safeParse((await github.requiredFile('live/pushed.json', head)).value).data ?? {};
+  return { head, config, tooltips, snapshots, exportedHashes, pushed };
+}
 
 export async function pushLive(
   request: Request,
@@ -39,37 +111,32 @@ export async function pushLive(
 ): Promise<Response> {
   const { hashes, expected } = await body(request, pushSchema);
   let liveCommit: string | undefined;
-  let exportedHashes: Record<string, string> = {};
-  let snapshots: Record<string, Tooltip> = {};
+  let loaded: Loaded | undefined;
+  let facts: LegacyCatalog | undefined;
+  let aliases: Aliases | undefined;
+  let canonicalHashes: number[] = [];
   for (let attempt = 0; attempt < 3; attempt++) {
-    exportedHashes = {};
-    snapshots = {};
+    if (github.remaining < writeLiveCost(Math.ceil(hashes.length / blobsPerQuery)) + recordCost) {
+      if (!attempt) {
+        throw new HttpError(503, 'This push needs too many upstream requests; push fewer tooltips');
+      }
+      break;
+    }
     const head = await github.head();
-    requireAccess(await permissions(github, head), user, ['maintainer', 'editor']);
-    const { facts, aliases } = await catalog(github.env);
-    const canonicalHashes = [...new Set(hashes.map((hash) => resolveAlias(hash, aliases)))];
-    const tooltips: Tooltip[] = [];
-    for (const hash of canonicalHashes) {
-      const file = await github.file(`tooltips/${hash}.json`, head);
-      if (!file) throw new HttpError(404, `Tooltip ${hash} does not exist`);
-      const tooltip = tooltipSchema.parse(file.value);
-      if (tooltip.hash !== hash) throw new HttpError(502, 'Stored tooltip hash mismatch');
-      tooltips.push(tooltip);
-      snapshots[`live/tooltips/${hash}.json`] = tooltip;
-      exportedHashes[hash] = await publishableHash(tooltip, aliases);
-      if (expected && expected[hash] !== exportedHashes[hash]) {
-        throw new HttpError(409, `Tooltip ${hash} changed since review; refresh saved changes`);
-      }
+    // Permissions are re-checked every attempt. Files at one commit never change, so when the
+    // data head has not moved the already-read copy is the current one.
+    const config = loaded?.head === head ? loaded.config : await permissions(github, head);
+    requireAccess(config, user, roles);
+    if (!facts || !aliases) {
+      const generated = await catalog(github.env, github);
+      facts = generated.facts;
+      aliases = generated.aliases;
+      canonicalHashes = [...new Set(hashes.map((hash) => resolveAlias(hash, generated.aliases)))];
     }
-    for (const tooltip of tooltips) {
-      if (!facts[tooltip.hash] && !tooltip.custom) {
-        throw new HttpError(422, `Missing generator facts for tooltip ${tooltip.hash}`);
-      }
+    if (loaded?.head !== head) {
+      loaded = await loadAtHead(github, head, config, canonicalHashes, aliases, facts, expected);
     }
-    // A malformed marker is reported by the marker step below; here it just means "all changed".
-    const pushed =
-      pushedSchema.safeParse((await github.requiredFile('live/pushed.json', head)).value).data ??
-      {};
+    const { tooltips, exportedHashes, pushed } = loaded;
     const changed = new Set(
       canonicalHashes.filter((hash) => pushed[hash] !== exportedHashes[hash]),
     );
@@ -93,13 +160,15 @@ export async function pushLive(
       if (!(error instanceof RefRace)) throw error;
     }
   }
-  if (!liveCommit) throw new HttpError(409, 'Live branch kept moving; retry push-live');
+  if (!liveCommit || !loaded) throw new HttpError(409, 'Live branch kept moving; retry push-live');
+  const { exportedHashes, snapshots } = loaded;
 
   // The two branches cannot be committed atomically. Never mark a newer save as pushed.
   try {
     for (let attempt = 0; attempt < 3; attempt++) {
+      if (github.remaining < recordCost) break;
       const head = await github.head();
-      requireAccess(await permissions(github, head), user, ['maintainer', 'editor']);
+      requireAccess(await permissions(github, head), user, roles);
       if ((await github.head(github.env.LIVE_BRANCH)) !== liveCommit) {
         throw new HttpError(409, 'Live changed before recording push; retry push-live');
       }

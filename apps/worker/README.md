@@ -105,9 +105,10 @@ push-live targets the real `converter` branch; an older converter has no editor 
 stubs and would drop frame aliases. Pushed markers refer
 only to canonical authored tooltips. Existing
 unselected perks, database settings and other root fields are preserved.
-Each request accepts 1–100 distinct selected hashes before canonical deduplication;
-an alias selection exports its entire canonical group, so the output can exceed
-100 entries. When sending `expected`, key digests by resolved canonical hash,
+Each request accepts 1–10 000 distinct selected hashes (a sanity bound, not a product
+limit) before canonical deduplication; an alias selection exports its entire canonical group.
+Tooltips are read in GraphQL batches of 500, so the GitHub calls barely grow with the
+selection (see "Subrequest budget"). When sending `expected`, key digests by resolved canonical hash,
 including for alias-only selections. Run rollout batches sequentially and inspect
 each result before continuing. Unselected legacy alias copies remain intentionally
 stale until their group is selected; this is different from a reference stub whose
@@ -185,7 +186,7 @@ author/committer payloads, catalog projection/aliases, partial publishing,
 history, and multiline CSV/cache expiry. They do not require secrets, an account,
 or a network connection. A dry run bundles only; it does not deploy.
 `push-batches.test.ts` and `push-recovery.test.ts` exercise the real Worker and
-GitHub adapter against mocked services, including both rollout orders, 100/101
+GitHub adapter against mocked services, including both rollout orders, 101-tooltip
 selections, group closure, partial failures and reviewed recovery. These offline
 fixtures do not establish arbitrary batch ordering safety, real publisher adoption,
 or an atomic transaction between the two branches.
@@ -199,3 +200,19 @@ request tokens or private keys.
 Wrangler is pinned to 4.153.0. The v2 workspace and CI use Node 24 LTS (see root
 `.nvmrc`). Root `build` builds the web app and dry-run bundles the Worker; it
 never deploys the Worker.
+
+## Subrequest budget (Workers FREE plan)
+
+The free plan allows 50 external subrequests and 10 ms CPU per request. `GitHub` counts every
+outgoing fetch (`spend`, limit 48) and refuses with 503 before the platform would fail one
+halfway through a write; `push.ts` also stops a retry that would not leave the 8 requests needed
+to record the push. Tooltip files are read with `GitHub.blobs/files` (one GraphQL call per 500
+files; refs must be full SHAs and paths plain repository paths), also in `save` and the
+history fallback. Push totals: 19 + ceil(n/500) first try (25 for all ~2 500 tooltips), +5 per
+live-branch retry. `push-budget.test.ts` pins these numbers.
+
+CPU is a separate matter and is NOT met on the free plan (10 ms). Measured on Node with the real
+~2 MB `liveDescriptions.json`: rewriting that file (decode, parse, stringify, encode) costs about
+17-24 ms per push whatever the selection, and a push of all ~2 600 tooltips costs 150-300 ms in
+total (digests ~110 ms). Native base64 codecs are used where the runtime has them. Real options:
+the Workers Paid plan ($5/month, 30 s CPU) or a multi-request / text-splice redesign of push.

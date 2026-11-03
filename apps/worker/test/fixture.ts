@@ -55,6 +55,13 @@ export class Fixture {
   liveRaces = 0;
   upstreamStatus?: number;
   blobReads = 0;
+  /** Every outgoing fetch (what the Workers platform counts as a subrequest). */
+  subrequests = 0;
+  graphqlCalls = 0;
+  /** Serve GraphQL blobs as truncated, so reads fall back to the contents API. */
+  truncateGraphql = false;
+  /** Break contents-API base64 into 60-column lines, as GitHub does. */
+  wrapBase64 = false;
   largeFile = false;
   googleCalls = 0;
   csv = 'Perk,Description\r\n"Thing","Line 1\nLine 2, ""quoted"""\r\n';
@@ -151,10 +158,37 @@ export class Fixture {
     return new Response(JSON.stringify(value), { status });
   }
 
+  private wrap(base64: string): string {
+    return this.wrapBase64 ? `${(base64.match(/.{1,60}/g) ?? []).join('\n')}\n` : base64;
+  }
+
+  private graphql(raw: unknown): Response {
+    this.graphqlCalls++;
+    const input = z
+      .object({ query: z.string(), variables: z.record(z.string(), z.string()) })
+      .parse(raw);
+    const repository: Record<string, unknown> = {};
+    for (const [name, expression] of Object.entries(input.variables)) {
+      if (!/^e[0-9]+$/.test(name)) continue;
+      const [ref, path] = expression.split(':');
+      const value = this.snapshots.get(ref!)?.[path!];
+      repository[`o${name.slice(1)}`] =
+        value === undefined
+          ? null
+          : {
+              oid: createHash('sha1').update(JSON.stringify(value)).digest('hex'),
+              isTruncated: this.truncateGraphql,
+              text: this.truncateGraphql ? null : JSON.stringify(value),
+            };
+    }
+    return this.response({ data: { repository } });
+  }
+
   async fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     const url = new URL(input instanceof Request ? input.url : String(input));
     const method = init?.method ?? 'GET';
     const raw: unknown = init?.body ? JSON.parse(String(init.body)) : undefined;
+    this.subrequests++;
     if (url.hostname === 'docs.google.com') {
       this.googleCalls++;
       expectGoogleUrl(url);
@@ -196,6 +230,7 @@ export class Fixture {
       throw new Error('Repository operation did not use the installation token');
     }
     if (this.upstreamStatus) return this.response({}, this.upstreamStatus);
+    if (url.pathname === '/graphql' && method === 'POST') return this.graphql(raw);
     const path = url.pathname.replace(
       '/repos/' + this.env.GITHUB_OWNER + '/' + this.env.GITHUB_REPO,
       '',
@@ -225,7 +260,7 @@ export class Fixture {
         content:
           this.largeFile && name === 'liveDescriptions.json'
             ? ''
-            : Buffer.from(JSON.stringify(value), 'utf8').toString('base64'),
+            : this.wrap(Buffer.from(JSON.stringify(value), 'utf8').toString('base64')),
       });
     }
     if (path.startsWith('/git/blobs/')) {
