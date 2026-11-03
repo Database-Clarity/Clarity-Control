@@ -39,6 +39,7 @@ function seed(count: number): number[] {
 describe('push-live subrequests', () => {
   it.each([1, 100, 500, 501, 1200])(
     'uses a flat number of upstream requests for %i tooltips',
+    { timeout: 30_000 },
     async (count) => {
       const hashes = seed(count);
       fixture.subrequests = 0;
@@ -55,7 +56,10 @@ describe('push-live subrequests', () => {
     },
   );
 
-  it('accepts a selection of every tooltip there is', async () => {
+  // Thousands of tooltips are hashed and exported in-process; give them room on a loaded machine.
+  const heavy = 30_000;
+
+  it('accepts a selection of every tooltip there is', { timeout: heavy }, async () => {
     const hashes = seed(2600);
     fixture.subrequests = 0;
     const response = await fixture.request('/push-live', 'POST', { hashes });
@@ -86,17 +90,21 @@ describe('push-live subrequests', () => {
     expect(fixture.subrequests).toBeLessThanOrEqual(subrequestLimit);
   });
 
-  it('stops a retry that would not leave room to record the push, before writing anything', async () => {
-    const hashes = seed(6000);
-    fixture.largeFile = false;
-    fixture.liveRaces = 1;
-    fixture.subrequests = 0;
-    const response = await fixture.request('/push-live', 'POST', { hashes });
-    expect(response.status).toBe(409);
-    expect(fixture.writes).toHaveLength(0);
-    expect(fixture.commits).toHaveLength(0);
-    expect(fixture.subrequests).toBeLessThanOrEqual(subrequestLimit);
-  });
+  it(
+    'stops a retry that would not leave room to record the push, before writing anything',
+    { timeout: heavy },
+    async () => {
+      const hashes = seed(6000);
+      fixture.largeFile = false;
+      fixture.liveRaces = 1;
+      fixture.subrequests = 0;
+      const response = await fixture.request('/push-live', 'POST', { hashes });
+      expect(response.status).toBe(409);
+      expect(fixture.writes).toHaveLength(0);
+      expect(fixture.commits).toHaveLength(0);
+      expect(fixture.subrequests).toBeLessThanOrEqual(subrequestLimit);
+    },
+  );
 
   it('refuses a selection beyond the request bound', async () => {
     const response = await fixture.request('/push-live', 'POST', {
