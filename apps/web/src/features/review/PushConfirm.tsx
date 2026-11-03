@@ -11,10 +11,13 @@ import styles from './Review.module.scss';
  */
 export function PushConfirm({
   entries,
+  background = false,
   onConfirm,
   onCancel,
 }: {
   entries: PendingTooltip[];
+  /** Publisher flow: the run happens in the background after confirming (wording only). */
+  background?: boolean;
   onConfirm(): void;
   onCancel(): void;
 }) {
@@ -24,10 +27,10 @@ export function PushConfirm({
   // showModal would otherwise leave it on the header's Close button.
   useEffect(() => confirm.current?.focus(), []);
   const count = entries.length;
-  const label = `Push ${count} live`;
+  const label = background ? `Publish ${count}` : `Push ${count} live`;
   return (
     <Dialog
-      title="Push to live"
+      title={background ? 'Publish to live' : 'Push to live'}
       onClose={onCancel}
       footer={
         <>
@@ -56,6 +59,12 @@ export function PushConfirm({
       <p className={styles.confirmSummary}>
         {count === 1 ? '1 tooltip goes' : `${count} tooltips go`} live for everyone using Clarity.
       </p>
+      {background && (
+        <p className={styles.confirmSummary}>
+          Publishing runs in the background and takes a minute or two. You can keep working;
+          progress shows on the Review page.
+        </p>
+      )}
       <ul className={styles.confirmList} aria-label="Tooltips going live" tabIndex={0}>
         {entries.map(({ tooltip, name, category }) => (
           <li key={tooltip.hash}>

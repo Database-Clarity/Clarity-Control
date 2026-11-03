@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { apiUrl } from '../../services/api';
 import { errorMessage } from '../../services/http';
@@ -18,6 +18,11 @@ import { PushConfirm } from './PushConfirm';
 import { ReviewDetail } from './ReviewDetail';
 import { ReviewRow } from './ReviewRow';
 import { acknowledgedMarkers, publishReviewed, useReviewSession } from './session';
+import { publisherEnabled } from '../../services/publisher/flag';
+import { PublishActivity } from './PublishActivity';
+import { queuePublish } from './publishAction';
+import { publishDriver } from './publisher';
+import { activeHashes, usePublishState } from './publishDriver';
 import { useSidebarQueueStore } from '../navigation/sidebarQueue';
 import { workspaceShortcutsBlocked } from '../../ui/interaction';
 import styles from './Review.module.scss';
@@ -39,6 +44,17 @@ export function ReviewPage() {
   const query = searchParams.get('query') ?? '';
   const categoryFilter = searchParams.get('category') ?? '';
   const { pushing, notice, error: pushError, acknowledgments } = useReviewSession();
+  const publisher = publisherEnabled();
+  const ops = usePublishState((state) => state.ops);
+  // Hashes inside a publish that is still queued or being sent; cannot be picked again.
+  const inFlight = useMemo(
+    () => (publisher ? activeHashes(ops) : new Set<number>()),
+    [ops, publisher],
+  );
+  useEffect(() => {
+    // Pick up operations another tab started and anything now due, whenever this page opens.
+    if (publisher) void publishDriver.refresh();
+  }, [publisher]);
   const mounted = useRef(false);
   useEffect(() => {
     mounted.current = true;
@@ -139,7 +155,7 @@ export function ReviewPage() {
     window.addEventListener('keydown', keydown);
     return () => window.removeEventListener('keydown', keydown);
   }, [pushing, selectIndex, visibleEntries.length]);
-  const hashes = selectedPending(selected, entries);
+  const hashes = selectedPending(selected, entries).filter((hash) => !inFlight.has(hash));
   const start = Math.floor(index / pageSize) * pageSize;
   const page = visibleEntries.slice(start, start + pageSize);
   const groups = [...new Set(page.map((entry) => entry.categoryId))];
@@ -175,7 +191,11 @@ export function ReviewPage() {
   async function publish({ entries: chosen, data: reviewed }: NonNullable<typeof confirming>) {
     setConfirming(undefined);
     setError(undefined);
-    const succeeded = await publishReviewed(chosen, reviewed, () => mounted.current);
+    const succeeded = await (publisher ? queuePublish : publishReviewed)(
+      chosen,
+      reviewed,
+      () => mounted.current,
+    );
     if (succeeded && mounted.current) setSelected(new Set());
   }
 
@@ -201,6 +221,7 @@ export function ReviewPage() {
       {confirming && (
         <PushConfirm
           entries={confirming.entries}
+          background={publisher}
           onConfirm={() => void publish(confirming)}
           onCancel={() => setConfirming(undefined)}
         />
@@ -208,6 +229,7 @@ export function ReviewPage() {
       {error && <p role="alert">{error}</p>}
       {pushError && <p role="alert">{pushError}</p>}
       {notice && <p role="status">{notice}</p>}
+      {publisher && canPush(user) && <PublishActivity queue={data?.bundle.publishQueue} />}
       <div className={styles.toolbar}>
         <button type="button" disabled={pushing || loading} onClick={() => void load()}>
           Refresh saved changes
@@ -221,7 +243,13 @@ export function ReviewPage() {
             disabled={pushing || loading || !hashes.length}
             onClick={askToPublish}
           >
-            {pushing ? 'Pushing...' : 'Push selected'}
+            {publisher
+              ? pushing
+                ? 'Starting...'
+                : 'Publish selected'
+              : pushing
+                ? 'Pushing...'
+                : 'Push selected'}
           </button>
         )}
       </div>
@@ -298,7 +326,13 @@ export function ReviewPage() {
                     type="button"
                     disabled={pushing}
                     onClick={() =>
-                      setSelected((previous) => new Set([...previous, ...publishableHashes(page)]))
+                      setSelected(
+                        (previous) =>
+                          new Set([
+                            ...previous,
+                            ...publishableHashes(page).filter((hash) => !inFlight.has(hash)),
+                          ]),
+                      )
                     }
                   >
                     Select page
@@ -325,6 +359,7 @@ export function ReviewPage() {
                             checked={selected.has(entry.tooltip.hash)}
                             active={visibleEntries[index]?.tooltip.hash === entry.tooltip.hash}
                             disabled={pushing}
+                            publishing={inFlight.has(entry.tooltip.hash)}
                             historyAvailable={Boolean(apiUrl && user?.role)}
                             onToggle={() =>
                               setSelected((previous) =>
