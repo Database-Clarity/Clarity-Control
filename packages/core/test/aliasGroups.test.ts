@@ -323,3 +323,18 @@ test('possible enhanced pairs stay separate from alias proposals and require a m
     }),
   ).toThrow();
 });
+
+test('notification fallback facts route to the base and enhanced wording queue without an isEnhanced flag', () => {
+  const base = { ...items[42]!, name: 'Accelerated Assault', categoryId: 'weapon-trait-origin' };
+  const variant = {
+    ...base,
+    hash: 43,
+    categoryId: 'weapon-trait-origin-enhanced',
+    baseHash: 42,
+    inGameDescription: 'Further increases reload speed.',
+  };
+  const facts = { 42: base, 43: variant };
+  expect(aliasCanonicalHash(43, facts, {})).toBe(42);
+  expect(enhancedWordingNeeded(facts, {}, {})).toEqual([{ baseHash: 42, enhancedHashes: [43] }]);
+  expect(readPossibleEnhanced({ version: 1, proposals: [], possibleEnhanced: [] })).toEqual([]);
+});
