@@ -64,13 +64,14 @@ export function createDraftStore(storage: DraftStorage) {
       // Bind the bucket now: a later account switch must never redirect this write.
       const destination = target;
       const writer = owner;
+      const writerGeneration = generation;
       set((state) => ({ pending: state.pending + 1 }));
       queue = queue.then(async () => {
         try {
           await destination.write(drafts);
-          if (destination === target) set({ error: null });
+          if (writerGeneration === generation) set({ error: null });
         } catch (error) {
-          if (destination === target)
+          if (writerGeneration === generation)
             set({
               error: `Drafts are NOT safely stored: ${errorMessage(error)}. Keep this tab open and retry.`,
             });
@@ -139,12 +140,12 @@ export function createDraftStore(storage: DraftStorage) {
         // Identical drafts are dropped from the unowned copy, so the account copy must be on disk.
         if (get().error) throw new Error('Fix draft storage (see the alert above) before adopting');
         await queue;
-        // A write queued before the click may have failed meanwhile.
-        if (get().error) throw new Error('Fix draft storage (see the alert above) before adopting');
         const stale = { adopted: 0, left: get().unowned };
         if (mine !== generation) return stale;
+        // A write queued before the click may have failed meanwhile.
+        if (get().error) throw new Error('Fix draft storage (see the alert above) before adopting');
         const unowned = await storage.read();
-        if (mine !== generation) return stale;
+        if (mine !== generation || get().error) return stale;
         const current = get().drafts;
         const moved: Drafts = {};
         const left: Drafts = {};
@@ -157,25 +158,32 @@ export function createDraftStore(storage: DraftStorage) {
           } else if (JSON.stringify(existing) === JSON.stringify(draft)) adopted++;
           else left[hash] = draft; // The account already has its own draft: keep both.
         }
-        if (Object.keys(moved).length) {
-          const merged: Drafts = { ...current, ...moved };
+        const merged = Object.keys(moved).length ? { ...current, ...moved } : current;
+        if (merged !== current) {
           set({ drafts: merged });
           persist(merged);
-          await queue;
-          // Copy first, delete second: a failure here can only duplicate, never lose.
-          if (mine !== generation || get().error) return stale;
         }
-        try {
-          await storage.write(left);
-        } catch (error) {
-          set({
-            error: `Drafts were copied into your account, but the signed-out copy could not be cleared: ${errorMessage(error)}.`,
-          });
-          return stale;
-        }
-        rememberSeparate(account);
-        set({ unowned: 0 });
-        return { adopted, left: Object.keys(left).length };
+        let result = stale;
+        // Include edits queued during the read, and serialize cleanup with later edits/switches.
+        // The snapshot must still be current and durably stored before deleting its source.
+        queue = queue.then(async () => {
+          if (mine !== generation || get().error || get().drafts !== merged) return;
+          try {
+            await storage.write(left);
+          } catch (error) {
+            if (mine !== generation) return;
+            set({
+              error: `Drafts were copied into your account, but the signed-out copy could not be cleared: ${errorMessage(error)}.`,
+            });
+            return;
+          }
+          if (mine !== generation || get().error) return;
+          rememberSeparate(account);
+          set({ unowned: 0 });
+          result = { adopted, left: Object.keys(left).length };
+        });
+        await queue;
+        return result;
       },
       dismissPreviousAccountError() {
         set({ previousAccountError: null });
