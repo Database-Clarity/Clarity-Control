@@ -47,7 +47,7 @@ function mount(entries: string[]) {
 const path = () => router.state.location.pathname;
 const dialog = () => host.querySelector('dialog');
 const button = (name: string) =>
-  [...host.querySelectorAll('button, a')].find((element) => element.textContent === name) as
+  [...host.querySelectorAll('button, a')].find((element) => element.textContent?.replace(/(Enter|Esc)$/, '') === name) as
     | HTMLElement
     | undefined;
 function click(name: string) {
@@ -132,7 +132,8 @@ describe('PreviewLeaveGuard', () => {
     mount(['/t/10']);
     click('Review');
     const names = [...dialog()!.querySelectorAll('footer button')].map((item) => item.textContent);
-    expect(names).toEqual(['Show preview', 'Stay']);
+    expect(names).toEqual(['Show previewEnter', 'StayEsc']);
+    expect(dialog()?.textContent).toContain('Leaving is possible once the preview has been shown.');
     click('Stay');
     expect(dialog()).toBeNull();
     expect(path()).toBe('/t/10');
@@ -141,7 +142,7 @@ describe('PreviewLeaveGuard', () => {
     expect(path()).toBe('/t/10');
   });
 
-  it('Escape and the close button also mean Stay', async () => {
+  it('Escape means Stay, and the compact prompt has no separate close button', async () => {
     mount(['/t/10']);
     click('Review');
     act(() => {
@@ -150,11 +151,7 @@ describe('PreviewLeaveGuard', () => {
     expect(dialog()).toBeNull();
     expect(path()).toBe('/t/10');
     click('Review');
-    act(() => {
-      (dialog()!.querySelector('[aria-label="Close dialog"]') as HTMLElement).click();
-    });
-    expect(dialog()).toBeNull();
-    expect(path()).toBe('/t/10');
+    expect(dialog()!.querySelector('[aria-label="Close dialog"]')).toBeNull();
   });
 
   it('Show preview stays on the item and then shows the column once the dialog is gone', async () => {

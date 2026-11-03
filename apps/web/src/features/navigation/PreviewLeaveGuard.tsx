@@ -1,6 +1,7 @@
 import { useContext, useEffect, useState } from 'react';
 import { UNSAFE_DataRouterContext, useBlocker, useLocation } from 'react-router-dom';
 import { Dialog } from '../../ui/Dialog';
+import dialogStyles from '../../ui/Dialog.module.scss';
 import { useDataStore } from '../../stores/data';
 import { usePreviewReviewStore } from '../../stores/previewReview';
 import { canonicalHash, itemFor } from './catalog';
@@ -53,6 +54,7 @@ function Blocking() {
     <Dialog
       title="Check the preview first"
       onClose={stay}
+      compact
       footer={
         <>
           <button
@@ -64,10 +66,10 @@ function Blocking() {
               stay();
             }}
           >
-            Show preview
+            Show preview<kbd className={dialogStyles.hint}>Enter</kbd>
           </button>
           <button type="button" onClick={stay}>
-            Stay
+            Stay<kbd className={dialogStyles.hint}>Esc</kbd>
           </button>
         </>
       }
@@ -76,6 +78,7 @@ function Blocking() {
         Your changes to {name} haven&apos;t been shown in the preview yet. Show it to check them,
         then you can leave.
       </p>
+      <p className={dialogStyles.caption}>Leaving is possible once the preview has been shown.</p>
     </Dialog>
   );
 }

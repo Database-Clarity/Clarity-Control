@@ -33,6 +33,26 @@
   }
 }
 
+// Short prompts (the preview leave guard): a narrow card, not a 60rem sheet.
+.compact {
+  width: min(28rem, calc(100vw - 2rem));
+}
+
+.hint {
+  margin-left: 0.5rem;
+  font: 11px/1 ui-monospace, monospace;
+  padding: 1px 4px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  opacity: 0.65;
+}
+
+.caption {
+  margin: 0;
+  color: var(--text2);
+  font-size: 12px;
+}
+
 @include theme.coarse-pointer {
   .dialog {
     button,

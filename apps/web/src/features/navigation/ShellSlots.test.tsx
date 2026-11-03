@@ -126,9 +126,7 @@ describe('shell slots', () => {
 
   it('refuses to be used outside a Layout', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(() => act(() => root.render(<ShellSlot name="left">x</ShellSlot>))).toThrow(
-      'Layout',
-    );
+    expect(() => act(() => root.render(<ShellSlot name="left">x</ShellSlot>))).toThrow('Layout');
     error.mockRestore();
     root = createRoot(host);
   });

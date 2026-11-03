@@ -104,7 +104,9 @@ async function click(element: Element | null | undefined) {
   await act(async () => (element as HTMLElement).click());
 }
 const named = (label: string) =>
-  [...host.querySelectorAll('button')].find((button) => button.textContent === label);
+  [...host.querySelectorAll('button')].find(
+    (button) => button.textContent?.replace(/(Enter|Esc)$/, '') === label,
+  );
 
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });

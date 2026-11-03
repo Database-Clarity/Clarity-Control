@@ -7,6 +7,7 @@ export function Dialog({
   onClose,
   busy = false,
   footer,
+  compact = false,
 }: {
   title: string;
   children: ReactNode;
@@ -14,6 +15,8 @@ export function Dialog({
   busy?: boolean;
   /** Primary actions; sticks to the bottom of the sheet at the mobile breakpoint. */
   footer?: ReactNode;
+  /** A short prompt: narrow, and Escape or its own buttons are the only ways out. */
+  compact?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -31,7 +34,7 @@ export function Dialog({
   return (
     <dialog
       ref={ref}
-      className={styles.dialog}
+      className={compact ? `${styles.dialog} ${styles.compact}` : styles.dialog}
       aria-label={title}
       aria-busy={busy}
       onCancel={(event) => {
@@ -41,9 +44,11 @@ export function Dialog({
     >
       <header className={styles.header}>
         <h2>{title}</h2>
-        <button type="button" onClick={onClose} disabled={busy} aria-label="Close dialog">
-          Close
-        </button>
+        {!compact && (
+          <button type="button" onClick={onClose} disabled={busy} aria-label="Close dialog">
+            Close
+          </button>
+        )}
       </header>
       <div className={styles.body}>{children}</div>
       {footer && <footer className={styles.footer}>{footer}</footer>}

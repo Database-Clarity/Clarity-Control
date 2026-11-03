@@ -1,4 +1,4 @@
-/* global document, getComputedStyle, localStorage, window */
+/* global document, getComputedStyle */
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
@@ -195,12 +195,12 @@ try {
     await dialog.waitFor();
     assert.equal(
       await guard.evaluate(() => document.activeElement?.textContent),
-      'Show preview',
+      'Show previewEnter',
       'Enter activates Show preview',
     );
     assert.deepEqual(
       await dialog.locator('footer button').allTextContents(),
-      ['Show preview', 'Stay'],
+      ['Show previewEnter', 'StayEsc'],
       'no bypass',
     );
     await guard.screenshot({ path: `${shots}/${theme}-guard-prompt.png` });

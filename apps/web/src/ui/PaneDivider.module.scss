@@ -27,24 +27,16 @@
     top: 50%;
     left: 6px;
     width: 3px;
-    height: 32px;
-    margin-top: -16px;
+    height: 40px;
+    margin-top: -20px;
     border-radius: 2px;
     background: var(--ctl-edge);
-  }
-
-  &:hover::before,
-  &:focus-visible::before,
-  &[data-dragging]::before {
-    background: var(--accent-ink);
   }
 
   &:hover::after,
   &:focus-visible::after,
   &[data-dragging]::after {
     background: var(--accent-ink);
-    height: 40px;
-    margin-top: -20px;
   }
 
   &:focus-visible::after {
