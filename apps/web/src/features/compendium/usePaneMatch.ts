@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { CompendiumData, Tooltip } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import type { Drafts } from '../../services/draftStorage';
@@ -20,6 +20,25 @@ export function usePaneMatch(
   drafts: Drafts,
   userId?: string | number,
 ) {
+  // Match gates inspect link/classification edits, not live text or associations.
+  const draftEvidence = JSON.stringify(
+    Object.fromEntries(
+      Object.entries(drafts)
+        .filter(([, draft]) => draft.base.compendium || draft.next.compendium || draft.next.custom)
+        .map(([hash, draft]) => [
+          hash,
+          {
+            base: draft.base,
+            next: {
+              ...draft.base,
+              compendium: draft.next.compendium,
+              custom: draft.next.custom,
+            },
+          },
+        ]),
+    ),
+  );
+  const matchingDrafts = useMemo(() => JSON.parse(draftEvidence) as Drafts, [draftEvidence]);
   const [revision, refresh] = useState(0);
   const [result, setResult] = useState<{
     base: Tooltip;
@@ -40,7 +59,7 @@ export function usePaneMatch(
     };
   }, []);
   useEffect(() => {
-    if (!editor || !source || base.compendium || drafts[base.hash]?.next.compendium) return;
+    if (!editor || !source || base.compendium || matchingDrafts[base.hash]?.next.compendium) return;
     let cancelled = false;
     // No persistence owner: reading pending guidance must never start an autosave from this pane.
     const timer = setTimeout(() => {
@@ -75,23 +94,23 @@ export function usePaneMatch(
           localStorage,
           reviewStorageKey(`${scope}|${apiUrl ?? 'read-only'}`, userId),
         );
-        const match = paneMatch(base, editor, source, drafts, progress, document, scope);
-        if (!cancelled) setResult({ base, editor, source, drafts, userId, revision, match });
+        const match = paneMatch(base, editor, source, matchingDrafts, progress, document, scope);
+        if (!cancelled)
+          setResult({ base, editor, source, drafts: matchingDrafts, userId, revision, match });
       })().catch(() => {
         /* Invalid evidence keeps the ordinary picker fallback. */
       });
-    }, 0);
+    }, 300);
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [base, editor, source, drafts, userId, revision]);
+  }, [base, editor, source, matchingDrafts, userId, revision]);
   return result?.base === base &&
     result.editor === editor &&
     result.source === source &&
-    result.drafts === drafts &&
-    result.userId === userId &&
-    result.revision === revision
+    result.drafts === matchingDrafts &&
+    result.userId === userId
     ? result.match
     : undefined;
 }
