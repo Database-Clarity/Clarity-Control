@@ -244,6 +244,89 @@ export class GitHub {
     return this.blobs(paths.map((path) => ({ ref, path })));
   }
 
+  /** One head and its files, all selected through that Commit. No fallback reads: bounded. */
+  async publishSnapshot(paths: readonly string[]) {
+    if (paths.length > 41 || paths.some((p) => !pathPattern.test(p) || p.includes('..')))
+      throw new HttpError(400, 'Invalid publish paths');
+    const selections = paths
+      .map((_, i) => `o${i}:file(path:$p${i}){object{... on Blob{oid isTruncated text}}}`)
+      .join(' ');
+    const variables: Record<string, string> = {
+      owner: this.env.GITHUB_OWNER,
+      name: this.env.GITHUB_REPO,
+      branch: `refs/heads/${this.env.DATA_BRANCH}`,
+    };
+    paths.forEach((p, i) => (variables[`p${i}`] = p));
+    const repository = z
+      .object({
+        ref: z.object({
+          target: z
+            .object({
+              oid: shaSchema.shape.sha,
+              tree: z.object({ oid: shaSchema.shape.sha }),
+            })
+            .passthrough(),
+        }),
+      })
+      .parse(
+        await this.graphql(
+          `query($owner:String!,$name:String!,$branch:String!,${paths.map((_, i) => `$p${i}:String!`).join(',')}){repository(owner:$owner,name:$name){ref(qualifiedName:$branch){target{... on Commit{oid tree{oid} ${selections}}}}}}`,
+          variables,
+        ),
+      );
+    const target = repository.ref.target;
+    const files = paths.map((path, i): RepoFile | null => {
+      const entry = z.object({ object: blobFields }).nullable().parse(target[`o${i}`]);
+      if (!entry) return null;
+      if (entry.object.isTruncated || entry.object.text === null)
+        throw new HttpError(502, 'Publish metadata is too large or unreadable');
+      return { sha: entry.object.oid, value: parseJsonFile(entry.object.text, path) };
+    });
+    return { head: target.oid, tree: target.tree.oid, files };
+  }
+
+  /** Three writes, sole parent H. No rebase: a concurrent head move must reject this commit. */
+  async createPublishRequest(
+    head: string,
+    baseTree: string,
+    path: string,
+    value: unknown,
+    user: Identity,
+  ) {
+    const tree = shaSchema.parse(
+      await this.result('/git/trees', 'POST', {
+        base_tree: baseTree,
+        tree: [{ path, mode: '100644', type: 'blob', content: JSON.stringify(value) + '\n' }],
+      }),
+    );
+    const commit = shaSchema.parse(
+      await this.result('/git/commits', 'POST', {
+        tree: tree.sha,
+        parents: [head],
+        message: `Request publish by ${user.login}`,
+        ...this.credits(user),
+      }),
+    );
+    const response = await this.request(
+      `/git/refs/heads/${encodeURIComponent(this.env.DATA_BRANCH)}`,
+      'PATCH',
+      {
+        sha: commit.sha,
+        force: false,
+      },
+    );
+    if (!response.ok) throw new HttpError(503, 'Publish create needs reconciliation');
+  }
+
+  async kickPublish(opId: string) {
+    const nonce = [...crypto.getRandomValues(new Uint32Array(2))].join('');
+    await this.result(`/contents/publish/kicks/${opId}-${nonce}.json`, 'PUT', {
+      branch: this.env.DATA_BRANCH,
+      message: `Kick publish ${opId}`,
+      content: encodeContent({ opId }),
+    });
+  }
+
   async file(path: string, ref: string): Promise<RepoFile | null> {
     const encoded = path.split('/').map(encodeURIComponent).join('/');
     const response = await this.request(`/contents/${encoded}?ref=${encodeURIComponent(ref)}`);

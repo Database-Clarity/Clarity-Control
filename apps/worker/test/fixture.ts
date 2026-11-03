@@ -168,6 +168,26 @@ export class Fixture {
       .object({ query: z.string(), variables: z.record(z.string(), z.string()) })
       .parse(raw);
     const repository: Record<string, unknown> = {};
+    if (input.variables.branch) {
+      const files = this.current();
+      const target: Record<string, unknown> = { oid: this.dataHead, tree: { oid: this.dataHead } };
+      for (const [name, path] of Object.entries(input.variables)) {
+        if (!/^p[0-9]+$/.test(name)) continue;
+        const value = files[path];
+        target[`o${name.slice(1)}`] =
+          value === undefined
+            ? null
+            : {
+                object: {
+                  oid: createHash('sha1').update(JSON.stringify(value)).digest('hex'),
+                  isTruncated: this.truncateGraphql,
+                  text: this.truncateGraphql ? null : JSON.stringify(value),
+                },
+              };
+      }
+      return this.response({ data: { repository: { ref: { target } } } });
+    }
+
     for (const [name, expression] of Object.entries(input.variables)) {
       if (!/^e[0-9]+$/.test(name)) continue;
       const [ref, path] = expression.split(':');
@@ -313,6 +333,10 @@ export class Fixture {
       }
       this.dataHead = z.object({ sha: z.string(), force: z.literal(false) }).parse(raw).sha;
       return this.response({ object: { sha: this.dataHead } });
+    }
+    if (path.startsWith('/contents/publish/kicks/') && method === 'PUT') {
+      this.writes.push(objectSchema.parse(raw));
+      return this.response({ commit: { sha: sha(this.sequence++) } }, 201);
     }
     if (path === '/contents/liveDescriptions.json' && method === 'PUT') {
       if (this.liveRaces-- > 0) return this.response({}, 409);

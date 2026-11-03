@@ -674,3 +674,33 @@ it('fixed-now golden matches pushLive at afa1e8e byte for byte and pushed map', 
     worker.current()['live/pushed.json'],
   );
 });
+it.each([
+  ['stale', false],
+  ['stale', true],
+  ['rejected', false],
+  ['rejected', true],
+] as const)(
+  'RECORD closes a replacement while recording %s (same intent=%s)',
+  async (status, sameIntent) => {
+    const f = await setup();
+    const original = await f.request();
+    const oldBlob = f.git.tree(f.git.head(D)!)[paths(A).request];
+    await f.request(A, [123], sameIntent ? undefined : { 123: 'b'.repeat(64) }, {
+      createdAt: '2026-11-03T13:00:00.000Z',
+    });
+    const replaced = f.git.tree(f.git.head(D)!)[paths(A).request];
+    expect(replaced).not.toBe(oldBlob);
+    await f.pub.record(A, undefined, undefined, { status }, oldBlob);
+    const tree = f.git.tree(f.git.head(D)!);
+    expect(tree[paths(A).request]).toBeUndefined();
+    expect(
+      f.pub.read<{ status: string; requestBlob: string }>(
+        tree,
+        paths(A).log.replace('.json', '.dup-1.json'),
+      ),
+    ).toEqual({ status: sameIntent ? 'duplicate' : 'conflict', requestBlob: replaced });
+    expect(f.pub.read<{ intentDigest: string }>(tree, paths(A).log)?.intentDigest).toBe(
+      original.payload.intentDigest,
+    );
+  },
+);
