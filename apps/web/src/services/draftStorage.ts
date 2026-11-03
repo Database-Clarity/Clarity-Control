@@ -20,7 +20,16 @@ export type Drafts = z.infer<typeof draftsSchema>;
 export interface DraftStorage {
   read(): Promise<Drafts>;
   write(drafts: Drafts): Promise<void>;
+  /**
+   * Storage for one account's drafts. The storage itself is the unowned bucket: drafts made
+   * signed-out, plus every draft saved before drafts were tied to accounts. Optional so that
+   * single-bucket test doubles keep working.
+   */
+  forUser?(userId: string): DraftStorage;
 }
+
+const unownedKey = 'tooltips';
+export const userDraftKey = (userId: string) => `${unownedKey}:user:${userId}`;
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -33,15 +42,28 @@ function openDatabase(): Promise<IDBDatabase> {
   });
 }
 
-export function createIndexedDbStorage(): DraftStorage {
+export function createIndexedDbStorage(key = unownedKey): DraftStorage {
   let expected: string | undefined;
+  const users = new Map<string, DraftStorage>();
   return {
+    ...(key === unownedKey
+      ? {
+          forUser(userId: string) {
+            let storage = users.get(userId);
+            if (!storage) {
+              storage = createIndexedDbStorage(userDraftKey(userId));
+              users.set(userId, storage);
+            }
+            return storage;
+          },
+        }
+      : {}),
     async read() {
       const db = await openDatabase();
       try {
         return await new Promise<Drafts>((resolve, reject) => {
           const transaction = db.transaction('drafts', 'readonly');
-          const request = transaction.objectStore('drafts').get('tooltips');
+          const request = transaction.objectStore('drafts').get(key);
           transaction.oncomplete = () => {
             const parsed = draftsSchema.safeParse(request.result ?? {});
             if (parsed.success) {
@@ -62,7 +84,7 @@ export function createIndexedDbStorage(): DraftStorage {
         await new Promise<void>((resolve, reject) => {
           const transaction = db.transaction('drafts', 'readwrite');
           const store = transaction.objectStore('drafts');
-          const request = store.get('tooltips');
+          const request = store.get(key);
           let conflict = false;
           request.onsuccess = () => {
             if (expected === undefined || JSON.stringify(request.result ?? {}) !== expected) {
@@ -70,7 +92,7 @@ export function createIndexedDbStorage(): DraftStorage {
               transaction.abort();
               return;
             }
-            store.put(drafts, 'tooltips');
+            store.put(drafts, key);
           };
           transaction.oncomplete = () => {
             expected = JSON.stringify(drafts);

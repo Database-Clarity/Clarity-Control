@@ -92,3 +92,39 @@ describe('auth store asynchronous invalidation', () => {
     expect(state(s)).toEqual({ user: null, loading: false, error: null });
   });
 });
+
+describe('auth identity across reloads', () => {
+  it('keeps the same user object when a reload returns the same account', async () => {
+    mocks.getMe.mockResolvedValueOnce({ ...alice }).mockResolvedValueOnce({ ...alice });
+    const s = await store();
+    await s.getState().load();
+    const first = s.getState().user;
+    await s.getState().load();
+    expect(s.getState().user).toBe(first);
+  });
+
+  it('replaces the user when the role or account really changed', async () => {
+    mocks.getMe
+      .mockResolvedValueOnce(alice)
+      .mockResolvedValueOnce({ ...alice, role: 'trial' })
+      .mockResolvedValueOnce(bob);
+    const s = await store();
+    await s.getState().load();
+    await s.getState().load();
+    expect(s.getState().user?.role).toBe('trial');
+    await s.getState().load();
+    expect(s.getState().user?.id).toBe(2);
+  });
+});
+
+describe('auth session token binding', () => {
+  it('records no token for a signed-out result and clears it on logout', async () => {
+    mocks.getMe.mockResolvedValueOnce(alice).mockResolvedValueOnce(null);
+    const s = await store();
+    await s.getState().load();
+    await s.getState().load();
+    expect(s.getState().token).toBeNull();
+    s.getState().logout();
+    expect(s.getState().token).toBeNull();
+  });
+});

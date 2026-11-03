@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { apiUrl, save, type SaveConflict } from '../api';
 import { errorMessage } from '../http';
-import { useAuthStore } from '../../stores/auth';
+import { sameUser, useAuthStore } from '../../stores/auth';
+import { sessionToken } from '../session';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { ConflictDialog } from '../../features/conflicts/ConflictDialog';
@@ -17,8 +18,15 @@ export function SavePanel({ className }: { className?: string }) {
   const drafts = useDraftStore((state) => state.drafts);
   const user = useAuthStore((state) => state.user);
   const review = useSaveState((state) => state.review);
+  const generation = useDraftStore((state) => state.generation);
   const [notice, setNotice] = useState<string | null>(null);
   const count = Object.keys(drafts).length;
+  useEffect(() => {
+    // A review lists one account's drafts: switching accounts closes it, keeping the drafts.
+    return () => {
+      if (useSaveState.getState().review) useSaveState.getState().close();
+    };
+  }, [generation]);
   return (
     <section
       aria-label="Save drafts"
@@ -41,6 +49,8 @@ export function SavePanel({ className }: { className?: string }) {
     </section>
   );
 }
+
+const accountChanged = (generation: number) => useDraftStore.getState().generation !== generation;
 
 function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message: string): void }) {
   const data = useDataStore((state) => state.data);
@@ -71,8 +81,11 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
     if (!data || !user || pending || blocked || remoteCommit) return;
     setPending(true);
     setError(null);
+    const drafts = useDraftStore.getState();
+    const generation = drafts.generation;
     try {
-      await useDraftStore.getState().flush();
+      await drafts.flush();
+      if (accountChanged(generation)) return;
       if (useDraftStore.getState().error)
         throw new Error(
           'Local drafts are not safely stored. Close this review and retry draft storage.',
@@ -84,9 +97,25 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         return;
       }
       const prepared = await prepareChanges(changes, user, data);
-      if (useAuthStore.getState().user !== user)
+      if (accountChanged(generation)) return;
+      // The request reads the session token when it is sent: refuse unless it is still the one
+      // this user was loaded with (another tab may have signed in as someone else meanwhile).
+      const auth = useAuthStore.getState();
+      if (
+        auth.loading ||
+        !sameUser(auth.user, user) ||
+        auth.token !== sessionToken()
+      )
         throw new Error('Your login changed. Close this review and check your role.');
       const result = await save(prepared, message.trim() || `Update ${changes.length} tooltip(s)`);
+      if (accountChanged(generation) && result.kind === 'saved') {
+        // Switching accounts already closed this review; report through the dock's notice.
+        onSaved(
+          `Remote save ${result.commit.slice(0, 8)} succeeded, but you switched accounts meanwhile. The drafts stay with the account that made them: sign back in to it and reload data.`,
+        );
+        return;
+      }
+      if (accountChanged(generation)) return;
       if (result.kind === 'conflicts') {
         setChanges(prepared);
         setConflicts(result.conflicts);
@@ -114,9 +143,9 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         close();
       }
     } catch (error) {
-      setError(errorMessage(error));
+      if (!accountChanged(generation)) setError(errorMessage(error));
     } finally {
-      setPending(false);
+      if (!accountChanged(generation)) setPending(false);
     }
   }
   if (conflicts)

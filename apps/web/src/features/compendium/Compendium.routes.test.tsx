@@ -200,6 +200,7 @@ beforeEach(() => {
     pending: 0,
     error: null,
     hydrate: async () => {},
+    activate: async () => {},
   });
   useAuthStore.setState({ user: null, loading: false });
   useSaveState.setState({ locked: false, review: null });

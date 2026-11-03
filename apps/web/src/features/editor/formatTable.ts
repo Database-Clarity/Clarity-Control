@@ -26,6 +26,8 @@ export function formatMarkupTables(text: string): string {
   return text.replace(/< table [^]+?\n<\$>/g, (table) => {
     const lines = table.split('\n');
     const rows = lines.slice(1, -1).map((line) => [...line.matchAll(/(\|[bchr\d-]*)([^|]*)/g)]);
+    // Row-level markup (e.g. a line class) can sit before the first "|"; it is kept verbatim.
+    const leads = lines.slice(1, -1).map((line) => line.slice(0, line.indexOf('|')));
     const prefixes: number[] = [];
     const widths: number[] = [];
     for (const row of rows) {
@@ -38,7 +40,8 @@ export function formatMarkupTables(text: string): string {
       lines[0],
       ...rows.map((row, index) =>
         row.length
-          ? row
+          ? leads[index] +
+            row
               .map(
                 (cell, column) =>
                   `${cell[1].padEnd(prefixes[column])} ${cell[2].trim().padEnd(widths[column])} `,

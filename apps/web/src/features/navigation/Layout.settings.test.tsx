@@ -45,7 +45,7 @@ beforeEach(() => {
     load: async () => {},
   });
   useAuthStore.setState({ user: null, loading: false, load: async () => {} });
-  useDraftStore.setState({ hydrated: true, drafts: {}, hydrate: async () => {} });
+  useDraftStore.setState({ hydrated: true, drafts: {}, hydrate: async () => {}, activate: async () => {} });
   useSettingsPanel.setState({ open: false, returnTo: '/' });
   host = document.createElement('div');
   document.body.append(host);

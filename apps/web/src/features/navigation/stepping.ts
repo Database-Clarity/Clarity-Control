@@ -68,6 +68,47 @@ export function shiftScrollDirection(
   return Math.sign(event.deltaY || event.deltaX);
 }
 
+/**
+ * Turns raw wheel events into steps. One mouse notch (Chromium and Safari report 100 px;
+ * Firefox 3 lines, about 33 px each here) steps once, with a short cooldown so a fast spin stays
+ * controllable. A trackpad flick is dozens of small events plus momentum: it steps once and
+ * then waits for the stream to go quiet. Events smaller than 50 px are treated as that smooth
+ * stream. These limits are reasoned from default browser behaviour, not measured on hardware.
+ */
+export function createWheelStepper(limits = { notch: 100, smooth: 50, quiet: 200, cooldown: 120 }) {
+  let accumulated = 0;
+  let direction = 0;
+  let last = -Infinity;
+  let lastStep = -Infinity;
+  let locked = false;
+  return {
+    /** Returns -1/1 when this event should step, else 0. */
+    feed(event: { delta: number; deltaMode: number }, now: number): number {
+      const sign = Math.sign(event.delta);
+      if (!sign) return 0;
+      const pixels =
+        Math.abs(event.delta) * (event.deltaMode === 1 ? 100 / 3 : event.deltaMode === 2 ? 400 : 1);
+      if (sign !== direction || now - last > limits.quiet) {
+        accumulated = 0;
+        locked = false;
+      }
+      direction = sign;
+      last = now;
+      if (locked) return 0;
+      accumulated += pixels;
+      if (accumulated < limits.notch) return 0;
+      accumulated = 0;
+      if (pixels < limits.smooth) {
+        locked = true;
+        return sign;
+      }
+      if (now - lastStep < limits.cooldown) return 0;
+      lastStep = now;
+      return sign;
+    },
+  };
+}
+
 // Keep the pre-gesture route in history, not every intermediate wheel tick.
 export function createStepping(navigate: NavigateTo) {
   let origin: string | undefined;

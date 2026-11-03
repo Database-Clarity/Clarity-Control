@@ -17,6 +17,7 @@ import {
   categoryPosition,
   createStepping,
   positionLabel,
+  createWheelStepper,
   shiftScrollDirection,
   stepTarget,
   tooltipPath,
@@ -49,7 +50,9 @@ export function TooltipNavigation({ data }: { data: EditorData }) {
   const [stepping] = useState(() =>
     createStepping((target, options) => navigateRef.current(target, options)),
   );
+  const [wheelStepper] = useState(createWheelStepper);
   const step = useRef<(direction: number) => boolean>(() => false);
+  const canStep = useRef<(direction: number) => boolean>(() => false);
   step.current = (direction) => {
     const target = stepTarget(current.current, direction, hashes);
     if (!target) return false;
@@ -57,18 +60,29 @@ export function TooltipNavigation({ data }: { data: EditorData }) {
     current.current = target.to;
     return true;
   };
+  canStep.current = (direction) => Boolean(stepTarget(current.current, direction, hashes));
   useEffect(() => {
     const element = select.current;
     if (!element) return;
     const wheel = (event: WheelEvent) => {
       if (!event.deltaY || event.ctrlKey || event.metaKey || event.shiftKey) return;
       event.preventDefault();
-      step.current(Math.sign(event.deltaY));
+      const direction = wheelStepper.feed(
+        { delta: event.deltaY, deltaMode: event.deltaMode },
+        event.timeStamp,
+      );
+      if (direction) step.current(direction);
     };
     const shiftWheel = (event: WheelEvent) => {
       const direction = shiftScrollDirection(event);
       if (!direction || workspaceShortcutsBlocked(event)) return;
-      if (step.current(direction)) event.preventDefault();
+      if (!canStep.current(direction)) return;
+      event.preventDefault();
+      const stepDirection = wheelStepper.feed(
+        { delta: event.deltaY || event.deltaX, deltaMode: event.deltaMode },
+        event.timeStamp,
+      );
+      if (stepDirection) step.current(stepDirection);
     };
     const pop = () => stepping.cancel();
     const change = (event: Event) => {
@@ -92,7 +106,7 @@ export function TooltipNavigation({ data }: { data: EditorData }) {
       document.removeEventListener('change', change, true);
       stepping.cancel();
     };
-  }, [stepping]);
+  }, [stepping, wheelStepper]);
   function choose(hash: number) {
     stepping.commit();
     navigate(tooltipPath(hash, location.search));

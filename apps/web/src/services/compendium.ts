@@ -7,21 +7,34 @@ export const compendiumDataUrl =
   'https://raw.githubusercontent.com/Database-Clarity/Compendium-data/main/compendium.json';
 let cached: { value: CompendiumData; at: number } | undefined;
 let pending: Promise<CompendiumData> | undefined;
+let started = 0;
+let applied = 0;
 export function loadCompendium(force = false): Promise<CompendiumData> {
   if (!force && cached && Date.now() - cached.at < 60_000) return Promise.resolve(cached.value);
-  pending ??= fetchJson(compendiumDataUrl, compendiumDataSchema, { cache: 'no-cache' })
+  // Only a non-forced call may join a request in flight: a forced reload must be a fetch
+  // that starts now, or it could return data from before the refresh it follows.
+  if (!force && pending) return pending;
+  const id = ++started;
+  const request: Promise<CompendiumData> = fetchJson(compendiumDataUrl, compendiumDataSchema, {
+    cache: 'no-cache',
+  })
     .then((value) => {
       const tracked = {
         ...value,
         tabs: value.tabs.filter((tab) => isTrackedCompendiumTab(tab.name)),
       };
-      cached = { value: tracked, at: Date.now() };
+      // A slower, older request must not overwrite newer data.
+      if (id > applied) {
+        applied = id;
+        cached = { value: tracked, at: Date.now() };
+      }
       return tracked;
     })
     .finally(() => {
-      pending = undefined;
+      if (pending === request) pending = undefined;
     });
-  return pending;
+  pending = request;
+  return request;
 }
 
 const refreshRequestSchema = z.object({
