@@ -8,6 +8,7 @@ import { workspaceShortcutsBlocked } from '../../ui/interaction';
 import {
   frameGroupSize,
   itemFor,
+  listName,
   navigationGroups,
   sharedPerkLabel,
   variantHashes,
@@ -39,6 +40,8 @@ const steppingGuard: SteppingGuard = {
 interface Row {
   hash: number;
   name: string;
+  /** The perk an exotic armour entry opens, shown beside its hash. */
+  perk?: string;
   category: string;
 }
 
@@ -117,13 +120,14 @@ export function TooltipNavigation({
         section.items.map((item) => ({
           hash: item.hash,
           name: item.name,
+          perk: item.perkName && !item.name.endsWith(item.perkName) ? item.perkName : undefined,
           category: section.label,
         })),
       ),
     [scoped],
   );
   const currentItem = itemFor(hash, data);
-  const currentLabel = currentItem ? currentItem.name : '';
+  const currentLabel = currentItem ? listName(currentItem, data) : '';
   const sharedLabel = sharedPerkLabel(hash, data, compendiumSource);
   const dirty = variantHashes(hash, data).some((variant) => drafts[variant]);
 
@@ -300,6 +304,7 @@ export function TooltipNavigation({
               <EnhancedArrow />
             </span>
           )}
+          {row.perk && `${row.perk} · `}
           {row.hash}
           {shared && ' · shared perk'}
           {frames > 1 && ` ×${frames}`}
