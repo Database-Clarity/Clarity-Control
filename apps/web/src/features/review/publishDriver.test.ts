@@ -370,7 +370,7 @@ it('dismiss hides a finished operation (but keeps it for the acknowledgment), ne
   expect(h.store.records.get(created.opId)?.dismissed).toBe(true);
 });
 
-it('prunes finished operations after a day and drops unsent ones after 23 hours', async () => {
+it('prunes finished operations after a day', async () => {
   const h = harness();
   const driver = h.make();
   await driver.start('1');
@@ -379,17 +379,53 @@ it('prunes finished operations after a day and drops unsent ones after 23 hours'
   await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) + 100);
   driver.stop();
   vi.setSystemTime(Date.now() + publishTiming.retainMs + 1000);
-  const next = h.make();
-  await next.start('1');
+  await h.make().start('1');
   expect(h.store.records.has(done.opId)).toBe(false);
+});
 
+// A lost 202, then the page is reloaded after the creation window: the Worker, not the clock,
+// decides what happened to the original opId.
+async function lostThenOvernight(h: Harness) {
+  const first = h.make();
+  await first.start('1');
   h.api.post.mockRejectedValue(new PublishHttpError(0, 'offline'));
-  const unsent = await next.create(inputs);
+  const created = await first.create(inputs);
   await settle();
+  first.stop();
   vi.setSystemTime(Date.now() + publishTiming.sendExpiryMs + 1000);
-  await next.refresh();
+  const second = h.make();
+  h.api.post.mockClear();
+  await second.start('1');
+  return created;
+}
+
+it.each(['done', 'unchanged', 'stale', 'pending'] as const)(
+  'an old unconfirmed operation adopts the Worker answer (%s) and is never re-posted',
+  async (remote) => {
+    const h = harness();
+    h.api.status.mockResolvedValue(remote);
+    const created = await lostThenOvernight(h);
+    await vi.advanceTimersByTimeAsync(publishTiming.foreignAttemptMs + 1000);
+    expect(h.api.status).toHaveBeenCalledWith(created.opId);
+    expect(h.store.records.get(created.opId)?.status).toBe(remote);
+    expect(h.api.post).not.toHaveBeenCalled();
+    expect(h.acked.length).toBe(remote === 'done' || remote === 'unchanged' ? 1 : 0);
+  },
+);
+
+it('an old unconfirmed operation stays unresolved while the status lookup fails, then fails only on "unknown"', async () => {
+  const h = harness();
+  h.api.status.mockRejectedValue(new PublishHttpError(503, 'busy'));
+  const created = await lostThenOvernight(h);
+  await vi.advanceTimersByTimeAsync(publishTiming.foreignAttemptMs + 1000);
+  expect(h.store.records.get(created.opId)?.status).toBe('created');
+  expect(usePublishState.getState().notes[created.opId]).toMatch(/Could not confirm/);
+  expect(h.api.post).not.toHaveBeenCalled();
+  h.api.status.mockResolvedValue('unknown');
   await vi.advanceTimersByTimeAsync(publishTiming.sendBackoffMs(9) + 1000);
-  expect(h.store.records.get(unsent.opId)?.status).toBe('failed');
+  expect(h.store.records.get(created.opId)?.status).toBe('failed');
+  expect(h.store.records.get(created.opId)?.error).toMatch(/no record/);
+  expect(h.api.post).not.toHaveBeenCalled();
 });
 
 it('refuses to publish, and sends nothing, when the local record cannot be stored', async () => {

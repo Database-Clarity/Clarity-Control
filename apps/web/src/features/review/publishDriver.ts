@@ -416,10 +416,27 @@ export class PublishDriver {
     try {
       const now = this.deps.now();
       if (op.status === 'created' && now - op.createdAt > publishTiming.sendExpiryMs) {
-        await this.settle(opId, {
-          status: 'failed',
-          error: 'Could not be sent within 24 hours, so it was dropped. Publish again.',
-        });
+        // The window for (re)creating the request has closed, but the Worker may already hold it (a
+        // lost 202). Only the Worker's own answer can say so: never infer non-delivery from age.
+        let remote: RemoteStatus | 'unknown';
+        try {
+          remote = await this.deps.api.status(opId);
+        } catch {
+          this.attempts.set(opId, { count: 9, at: now + publishTiming.sendBackoffMs(9) });
+          this.note(
+            opId,
+            'Could not confirm with the Worker whether this was received; checking again.',
+          );
+          return;
+        }
+        if (generation !== this.generation) return;
+        if (remote === 'unknown')
+          await this.settle(opId, {
+            status: 'failed',
+            error:
+              'The Worker has no record of this publish and it is too old to send. Publish again.',
+          });
+        else await this.adopt(opId, remote);
         return;
       }
       await this.deps.store
