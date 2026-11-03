@@ -6,9 +6,9 @@
   z-index: 20;
   display: flex;
   align-items: center;
-  gap: 4px;
-  min-height: 48px;
-  padding: 0 4px;
+  gap: 0.25rem;
+  min-height: 3rem;
+  padding: 0 0.25rem;
   box-sizing: border-box;
   background: var(--chrome);
   border-bottom: 1px solid var(--line);
@@ -17,7 +17,7 @@
 .mark {
   @include controls.button;
   flex: none;
-  width: 44px;
+  width: 2.75rem;
   padding: 0;
 }
 
@@ -27,7 +27,7 @@
   min-width: 0;
   justify-content: space-between;
   margin: 0;
-  padding: 0 10px;
+  padding: 0 0.625rem;
   font-size: 1rem;
   font-weight: 600;
   background: none;
@@ -59,9 +59,9 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 0.25rem;
 
   button {
-    min-width: 44px;
+    min-width: max(44px, 2.75rem);
   }
 }

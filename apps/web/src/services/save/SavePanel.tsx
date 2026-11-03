@@ -5,6 +5,7 @@ import { sameUser, useAuthStore } from '../../stores/auth';
 import { sessionToken } from '../session';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
+import { usePreviewReviewStore } from '../../stores/previewReview';
 import { ConflictDialog } from '../../features/conflicts/ConflictDialog';
 import { Dialog } from '../../ui/Dialog';
 import { acceptSaved } from './drafts';
@@ -51,6 +52,10 @@ export function SavePanel({
   const notice = useSaveNotice((state) => state.notice);
   const dismiss = useSaveNotice((state) => state.dismiss);
   const count = Object.keys(drafts).length;
+  // Edits no Base/Enhanced preview has shown yet. Saving stays allowed: this only says so.
+  const unpreviewed = usePreviewReviewStore(
+    (state) => Object.values(state.entries).filter((entry) => entry.dirty > entry.reviewed).length,
+  );
   return (
     <section aria-label="Save drafts" className={className}>
       <p data-summary>
@@ -58,6 +63,12 @@ export function SavePanel({
           ? 'No local drafts'
           : `${count} local ${count === 1 ? 'draft' : 'drafts'} kept in this browser`}
       </p>
+      {unpreviewed > 0 && (
+        <p data-unpreviewed>
+          {unpreviewed === 1 ? '1 change' : `${unpreviewed} changes`} not previewed. You can still
+          save.
+        </p>
+      )}
       {notice && <p role="status">{notice}</p>}
       {children}
       <button

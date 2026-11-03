@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigationType } from 'react-router-dom';
 import { useSettingsStore } from '../../stores/settings';
+import { scaledPx } from '../../ui/scale';
 import { useSettingsPanel } from './panel';
 import { SettingsContent } from './SettingsContent';
 import styles from './SettingsPopover.module.scss';
@@ -19,7 +20,9 @@ const edge = 20;
 function anchor(button: Element | null): CSSProperties {
   if (!button || window.matchMedia?.(phone).matches) return {};
   const rect = button.getBoundingClientRect();
-  const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin));
+  // The popover is 30rem wide (at most the window less a margin), whatever the interface scale.
+  const wide = Math.min(scaledPx(width), window.innerWidth - margin * 2);
+  const left = Math.max(margin, Math.min(rect.left, window.innerWidth - wide - margin));
   if (rect.top > window.innerHeight / 2)
     return {
       left,
@@ -48,9 +51,21 @@ function OpenSettings({ layout }: { layout: React.RefObject<HTMLElement | null> 
     const active = document.activeElement;
     return active instanceof HTMLElement && active !== document.body ? active : null;
   });
-  const [style] = useState(() =>
-    anchor(opener ?? document.querySelector('.settings-link, button.settings-link')),
-  );
+  const place = () =>
+    anchor(opener ?? document.querySelector('.settings-link, button.settings-link'));
+  const [style, setStyle] = useState(place);
+  // Changing the interface scale here resizes the popover and its opener: place it again.
+  const uiScale = useSettingsStore((state) => state.device.uiScale);
+  useLayoutEffect(() => {
+    setStyle(place());
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `place` only reads the opener.
+  }, [uiScale]);
+  useEffect(() => {
+    const onResize = () => setStyle(place());
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `place` only reads the opener.
+  }, []);
   const close = () => useSettingsPanel.getState().hide();
   // Back/Forward (or a hash change) moves the page behind a modal; close it instead of leaving a
   // stale, click-blocking popover. The /settings redirect itself is a REPLACE and stays open.

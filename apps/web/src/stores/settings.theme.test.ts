@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
 import { defaultSyncedSettings } from '@clarity/core';
-import { createSettingsStore, deviceKey, layoutKey, type SettingsStorage } from './settings';
+import {
+  appliedUiScale,
+  createSettingsStore,
+  deviceKey,
+  layoutKey,
+  type SettingsStorage,
+} from './settings';
 import { fakeServer, memoryStorage } from './settings.testSupport';
 
 const make = (storage: SettingsStorage) =>
@@ -14,6 +20,8 @@ const make = (storage: SettingsStorage) =>
 const stored = (values: Map<string, string>) => JSON.parse(values.get(deviceKey)!);
 
 afterEach(() => {
+  document.documentElement.style.removeProperty('font-size');
+  delete document.documentElement.dataset.uiScale;
   delete document.documentElement.dataset.theme;
   document.documentElement.style.colorScheme = '';
 });
@@ -70,7 +78,7 @@ describe('device theme', () => {
   it('keeps valid old device fields when only the new ones are invalid', () => {
     const { storage } = memoryStorage({
       [deviceKey]: JSON.stringify({
-        textSize: 'large',
+        uiScale: 130,
         editorFont: 'fira-code',
         remembered: { markupToolbar: 'open' },
         theme: 'neon',
@@ -78,7 +86,7 @@ describe('device theme', () => {
       }),
     });
     expect(make(storage).getState().device).toEqual({
-      textSize: 'large',
+      uiScale: 130,
       editorFont: 'fira-code',
       theme: 'system',
       panes: {},
@@ -180,5 +188,25 @@ describe('device panes', () => {
     store.getState().updateDevice({ panes: { 'editor:left': pane } });
     await store.getState().leaveSettings();
     expect(server.calls.put).toHaveLength(0);
+  });
+});
+
+describe('interface scale on the page', () => {
+  it('limits a large scale where it would squeeze a tablet-width window into the phone layout', () => {
+    expect(appliedUiScale(150, 1280)).toBe(150);
+    expect(appliedUiScale(150, 768)).toBe(108);
+    expect(appliedUiScale(150, 701)).toBe(100);
+    expect(appliedUiScale(150, 390)).toBe(150);
+    expect(appliedUiScale(150, 320)).toBe(123);
+    expect(appliedUiScale(85, 320)).toBe(85);
+    expect(appliedUiScale(100, 320)).toBe(100);
+  });
+
+  it('sets the root font size and removes it again at 100 %', () => {
+    const store = make(memoryStorage().storage);
+    store.getState().updateDevice({ uiScale: 85 });
+    expect(document.documentElement.style.fontSize).toBe('85%');
+    store.getState().updateDevice({ uiScale: 100 });
+    expect(document.documentElement.style.fontSize).toBe('');
   });
 });

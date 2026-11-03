@@ -19,7 +19,7 @@
 .page select,
 .page input:not([type='checkbox']),
 .page a {
-  min-height: 44px;
+  min-height: max(44px, 2.75rem);
 }
 .page a {
   display: inline-flex;
@@ -37,13 +37,13 @@
 .check {
   display: flex;
   align-items: center;
-  min-height: 44px;
+  min-height: max(44px, 2.75rem);
   gap: 0.75rem;
   cursor: pointer;
 }
 .check input {
-  width: 24px;
-  height: 24px;
+  width: 1.5rem;
+  height: 1.5rem;
 }
 .row {
   text-align: left;
@@ -62,7 +62,7 @@
   overflow-wrap: anywhere;
 }
 .detail summary {
-  min-height: 44px;
+  min-height: max(44px, 2.75rem);
   cursor: pointer;
 }
 .actions {

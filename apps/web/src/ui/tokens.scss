@@ -4,8 +4,9 @@
 // the media query only covers the instant before scripts run.
 // Control and field edges (--ctl-edge, --fld-edge, --ctl-hover-edge) are deepened from the design's
 // values so they hold 3:1 against every surface they sit on (WCAG 1.4.11); everything else is as designed.
-// Components use these properties, never raw colours. Editor and CodeMirror colours stay
-// hard-coded until the editor phase adopts the --editor-* tokens.
+// Components use these properties, never raw colours. The --editor* and --syn-* tokens colour the
+// text editor, its status bar, overlays and popovers in both themes (the editor is no longer a
+// dark box in the light theme).
 
 @mixin dark-tokens {
   // Surfaces
@@ -64,7 +65,7 @@
   --ins: #b8efc6;
   --ins-bg: #1d5030;
   --diff-bg: #17171b;
-  // Editor (adopted in the editor phase)
+  // Editor
   --editor: #1e1e1e;
   --editor-edge: #454545;
   --editor-text: #fff;
@@ -76,6 +77,15 @@
   --cf-text: #e6edf3;
   --active-line: #ffffff08;
   --glyph-bg: #232320;
+  --editor-sel: #004972b8;
+  --editor-sel-ink: #fff;
+  --syn-comment: #6a9955;
+  --syn-keyword: #c586c0;
+  --syn-type: #4fc1ff;
+  --syn-number: #dcdcaa;
+  --syn-string: #9cdcfe;
+  --diag-error: #ff9595;
+  --diag-warn: #f2ce7e;
   // Decision and tables
   --decision-edge: #3a4050;
   --decision-text: #aab;
@@ -145,18 +155,27 @@
   --ins: #114d2a;
   --ins-bg: #cfeedd;
   --diff-bg: #ffffff;
-  // Editor (adopted in the editor phase)
+  // Editor
   --editor: #ffffff;
   --editor-edge: #b5c9d8;
   --editor-text: #1a1d21;
-  --editor-text2: #4f5a66;
-  --gutter: #566170;
+  --editor-text2: #6b7682;
+  --gutter: #6b7682;
   --gutter-tint: #3f4a56;
   --var: #0e7a55;
   --var-tint: #085e3f;
   --cf-text: #14171b;
   --active-line: #085e6e12;
   --glyph-bg: #fff8e6;
+  --editor-sel: #b3d7f2;
+  --editor-sel-ink: #14171b;
+  --syn-comment: #3d7a2a;
+  --syn-keyword: #8f3f93;
+  --syn-type: #0b5f99;
+  --syn-number: #7a5c00;
+  --syn-string: #0b6178;
+  --diag-error: #b3261e;
+  --diag-warn: #7a5200;
   // Decision and tables
   --decision-edge: #b5c9d8;
   --decision-text: #4f5a66;

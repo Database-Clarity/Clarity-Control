@@ -120,6 +120,21 @@ const field = (label: string) =>
   [...document.querySelectorAll('label')]
     .find((element) => element.textContent?.startsWith(label))!
     .querySelector('select')!;
+const scaleInput = () =>
+  [...document.querySelectorAll('label')]
+    .find((element) => element.textContent?.startsWith('Interface scale'))!
+    .querySelector('input')!;
+async function setScale(value: number) {
+  const input = scaleInput();
+  await act(async () => {
+    // React tracks the value property; the native setter makes the change visible to it.
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+      input,
+      String(value),
+    );
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
 async function choose(label: string, value: string) {
   const select = field(label);
   await act(async () => {
@@ -232,13 +247,15 @@ describe('Settings popover', () => {
     expect(document.activeElement).toBe(items.at(-1));
   });
 
-  it('keeps device settings local and applies large text immediately', async () => {
+  it('keeps device settings local and applies the interface scale immediately', async () => {
     await act(async () => useSettingsStore.getState().activate(editor));
     localStorage.setItem(layoutKey, '70');
     await render();
     await openSettings();
-    await choose('Text size', 'large');
-    expect(document.documentElement.dataset.textSize).toBe('large');
+    await setScale(125);
+    expect(document.documentElement.style.fontSize).toBe('125%');
+    expect(document.documentElement.dataset.uiScale).toBe('125');
+    expect(useSettingsStore.getState().device.uiScale).toBe(125);
     useSettingsStore
       .getState()
       .updateDevice({ panes: { 'editor:left': { width: 400, collapsed: false } } });
@@ -249,8 +266,9 @@ describe('Settings popover', () => {
     await act(async () => closeButton().click());
     expect(holder.server.calls.put).toHaveLength(0);
     await openSettings();
-    await choose('Text size', 'default');
-    expect(document.documentElement.dataset.textSize).toBeUndefined();
+    await act(async () => button('100%').click());
+    expect(document.documentElement.style.fontSize).toBe('');
+    expect(scaleInput().value).toBe('100');
   });
 
   it('applies the editor font immediately and keeps it local on close', async () => {

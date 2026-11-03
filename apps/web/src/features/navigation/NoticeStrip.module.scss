@@ -19,10 +19,10 @@
 .notice {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 0.5rem;
   box-sizing: border-box;
-  min-height: 28px;
-  padding: 2px 4px 2px 12px;
+  min-height: 1.75rem;
+  padding: 2px 0.25rem 2px 0.75rem;
   font-size: 0.8125rem;
   line-height: 1.3;
   color: var(--text);
@@ -43,22 +43,22 @@
   button {
     @include controls.button;
     flex: none;
-    min-height: 22px;
-    padding: 0 8px;
+    min-height: 1.375rem;
+    padding: 0 0.5rem;
     @include theme.mobile-or-coarse {
-      min-height: 44px;
+      min-height: max(44px, 2.75rem);
     }
   }
 
   .close {
-    min-width: 24px;
+    min-width: 1.5rem;
     padding: 0;
     font-size: 1rem;
     line-height: 1;
     background: none;
     border-color: transparent;
     @include theme.mobile-or-coarse {
-      min-width: 44px;
+      min-width: max(44px, 2.75rem);
     }
   }
 }

@@ -1,0 +1,140 @@
+// @vitest-environment jsdom
+import { act, type ComponentProps, type ReactNode } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { StatusBar } from './StatusBar';
+import { ClarityEditor } from './ClarityEditor';
+
+let host: HTMLDivElement;
+let root: Root;
+const render = (node: ReactNode) => act(() => root.render(node));
+const q = (selector: string) => host.querySelector<HTMLElement>(selector);
+const click = (element: HTMLElement | null) => act(() => element!.click());
+
+beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+});
+afterEach(() => {
+  act(() => root.unmount());
+  host.remove();
+  vi.unstubAllGlobals();
+});
+
+const bar = (props: Partial<ComponentProps<typeof StatusBar>> = {}) => (
+  <StatusBar
+    readOnlyReason={null}
+    issues={[]}
+    glyphCount={0}
+    line={3}
+    column={7}
+    panel={null}
+    onPanel={() => undefined}
+    {...props}
+  />
+);
+
+describe('status bar', () => {
+  it('shows the position, the help button and no warning items when all is well', () => {
+    render(bar());
+    expect(q('[data-editor-status]')?.textContent).toContain('Ln 3, Col 7');
+    expect(host.textContent).toContain('Markup help');
+    expect(host.textContent).not.toContain('character warning');
+    expect(host.textContent).not.toContain('Show preview');
+    expect(q('[data-status-reason]')).toBeNull();
+  });
+
+  it('says why the text is read only, counts markup issues and glyph warnings', () => {
+    render(
+      bar({
+        readOnlyReason: 'Archived tooltip - read only',
+        issues: [
+          { severity: 'error', message: 'Unclosed tag', from: 0, to: 1 },
+          { severity: 'warning', message: 'Odd glyph', from: 2, to: 3 },
+        ],
+        glyphCount: 2,
+      }),
+    );
+    expect(q('[data-status-reason]')?.textContent).toBe('Archived tooltip - read only');
+    expect(host.textContent).toContain('2 markup issues');
+    expect(host.textContent).toContain('2 character warnings');
+    expect(q('[data-severity="error"]')).not.toBeNull();
+  });
+
+  it('offers the preview when edits were not previewed or the column is hidden', () => {
+    const onShow = vi.fn();
+    render(bar({ preview: { unpreviewed: 2, collapsed: true, onShow } }));
+    expect(host.textContent).toContain('2 not previewed');
+    click(
+      [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('Show preview'))!,
+    );
+    expect(onShow).toHaveBeenCalledTimes(1);
+    render(bar({ preview: { unpreviewed: 1, collapsed: false, onShow } }));
+    expect(host.textContent).toContain('1 not previewed');
+    render(bar({ preview: { unpreviewed: 0, collapsed: true, onShow } }));
+    expect(host.textContent).toContain('Preview hidden');
+    render(bar({ preview: { unpreviewed: 0, collapsed: false, onShow } }));
+    expect(host.textContent).not.toContain('Show preview');
+  });
+
+  it('toggles a panel through its button', () => {
+    const onPanel = vi.fn();
+    render(bar({ panel: 'help', onPanel }));
+    const help = host.querySelector<HTMLElement>('button[aria-controls="editor-panel-help"]')!;
+    expect(help.getAttribute('aria-expanded')).toBe('true');
+    click(help);
+    expect(onPanel).toHaveBeenCalledWith(null);
+  });
+});
+
+describe('editor overlays', () => {
+  const editor = (value: string) => (
+    <ClarityEditor
+      value={value}
+      lang="en"
+      onChange={() => undefined}
+      globals={{ variables: '', titles: '' }}
+      readOnlyReason="Read only"
+    />
+  );
+
+  it('opens the help and glyph panels over the text, not inside it, and never touches the text', () => {
+    // U+1F81A (an arrow) is not a vetted game glyph, so it warns and offers a replacement.
+    render(editor('Deals 20% \u{1F81A} 30%'));
+    const content = q('.cm-content')!;
+    const before = content.textContent;
+    expect(q('[data-editor-overlay]')).toBeNull();
+    click(host.querySelector('button[aria-controls="editor-panel-help"]'));
+    const overlay = q('[data-editor-overlay]')!;
+    expect(overlay.id).toBe('editor-panel-help');
+    expect(overlay.closest('.cm-editor')).toBeNull();
+    expect(host.querySelector('[data-editor-root]')?.contains(overlay)).toBe(true);
+    click(host.querySelector('button[aria-controls="editor-panel-glyphs"]'));
+    expect(q('[data-editor-overlay]')?.id).toBe('editor-panel-glyphs');
+    expect(q('[data-editor-overlay]')?.textContent).toContain('Replace first');
+    expect(q('.cm-content')).toBe(content);
+    expect(content.textContent).toBe(before);
+    click(q('[data-editor-overlay] button[aria-label^="Close"]'));
+    expect(q('[data-editor-overlay]')).toBeNull();
+  });
+
+  it('closes a panel with Escape in the text before Escape does anything else', () => {
+    render(editor('Deals 20% damage'));
+    click(host.querySelector('button[aria-controls="editor-panel-help"]'));
+    expect(q('[data-editor-overlay]')).not.toBeNull();
+    const content = q('.cm-content')!;
+    act(() => {
+      content.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+    });
+    expect(q('[data-editor-overlay]')).toBeNull();
+  });
+
+  it('reports the caret position', () => {
+    render(editor('one\ntwo'));
+    expect(q('[data-editor-status]')?.textContent).toContain('Ln 1, Col 1');
+  });
+});

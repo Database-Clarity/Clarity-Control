@@ -72,6 +72,14 @@ export function EditorPaneHeader({
           {overrides.length > 1 && <span className={styles.ell}>: {activeOverride.name}</span>}
         </span>
       )}
+      {!draft && (
+        // Holds the place of the draft dot and Discard on a phone, where this row wraps, so the
+        // first edit does not push the text down. It takes no space elsewhere.
+        <span className={styles.draftSpacer} aria-hidden="true">
+          <span className={styles.dot} />
+          <span className={styles.ghost}>Discard</span>
+        </span>
+      )}
       {draft && (
         <>
           <span

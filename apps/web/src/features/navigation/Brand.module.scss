@@ -8,10 +8,10 @@
 .dark,
 .light {
   display: block;
-  height: 28px;
+  height: 1.75rem;
   width: auto;
   @media (max-width: 700px) {
-    height: 24px;
+    height: 1.5rem;
   }
 }
 .light {
@@ -25,9 +25,9 @@
 
   .dark,
   .light {
-    width: 24px;
-    height: 24px;
-    border-radius: 4px;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 0.25rem;
   }
 }
 :global(:root[data-theme='light']) {

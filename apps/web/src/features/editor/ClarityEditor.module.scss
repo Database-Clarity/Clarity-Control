@@ -1,12 +1,15 @@
 @use '../../data/variables' as theme;
 
+// The editor takes its colours from the --editor* / --syn-* tokens (ui/tokens.scss): a dark surface
+// in the dark theme and a white one in the light theme. No raw colours here.
 .editor {
+  position: relative;
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  border: 1px solid #454545;
+  border: 1px solid var(--editor-edge);
   .host {
     display: flex;
     flex: 1 1 auto;
@@ -15,16 +18,16 @@
   }
   :global(.cm-editor) {
     flex: 1 1 auto;
-    background: #1e1e1e;
-    color: #fff;
-    min-height: 220px;
-    font-size: 14px;
+    background: var(--editor);
+    color: var(--editor-text);
+    min-height: 13.75rem;
+    font-size: 0.875rem;
   }
   @include theme.mobile-or-coarse {
     // 16px stops iOS focus zoom; the gutter's width is better spent on text on a phone.
     :global(.cm-editor) {
-      min-height: max(220px, 40dvh);
-      font-size: 16px;
+      min-height: max(13.75rem, 40dvh);
+      font-size: max(16px, 1rem);
     }
     :global(.cm-gutters) {
       display: none;
@@ -43,34 +46,64 @@
     overflow: auto;
   }
   :global(.cm-gutters) {
-    background: #1e1e1e;
-    color: #858585;
-    border-color: #454545;
+    background: var(--editor);
+    color: var(--gutter);
+    border-color: var(--editor-edge);
   }
   :global(.cm-activeLine),
   :global(.cm-activeLineGutter) {
-    background: #ffffff08;
+    background: var(--active-line);
+  }
+  :global(.cm-activeLineGutter) {
+    color: var(--gutter-tint);
   }
   :global(.cm-cursor) {
-    border-left-color: white;
+    border-left-color: var(--editor-text);
   }
   :global(.cm-selectionBackground),
   :global(.cm-focused .cm-selectionBackground) {
-    background: #004972b8 !important;
+    background: var(--editor-sel) !important;
   }
   :global(.cm-tooltip) {
-    background: #252526;
-    color: white;
-    border: 1px solid #454545;
+    background: var(--raised);
+    color: var(--text);
+    border: 1px solid var(--pop-edge);
   }
   :global(.cm-tooltip-autocomplete > ul > li[aria-selected]) {
-    background: #004972;
-    color: white;
+    background: var(--sel);
+    color: var(--text);
   }
+  // Find and replace.
+  :global(.cm-panels) {
+    background: var(--chrome);
+    color: var(--text);
+    border-color: var(--editor-edge);
+  }
+  :global(.cm-panels input),
+  :global(.cm-panels button) {
+    color: var(--text);
+    background: var(--ctl);
+    border: 1px solid var(--ctl-edge);
+  }
+  :global(.cm-searchMatch) {
+    background: var(--warn-bg);
+    outline: 1px solid var(--warn-edge);
+  }
+  :global(.cm-searchMatch.cm-searchMatch-selected) {
+    background: var(--sel);
+  }
+}
+// The text and the panels that open over it.
+.textArea {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
 }
 .toolbar {
   padding: 6px;
-  border-bottom: 1px solid #454545;
+  border-bottom: 1px solid var(--editor-edge);
   button,
   select {
     max-width: 100%;
@@ -81,9 +114,9 @@
   @include theme.mobile-or-coarse {
     button,
     select {
-      min-width: 44px;
-      min-height: 44px;
-      font-size: 16px;
+      min-width: max(44px, 2.75rem);
+      min-height: max(44px, 2.75rem);
+      font-size: max(16px, 1rem);
     }
   }
 }
@@ -99,41 +132,13 @@
     min-width: 0;
   }
 }
-.help {
-  padding: 6px 10px;
-  // The editor stays one dark object in both themes until the editor phase adopts --editor-*.
-  color: #bdbdbd;
-  background: #1e1e1e;
-  font-size: 12px;
-  p {
-    margin: 6px 0;
-  }
-}
-.glyphStatus {
-  color: #f2ce7e;
-  font-size: 12px;
-  details {
-    padding: 6px 10px;
-  }
-  ul {
-    margin: 4px 0;
-    padding-left: 18px;
-  }
-  li {
-    margin: 3px 0;
-    overflow-wrap: anywhere;
-  }
-  button {
-    font-size: inherit;
-  }
-}
 .editor :global(.clarity-validation-error) {
-  text-decoration: underline wavy #ff9595;
+  text-decoration: underline wavy var(--diag-error);
   text-underline-offset: 3px;
 }
 
 .editor :global(.clarity-validation-warning) {
-  text-decoration: underline dotted #f2ce7e;
+  text-decoration: underline dotted var(--diag-warn);
   text-underline-offset: 3px;
 }
 

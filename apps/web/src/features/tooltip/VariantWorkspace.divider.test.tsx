@@ -275,7 +275,7 @@ describe('workspace divider', () => {
     const css = readFileSync('apps/web/src/features/tooltip/TooltipPage.module.scss', 'utf8');
     expect(css).toMatch(/\.divider\s*\{\s*display: none/);
     expect(css).toMatch(
-      /\.workspace\[data-split\]\s*\{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) 16px var\(--right-width\)/,
+      /\.workspace\[data-split\]\s*\{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) 1rem var\(--right-width\)/,
     );
     expect(css).toMatch(/\.workspace\[data-split\][\s\S]*?\.divider\s*\{\s*display: block/);
   });
@@ -285,11 +285,11 @@ describe('workspace divider', () => {
       'utf8',
     );
     const layoutCss = readFileSync('apps/web/src/features/navigation/Layout.module.scss', 'utf8');
-    expect(tooltipCss).toMatch(/\.tabs\s*\{[\s\S]*?min-height:\s*44px/);
+    expect(tooltipCss).toMatch(/\.tabs\s*\{[\s\S]*?min-height:\s*max\(44px, 2\.75rem\)/);
     expect(tooltipCss).toMatch(/\.tabs\s*\{[\s\S]*?position:\s*sticky/);
     // The phone tabs stick below the 48px header, and the editor page gives its text the room.
-    expect(tooltipCss).toMatch(/\.tabs\s*\{[\s\S]*?top:\s*48px/);
-    expect(tooltipCss).toMatch(/\.paneHeader\s*\{[\s\S]*?min-height:\s*28px/);
+    expect(tooltipCss).toMatch(/\.tabs\s*\{[\s\S]*?top:\s*3rem/);
+    expect(tooltipCss).toMatch(/\.paneHeader\s*\{[\s\S]*?min-height:\s*1\.75rem/);
     expect(tooltipCss).toMatch(/\.paneHeader\s*\{[\s\S]*?white-space:\s*nowrap/);
     expect(layoutCss).toMatch(/\.editorMode \.main \{[^}]*padding-top:\s*0\.25rem/);
   });

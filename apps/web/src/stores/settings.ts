@@ -32,6 +32,9 @@ export const rememberedSchema = z.object({
   englishSource: syncedSettingsSchema.shape.englishSource.optional(),
 });
 export type Remembered = z.infer<typeof rememberedSchema>;
+export const uiScaleMin = 85;
+export const uiScaleMax = 150;
+export const uiScaleStep = 5;
 export const editorFonts = ['default', 'fira-code', 'jetbrains-mono', 'system'] as const;
 /**
  * One resizable pane pair on this device, in CSS pixels. `width` is the size the user chose (a
@@ -58,7 +61,8 @@ export function normalizeCompendiumScale(value: unknown): number {
 }
 export const deviceSettingsSchema = z.object({
   editorFont: z.enum(editorFonts),
-  textSize: z.enum(['default', 'large']),
+  /** Whole-interface scale in percent (the root font size); 100 is the design size. */
+  uiScale: z.number().int().min(uiScaleMin).max(uiScaleMax),
   theme: z.enum(themePreferences),
   panes: z.record(z.string(), paneStateSchema),
   compendiumScale: z.number().transform(normalizeCompendiumScale),
@@ -66,7 +70,7 @@ export const deviceSettingsSchema = z.object({
 });
 export type DeviceSettings = z.infer<typeof deviceSettingsSchema>;
 export const defaultDeviceSettings: DeviceSettings = {
-  textSize: 'default',
+  uiScale: 100,
   editorFont: 'default',
   theme: 'system',
   panes: {},
@@ -183,8 +187,38 @@ export function applyDeviceSettings(device: DeviceSettings): void {
   if (typeof document === 'undefined') return;
   applyTheme(device.theme);
   document.documentElement.dataset.editorFont = device.editorFont;
-  if (device.textSize === 'large') document.documentElement.dataset.textSize = 'large';
-  else delete document.documentElement.dataset.textSize;
+  currentScale = device.uiScale;
+  applyScale();
+  if (!resizeBound && typeof window !== 'undefined') {
+    resizeBound = true;
+    window.addEventListener('resize', applyScale);
+  }
+}
+
+let currentScale = 100;
+let resizeBound = false;
+
+/**
+ * The scale the page can actually take at this window width. The layout changes shape at 700px
+ * (phone) and is designed to hold down to 701px, and a scaled interface behaves like a window
+ * `scale` times narrower, so a scale that would squeeze a tablet-width window below 701px is
+ * limited to what fits (a phone window keeps the phone layout and is limited only by 260px).
+ */
+export function appliedUiScale(scale: number, width: number): number {
+  if (scale <= 100) return scale;
+  const floor = width > 700 ? 710 : 260;
+  return Math.max(100, Math.min(scale, Math.floor((width / floor) * 100)));
+}
+
+function applyScale() {
+  const root = document.documentElement;
+  const applied = appliedUiScale(currentScale, window.innerWidth || 1280);
+  // Every size in the interface is rem-based, so the root font size scales all of it at once and
+  // composes with the browser's own zoom and default font size (a percentage of both).
+  if (applied === 100) root.style.removeProperty('font-size');
+  else root.style.fontSize = `${applied}%`;
+  root.dataset.uiScale = String(applied);
+  window.dispatchEvent(new Event('clarity-ui-scale'));
 }
 
 const same = (a: SyncedSettings | null, b: SyncedSettings | null) =>
@@ -333,7 +367,12 @@ export function createSettingsStore({
       /* Defaults below. */
     }
     const editorFont = deviceSettingsSchema.shape.editorFont.safeParse(record.editorFont);
-    const textSize = deviceSettingsSchema.shape.textSize.safeParse(record.textSize);
+    // "Text size: Large" (the old two-step setting) was 112.5 %; the nearest step carries over.
+    const storedScale = record.uiScale ?? (record.textSize === 'large' ? 115 : 100);
+    const uiScale =
+      typeof storedScale === 'number' && Number.isFinite(storedScale)
+        ? Math.min(uiScaleMax, Math.max(uiScaleMin, Math.round(storedScale)))
+        : 100;
     const stored =
       record.remembered && typeof record.remembered === 'object'
         ? (record.remembered as Record<string, unknown>)
@@ -345,7 +384,7 @@ export function createSettingsStore({
     }
     const theme = deviceSettingsSchema.shape.theme.safeParse(record.theme);
     return {
-      textSize: textSize.success ? textSize.data : 'default',
+      uiScale,
       editorFont: editorFont.success ? editorFont.data : 'default',
       theme: theme.success ? theme.data : 'system',
       panes: readPanes(record.panes),

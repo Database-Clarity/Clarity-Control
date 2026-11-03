@@ -64,7 +64,11 @@
   gap: 0.25rem;
   button {
     flex: 1;
-    min-height: 44px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-height: max(44px, 2.75rem);
     &[aria-selected='true'] {
       border-color: var(--accent-ink);
     }
@@ -75,8 +79,8 @@
 .paneHeader {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 28px;
+  gap: 0.5rem;
+  min-height: 1.75rem;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -87,40 +91,43 @@
 }
 .langSelect {
   @include controls.field;
-  min-height: 24px;
-  padding-right: 4px;
+  min-height: 1.5rem;
+  padding-right: 0.25rem;
   width: auto;
   max-width: 9rem;
 }
 .ghost {
   @include controls.button;
-  min-height: 24px;
-  padding: 0 8px;
+  min-height: 1.5rem;
+  padding: 0 0.5rem;
   font-size: 0.75rem;
   background: transparent;
   border-color: var(--ghost-edge);
 }
 .dot {
-  width: 7px;
-  height: 7px;
+  width: 0.4375rem;
+  height: 0.4375rem;
   border-radius: 50%;
   background: var(--accent-ink);
+}
+.draftSpacer {
+  display: none;
 }
 .badge {
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
-  gap: 6px;
+  gap: 0.375rem;
   min-width: 0;
-  padding: 0 6px;
-  height: 22px;
+  padding: 0 0.375rem;
+  height: 1.375rem;
   color: var(--warn);
   background: var(--warn-bg);
   border: 1px solid var(--warn-edge);
-  border-radius: 11px;
+  border-radius: 0.6875rem;
   font-size: 0.75rem;
   button {
-    height: 18px;
+    height: 1.125rem;
     min-height: 0;
   }
 }
@@ -133,7 +140,7 @@
 .overrideTag {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 0.25rem;
   min-width: 0;
   color: var(--enhanced);
   font-weight: 700;
@@ -142,18 +149,18 @@
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
-  gap: 6px;
+  gap: 0.375rem;
   min-width: 0;
   margin-left: auto;
 }
 .paneToggles {
   display: inline-flex;
-  gap: 6px;
+  gap: 0.375rem;
   margin-left: auto;
   button {
     @include controls.button;
-    min-height: 24px;
-    padding: 0 8px;
+    min-height: 1.5rem;
+    padding: 0 0.5rem;
     font-size: 0.75rem;
     &[aria-pressed='true'] {
       border-color: var(--accent-ink);
@@ -173,7 +180,7 @@
   overflow-wrap: anywhere;
   font-size: 0.8125rem;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: 0.25rem;
 }
 .showsLabel {
   display: inline-flex;
@@ -219,7 +226,7 @@
 }
 .inlinePreview {
   display: grid;
-  gap: 8px;
+  gap: 0.5rem;
 }
 
 // Hidden panels stay mounted (display only): caret and undo survive every switch.
@@ -234,7 +241,7 @@
 
 // The look (hit zone, line, pill) belongs to the shared PaneDivider.
 .workspace[data-split] {
-  grid-template-columns: minmax(0, 1fr) 16px var(--right-width);
+  grid-template-columns: minmax(0, 1fr) 1rem var(--right-width);
   // The side pane spans every row and fills the height: its own header stays put, its body scrolls.
   grid-template-rows: auto minmax(0, 1fr);
   align-items: start;
@@ -250,7 +257,7 @@
   .side {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 0.5rem;
     grid-column: 3;
     grid-row: 1 / -1;
     align-self: stretch;
@@ -299,7 +306,7 @@
   border-top: 1px solid var(--line);
   // The shell column pads its host; the pinned rows run edge to edge of that padding.
   margin-inline: -4px;
-  padding-inline: 4px;
+  padding-inline: 0.25rem;
 }
 .inlinePreview .rows {
   position: static;
@@ -318,7 +325,7 @@
 
 .categoryRow {
   min-width: 0;
-  padding: 2px 4px 4px;
+  padding: 2px 0.25rem 0.25rem;
   border-top: 1px solid var(--hair);
   font-size: 0.8125rem;
   small {
@@ -332,15 +339,15 @@
 }
 .categorySwitch {
   display: flex;
-  gap: 6px;
+  gap: 0.375rem;
   align-items: center;
   min-width: 0;
   button {
     @include controls.button;
     flex: 0 1 auto;
     min-width: 0;
-    min-height: 24px;
-    padding: 0 8px;
+    min-height: 1.5rem;
+    padding: 0 0.5rem;
     font-size: 0.75rem;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -350,7 +357,7 @@
       background: var(--ctl-pressed);
     }
     @include theme.mobile-or-coarse {
-      min-height: 44px;
+      min-height: max(44px, 2.75rem);
     }
   }
 }
@@ -363,7 +370,7 @@
     display: flex;
     position: sticky;
     // Below the sticky 48px phone header.
-    top: 48px;
+    top: 3rem;
     z-index: 2;
     background: var(--page);
   }
@@ -373,31 +380,38 @@
   }
   .paneHeader {
     flex-wrap: wrap;
-    row-gap: 4px;
-    padding-block: 4px;
-    min-height: 44px;
+    row-gap: 0.25rem;
+    padding-block: 0.25rem;
+    min-height: max(44px, 2.75rem);
     overflow: visible;
+  }
+  .draftSpacer {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    visibility: hidden;
+    pointer-events: none;
   }
   .langSelect,
   .ghost {
-    min-height: 44px;
-    min-width: 44px;
+    min-height: max(44px, 2.75rem);
+    min-width: max(44px, 2.75rem);
   }
   // The right-hand buttons stay on the first row; the read-only badge is the only second row.
   .badge {
     order: 1;
     flex: 1 1 100%;
     height: auto;
-    min-height: 44px;
-    padding-block: 4px;
-    border-radius: 6px;
+    min-height: max(44px, 2.75rem);
+    padding-block: 0.25rem;
+    border-radius: 0.375rem;
     white-space: normal;
     .ell {
       white-space: normal;
       overflow: visible;
     }
     button {
-      height: 44px;
+      height: 2.75rem;
     }
   }
   .paneRight {

@@ -1,20 +1,56 @@
 import { EditorView } from '@codemirror/view';
 
-const dockSelector = 'section[aria-label="Save drafts"]';
-
-/**
- * Bottom scroll margin needed so a fixed bottom dock never covers the caret. The save dock is
- * only `position: fixed` at the mobile breakpoint, and `display: none` (height 0) while idle.
- */
-export function dockScrollMargin(height: number, position: string, gap = 8): number {
-  return position === 'fixed' && height > 0 ? height + gap : 0;
+interface Box {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
 }
 
-/** Keeps the caret above the docked save bar when CodeMirror scrolls it into view. */
-export function saveDockScrollMargins() {
-  return EditorView.scrollMargins.of(() => {
-    const dock = document.querySelector<HTMLElement>(dockSelector);
-    const bottom = dock ? dockScrollMargin(dock.offsetHeight, getComputedStyle(dock).position) : 0;
-    return bottom ? { bottom } : null;
+/**
+ * How far each edge of the editor's scroller is covered by something drawn over it (an open
+ * status-bar panel, a notice hanging from the header). A cover in the lower half hides the bottom
+ * of the text, one in the upper half the top. Scrolling the caret into view keeps these clear, so
+ * the caret stays visible by scrolling and nothing is ever resized or reflowed to make room.
+ */
+export function coverMargins(
+  scroller: Box,
+  covers: readonly Box[],
+  gap = 8,
+): { top: number; bottom: number } {
+  const middle = (scroller.top + scroller.bottom) / 2;
+  let top = 0;
+  let bottom = 0;
+  for (const cover of covers) {
+    const overlaps =
+      cover.right > scroller.left &&
+      cover.left < scroller.right &&
+      cover.bottom > scroller.top &&
+      cover.top < scroller.bottom;
+    if (!overlaps) continue;
+    if ((cover.top + cover.bottom) / 2 >= middle)
+      bottom = Math.max(bottom, scroller.bottom - cover.top + gap);
+    else top = Math.max(top, cover.bottom - scroller.top + gap);
+  }
+  return { top, bottom };
+}
+
+const coverSelector = '[data-editor-overlay], [data-notice-strip]';
+
+/** Keeps the caret clear of the editor's own overlays and of the shell's notice strip. */
+export function editorScrollMargins() {
+  return EditorView.scrollMargins.of((view) => {
+    const scroller = view.scrollDOM.getBoundingClientRect();
+    const covers = [...document.querySelectorAll<HTMLElement>(coverSelector)]
+      // A closed overlay is not rendered; an overlay belongs to the editor it opens over.
+      .filter((element) => !element.hasAttribute('data-editor-overlay') || isOver(element, view))
+      .map((element) => element.getBoundingClientRect())
+      .filter((rect) => rect.width > 0 && rect.height > 0);
+    const margins = coverMargins(scroller, covers);
+    return margins.top || margins.bottom ? margins : null;
   });
+}
+
+function isOver(overlay: HTMLElement, view: EditorView): boolean {
+  return overlay.closest('[data-editor-root]')?.contains(view.dom) ?? false;
 }
