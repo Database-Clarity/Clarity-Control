@@ -84,6 +84,19 @@ On failure lower the hash cap/client split or compact validation/body; repeat al
 No CPU pass is claimed by E1; root runs the remote gate in E2. Local preview dry-run build only:
 `node node_modules/wrangler/bin/wrangler.js versions upload --config scripts/publisher/cpu/dist/wrangler.json --dry-run`.
 
+### Active-deployment gate collector (supersedes the manual loop above for E2-A)
+
+`CLOUDFLARE_ACCOUNT_ID=<id> node scripts/publisher/cpu/gate.mjs <evidence-dir> [mode:size,...]`
+Per attempt: own directory with fresh bundle/keys/token (`CPU_OUT`), one `deploy` of the
+synthetic config to `clarity-publisher-cpu-preview` only, one tail with its own debug directory
+confirmed ready before the first request, 400 ms pacing. Every response carries the bundle's
+`X-CPU-Build` stamp: responses from the previous deployment while the new one propagates are
+recorded as `stale` and never counted (run 6's HTTP 401 was such a stale isolate with the old
+session secret). Workers Logs (`cf o11y telemetry query`, needs the cf CLI's observability scope;
+Wrangler's OAuth token lacks it) is authoritative and polled until every sent sampleId has cpuTime,
+outcome, isolate and invocation; tail is a cross-check only (it drops events). Cold must be
+invocation 1, 20 warm on invocation > 1; incomplete cases retry once. Delete the Worker afterwards.
+
 ## First actual output parity (after a future write-capable release)
 
 `npm run build:publisher`

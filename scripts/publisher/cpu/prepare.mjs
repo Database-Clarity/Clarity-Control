@@ -19,6 +19,8 @@ const pem = (type) =>
     .privateKey.export({ type: 'pkcs8', format: 'pem' })
     .toString();
 const secret = randomBytes(32).toString('hex');
+// Unique per prepared bundle; echoed by entry.mjs so a stale deployment is detectable.
+const buildStamp = randomBytes(8).toString('hex');
 const hashes = Array.from({ length: count }, (_, i) => 1000000000 + i);
 const expected = Object.fromEntries(hashes.map((h) => [h, 'a'.repeat(64)]));
 const envelope = {
@@ -98,6 +100,7 @@ writeFileSync(
         GITHUB_PRIVATE_KEY: pem('rsa'),
         PUBLISH_SIGNING_KEY: pem('ed25519'),
         SESSION_SECRET: secret,
+        CPU_BUILD: buildStamp,
       },
     },
     null,
@@ -113,5 +116,8 @@ const value = Buffer.from(
   }),
 ).toString('base64url');
 const token = `${value}.${createHmac('sha256', secret).update(value).digest('base64url')}`;
-writeFileSync(`${out}/client.json`, JSON.stringify({ mode, count, hashes, expected, token }));
+writeFileSync(
+  `${out}/client.json`,
+  JSON.stringify({ mode, count, hashes, expected, token, build: buildStamp }),
+);
 console.log('Prepared synthetic preview only; no upload performed.');
