@@ -14,12 +14,15 @@ import {
 import type { paneMatch } from './paneMatch';
 
 export function usePaneMatch(
-  base: Tooltip,
+  inputBase: Tooltip,
   editor: EditorData | null,
   source: CompendiumData | null,
   drafts: Drafts,
   userId?: string | number,
 ) {
+  // tooltipFor() creates an empty record on each render for not-yet-authored tooltips.
+  const baseEvidence = JSON.stringify(inputBase);
+  const base = useMemo(() => JSON.parse(baseEvidence) as Tooltip, [baseEvidence]);
   // Match gates inspect link/classification edits, not live text or associations.
   const draftEvidence = JSON.stringify(
     Object.fromEntries(

@@ -30,7 +30,7 @@ it('keeps Matched visible across text edits and focus refreshes without rematchi
   document.body.append(host);
   const root = createRoot(host);
   function Witness({ drafts }: { drafts: Drafts }) {
-    const match = usePaneMatch(base, f.editor, f.source, drafts);
+    const match = usePaneMatch({ ...base }, f.editor, f.source, drafts);
     return createElement('span', null, match ? 'Matched' : 'No match');
   }
   const settle = () =>
