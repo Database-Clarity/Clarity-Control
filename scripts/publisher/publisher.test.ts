@@ -1,9 +1,13 @@
+import { Fixture, makePrivateKey } from '../../apps/worker/test/fixture.js';
+import { seedPushGroups, pushTime } from '../../apps/worker/test/push-fixture.js';
 import { execFileSync } from 'node:child_process';
 import { generateKeyPairSync, createHash, sign } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { RemoteRepository } from './remote.js';
 import { tmpdir } from 'node:os';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   stableStringify,
   publishIntentDigest,
@@ -18,828 +22,915 @@ import { Publisher, paths, type Options } from './publisher.js';
 import { createRequest } from './request.js';
 import { runPipeline } from './pipeline.js';
 // Configure before registering the Git subprocess tests (Windows runs exceed 20 seconds).
-vi.setConfig({ testTimeout: 60_000 });
+vi.setConfig({ testTimeout: 180_000 });
 
-it.each([false, true])(
-  'pipeline bundles real heads, isolates publish writes, and catches up (bad key=%s)',
-  async (badKey) => {
-    const f = await setup();
-    const repo = 'Database-Clarity/Live-Clarity-Database';
-    await f.request(A, [123], undefined, { repo });
-    const originalLive = f.git.head(L);
-    const checkoutRoot = mkdtempSync(join(tmpdir(), 'pipeline-checkout-'));
-    const checkout = join(checkoutRoot, 'checkout');
-    roots.push(checkoutRoot);
-    execFileSync('git', ['clone', '--branch', 'editor-data', '--', f.git.path, checkout], {
-      stdio: 'pipe',
-    });
-    let latest = f.git.head(D)!;
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => {
-        latest = f.change(D, { 'tooltips/123.json': { ...f.tooltip, associated: [456] } });
-        return new Response(
-          JSON.stringify({
-            algorithm: 'Ed25519',
-            publicKey: f.options.publicKey,
-            fingerprint: badKey ? 'bad' : f.options.keyFingerprint,
-          }),
-        );
-      }),
-    );
-    const out = join(checkout, 'artifacts');
-    const task = runPipeline(
-      checkout,
-      { ...f.options, repo, keyEndpoint: 'https://worker.invalid/publish/key' },
-      out,
-    );
-    if (badKey) await expect(task).rejects.toThrow('fingerprint');
-    else await task;
-    expect(f.git.head(D)).toBe(latest);
-    expect(f.git.head(L)).toBe(originalLive);
-    expect(f.git.tree(latest)[paths(A).request]).toBeDefined();
-    expect(f.git.tree(latest)[paths(A).log]).toBeUndefined();
-    expect(f.git.head(paths(A).candidate)).toBeUndefined();
-    const bundle = f.pub.read<{
-      sourceCommit: string;
-      publishQueue: {
-        opId: string;
-        requester: { id: number; login: string };
-        hashes: number[];
-        createdAt: string;
-      }[];
-    }>(f.git.tree(f.git.head('refs/heads/editor-data-bundle')!), 'bundle.json')!;
-    expect(bundle.sourceCommit).toBe(latest);
-    expect(bundle.publishQueue.map((p) => p.opId)).toEqual([A]);
-    expect(Object.keys(bundle.publishQueue[0]).sort()).toEqual([
-      'createdAt',
-      'hashes',
-      'opId',
-      'requester',
-    ]);
-    expect(bundle.publishQueue[0].hashes).toEqual([123]);
-    expect(bundle.publishQueue[0].requester.id).toBeTypeOf('number');
-    const report = JSON.parse(readFileSync(join(out, 'result.json'), 'utf8'));
-    expect(report.publishWritesEnabled).toBe(false);
-    expect(report.reports).toHaveLength(2);
-    const manifest = JSON.parse(readFileSync(join(out, 'would-be-commits.json'), 'utf8'));
-    expect(manifest.commits > 0).toBe(!badKey);
-    expect(existsSync(join(out, 'would-be-commits.bundle'))).toBe(!badKey);
-    if (badKey) return;
-    const artifact = join(checkout, 'inspect.git');
-    execFileSync('git', ['clone', '--bare', f.git.path, artifact], {
-      stdio: 'pipe',
-    });
-    execFileSync(
-      'git',
-      [
-        '--git-dir',
-        artifact,
+describe.each(['simulator', 'remote'] as const)('%s repository contract', (transport) => {
+  it.each([false, true])(
+    'pipeline bundles real heads, isolates publish writes, and catches up (bad key=%s)',
+    async (badKey) => {
+      const f = await setup();
+      const repo = 'Database-Clarity/Live-Clarity-Database';
+      await f.request(A, [123], undefined, { repo });
+      const originalLive = f.git.head(L);
+      const checkoutRoot = mkdtempSync(join(tmpdir(), 'pipeline-checkout-'));
+      const checkout = join(checkoutRoot, 'checkout');
+      roots.push(checkoutRoot);
+      execFileSync('git', ['clone', '--branch', 'editor-data', '--', f.upstream, checkout], {
+        stdio: 'pipe',
+      });
+      let latest = f.git.head(D)!;
+      vi.stubGlobal(
         'fetch',
-        join(out, 'would-be-commits.bundle'),
-        '+refs/heads/*:refs/heads/*',
+        vi.fn(async () => {
+          latest = f.change(D, { 'tooltips/123.json': { ...f.tooltip, associated: [456] } });
+          return new Response(
+            JSON.stringify({
+              algorithm: 'Ed25519',
+              publicKey: f.options.publicKey,
+              fingerprint: badKey ? 'bad' : f.options.keyFingerprint,
+            }),
+          );
+        }),
+      );
+      const out = join(checkout, 'artifacts');
+      const task = runPipeline(
+        checkout,
+        { ...f.options, repo, keyEndpoint: 'https://worker.invalid/publish/key' },
+        out,
+      );
+      if (badKey) await expect(task).rejects.toThrow('fingerprint');
+      else await task;
+      expect(f.git.head(D)).toBe(latest);
+      expect(f.git.head(L)).toBe(originalLive);
+      expect(f.git.tree(latest)[paths(A).request]).toBeDefined();
+      expect(f.git.tree(latest)[paths(A).log]).toBeUndefined();
+      expect(f.git.head(paths(A).candidate)).toBeUndefined();
+      const bundle = f.pub.read<{
+        sourceCommit: string;
+        publishQueue: {
+          opId: string;
+          requester: { id: number; login: string };
+          hashes: number[];
+          createdAt: string;
+        }[];
+      }>(f.git.tree(f.git.head('refs/heads/editor-data-bundle')!), 'bundle.json')!;
+      expect(bundle.sourceCommit).toBe(latest);
+      expect(bundle.publishQueue.map((p) => p.opId)).toEqual([A]);
+      expect(Object.keys(bundle.publishQueue[0]).sort()).toEqual([
+        'createdAt',
+        'hashes',
+        'opId',
+        'requester',
+      ]);
+      expect(bundle.publishQueue[0].hashes).toEqual([123]);
+      expect(bundle.publishQueue[0].requester.id).toBeTypeOf('number');
+      const report = JSON.parse(readFileSync(join(out, 'result.json'), 'utf8'));
+      expect(report.publishWritesEnabled).toBe(false);
+      expect(report.reports).toHaveLength(2);
+      const manifest = JSON.parse(readFileSync(join(out, 'would-be-commits.json'), 'utf8'));
+      expect(manifest.commits > 0).toBe(!badKey);
+      expect(existsSync(join(out, 'would-be-commits.bundle'))).toBe(!badKey);
+      if (badKey) return;
+      const artifact = join(checkout, 'inspect.git');
+      execFileSync('git', ['clone', '--bare', f.upstream, artifact], {
+        stdio: 'pipe',
+      });
+      execFileSync(
+        'git',
+        [
+          '--git-dir',
+          artifact,
+          'fetch',
+          join(out, 'would-be-commits.bundle'),
+          '+refs/heads/*:refs/heads/*',
+        ],
+        { stdio: 'pipe' },
+      );
+      const simulatedLog = execFileSync(
+        'git',
+        ['--git-dir', artifact, 'ls-tree', '-r', 'refs/heads/editor-data'],
+        { encoding: 'utf8' },
+      );
+      expect(simulatedLog.includes(paths(A).log)).toBe(!badKey);
+    },
+  );
+
+  it('invalid bundle inputs preserve the prior bundle, including the remote pipeline bundle', async () => {
+    const f = await setup();
+    f.pub.bundle();
+    const ref = 'refs/heads/editor-data-bundle',
+      old = f.git.head(ref);
+    const base = f.git.tree(f.git.head(D)!);
+    const invalid = [
+      { 'tooltips/123.json': { ...f.tooltip, hash: 234 } },
+      { 'tooltips/123.json': { hash: 123, text: 'bad schema' } },
+      { 'tooltips/0123.json': f.tooltip },
+      { 'tooltips/nested/123.json': f.tooltip },
+      { 'config/permissions.json': { users: [] } },
+      { 'live/pushed.json': { 123: 'invalid digest' } },
+    ];
+    for (const files of invalid) {
+      const tree = { ...base };
+      for (const [path, value] of Object.entries(files))
+        tree[path] = f.git.writeBlob(encode(value));
+      const h = f.git.head(D)!;
+      f.git.cas(D, h, f.git.commit(h, tree, 'Invalid bundle fixture'));
+      expect(() => f.pub.bundle()).toThrow();
+      expect(f.git.head(ref)).toBe(old);
+    }
+    const empty = { ...base };
+    delete empty['tooltips/123.json'];
+    f.git.cas(D, f.git.head(D), f.git.commit(f.git.head(D), empty, 'Empty tooltips'));
+    expect(() => f.pub.bundle()).toThrow('No tooltips');
+    expect(f.git.head(ref)).toBe(old);
+    const checkoutRoot = mkdtempSync(join(tmpdir(), 'invalid-pipeline-'));
+    roots.push(checkoutRoot);
+    const checkout = join(checkoutRoot, 'checkout');
+    execFileSync('git', ['clone', '--branch', 'editor-data', f.upstream, checkout], {
+      stdio: 'pipe',
+    });
+    vi.stubGlobal('fetch', vi.fn());
+    await expect(
+      runPipeline(
+        checkout,
+        {
+          ...f.options,
+          repo: 'Database-Clarity/Live-Clarity-Database',
+          keyEndpoint: 'https://worker.invalid/publish/key',
+        },
+        join(checkoutRoot, 'artifacts'),
+      ),
+    ).rejects.toThrow('No tooltips');
+    expect(f.git.head(ref)).toBe(old);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  const A = '01K95H00000000000000000001',
+    B = '01K95H00000000000000000002';
+  const D = 'refs/heads/editor-data',
+    L = 'refs/heads/converter-v2-test';
+  const encode = (v: unknown) => JSON.stringify(v, null, 2) + '\n';
+  const roots: string[] = [];
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true });
+  });
+  async function setup() {
+    const root = mkdtempSync(join(tmpdir(), 'publisher-fixture-'));
+    roots.push(root);
+    execFileSync('git', ['init', '--bare', root], { stdio: 'pipe' });
+    execFileSync('git', ['--git-dir', root, 'config', 'publisher.simulator', 'true']);
+    const cache = mkdtempSync(join(tmpdir(), 'publisher-cache-'));
+    roots.push(cache);
+    execFileSync('git', ['init', '--bare', cache], { stdio: 'pipe' });
+    execFileSync('git', ['--git-dir', cache, 'config', 'publisher.simulator', 'true']);
+    const git =
+      transport === 'simulator'
+        ? new LocalRepository(root)
+        : new RemoteRepository(cache, { fileUrl: pathToFileURL(root).href });
+    const keys = generateKeyPairSync('ed25519');
+    const publicKey = keys.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+    const options: Options = {
+      repo: 'test/local',
+      dataBranch: 'editor-data',
+      liveBranch: 'converter-v2-test',
+      publicKey,
+      keyFingerprint: createHash('sha256')
+        .update(keys.publicKey.export({ type: 'spki', format: 'der' }))
+        .digest('hex'),
+      publisherSha: 'a'.repeat(40),
+      generatorSha: 'b'.repeat(40),
+      aliases: {},
+      facts: { 123: { name: 'Thing', type: 'perk' } },
+      now: () => pushTime,
+      runUrl: 'local://fixture',
+      backoff: async () => {},
+    };
+    const pub = new Publisher(git, options);
+    const tooltip: Tooltip = {
+      hash: 123,
+      text: { en: { text: 'reviewed', updatedAt: '2026-10-01T00:00:00Z', updatedBy: 'alice' } },
+      associated: [],
+    };
+    const initial: Tree = {};
+    for (const [p, v] of Object.entries({
+      'config/permissions.json': { users: { '1': { login: 'alice', role: 'editor' } } },
+      'tooltips/123.json': tooltip,
+      'live/pushed.json': {},
+    }))
+      initial[p] = git.writeBlob(encode(v));
+    git.cas(D, undefined, git.commit(undefined, initial, 'Seed data'));
+    git.cas(
+      L,
+      undefined,
+      git.commit(
+        undefined,
+        { 'liveDescriptions.json': git.writeBlob(encode({ perks: {}, databaseSettings: {} })) },
+        'Seed live',
+      ),
+    );
+    function change(ref: string, files: Record<string, unknown>) {
+      const h = git.head(ref)!,
+        tree = git.tree(h);
+      for (const [p, v] of Object.entries(files)) tree[p] = git.writeBlob(encode(v));
+      const c = git.commit(h, tree, 'Save fixture');
+      git.cas(ref, h, c);
+      return c;
+    }
+    async function request(
+      id = A,
+      hashes = [123],
+      expected?: Record<string, string>,
+      overrides: Partial<PublishPayload> = {},
+    ) {
+      const payload: PublishPayload = {
+        opId: id,
+        kind: 'push',
+        repo: options.repo,
+        dataBranch: options.dataBranch,
+        liveBranch: options.liveBranch,
+        requester: { id: 1, login: 'alice' },
+        createdAt: '2026-11-03T12:00:00.000Z',
+        hashes,
+        expected: expected ?? { 123: await publishableHash(tooltip, options.aliases) },
+        intentDigest: '0'.repeat(64),
+        ...overrides,
+      };
+      payload.intentDigest = await publishIntentDigest(payload);
+      const bytes = stableStringify(payload),
+        envelope = {
+          payload: bytes,
+          sig: sign(null, Buffer.from(bytes), keys.privateKey).toString('base64'),
+        };
+      change(D, { [paths(id).request]: envelope });
+      return { payload, envelope };
+    }
+    function assertDone(id = A) {
+      const t = git.tree(git.head(D)!);
+      expect(t[paths(id).request]).toBeUndefined();
+      const log = pub.read<{
+        candidateCommit: string;
+        liveCommit: string;
+        result: { status: string };
+      }>(t, paths(id).log)!;
+      expect(log.result.status).toMatch(/done|unchanged/);
+      expect(git.ancestor(log.liveCommit, git.head(L)!)).toBe(true);
+      const receipt = pub.receipt(log.candidateCommit, id)!;
+      expect(receipt.opId).toBe(id);
+      for (const e of receipt.entries) {
+        expect(t[`live/tooltips/${e.hash}.json`]).toBe(e.tooltipBlob);
+        expect(pub.read<Record<string, string>>(t, 'live/pushed.json')![e.hash]).toBe(e.digest);
+      }
+      const introduced = git
+        .history(git.head(L)!)
+        .filter(
+          (c, i, all) =>
+            git.tree(c)[paths(id).receipt] && (!i || !git.tree(all[i - 1])[paths(id).receipt]),
+        );
+      expect(introduced).toHaveLength(1);
+      expect(Object.keys(t).filter((p) => p === paths(id).log)).toHaveLength(1);
+    }
+    return {
+      upstream: root,
+      git,
+      pub,
+      options,
+      tooltip,
+      change,
+      request,
+      assertDone,
+      sign: (p: string) => sign(null, Buffer.from(p), keys.privateKey).toString('base64'),
+    };
+  }
+
+  it('publishes and records exactly the reviewed blobs', async () => {
+    const f = await setup();
+    await f.request();
+    await f.pub.run();
+    f.assertDone();
+  });
+  it('malformed request JSON cannot block receipt recovery or later valid requests', async () => {
+    const f = await setup();
+    await f.request();
+    const cas = f.git.cas.bind(f.git);
+    f.git.cas = (ref, old, next) => {
+      if (ref === D) throw new Error('RECORD unavailable');
+      cas(ref, old, next);
+    };
+    await expect(f.pub.run()).rejects.toThrow('RECORD unavailable');
+    const landed = f.git.head(L);
+    f.git.cas = cas;
+    await f.request(B);
+    const h = f.git.head(D)!,
+      tree = f.git.tree(h);
+    tree[paths(B).request] = f.git.writeBlob('{malformed');
+    f.git.cas(D, h, f.git.commit(h, tree, 'Inject malformed envelope'));
+    const c = '01K95H00000000000000000003';
+    await f.request(c);
+    f.pub.bundle();
+    const bundle = f.pub.read<{ publishQueue: unknown[] }>(
+      f.git.tree(f.git.head('refs/heads/editor-data-bundle')!),
+      'bundle.json',
+    )!;
+    expect(bundle.publishQueue).toContainEqual({ opId: B, invalid: true });
+    await f.pub.run();
+    f.assertDone(A);
+    f.assertDone(c);
+    expect(f.git.ancestor(landed!, f.git.head(L)!)).toBe(true);
+    expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(B).log)).toMatchObject({
+      result: { status: 'rejected' },
+    });
+    expect(f.pub.receipt(f.git.head(L)!, B)).toBeUndefined();
+  });
+  it('records a successful sixth push immediately, with only five backoffs', async () => {
+    const f = await setup();
+    await f.request();
+    const cas = f.git.cas.bind(f.git);
+    let pushes = 0,
+      backoffs = 0;
+    f.options.backoff = async () => {
+      backoffs++;
+    };
+    f.git.cas = (ref, old, next) => {
+      if (ref === L && ++pushes < 6) throw new Error('disconnect');
+      cas(ref, old, next);
+    };
+    await f.pub.run();
+    f.assertDone();
+    expect(pushes).toBe(6);
+    expect(backoffs).toBe(5);
+    expect(f.git.head(paths(A).candidate)).toBeUndefined();
+  });
+  it.each([false, true])(
+    'RECORD closes a changed request blob as duplicate/conflict (conflict=%s)',
+    async (conflict) => {
+      const f = await setup();
+      const { envelope, payload } = await f.request();
+      const cas = f.git.cas.bind(f.git);
+      let swapped = false;
+      f.git.cas = (ref, old, next) => {
+        cas(ref, old, next);
+        if (ref === L && !swapped) {
+          swapped = true;
+          f.change(D, {
+            [paths(A).request]: {
+              ...envelope,
+              payload: stableStringify({
+                ...payload,
+                createdAt: '2027-01-01T00:00:00.000Z',
+                intentDigest: conflict ? 'f'.repeat(64) : payload.intentDigest,
+              }),
+            },
+          });
+        }
+      };
+      await f.pub.run();
+      f.assertDone();
+      expect(
+        f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log.replace('.json', '.dup-1.json')),
+      ).toMatchObject({ status: conflict ? 'conflict' : 'duplicate' });
+    },
+  );
+  it('plain-node dry-run CLI emits artifacts and never changes its input refs', async () => {
+    const f = await setup();
+    await f.request();
+    const before = f.git.git(['show-ref']);
+    const root = mkdtempSync(join(tmpdir(), 'publisher-cli-'));
+    roots.push(root);
+    writeFileSync(join(root, 'config.json'), JSON.stringify(f.options));
+    execFileSync(process.execPath, ['scripts/publisher/build.mjs'], { stdio: 'pipe' });
+    execFileSync(
+      process.execPath,
+      [
+        'scripts/publisher/dist/publisher.mjs',
+        '--dry-run',
+        f.upstream,
+        join(root, 'config.json'),
+        join(root, 'out'),
       ],
       { stdio: 'pipe' },
     );
-    const simulatedLog = execFileSync(
-      'git',
-      ['--git-dir', artifact, 'ls-tree', '-r', 'refs/heads/editor-data'],
-      { encoding: 'utf8' },
-    );
-    expect(simulatedLog.includes(paths(A).log)).toBe(!badKey);
-  },
-);
-import { Fixture, makePrivateKey } from '../../apps/worker/test/fixture.js';
-import { seedPushGroups, pushTime } from '../../apps/worker/test/push-fixture.js';
-
-it('invalid bundle inputs preserve the prior bundle, including the remote pipeline bundle', async () => {
-  const f = await setup();
-  f.pub.bundle();
-  const ref = 'refs/heads/editor-data-bundle',
-    old = f.git.head(ref);
-  const base = f.git.tree(f.git.head(D)!);
-  const invalid = [
-    { 'tooltips/123.json': { ...f.tooltip, hash: 234 } },
-    { 'tooltips/123.json': { hash: 123, text: 'bad schema' } },
-    { 'tooltips/0123.json': f.tooltip },
-    { 'tooltips/nested/123.json': f.tooltip },
-    { 'config/permissions.json': { users: [] } },
-    { 'live/pushed.json': { 123: 'invalid digest' } },
-  ];
-  for (const files of invalid) {
-    const tree = { ...base };
-    for (const [path, value] of Object.entries(files)) tree[path] = f.git.writeBlob(encode(value));
-    const h = f.git.head(D)!;
-    f.git.cas(D, h, f.git.commit(h, tree, 'Invalid bundle fixture'));
-    expect(() => f.pub.bundle()).toThrow();
-    expect(f.git.head(ref)).toBe(old);
-  }
-  const empty = { ...base };
-  delete empty['tooltips/123.json'];
-  f.git.cas(D, f.git.head(D), f.git.commit(f.git.head(D), empty, 'Empty tooltips'));
-  expect(() => f.pub.bundle()).toThrow('No tooltips');
-  expect(f.git.head(ref)).toBe(old);
-  const checkoutRoot = mkdtempSync(join(tmpdir(), 'invalid-pipeline-'));
-  roots.push(checkoutRoot);
-  const checkout = join(checkoutRoot, 'checkout');
-  execFileSync('git', ['clone', '--branch', 'editor-data', f.git.path, checkout], {
-    stdio: 'pipe',
+    expect(f.git.git(['show-ref'])).toBe(before);
+    expect(JSON.parse(readFileSync(join(root, 'out', 'result.json'), 'utf8'))).toMatchObject({
+      dryRun: true,
+      writesEnabled: false,
+      error: null,
+    });
+    expect(readFileSync(join(root, 'out', 'would-be-commits.bundle')).length).toBeGreaterThan(0);
   });
-  vi.stubGlobal('fetch', vi.fn());
-  await expect(
-    runPipeline(
-      checkout,
-      {
-        ...f.options,
-        repo: 'Database-Clarity/Live-Clarity-Database',
-        keyEndpoint: 'https://worker.invalid/publish/key',
-      },
-      join(checkoutRoot, 'artifacts'),
-    ),
-  ).rejects.toThrow('No tooltips');
-  expect(f.git.head(ref)).toBe(old);
-  expect(fetch).not.toHaveBeenCalled();
-});
-
-const A = '01K95H00000000000000000001',
-  B = '01K95H00000000000000000002';
-const D = 'refs/heads/editor-data',
-  L = 'refs/heads/converter-v2-test';
-const encode = (v: unknown) => JSON.stringify(v, null, 2) + '\n';
-const roots: string[] = [];
-afterEach(() => {
-  vi.useRealTimers();
-  vi.unstubAllGlobals();
-  for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true });
-});
-async function setup() {
-  const root = mkdtempSync(join(tmpdir(), 'publisher-fixture-'));
-  roots.push(root);
-  execFileSync('git', ['init', '--bare', root], { stdio: 'pipe' });
-  execFileSync('git', ['--git-dir', root, 'config', 'publisher.simulator', 'true']);
-  const git = new LocalRepository(root);
-  const keys = generateKeyPairSync('ed25519');
-  const publicKey = keys.publicKey.export({ type: 'spki', format: 'pem' }).toString();
-  const options: Options = {
-    repo: 'test/local',
-    dataBranch: 'editor-data',
-    liveBranch: 'converter-v2-test',
-    publicKey,
-    keyFingerprint: createHash('sha256')
-      .update(keys.publicKey.export({ type: 'spki', format: 'der' }))
-      .digest('hex'),
-    publisherSha: 'a'.repeat(40),
-    generatorSha: 'b'.repeat(40),
-    aliases: {},
-    facts: { 123: { name: 'Thing', type: 'perk' } },
-    now: () => pushTime,
-    runUrl: 'local://fixture',
-    backoff: async () => {},
-  };
-  const pub = new Publisher(git, options);
-  const tooltip: Tooltip = {
-    hash: 123,
-    text: { en: { text: 'reviewed', updatedAt: '2026-10-01T00:00:00Z', updatedBy: 'alice' } },
-    associated: [],
-  };
-  const initial: Tree = {};
-  for (const [p, v] of Object.entries({
-    'config/permissions.json': { users: { '1': { login: 'alice', role: 'editor' } } },
-    'tooltips/123.json': tooltip,
-    'live/pushed.json': {},
-  }))
-    initial[p] = git.writeBlob(encode(v));
-  git.cas(D, undefined, git.commit(undefined, initial, 'Seed data'));
-  git.cas(
-    L,
-    undefined,
-    git.commit(
-      undefined,
-      { 'liveDescriptions.json': git.writeBlob(encode({ perks: {}, databaseSettings: {} })) },
-      'Seed live',
-    ),
-  );
-  function change(ref: string, files: Record<string, unknown>) {
-    const h = git.head(ref)!,
-      tree = git.tree(h);
-    for (const [p, v] of Object.entries(files)) tree[p] = git.writeBlob(encode(v));
-    const c = git.commit(h, tree, 'Save fixture');
-    git.cas(ref, h, c);
-    return c;
-  }
-  async function request(
-    id = A,
-    hashes = [123],
-    expected?: Record<string, string>,
-    overrides: Partial<PublishPayload> = {},
-  ) {
-    const payload: PublishPayload = {
-      opId: id,
-      kind: 'push',
-      repo: options.repo,
-      dataBranch: options.dataBranch,
-      liveBranch: options.liveBranch,
-      requester: { id: 1, login: 'alice' },
-      createdAt: '2026-11-03T12:00:00.000Z',
-      hashes,
-      expected: expected ?? { 123: await publishableHash(tooltip, options.aliases) },
-      intentDigest: '0'.repeat(64),
-      ...overrides,
-    };
-    payload.intentDigest = await publishIntentDigest(payload);
-    const bytes = stableStringify(payload),
-      envelope = {
-        payload: bytes,
-        sig: sign(null, Buffer.from(bytes), keys.privateKey).toString('base64'),
-      };
-    change(D, { [paths(id).request]: envelope });
-    return { payload, envelope };
-  }
-  function assertDone(id = A) {
-    const t = git.tree(git.head(D)!);
-    expect(t[paths(id).request]).toBeUndefined();
-    const log = pub.read<{
-      candidateCommit: string;
-      liveCommit: string;
-      result: { status: string };
-    }>(t, paths(id).log)!;
-    expect(log.result.status).toMatch(/done|unchanged/);
-    expect(git.ancestor(log.liveCommit, git.head(L)!)).toBe(true);
-    const receipt = pub.receipt(log.candidateCommit, id)!;
-    expect(receipt.opId).toBe(id);
-    for (const e of receipt.entries) {
-      expect(t[`live/tooltips/${e.hash}.json`]).toBe(e.tooltipBlob);
-      expect(pub.read<Record<string, string>>(t, 'live/pushed.json')![e.hash]).toBe(e.digest);
-    }
-    const introduced = git
-      .history(git.head(L)!)
-      .filter(
-        (c, i, all) =>
-          git.tree(c)[paths(id).receipt] && (!i || !git.tree(all[i - 1])[paths(id).receipt]),
-      );
-    expect(introduced).toHaveLength(1);
-    expect(Object.keys(t).filter((p) => p === paths(id).log)).toHaveLength(1);
-  }
-  return {
-    git,
-    pub,
-    options,
-    tooltip,
-    change,
-    request,
-    assertDone,
-    sign: (p: string) => sign(null, Buffer.from(p), keys.privateKey).toString('base64'),
-  };
-}
-
-it('publishes and records exactly the reviewed blobs', async () => {
-  const f = await setup();
-  await f.request();
-  await f.pub.run();
-  f.assertDone();
-});
-it('malformed request JSON cannot block receipt recovery or later valid requests', async () => {
-  const f = await setup();
-  await f.request();
-  const cas = f.git.cas.bind(f.git);
-  f.git.cas = (ref, old, next) => {
-    if (ref === D) throw new Error('RECORD unavailable');
-    cas(ref, old, next);
-  };
-  await expect(f.pub.run()).rejects.toThrow('RECORD unavailable');
-  const landed = f.git.head(L);
-  f.git.cas = cas;
-  await f.request(B);
-  const h = f.git.head(D)!,
-    tree = f.git.tree(h);
-  tree[paths(B).request] = f.git.writeBlob('{malformed');
-  f.git.cas(D, h, f.git.commit(h, tree, 'Inject malformed envelope'));
-  const c = '01K95H00000000000000000003';
-  await f.request(c);
-  f.pub.bundle();
-  const bundle = f.pub.read<{ publishQueue: unknown[] }>(
-    f.git.tree(f.git.head('refs/heads/editor-data-bundle')!),
-    'bundle.json',
-  )!;
-  expect(bundle.publishQueue).toContainEqual({ opId: B, invalid: true });
-  await f.pub.run();
-  f.assertDone(A);
-  f.assertDone(c);
-  expect(f.git.ancestor(landed!, f.git.head(L)!)).toBe(true);
-  expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(B).log)).toMatchObject({
-    result: { status: 'rejected' },
-  });
-  expect(f.pub.receipt(f.git.head(L)!, B)).toBeUndefined();
-});
-it('records a successful sixth push immediately, with only five backoffs', async () => {
-  const f = await setup();
-  await f.request();
-  const cas = f.git.cas.bind(f.git);
-  let pushes = 0,
-    backoffs = 0;
-  f.options.backoff = async () => {
-    backoffs++;
-  };
-  f.git.cas = (ref, old, next) => {
-    if (ref === L && ++pushes < 6) throw new Error('disconnect');
-    cas(ref, old, next);
-  };
-  await f.pub.run();
-  f.assertDone();
-  expect(pushes).toBe(6);
-  expect(backoffs).toBe(5);
-  expect(f.git.head(paths(A).candidate)).toBeUndefined();
-});
-it.each([false, true])(
-  'RECORD closes a changed request blob as duplicate/conflict (conflict=%s)',
-  async (conflict) => {
-    const f = await setup();
-    const { envelope, payload } = await f.request();
-    const cas = f.git.cas.bind(f.git);
-    let swapped = false;
-    f.git.cas = (ref, old, next) => {
-      cas(ref, old, next);
-      if (ref === L && !swapped) {
-        swapped = true;
-        f.change(D, {
-          [paths(A).request]: {
-            ...envelope,
-            payload: stableStringify({
-              ...payload,
-              createdAt: '2027-01-01T00:00:00.000Z',
-              intentDigest: conflict ? 'f'.repeat(64) : payload.intentDigest,
-            }),
-          },
-        });
-      }
-    };
-    await f.pub.run();
-    f.assertDone();
-    expect(
-      f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log.replace('.json', '.dup-1.json')),
-    ).toMatchObject({ status: conflict ? 'conflict' : 'duplicate' });
-  },
-);
-it('plain-node dry-run CLI emits artifacts and never changes its input refs', async () => {
-  const f = await setup();
-  await f.request();
-  const before = f.git.git(['show-ref']);
-  const root = mkdtempSync(join(tmpdir(), 'publisher-cli-'));
-  roots.push(root);
-  writeFileSync(join(root, 'config.json'), JSON.stringify(f.options));
-  execFileSync(process.execPath, ['scripts/publisher/build.mjs'], { stdio: 'pipe' });
-  execFileSync(
-    process.execPath,
-    [
-      'scripts/publisher/dist/publisher.mjs',
-      '--dry-run',
-      f.git.path,
-      join(root, 'config.json'),
-      join(root, 'out'),
-    ],
-    { stdio: 'pipe' },
-  );
-  expect(f.git.git(['show-ref'])).toBe(before);
-  expect(JSON.parse(readFileSync(join(root, 'out', 'result.json'), 'utf8'))).toMatchObject({
-    dryRun: true,
-    writesEnabled: false,
-    error: null,
-  });
-  expect(readFileSync(join(root, 'out', 'would-be-commits.bundle')).length).toBeGreaterThan(0);
-});
-it('exhausted unresolved publication blocks later work and resumes the exact candidate', async () => {
-  const f = await setup();
-  await f.request();
-  await f.request(B);
-  const cas = f.git.cas.bind(f.git);
-  f.git.cas = (ref, old, next) => {
-    if (ref === L) throw new Error('disconnect');
-    cas(ref, old, next);
-  };
-  await expect(f.pub.run()).rejects.toThrow('Publish unresolved');
-  const c = f.git.head(paths(A).candidate);
-  expect(c).toBeTruthy();
-  expect(f.git.head(paths(B).candidate)).toBeUndefined();
-  f.git.cas = cas;
-  await f.pub.run();
-  f.assertDone();
-  f.assertDone(B);
-  expect(
-    f.pub.read<{ candidateCommit: string }>(f.git.tree(f.git.head(D)!), paths(A).log)!
-      .candidateCommit,
-  ).toBe(c);
-});
-it.each(['landed', 'not-landed', 'delayed-success'])(
-  'reconciles ambiguous push: %s',
-  async (mode) => {
+  it('exhausted unresolved publication blocks later work and resumes the exact candidate', async () => {
     const f = await setup();
     await f.request();
-    const cas = f.git.cas.bind(f.git);
-    let pending: (() => void) | undefined,
-      intercepted = false;
-    f.git.cas = (ref, old, next) => {
-      if (ref === L && !intercepted) {
-        intercepted = true;
-        if (mode === 'landed') cas(ref, old, next);
-        if (mode === 'delayed-success') pending = () => cas(ref, old, next);
-        throw new Error('Transport timeout');
-      }
-      if (ref === L && pending) {
-        pending();
-        pending = undefined;
-      }
-      cas(ref, old, next);
-    };
-    await f.pub.run();
-    expect(intercepted).toBe(true);
-    f.assertDone();
-  },
-);
-it.each([true, false])(
-  'runner crash with ambiguous push (landed=%s), unconditional recovery after revocation',
-  async (landed) => {
-    const f = await setup();
-    await f.request();
+    await f.request(B);
     const cas = f.git.cas.bind(f.git);
     f.git.cas = (ref, old, next) => {
-      if (ref === L) {
-        if (landed) cas(ref, old, next);
-        throw new Error('disconnect');
-      }
+      if (ref === L) throw new Error('disconnect');
       cas(ref, old, next);
     };
-    f.options.backoff = async () => {
-      throw new Error('runner crash');
-    };
-    await expect(f.pub.run()).rejects.toThrow('runner crash');
-    const candidate = f.git.head(paths(A).candidate)!;
-    expect(candidate).toBeTruthy();
+    await expect(f.pub.run()).rejects.toThrow('Publish unresolved');
+    const c = f.git.head(paths(A).candidate);
+    expect(c).toBeTruthy();
+    expect(f.git.head(paths(B).candidate)).toBeUndefined();
     f.git.cas = cas;
-    f.options.backoff = undefined;
-    f.change(D, { 'config/permissions.json': { users: {} } });
-    f.options.now = () => pushTime + 999999999;
+    await f.pub.run();
+    f.assertDone();
+    f.assertDone(B);
+    expect(
+      f.pub.read<{ candidateCommit: string }>(f.git.tree(f.git.head(D)!), paths(A).log)!
+        .candidateCommit,
+    ).toBe(c);
+  });
+  it.each(['landed', 'not-landed', 'delayed-success'])(
+    'reconciles ambiguous push: %s',
+    async (mode) => {
+      const f = await setup();
+      await f.request();
+      const cas = f.git.cas.bind(f.git);
+      let pending: (() => void) | undefined,
+        intercepted = false;
+      f.git.cas = (ref, old, next) => {
+        if (ref === L && !intercepted) {
+          intercepted = true;
+          if (mode === 'landed') cas(ref, old, next);
+          if (mode === 'delayed-success') pending = () => cas(ref, old, next);
+          throw new Error('Transport timeout');
+        }
+        if (ref === L && pending) {
+          pending();
+          pending = undefined;
+        }
+        cas(ref, old, next);
+      };
+      await f.pub.run();
+      expect(intercepted).toBe(true);
+      f.assertDone();
+    },
+  );
+  it.each([true, false])(
+    'runner crash with ambiguous push (landed=%s), unconditional recovery after revocation',
+    async (landed) => {
+      const f = await setup();
+      await f.request();
+      const cas = f.git.cas.bind(f.git);
+      f.git.cas = (ref, old, next) => {
+        if (ref === L) {
+          if (landed) cas(ref, old, next);
+          throw new Error('disconnect');
+        }
+        cas(ref, old, next);
+      };
+      f.options.backoff = async () => {
+        throw new Error('runner crash');
+      };
+      await expect(f.pub.run()).rejects.toThrow('runner crash');
+      const candidate = f.git.head(paths(A).candidate)!;
+      expect(candidate).toBeTruthy();
+      f.git.cas = cas;
+      f.options.backoff = undefined;
+      f.change(D, { 'config/permissions.json': { users: {} } });
+      f.options.now = () => pushTime + 999999999;
+      await f.pub.run();
+      f.assertDone();
+      expect(
+        f.pub.read<{ candidateCommit: string }>(f.git.tree(f.git.head(D)!), paths(A).log)!
+          .candidateCommit,
+      ).toBe(candidate);
+    },
+  );
+  it.each(['ambiguous', 'exists'])('uses persisted candidate: %s', async (mode) => {
+    const f = await setup();
+    await f.request();
+    const cas = f.git.cas.bind(f.git);
+    let stored = '';
+    let deadRun = mode === 'exists';
+    f.git.cas = (ref, old, next) => {
+      if (ref === paths(A).candidate && !stored) {
+        stored = next!;
+        cas(ref, old, next);
+        throw new Error(mode);
+      }
+      if (ref === L && deadRun) throw new Error('disconnect before LIVE update');
+      cas(ref, old, next);
+    };
+    if (mode === 'exists') {
+      f.options.backoff = async () => {
+        throw new Error('crash');
+      };
+      await expect(f.pub.run()).rejects.toThrow();
+      expect(f.pub.receipt(f.git.head(L)!, A)).toBeUndefined();
+      expect(f.git.head(paths(A).candidate)).toBe(stored);
+      deadRun = false;
+      f.options.backoff = undefined;
+    }
     await f.pub.run();
     f.assertDone();
     expect(
       f.pub.read<{ candidateCommit: string }>(f.git.tree(f.git.head(D)!), paths(A).log)!
         .candidateCommit,
-    ).toBe(candidate);
-  },
-);
-it.each(['ambiguous', 'exists'])('uses persisted candidate: %s', async (mode) => {
-  const f = await setup();
-  await f.request();
-  const cas = f.git.cas.bind(f.git);
-  let stored = '';
-  let deadRun = mode === 'exists';
-  f.git.cas = (ref, old, next) => {
-    if (ref === paths(A).candidate && !stored) {
-      stored = next!;
-      cas(ref, old, next);
-      throw new Error(mode);
-    }
-    if (ref === L && deadRun) throw new Error('disconnect before LIVE update');
-    cas(ref, old, next);
-  };
-  if (mode === 'exists') {
-    f.options.backoff = async () => {
-      throw new Error('crash');
-    };
-    await expect(f.pub.run()).rejects.toThrow();
-    expect(f.pub.receipt(f.git.head(L)!, A)).toBeUndefined();
-    expect(f.git.head(paths(A).candidate)).toBe(stored);
-    deadRun = false;
-    f.options.backoff = undefined;
-  }
-  await f.pub.run();
-  f.assertDone();
-  expect(
-    f.pub.read<{ candidateCommit: string }>(f.git.tree(f.git.head(D)!), paths(A).log)!
-      .candidateCommit,
-  ).toBe(stored);
-});
-it('stops for an existing candidate whose receipt does not match', async () => {
-  const f = await setup();
-  await f.request();
-  f.git.cas(paths(A).candidate, undefined, f.git.head(L));
-  const before = f.git.head(L);
-  await expect(f.pub.run()).rejects.toThrow('Candidate mismatch');
-  expect(f.git.head(L)).toBe(before);
-});
-it('rebases only after LIVE advances and rejects a late original push', async () => {
-  const f = await setup();
-  await f.request();
-  const cas = f.git.cas.bind(f.git);
-  let delayed: (() => void) | undefined;
-  f.git.cas = (ref, old, next) => {
-    if (ref === L && !delayed) {
-      delayed = () => cas(ref, old, next);
-      f.change(L, { 'other.json': { other: true } });
-      throw new Error('timeout');
-    }
-    cas(ref, old, next);
-  };
-  await f.pub.run();
-  f.assertDone();
-  expect(() => delayed!()).toThrow(RefRace);
-  expect(f.git.tree(f.git.head(L)!)['other.json']).toBeTruthy();
-});
-it('RECORD ref race preserves save S2 but records S blobs and digests', async () => {
-  const f = await setup();
-  await f.request();
-  const source = f.git.head(D)!;
-  const cas = f.git.cas.bind(f.git);
-  let raced = false;
-  f.git.cas = (ref, old, next) => {
-    if (ref === D && !raced) {
-      raced = true;
-      f.change(D, { 'tooltips/123.json': { ...f.tooltip, associated: [456] } });
-    }
-    cas(ref, old, next);
-  };
-  await f.pub.run();
-  f.assertDone();
-  const tree = f.git.tree(f.git.head(D)!);
-  expect(tree['live/tooltips/123.json']).toBe(f.git.tree(source)['tooltips/123.json']);
-  expect(tree['tooltips/123.json']).not.toBe(tree['live/tooltips/123.json']);
-});
-it('failed first RECORD prevents the second live write, then recovers both in committed order', async () => {
-  const f = await setup();
-  await f.request(B);
-  await f.request(A);
-  expect(f.pub.queue(f.git.head(D)!)).toEqual([B, A]);
-  const cas = f.git.cas.bind(f.git);
-  f.git.cas = (ref, old, next) => {
-    if (ref === D) throw new Error('record unavailable');
-    cas(ref, old, next);
-  };
-  await expect(f.pub.run()).rejects.toThrow('record unavailable');
-  expect(f.pub.receipt(f.git.head(L)!, B)).toBeTruthy();
-  expect(f.pub.receipt(f.git.head(L)!, A)).toBeUndefined();
-  f.git.cas = cas;
-  await f.pub.run();
-  f.assertDone(A);
-  f.assertDone(B);
-});
-it('byte-identical output still has a durable receipt-only commit', async () => {
-  const f = await setup();
-  await f.request();
-  await f.pub.run();
-  const before = f.git.tree(f.git.head(L)!)['liveDescriptions.json'];
-  await f.request(B);
-  await f.pub.run();
-  f.assertDone(B);
-  expect(f.git.tree(f.git.head(L)!)['liveDescriptions.json']).toBe(before);
-  expect(f.pub.receipt(f.git.head(L)!, B)!.outcome).toBe('unchanged');
-});
-it.each(['bad-signature', 'wrong-branch', 'revoked'])(
-  'rejects forged or edited request: %s',
-  async (kind) => {
+    ).toBe(stored);
+  });
+  it('stops for an existing candidate whose receipt does not match', async () => {
     const f = await setup();
-    const { envelope } = await f.request(
-      A,
-      [123],
-      undefined,
-      kind === 'wrong-branch' ? { liveBranch: 'forged' } : {},
-    );
-    if (kind === 'bad-signature')
-      f.change(D, {
-        [paths(A).request]: { ...envelope, payload: envelope.payload.replace('alice', 'mallory') },
-      });
-    if (kind === 'revoked')
-      f.change(D, {
-        'config/permissions.json': { users: { '1': { login: 'alice', role: 'trial' } } },
-      });
+    await f.request();
+    f.git.cas(paths(A).candidate, undefined, f.git.head(L));
+    const before = f.git.head(L);
+    await expect(f.pub.run()).rejects.toThrow('Candidate mismatch');
+    expect(f.git.head(L)).toBe(before);
+  });
+  it('rebases only after LIVE advances and rejects a late original push', async () => {
+    const f = await setup();
+    await f.request();
+    const cas = f.git.cas.bind(f.git);
+    let delayed: (() => void) | undefined;
+    f.git.cas = (ref, old, next) => {
+      if (ref === L && !delayed) {
+        delayed = () => cas(ref, old, next);
+        f.change(L, { 'other.json': { other: true } });
+        throw new Error('timeout');
+      }
+      cas(ref, old, next);
+    };
+    await f.pub.run();
+    f.assertDone();
+    expect(() => delayed!()).toThrow(RefRace);
+    expect(f.git.tree(f.git.head(L)!)['other.json']).toBeTruthy();
+  });
+  it('RECORD ref race preserves save S2 but records S blobs and digests', async () => {
+    const f = await setup();
+    await f.request();
+    const source = f.git.head(D)!;
+    const cas = f.git.cas.bind(f.git);
+    let raced = false;
+    f.git.cas = (ref, old, next) => {
+      if (ref === D && !raced) {
+        raced = true;
+        f.change(D, { 'tooltips/123.json': { ...f.tooltip, associated: [456] } });
+      }
+      cas(ref, old, next);
+    };
+    await f.pub.run();
+    f.assertDone();
+    const tree = f.git.tree(f.git.head(D)!);
+    expect(tree['live/tooltips/123.json']).toBe(f.git.tree(source)['tooltips/123.json']);
+    expect(tree['tooltips/123.json']).not.toBe(tree['live/tooltips/123.json']);
+  });
+  it('failed first RECORD prevents the second live write, then recovers both in committed order', async () => {
+    const f = await setup();
+    await f.request(B);
+    await f.request(A);
+    expect(f.pub.queue(f.git.head(D)!)).toEqual([B, A]);
+    const cas = f.git.cas.bind(f.git);
+    f.git.cas = (ref, old, next) => {
+      if (ref === D) throw new Error('record unavailable');
+      cas(ref, old, next);
+    };
+    await expect(f.pub.run()).rejects.toThrow('record unavailable');
+    expect(f.pub.receipt(f.git.head(L)!, B)).toBeTruthy();
+    expect(f.pub.receipt(f.git.head(L)!, A)).toBeUndefined();
+    f.git.cas = cas;
+    await f.pub.run();
+    f.assertDone(A);
+    f.assertDone(B);
+  });
+  it('byte-identical output still has a durable receipt-only commit', async () => {
+    const f = await setup();
+    await f.request();
+    await f.pub.run();
+    const before = f.git.tree(f.git.head(L)!)['liveDescriptions.json'];
+    await f.request(B);
+    await f.pub.run();
+    f.assertDone(B);
+    expect(f.git.tree(f.git.head(L)!)['liveDescriptions.json']).toBe(before);
+    expect(f.pub.receipt(f.git.head(L)!, B)!.outcome).toBe('unchanged');
+  });
+  it.each(['bad-signature', 'wrong-branch', 'revoked'])(
+    'rejects forged or edited request: %s',
+    async (kind) => {
+      const f = await setup();
+      const { envelope } = await f.request(
+        A,
+        [123],
+        undefined,
+        kind === 'wrong-branch' ? { liveBranch: 'forged' } : {},
+      );
+      if (kind === 'bad-signature')
+        f.change(D, {
+          [paths(A).request]: {
+            ...envelope,
+            payload: envelope.payload.replace('alice', 'mallory'),
+          },
+        });
+      if (kind === 'revoked')
+        f.change(D, {
+          'config/permissions.json': { users: { '1': { login: 'alice', role: 'trial' } } },
+        });
+      const before = f.git.head(L);
+      await f.pub.run();
+      expect(f.git.head(L)).toBe(before);
+      expect(
+        f.pub.read<{ result: { status: string } }>(f.git.tree(f.git.head(D)!), paths(A).log)!.result
+          .status,
+      ).toBe('rejected');
+    },
+  );
+  it('aliases canonicalize and one stale member rejects the whole request', async () => {
+    const f = await setup();
+    f.options.aliases = { 789: { to: 123, kind: 'sandbox' } };
+    const t2 = { ...f.tooltip, hash: 234 };
+    f.change(D, { 'tooltips/234.json': t2 });
+    await f.request(A, [789, 234], {
+      789: await publishableHash(f.tooltip, f.options.aliases),
+      234: '0'.repeat(64),
+    });
     const before = f.git.head(L);
     await f.pub.run();
     expect(f.git.head(L)).toBe(before);
     expect(
-      f.pub.read<{ result: { status: string } }>(f.git.tree(f.git.head(D)!), paths(A).log)!.result
-        .status,
-    ).toBe('rejected');
-  },
-);
-it('aliases canonicalize and one stale member rejects the whole request', async () => {
-  const f = await setup();
-  f.options.aliases = { 789: { to: 123, kind: 'sandbox' } };
-  const t2 = { ...f.tooltip, hash: 234 };
-  f.change(D, { 'tooltips/234.json': t2 });
-  await f.request(A, [789, 234], {
-    789: await publishableHash(f.tooltip, f.options.aliases),
-    234: '0'.repeat(64),
-  });
-  const before = f.git.head(L);
-  await f.pub.run();
-  expect(f.git.head(L)).toBe(before);
-  expect(
-    f.pub.read<{ result: unknown }>(f.git.tree(f.git.head(D)!), paths(A).log)!.result,
-  ).toMatchObject({
-    status: 'stale',
-    outcomes: [
-      { hash: 123, status: 'accepted' },
-      { hash: 234, status: 'stale' },
-    ],
-  });
-});
-it.each([false, true])(
-  'guard closes a stray request (conflict=%s) without changing original log',
-  async (conflict) => {
-    const f = await setup();
-    const original = await f.request();
-    await f.pub.run();
-    const head = f.git.head(L),
-      log = f.git.tree(f.git.head(D)!)[paths(A).log];
-    if (conflict) await f.request(A, [123], { 123: '0'.repeat(64) });
-    else f.change(D, { [paths(A).request]: original.envelope });
-    await f.pub.run();
-    expect(f.git.head(L)).toBe(head);
-    const t = f.git.tree(f.git.head(D)!);
-    expect(t[paths(A).log]).toBe(log);
-    expect(f.pub.read(t, paths(A).log.replace('.json', '.dup-1.json'))).toMatchObject({
-      status: conflict ? 'conflict' : 'duplicate',
+      f.pub.read<{ result: unknown }>(f.git.tree(f.git.head(D)!), paths(A).log)!.result,
+    ).toMatchObject({
+      status: 'stale',
+      outcomes: [
+        { hash: 123, status: 'accepted' },
+        { hash: 234, status: 'stale' },
+      ],
     });
-  },
-);
-it('CAS request creation reconciles duplicate/lost-202, delayed create after RECORD, and landed timeout', async () => {
-  const f = await setup();
-  const h = f.git.head(D)!;
-  const { payload, envelope } = await f.request();
-  const requestHead = f.git.head(D)!;
-  const renamed = {
-    ...payload,
-    createdAt: '2027-01-01T00:00:00.000Z',
-    requester: { id: 1, login: 'renamed' },
-  };
-  expect(await publishIntentDigest(renamed)).toBe(payload.intentDigest);
-  expect(classifyPublishIntent(payload.intentDigest, payload).status).toBe('pending');
-  expect(classifyPublishIntent('f'.repeat(64), payload).status).toBe('conflict');
-  expect(() =>
-    validatePublishBody(
-      { opId: A, hashes: payload.hashes, expected: payload.expected },
-      pushTime,
-      false,
-    ),
-  ).not.toThrow();
-  // A second creator prepared on the same H is delayed until after RECORD deletes the request.
-  const delayed = f.git.commit(
-    h,
-    { ...f.git.tree(h), [paths(A).request]: f.git.writeBlob(encode(envelope)) },
-    'Delayed duplicate',
-  );
-  await f.pub.run();
-  f.assertDone();
-  expect(() => f.git.cas(D, h, delayed)).toThrow(RefRace);
-  const log = f.pub.read<{ intentDigest: string; result: unknown }>(
-    f.git.tree(f.git.head(D)!),
-    paths(A).log,
-  )!;
-  expect(classifyPublishIntent(payload.intentDigest, undefined, log)).toEqual({
-    status: 'complete',
-    result: log.result,
   });
-  expect(f.git.tree(f.git.head(D)!)[paths(A).request]).toBeUndefined();
-  // The timed-out create landed at requestHead: reread that authoritative head, no new write.
-  expect(
-    classifyPublishIntent(
-      payload.intentDigest,
-      JSON.parse(
-        f.pub.read<{ payload: string }>(f.git.tree(requestHead), paths(A).request)!.payload,
-      ),
-    ).status,
-  ).toBe('pending');
-});
-it('bundle repairs after an empty run and refuses a source regression', async () => {
-  const f = await setup();
-  await f.pub.run();
-  const first = f.git.head('refs/heads/editor-data-bundle')!;
-  f.change(D, { 'save.json': 1 });
-  await f.pub.run();
-  const newer = f.git.head('refs/heads/editor-data-bundle')!;
-  expect(newer).not.toBe(first);
-  const bundle = f.pub.read<{ sourceCommit: string }>(f.git.tree(newer), 'bundle.json')!;
-  expect(bundle.sourceCommit).toBe(f.git.head(D));
-  const unrelated = f.git.commit(undefined, f.git.tree(f.git.head(D)!), 'Unrelated data');
-  f.git.cas(D, f.git.head(D), unrelated);
-  expect(() => f.pub.bundle()).toThrow('backwards');
-  expect(f.git.head('refs/heads/editor-data-bundle')).toBe(newer);
-});
-it.each([false, true])(
-  'create transport timeout rereads authoritative head (landed=%s)',
-  async (landed) => {
+  it.each([false, true])(
+    'guard closes a stray request (conflict=%s) without changing original log',
+    async (conflict) => {
+      const f = await setup();
+      const original = await f.request();
+      await f.pub.run();
+      const head = f.git.head(L),
+        log = f.git.tree(f.git.head(D)!)[paths(A).log];
+      if (conflict) await f.request(A, [123], { 123: '0'.repeat(64) });
+      else f.change(D, { [paths(A).request]: original.envelope });
+      await f.pub.run();
+      expect(f.git.head(L)).toBe(head);
+      const t = f.git.tree(f.git.head(D)!);
+      expect(t[paths(A).log]).toBe(log);
+      expect(f.pub.read(t, paths(A).log.replace('.json', '.dup-1.json'))).toMatchObject({
+        status: conflict ? 'conflict' : 'duplicate',
+      });
+    },
+  );
+  it('CAS request creation reconciles duplicate/lost-202, delayed create after RECORD, and landed timeout', async () => {
     const f = await setup();
-    const { payload } = await f.request();
-    const t = f.git.tree(f.git.head(D)!);
-    delete t[paths(A).request];
-    f.git.cas(D, f.git.head(D), f.git.commit(f.git.head(D), t, 'Remove seed request'));
-    const cas = f.git.cas.bind(f.git);
-    let calls = 0;
-    f.git.cas = (ref, old, next) => {
-      if (ref === D && ++calls === 1) {
-        if (landed) cas(ref, old, next);
-        throw new Error('create timeout');
-      }
-      cas(ref, old, next);
+    const h = f.git.head(D)!;
+    const { payload, envelope } = await f.request();
+    const requestHead = f.git.head(D)!;
+    const renamed = {
+      ...payload,
+      createdAt: '2027-01-01T00:00:00.000Z',
+      requester: { id: 1, login: 'renamed' },
     };
-    // This fixture's opId timestamp, rather than the publisher clock, bounds initial creation.
-    // Use the exact ULID time derived from its Crockford prefix.
-    const time = [...A.slice(0, 10)].reduce(
-      (n, c) => n * 32 + '0123456789ABCDEFGHJKMNPQRSTVWXYZ'.indexOf(c),
-      0,
+    expect(await publishIntentDigest(renamed)).toBe(payload.intentDigest);
+    expect(classifyPublishIntent(payload.intentDigest, payload).status).toBe('pending');
+    expect(classifyPublishIntent('f'.repeat(64), payload).status).toBe('conflict');
+    expect(() =>
+      validatePublishBody(
+        { opId: A, hashes: payload.hashes, expected: payload.expected },
+        pushTime,
+        false,
+      ),
+    ).not.toThrow();
+    // A second creator prepared on the same H is delayed until after RECORD deletes the request.
+    const delayed = f.git.commit(
+      h,
+      { ...f.git.tree(h), [paths(A).request]: f.git.writeBlob(encode(envelope)) },
+      'Delayed duplicate',
     );
-    expect(await createRequest(f.git, payload, () => time, f.sign)).toEqual({ status: 'pending' });
-    const before = f.git.head(D);
-    expect(
-      await createRequest(
-        f.git,
-        { ...payload, requester: { id: 1, login: 'renamed' } },
-        () => time + 999999999,
-        f.sign,
-      ),
-    ).toEqual({ status: 'pending' });
-    expect(f.git.head(D)).toBe(before);
-    expect(
-      await createRequest(
-        f.git,
-        { ...payload, expected: { 123: '0'.repeat(64) } },
-        () => time,
-        f.sign,
-      ),
-    ).toEqual({ status: 'conflict' });
     await f.pub.run();
     f.assertDone();
-    expect((await createRequest(f.git, payload, () => time + 999999999, f.sign)).status).toBe(
-      'complete',
-    );
-  },
-);
-it('fixed-now golden matches pushLive at afa1e8e byte for byte and pushed map', async () => {
-  // Pin the oracle's Git blobs from afa1e8e so future edits cannot silently change both sides.
-  for (const [path, expected] of [
-    ['apps/worker/src/push.ts', '9ada76155c1b69713aa3e8951552e447df10472f'],
-    ['apps/worker/src/stamp.ts', 'debdbefc1657c970f27b1304e4c8ea509c54b4a1'],
-  ]) {
-    const content = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
-    expect(
-      createHash('sha1')
-        .update(`blob ${Buffer.byteLength(content)}\0`)
-        .update(content)
-        .digest('hex'),
-    ).toBe(expected);
-  }
-  vi.useFakeTimers({ toFake: ['Date'], now: pushTime });
-  const worker = new Fixture(await makePrivateKey());
-  const values = await seedPushGroups(worker);
-  const f = await setup();
-  f.options.aliases = worker.aliases;
-  f.options.facts = {
-    123: { name: 'Demo perk', type: 'Weapon Perk', itemHash: 456, itemName: 'Demo item' },
-    234: { name: 'Member 234', type: 'Weapon Perk', itemHash: 2234 },
-    345: { name: 'Member 345', type: 'Weapon Perk', itemHash: 2345 },
-    456: { name: 'Member 456', type: 'Weapon Perk', itemHash: 2456 },
-  };
-  f.change(D, worker.current());
-  f.change(L, { 'liveDescriptions.json': worker.live });
-  const expected = {
-    123: await publishableHash(values.changed, worker.aliases),
-    234: await publishableHash(values.unchanged, worker.aliases),
-  };
-  await f.request(A, [123, 234], expected);
-  const response = await worker.request('/push-live', 'POST', { hashes: [123, 234], expected }, 1);
-  expect(response.status).toBe(200);
-  await f.pub.run();
-  f.assertDone();
-  expect(f.git.blob(f.git.tree(f.git.head(L)!)['liveDescriptions.json'])).toBe(encode(worker.live));
-  expect(f.pub.read(f.git.tree(f.git.head(D)!), 'live/pushed.json')).toEqual(
-    worker.current()['live/pushed.json'],
-  );
-});
-it.each([
-  ['stale', false],
-  ['stale', true],
-  ['rejected', false],
-  ['rejected', true],
-] as const)(
-  'RECORD closes a replacement while recording %s (same intent=%s)',
-  async (status, sameIntent) => {
-    const f = await setup();
-    const original = await f.request();
-    const oldBlob = f.git.tree(f.git.head(D)!)[paths(A).request];
-    await f.request(A, [123], sameIntent ? undefined : { 123: 'b'.repeat(64) }, {
-      createdAt: '2026-11-03T13:00:00.000Z',
+    expect(() => f.git.cas(D, h, delayed)).toThrow(RefRace);
+    const log = f.pub.read<{ intentDigest: string; result: unknown }>(
+      f.git.tree(f.git.head(D)!),
+      paths(A).log,
+    )!;
+    expect(classifyPublishIntent(payload.intentDigest, undefined, log)).toEqual({
+      status: 'complete',
+      result: log.result,
     });
-    const replaced = f.git.tree(f.git.head(D)!)[paths(A).request];
-    expect(replaced).not.toBe(oldBlob);
-    await f.pub.record(A, undefined, undefined, { status }, oldBlob);
-    const tree = f.git.tree(f.git.head(D)!);
-    expect(tree[paths(A).request]).toBeUndefined();
+    expect(f.git.tree(f.git.head(D)!)[paths(A).request]).toBeUndefined();
+    // The timed-out create landed at requestHead: reread that authoritative head, no new write.
     expect(
-      f.pub.read<{ status: string; requestBlob: string }>(
-        tree,
-        paths(A).log.replace('.json', '.dup-1.json'),
-      ),
-    ).toEqual({ status: sameIntent ? 'duplicate' : 'conflict', requestBlob: replaced });
-    expect(f.pub.read<{ intentDigest: string }>(tree, paths(A).log)?.intentDigest).toBe(
-      original.payload.intentDigest,
+      classifyPublishIntent(
+        payload.intentDigest,
+        JSON.parse(
+          f.pub.read<{ payload: string }>(f.git.tree(requestHead), paths(A).request)!.payload,
+        ),
+      ).status,
+    ).toBe('pending');
+  });
+  it('bundle repairs after an empty run and refuses a source regression', async () => {
+    const f = await setup();
+    await f.pub.run();
+    const first = f.git.head('refs/heads/editor-data-bundle')!;
+    f.change(D, { 'save.json': 1 });
+    await f.pub.run();
+    const newer = f.git.head('refs/heads/editor-data-bundle')!;
+    expect(newer).not.toBe(first);
+    const bundle = f.pub.read<{ sourceCommit: string }>(f.git.tree(newer), 'bundle.json')!;
+    expect(bundle.sourceCommit).toBe(f.git.head(D));
+    const unrelated = f.git.commit(undefined, f.git.tree(f.git.head(D)!), 'Unrelated data');
+    if (transport === 'remote') {
+      expect(() => f.git.cas(D, f.git.head(D), unrelated)).toThrow('monotonically');
+      return;
+    }
+    f.git.cas(D, f.git.head(D), unrelated);
+    expect(() => f.pub.bundle()).toThrow('backwards');
+    expect(f.git.head('refs/heads/editor-data-bundle')).toBe(newer);
+  });
+  it.each([false, true])(
+    'create transport timeout rereads authoritative head (landed=%s)',
+    async (landed) => {
+      const f = await setup();
+      const { payload } = await f.request();
+      const t = f.git.tree(f.git.head(D)!);
+      delete t[paths(A).request];
+      f.git.cas(D, f.git.head(D), f.git.commit(f.git.head(D), t, 'Remove seed request'));
+      const cas = f.git.cas.bind(f.git);
+      let calls = 0;
+      f.git.cas = (ref, old, next) => {
+        if (ref === D && ++calls === 1) {
+          if (landed) cas(ref, old, next);
+          throw new Error('create timeout');
+        }
+        cas(ref, old, next);
+      };
+      // This fixture's opId timestamp, rather than the publisher clock, bounds initial creation.
+      // Use the exact ULID time derived from its Crockford prefix.
+      const time = [...A.slice(0, 10)].reduce(
+        (n, c) => n * 32 + '0123456789ABCDEFGHJKMNPQRSTVWXYZ'.indexOf(c),
+        0,
+      );
+      expect(await createRequest(f.git, payload, () => time, f.sign)).toEqual({
+        status: 'pending',
+      });
+      const before = f.git.head(D);
+      expect(
+        await createRequest(
+          f.git,
+          { ...payload, requester: { id: 1, login: 'renamed' } },
+          () => time + 999999999,
+          f.sign,
+        ),
+      ).toEqual({ status: 'pending' });
+      expect(f.git.head(D)).toBe(before);
+      expect(
+        await createRequest(
+          f.git,
+          { ...payload, expected: { 123: '0'.repeat(64) } },
+          () => time,
+          f.sign,
+        ),
+      ).toEqual({ status: 'conflict' });
+      await f.pub.run();
+      f.assertDone();
+      expect((await createRequest(f.git, payload, () => time + 999999999, f.sign)).status).toBe(
+        'complete',
+      );
+    },
+  );
+  it('fixed-now golden matches pushLive at afa1e8e byte for byte and pushed map', async () => {
+    // Pin the oracle's Git blobs from afa1e8e so future edits cannot silently change both sides.
+    for (const [path, expected] of [
+      ['apps/worker/src/push.ts', '9ada76155c1b69713aa3e8951552e447df10472f'],
+      ['apps/worker/src/stamp.ts', 'debdbefc1657c970f27b1304e4c8ea509c54b4a1'],
+    ]) {
+      const content = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+      expect(
+        createHash('sha1')
+          .update(`blob ${Buffer.byteLength(content)}\0`)
+          .update(content)
+          .digest('hex'),
+      ).toBe(expected);
+    }
+    vi.useFakeTimers({ toFake: ['Date'], now: pushTime });
+    const worker = new Fixture(await makePrivateKey());
+    const values = await seedPushGroups(worker);
+    const f = await setup();
+    f.options.aliases = worker.aliases;
+    f.options.facts = {
+      123: { name: 'Demo perk', type: 'Weapon Perk', itemHash: 456, itemName: 'Demo item' },
+      234: { name: 'Member 234', type: 'Weapon Perk', itemHash: 2234 },
+      345: { name: 'Member 345', type: 'Weapon Perk', itemHash: 2345 },
+      456: { name: 'Member 456', type: 'Weapon Perk', itemHash: 2456 },
+    };
+    f.change(D, worker.current());
+    f.change(L, { 'liveDescriptions.json': worker.live });
+    const expected = {
+      123: await publishableHash(values.changed, worker.aliases),
+      234: await publishableHash(values.unchanged, worker.aliases),
+    };
+    await f.request(A, [123, 234], expected);
+    const response = await worker.request(
+      '/push-live',
+      'POST',
+      { hashes: [123, 234], expected },
+      1,
     );
-  },
-);
+    expect(response.status).toBe(200);
+    await f.pub.run();
+    f.assertDone();
+    expect(f.git.blob(f.git.tree(f.git.head(L)!)['liveDescriptions.json'])).toBe(
+      encode(worker.live),
+    );
+    expect(f.pub.read(f.git.tree(f.git.head(D)!), 'live/pushed.json')).toEqual(
+      worker.current()['live/pushed.json'],
+    );
+  });
+  it.each([
+    ['stale', false],
+    ['stale', true],
+    ['rejected', false],
+    ['rejected', true],
+  ] as const)(
+    'RECORD closes a replacement while recording %s (same intent=%s)',
+    async (status, sameIntent) => {
+      const f = await setup();
+      const original = await f.request();
+      const oldBlob = f.git.tree(f.git.head(D)!)[paths(A).request];
+      await f.request(A, [123], sameIntent ? undefined : { 123: 'b'.repeat(64) }, {
+        createdAt: '2026-11-03T13:00:00.000Z',
+      });
+      const replaced = f.git.tree(f.git.head(D)!)[paths(A).request];
+      expect(replaced).not.toBe(oldBlob);
+      await f.pub.record(A, undefined, undefined, { status }, oldBlob);
+      const tree = f.git.tree(f.git.head(D)!);
+      expect(tree[paths(A).request]).toBeUndefined();
+      expect(
+        f.pub.read<{ status: string; requestBlob: string }>(
+          tree,
+          paths(A).log.replace('.json', '.dup-1.json'),
+        ),
+      ).toEqual({ status: sameIntent ? 'duplicate' : 'conflict', requestBlob: replaced });
+      expect(f.pub.read<{ intentDigest: string }>(tree, paths(A).log)?.intentDigest).toBe(
+        original.payload.intentDigest,
+      );
+    },
+  );
+
+  it('preserves executable, symlink and gitlink modes (simulator fails closed)', async () => {
+    const f = await setup();
+    await f.request();
+    for (const ref of [D, L]) {
+      const h = f.git.head(ref)!;
+      f.git.git(['read-tree', h]);
+      f.git.git(
+        ['update-index', '-z', '--index-info'],
+        `100755 ${f.git.writeBlob('exec bytes')}\texecutable\0` +
+          `120000 ${f.git.writeBlob('executable')}\tlink\0` +
+          `160000 ${h}\tmodule\0`,
+      );
+      const root = f.git.git(['write-tree']).trim();
+      const c = f.git.git(['commit-tree', root, '-p', h], 'Modes').trim();
+      f.git.cas(ref, h, c);
+    }
+    if (transport === 'simulator') {
+      expect(() => f.git.tree(f.git.head(D)!)).toThrow('Only plain blob');
+      return;
+    }
+    await f.pub.run();
+    f.assertDone();
+    for (const ref of [D, L]) {
+      const entries = f.git.git(['ls-tree', f.git.head(ref)!]);
+      expect(entries).toMatch(/100755 blob [a-f0-9]+\texecutable/);
+      expect(entries).toMatch(/120000 blob [a-f0-9]+\tlink/);
+      expect(entries).toMatch(/160000 commit [a-f0-9]+\tmodule/);
+    }
+  });
+  it.each(['landed', 'not-landed'] as const)(
+    'subprocess boundary disconnect: %s',
+    async (fault) => {
+      const f = await setup();
+      if (!(f.git instanceof RemoteRepository)) return;
+      await f.request();
+      const remoteGit = f.git.remoteGit.bind(f.git);
+      let injected = false;
+      f.git.remoteGit = (args) => {
+        if (!injected && args[0] === 'push' && args.at(-1)?.endsWith(`:${L}`)) {
+          injected = true;
+          if (fault === 'landed') remoteGit(args);
+          throw new Error('Injected disconnect after receive-pack');
+        }
+        return remoteGit(args);
+      };
+      await f.pub.run();
+      expect(injected).toBe(true);
+      f.assertDone();
+    },
+  );
+  it('fails closed before credentials or network access when remote config is OFF', async () => {
+    const f = await setup();
+    await expect(
+      runPipeline(
+        '.',
+        { ...f.options, keyEndpoint: 'https://worker.invalid', publishWritesEnabled: true },
+        join(f.upstream, 'out'),
+        true,
+      ),
+    ).rejects.toThrow('disabled by config');
+  });
+});

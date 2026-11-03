@@ -27,6 +27,7 @@ jobs:
       - name: Bundle live data and simulate publishing
         env:
           ARTIFACT_DIR: ${{ runner.temp }}/publisher-dry-run
+          GITHUB_TOKEN: ${{ github.token }}
         run: node .publisher/publisher.mjs --pipeline-dry-run . .publisher/config.json "$ARTIFACT_DIR"
       - name: Upload would-be commits and catch-up status
         if: always()
