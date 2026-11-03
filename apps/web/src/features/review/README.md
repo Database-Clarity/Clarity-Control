@@ -11,7 +11,10 @@ Editors and maintainers may push at most 100 at once. The request includes the
 reviewed content digests; a newer saved version causes a 409 rather than silently
 publishing unreviewed content. Successful responses update the local marker view
 only; the bundle is deliberately not reloaded after a push, because bundle generation
-and CDN caching lag and a reload would resurrect pre-save text. Refresh is manual.
+and CDN caching lag and a reload would resurrect pre-save text. Manual refreshes also
+keep this tab's saved tooltips on top of a stale fetched bundle (`stores/savedOverlay.ts`)
+until it catches up or 15 minutes pass; a full page reload in a stale window still shows
+the CDN copy, and the server's 409 protects live data.
 Tooltips with no generator entry that are not custom are listed as unpublishable
 (the Worker would 422) and cannot be selected.
 
