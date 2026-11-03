@@ -55,6 +55,17 @@
   }
 }
 
+// A tall sheet fills most of the screen; its content is a flex column so a list can fill it.
+.layer[data-sheet] .panel.tall {
+  height: min(80dvh, 40rem);
+  max-height: min(80dvh, 40rem);
+
+  .content {
+    display: flex;
+    flex-direction: column;
+  }
+}
+
 // The sheet: a bottom sheet that never covers the whole screen, so the page stays in view.
 .layer[data-sheet] .panel {
   inset: auto 0 0 0;

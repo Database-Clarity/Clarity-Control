@@ -1,8 +1,10 @@
 import { useRef, useState, type ReactNode } from 'react';
 import type { User } from '../../services/api';
+import { BrandMark } from './Brand';
 import { DraftButton } from './DraftButton';
 import { IdentityMenu } from './IdentityMenu';
 import { ShellOverlay } from './ShellOverlay';
+import { FinderSheetContext } from './FinderSheetContext';
 import { WorkspaceList } from './WorkspaceTabs';
 import styles from './PhoneHeader.module.scss';
 
@@ -43,7 +45,7 @@ export function PhoneHeader({
         aria-label="Workspaces"
         onClick={() => setSheet((value) => (value === 'workspaces' ? null : 'workspaces'))}
       >
-        <span className={styles.glyph} aria-hidden="true" />
+        <BrandMark />
       </button>
       {hasFinder ? (
         <button
@@ -81,8 +83,11 @@ export function PhoneHeader({
           label="Find"
           anchorRef={finderButton}
           keepMounted
+          tall
         >
-          {finder}
+          <FinderSheetContext.Provider value={sheet === 'finder'}>
+            {finder}
+          </FinderSheetContext.Provider>
         </ShellOverlay>
       )}
     </header>

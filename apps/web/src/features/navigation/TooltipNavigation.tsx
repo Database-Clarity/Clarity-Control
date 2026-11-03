@@ -1,5 +1,5 @@
 import { useCompendiumStore } from '../compendium/store';
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useContext, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
@@ -23,6 +23,7 @@ import {
   tooltipPath,
   type SteppingGuard,
 } from './stepping';
+import { FinderSheetContext } from './FinderSheetContext';
 import styles from './TooltipFinder.module.scss';
 
 // Stepping asks the preview leave guard before it moves anything; see createStepping.
@@ -54,6 +55,7 @@ export function TooltipNavigation({
   variant?: 'bar' | 'sheet';
 }) {
   const compendiumSource = useCompendiumStore((state) => state.data);
+  const sheetOpen = useContext(FinderSheetContext);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -134,6 +136,16 @@ export function TooltipNavigation({
     setQuery('');
     setAllCategories(false);
   }, [location.pathname]);
+  // The phone sheet shows the list as soon as it opens, and starts clean when it closes.
+  useEffect(() => {
+    if (variant !== 'sheet') return;
+    if (sheetOpen) setOpen(true);
+    else {
+      setOpen(false);
+      setQuery('');
+      setAllCategories(false);
+    }
+  }, [variant, sheetOpen]);
   useEffect(() => {
     if (!open) return;
     const index = rows.findIndex((row) => row.hash === hash);
@@ -334,103 +346,121 @@ export function TooltipNavigation({
       )}
     </div>
   );
-  const steps = (
-    <>
-      <span className={styles.position} role="status">
-        {positionLabel(position)}
+  const sheet = variant === 'sheet';
+  const categoryNode = (
+    <select
+      aria-label="Category"
+      className={styles.category}
+      value={selectedCategory?.id ?? ''}
+      disabled={!sections.length}
+      onChange={(event) => {
+        const first = sections.find((category) => category.id === event.target.value)?.items[0];
+        if (first) choose(first.hash);
+      }}
+    >
+      {!sections.length && <option value="">No matching categories</option>}
+      {groups.map((group) => (
+        <optgroup key={group.name} label={group.name}>
+          {group.sections.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.label} ({category.items.length})
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
+  );
+  const positionNode = (
+    <span className={styles.position} role="status">
+      {positionLabel(position)}
+    </span>
+  );
+  const comboNode = (
+    <div
+      ref={root}
+      className={styles.combo}
+      onBlur={(event) => {
+        // The sheet keeps its list open while the sheet is; only the header form closes on blur.
+        if (!sheet && !event.currentTarget.contains(event.relatedTarget)) restore();
+      }}
+    >
+      <div className={styles.field}>
+        <input
+          ref={field}
+          type="text"
+          role="combobox"
+          aria-label="Tooltip"
+          aria-expanded={open}
+          aria-controls={open ? listId : undefined}
+          aria-activedescendant={open && rows[active] ? optionId(rows[active].hash) : undefined}
+          aria-autocomplete="list"
+          aria-haspopup="listbox"
+          aria-describedby="tooltip-stepping-help"
+          autoComplete="off"
+          spellCheck={false}
+          className={styles.input}
+          title={sharedLabel}
+          placeholder={open ? currentLabel : 'Find a tooltip'}
+          value={open ? query : currentLabel}
+          disabled={!items.length && !found.length}
+          onFocus={(event) => event.currentTarget.select()}
+          onClick={() => setOpen(true)}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setOpen(true);
+          }}
+          onKeyDown={onKeyDown}
+        />
+        {dirty && <span className={styles.draftDot} role="img" aria-label="Unsaved draft" />}
+      </div>
+      {listbox}
+      <span role="status" className="sr-only">
+        {open ? `${rows.length} tooltip${rows.length === 1 ? '' : 's'}` : ''}
       </span>
-      {variant === 'sheet' && (
-        <div role="group" aria-label="Step within category" className={styles.stepper}>
-          <button
-            type="button"
-            disabled={position.previous === undefined}
-            onClick={() => step.current(-1)}
-          >
-            Previous
-          </button>
-          <button
-            type="button"
-            disabled={position.next === undefined}
-            onClick={() => step.current(1)}
-          >
-            Next
-          </button>
-        </div>
-      )}
-    </>
+    </div>
   );
   return (
     <section aria-label="Tooltip navigation" className={styles.finder} data-variant={variant}>
-      <select
-        aria-label="Category"
-        className={styles.category}
-        value={selectedCategory?.id ?? ''}
-        disabled={!sections.length}
-        onChange={(event) => {
-          const first = sections.find((category) => category.id === event.target.value)?.items[0];
-          if (first) choose(first.hash);
-        }}
-      >
-        {!sections.length && <option value="">No matching categories</option>}
-        {groups.map((group) => (
-          <optgroup key={group.name} label={group.name}>
-            {group.sections.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.label} ({category.items.length})
-              </option>
-            ))}
-          </optgroup>
-        ))}
-      </select>
-      {variant === 'sheet' && steps}
-      <div
-        ref={root}
-        className={styles.combo}
-        onBlur={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget)) restore();
-        }}
-      >
-        <div className={styles.field}>
-          <input
-            ref={field}
-            type="text"
-            role="combobox"
-            aria-label="Tooltip"
-            aria-expanded={open}
-            aria-controls={open ? listId : undefined}
-            aria-activedescendant={open && rows[active] ? optionId(rows[active].hash) : undefined}
-            aria-autocomplete="list"
-            aria-haspopup="listbox"
-            aria-describedby="tooltip-stepping-help"
-            autoComplete="off"
-            spellCheck={false}
-            className={styles.input}
-            title={sharedLabel}
-            placeholder={open ? currentLabel : 'Find a tooltip'}
-            value={open ? query : currentLabel}
-            disabled={!items.length && !found.length}
-            onFocus={(event) => event.currentTarget.select()}
-            onClick={() => setOpen(true)}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setOpen(true);
-            }}
-            onKeyDown={onKeyDown}
-          />
-          {dirty && <span className={styles.draftDot} role="img" aria-label="Unsaved draft" />}
-        </div>
-        {listbox}
-        <span role="status" className="sr-only">
-          {open ? `${rows.length} tooltip${rows.length === 1 ? '' : 's'}` : ''}
-        </span>
-      </div>
-      {variant === 'bar' && steps}
+      {sheet ? (
+        <>
+          {comboNode}
+          <div className={styles.sheetBar}>
+            {categoryNode}
+            {/* Touch screens have no Shift+wheel: one compact row steps through the category. */}
+            <div role="group" aria-label="Step within category" className={styles.stepper}>
+              <button
+                type="button"
+                aria-label="Previous tooltip"
+                disabled={position.previous === undefined}
+                onClick={() => step.current(-1)}
+              >
+                ‹
+              </button>
+              {positionNode}
+              <button
+                type="button"
+                aria-label="Next tooltip"
+                disabled={position.next === undefined}
+                onClick={() => step.current(1)}
+              >
+                ›
+              </button>
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          {categoryNode}
+          {comboNode}
+          {positionNode}
+        </>
+      )}
       {sharedLabel && (
-        <small role="note" className={variant === 'sheet' ? styles.note : 'sr-only'}>
+        <small role="note" className={sheet ? styles.note : 'sr-only'}>
           {sharedLabel}
         </small>
       )}
-      <small id="tooltip-stepping-help" className={variant === 'sheet' ? styles.help : 'sr-only'}>
+      <small id="tooltip-stepping-help" className="sr-only">
         Type to search. Shift+Scroll anywhere steps within this category and stops at its ends; the
         arrow keys step too while the list is closed. * = unsaved draft.
       </small>

@@ -212,6 +212,15 @@ try {
       });
       await page.keyboard.press('Escape');
 
+      // Signed out: sign in is the primary row.
+      await setup(page, [['role', 'out']]);
+      await page.locator('[data-identity-button]').click();
+      await page.screenshot({
+        path: out('identity-signed-out'),
+        clip: { x: 0, y: 0, width: 1280, height: 260 },
+      });
+      await page.keyboard.press('Escape');
+
       // Compendium error shows "!" on the tab with an accessible name.
       await setup(page, [['role', 'maintainer'], ['compendiumError']]);
       assert.equal(await page.getByRole('img', { name: 'Compendium unavailable' }).count(), 1);
@@ -257,7 +266,14 @@ try {
 
       await page.locator('header button[aria-haspopup="dialog"][aria-expanded]').nth(1).click();
       await page.getByRole('dialog', { name: 'Find' }).waitFor();
-      await page.getByRole('combobox', { name: 'Tooltip' }).click();
+      // The list is open with the sheet, and the category/stepper row stays inside the sheet.
+      assert.equal(
+        await page.getByRole('combobox', { name: 'Tooltip' }).getAttribute('aria-expanded'),
+        'true',
+      );
+      const bar = await page.locator('[aria-label="Step within category"]').boundingBox();
+      assert.ok(bar.y + bar.height <= 844, `stepper row is on screen (${bar.y + bar.height})`);
+      assert.ok(bar.x + bar.width <= 390, `stepper row fits the width (${bar.x + bar.width})`);
       await page.screenshot({ path: out('phone-finder-sheet') });
       await page.keyboard.press('Escape');
       await page.keyboard.press('Escape');
@@ -269,6 +285,8 @@ try {
       assert.deepEqual(await editorTop(page), before, 'editor text did not move behind the sheets');
 
       await page.locator('[data-identity-button]').click();
+      await page.getByRole('dialog', { name: 'Account' }).waitFor();
+      await page.screenshot({ path: out('phone-identity-sheet') });
       await page.getByRole('button', { name: 'Settings', exact: true }).click();
       await page.getByRole('dialog', { name: /settings/i }).waitFor();
       await page.screenshot({ path: out('phone-settings-sheet') });

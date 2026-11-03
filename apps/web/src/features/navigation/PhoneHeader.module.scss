@@ -21,15 +21,6 @@
   padding: 0;
 }
 
-// The brand diamond, drawn rather than fetched: three bars would read as a hamburger.
-.glyph {
-  width: 14px;
-  height: 14px;
-  background: var(--accent-ink);
-  transform: rotate(45deg);
-  border-radius: 2px;
-}
-
 .title {
   @include controls.button;
   flex: 1 1 auto;

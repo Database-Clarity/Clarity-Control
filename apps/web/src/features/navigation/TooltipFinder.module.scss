@@ -9,11 +9,14 @@
   min-width: 0;
   width: 100%;
 
+  // The phone sheet: the field first, the list open and filling the sheet, one row below it.
   &[data-variant='sheet'] {
+    flex: 1 1 auto;
+    min-height: 0;
     flex-direction: column;
     align-items: stretch;
     gap: 8px;
-    padding: 12px;
+    padding: 8px 12px;
   }
 }
 
@@ -38,7 +41,10 @@
 
   .finder[data-variant='sheet'] & {
     max-width: none;
-    flex: none;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
   }
 }
 
@@ -94,9 +100,11 @@
 
   &[data-variant='sheet'] {
     position: static;
+    flex: 1 1 auto;
+    min-height: 0;
     width: 100%;
-    max-height: 50dvh;
-    margin-top: 4px;
+    max-height: none;
+    margin-top: 6px;
     box-shadow: none;
   }
 }
@@ -187,13 +195,36 @@
   background: var(--raised);
 }
 
-.stepper {
+.sheetBar {
+  flex: none;
   display: flex;
+  align-items: center;
   gap: 8px;
+
+  .category {
+    flex: 1 1 0;
+    width: auto;
+    max-width: none;
+  }
+}
+
+// One compact row: ‹ 4 of 10 ›
+.stepper {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 
   button {
     @include controls.button;
-    flex: 1;
+    min-width: 44px;
+    font-size: 1.25rem;
+    padding: 0;
+  }
+
+  .position {
+    min-width: 4.5rem;
+    text-align: center;
   }
 }
 

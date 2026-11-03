@@ -50,21 +50,24 @@ export function IdentityMenu() {
         align="end"
       >
         <div className={styles.menu}>
-          <IdentityStatus onAction={close} />
-          <button
-            type="button"
-            className={styles.settings}
-            data-autofocus
-            aria-haspopup="dialog"
-            onClick={() => {
-              close();
-              useSettingsPanel.getState().show(button.current);
-            }}
-          >
-            Settings
-          </button>
+          <IdentityStatus
+            onAction={close}
+            settings={
+              <button
+                type="button"
+                data-autofocus
+                aria-haspopup="dialog"
+                onClick={() => {
+                  close();
+                  useSettingsPanel.getState().show(button.current);
+                }}
+              >
+                Settings
+              </button>
+            }
+          />
           {dataError && (
-            <div role="alert">
+            <div role="alert" data-note>
               <p>Cannot load editor data: {dataError}</p>
               <button type="button" onClick={() => void loadData()}>
                 Retry data loading

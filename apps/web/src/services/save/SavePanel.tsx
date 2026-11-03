@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { apiUrl, save, type SaveConflict } from '../api';
 import { errorMessage } from '../http';
 import { sameUser, useAuthStore } from '../../stores/auth';
@@ -32,10 +32,19 @@ export function SaveController() {
 }
 
 /**
- * Count, review action and last result for the drafts popover or sheet. The review itself is the
- * controller's; `onReview` lets the host close its overlay before the native dialog opens.
+ * The drafts popover or sheet body: how many drafts, the last save result, the `children` (the
+ * draft rows) and the one primary action, Review and save. The review itself is the controller's;
+ * `onReview` lets the host close its overlay before the native dialog opens.
  */
-export function SavePanel({ className, onReview }: { className?: string; onReview?: () => void }) {
+export function SavePanel({
+  className,
+  onReview,
+  children,
+}: {
+  className?: string;
+  onReview?: () => void;
+  children?: ReactNode;
+}) {
   const drafts = useDraftStore((state) => state.drafts);
   const user = useAuthStore((state) => state.user);
   const review = useSaveState((state) => state.review);
@@ -44,7 +53,13 @@ export function SavePanel({ className, onReview }: { className?: string; onRevie
   const count = Object.keys(drafts).length;
   return (
     <section aria-label="Save drafts" className={className}>
-      <p>{count} local draft(s)</p>
+      <p data-summary>
+        {count === 0
+          ? 'No local drafts'
+          : `${count} local ${count === 1 ? 'draft' : 'drafts'} kept in this browser`}
+      </p>
+      {notice && <p role="status">{notice}</p>}
+      {children}
       <button
         type="button"
         data-autofocus
@@ -56,9 +71,8 @@ export function SavePanel({ className, onReview }: { className?: string; onRevie
           openDraftSaveReview();
         }}
       >
-        Review and save drafts
+        {count > 1 ? `Review and save ${count} drafts` : 'Review and save draft'}
       </button>
-      {notice && <p role="status">{notice}</p>}
     </section>
   );
 }

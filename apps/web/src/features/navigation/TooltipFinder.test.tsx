@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
+import { FinderSheetContext } from './FinderSheetContext';
 import { TooltipNavigation } from './TooltipNavigation';
 
 const item = (hash: number, name: string, categoryId: string, extra = {}) => ({
@@ -273,7 +274,7 @@ describe('tooltip finder combobox', () => {
     expect(route()).toBe('/t/20?lang=de');
   });
 
-  it('adds Previous/Next in the phone sheet form only', async () => {
+  it('adds one compact ‹ position › row in the phone sheet form only', async () => {
     await act(async () =>
       root.render(
         <MemoryRouter initialEntries={['/t/10']}>
@@ -281,9 +282,43 @@ describe('tooltip finder combobox', () => {
         </MemoryRouter>,
       ),
     );
-    const names = [...host.querySelectorAll('button')].map((b) => b.textContent);
-    expect(names).toEqual(['Previous', 'Next']);
-    expect(host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(true);
+    const row = host.querySelector('[aria-label="Step within category"]')!;
+    const buttons = [...row.querySelectorAll<HTMLButtonElement>('button')];
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Previous tooltip',
+      'Next tooltip',
+    ]);
+    expect(buttons[0].disabled).toBe(true);
+    expect(row.textContent).toBe('‹1 of 3›');
+  });
+});
+
+describe('finder sheet form', () => {
+  const render = (open: boolean) =>
+    act(async () =>
+      root.render(
+        <MemoryRouter initialEntries={['/t/11']}>
+          <FinderSheetContext.Provider value={open}>
+            <TooltipNavigation data={data} variant="sheet" />
+          </FinderSheetContext.Provider>
+        </MemoryRouter>,
+      ),
+    );
+  it('opens its list with the sheet, field first, and starts clean when the sheet closes', async () => {
+    await render(false);
+    expect(field().getAttribute('aria-expanded')).toBe('false');
+    await render(true);
+    expect(field().getAttribute('aria-expanded')).toBe('true');
+    expect(options()).toHaveLength(3);
+    expect(host.querySelector('section')!.firstElementChild).toBe(
+      field().closest('[class*="combo"]'),
+    );
+    await type('gam');
+    expect(options()).toHaveLength(1);
+    await render(false);
+    expect(field().getAttribute('aria-expanded')).toBe('false');
+    await render(true);
+    expect(options()).toHaveLength(3);
   });
 });
 

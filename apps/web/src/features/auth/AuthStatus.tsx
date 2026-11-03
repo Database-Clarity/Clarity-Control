@@ -1,5 +1,5 @@
 import { languageLabel } from '../../languageLabels';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
 import { apiUrl, loginUrl, rememberSignIn, subscribeSession } from '../../services/api';
 import { rememberReturnPath } from '../../services/returnPath';
@@ -38,38 +38,67 @@ export function identitySummary(state: {
 }
 
 /**
- * The identity states: role, languages, read-only reasons, retry, the GitHub sign-in with its
- * "keep me signed in" choice, sign-out. Settings and the data revision are the menu's.
+ * The identity states as menu content: who is signed in (role, languages, read-only reasons),
+ * the `settings` row the menu passes in, then sign-out; signed out, the GitHub sign-in as the
+ * primary row with its "keep me signed in" choice; a login problem with its retry. Rows are the
+ * menu's buttons and links; the revision line is the menu's own.
  */
-export function IdentityStatus({ onAction }: { onAction?: () => void }) {
+export function IdentityStatus({
+  onAction,
+  settings,
+}: {
+  onAction?: () => void;
+  settings?: ReactNode;
+}) {
   const { user, loading, error, load, logout } = useAuthStore();
   const location = useLocation();
   const [remember, setRemember] = useState(false);
   if (!apiUrl)
-    return <p role="status">Read-only: VITE_API_URL is not configured. Local drafts are kept.</p>;
-  if (loading) return <p role="status">Checking login…</p>;
+    return (
+      <>
+        <p role="status" data-note>
+          Read-only: VITE_API_URL is not configured. Local drafts are kept.
+        </p>
+        {settings}
+      </>
+    );
+  if (loading)
+    return (
+      <>
+        <p role="status" data-note>
+          Checking login…
+        </p>
+        {settings}
+      </>
+    );
   if (error)
     return (
-      <div role="alert">
-        <p>Login unavailable: {error}</p>
-        <button type="button" onClick={() => void load()}>
-          Retry login status
-        </button>
-      </div>
+      <>
+        <div role="alert" data-note>
+          <p>Login unavailable: {error}</p>
+          <button type="button" onClick={() => void load()}>
+            Retry login status
+          </button>
+        </div>
+        {settings}
+      </>
     );
   if (user)
     return (
-      <div>
-        <p>
-          Signed in as <strong>{user.login}</strong> ({user.role ?? 'no editing role'})
-        </p>
-        {!user.role && <p>Read-only: ask a maintainer for an editing role.</p>}
-        {user.role === 'translator' && (
+      <>
+        <div data-who>
           <p>
-            Editable languages: {user.languages?.map(languageLabel).join(', ') || 'none'}. Other
-            fields are read-only.
+            <strong>{user.login}</strong> <span data-badge>{user.role ?? 'no editing role'}</span>
           </p>
-        )}
+          {!user.role && <p data-note>Read-only: ask a maintainer for an editing role.</p>}
+          {user.role === 'translator' && (
+            <p data-note>
+              Editable languages: {user.languages?.map(languageLabel).join(', ') || 'none'}. Other
+              fields are read-only.
+            </p>
+          )}
+        </div>
+        {settings}
         <button
           type="button"
           onClick={() => {
@@ -79,11 +108,23 @@ export function IdentityStatus({ onAction }: { onAction?: () => void }) {
         >
           Sign out
         </button>
-      </div>
+      </>
     );
   return (
-    <div role="status">
-      <p>Read-only: sign in to edit.</p>
+    <>
+      <p role="status" data-note>
+        Read-only: sign in to edit.
+      </p>
+      <a
+        href={loginUrl()}
+        data-primary
+        onClick={() => {
+          rememberSignIn(remember);
+          rememberReturnPath(location);
+        }}
+      >
+        Sign in with GitHub
+      </a>
       <label>
         <input
           type="checkbox"
@@ -92,15 +133,7 @@ export function IdentityStatus({ onAction }: { onAction?: () => void }) {
         />
         Keep me signed in on this device
       </label>
-      <a
-        href={loginUrl()}
-        onClick={() => {
-          rememberSignIn(remember);
-          rememberReturnPath(location);
-        }}
-      >
-        Sign in with GitHub
-      </a>
-    </div>
+      {settings}
+    </>
   );
 }

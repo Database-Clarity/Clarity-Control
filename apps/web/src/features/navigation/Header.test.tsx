@@ -365,11 +365,11 @@ describe('identity menu', () => {
     await mount(person('maintainer'));
     expect(q('[data-identity-button]').textContent).toBe('patmaintainer');
     await open();
-    expect(text()).toContain('Signed in as pat (maintainer)');
+    expect(text()).toMatch(/^pat\s*maintainer/);
     expect(text()).toContain('Data revision abcdef12');
     expect(
       [...document.querySelectorAll('[data-shell-overlay] button')].map((b) => b.textContent),
-    ).toEqual(['Sign out', 'Settings']);
+    ).toEqual(['Settings', 'Sign out']);
   });
 
   it('explains read-only accounts and translator languages', async () => {

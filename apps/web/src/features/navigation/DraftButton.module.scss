@@ -49,43 +49,52 @@
   }
 }
 
+// The popover body: a header line, the rows, then the one primary action.
 .summary {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--hair);
+  flex-direction: column;
 
-  p {
+  > p {
     margin: 0;
+    padding: 8px 12px 6px;
   }
 
-  p[role='status'] {
-    flex-basis: 100%;
+  > p[role='status'] {
+    padding-top: 0;
     color: var(--text2);
+    font-size: 0.75rem;
+  }
+
+  // Review and save: the primary action, under the list.
+  > button {
+    margin: 8px 12px;
+    justify-content: center;
+    font-weight: 700;
+    color: var(--pri-text);
+    border-color: var(--accent-ink);
+
+    &:hover:not(:disabled) {
+      background: var(--pri-hover);
+    }
   }
 }
 
+// One 28px row per draft: name (link) with its hash, the languages and time, a quiet Discard.
 .list {
   margin: 0;
   padding: 0;
   list-style: none;
+  border-top: 1px solid var(--hair);
 
   li {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     align-items: center;
     gap: 8px;
-    padding: 4px 12px;
+    min-height: 28px;
+    padding: 0 8px 0 12px;
     border-bottom: 1px solid var(--hair);
   }
-}
-
-.what {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  min-width: 0;
 
   small {
     color: var(--text2);
@@ -93,9 +102,15 @@
   }
 }
 
+.meta {
+  white-space: nowrap;
+}
+
 .drafts .open {
-  justify-content: flex-start;
   @include controls.control-size;
+  justify-content: flex-start;
+  gap: 6px;
+  min-width: 0;
   padding: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -116,8 +131,17 @@
   }
 }
 
-.discard {
-  flex: none;
+.drafts .discard {
+  padding: 0 6px;
+  color: var(--text2);
+  background: none;
+  border: 0;
+  text-decoration: underline;
+
+  &:hover:not(:disabled) {
+    color: var(--danger);
+    background: none;
+  }
 }
 
 .recovered {

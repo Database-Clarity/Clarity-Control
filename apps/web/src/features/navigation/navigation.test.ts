@@ -339,11 +339,16 @@ describe('previous/next stepping buttons', () => {
         createElement(TooltipNavigation, { data: category, variant: 'sheet' }),
       ),
     );
-    const buttons = [...markup.matchAll(/<button([^>]*)>(Previous|Next)<\/button>/g)];
+    const buttons = [...markup.matchAll(/<button([^>]*)>/g)].filter((match) =>
+      /aria-label="(Previous|Next) tooltip"/.test(match[1]),
+    );
     return {
       markup,
       disabled: Object.fromEntries(
-        buttons.map((match) => [match[2], match[1].includes('disabled')]),
+        buttons.map((match) => [
+          /aria-label="(Previous|Next) tooltip"/.exec(match[1])![1],
+          match[1].includes('disabled'),
+        ]),
       ),
     };
   }

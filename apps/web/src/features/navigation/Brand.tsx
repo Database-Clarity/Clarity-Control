@@ -1,4 +1,4 @@
-import { lockup } from '../../assets/brand/lockup';
+import { lockup, mark } from '../../assets/brand/lockup';
 import styles from './Brand.module.scss';
 
 /**
@@ -12,5 +12,15 @@ export function Brand({ className }: { className?: string }) {
       <img className={styles.dark} src={lockup.dark} alt="Clarity Control" height={28} />
       <img className={styles.light} src={lockup.light} alt="Clarity Control" height={28} />
     </div>
+  );
+}
+
+/** The mark alone, for the phone header's workspaces button. Decorative: its button names it. */
+export function BrandMark({ className }: { className?: string }) {
+  return (
+    <span className={[styles.mark, className].filter(Boolean).join(' ')} aria-hidden="true">
+      <img className={styles.dark} src={mark.dark} alt="" />
+      <img className={styles.light} src={mark.light} alt="" />
+    </span>
   );
 }

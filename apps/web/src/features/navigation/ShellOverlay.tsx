@@ -61,6 +61,7 @@ export function ShellOverlay({
   align = 'start',
   modal = true,
   sheetOnDesktop = false,
+  tall = false,
   keepMounted = false,
   restoreFocus = true,
   className,
@@ -77,6 +78,8 @@ export function ShellOverlay({
   modal?: boolean;
   /** Present as a sheet at any width (the compact finder band). */
   sheetOnDesktop?: boolean;
+  /** A sheet that fills most of the screen, for content that scrolls inside (the finder list). */
+  tall?: boolean;
   keepMounted?: boolean;
   /** False when the caller moves focus elsewhere on purpose (a full-screen dialog follows). */
   restoreFocus?: boolean;
@@ -225,7 +228,7 @@ export function ShellOverlay({
       {sheet && open && <div className={styles.scrim} aria-hidden="true" />}
       <div
         ref={panel}
-        className={[styles.panel, className].filter(Boolean).join(' ')}
+        className={[styles.panel, tall && styles.tall, className].filter(Boolean).join(' ')}
         style={sheet ? undefined : style}
         role={modal ? 'dialog' : 'group'}
         aria-modal={modal && open ? 'true' : undefined}

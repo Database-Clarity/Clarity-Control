@@ -113,22 +113,21 @@ export function DraftsContent({ onClose }: { onClose(): void }) {
   };
   return (
     <div className={styles.drafts}>
-      <SavePanel className={styles.summary} onReview={onClose} />
-      {data && <RecoveredDrafts data={data} onOpen={open} />}
-      {rows.length > 0 && (
-        <ul className={styles.list} aria-label="Local drafts">
-          {rows.map(({ hash, languages, time }) => (
-            <li key={hash}>
-              <div className={styles.what}>
+      <SavePanel className={styles.summary} onReview={onClose}>
+        {data && <RecoveredDrafts data={data} onOpen={open} />}
+        {rows.length > 0 && (
+          <ul className={styles.list} aria-label="Local drafts">
+            {rows.map(({ hash, languages, time }) => (
+              <li key={hash}>
                 <button
                   type="button"
                   className={styles.open}
                   disabled={stale.has(String(hash))}
                   onClick={() => open(hash)}
                 >
-                  {name(hash)}
+                  {name(hash)} <small>{hash}</small>
                 </button>
-                <small>
+                <small className={styles.meta}>
                   {languages.length ? languages.map(languageLabel).join(', ') : 'Other fields'}
                   {time && (
                     <>
@@ -137,19 +136,19 @@ export function DraftsContent({ onClose }: { onClose(): void }) {
                     </>
                   )}
                 </small>
-              </div>
-              <button
-                type="button"
-                className={styles.discard}
-                aria-label={`Discard draft ${name(hash)}`}
-                onClick={() => setConfirm(hash)}
-              >
-                Discard
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+                <button
+                  type="button"
+                  className={styles.discard}
+                  aria-label={`Discard draft ${name(hash)}`}
+                  onClick={() => setConfirm(hash)}
+                >
+                  Discard
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </SavePanel>
       {confirm !== null && (
         <Dialog
           title="Discard draft"
