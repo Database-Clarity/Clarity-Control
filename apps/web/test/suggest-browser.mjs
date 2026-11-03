@@ -204,6 +204,52 @@ try {
         ),
         `${label}: the selection became the pair`,
       );
+      // The caret line scrolling out of the editor takes the menu with it (never floats over the bar).
+      await page.keyboard.press('Control+End');
+      await page.keyboard.insertText('\n');
+      await page.keyboard.type('<pv');
+      await menu.waitFor();
+      await page.evaluate(() => {
+        document.querySelector('.cm-scroller').scrollTop = 0;
+        window.scrollTo(0, 0);
+      });
+      await page.waitForTimeout(100);
+      const stray = await page.evaluate(() => {
+        const m = document.querySelector('[data-suggest-menu]')?.getBoundingClientRect();
+        const scroller = document.querySelector('.cm-scroller').getBoundingClientRect();
+        const cursor = document.querySelector('.cm-cursor')?.getBoundingClientRect();
+        return !m || !cursor
+          ? null
+          : { m, scroller, cursor, outside: m.bottom > window.innerHeight + 1 || m.top < -1 };
+      });
+      assert.ok(
+        !stray || !stray.outside,
+        `${label}: menu left the window ${JSON.stringify(stray)}`,
+      );
+      await page.keyboard.press('Escape');
+
+      // Touch: no Ctrl+Space, so Suggest is a real 44px button, and an opened menu has a Close.
+      const suggest = page.locator('[data-editor-status] button', { hasText: 'Suggest' });
+      if (phone) {
+        const box = await suggest.boundingBox();
+        assert.ok(box && box.height >= 43, `${label}: Suggest is a 44px button (${box?.height})`);
+        await page.keyboard.press('Control+End');
+        await page.keyboard.insertText('\n2 [3]');
+        for (let i = 0; i < 5; i++) await page.keyboard.press('Shift+ArrowLeft');
+        await suggest.click();
+        await menu.waitFor();
+        assert.match(await menu.locator('[role=option]').first().innerText(), /PvE and PvP/);
+        assert.deepEqual(await menuProblems(page, phone), [], `${label}: phone menu problems`);
+        await page.screenshot({ path: `${shots}/${theme}-${width}-suggest-button.png` });
+        await menu.getByRole('button', { name: 'Close' }).click();
+        assert.equal(await menu.count(), 0, `${label}: Close closes the menu`);
+      } else {
+        assert.equal(
+          await suggest.isVisible(),
+          false,
+          `${label}: no Suggest button with a keyboard`,
+        );
+      }
       assert.deepEqual(errors, [], `${label}: no page errors`);
       await context.close();
     }

@@ -25,6 +25,18 @@ beforeEach(() => {
     top: 100,
     bottom: 116,
   });
+  // ...and the editor's scroller spans the screen, so that caret is inside it.
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    left: 0,
+    right: 800,
+    top: 0,
+    bottom: 600,
+    width: 800,
+    height: 600,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  });
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);

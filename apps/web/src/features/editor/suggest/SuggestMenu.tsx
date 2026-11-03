@@ -11,7 +11,7 @@ import { createPortal } from 'react-dom';
 import type { EditorView } from '@codemirror/view';
 import { parseMarkup, type Lang, type MarkupGlobals } from '@clarity/core';
 import { MarkupSnippet } from '../../preview/TooltipPreview';
-import { acceptSuggestion, moveSuggest, type SuggestSnapshot } from './state';
+import { acceptSuggestion, closeSuggest, moveSuggest, type SuggestSnapshot } from './state';
 import type { SuggestContext } from './source';
 import type { UsageCorpus } from './usage';
 import styles from './SuggestMenu.module.scss';
@@ -42,7 +42,9 @@ function place(view: EditorView, context: SuggestContext, width: number): Placem
   // The visible area, which the on-screen keyboard shortens (the layout viewport does not).
   const viewport = window.visualViewport;
   const bottomEdge = viewport ? viewport.offsetTop + viewport.height : window.innerHeight;
-  if (!anchor) return null;
+  const scroller = view.scrollDOM.getBoundingClientRect();
+  // The caret line has scrolled out of the editor: the menu goes with it instead of floating on.
+  if (!anchor || anchor.bottom <= scroller.top || anchor.top >= scroller.bottom) return null;
   const below = bottomEdge - anchor.bottom - gap - edge;
   const above = anchor.top - gap - edge;
   const useBelow = below >= 240 || below >= above;
@@ -162,6 +164,10 @@ export function SuggestMenu({
         <div className={styles.head}>
           <span className={styles.title}>{selected.label}</span>
           <span className={styles.kind}>{selected.category}</span>
+          {/* Touch has no Esc: an explicitly opened menu needs a way out. */}
+          <button type="button" className={styles.close} onClick={() => closeSuggest(view)}>
+            Close
+          </button>
         </div>
         <pre className={styles.markup} lang={undefined}>
           {selected.insert}

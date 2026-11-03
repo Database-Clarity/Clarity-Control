@@ -38,7 +38,12 @@ import {
 } from './StatusBar';
 import { referenceExtensions, type ReferenceHost, type TooltipTarget } from './referenceActions';
 import { SuggestMenu } from './suggest/SuggestMenu';
-import { suggestConfiguration, suggestExtension, type SuggestSnapshot } from './suggest/state';
+import {
+  openSuggest,
+  suggestConfiguration,
+  suggestExtension,
+  type SuggestSnapshot,
+} from './suggest/state';
 import type { UsageCorpus } from './suggest/usage';
 import type { ReferenceSources } from './references';
 import styles from './ClarityEditor.module.scss';
@@ -310,6 +315,7 @@ export function ClarityEditor({
         preview={preview}
         panel={open}
         onPanel={setPanel}
+        onSuggest={readOnly ? undefined : () => view.current && openSuggest(view.current)}
       />
     </div>
   );

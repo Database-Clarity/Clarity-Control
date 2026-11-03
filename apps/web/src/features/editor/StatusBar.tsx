@@ -36,6 +36,7 @@ export function StatusBar({
   preview,
   panel,
   onPanel,
+  onSuggest,
 }: {
   readOnlyReason: string | null;
   issues: readonly ValidationIssue[];
@@ -45,6 +46,8 @@ export function StatusBar({
   preview?: PreviewStatus;
   panel: StatusPanel | null;
   onPanel(panel: StatusPanel | null): void;
+  /** Opens the suggestion menu on request (touch has no Ctrl+Space); shown on touch only. */
+  onSuggest?(): void;
 }) {
   const errors = issues.filter((issue) => issue.severity === 'error').length;
   const toggle = (next: StatusPanel) => onPanel(panel === next ? null : next);
@@ -98,9 +101,21 @@ export function StatusBar({
           </button>
         )}
       </span>
+      {onSuggest && (
+        <button
+          type="button"
+          className={`${styles.item} ${styles.suggest}`}
+          title="Suggest markup, snippets and transforms"
+          // Pressing it must not take focus from the text: a selection is what it transforms.
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={onSuggest}
+        >
+          Suggest
+        </button>
+      )}
       {/* Whole hints only: one that does not fit wraps out of the one-line box instead of cutting. */}
       <span className={styles.hints} aria-hidden="true">
-        <span>Ctrl+Space complete</span>
+        <span>Ctrl+Space suggestions</span>
         <span>Ctrl+F find</span>
         <span>F12 go to definition</span>
         <span>Esc then Tab leaves the editor</span>

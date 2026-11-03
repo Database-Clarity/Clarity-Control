@@ -114,6 +114,15 @@
   color: var(--text3);
 }
 
+.close {
+  @include controls.button;
+  display: none;
+  flex: none;
+  @include theme.mobile-or-coarse {
+    display: inline-flex;
+  }
+}
+
 .markup {
   margin: 0;
   max-height: 5.5rem;
