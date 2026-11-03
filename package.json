@@ -12,8 +12,9 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspace @clarity/web --",
-    "build": "npm run build --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present && npm run build:publisher",
+    "build:publisher": "node scripts/publisher/build.mjs",
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit -p scripts/publisher/tsconfig.json",
     "lint": "eslint .",
     "test": "vitest run --passWithNoTests",
     "test:picker-browser": "node apps/web/test/picker-browser.mjs",
