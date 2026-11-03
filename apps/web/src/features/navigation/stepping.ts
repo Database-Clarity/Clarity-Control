@@ -141,8 +141,10 @@ export function createWheelStepper() {
 export interface SteppingGuard {
   /** May the current item be left for `to`? When not, the guard has shown its prompt. */
   allow(from: string, to: string): boolean;
-  /** Changes whenever something the guard cares about changed; a gesture older than that is dropped. */
+  /** Changes whenever a change was made or cleared; a gesture older than that is no longer allowed. */
   epoch(): number;
+  /** Runs the history navigations of an allowed gesture so the guard does not stop them. */
+  authorized(run: () => void): void;
 }
 
 // Keep the pre-gesture route in history, not every intermediate wheel tick.
@@ -162,8 +164,13 @@ export function createStepping(navigate: NavigateTo, guard?: SteppingGuard) {
     // edit or a navigation happened since, that allowance is spent: leave history as it is.
     const valid = !guard || permittedAt === guard.epoch();
     if (valid && origin && destination && origin !== destination) {
-      navigate(origin, { replace: true });
-      navigate(destination, { replace: false });
+      const [from, to] = [origin, destination];
+      const run = () => {
+        navigate(from, { replace: true });
+        navigate(to, { replace: false });
+      };
+      if (guard) guard.authorized(run);
+      else run();
     }
     cancel();
   }
@@ -171,8 +178,9 @@ export function createStepping(navigate: NavigateTo, guard?: SteppingGuard) {
     /** Returns false, having changed nothing, when the guard refuses or there is nothing to step to. */
     step(from: string, to: string): boolean {
       if (guard && !guard.allow(from, to)) {
-        // A refused gesture ends here: no pending timer, no selection movement.
-        cancel();
+        // A refused gesture ends here: no selection movement. What it already stepped through was
+        // allowed, so history is finished as usual instead of losing the origin entry.
+        commit();
         return false;
       }
       origin ??= from;

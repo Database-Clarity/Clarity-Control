@@ -226,6 +226,37 @@ describe('stepping and the preview leave guard', () => {
     expect(dialog()).not.toBeNull();
   });
 
+  it('finishes history as origin then destination when stepping onto an unreviewed item, with no prompt', async () => {
+    usePreviewReviewStore.setState({ entries: {} });
+    const values = new Map([
+      [reviewKey('anonymous'), JSON.stringify({ 101: { canonical: 101, dirty: 1, reviewed: 0 } })],
+    ]);
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => void values.set(key, value),
+      removeItem: (key: string) => void values.delete(key),
+    });
+    await mount('/t/100');
+    await shiftWheel();
+    expect(route()).toBe('/t/101');
+    // One idle second later the restore (replace origin, push destination) must not be refused
+    // just because the item stepped onto has a change waiting.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1150));
+    });
+    expect(dialog()).toBeNull();
+    expect(route()).toBe('/t/101');
+    // Leaving the item that was stepped onto is still guarded: Back asks first, then works.
+    await act(async () => router.navigate(-1));
+    expect(route()).toBe('/t/101');
+    expect(dialog()).not.toBeNull();
+    await click(named('Stay'));
+    await act(async () => usePreviewReviewStore.getState().acknowledge(101, 1));
+    await act(async () => router.navigate(-1));
+    expect(route()).toBe('/t/100');
+    expect(dialog()).toBeNull();
+  });
+
   it('does not touch a gesture on an item with nothing unreviewed', async () => {
     await mount('/t/101');
     const event = await shiftWheel();

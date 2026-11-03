@@ -80,8 +80,7 @@ function setup() {
 async function ready() {
   await drafts.getState().activate(null);
 }
-const edit = (target: Tooltip, text: string) =>
-  drafts.getState().edit(target, 'en', text, 'alice');
+const edit = (target: Tooltip, text: string) => drafts.getState().edit(target, 'en', text, 'alice');
 const host = { show: () => {} };
 
 beforeEach(() => {
@@ -117,11 +116,7 @@ describe('changedVariants', () => {
     expect(changedVariants({}, { 10: { base, next: changed } }, () => base)).toEqual([10]);
     const touched = { ...changed, text: { en: { ...changed.text.en!, updatedBy: 'bob' } } };
     expect(
-      changedVariants(
-        { 10: { base, next: changed } },
-        { 10: { base, next: touched } },
-        () => base,
-      ),
+      changedVariants({ 10: { base, next: changed } }, { 10: { base, next: touched } }, () => base),
     ).toEqual([]);
   });
   it('counts a removed draft only when the text it falls back to differs', () => {
@@ -323,6 +318,25 @@ describe('preview review store', () => {
     });
   });
 
+  it('lets only the callers of authorized() through the guard, and only while they run', async () => {
+    const { store } = setup();
+    store.getState().registerHost(host);
+    await ready();
+    edit(base, 'Edited');
+    let inside: boolean | undefined;
+    store.getState().authorized(() => {
+      inside = store.getState().leaveBlocked('/t/10', '/t/12');
+    });
+    expect(inside).toBe(false);
+    expect(store.getState().leaveBlocked('/t/10', '/t/12')).toBe(true);
+    expect(() =>
+      store.getState().authorized(() => {
+        throw new Error('x');
+      }),
+    ).toThrow('x');
+    expect(store.getState().leaveBlocked('/t/10', '/t/12')).toBe(true);
+  });
+
   it('bumps its epoch on every change and drops the host that unregisters', async () => {
     const { store } = setup();
     const stop = store.getState().registerHost(host);
@@ -330,7 +344,10 @@ describe('preview review store', () => {
     const before = store.getState().epoch;
     edit(base, 'Edited');
     expect(store.getState().epoch).toBe(before + 1);
+    // Seeing a change does not spend an allowance; making or clearing one does.
     store.getState().acknowledge(10, 1);
+    expect(store.getState().epoch).toBe(before + 1);
+    store.getState().clear(10);
     expect(store.getState().epoch).toBe(before + 2);
     stop();
     expect(store.getState().host).toBeNull();

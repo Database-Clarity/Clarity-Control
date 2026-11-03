@@ -470,7 +470,11 @@ describe('stepping history', () => {
         else entries.push(path);
       });
       let epoch = 0;
-      const guard = { allow: vi.fn(() => allowed), epoch: () => epoch };
+      const guard = {
+        allow: vi.fn(() => allowed),
+        epoch: () => epoch,
+        authorized: vi.fn((run: () => void) => run()),
+      };
       return {
         entries,
         navigate,
@@ -490,15 +494,17 @@ describe('stepping history', () => {
       expect(navigate).not.toHaveBeenCalled();
       expect(entries).toEqual(['/t/10']);
     });
-    it('drops a pending gesture when it is refused part-way, keeping the stepped route', () => {
+    it('finishes what a gesture already stepped through when it is refused part-way', () => {
       vi.useFakeTimers();
-      const { entries, navigate, guard, stepping } = guarded(true);
+      const { entries, guard, stepping } = guarded(true);
       stepping.step('/t/10', '/t/20');
       guard.allow.mockReturnValue(false);
       expect(stepping.step('/t/20', '/t/30')).toBe(false);
+      // The origin entry is kept and the stepped route added, as for any finished gesture.
+      expect(entries).toEqual(['/t/10', '/t/20']);
+      expect(guard.authorized).toHaveBeenCalledTimes(1);
       vi.advanceTimersByTime(2000);
-      expect(entries).toEqual(['/t/20']);
-      expect(navigate).toHaveBeenCalledTimes(1);
+      expect(entries).toEqual(['/t/10', '/t/20']);
     });
     it('finishes an allowed gesture as the usual two history operations', () => {
       vi.useFakeTimers();
@@ -506,6 +512,21 @@ describe('stepping history', () => {
       expect(stepping.step('/t/10', '/t/20')).toBe(true);
       vi.advanceTimersByTime(1000);
       expect(entries).toEqual(['/t/10', '/t/20']);
+    });
+    it('runs the history restore inside the authorized pass of the guard, and only that', () => {
+      vi.useFakeTimers();
+      const { navigate, guard, stepping } = guarded(true);
+      const calls: string[] = [];
+      guard.authorized.mockImplementation((run: () => void) => {
+        calls.push('open');
+        run();
+        calls.push('close');
+      });
+      navigate.mockImplementation((path: string) => void calls.push(path));
+      stepping.step('/t/10', '/t/20');
+      expect(calls).toEqual(['/t/20']);
+      vi.advanceTimersByTime(1000);
+      expect(calls).toEqual(['/t/20', 'open', '/t/10', '/t/20', 'close']);
     });
     it('spends the allowance when something changed meanwhile: no history is rewritten', () => {
       vi.useFakeTimers();

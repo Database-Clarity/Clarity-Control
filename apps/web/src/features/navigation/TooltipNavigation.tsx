@@ -31,6 +31,7 @@ const pathname = (route: string) => route.split('?')[0];
 const steppingGuard: SteppingGuard = {
   allow: (from, to) => usePreviewReviewStore.getState().requestLeave(pathname(from), pathname(to)),
   epoch: () => usePreviewReviewStore.getState().epoch,
+  authorized: (run) => usePreviewReviewStore.getState().authorized(run),
 };
 
 export function TooltipNavigation({ data }: { data: EditorData }) {

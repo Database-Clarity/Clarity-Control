@@ -82,7 +82,10 @@ export interface PreviewHost {
 export interface PreviewReviewState {
   scope: string | null;
   entries: Record<number, ReviewEntry>;
-  /** Bumped by every change to `entries`, so a history operation can tell nothing moved under it. */
+  /**
+   * Bumped when a change is recorded or cleared, or the account's items load, but not when a preview
+   * acknowledges: seeing a change never spends an allowance, making one does.
+   */
   epoch: number;
   /** The canonical item the prompt is about, or null. Set when a gesture is refused before navigating. */
   prompt: number | null;
@@ -96,6 +99,11 @@ export interface PreviewReviewState {
    * prompt is now showing.
    */
   requestLeave(from: string, to: string): boolean;
+  /**
+   * Runs history navigations that finish an already-allowed stepping gesture (restore the origin,
+   * then push the destination). The guard lets exactly these pass; nothing else is let through.
+   */
+  authorized(run: () => void): void;
   /** A preview that is visible has rendered `variant` at `revision`. Older renders never clear newer edits. */
   acknowledge(variant: number, revision: number): void;
   clear(variant: number): void;
@@ -141,11 +149,12 @@ export function createPreviewReviewStore(deps: PreviewReviewDeps) {
   }
 
   return create<PreviewReviewState>((set, get) => {
-    function commit(entries: Record<number, ReviewEntry>) {
+    let passing = 0;
+    function commit(entries: Record<number, ReviewEntry>, spend = true) {
       const { scope, epoch } = get();
       // Before the drafts have loaded there is no account to attribute a change to.
       if (scope === null) return;
-      set({ entries, epoch: epoch + 1 });
+      set({ entries, epoch: spend ? epoch + 1 : epoch });
       write(scope, entries);
     }
     const unreviewed = (canonical: number) =>
@@ -154,7 +163,7 @@ export function createPreviewReviewStore(deps: PreviewReviewDeps) {
         .map(([variant]) => Number(variant));
     function leaveBlocked(from: string, to: string) {
       // Without a preview column that can show the change there is nothing to ask for.
-      if (!get().host || !deps.desktop()) return false;
+      if (passing > 0 || !get().host || !deps.desktop()) return false;
       const fromHash = itemPath(from);
       if (fromHash === undefined) return false;
       const item = deps.canonicalOf(fromHash);
@@ -177,11 +186,19 @@ export function createPreviewReviewStore(deps: PreviewReviewDeps) {
         set({ prompt: deps.canonicalOf(itemPath(from) ?? 0) });
         return false;
       },
+      authorized(run) {
+        passing++;
+        try {
+          run();
+        } finally {
+          passing--;
+        }
+      },
       acknowledge(variant, revision) {
         const entry = get().entries[variant];
         // A render cannot have shown a revision that does not exist yet.
         if (!entry || revision <= entry.reviewed || revision > entry.dirty) return;
-        commit({ ...get().entries, [variant]: { ...entry, reviewed: revision } });
+        commit({ ...get().entries, [variant]: { ...entry, reviewed: revision } }, false);
       },
       clear(variant) {
         const entries = { ...get().entries };
