@@ -29,6 +29,7 @@ import {
 import { clarityHighlighting, clarityLanguage } from './language';
 import { tableFormattingTransaction } from './formatTable';
 import { editorScrollMargins } from './scrollMargins';
+import { rawMode, setSymbolReveal, symbolExtensions } from './symbols';
 import { validationDiagnostics } from './diagnostics';
 import { MarkupRow } from './markupRow/MarkupRow';
 import { SuggestChip } from './markupRow/SuggestChip';
@@ -90,6 +91,8 @@ export interface ClarityEditorProps {
   onOpenTooltip?: (target: TooltipTarget) => void;
   /** Saved English tooltips, for the suggestion menu's usage counts. */
   usage?: UsageCorpus;
+  /** Draws icon and colour tags as symbols (Ctrl+Shift+. shows the raw markup). Off for stored forms. */
+  symbols?: boolean;
 }
 
 function configuration(
@@ -135,6 +138,7 @@ export function ClarityEditor({
   referenceSources,
   onOpenTooltip,
   usage,
+  symbols = true,
 }: ClarityEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
@@ -149,6 +153,11 @@ export function ClarityEditor({
   const acceptKey = useSettingsStore((state) => state.device.suggestAccept);
   const acceptKeyRef = useRef(acceptKey);
   acceptKeyRef.current = acceptKey;
+  const symbolReveal = useSettingsStore((state) => state.device.symbolReveal);
+  const revealRef = useRef(symbolReveal);
+  revealRef.current = symbolReveal;
+  const rawRef = useRef(false);
+  const symbolsOn = useRef(symbols);
   const chipHooks = useRef({
     acceptKey: () => acceptKeyRef.current,
     onChange: (next: Chip | null) => setChip(next),
@@ -225,6 +234,9 @@ export function ClarityEditor({
     callback.current = onChange;
   }, [onChange]);
   useEffect(() => {
+    if (view.current && symbolsOn.current) setSymbolReveal(view.current, symbolReveal);
+  }, [symbolReveal]);
+  useEffect(() => {
     referenceLive.current = { tooltipHash, referenceSources, onOpenTooltip };
   }, [tooltipHash, referenceSources, onOpenTooltip]);
   useEffect(() => {
@@ -253,6 +265,9 @@ export function ClarityEditor({
       clarityHighlighting,
       suggestExtension(),
       chipsExtension(),
+      ...(symbolsOn.current
+        ? symbolExtensions({ mode: () => revealRef.current, raw: () => rawRef.current })
+        : []),
       keymap.of([
         {
           key: 'Escape',
@@ -283,6 +298,8 @@ export function ClarityEditor({
         ),
       ),
       EditorView.updateListener.of((update) => {
+        const raw = update.state.field(rawMode, false);
+        if (raw !== undefined) rawRef.current = raw;
         if (update.docChanged) callback.current(update.state.doc.toString());
         if (update.docChanged || update.selectionSet) {
           const head = update.state.selection.main.head;

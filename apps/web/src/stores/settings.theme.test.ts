@@ -92,6 +92,7 @@ describe('device theme', () => {
       panes: {},
       compendiumScale: 100,
       suggestAccept: 'enter',
+      symbolReveal: 'popover',
       remembered: { markupToolbar: 'open' },
     });
   });
