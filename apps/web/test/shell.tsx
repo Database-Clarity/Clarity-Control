@@ -145,6 +145,22 @@ Object.assign(window, {
         });
       else useAuthStore.setState({ ...base, user: { id: 1, login: 'pat', role } });
     },
+    /** Real generator items (exotic armour perks with their owners) in their own category. */
+    exoticArmour(real: EditorData['items']) {
+      const added: Record<number, Tooltip> = {};
+      for (const entry of Object.values(real)) added[entry.hash] = tooltip(entry.hash, entry.name);
+      useDataStore.setState({
+        data: {
+          ...data,
+          categories: [
+            ...data.categories,
+            { id: 'armor-trait-exotic', label: 'Armor Trait Exotic', group: 'Armor', order: 0 },
+          ],
+          items: { ...data.items, ...real },
+          bundle: { ...data.bundle, tooltips: { ...tooltips, ...added } },
+        },
+      });
+    },
     drafts(count: number) {
       const next: Record<number, { base: Tooltip; next: Tooltip }> = {};
       for (let i = 0; i < count; i++) {
@@ -299,7 +315,12 @@ Object.assign(window, {
       // surface). Row 1002: a dark sheet background with light teal text.
       const cell = (plain: string, background?: string) => ({
         plain,
-        runs: [{ text: plain, ...(background ? { color: background === '#e8dcc8' ? '#783f04' : '#89cdd1' } : {}) }],
+        runs: [
+          {
+            text: plain,
+            ...(background ? { color: background === '#e8dcc8' ? '#783f04' : '#89cdd1' } : {}),
+          },
+        ],
         ...(background ? { background } : {}),
       });
       const row = (name: string, plain: string, rowIndex: number, background?: string) => ({

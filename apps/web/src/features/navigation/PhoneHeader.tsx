@@ -19,6 +19,7 @@ export function PhoneHeader({
   pathname,
   routeFor,
   title,
+  kicker,
   finder,
   hasFinder,
   overlay,
@@ -27,6 +28,8 @@ export function PhoneHeader({
   pathname: string;
   routeFor(to: string): string;
   title: string;
+  /** A line above the title naming what it belongs to (the exotic armour piece carrying a perk). */
+  kicker?: string;
   finder: ReactNode;
   /** Whether the current workspace has anything to find or browse. */
   hasFinder: boolean;
@@ -59,7 +62,10 @@ export function PhoneHeader({
           aria-expanded={sheet === 'finder'}
           onClick={() => setSheet((value) => (value === 'finder' ? null : 'finder'))}
         >
-          <span>{title}</span>
+          <span>
+            {kicker && <span className={styles.kicker}>{kicker}</span>}
+            {title}
+          </span>
           <span className={styles.chevron} aria-hidden="true" />
         </button>
       ) : (

@@ -47,21 +47,32 @@ export function sharedPerkLabel(
     return names.length > 1 ? `Shared perk — used on: ${names.join(', ')}` : undefined;
   }
   const owners = item?.owners;
-  if (!owners || owners.length < 2) return undefined;
-  const names = owners.map(
-    (owner) =>
-      data.items[owner]?.name.trim() ||
-      data.bundle.tooltips[owner]?.custom?.name.trim() ||
-      item.ownerNames?.[owner]?.trim() ||
-      String(owner),
+  if (!item || !owners || owners.length < 2) return undefined;
+  // Two definitions of one item (same name) are not a shared perk.
+  const distinct = [...new Set(owners.map((owner) => ownerName(owner, item, data)))];
+  return distinct.length > 1 ? `Shared perk — used on: ${distinct.join(', ')}` : undefined;
+}
+
+function ownerName(owner: number, item: Item, data: EditorData): string {
+  return (
+    data.items[owner]?.name.trim() ||
+    data.bundle.tooltips[owner]?.custom?.name.trim() ||
+    item.ownerNames?.[owner]?.trim() ||
+    String(owner)
   );
-  return `Shared perk — used on: ${[...new Set(names)].join(', ')}`;
 }
 
 /** Single owning item identity, with catalog and embedded metadata fallbacks. */
 export function singleOwnerLabel(hash: number, data: EditorData): string | undefined {
   const item = itemFor(hash, data);
-  if (!item || (item.owners?.length ?? 0) > 1) return undefined;
+  if (!item) return undefined;
+  const owners = item.owners ?? [];
+  if (owners.length > 1) {
+    // Several definitions of one item (same name): name it once, list every hash.
+    const names = new Set(owners.map((owner) => ownerName(owner, item, data)));
+    if (names.size > 1) return undefined;
+    return `Owner: ${[...names][0]} / ${owners.join(', ')}`;
+  }
   const owner = item.itemHash ?? item.owners?.[0];
   if (owner === undefined) return undefined;
   const name =
@@ -121,8 +132,99 @@ function matchesOwner(item: Item, data: EditorData, search: string): boolean {
   );
 }
 
+/** The generator category of exotic armour perks; the finder lists the armour pieces instead. */
+export const exoticArmourCategory = 'armor-trait-exotic';
+const exoticArmourLabel = 'Exotic Armor';
+
+/**
+ * A finder entry. Exotic armour entries are named after the piece; `perkName` is the perk they
+ * open, `piece` the piece label alone (the name also carries the perk when pieces repeat) and
+ * `pieces` how many differently named pieces the label joins.
+ */
+export interface ListedItem extends Item {
+  perkName?: string;
+  piece?: string;
+  pieces?: number;
+}
+
+/** Armour pieces that carry this perk, sorted; empty when the data names none. */
+function exoticPieceNames(item: Item): string[] {
+  const named = Object.values(item.ownerNames ?? {});
+  const names = (named.length ? named : [item.itemName ?? '']).map((name) => name.trim());
+  return [...new Set(names.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
+/** "Aeon Safe", "Aeon Soul" -> "Aeon Safe / Soul": a shared first word is written once. */
+function joinPieceNames(names: string[]): string {
+  const first = names[0]?.split(' ')[0];
+  const shared =
+    names.length > 1 && names.every((name) => name.includes(' ') && name.startsWith(`${first} `));
+  return shared
+    ? `${names[0]}/${names
+        .slice(1)
+        .map((name) => name.slice(first!.length + 1))
+        .join('/')}`
+    : names.join(' / ');
+}
+
+const pieceSiblings = new WeakMap<EditorData, Map<string, number>>();
+function siblingCount(key: string, data: EditorData): number {
+  let counts = pieceSiblings.get(data);
+  if (!counts) {
+    counts = new Map();
+    for (const item of Object.values(data.items)) {
+      if (item.categoryId !== exoticArmourCategory) continue;
+      const names = joinPieceNames(exoticPieceNames(item));
+      counts.set(names, (counts.get(names) ?? 0) + 1);
+    }
+    pieceSiblings.set(data, counts);
+  }
+  return counts.get(key) ?? 1;
+}
+
+/**
+ * How an item is named in the finder. Exotic armour perks are listed as the armour piece that
+ * carries them (the editor still edits the perk); a perk shared by pieces of one set lists them
+ * together, and several perks on the same piece(s) each add their own name.
+ */
+export function listedItem(item: Item, data: EditorData): ListedItem {
+  if (item.categoryId !== exoticArmourCategory) return item;
+  const names = exoticPieceNames(item);
+  if (!names.length) return item;
+  const piece = joinPieceNames(names);
+  const crowded = siblingCount(piece, data) > 1;
+  return {
+    ...item,
+    name: crowded ? `${piece} · ${item.name}` : piece,
+    perkName: item.name,
+    piece,
+    pieces: names.length,
+  };
+}
+
+/**
+ * The armour piece(s) an exotic armour perk belongs to, written once for the editor's headings;
+ * nothing when the perk is already named after its piece (Blastwave Striders).
+ */
+export function exoticPiece(item: Item): string | undefined {
+  if (item.categoryId !== exoticArmourCategory) return undefined;
+  const names = exoticPieceNames(item);
+  const piece = names.length ? joinPieceNames(names) : undefined;
+  return piece === item.name.trim() ? undefined : piece;
+}
+
+/** How the editor names the open item: "Piece · Perk" for exotic armour, the item's name otherwise. */
+export function editorName(item: Item): string {
+  const piece = exoticPiece(item);
+  return piece ? `${piece} · ${item.name}` : item.name;
+}
+
+export function listName(item: Item, data: EditorData): string {
+  return listedItem(item, data).name;
+}
+
 export interface CategorySection extends Category {
-  items: Item[];
+  items: ListedItem[];
 }
 export interface CategoryGroup {
   name: string;
@@ -163,9 +265,9 @@ export function navigationGroups(data: EditorData, query: string): CategoryGroup
           }) ||
           matchingAliases.has(item.hash)),
     );
-  const classifiedItems = items.map((item) => {
+  const classifiedItems = items.map((item): ListedItem => {
     const c = classifyItem(item, data.bundle.tooltips[item.hash]);
-    return c ? { ...item, categoryId: c.categoryId } : item;
+    return listedItem(c ? { ...item, categoryId: c.categoryId } : item, data);
   });
   const categories = [
     ...data.categories,
@@ -189,7 +291,11 @@ export function navigationGroups(data: EditorData, query: string): CategoryGroup
       );
     if (!entries.length) continue;
     const group = groups.get(category.group) ?? { name: category.group, sections: [] };
-    group.sections.push({ ...category, items: entries });
+    group.sections.push({
+      ...category,
+      label: category.id === exoticArmourCategory ? exoticArmourLabel : category.label,
+      items: entries,
+    });
     groups.set(category.group, group);
   }
   return [...groups.values()];

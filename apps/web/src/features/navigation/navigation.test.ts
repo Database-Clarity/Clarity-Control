@@ -101,6 +101,27 @@ describe('tooltip catalog', () => {
     expect(singleOwnerLabel(10, fallback)).toBe('Owner: 42');
   });
 
+  it('names one owner once when two definitions of it share the perk', () => {
+    const twin: EditorData = {
+      ...data,
+      items: {
+        10: {
+          ...data.items[10],
+          owners: [42, 43],
+          ownerNames: { 42: 'Twin Piece', 43: 'Twin Piece' },
+        },
+      },
+    };
+    expect(sharedPerkLabel(10, twin)).toBeUndefined();
+    expect(singleOwnerLabel(10, twin)).toBe('Owner: Twin Piece / 42, 43');
+    const split: EditorData = {
+      ...twin,
+      items: { 10: { ...twin.items[10], ownerNames: { 42: 'Aeon Safe', 43: 'Aeon Soul' } } },
+    };
+    expect(sharedPerkLabel(10, split)).toBe('Shared perk — used on: Aeon Safe, Aeon Soul');
+    expect(singleOwnerLabel(10, split)).toBeUndefined();
+  });
+
   it('surfaces stale alias drafts as recoverable conflicts instead of hiding their text', () => {
     const previous = useDraftStore.getState();
     const base = { hash: 11, text: {}, associated: [] };

@@ -8,6 +8,7 @@ import { workspaceShortcutsBlocked } from '../../ui/interaction';
 import {
   frameGroupSize,
   itemFor,
+  listName,
   navigationGroups,
   sharedPerkLabel,
   variantHashes,
@@ -39,6 +40,10 @@ const steppingGuard: SteppingGuard = {
 interface Row {
   hash: number;
   name: string;
+  /** The perk an exotic armour entry opens, shown beside its hash. */
+  perk?: string;
+  /** The name already lists several pieces, so the row needs no shared-perk mark. */
+  listsPieces?: boolean;
   category: string;
 }
 
@@ -116,14 +121,21 @@ export function TooltipNavigation({
       scoped.flatMap((section) =>
         section.items.map((item) => ({
           hash: item.hash,
-          name: item.name,
+          // The row names the piece and keeps the perk on the right, so a set's rows stay
+          // tellable apart even where the name column truncates.
+          name: item.piece ?? item.name,
+          perk:
+            item.perkName && item.perkName !== (item.piece ?? item.name)
+              ? item.perkName
+              : undefined,
+          listsPieces: (item.pieces ?? 1) > 1,
           category: section.label,
         })),
       ),
     [scoped],
   );
   const currentItem = itemFor(hash, data);
-  const currentLabel = currentItem ? currentItem.name : '';
+  const currentLabel = currentItem ? listName(currentItem, data) : '';
   const sharedLabel = sharedPerkLabel(hash, data, compendiumSource);
   const dirty = variantHashes(hash, data).some((variant) => drafts[variant]);
 
@@ -300,10 +312,14 @@ export function TooltipNavigation({
               <EnhancedArrow />
             </span>
           )}
-          {row.hash}
-          {shared && ' · shared perk'}
-          {frames > 1 && ` ×${frames}`}
-          {item && allCategories && ` · ${row.category}`}
+          {row.perk && <span className={styles.perk}>{row.perk}</span>}
+          <span className={styles.tail}>
+            {row.perk && ' · '}
+            {row.hash}
+            {shared && !row.listsPieces && ' · shared perk'}
+            {frames > 1 && ` ×${frames}`}
+            {item && allCategories && ` · ${row.category}`}
+          </span>
         </small>
       </li>
     );

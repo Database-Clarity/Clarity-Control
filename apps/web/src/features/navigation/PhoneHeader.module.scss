@@ -38,6 +38,18 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    line-height: 1.125rem;
+  }
+
+  // Piece over perk, both whole: "Contraverse Hold · Chaotic Exchanger" on one line cuts the perk.
+  .kicker {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.75rem;
+    line-height: 0.875rem;
+    font-weight: 500;
+    color: var(--text2);
   }
 
   &:is(h1) {

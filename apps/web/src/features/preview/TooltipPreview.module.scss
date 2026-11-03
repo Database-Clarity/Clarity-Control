@@ -167,6 +167,12 @@
   background-color: var(--tp-head-bg);
   color: var(--tp-head-text);
 }
+.piece {
+  font-weight: 600;
+  font-size: 0.8125rem;
+  line-height: 1rem;
+  opacity: 0.8;
+}
 .name {
   text-transform: uppercase;
   font-weight: 600;
