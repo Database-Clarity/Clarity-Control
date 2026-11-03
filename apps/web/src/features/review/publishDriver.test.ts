@@ -412,3 +412,93 @@ it('surfaces unreadable storage instead of silently showing no operations', asyn
   await driver.start('1');
   expect(usePublishState.getState().storageError).toMatch(/blocked/);
 });
+
+it('does not spin while a request hangs: no storage re-reads once a send is in flight', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  h.api.post.mockImplementation(() => new Promise(() => undefined));
+  const list = vi.spyOn(h.store, 'list');
+  await driver.create(inputs);
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(list.mock.calls.length).toBeLessThan(5);
+  expect(h.api.post).toHaveBeenCalledTimes(1);
+});
+
+it('refuses selections over the Worker caps before storing or sending anything', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  const many = Array.from({ length: 3001 }, (_, i) => ({
+    hash: i,
+    digest: digest(1),
+    previous: undefined,
+  }));
+  await expect(driver.create(many)).rejects.toThrow(/limit is 3000.*Nothing was sent/);
+  expect(h.store.records.size).toBe(0);
+  expect(h.api.post).not.toHaveBeenCalled();
+  // At the cap exactly it is accepted.
+  await driver.create(many.slice(0, 3000));
+  expect(h.store.records.size).toBe(1);
+});
+
+it('only blames the clock for the creation-window rejection; 413 and 403 say what happened', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  h.api.status.mockResolvedValue('unknown');
+  h.api.post.mockRejectedValueOnce(new PublishHttpError(400, 'Invalid publish body'));
+  await driver.create([{ hash: 1, digest: digest(1), previous: undefined }]);
+  await settle();
+  expect(ops()[0]!.error).not.toMatch(/clock/);
+  h.api.post.mockRejectedValueOnce(new PublishHttpError(413, 'too big'));
+  await driver.create([{ hash: 2, digest: digest(2), previous: undefined }]);
+  await settle();
+  expect(ops()[1]!.error).toMatch(/too large/);
+  h.api.post.mockRejectedValueOnce(new PublishHttpError(403, 'Forbidden'));
+  await driver.create([{ hash: 3, digest: digest(3), previous: undefined }]);
+  await settle();
+  expect(ops()[2]!.error).toMatch(/may still run; check live status/);
+});
+
+it('never kicks an operation a pass just found finished', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  await driver.create(inputs);
+  await settle();
+  h.api.status.mockResolvedValue('done');
+  await vi.advanceTimersByTimeAsync(publishTiming.autoKickMs + 20_000);
+  expect(op().status).toBe('done');
+  expect(h.api.kick).not.toHaveBeenCalled();
+});
+
+it('rebuilds acknowledgments after a reload only from operations finished in the last 15 minutes', async () => {
+  const h = harness();
+  const first = h.make();
+  await first.start('1');
+  h.api.status.mockResolvedValue('done');
+  await first.create(inputs);
+  await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) + 100);
+  expect(h.acked).toHaveLength(1);
+  first.stop();
+  vi.setSystemTime(Date.now() + publishTiming.ackWindowMs + 60_000);
+  const second = h.make();
+  await second.start('1');
+  expect(h.acked).toHaveLength(1); // not re-applied: the bundle has long since caught up
+  expect(ops()).toHaveLength(1); // but the finished line is still listed
+});
+
+it('stops polling a pending operation after 24 hours and says so', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  const created = await driver.create(inputs);
+  await settle();
+  vi.setSystemTime(Date.now() + publishTiming.pollGiveUpMs + 1000);
+  await driver.refresh();
+  const polls = h.api.status.mock.calls.length;
+  await vi.advanceTimersByTimeAsync(10 * 60_000);
+  expect(h.api.status.mock.calls.length).toBe(polls);
+  expect(usePublishState.getState().notes[created.opId]).toMatch(/Still waiting after 24 hours/);
+});

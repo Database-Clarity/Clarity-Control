@@ -20,6 +20,13 @@ export const publishTiming = {
   sendExpiryMs: 23 * 3_600_000,
   /** Finished operations are kept (they back the acknowledgment overlay) for a day. */
   retainMs: 24 * 3_600_000,
+  /** After a reload only operations this fresh rebuild acknowledgments (bundle lag is minutes). */
+  ackWindowMs: 15 * 60_000,
+  /** A pending operation older than this stops being polled; the line says to check live status. */
+  pollGiveUpMs: 24 * 3_600_000,
+  /** Worker caps (core publishRequest.ts): at most 3,000 hashes, body at most 300 KB. */
+  maxHashes: 3000,
+  maxBodyBytes: 300 * 1024,
 } as const;
 
 export interface PublishApi {
@@ -133,6 +140,10 @@ export class PublishDriver {
     const userId = this.userId;
     if (!userId) throw new Error('Sign in to publish.');
     if (!inputs.length) throw new Error('Nothing to publish.');
+    if (inputs.length > publishTiming.maxHashes)
+      throw new Error(
+        `Too many tooltips for one publish (${inputs.length}; the limit is ${publishTiming.maxHashes}). Select fewer and publish in several steps. Nothing was sent.`,
+      );
     const now = this.deps.now();
     const sorted = [...inputs].sort((a, b) => a.hash - b.hash);
     const op: PublishOp = {
@@ -145,6 +156,13 @@ export class PublishDriver {
       status: 'created',
       updatedAt: now,
     };
+    const bodyBytes = new TextEncoder().encode(
+      JSON.stringify({ opId: op.opId, hashes: op.hashes, expected: op.expected }),
+    ).length;
+    if (bodyBytes > publishTiming.maxBodyBytes)
+      throw new Error(
+        'This publish is too large to send. Select fewer tooltips. Nothing was sent.',
+      );
     try {
       await this.deps.store.add(op);
     } catch (reason) {
@@ -172,7 +190,8 @@ export class PublishDriver {
   /** Manual Retry: kick one waiting operation. One pipeline run drains the whole queue. */
   async kickWaiting(opId: string): Promise<void> {
     const claimed = await this.claim(opId, (op, now) =>
-      op.kickedAt !== undefined && now - op.kickedAt < publishTiming.manualKickGapMs
+      isTerminal(op.status) ||
+      (op.kickedAt !== undefined && now - op.kickedAt < publishTiming.manualKickGapMs)
         ? undefined
         : { ...op, kickedAt: now },
     );
@@ -217,7 +236,8 @@ export class PublishDriver {
       // up (which retires an acknowledgment) is never overridden again.
       if (!this.acknowledged.has(op.opId) && (op.status === 'done' || op.status === 'unchanged')) {
         this.acknowledged.add(op.opId);
-        if (first || !op.dismissed) this.deps.acknowledge(op);
+        if ((first || !op.dismissed) && now - op.updatedAt <= publishTiming.ackWindowMs)
+          this.deps.acknowledge(op);
       }
     }
     usePublishState.setState({ ops: kept.filter((op) => !op.dismissed), storageError: undefined });
@@ -281,6 +301,13 @@ export class PublishDriver {
         if (due <= now) await this.send(op.opId);
       } else if (op.status === 'pending') {
         const accepted = op.acceptedAt ?? op.createdAt;
+        if (now - accepted > publishTiming.pollGiveUpMs) {
+          this.note(
+            op.opId,
+            'Still waiting after 24 hours. Check live status; this is no longer polled.',
+          );
+          continue;
+        }
         const gap = publishTiming.pollMs(now - accepted) * 0.8;
         const polled = await this.claim(op.opId, (current, at) =>
           current.polledAt !== undefined && at - current.polledAt < gap
@@ -290,7 +317,9 @@ export class PublishDriver {
         if (polled) await this.poll(op.opId);
         if (now - accepted >= publishTiming.autoKickMs) {
           const kicked = await this.claim(op.opId, (current, at) =>
-            current.autoKicked ? undefined : { ...current, autoKicked: true, kickedAt: at },
+            current.autoKicked || isTerminal(current.status)
+              ? undefined
+              : { ...current, autoKicked: true, kickedAt: at },
           );
           if (kicked) await this.kick(op.opId);
         }
@@ -304,7 +333,12 @@ export class PublishDriver {
     const now = this.deps.now();
     let next = Infinity;
     for (const op of usePublishState.getState().ops) {
-      if (isTerminal(op.status) || this.paused.has(op.opId)) continue;
+      if (isTerminal(op.status) || this.paused.has(op.opId) || this.inFlight.has(op.opId)) continue;
+      if (
+        op.status === 'pending' &&
+        now - (op.acceptedAt ?? op.createdAt) > publishTiming.pollGiveUpMs
+      )
+        continue;
       if (op.status === 'created') {
         const retry = this.attempts.get(op.opId);
         next = Math.min(
@@ -419,7 +453,8 @@ export class PublishDriver {
     if (status === 403) {
       await this.settle(op.opId, {
         status: 'failed',
-        error: 'Your account may no longer publish. Nothing went live.',
+        error:
+          'The Worker refused this account (HTTP 403), so this tab cannot follow the publish. If it was already queued it may still run; check live status before publishing again.',
       });
       return;
     }
@@ -440,7 +475,16 @@ export class PublishDriver {
       }
       await this.settle(op.opId, {
         status: 'failed',
-        error: `The Worker rejected this publish (${message.slice(0, 120)}). Check your device clock, then publish again.`,
+        error: /creation window/i.test(message)
+          ? 'The Worker rejected this publish because its time is outside the allowed window. Check your device clock, then publish again.'
+          : `The Worker rejected this publish (${message.slice(0, 120)}). Publish again.`,
+      });
+      return;
+    }
+    if (status === 413) {
+      await this.settle(op.opId, {
+        status: 'failed',
+        error: 'This publish is too large for the Worker. Select fewer tooltips and publish again.',
       });
       return;
     }

@@ -22,10 +22,13 @@ const statusSchema = z.object({
   operations: z.array(z.object({ opId: z.string(), status: z.string() })),
 });
 
+const requestTimeoutMs = 30_000;
+
 async function send(path: string, init?: RequestInit): Promise<{ status: number; value: unknown }> {
   let response: Response;
   try {
-    response = await apiRequest(path, init);
+    // A hung request must end (status 0 = unresolved, so the same opId is retried with backoff).
+    response = await apiRequest(path, { ...init, signal: AbortSignal.timeout(requestTimeoutMs) });
   } catch (reason) {
     throw new PublishHttpError(0, reason instanceof Error ? reason.message : 'Network error');
   }
