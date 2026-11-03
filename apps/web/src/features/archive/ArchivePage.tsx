@@ -87,7 +87,8 @@ export function ArchivePage() {
   const targetBase = targetHash === undefined ? undefined : tooltipFor(targetHash, data);
   const targetDraft = targetBase && drafts[targetBase.hash];
   const target = targetBase && (targetDraft?.next ?? targetBase);
-  const staged = current?.archive?.successor !== undefined;
+  const associated = current?.archive?.successor !== undefined;
+  const staged = associated && current.archive?.successor !== base?.archive?.successor;
   function back() {
     const next = new URLSearchParams(params);
     next.delete('item');
@@ -124,7 +125,7 @@ export function ArchivePage() {
       { base: targetBase, update: () => change.target },
     ]);
     setPicking(false);
-    setNotice('Association staged → Review changes and save both drafts.');
+    setNotice('');
   }
   return (
     <article className={styles.page}>
@@ -183,7 +184,7 @@ export function ArchivePage() {
                     <strong>{tooltip.archive ? 'Confirmed' : 'Unconfirmed'}</strong> ·{' '}
                     {tooltip.archive ? (
                       <>
-                        Removed <When value={tooltip.archive.removedAt} />
+                        Removed <When nowrap value={tooltip.archive.removedAt} />
                       </>
                     ) : (
                       'removal detected from the current manifest'
@@ -227,8 +228,8 @@ export function ArchivePage() {
                   {current.archive ? (
                     <>
                       {' '}
-                      · Removed <When value={current.archive.removedAt} />. Name and category are
-                      saved from the last manifest.
+                      · Removed <When nowrap value={current.archive.removedAt} />. Name and category
+                      are saved from the last manifest.
                     </>
                   ) : (
                     ' · Removed from the manifest, not yet confirmed. Confirming saves the name and category so this stays readable if the catalog changes.'
@@ -242,7 +243,7 @@ export function ArchivePage() {
                       {data.items[current.archive.successor]?.name ?? 'Tooltip'} (
                       {current.archive.successor})
                     </Link>
-                    {drafts[base.hash] && ' — staged as a local draft'}.
+                    {staged && ' — staged as a local draft'}.
                   </p>
                 )}
                 {!canAct && !canRestore && (
@@ -283,9 +284,11 @@ export function ArchivePage() {
                 )}
                 {!data.items[base.hash] &&
                   user?.role === 'maintainer' &&
-                  (staged ? (
+                  (associated ? (
                     <p className={styles.consequence}>
-                      Association staged → Review changes and save the drafts.
+                      {staged
+                        ? 'Association staged → Review changes and save the drafts.'
+                        : 'Association saved.'}
                     </p>
                   ) : (
                     <div>

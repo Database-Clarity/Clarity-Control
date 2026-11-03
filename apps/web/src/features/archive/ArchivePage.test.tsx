@@ -180,6 +180,7 @@ it('lists readable dates, category labels, languages and confirmed/unconfirmed s
   const rows = [...host.querySelectorAll('li')].map((entry) => entry.textContent ?? '');
   expect(rows[0]).toContain('Confirmed');
   expect(rows[0]).toContain('Removed 2 Nov 2026');
+  expect(host.querySelector('time')?.style.whiteSpace).toBe('nowrap');
   expect(rows[0]).toContain('English');
   expect(rows[0]).not.toContain('2026-11-02T');
   expect(rows[1]).toContain('Unconfirmed');
@@ -223,7 +224,8 @@ it('hides Associate once a successor is set and explains the consequences before
   });
   await render(`/archive?item=${archived.hash}`);
   expect(button('Associate with new item')).toBeUndefined();
-  expect(host.textContent).toContain('Association staged');
+  expect(host.textContent).toContain('Association saved.');
+  expect(host.textContent).not.toContain('Association staged');
   expect(host.textContent).toContain('Superseded by');
 });
 it('never silently overwrites an existing draft on the destination', async () => {
@@ -321,4 +323,36 @@ it('stages restore through an editor draft while preserving every text language'
   expect(next.text).toEqual(archived.text);
   expect(host.textContent).toContain('Restore staged');
   expect(host.textContent).toContain('Text is untouched');
+});
+
+it('shows staged only for a changed successor and follows save/discard state', async () => {
+  const next = { ...archived, archive: { ...archived.archive!, successor: 10 } };
+  await render(`/archive?item=${archived.hash}`);
+  await act(async () =>
+    useDraftStore.setState({
+      drafts: { [archived.hash]: { base: archived, next } } as never,
+    }),
+  );
+  expect(host.textContent).toContain('Association staged');
+  await act(async () => {
+    useDataStore.setState({
+      data: { ...data, bundle: { ...data.bundle, tooltips: { [archived.hash]: next } } },
+    });
+    useDraftStore.setState({ drafts: {} });
+  });
+  expect(host.textContent).toContain('Association saved.');
+  expect(host.textContent).not.toContain('Association staged');
+  // An unrelated text draft must not make a saved successor look staged.
+  await act(async () =>
+    useDraftStore.setState({
+      drafts: { [archived.hash]: { base: next, next: { ...next, text: {} } } } as never,
+    }),
+  );
+  expect(host.textContent).not.toContain('Association staged');
+  await act(async () => {
+    useDataStore.setState({ data });
+    useDraftStore.setState({ drafts: {} });
+  });
+  expect(host.textContent).not.toContain('Association staged');
+  expect(button('Associate with new item')).toBeDefined();
 });

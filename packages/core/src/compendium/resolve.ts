@@ -7,7 +7,7 @@ import {
   type CompendiumSheet,
   type CompendiumGridCell,
 } from './types.js';
-import { compendiumTabs, isTrackedCompendiumTab } from './config.js';
+import { compendiumTabId, compendiumTabs, isTrackedCompendiumTab } from './config.js';
 import { selectCompendiumCells } from './cells.js';
 
 export function normaliseCompendiumName(name: string): string {
@@ -200,7 +200,7 @@ export function combineCompendiumMatches(matches: CompendiumMatch[]): Compendium
         .slice(0, index)
         .some(
           (previous) =>
-            match.tab.gid === '1500097863' &&
+            match.tab.gid === compendiumTabId('Exotic Armors') &&
             previous.tab.gid === match.tab.gid &&
             match.row.nameNorm === previous.row.nameNorm &&
             match.row.anchor?.col === previous.row.anchor?.col &&
@@ -228,7 +228,7 @@ export function combineCompendiumMatches(matches: CompendiumMatch[]): Compendium
   )
     return undefined;
   if (
-    first.tab.gid === '473308249' &&
+    first.tab.gid === compendiumTabId('Artifact Perks') &&
     sorted.some((match) => !sameCell(match.row.cell, first.row.cell))
   )
     return undefined;
@@ -262,7 +262,7 @@ export function combineCompendiumMatches(matches: CompendiumMatch[]): Compendium
     // Artifact rows share names across current artifacts. A neighboring perk name
     // is not an artifact identity; reuse the actual enclosing artifact heading.
     const artifact =
-      tab.gid === '473308249'
+      tab.gid === compendiumTabId('Artifact Perks')
         ? tab.grid
             ?.filter(
               (cell) =>
