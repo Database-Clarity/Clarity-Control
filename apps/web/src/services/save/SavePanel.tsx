@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { apiUrl, save, type SaveConflict } from '../api';
+import { apiUrl, save } from '../api';
 import { errorMessage } from '../http';
 import { sameUser, useAuthStore } from '../../stores/auth';
 import { sessionToken } from '../session';
 import { useDataStore } from '../../stores/data';
+import {
+  useConflictStore,
+  useOpenConflicts,
+  usePausedForOtherTab,
+  type BeginResult,
+} from '../../stores/conflicts';
 import { useDraftStore } from '../../stores/drafts';
 import { usePreviewReviewStore } from '../../stores/previewReview';
-import { ConflictDialog } from '../../features/conflicts/ConflictDialog';
 import { Dialog } from '../../ui/Dialog';
 import { acceptSaved } from './drafts';
 import { useSaveNotice } from './notice';
@@ -23,6 +28,8 @@ export function SaveController() {
   const review = useSaveState((state) => state.review);
   const generation = useDraftStore((state) => state.generation);
   const showNotice = useSaveNotice((state) => state.show);
+  // Conflict rows and their saved copy follow the drafts of the signed-in account.
+  useEffect(() => useConflictStore.getState().start(), []);
   useEffect(() => {
     // A review lists one account's drafts: switching accounts closes it, keeping the drafts.
     return () => {
@@ -40,10 +47,13 @@ export function SaveController() {
 export function SavePanel({
   className,
   onReview,
+  onResolve,
   children,
 }: {
   className?: string;
   onReview?: () => void;
+  /** Takes the user to a tooltip that still has conflicts to resolve. */
+  onResolve?: (hash: number) => void;
   children?: ReactNode;
 }) {
   const drafts = useDraftStore((state) => state.drafts);
@@ -52,6 +62,9 @@ export function SavePanel({
   const notice = useSaveNotice((state) => state.notice);
   const dismiss = useSaveNotice((state) => state.dismiss);
   const count = Object.keys(drafts).length;
+  const conflicts = useOpenConflicts();
+  const paused = usePausedForOtherTab();
+  const open = conflicts.reduce((sum, conflict) => sum + conflict.total, 0);
   // Edits no Base/Enhanced preview has shown yet. Saving stays allowed: this only says so.
   const unpreviewed = usePreviewReviewStore(
     (state) => Object.values(state.entries).filter((entry) => entry.dirty > entry.reviewed).length,
@@ -71,21 +84,48 @@ export function SavePanel({
       )}
       {notice && <p role="status">{notice}</p>}
       {children}
-      <button
-        type="button"
-        data-autofocus
-        data-drafts-review
-        disabled={!apiUrl || !user?.role || !count || Boolean(review)}
-        onClick={() => {
-          dismiss();
-          onReview?.();
-          openDraftSaveReview();
-        }}
-      >
-        {count > 1 ? `Review and save ${count} drafts` : 'Review and save draft'}
-      </button>
+      {open > 0 ? (
+        // Saving waits until every conflict is resolved; this takes the user to the next one.
+        <button
+          type="button"
+          data-autofocus
+          data-drafts-resolve
+          onClick={() => {
+            onReview?.();
+            onResolve?.(conflicts[0]!.hash);
+          }}
+        >
+          {open === 1 ? 'Resolve 1 conflict' : `Resolve ${open} conflicts`}
+        </button>
+      ) : (
+        <button
+          type="button"
+          data-autofocus
+          data-drafts-review
+          disabled={!apiUrl || !user?.role || !count || Boolean(review) || paused}
+          onClick={() => {
+            dismiss();
+            onReview?.();
+            openDraftSaveReview();
+          }}
+        >
+          {count > 1 ? `Review and save ${count} drafts` : 'Review and save draft'}
+        </button>
+      )}
     </section>
   );
+}
+
+/** What the user is told when somebody else saved the same tooltips first. */
+export function conflictNotice(outcome: BeginResult): string {
+  const tooltips = outcome.tooltips === 1 ? '1 tooltip' : `${outcome.tooltips} tooltips`;
+  const open = outcome.markers + outcome.rows;
+  const merged = outcome.merged
+    ? ` ${outcome.merged} text${outcome.merged === 1 ? '' : 's'} merged automatically.`
+    : '';
+  return open > 0
+    ? `Nothing was saved: ${tooltips} changed on the server meanwhile. Resolve ${open === 1 ? '1 conflict' : `${open} conflicts`} in the editor, then review and save again.${merged}`
+    : `Nothing was saved: ${tooltips} changed on the server meanwhile.${merged || ' Your edits were merged.'} Review and save again.`;
 }
 
 const accountChanged = (generation: number) => useDraftStore.getState().generation !== generation;
@@ -94,11 +134,10 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
   const data = useDataStore((state) => state.data);
   const user = useAuthStore((state) => state.user);
   const close = useSaveState((state) => state.close);
-  const [changes, setChanges] = useState(review.changes);
-  const [conflicts, setConflicts] = useState<SaveConflict[] | null>(null);
+  const changes = review.changes;
+  const openConflicts = useOpenConflicts();
   const [message, setMessage] = useState('');
   const [pending, setPending] = useState(false);
-  const [deleted, setDeleted] = useState<number[]>([]);
   const [remoteCommit, setRemoteCommit] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const validation = useMemo(() => {
@@ -109,8 +148,15 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
     }
   }, [changes, data]);
   const denied = permissionError(changes, user);
+  // Marker blocks are also caught by validation; this covers a conflict's non-text rows.
+  const unresolved = openConflicts.some((conflict) =>
+    changes.some((change) => change.hash === conflict.hash),
+  );
+  const paused = usePausedForOtherTab();
   const blocked = Boolean(
     denied ||
+    unresolved ||
+    paused ||
     validation.error ||
     validation.issues.some((issue) => issue.severity === 'error') ||
     changes.length > 100,
@@ -128,12 +174,6 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         throw new Error(
           'Local drafts are not safely stored. Close this review and retry draft storage.',
         );
-      if (!changes.length) {
-        acceptSaved(review.submitted, [], undefined, deleted);
-        onSaved('Accepted server deletions. No remote changes were needed.');
-        close();
-        return;
-      }
       const prepared = await prepareChanges(changes, user, data);
       if (accountChanged(generation)) return;
       // The request reads the session token when it is sent: refuse unless it is still the one
@@ -151,8 +191,14 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
       }
       if (accountChanged(generation)) return;
       if (result.kind === 'conflicts') {
-        setChanges(prepared);
-        setConflicts(result.conflicts);
+        // Nothing was saved. Rebase the drafts on the server's versions and resolve in the editor.
+        const conflicted = new Set(result.conflicts.map((conflict) => conflict.hash));
+        const outcome = useConflictStore.getState().begin(
+          result.conflicts,
+          prepared.filter((change) => !conflicted.has(change.hash)),
+        );
+        onSaved(conflictNotice(outcome));
+        close();
       } else if (result.kind === 'retry')
         setError(`${result.error}. Nothing was saved. Retry when ready.`);
       else {
@@ -167,7 +213,7 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
           );
         }
         try {
-          acceptSaved(review.submitted, result.tooltips, result.commit, deleted);
+          acceptSaved(review.submitted, result.tooltips, result.commit);
         } catch (error) {
           throw new Error(
             `Remote save ${result.commit} succeeded, but local reconciliation failed: ${errorMessage(error).replace(/\.+$/, '')}. Drafts are retained; close this dialog and reload data before continuing.`,
@@ -182,19 +228,6 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
       if (!accountChanged(generation)) setPending(false);
     }
   }
-  if (conflicts)
-    return (
-      <ConflictDialog
-        changes={changes}
-        conflicts={conflicts}
-        onClose={close}
-        onResolve={(resolved) => {
-          setChanges(resolved.changes);
-          setDeleted((previous) => [...new Set([...previous, ...resolved.deleted])]);
-          setConflicts(null);
-        }}
-      />
-    );
   return (
     <Dialog
       title="Review save"
@@ -216,13 +249,12 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
       }
     >
       {data && <SaveSummary changes={changes} issues={validation.issues} data={data} />}
-      {deleted.length > 0 && (
-        <p>
-          Accept server deletion and discard the submitted local draft(s): {deleted.join(', ')}.
-        </p>
-      )}
       {(denied || validation.error || error) && (
         <p role="alert">{denied || validation.error || error}</p>
+      )}
+      {unresolved && <p role="alert">Resolve the open conflicts before saving.</p>}
+      {paused && (
+        <p role="alert">Another tab changed your drafts. Choose Reload or Keep mine first.</p>
       )}
       {changes.length > 100 && (
         <p role="alert">At most 100 tooltips can be saved at once. Reduce your drafts first.</p>

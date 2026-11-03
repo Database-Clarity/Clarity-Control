@@ -26,6 +26,11 @@ export interface DraftStorage {
    * single-bucket test doubles keep working.
    */
   forUser?(userId: string): DraftStorage;
+  /**
+   * Calls back when ANOTHER tab wrote this bucket (never for this tab's own writes). Optional so
+   * single-tab doubles keep working. Returns the stop function.
+   */
+  subscribe?(listener: () => void): () => void;
 }
 
 const unownedKey = 'tooltips';
@@ -42,9 +47,29 @@ function openDatabase(): Promise<IDBDatabase> {
   });
 }
 
+const channelName = 'clarity-drafts-written';
+
+function openChannel(): BroadcastChannel | undefined {
+  try {
+    return typeof BroadcastChannel === 'function' ? new BroadcastChannel(channelName) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function createIndexedDbStorage(key = unownedKey): DraftStorage {
   let expected: string | undefined;
   const users = new Map<string, DraftStorage>();
+  let announcer: BroadcastChannel | undefined;
+  /** Tells the other tabs this bucket changed. Best effort: the write itself already succeeded. */
+  const announce = () => {
+    try {
+      announcer ??= openChannel();
+      announcer?.postMessage(key);
+    } catch {
+      // Without a channel the other tab still learns at its next write (the compare-and-set).
+    }
+  };
   return {
     ...(key === unownedKey
       ? {
@@ -58,6 +83,14 @@ export function createIndexedDbStorage(key = unownedKey): DraftStorage {
           },
         }
       : {}),
+    subscribe(listener) {
+      const channel = openChannel();
+      if (!channel) return () => undefined;
+      channel.onmessage = (event: MessageEvent) => {
+        if (event.data === key) listener();
+      };
+      return () => channel.close();
+    },
     async read() {
       const db = await openDatabase();
       try {
@@ -96,6 +129,7 @@ export function createIndexedDbStorage(key = unownedKey): DraftStorage {
           };
           transaction.oncomplete = () => {
             expected = JSON.stringify(drafts);
+            announce();
             resolve();
           };
           transaction.onabort = () =>

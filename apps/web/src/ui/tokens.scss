@@ -86,6 +86,10 @@
   --syn-string: #9cdcfe;
   --diag-error: #ff9595;
   --diag-warn: #f2ce7e;
+  // Inline conflicts: mine green, theirs blue (Stasis), markers a quiet neutral
+  --conflict-mine: #183324;
+  --conflict-theirs: #1b2a44;
+  --conflict-marker: #2b2d33;
   // Decision and tables
   --decision-edge: #3a4050;
   --decision-text: #aab;
@@ -176,6 +180,10 @@
   --syn-string: #0b6178;
   --diag-error: #b3261e;
   --diag-warn: #7a5200;
+  // Inline conflicts: mine green, theirs blue (Stasis), markers a quiet neutral
+  --conflict-mine: #d6f0de;
+  --conflict-theirs: #d1e2f9;
+  --conflict-marker: #e6ebef;
   // Decision and tables
   --decision-edge: #b5c9d8;
   --decision-text: #4f5a66;

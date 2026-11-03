@@ -167,6 +167,44 @@ afterEach(async () => {
   vi.mocked(ClarityEditor).mockClear();
 });
 
+describe('inline conflicts on the page', () => {
+  const marked = 'Deals X.\n<<<<<<< mine\nMine line\n=======\nTheirs line\n>>>>>>> theirs (bob)';
+  it('keeps the markers in the editor but previews "mine" and the derived version too', async () => {
+    useDraftStore.setState({
+      drafts: { 10: { base: data.bundle.tooltips[10]!, next: tip(10, marked) } },
+    });
+    await render();
+    expect(editors()[0]!.textContent).toBe(marked);
+    expect(host.querySelector('[data-preview]')?.textContent).toBe('Deals X.\nMine line');
+  });
+
+  it('rows point to another language that carries blocks, and open it', async () => {
+    useDraftStore.setState({
+      drafts: {
+        10: { base: data.bundle.tooltips[10]!, next: tip(10, BASE, { de: marked }) },
+      },
+    });
+    await render();
+    const row = host.querySelector('[data-conflict-rows]')!;
+    expect(row.textContent).toContain('German');
+    expect(row.textContent).toContain('1 conflict in the text');
+  });
+
+  it('pauses editing while another tab changed the drafts and conflicts are open', async () => {
+    useDraftStore.setState({
+      external: true,
+      drafts: { 10: { base: data.bundle.tooltips[10]!, next: tip(10, marked) } },
+    });
+    await render();
+    const props = vi.mocked(ClarityEditor).mock.calls.at(-1)![0];
+    expect(props.readOnly).toBe(true);
+    expect(props.readOnlyReason).toContain('Paused: another tab changed your drafts');
+    // Without an open conflict another tab's write does not stop the editor.
+    await act(async () => useDraftStore.setState({ external: true, drafts: {} }));
+    expect(vi.mocked(ClarityEditor).mock.calls.at(-1)![0].readOnly).toBe(false);
+  });
+});
+
 describe('editor page composition', () => {
   it('mounts one editor per item and shows one preview column with each enhanced version as a view', async () => {
     await render();

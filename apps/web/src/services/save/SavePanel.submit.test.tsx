@@ -2,13 +2,15 @@
 import { act, createElement, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Tooltip } from '@clarity/core';
 import { SaveController } from './SavePanel';
 import { useSaveNotice } from './notice';
 import { useSaveState } from './state';
 import { useAuthStore } from '../../stores/auth';
+import { useConflictStore } from '../../stores/conflicts';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
-import { editorData, tooltip } from './fixtures.testSupport';
+import { editorData, english, tooltip } from './fixtures.testSupport';
 
 const mocks = vi.hoisted(() => ({
   save: vi.fn(),
@@ -112,5 +114,136 @@ describe('SaveController save submission', () => {
     expect(useSaveState.getState().review).toBeNull();
     // The previous account's drafts are not reconciled into the new account.
     expect(useDraftStore.getState().drafts[123]).toBeDefined();
+  });
+
+  describe('a 409 conflict', () => {
+    const line = (text: string) => ({ ...english, text, updatedBy: 'bob' });
+    const withText = (text: string, extra = {}) => ({
+      ...tooltip,
+      text: { en: line(text) },
+      ...extra,
+    });
+    const base = withText('top\nshared\nbottom');
+    const head = withText('top\ntheirs\nbottom', { associated: [7] });
+    const mine = withText('top\nmine\nbottom');
+
+    beforeEach(() => {
+      useDataStore.setState({
+        data: {
+          ...editorData(),
+          bundle: { ...editorData().bundle, tooltips: { 123: base } },
+        },
+      });
+      useDraftStore.setState({
+        drafts: { 123: { base, next: mine } },
+        retry: () => undefined,
+      });
+      useConflictStore.setState({ scope: '1', sessions: {} });
+    });
+
+    async function review() {
+      await act(async () =>
+        useSaveState.setState({
+          locked: true,
+          review: {
+            changes: [{ hash: 123, base, next: mine }],
+            submitted: { 123: { base, next: mine } },
+          },
+        }),
+      );
+      const button = [...host.querySelectorAll('button')].find(
+        (b) => b.textContent === 'Save changes',
+      );
+      await act(async () => button!.click());
+    }
+
+    it('closes the review, leaves marker blocks in the draft and saves nothing', async () => {
+      mocks.save.mockResolvedValueOnce({
+        kind: 'conflicts',
+        conflicts: [{ hash: 123, base, head, next: mine, fields: ['text.en'] }],
+      });
+      await act(async () => root.render(createElement(SaveController)));
+      await review();
+      expect(useSaveState.getState().review).toBeNull();
+      expect(useSaveNotice.getState().notice).toContain('Nothing was saved');
+      expect(useSaveNotice.getState().notice).toContain('Resolve 1 conflict');
+      const draft = useDraftStore.getState().drafts[123]!;
+      expect(draft.base).toEqual(head);
+      expect(draft.next.text.en!.text).toContain(
+        '<<<<<<< mine\nmine\n=======\ntheirs\n>>>>>>> theirs',
+      );
+      expect(draft.next.associated).toEqual([7]);
+      expect(useDataStore.getState().data!.bundle.tooltips[123]).toEqual(head);
+      expect(mocks.save).toHaveBeenCalledTimes(1);
+    });
+
+    it('cannot be reviewed again until resolved, then saves on top of theirs', async () => {
+      mocks.save.mockResolvedValueOnce({
+        kind: 'conflicts',
+        conflicts: [{ hash: 123, base, head, next: mine, fields: ['text.en'] }],
+      });
+      await act(async () => root.render(createElement(SaveController)));
+      await review();
+      // Still marked: a second review is blocked at validation (the save button stays disabled).
+      expect(useConflictStore.getState().open()).toHaveLength(1);
+      // The user resolves the block (in the editor this is an ordinary edit of the draft).
+      const resolved = {
+        ...useDraftStore.getState().drafts[123]!,
+        next: withText('top\nmine and theirs\nbottom', { associated: [7] }),
+      };
+      await act(async () => useDraftStore.setState({ drafts: { 123: resolved } }));
+      expect(useConflictStore.getState().open()).toEqual([]);
+      mocks.save.mockResolvedValueOnce({
+        kind: 'saved',
+        commit: 'c'.repeat(40),
+        tooltips: [resolved.next],
+      });
+      await review2(resolved);
+      const sent = mocks.save.mock.calls[1]![0][0];
+      expect(sent.base).toEqual(head);
+      expect(sent.next.text.en.text).toBe('top\nmine and theirs\nbottom');
+      expect(useDraftStore.getState().drafts[123]).toBeUndefined();
+    });
+
+    async function review2(resolved: { base: Tooltip; next: Tooltip }) {
+      await act(async () =>
+        useSaveState.setState({
+          locked: true,
+          review: {
+            changes: [{ hash: 123, base: resolved.base, next: resolved.next }],
+            submitted: { 123: resolved },
+          },
+        }),
+      );
+      const button = [...host.querySelectorAll('button')].find(
+        (b) => b.textContent === 'Save changes',
+      );
+      await act(async () => button!.click());
+    }
+
+    it('keeps a deleted-on-server tooltip as a row and blocks saving until answered', async () => {
+      mocks.save.mockResolvedValueOnce({
+        kind: 'conflicts',
+        conflicts: [{ hash: 123, base, head: null, next: mine, fields: ['$exists'] }],
+      });
+      await act(async () => root.render(createElement(SaveController)));
+      await review();
+      expect(useDraftStore.getState().drafts[123]!.next).toEqual(mine);
+      expect(useConflictStore.getState().open()).toEqual([
+        { hash: 123, markers: 0, byLanguage: {}, rows: 1, total: 1 },
+      ]);
+      // Opening a review for it shows the block and keeps Save disabled.
+      await act(async () =>
+        useSaveState.setState({
+          locked: true,
+          review: { changes: [{ hash: 123, base: null, next: mine }], submitted: {} },
+        }),
+      );
+      expect(host.textContent).toContain('Resolve the open conflicts before saving');
+      const save = [...host.querySelectorAll('button')].find(
+        (b) => b.textContent === 'Save changes',
+      );
+      expect(save!.disabled).toBe(true);
+    });
   });
 });

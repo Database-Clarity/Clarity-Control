@@ -1,5 +1,9 @@
 import { useState } from 'react';
 import { useDraftStore } from '../../stores/drafts';
+import { useNavigate } from 'react-router-dom';
+import { useConflictStore, useOpenConflicts, usePausedForOtherTab } from '../../stores/conflicts';
+import { tooltipPath } from './stepping';
+import { reconcileDrafts } from '../conflicts/rebase';
 import { useSaveNotice } from '../../services/save/notice';
 import { useSettingsNotices } from '../settings/SettingsChoice';
 import { useSettingsPanel } from '../settings/panel';
@@ -28,7 +32,42 @@ export function useShellNotices(): ShellNotice[] {
   const dismissSaveNotice = useSaveNotice((state) => state.dismiss);
   const settingsOpen = useSettingsPanel((state) => state.open);
   const settings = useSettingsNotices();
+  const pausedForOtherTab = usePausedForOtherTab();
+  const rowConflicts = useOpenConflicts().filter((conflict) => conflict.rows > 0);
+  const navigate = useNavigate();
   const notices: ShellNotice[] = [];
+
+  // A conflict that is not text (a deleted tooltip, the Compendium link…) is answered in a row under
+  // the preview, which a narrow window keeps folded: say so, and take the user there.
+  const rowCount = rowConflicts.reduce((sum, conflict) => sum + conflict.rows, 0);
+  if (rowCount > 0)
+    notices.push({
+      id: 'conflict-rows',
+      level: 'warning',
+      text: `${count(rowCount, 'conflict')} ${rowCount === 1 ? 'needs' : 'need'} your choice before saving. ${rowCount === 1 ? 'It is' : 'They are'} listed under the preview.`,
+      dismissible: false,
+      actions: [{ label: 'Open', onClick: () => navigate(tooltipPath(rowConflicts[0]!.hash, '')) }],
+    });
+  // Open conflicts and another tab writing the same drafts: nothing is overwritten until the user
+  // answers. Reload merges what the other tab stored with this tab's resolved parts.
+  if (pausedForOtherTab)
+    notices.push({
+      id: 'drafts-other-tab',
+      level: 'alert',
+      text: 'Your drafts changed in another tab while conflicts are open here. Reload keeps what you resolved here and merges the other tab’s edits; Keep mine overwrites them.',
+      dismissible: false,
+      actions: [
+        {
+          label: 'Reload',
+          onClick: () =>
+            void useDraftStore
+              .getState()
+              .reloadFromStorage(reconcileDrafts)
+              .then(() => useConflictStore.getState().refresh()),
+        },
+        { label: 'Keep mine', onClick: () => void useDraftStore.getState().keepMine() },
+      ],
+    });
 
   if (draftError)
     notices.push({
