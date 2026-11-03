@@ -64,7 +64,9 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
   const width = useElementWidth(bodyRef);
   // Unmeasured (no layout) counts as roomy; a narrow pane puts the switch above the diff instead.
   // Touch-sized controls (phone, coarse pointer) are wider than the measure below allows for.
-  const touch = useMedia(phoneQuery) || useMedia('(pointer: coarse)');
+  const phone = useMedia(phoneQuery);
+  const coarse = useMedia('(pointer: coarse)');
+  const touch = phone || coarse;
   const roomy = !touch && (width === undefined || width >= HEADER_TOGGLE_MIN);
   const tooltip = draft?.next ?? base;
   const link = tooltip.compendium;
