@@ -12,6 +12,8 @@ interface DraftState {
   hydrated: boolean;
   pending: number;
   error: string | null;
+  /** A failed write of an account we already left. Shown, but never blocks the current account. */
+  previousAccountError: string | null;
   /** Account whose drafts are loaded; null = signed out (the unowned bucket). */
   owner: string | null;
   /** Bumped on every account switch, so long operations can tell the drafts they started with. */
@@ -24,6 +26,7 @@ interface DraftState {
   /** Moves unowned drafts into the signed-in account. Never overwrites or drops a draft. */
   adopt(): Promise<AdoptionResult>;
   keepSeparate(): void;
+  dismissPreviousAccountError(): void;
   edit(base: Tooltip, lang: Lang, text: string, author: string): void;
   updateDraft(base: Tooltip, update: (tooltip: Tooltip) => Tooltip): void;
   updateDrafts(updates: { base: Tooltip; update: (tooltip: Tooltip) => Tooltip }[]): void;
@@ -60,18 +63,21 @@ export function createDraftStore(storage: DraftStorage) {
     function persist(drafts: Drafts) {
       // Bind the bucket now: a later account switch must never redirect this write.
       const destination = target;
+      const writer = owner;
       set((state) => ({ pending: state.pending + 1 }));
       queue = queue.then(async () => {
         try {
           await destination.write(drafts);
-          set({ error: null });
+          if (destination === target) set({ error: null });
         } catch (error) {
-          set({
-            error:
-              destination === target
-                ? `Drafts are NOT safely stored: ${errorMessage(error)}. Keep this tab open and retry.`
-                : `The last edit of your previous account was NOT stored: ${errorMessage(error)}. Sign back in to it and check your drafts.`,
-          });
+          if (destination === target)
+            set({
+              error: `Drafts are NOT safely stored: ${errorMessage(error)}. Keep this tab open and retry.`,
+            });
+          else
+            set({
+              previousAccountError: `The last edit of your previous account${writer ? ` (${writer})` : ''} was NOT stored: ${errorMessage(error)}. Sign back in to it and check your drafts.`,
+            });
         } finally {
           set((state) => ({ pending: state.pending - 1 }));
         }
@@ -82,6 +88,7 @@ export function createDraftStore(storage: DraftStorage) {
       hydrated: false,
       pending: 0,
       error: null,
+      previousAccountError: null,
       owner: null,
       generation: 0,
       unowned: 0,
@@ -132,6 +139,8 @@ export function createDraftStore(storage: DraftStorage) {
         // Identical drafts are dropped from the unowned copy, so the account copy must be on disk.
         if (get().error) throw new Error('Fix draft storage (see the alert above) before adopting');
         await queue;
+        // A write queued before the click may have failed meanwhile.
+        if (get().error) throw new Error('Fix draft storage (see the alert above) before adopting');
         const stale = { adopted: 0, left: get().unowned };
         if (mine !== generation) return stale;
         const unowned = await storage.read();
@@ -167,6 +176,9 @@ export function createDraftStore(storage: DraftStorage) {
         rememberSeparate(account);
         set({ unowned: 0 });
         return { adopted, left: Object.keys(left).length };
+      },
+      dismissPreviousAccountError() {
+        set({ previousAccountError: null });
       },
       keepSeparate() {
         if (owner === null) return;

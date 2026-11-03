@@ -304,4 +304,52 @@ describe('drafts belong to one account', () => {
     expect(values.get('unowned')?.[10]).toBeDefined();
     sessionStorage.clear();
   });
+
+  it('refuses to adopt when an account write queued before the click fails meanwhile', async () => {
+    const { storage, values } = buckets();
+    values.set('unowned', { 10: { base, next: { ...base, associated: [3] } } });
+    const account = storage.forUser!('7');
+    let fail!: () => void;
+    const gate = new Promise<void>((_, reject) => (fail = () => reject(new Error('quota'))));
+    const store = createDraftStore({
+      ...storage,
+      forUser: () => ({ ...account, write: () => gate }),
+    });
+    await store.getState().activate(7);
+    // Identical to the unowned draft, so adopting would delete the only on-disk copy.
+    store.getState().updateDraft(base, (next) => ({ ...next, associated: [3] }));
+    const adopting = expect(store.getState().adopt()).rejects.toThrow('Fix draft storage');
+    fail();
+    await adopting;
+    expect(values.get('unowned')?.[10]).toBeDefined();
+    sessionStorage.clear();
+  });
+
+  it('keeps a failed write of the previous account separate from the next account', async () => {
+    const { storage } = buckets();
+    const alice = storage.forUser!('1');
+    let fail!: () => void;
+    const gate = new Promise<void>((_, reject) => (fail = () => reject(new Error('disk full'))));
+    const store = createDraftStore({
+      ...storage,
+      forUser: (id) => (id === '1' ? { ...alice, write: () => gate } : storage.forUser!(id)),
+    });
+    await store.getState().activate(1);
+    store.getState().edit(base, 'en', 'unsaved', 'alice');
+    const switched = store.getState().activate(2);
+    fail();
+    await switched;
+    await store.getState().flush();
+    expect(store.getState().previousAccountError).toContain('disk full');
+    expect(store.getState().previousAccountError).toContain('(1)');
+    // The new account is healthy: its saves are not blocked and its load did not clear the notice.
+    expect(store.getState().error).toBeNull();
+    expect(store.getState().hydrated).toBe(true);
+    store.getState().edit(other, 'en', 'bob draft', 'bob');
+    await store.getState().flush();
+    expect(store.getState().error).toBeNull();
+    expect(store.getState().previousAccountError).toContain('disk full');
+    store.getState().dismissPreviousAccountError();
+    expect(store.getState().previousAccountError).toBeNull();
+  });
 });

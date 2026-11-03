@@ -45,6 +45,8 @@ export function Layout() {
     hydrated,
     pending,
     error: draftError,
+    previousAccountError,
+    dismissPreviousAccountError,
     hydrate,
     activate,
     retry,
@@ -287,6 +289,14 @@ export function Layout() {
           </p>
         )}
         {adoptNote && <p role="status">{adoptNote}</p>}
+        {previousAccountError && (
+          <p role="alert">
+            {previousAccountError}{' '}
+            <button type="button" onClick={dismissPreviousAccountError}>
+              Dismiss
+            </button>
+          </p>
+        )}
         {pending > 0 && <p role="status">Saving local drafts...</p>}
         {status === 'loading' && <p role="status">Loading manifest and tooltip data...</p>}
         {error && location.pathname === '/archive' && <h1>Archive</h1>}
