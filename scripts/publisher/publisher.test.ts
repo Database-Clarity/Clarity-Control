@@ -927,7 +927,12 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     await expect(
       runPipeline(
         '.',
-        { ...f.options, keyEndpoint: 'https://worker.invalid', publishWritesEnabled: true },
+        {
+          ...f.options,
+          repo: 'Database-Clarity/Live-Clarity-Database',
+          keyEndpoint: 'https://worker.invalid',
+          publishWritesEnabled: true,
+        },
         join(f.upstream, 'out'),
         true,
       ),
