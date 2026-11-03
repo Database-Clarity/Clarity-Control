@@ -57,7 +57,14 @@ function openChannel(): BroadcastChannel | undefined {
   }
 }
 
-export function createIndexedDbStorage(key = unownedKey): DraftStorage {
+/**
+ * Names this tab on the channel. A BroadcastChannel delivers a message to every OTHER channel
+ * object, including ones in the same tab, so a tab's own writes would otherwise read as another
+ * tab's: messages carry the sender and a listener ignores its own.
+ */
+const tabId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+export function createIndexedDbStorage(key = unownedKey, origin = tabId): DraftStorage {
   let expected: string | undefined;
   const users = new Map<string, DraftStorage>();
   let announcer: BroadcastChannel | undefined;
@@ -65,7 +72,7 @@ export function createIndexedDbStorage(key = unownedKey): DraftStorage {
   const announce = () => {
     try {
       announcer ??= openChannel();
-      announcer?.postMessage(key);
+      announcer?.postMessage({ key, origin });
     } catch {
       // Without a channel the other tab still learns at its next write (the compare-and-set).
     }
@@ -76,7 +83,7 @@ export function createIndexedDbStorage(key = unownedKey): DraftStorage {
           forUser(userId: string) {
             let storage = users.get(userId);
             if (!storage) {
-              storage = createIndexedDbStorage(userDraftKey(userId));
+              storage = createIndexedDbStorage(userDraftKey(userId), origin);
               users.set(userId, storage);
             }
             return storage;
@@ -87,7 +94,8 @@ export function createIndexedDbStorage(key = unownedKey): DraftStorage {
       const channel = openChannel();
       if (!channel) return () => undefined;
       channel.onmessage = (event: MessageEvent) => {
-        if (event.data === key) listener();
+        const message = event.data as { key?: unknown; origin?: unknown } | null;
+        if (message?.key === key && message.origin !== origin) listener();
       };
       return () => channel.close();
     },

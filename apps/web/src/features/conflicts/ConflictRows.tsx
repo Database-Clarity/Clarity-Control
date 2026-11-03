@@ -1,6 +1,10 @@
 import { languages, type Lang, type Tooltip } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
-import { useConflictStore, type ConflictSession } from '../../stores/conflicts';
+import {
+  useConflictStore,
+  usePausedForOtherTab,
+  type ConflictSession,
+} from '../../stores/conflicts';
 import { useDraftStore } from '../../stores/drafts';
 import { PanelRow } from '../../ui/PanelRow';
 import { fieldValue } from './reducer';
@@ -61,6 +65,7 @@ export function ConflictRows({
 }) {
   const session = useConflictStore((state) => state.sessions[hash]);
   const choose = useConflictStore((state) => state.choose);
+  const paused = usePausedForOtherTab();
   const draft = useDraftStore((state) => state.drafts[hash]);
   const markers = draft ? markersIn(draft.next) : {};
   const others = languages.filter((other) => other !== lang && markers[other]);
@@ -69,9 +74,7 @@ export function ConflictRows({
   if (!here && !others.length && !open.length) return null;
   return (
     <section aria-label="Conflicts" data-conflict-rows>
-      {here > 0 && (
-        <PanelRow label="Conflicts" summary={`${plural(here, 'conflict')}  · F8 next`} />
-      )}
+      {here > 0 && <PanelRow label="Conflicts" summary={`${plural(here, 'conflict')} · F8 next`} />}
       {others.map((other) => (
         <PanelRow
           key={other}
@@ -99,6 +102,7 @@ export function ConflictRows({
                     type="button"
                     aria-label={`${text.mine} (${text.label})`}
                     title={text.mine}
+                    disabled={paused}
                     onClick={() => choose(hash, field, 'mine')}
                   >
                     Mine
@@ -107,6 +111,7 @@ export function ConflictRows({
                     type="button"
                     aria-label={`${text.theirs} (${text.label})`}
                     title={text.theirs}
+                    disabled={paused}
                     onClick={() => choose(hash, field, 'theirs')}
                   >
                     Theirs
