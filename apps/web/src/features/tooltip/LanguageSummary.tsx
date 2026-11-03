@@ -1,25 +1,22 @@
 import type { Lang, Tooltip } from '@clarity/core';
 import { When } from '../../ui/When';
-
-/** Epoch 0 (and missing or invalid values) mean "never recorded" in migrated data. */
-function known(value: string | number | undefined): string | number | undefined {
-  const time = value === undefined ? NaN : typeof value === 'number' ? value : Date.parse(value);
-  return time > 0 && Number.isFinite(time) ? value : undefined;
-}
+import { known } from '../history/lastEdit';
 
 export function LanguageSummary({
   base,
   lang,
   draft,
+  open = false,
 }: {
   base: Tooltip;
   lang: Lang;
   draft: boolean;
+  open?: boolean;
 }) {
   const entry = base.text[lang];
   const legacy = base.legacy;
   return (
-    <details>
+    <details open={open}>
       <summary>
         {draft && 'Local draft · '}
         {entry ? (

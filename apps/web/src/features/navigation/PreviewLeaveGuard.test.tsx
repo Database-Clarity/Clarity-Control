@@ -47,9 +47,9 @@ function mount(entries: string[]) {
 const path = () => router.state.location.pathname;
 const dialog = () => host.querySelector('dialog');
 const button = (name: string) =>
-  [...host.querySelectorAll('button, a')].find((element) => element.textContent?.replace(/(Enter|Esc)$/, '') === name) as
-    | HTMLElement
-    | undefined;
+  [...host.querySelectorAll('button, a')].find(
+    (element) => element.textContent?.replace(/(Enter|Esc)$/, '') === name,
+  ) as HTMLElement | undefined;
 function click(name: string) {
   act(() => {
     button(name)!.click();

@@ -64,7 +64,7 @@ items[2000] = {
   hash: 2000,
   name: 'Telesto enhanced',
   icon: '',
-  categoryId: 'weapons',
+  categoryId: 'weapons-enhanced',
   inGameDescription: '',
   baseHash: 1008,
 };
@@ -80,7 +80,20 @@ for (const link of [1001, 1002, 1003]) {
 }
 const data: EditorData = {
   categories: [
-    { id: 'weapons', label: 'Weapon perks', group: 'Weapons', order: 1 },
+    {
+      id: 'weapons',
+      label: 'Weapon perks',
+      group: 'Weapons',
+      order: 1,
+      legacyType: 'Weapon Trait',
+    },
+    {
+      id: 'weapons-enhanced',
+      label: 'Enhanced weapon perks',
+      group: 'Weapons',
+      order: 3,
+      legacyType: 'Weapon Trait Enhanced',
+    },
     { id: 'armor', label: 'Exotic armor', group: 'Armor', order: 2 },
   ],
   items,
@@ -160,6 +173,46 @@ Object.assign(window, {
             next: {
               ...base,
               text: { en: { text: 'Recovered work to keep', updatedAt: stamp, updatedBy: 'x' } },
+            },
+          },
+        },
+      });
+    },
+    /**
+     * Enhanced versions on three bases: 2001 derives from 1000 (same text), 2002 keeps its own
+     * text over 1001 (an override), 2003 is a blank same-name copy of 1002 (no override UI).
+     */
+    variants() {
+      const own = (hash: number, text: string): Tooltip => ({
+        hash,
+        text: { en: { text, updatedAt: stamp, updatedBy: 'fixture' } },
+        associated: [],
+      });
+      const entry = (hash: number, name: string, baseHash: number, categoryId: string) => ({
+        hash,
+        name,
+        icon: '',
+        categoryId,
+        inGameDescription: '',
+        baseHash,
+      });
+      const current = useDataStore.getState().data!;
+      useDataStore.setState({
+        data: {
+          ...current,
+          items: {
+            ...current.items,
+            2001: entry(2001, 'Hammerhead enhanced', 1000, 'weapons-enhanced'),
+            2002: entry(2002, 'Forerunner enhanced', 1001, 'weapons-enhanced'),
+            2003: entry(2003, 'Whisper of the Worm copy', 1002, 'weapons'),
+          },
+          bundle: {
+            ...current.bundle,
+            tooltips: {
+              ...current.bundle.tooltips,
+              2001: tooltip(2001, current.bundle.tooltips[1000].text.en!.text),
+              2002: own(2002, 'Enhanced override text <pve 9 /> <pvp [6] />'),
+              2003: { hash: 2003, text: {}, associated: [] },
             },
           },
         },

@@ -90,12 +90,12 @@ describe('workspace divider', () => {
     press(tabs[1], 'Home');
     expect(tabs[0].getAttribute('aria-selected')).toBe('true');
   });
-  it('falls back to the editor when Source disappears and keeps the tabs usable', () => {
+  it('falls back to the editor when English disappears and keeps the tabs usable', () => {
     render(true);
     let tabs = host.querySelectorAll<HTMLButtonElement>('[role="tab"]');
-    expect([...tabs].map((tab) => tab.textContent)).toEqual(['Source', 'Editor', 'Preview']);
-    act(() => tabs[0].click());
-    expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+    expect([...tabs].map((tab) => tab.textContent)).toEqual(['Editor', 'Preview', 'English']);
+    act(() => tabs[2].click());
+    expect(tabs[2].getAttribute('aria-selected')).toBe('true');
 
     render(false);
     tabs = host.querySelectorAll<HTMLButtonElement>('[role="tab"]');
@@ -113,7 +113,46 @@ describe('workspace divider', () => {
 
     render(true);
     tabs = host.querySelectorAll<HTMLButtonElement>('[role="tab"]');
-    expect(tabs[2].getAttribute('aria-selected')).toBe('true');
+    expect(tabs[1].getAttribute('aria-selected')).toBe('true');
+  });
+  it('swaps the main slot from the pane header instead of stacking, keeping the editor mounted', () => {
+    width = 700;
+    act(() =>
+      root.render(
+        <VariantWorkspace
+          header={<span>Header</span>}
+          editor={<input aria-label="Editor field" />}
+          source={<div>English text</div>}
+          compendium={<div>Compendium text</div>}
+        />,
+      ),
+    );
+    const workspace = host.firstElementChild as HTMLElement;
+    expect(workspace.getAttribute('data-mode')).toBe('toggle');
+    const buttons = [...host.querySelectorAll<HTMLButtonElement>('[data-toggles] button')];
+    expect(buttons.map((button) => button.textContent)).toEqual(['English', 'Compendium']);
+    expect(buttons.map((button) => button.getAttribute('aria-pressed'))).toEqual([
+      'false',
+      'false',
+    ]);
+    const field = host.querySelector('input')!;
+    const panel = (name: string) => host.querySelector(`[data-panel="${name}"]`)!;
+    expect(panel('translation').getAttribute('data-active')).toBe('true');
+    expect(panel('compendium').getAttribute('data-active')).toBe('false');
+    act(() => buttons[1].click());
+    expect(panel('translation').getAttribute('data-active')).toBe('false');
+    expect(panel('compendium').getAttribute('data-active')).toBe('true');
+    expect(buttons[1].getAttribute('aria-pressed')).toBe('true');
+    // The editor is hidden by CSS only: the same node, so caret and undo survive.
+    expect(host.querySelector('input')).toBe(field);
+    act(() => buttons[1].click());
+    expect(panel('translation').getAttribute('data-active')).toBe('true');
+    // Wide enough to split: the toggles go away and everything is on screen.
+    width = 1016;
+    act(() => resize());
+    expect(workspace.getAttribute('data-mode')).toBe('split');
+    expect(panel('compendium').getAttribute('data-active')).toBe('true');
+    expect(host.querySelector('[data-toggles]')).not.toBeNull();
   });
   it('restores a saved width, clamps it to the container and responds to resize', () => {
     useSettingsStore.getState().setPane(paneKey, { width: 600, collapsed: false });
@@ -143,7 +182,7 @@ describe('workspace divider', () => {
     });
     expect(render().getAttribute('aria-valuenow')).toBe('384');
   });
-  it('stacks the pane under the editor, with no divider, where 480 + 320 do not fit', () => {
+  it('drops the divider where 480 + 320 do not fit (the pane is then a header toggle, not stacked)', () => {
     width = 700;
     const divider = render();
     expect(divider).toBeNull();
@@ -240,17 +279,18 @@ describe('workspace divider', () => {
     );
     expect(css).toMatch(/\.workspace\[data-split\][\s\S]*?\.divider\s*\{\s*display: block/);
   });
-  it('keeps phone identity disclosures and panel controls compact and reachable', () => {
+  it('keeps the phone tabs sticky and 44px, and the pane header to one 28px line on desktop', () => {
     const tooltipCss = readFileSync(
       'apps/web/src/features/tooltip/TooltipPage.module.scss',
       'utf8',
     );
     const layoutCss = readFileSync('apps/web/src/features/navigation/Layout.module.scss', 'utf8');
-    expect(tooltipCss).toMatch(/\.phoneMeta summary\s*\{[\s\S]*?min-height:\s*44px/);
+    expect(tooltipCss).toMatch(/\.tabs\s*\{[\s\S]*?min-height:\s*44px/);
     expect(tooltipCss).toMatch(/\.tabs\s*\{[\s\S]*?position:\s*sticky/);
-    expect(tooltipCss).toMatch(/\.primaryMetadata,[\s\S]*?display:\s*none/);
     // The phone tabs stick below the 48px header, and the editor page gives its text the room.
     expect(tooltipCss).toMatch(/\.tabs\s*\{[\s\S]*?top:\s*48px/);
+    expect(tooltipCss).toMatch(/\.paneHeader\s*\{[\s\S]*?min-height:\s*28px/);
+    expect(tooltipCss).toMatch(/\.paneHeader\s*\{[\s\S]*?white-space:\s*nowrap/);
     expect(layoutCss).toMatch(/\.editorMode \.main \{[^}]*padding-top:\s*0\.25rem/);
   });
 });

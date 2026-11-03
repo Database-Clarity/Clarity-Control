@@ -161,15 +161,21 @@ describe('translator tooltip page', () => {
     expect(html).not.toContain('English source');
   });
 
-  it('keeps primary provenance and read-only help reachable from the identity header', () => {
+  it('keeps provenance and the read-only reason in the 28px pane header', () => {
     const html = render('/t/10?lang=en');
-    const header = /<header class="[^"]*">([\s\S]*?)<\/header>/.exec(html)?.[1] ?? '';
+    const header =
+      /<div class="[^"]*paneHeader[^"]*"[^>]*>([\s\S]*?)<\/div><div[^>]*data-panel/.exec(
+        html,
+      )?.[1] ?? '';
 
     expect(header).toContain('aria-label="Language"');
-    expect(header).toContain('Edited by owner');
-    expect(header).toContain('<summary>Read-only details</summary>');
-    expect(header).toContain('Read-only: you can translate German, not English.');
-    expect(html).toContain('primaryMetadata');
+    // Who edited it and when sit behind the Details popover, not in a block of their own.
+    expect(header).toMatch(/<button[^>]*aria-haspopup="dialog"[^>]*>Details<\/button>/);
+    expect(header).toMatch(
+      /role="status"[^>]*>[\s\S]*Read-only: you can translate German, not English\./,
+    );
+    expect(header).toContain('Switch to German');
+    expect(html).not.toContain('Read-only details');
   });
 
   it.each([
@@ -261,10 +267,10 @@ describe('translator tooltip page', () => {
   });
 
   describe('tablist', () => {
-    it('renders Source · Editor · Preview with ARIA tab semantics', () => {
+    it('renders Editor · Preview · English with ARIA tab semantics', () => {
       const html = render('/t/10?lang=de');
       const tabs = [...html.matchAll(/<button[^>]*role="tab"[^>]*>([^<]*)<\/button>/g)];
-      expect(tabs.map((match) => match[1])).toEqual(['Source', 'Editor', 'Preview']);
+      expect(tabs.map((match) => match[1])).toEqual(['Editor', 'Preview', 'English']);
       expect(html).toContain('role="tablist"');
       expect(html.match(/aria-selected="true"/g)).toHaveLength(1);
       expect(html.match(/tabindex="-1"/g)).toHaveLength(2);
@@ -293,12 +299,14 @@ describe('translator tooltip page', () => {
   });
 
   describe('associations and history', () => {
-    it('collapses them in a details element for translators', () => {
+    it('shows the same compact rows to translators as to everyone else', () => {
       const html = render('/t/10?lang=de');
-      expect(html).toMatch(/<details[^>]*><summary>Associations and history<\/summary>/);
+      expect(html).not.toContain('Associations and history');
+      expect(html).toContain('Associated tooltips');
+      expect(html).toContain('>History<');
       expect(html).not.toContain('Association editing requires an editor account');
     });
-    it('leaves them expanded for other roles', () => {
+    it('keeps the same rows for other roles', () => {
       useAuthStore.setState({ user: editor });
       const html = render('/t/10');
       expect(html).not.toContain('Associations and history');

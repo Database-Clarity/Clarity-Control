@@ -127,13 +127,10 @@ it('renders preserved identity/text without an item/icon, loads history for the 
   );
   expect(host.querySelector('[aria-label="Icon no longer available"]')).not.toBeNull();
   expect(host.querySelector('[contenteditable="true"]')).toBeNull();
-  const history = [...host.querySelectorAll('details')].find(
-    (entry) => entry.querySelector('summary')?.textContent === 'History and revert',
+  const history = [...host.querySelectorAll('button')].find(
+    (entry) => entry.textContent === 'History',
   )!;
-  await act(async () => {
-    history.open = true;
-    history.dispatchEvent(new Event('toggle'));
-  });
+  await act(async () => history.click());
   expect(getHistory).toHaveBeenCalledWith(archived.hash, 1, expect.any(AbortSignal));
   expect(button('Revert to this')).toBeUndefined();
   await act(async () => button('Back to Archive').click());
@@ -196,7 +193,7 @@ it('opens the detail on a read-only preview with the notice visible, and explain
   await render(`/archive?item=${unconfirmed.hash}`);
   expect(host.querySelector('[data-panel="preview"]')?.getAttribute('data-active')).toBe('true');
   expect(host.textContent).not.toContain('Read-only details');
-  expect(host.querySelector('p[role="status"]')?.textContent).toContain(
+  expect(host.querySelector('[role="status"]')?.textContent).toContain(
     'Archived tooltip — read only',
   );
   expect(host.textContent).toContain('Unconfirmed');
