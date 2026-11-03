@@ -21,6 +21,7 @@ export function PhoneHeader({
   title,
   finder,
   hasFinder,
+  overlay,
 }: {
   user: Pick<User, 'role'> | null | undefined;
   pathname: string;
@@ -29,6 +30,8 @@ export function PhoneHeader({
   finder: ReactNode;
   /** Whether the current workspace has anything to find or browse. */
   hasFinder: boolean;
+  /** Notices that hang from the header's lower edge without taking space. */
+  overlay?: ReactNode;
 }) {
   const [sheet, setSheet] = useState<'workspaces' | 'finder' | null>(null);
   const menu = useRef<HTMLButtonElement>(null);
@@ -90,6 +93,7 @@ export function PhoneHeader({
           </FinderSheetContext.Provider>
         </ShellOverlay>
       )}
+      {overlay}
     </header>
   );
 }

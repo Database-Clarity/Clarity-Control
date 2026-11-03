@@ -6,7 +6,18 @@ import styles from './Brand.module.scss';
  * resolved theme (data-theme on <html>), so a theme change never reloads an image. The light
  * artwork is its own outlined drawing, not an inversion of the dark one.
  */
-export function Brand({ className }: { className?: string }) {
+export function Brand({ className, compact = false }: { className?: string; compact?: boolean }) {
+  // Compact windows (< 1100px) keep the mark alone; the full lockup returns at desktop widths.
+  if (compact)
+    return (
+      <div
+        className={[styles.brand, className].filter(Boolean).join(' ')}
+        role="img"
+        aria-label="Clarity Control"
+      >
+        <BrandMark />
+      </div>
+    );
   return (
     <div className={[styles.brand, className].filter(Boolean).join(' ')}>
       <img className={styles.dark} src={lockup.dark} alt="Clarity Control" height={28} />

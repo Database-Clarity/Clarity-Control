@@ -1,7 +1,8 @@
 @use '../../data/variables' as theme;
 
-// Header on top, then the page. The left column and its divider arrive with the real preview
-// column; until then Compendium and Review keep their queue list in a plain side column.
+// Header on top, then the body: [left column | divider | page]. The editor fills the window and
+// its column and page scroll on their own; other workspaces keep document scrolling and a sticky
+// list column. Notices hang from the header and take no part in this layout.
 .layout {
   display: flex;
   flex-direction: column;
@@ -9,26 +10,159 @@
 }
 
 .body {
+  position: relative;
   flex: 1 1 auto;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, auto);
   min-width: 0;
 }
 
-.reviewMode .body {
-  grid-template-columns: 15rem minmax(0, 1fr);
+.mainCol {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 
-.context {
-  position: sticky;
-  top: 36px;
-  align-self: start;
-  height: calc(100vh - 36px);
+// The left column. Explicit placement keeps the divider and the page in their tracks when the
+// column is hidden (a hidden element takes no grid cell).
+.body[data-column] {
+  grid-template-columns: var(--left-w) 16px minmax(0, 1fr);
+
+  .left {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .dividerCell {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .mainCol {
+    grid-column: 3;
+  }
+}
+
+.left {
   box-sizing: border-box;
-  padding: 0.75rem;
+  min-width: 0;
+  min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   background: var(--col);
-  border-right: 1px solid var(--line);
+  outline: none;
+
+  &[hidden] {
+    display: none;
+  }
+
+  // Queue lists (Compendium, Review): stay in view while the page scrolls.
+  &[data-list] {
+    position: sticky;
+    top: var(--header-h, 37px);
+    align-self: start;
+    height: calc(100dvh - var(--header-h, 37px));
+    padding: 0.75rem;
+  }
+}
+
+.leftHost {
+  display: block;
+  padding: 8px 12px 16px;
+}
+
+.dividerCell {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  background: var(--col);
+
+  // Hidden column: the cell is the re-open tab, and the line closes it off.
+  &[data-collapsed] {
+    border-right: 1px solid var(--line);
+    box-sizing: border-box;
+  }
+}
+
+.divider {
+  flex: 1 1 auto;
+}
+
+// The collapse / re-open button sits at the top of the 16px track. Its touch area is larger than
+// it looks on coarse pointers.
+.toggle {
+  position: absolute;
+  top: 6px;
+  left: 1px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 14px;
+  height: 28px;
+  padding: 0;
+  font: inherit;
+  font-size: 0.875rem;
+  line-height: 1;
+  color: var(--text2);
+  background: var(--col);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--text);
+    border-color: var(--ctl-hover-edge);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent-ink);
+    outline-offset: 1px;
+  }
+
+  @include theme.mobile-or-coarse {
+    &::after {
+      content: '';
+      position: absolute;
+      inset: -8px -14px;
+    }
+  }
+}
+
+.dividerCell[data-collapsed] .toggle {
+  height: 40px;
+  color: var(--text);
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+
+// Compact windows: the page keeps its full width and the open column lies over it.
+.body[data-overlay] {
+  .mainCol {
+    grid-column: 1 / -1;
+    margin-left: 16px;
+  }
+
+  .left,
+  .dividerCell {
+    z-index: 5;
+  }
+
+  .left {
+    box-shadow: var(--shadow);
+  }
 }
 
 .sidebarNavigation {
@@ -74,6 +208,11 @@
   overflow-wrap: anywhere;
 }
 
+// Review and Compendium pages are wide tables and lists; they use a tighter frame than prose pages.
+.reviewMode .main {
+  padding: clamp(1rem, 3vw, 2rem);
+}
+
 .skipLink {
   position: absolute;
   top: -5rem;
@@ -87,11 +226,30 @@
   }
 }
 
-@include theme.mobile {
-  .reviewMode .body {
-    grid-template-columns: minmax(0, 1fr);
-  }
+// Desktop editor: the window is the frame; the left column and the page scroll separately.
+@media (min-width: 701px) {
+  .layout[data-fixed] {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
 
+    .body {
+      flex: 1 1 0;
+      min-height: 0;
+      grid-template-rows: minmax(0, 1fr);
+    }
+
+    .main {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: auto;
+      overscroll-behavior: contain;
+      padding: 12px 16px;
+    }
+  }
+}
+
+@include theme.mobile {
   .main {
     padding: 0.75rem;
   }

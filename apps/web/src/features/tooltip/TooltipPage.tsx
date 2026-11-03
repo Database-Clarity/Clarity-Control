@@ -4,7 +4,7 @@ import { AttachmentCategoryControl } from './AttachmentCategoryControl';
 import { classifyItem, categoryLabel } from '../compendium/itemClassification';
 import { useCompendiumStore } from '../compendium/store';
 import { languageLabel } from '../../languageLabels';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   languages,
@@ -26,6 +26,10 @@ import {
   variantHashes,
 } from '../navigation/catalog';
 import { tooltipPath } from '../navigation/stepping';
+import { ShellSlot } from '../navigation/ShellSlots';
+import { useShellColumn } from '../navigation/ShellColumnContext';
+import { useAcknowledgePreview } from '../navigation/useAcknowledgePreview';
+import { usePreviewReviewStore } from '../../stores/previewReview';
 import { ClarityEditor } from '../editor';
 import { tooltipTextSources } from '../editor/references';
 import type { TooltipTarget } from '../editor/referenceActions';
@@ -79,6 +83,14 @@ export function TooltipPage({
     const canonical = data ? canonicalHash(target.hash, data) : target.hash;
     navigate(`/t/${canonical}?lang=${target.lang}&line=${target.line}&variant=${target.hash}`);
   }
+  // With a left column beside the page (desktop shell) the preview, associations and history are
+  // shown there; without one (a phone, or the page on its own) they stay inline in the page.
+  const column = useShellColumn();
+  const showPreview = column?.show;
+  useEffect(() => {
+    if (!showPreview) return;
+    return usePreviewReviewStore.getState().registerHost({ show: showPreview });
+  }, [showPreview]);
   if (!data) return null;
   if (
     hashOverride === undefined &&
@@ -106,6 +118,8 @@ export function TooltipPage({
   const primarySwitchTo = primaryAccess.switchTo;
   const effectiveCategory =
     item && (classifyItem(item, primaryTooltip)?.categoryId ?? item.categoryId);
+  const hosted = column !== null;
+  const leftColumn: ReactNode[] = [];
   return (
     <article>
       <header className={styles.header}>
@@ -195,6 +209,50 @@ export function TooltipPage({
             <HistoryPanel hash={variant} readOnly={readOnly} />
           </>
         );
+        const sidePanels =
+          user?.role === 'translator' ? (
+            <details className={styles.more}>
+              <summary>Associations and history</summary>
+              {panels}
+            </details>
+          ) : (
+            panels
+          );
+        const previewNode = (
+          <TooltipPreview
+            text={value}
+            lang={lang}
+            name={entry?.name ?? `Tooltip ${variant}`}
+            icon={entry?.icon || undefined}
+            categoryLabel={
+              readOnly && entry
+                ? archiveCategoryLabel(entry.categoryId, data)
+                : (category?.label ?? entry?.categoryId)
+            }
+            globals={globals}
+            archiveIcon={readOnly}
+            tooltipHash={variant}
+          />
+        );
+        const compendiumNode =
+          !readOnly && user?.role !== 'translator' ? <CompendiumPanel base={base} /> : null;
+        if (column)
+          leftColumn.push(
+            <section
+              key={variant}
+              className={styles.previewItem}
+              aria-label={`${entry?.name ?? `Tooltip ${variant}`} preview`}
+            >
+              {variantHashes(hash, data).length > 1 && (
+                <h2 className={styles.previewTitle}>
+                  {entry?.name ?? `Tooltip ${variant}`} {variant !== hash && '(enhanced variant)'}
+                </h2>
+              )}
+              {previewNode}
+              <PreviewAck variant={variant} visible={!column.collapsed} />
+              {sidePanels}
+            </section>,
+          );
         return (
           <section key={variant} className={styles.variant}>
             <header className={variant === hash ? styles.primaryVariant : undefined}>
@@ -269,36 +327,27 @@ export function TooltipPage({
                 </section>
               }
               preview={
-                <div>
-                  <TooltipPreview
-                    text={value}
-                    lang={lang}
-                    name={entry?.name ?? `Tooltip ${variant}`}
-                    icon={entry?.icon || undefined}
-                    categoryLabel={
-                      readOnly && entry
-                        ? archiveCategoryLabel(entry.categoryId, data)
-                        : (category?.label ?? entry?.categoryId)
-                    }
-                    globals={globals}
-                    archiveIcon={readOnly}
-                    tooltipHash={variant}
-                  />
-                  {!readOnly && user?.role !== 'translator' && <CompendiumPanel base={base} />}
-                </div>
+                hosted ? (
+                  compendiumNode
+                ) : (
+                  <div>
+                    {previewNode}
+                    {compendiumNode}
+                  </div>
+                )
               }
             />
-            {user?.role === 'translator' ? (
-              <details className={styles.more}>
-                <summary>Associations and history</summary>
-                {panels}
-              </details>
-            ) : (
-              panels
-            )}
+            {!hosted && sidePanels}
           </section>
         );
       })}
+      {hosted && <ShellSlot name="left">{leftColumn}</ShellSlot>}
     </article>
   );
+}
+
+/** Records that the preview shows this variant's current text, while the preview is visible. */
+function PreviewAck({ variant, visible }: { variant: number; visible: boolean }) {
+  useAcknowledgePreview(variant, visible);
+  return null;
 }

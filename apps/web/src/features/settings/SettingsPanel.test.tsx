@@ -7,7 +7,8 @@ import { defaultSyncedSettings } from '@clarity/core';
 import { fakeServer } from '../../stores/settings.testSupport';
 import { layoutKey, settingsKey, useSettingsStore } from '../../stores/settings';
 import { CommitAuthor } from '../history/CommitAuthor';
-import { SettingsNotice } from './SettingsChoice';
+import { useSettingsNotices } from './SettingsChoice';
+import { NoticeStrip } from '../navigation/NoticeStrip';
 import { RememberRoute, SettingsRedirect } from './SettingsRedirect';
 import { SettingsPopover } from './SettingsPopover';
 import { useSettingsPanel } from './panel';
@@ -72,6 +73,11 @@ function Where() {
     </>
   );
 }
+/** What the layout shows outside Settings: the sync notices, as overlay strips. */
+function SettingsNotice() {
+  return <NoticeStrip notices={useSettingsNotices()} />;
+}
+
 /** The layout's settings wiring: sync, route memory, the Settings button, the popover. */
 function Shell({ children }: { children?: ReactNode }) {
   const layout = useRef<HTMLDivElement>(null);
@@ -308,17 +314,22 @@ describe('Settings popover', () => {
     );
     await act(async () => useSettingsStore.getState().activate(editor));
     await render();
-    expect(host.textContent).toContain('Unsynced settings changes');
+    // Outside Settings only a notice shows; the choice itself is made inside Settings.
+    expect(host.textContent).toContain('Settings changed on this device were not synced');
+    expect(host.querySelector('td')).toBeNull();
+    await act(async () => button('Review in Settings').click());
+    expect(document.body.textContent).toContain('Unsynced settings changes');
+    expect(host.textContent).not.toContain('Review in Settings');
     // Each value cell names its column, so the rows still read when stacked on phones.
-    expect([...host.querySelectorAll('td')].map((cell) => cell.getAttribute('data-label'))).toEqual(
-      ['This device', 'Synced copy'],
-    );
-    expect(host.textContent).toContain('YYYY-MM-DD (2023-02-12)');
-    expect(host.textContent).toContain('MM/DD/YYYY (02/12/2023)');
+    expect(
+      [...document.querySelectorAll('td')].map((cell) => cell.getAttribute('data-label')),
+    ).toEqual(['This device', 'Synced copy']);
+    expect(document.body.textContent).toContain('YYYY-MM-DD (2023-02-12)');
+    expect(document.body.textContent).toContain('MM/DD/YYYY (02/12/2023)');
     expect(holder.server.calls.put).toHaveLength(0);
     await act(async () => button('Use synced settings').click());
     expect(useSettingsStore.getState().settings.dateFormat).toBe('mdy');
-    expect(host.textContent).not.toContain('Unsynced settings changes');
+    expect(document.body.textContent).not.toContain('Unsynced settings changes');
     expect(holder.server.calls.put).toHaveLength(0);
   });
 
@@ -330,8 +341,11 @@ describe('Settings popover', () => {
     holder.server.set({ ...defaultSyncedSettings, timeZone: 'Europe/Berlin' });
     await act(async () => closeButton().click());
     expect(host.textContent).toContain('Settings changed on another device');
-    expect(host.textContent).toContain('Asia/Tokyo');
-    expect(host.textContent).toContain('Europe/Berlin');
+    expect(host.textContent).not.toContain('Europe/Berlin');
+    await act(async () => button('Review in Settings').click());
+    expect(document.body.textContent).toContain('Settings changed on another device');
+    expect(document.body.textContent).toContain('Asia/Tokyo');
+    expect(document.body.textContent).toContain('Europe/Berlin');
     expect(holder.server.remote.settings?.timeZone).toBe('Europe/Berlin');
     await act(async () => button("Keep this device's settings").click());
     expect(holder.server.remote.settings?.timeZone).toBe('Asia/Tokyo');

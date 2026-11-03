@@ -6,7 +6,7 @@ import { VariantWorkspace } from './VariantWorkspace';
 import { readFileSync } from 'node:fs';
 import { layoutKey as legacyKey, useSettingsStore } from '../../stores/settings';
 
-const paneKey = 'workspace:editor';
+const paneKey = 'editor:right';
 let host: HTMLDivElement;
 let root: Root;
 let width = 1016;
@@ -116,75 +116,75 @@ describe('workspace divider', () => {
     expect(tabs[2].getAttribute('aria-selected')).toBe('true');
   });
   it('restores a saved width, clamps it to the container and responds to resize', () => {
-    useSettingsStore.getState().setPane(paneKey, { width: 900, collapsed: false });
+    useSettingsStore.getState().setPane(paneKey, { width: 600, collapsed: false });
     const divider = render();
-    // Container 1016 = 16px handle + 240px kept for the preview + at most 760px for the editor.
-    expect(divider.getAttribute('aria-valuenow')).toBe('760');
-    expect(divider.getAttribute('aria-valuemax')).toBe('760');
-    width = 616;
+    // Container 1016 = 16px handle + 480px kept for the editor + at most 520px for the pane.
+    expect(divider.getAttribute('aria-valuenow')).toBe('520');
+    expect(divider.getAttribute('aria-valuemax')).toBe('520');
+    expect(divider.getAttribute('aria-valuemin')).toBe('320');
+    width = 836;
     act(() => resize());
-    expect(divider.getAttribute('aria-valuenow')).toBe('360');
+    expect(divider.getAttribute('aria-valuenow')).toBe('340');
     // The narrow window clamped what is shown, not what was chosen.
-    expect(savedWidth()).toBe(900);
+    expect(savedWidth()).toBe(600);
     width = 1016;
     act(() => resize());
-    expect(divider.getAttribute('aria-valuenow')).toBe('760');
+    expect(divider.getAttribute('aria-valuenow')).toBe('520');
   });
-  it('falls back to an even split for an invalid legacy value or unavailable storage', () => {
-    localStorage.setItem(legacyKey, 'NaN');
-    expect(render().getAttribute('aria-valuenow')).toBe('500');
-    expect(localStorage.getItem(legacyKey)).toBe('NaN');
+  it('sizes the pane 384px wide by default and never reads the old split percentage', () => {
+    localStorage.setItem(legacyKey, '70');
+    expect(render().getAttribute('aria-valuenow')).toBe('384');
+    expect(localStorage.getItem(legacyKey)).toBe('70');
+    expect(savedWidth()).toBeUndefined();
     act(() => root.unmount());
     root = createRoot(host);
     storage.getItem.mockImplementation(() => {
       throw new Error('unavailable');
     });
-    expect(render().getAttribute('aria-valuenow')).toBe('500');
+    expect(render().getAttribute('aria-valuenow')).toBe('384');
   });
-  it('converts the old percentage once and never overwrites the new key afterwards', () => {
-    localStorage.setItem(legacyKey, '70');
+  it('stacks the pane under the editor, with no divider, where 480 + 320 do not fit', () => {
+    width = 700;
     const divider = render();
-    expect(divider.getAttribute('aria-valuenow')).toBe('700');
-    expect(useSettingsStore.getState().device.panes[paneKey]).toEqual({
-      width: 700,
-      collapsed: false,
-    });
-    expect(localStorage.getItem(legacyKey)).toBeNull();
-    useSettingsStore.getState().setPane(paneKey, { width: 400, collapsed: false });
-    localStorage.setItem(legacyKey, '90');
-    act(() => root.unmount());
-    root = createRoot(host);
-    expect(render().getAttribute('aria-valuenow')).toBe('400');
-    expect(savedWidth()).toBe(400);
-  });
-  it('waits for a measurable container before converting, and writes nothing on a narrow screen', () => {
-    localStorage.setItem(legacyKey, '70');
-    width = 400;
-    render();
-    expect(savedWidth()).toBeUndefined();
-    expect(localStorage.getItem(legacyKey)).toBe('70');
+    expect(divider).toBeNull();
+    const workspace = host.firstElementChild as HTMLElement;
+    expect(workspace.hasAttribute('data-split')).toBe(false);
+    // The editor and the pane are both still in the page.
+    expect(host.querySelector('[data-panel="translation"]')?.textContent).toBe('Editor');
+    expect(host.querySelector('[data-panel="preview"]')?.textContent).toBe('Preview');
     width = 1016;
     act(() => resize());
-    expect(savedWidth()).toBe(700);
+    expect(host.querySelector('[role="separator"]')).not.toBeNull();
+    expect(workspace.hasAttribute('data-split')).toBe(true);
+    expect(savedWidth()).toBeUndefined();
+  });
+  it('leaves the editor the whole width when there is no pane, and drops its tab', () => {
+    act(() => root.render(<VariantWorkspace editor={<div>Editor</div>} preview={null} />));
+    expect(host.querySelector('[role="separator"]')).toBeNull();
+    expect(host.querySelector('[data-panel="preview"]')).toBeNull();
+    expect([...host.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)).toEqual([
+      'Editor',
+    ]);
   });
   it('moves by 8px, or 32px with Shift, respects bounds and resets on double click', () => {
     const divider = render(true);
     expect(divider.getAttribute('aria-orientation')).toBe('vertical');
-    press(divider, 'ArrowRight');
-    expect(divider.getAttribute('aria-valuenow')).toBe('508');
-    expect(savedWidth()).toBe(508);
-    press(divider, 'ArrowRight', { shiftKey: true });
-    expect(divider.getAttribute('aria-valuenow')).toBe('540');
-    press(divider, 'End');
-    press(divider, 'ArrowRight');
-    expect(divider.getAttribute('aria-valuenow')).toBe('760');
-    press(divider, 'Home');
+    // The pane is on the right, so the handle moving left makes it wider.
     press(divider, 'ArrowLeft');
-    expect(divider.getAttribute('aria-valuenow')).toBe('240');
+    expect(divider.getAttribute('aria-valuenow')).toBe('392');
+    expect(savedWidth()).toBe(392);
+    press(divider, 'ArrowLeft', { shiftKey: true });
+    expect(divider.getAttribute('aria-valuenow')).toBe('424');
+    press(divider, 'End');
+    press(divider, 'ArrowLeft');
+    expect(divider.getAttribute('aria-valuenow')).toBe('520');
+    press(divider, 'Home');
+    press(divider, 'ArrowRight');
+    expect(divider.getAttribute('aria-valuenow')).toBe('320');
     act(() => {
       divider.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     });
-    expect(divider.getAttribute('aria-valuenow')).toBe('500');
+    expect(divider.getAttribute('aria-valuenow')).toBe('384');
     expect(useSettingsStore.getState().device.panes[paneKey]).toBeUndefined();
     expect(host.querySelector('[data-panel="source"]')?.textContent).toBe('Source');
   });
@@ -222,26 +222,23 @@ describe('workspace divider', () => {
         divider.dispatchEvent(event);
       });
     }
-    pointer('pointerdown', 508);
-    pointer('pointermove', 608);
-    expect(divider.getAttribute('aria-valuenow')).toBe('600');
-    pointer('pointercancel', 608);
-    expect(divider.getAttribute('aria-valuenow')).toBe('500');
-    pointer('pointermove', 708);
-    expect(divider.getAttribute('aria-valuenow')).toBe('500');
+    pointer('pointerdown', 608);
+    pointer('pointermove', 508);
+    expect(divider.getAttribute('aria-valuenow')).toBe('484');
+    pointer('pointercancel', 508);
+    expect(divider.getAttribute('aria-valuenow')).toBe('384');
+    pointer('pointermove', 408);
+    expect(divider.getAttribute('aria-valuenow')).toBe('384');
     expect(divider.releasePointerCapture).toHaveBeenCalledWith(7);
     expect(useSettingsStore.getState().device.panes[paneKey]).toBeUndefined();
   });
-  it('keeps the divider hidden and the original stacked rules below the desktop breakpoint', () => {
+  it('keeps the divider hidden unless the workspace is split, and stacked otherwise', () => {
     const css = readFileSync('apps/web/src/features/tooltip/TooltipPage.module.scss', 'utf8');
-    expect(css).toMatch(
-      /@media \(max-width: 1000px\)\s*\{\s*\.columns\s*\{\s*grid-template-columns: minmax\(0, 1fr\)/,
-    );
-    expect(css).toMatch(
-      /@media \(max-width: 1000px\)\s*\{\s*\.workspace\s*\{\s*grid-template-columns: minmax\(0, 1fr\)/,
-    );
     expect(css).toMatch(/\.divider\s*\{\s*display: none/);
-    expect(css).toMatch(/@media \(min-width: 1001px\)[\s\S]*\.divider\s*\{\s*display: block/);
+    expect(css).toMatch(
+      /\.workspace\[data-split\]\s*\{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) 16px var\(--right-width\)/,
+    );
+    expect(css).toMatch(/\.workspace\[data-split\][\s\S]*?\.divider\s*\{\s*display: block/);
   });
   it('keeps phone identity disclosures and panel controls compact and reachable', () => {
     const tooltipCss = readFileSync(

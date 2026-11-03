@@ -1,8 +1,13 @@
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { compile } from 'sass';
 import { expect, it } from 'vitest';
 
 const css = compile(fileURLToPath(new URL('./MatchReview.module.scss', import.meta.url))).css;
+const layoutSource = readFileSync(
+  fileURLToPath(new URL('../navigation/Layout.tsx', import.meta.url)),
+  'utf8',
+);
 const layoutCss = compile(
   fileURLToPath(new URL('../navigation/Layout.module.scss', import.meta.url)),
 ).css;
@@ -47,14 +52,15 @@ it('keeps the phone review actions and overlay clear of the home indicator, with
   expect(categoryCss).toMatch(/@media \(max-width: 700px\)[\s\S]*\.actions \{\s*position: fixed;/);
   expect(categoryCss).toContain('.actionEyebrow');
 });
-it('keeps the desktop context column bounded under the sticky header and drops it on phones', () => {
-  const context = layoutCss.match(/(?:^|\n)\.context \{([^}]+)\}/)?.[1];
-  expect(context).toContain('position: sticky;');
-  expect(context).toContain('height: calc(100vh - 36px);');
-  expect(context).toContain('overflow: auto;');
-  expect(layoutCss).toMatch(
-    /@media \(max-width: 700px\) \{\s*\.reviewMode \.body \{\s*grid-template-columns: minmax\(0, 1fr\);/,
-  );
+it('keeps the desktop list column bounded under the header (whatever its height) and gives phones none', () => {
+  const list = layoutCss.match(/\.left\[data-list\] \{([^}]+)\}/)?.[1];
+  expect(list).toContain('position: sticky;');
+  expect(list).toContain('top: var(--header-h, 37px);');
+  expect(list).toContain('height: calc(100dvh - var(--header-h, 37px));');
+  expect(layoutCss).toMatch(/\n\.left \{[^}]*overflow: auto;/);
+  // The column exists only where the Layout sets data-column; a phone never does.
+  expect(layoutCss).toContain('.body[data-column]');
+  expect(layoutSource).toMatch(/hasColumn = !phone &&/);
 });
 it('gives category and pending queue links 44px phone/coarse targets without changing desktop density', () => {
   const desktop = layoutCss.match(/(?:^|\n)\.sidebarNavigation a \{([^}]+)\}/)?.[1];

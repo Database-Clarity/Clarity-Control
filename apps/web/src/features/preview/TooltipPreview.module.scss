@@ -1,10 +1,81 @@
+// Tooltip colours are tokens. Dark is the in-game look and is the default; the light set is a
+// separate palette (not an inversion) that keeps every pair at 4.5:1 or better on its surface.
+@mixin dark-values {
+  --tp-surface: hsl(279, 36%, 5%);
+  --tp-text: #fff;
+  --tp-head-bg: hsl(0, 0%, 33%);
+  --tp-head-text: hsl(0, 0%, 93%);
+  --tp-rule: #485362;
+  --tp-tint: hsla(0, 0%, 100%, 0.15);
+  --tp-pvp: hsl(0, 100%, 80%);
+  --tp-pve: hsl(220, 100%, 75%);
+  --tp-green: hsl(116, 58%, 65%);
+  --tp-yellow: hsl(51, 100%, 45%);
+  --tp-blue: hsl(180, 100%, 45%);
+  --tp-purple: hsl(300, 100%, 81%);
+  --tp-arrow: hsl(46, 100%, 50%);
+  --tp-title: hsl(38, 80%, 56%);
+  --tp-link: hsl(201, 100%, 65%);
+  --tp-assoc-link: #b7dcff;
+  --tp-pop-bg: black;
+  --tp-pop-text: white;
+  --tp-pop-edge: #696969;
+}
+@mixin light-values {
+  --tp-surface: #fdfeff;
+  --tp-text: #1a2027;
+  --tp-head-bg: #cfe0ec;
+  --tp-head-text: #1a2027;
+  --tp-rule: #b5c9d8;
+  --tp-tint: hsla(205, 40%, 30%, 0.1);
+  --tp-pvp: #b0211c;
+  --tp-pve: #1f4fd1;
+  --tp-green: #1a7429;
+  --tp-yellow: #7d5d00;
+  --tp-blue: #00677a;
+  --tp-purple: #8a2a9a;
+  --tp-arrow: #7d5d00;
+  --tp-title: #96570a;
+  --tp-link: #0a5fa0;
+  --tp-assoc-link: #0a5fa0;
+  --tp-pop-bg: #ffffff;
+  --tp-pop-text: #1a2027;
+  --tp-pop-edge: #6a8294;
+}
+.preview,
+.snippet {
+  @include dark-values;
+}
+:global(:root[data-theme='light']) {
+  .preview,
+  .snippet {
+    @include light-values;
+    outline: 1px solid var(--line);
+  }
+  // The damage icons are game artwork; the white kinetic one needs an edge on a light surface.
+  .kinetic::before {
+    filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);
+  }
+}
+@media (prefers-color-scheme: light) {
+  :global(:root:not([data-theme])) {
+    .preview,
+    .snippet {
+      @include light-values;
+      outline: 1px solid var(--line);
+    }
+    .kinetic::before {
+      filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);
+    }
+  }
+}
 .preview {
   width: 100%;
   max-width: 320px;
   min-width: 0;
   height: fit-content;
-  color: #fff;
-  background-color: hsl(279, 36%, 5%);
+  color: var(--tp-text);
+  background-color: var(--tp-surface);
   font:
     14px/1.3 Arial,
     Helvetica,
@@ -12,19 +83,12 @@
     sans-serif;
   overflow-wrap: anywhere;
 }
-// The game tooltip keeps its own dark colours in both themes; on the light page it gets an outline.
-:global(:root[data-theme='light']) {
-  .preview,
-  .snippet {
-    outline: 1px solid var(--line);
-  }
-}
 .snippet {
   display: flex;
   flex-direction: column;
   padding: 4px 8px;
-  color: #fff;
-  background-color: hsl(279, 36%, 5%);
+  color: var(--tp-text);
+  background-color: var(--tp-surface);
   font:
     14px/1.3 Arial,
     Helvetica,
@@ -33,7 +97,7 @@
   overflow-wrap: anywhere;
 }
 .associated {
-  border-top: 1px solid #485362;
+  border-top: 1px solid var(--tp-rule);
   padding: 8px;
   details {
     margin: 4px 0;
@@ -49,7 +113,7 @@
     margin-right: 8px;
   }
   a {
-    color: #b7dcff;
+    color: var(--tp-assoc-link);
   }
 }
 .header {
@@ -60,8 +124,8 @@
   line-height: 17px;
   letter-spacing: -0.02em;
   padding: 10px;
-  background-color: hsl(0, 0%, 33%);
-  color: hsl(0, 0%, 93%);
+  background-color: var(--tp-head-bg);
+  color: var(--tp-head-text);
 }
 .name {
   text-transform: uppercase;
@@ -89,25 +153,25 @@
   font-size: 12px;
 }
 .pvp {
-  color: hsl(0, 100%, 80%);
+  color: var(--tp-pvp);
 }
 .pve {
-  color: hsl(220, 100%, 75%);
+  color: var(--tp-pve);
 }
 .green {
-  color: hsl(116, 58%, 65%);
+  color: var(--tp-green);
 }
 .yellow {
-  color: hsl(51, 100%, 45%);
+  color: var(--tp-yellow);
 }
 .blue {
-  color: hsl(180, 100%, 45%);
+  color: var(--tp-blue);
 }
 .purple {
-  color: hsl(300, 100%, 81%);
+  color: var(--tp-purple);
 }
 .enhancedArrow {
-  color: hsl(46, 100%, 50%);
+  color: var(--tp-arrow);
 }
 .center {
   text-align: center;
@@ -122,7 +186,7 @@
   font-weight: bold;
 }
 .background {
-  background-color: hsla(0, 0%, 100%, 0.15);
+  background-color: var(--tp-tint);
 }
 .breakSpaces {
   white-space: break-spaces;
@@ -130,10 +194,10 @@
 .title {
   text-decoration: underline;
   display: inline-block;
-  color: hsl(38, 80%, 56%);
+  color: var(--tp-title);
 }
 .link a {
-  color: hsl(201, 100%, 65%);
+  color: var(--tp-link);
 }
 .wide {
   width: auto !important;
@@ -149,24 +213,24 @@
 }
 .background_2 tr:nth-child(even),
 .background_1 tr:nth-child(odd) {
-  background-color: hsla(0, 0%, 100%, 0.15);
+  background-color: var(--tp-tint);
 }
 .titleAnchor {
   position: relative;
 }
 .titleContainer {
   display: none;
-  color: white;
+  color: var(--tp-pop-text);
   z-index: 2;
   padding: 2px 4px;
   flex-direction: column;
   position: absolute;
   left: 0;
   top: 100%;
-  background-color: black;
+  background-color: var(--tp-pop-bg);
   max-width: min(300px, 85vw);
   width: max-content;
-  border: 2px solid #696969;
+  border: 2px solid var(--tp-pop-edge);
   font-weight: normal;
   text-align: left;
   table td:not(:first-child):not(:last-child) {

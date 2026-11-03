@@ -2,7 +2,7 @@
 import { act, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import { TooltipPage } from '../tooltip/TooltipPage';
 import { Layout } from './Layout';
@@ -10,6 +10,7 @@ import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { reviewKey, usePreviewReviewStore } from '../../stores/previewReview';
+import { useSettingsStore } from '../../stores/settings';
 
 vi.mock('../../services/save/SavePanel', () => ({
   SavePanel: () => null,
@@ -75,8 +76,6 @@ const originalAuth = useAuthStore.getState();
 let host: HTMLDivElement;
 let root: Root | undefined;
 let router: ReturnType<typeof createMemoryRouter>;
-let show: Mock<() => void>;
-let stopHost: () => void;
 
 const route = () => router.state.location.pathname;
 const dialog = () => host.querySelector('dialog[open]');
@@ -145,8 +144,9 @@ beforeEach(() => {
   });
   useAuthStore.setState({ user: null, loading: false });
   usePreviewReviewStore.setState({ scope: null, entries: {}, prompt: null });
-  show = vi.fn<() => void>();
-  stopHost = usePreviewReviewStore.getState().registerHost({ show });
+  // The preview column is collapsed: the page registers itself as the preview host, and nothing
+  // is shown until the column is expanded.
+  useSettingsStore.getState().setPane('editor:left', { width: 336, collapsed: true });
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
     value: (query: string) => ({
@@ -164,7 +164,7 @@ afterEach(async () => {
     await act(async () => root?.unmount());
     root = undefined;
   }
-  stopHost();
+  useSettingsStore.getState().setPane('editor:left', null);
   host.remove();
   delete (window as { matchMedia?: unknown }).matchMedia;
   useDataStore.setState(originalData);
@@ -200,7 +200,6 @@ describe('stepping and the preview leave guard', () => {
     await press('ArrowDown');
     expect(route()).toBe('/t/100');
     expect(dialog()).not.toBeNull();
-    expect(show).not.toHaveBeenCalled();
   });
 
   it('blocks choosing another tooltip from the finder', async () => {

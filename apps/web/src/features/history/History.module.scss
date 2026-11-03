@@ -1,7 +1,8 @@
+// The history lives in the shell's left column (about 300px), where two diff columns do not fit.
 .columns {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
 }
 
 .diff pre {
@@ -43,11 +44,5 @@
     width: 1.5rem;
     height: 1.5rem;
     border-radius: 50%;
-  }
-}
-
-@media (max-width: 700px) {
-  .columns {
-    grid-template-columns: minmax(0, 1fr);
   }
 }
