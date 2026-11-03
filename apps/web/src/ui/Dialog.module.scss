@@ -1,9 +1,8 @@
 @use '../data/variables' as theme;
+@use './controls';
 
 .dialog {
-  color: inherit;
-  background: #242429;
-  border: 1px solid #74747e;
+  @include controls.overlay-surface;
   border-radius: 0.5rem;
   width: min(60rem, calc(100vw - 2rem));
   max-height: calc(100dvh - 2rem);
@@ -11,18 +10,22 @@
   padding: 1rem;
 
   &::backdrop {
-    background: #000a;
+    background: var(--scrim);
   }
 
-  button,
+  button {
+    @include controls.button;
+  }
+
   textarea,
-  input {
-    font: inherit;
+  input:not([type='checkbox'], [type='radio']) {
+    @include controls.field;
   }
 
   textarea {
     width: 100%;
     min-height: 6rem;
+    padding: 4px 8px;
   }
 
   section {
@@ -91,14 +94,14 @@
     position: sticky;
     z-index: 1;
     flex: none;
-    background: #242429;
+    background: var(--raised);
     padding: 0.5rem 0.75rem;
   }
 
   .header {
     top: 0;
     align-items: center;
-    border-bottom: 1px solid #74747e;
+    border-bottom: 1px solid var(--line);
   }
 
   .body {
@@ -110,6 +113,6 @@
     bottom: 0;
     margin-top: 0;
     padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
-    border-top: 1px solid #74747e;
+    border-top: 1px solid var(--line);
   }
 }

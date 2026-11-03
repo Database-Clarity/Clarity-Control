@@ -233,8 +233,13 @@ describe('Settings popover', () => {
     await openSettings();
     await choose('Text size', 'large');
     expect(document.documentElement.dataset.textSize).toBe('large');
-    await act(async () => button('Reset editor layout').click());
+    useSettingsStore
+      .getState()
+      .updateDevice({ panes: { 'editor:left': { width: 400, collapsed: false } } });
+    await act(async () => button('Reset pane widths').click());
     expect(localStorage.getItem(layoutKey)).toBeNull();
+    expect(useSettingsStore.getState().device.panes).toEqual({});
+    expect(popover()!.textContent).toContain('Pane widths reset to their defaults.');
     await act(async () => closeButton().click());
     expect(holder.server.calls.put).toHaveLength(0);
     await openSettings();

@@ -1,4 +1,5 @@
 @use '../../data/variables' as theme;
+@use '../../ui/controls';
 
 .page {
   padding: 1.25rem;
@@ -19,7 +20,7 @@
   gap: 0.75rem;
   margin: 0;
   padding: 0.75rem 1rem 1rem;
-  border: 1px solid theme.$button-border-color;
+  border: 1px solid var(--line);
   border-radius: 6px;
 }
 .page legend {
@@ -31,19 +32,18 @@
   gap: 0.25rem;
 }
 .page button,
-.page select,
-.page a,
 .choice button,
 .notice button {
-  min-height: 44px;
-  font: inherit;
+  @include controls.button;
+}
+.page select {
+  @include controls.field;
+  width: 100%;
 }
 .page a {
   display: inline-flex;
   align-items: center;
-}
-.page select {
-  width: 100%;
+  min-height: 44px;
 }
 .hint,
 .example {
@@ -61,7 +61,8 @@
   gap: 0.5rem 1rem;
 }
 .choice {
-  border: 1px solid theme.$orange-color;
+  border: 1px solid var(--warn-edge);
+  background: var(--warn-bg);
   border-radius: 6px;
   padding: 0.75rem 1rem;
   margin-bottom: 1rem;
@@ -113,7 +114,7 @@
   }
   .choice tbody tr {
     padding: 0.5rem 0;
-    border-top: 1px solid theme.$button-border-color;
+    border-top: 1px solid var(--line);
   }
   .choice tbody th {
     padding: 0 0 0.25rem;

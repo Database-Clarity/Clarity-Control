@@ -1,0 +1,185 @@
+// Semantic colour tokens for the Clarity Control shell. Values come from the final design
+// token block (overhaul-r3-fable/_src/_base.css), not from its stale introductory comment.
+// Dark is the base; light overrides it. index.html / ui/theme.ts set data-theme before paint;
+// the media query only covers the instant before scripts run.
+// Control and field edges (--ctl-edge, --fld-edge, --ctl-hover-edge) are deepened from the design's
+// values so they hold 3:1 against every surface they sit on (WCAG 1.4.11); everything else is as designed.
+// Components use these properties, never raw colours. Editor and CodeMirror colours stay
+// hard-coded until the editor phase adopts the --editor-* tokens.
+
+@mixin dark-tokens {
+  // Surfaces
+  --page: #16181c;
+  --chrome: #1d2024;
+  --col: #191c20;
+  --raised: #22262c;
+  --strip: #1a1e24;
+  --decision: #1b1e27;
+  --hover: #20252d;
+  --sel: #232a36;
+  // Text and glyphs
+  --text: #e6edf3;
+  --text2: #a3adb8;
+  --text3: #8b95a0;
+  --tab: #c8d0d8;
+  --glyph: #b9c2cc;
+  --link: #7fdcf0;
+  // Lines
+  --line: #333941;
+  --hair: #2a2f36;
+  --pop-edge: #58606a;
+  --ghost-edge: #454b53;
+  // Controls and fields
+  --ctl: #2b2f35;
+  --ctl-edge: #6c7480;
+  --ctl-hover: #353a41;
+  --ctl-hover-edge: #7d8591;
+  --ctl-pressed: #1a1d21;
+  --fld: #15181c;
+  --fld-edge: #6c7480;
+  // Accent and focus
+  --accent: #24ec54;
+  --accent-ink: #24ec54;
+  --on-accent: #0b1a0f;
+  --pri-text: #bff7cd;
+  --pri-hover: #16301c;
+  --cyan: #1cdcfc;
+  --cyan-edge: #1cdcfc;
+  // Status
+  --warn: #f2ce7e;
+  --warn-bg: #2a2416;
+  --warn-edge: #5a4a2a;
+  --danger: #ff9a9a;
+  --danger2: #ffb4b4;
+  --alert-bg: #2e1a1a;
+  --alert-edge: #7a3535;
+  --stasis: #1b2230;
+  --stasis-text: #cfe0ff;
+  --stasis-edge: #35507a;
+  --mark: #2b3a5c;
+  // Diff
+  --del-text: #ffb4b4;
+  --del-bg: #652929;
+  --ins: #b8efc6;
+  --ins-bg: #1d5030;
+  --diff-bg: #17171b;
+  // Editor (adopted in the editor phase)
+  --editor: #1e1e1e;
+  --editor-edge: #454545;
+  --editor-text: #fff;
+  --editor-text2: #bdbdbd;
+  --gutter: #919191;
+  --gutter-tint: #d0d0d0;
+  --var: #67c9a0;
+  --var-tint: #67c9a0;
+  --cf-text: #e6edf3;
+  --active-line: #ffffff08;
+  --glyph-bg: #232320;
+  // Decision and tables
+  --decision-edge: #3a4050;
+  --decision-text: #aab;
+  --grid-bg: #1a1b29;
+  --grid-edge: #454c5a;
+  --grid-on: #263044;
+  --grid-text: #ccc;
+  // Overlays
+  --shadow: 0 12px 32px rgb(0 0 0 / 0.5);
+  --scrim: rgb(0 0 0 / 0.6);
+}
+
+@mixin light-tokens {
+  // Surfaces
+  --page: #eef4f8;
+  --chrome: #d8e7f2;
+  --col: #e3eef6;
+  --raised: #ffffff;
+  --strip: #d9efe6;
+  --decision: #d8e7f2;
+  --hover: #d6e4ee;
+  --sel: #c2e2ee;
+  // Text and glyphs
+  --text: #14171b;
+  --text2: #4f5a66;
+  --text3: #4c5864;
+  --tab: #3a4450;
+  --glyph: #4c5864;
+  --link: #085e6e;
+  // Lines
+  --line: #b5c9d8;
+  --hair: #cfdde8;
+  --pop-edge: #9fb6c6;
+  --ghost-edge: #b5c9d8;
+  // Controls and fields
+  --ctl: #ffffff;
+  --ctl-edge: #6a8294;
+  --ctl-hover: #eaf3f9;
+  --ctl-hover-edge: #587286;
+  --ctl-pressed: #d3e2ec;
+  --fld: #ffffff;
+  --fld-edge: #6a8294;
+  // Accent and focus
+  --accent: #24ec54;
+  --accent-ink: #0c6e2c;
+  --on-accent: #0b1a0f;
+  --pri-text: #0c6e2c;
+  --pri-hover: #d9f3e1;
+  --cyan: #1cdcfc;
+  --cyan-edge: #085e6e;
+  // Status
+  --warn: #7a5200;
+  --warn-bg: #ffecb8;
+  --warn-edge: #dfbd66;
+  --danger: #a32020;
+  --danger2: #a32020;
+  --alert-bg: #fcd6d6;
+  --alert-edge: #e39797;
+  --stasis: #d1e2f9;
+  --stasis-text: #1f3f6e;
+  --stasis-edge: #7fa8e0;
+  --mark: #c3d9f3;
+  // Diff
+  --del-text: #7a1f1f;
+  --del-bg: #f6d0d0;
+  --ins: #114d2a;
+  --ins-bg: #cfeedd;
+  --diff-bg: #ffffff;
+  // Editor (adopted in the editor phase)
+  --editor: #ffffff;
+  --editor-edge: #b5c9d8;
+  --editor-text: #1a1d21;
+  --editor-text2: #4f5a66;
+  --gutter: #566170;
+  --gutter-tint: #3f4a56;
+  --var: #0e7a55;
+  --var-tint: #085e3f;
+  --cf-text: #14171b;
+  --active-line: #085e6e12;
+  --glyph-bg: #fff8e6;
+  // Decision and tables
+  --decision-edge: #b5c9d8;
+  --decision-text: #4f5a66;
+  --grid-bg: #ffffff;
+  --grid-edge: #b5c9d8;
+  --grid-on: #c2e2ee;
+  --grid-text: #2c3640;
+  // Overlays
+  --shadow: 0 8px 24px rgb(20 23 27 / 0.18);
+  --scrim: rgb(20 23 27 / 0.35);
+}
+
+:root {
+  @include dark-tokens;
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  @include light-tokens;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    @include light-tokens;
+    color-scheme: light;
+  }
+}

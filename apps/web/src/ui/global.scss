@@ -1,4 +1,5 @@
 @use '../data/variables' as theme;
+@use './tokens';
 
 @font-face {
   font-family: DestinySymbols;
@@ -8,9 +9,8 @@
 
 :root {
   font-family: Arial, Helvetica, DestinySymbols, sans-serif;
-  color: hsl(0, 0%, 94%);
-  background: hsl(240, 7%, 10%);
-  color-scheme: dark;
+  color: var(--text);
+  background: var(--page);
   font-synthesis: none;
 }
 
@@ -24,7 +24,7 @@ body {
 }
 
 a {
-  color: theme.$orange-color;
+  color: var(--link);
 }
 
 button {
@@ -43,7 +43,7 @@ button {
 
 a:focus-visible,
 button:focus-visible {
-  outline: 2px solid theme.$orange-color;
+  outline: 2px solid var(--accent-ink);
   outline-offset: 4px;
 }
 

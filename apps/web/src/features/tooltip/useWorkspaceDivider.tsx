@@ -6,6 +6,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from 'react';
+import { useSettingsStore } from '../../stores/settings';
 import styles from './TooltipPage.module.scss';
 
 const STORAGE_KEY = 'description-editor-split';
@@ -31,6 +32,14 @@ export function useWorkspaceDivider() {
   const dragging = useRef<number | null>(null);
   const [width, setWidth] = useState(0);
   const [split, setSplit] = useState(readSplit);
+  // "Reset pane widths" in Settings returns a mounted workspace to the default split at once.
+  const resets = useSettingsStore((state) => state.paneResets);
+  const seenResets = useRef(resets);
+  useEffect(() => {
+    if (seenResets.current === resets) return;
+    seenResets.current = resets;
+    setSplit(DEFAULT_SPLIT);
+  }, [resets]);
 
   useEffect(() => {
     const element = container.current;

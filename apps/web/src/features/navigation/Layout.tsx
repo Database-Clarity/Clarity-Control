@@ -6,8 +6,11 @@ import { useAuthStore } from '../../stores/auth';
 import { AuthStatus } from '../auth/AuthStatus';
 import { SavePanel } from '../../services/save/SavePanel';
 import { dockHeightProperty, trackDockHeight } from '../../services/save/dock';
+import { Brand } from './Brand';
 import { TooltipNavigation } from './TooltipNavigation';
-import { visibleLinks } from './links';
+import { itemFor } from './catalog';
+import { documentTitle } from './documentTitle';
+import { links, visibleLinks } from './links';
 import { CompendiumSidebarNavigation, ReviewSidebarNavigation } from './SidebarNavigation';
 import { CompendiumBadge } from '../compendium/CompendiumBadge';
 import { SettingsNotice } from '../settings/SettingsChoice';
@@ -59,6 +62,16 @@ export function Layout() {
   const isEditor = location.pathname.startsWith('/t/');
   const isCompendium = location.pathname.startsWith('/compendium');
   const isReview = location.pathname === '/review';
+  const itemHash = isEditor ? Number(location.pathname.split('/')[2]) : null;
+  const pageName =
+    itemHash !== null
+      ? data?.items
+        ? itemFor(itemHash, data)?.name
+        : undefined
+      : links.find(({ to }) => to === workspacePath(location.pathname))?.label;
+  useEffect(() => {
+    document.title = documentTitle(pageName);
+  }, [pageName]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -195,8 +208,7 @@ export function Layout() {
         aria-label={navOpen ? 'Browse' : undefined}
       >
         <header className={styles.brand}>
-          <strong>Clarity</strong>
-          <span>Description editor v2</span>
+          <Brand />
         </header>
         <button
           ref={browseButton}

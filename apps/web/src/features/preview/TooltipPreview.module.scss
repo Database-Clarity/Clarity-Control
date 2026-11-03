@@ -12,6 +12,13 @@
     sans-serif;
   overflow-wrap: anywhere;
 }
+// The game tooltip keeps its own dark colours in both themes; on the light page it gets an outline.
+:global(:root[data-theme='light']) {
+  .preview,
+  .snippet {
+    outline: 1px solid var(--line);
+  }
+}
 .snippet {
   display: flex;
   flex-direction: column;

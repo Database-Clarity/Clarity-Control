@@ -1,0 +1,37 @@
+// Lockup viewBox is 5512 x 1020; 28px (24px on phones) keeps the outlined wordmark crisp.
+.brand {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  line-height: 0;
+}
+.dark,
+.light {
+  display: block;
+  height: 28px;
+  width: auto;
+  @media (max-width: 700px) {
+    height: 24px;
+  }
+}
+.light {
+  display: none;
+}
+:global(:root[data-theme='light']) {
+  .dark {
+    display: none;
+  }
+  .light {
+    display: block;
+  }
+}
+@media (prefers-color-scheme: light) {
+  :global(:root:not([data-theme])) {
+    .dark {
+      display: none;
+    }
+    .light {
+      display: block;
+    }
+  }
+}

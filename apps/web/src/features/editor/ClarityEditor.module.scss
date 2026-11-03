@@ -90,7 +90,9 @@
 }
 .help {
   padding: 6px 10px;
+  // The editor stays one dark object in both themes until the editor phase adopts --editor-*.
   color: #bdbdbd;
+  background: #1e1e1e;
   font-size: 12px;
   p {
     margin: 6px 0;

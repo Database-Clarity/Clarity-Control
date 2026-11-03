@@ -14,6 +14,7 @@ import {
   type SettingsPutResult,
 } from '../services/api';
 import { errorMessage } from '../services/http';
+import { applyTheme, themePreferences } from '../ui/theme';
 
 /*
  * Settings come in two kinds:
@@ -32,15 +33,32 @@ export const rememberedSchema = z.object({
 });
 export type Remembered = z.infer<typeof rememberedSchema>;
 export const editorFonts = ['default', 'fira-code', 'jetbrains-mono', 'system'] as const;
+/**
+ * One resizable pane pair on this device, in CSS pixels. `width` is the size the user chose (a
+ * viewport that is too small clamps it for display without overwriting it); `lastExpanded` is what
+ * a collapsed pane restores to.
+ */
+export const paneStateSchema = z.object({
+  width: z.number().finite().min(0).max(100_000),
+  collapsed: z.boolean().catch(false),
+  lastExpanded: z.number().finite().min(0).max(100_000).optional().catch(undefined),
+});
+export type PaneState = z.infer<typeof paneStateSchema>;
+/** Pane keys are `<page type>:<pair>`, for example `editor:left`. */
+export const paneKeyPattern = /^[a-z][a-z0-9-]{0,31}:[a-z][a-z0-9-]{0,31}$/;
 export const deviceSettingsSchema = z.object({
   editorFont: z.enum(editorFonts),
   textSize: z.enum(['default', 'large']),
+  theme: z.enum(themePreferences),
+  panes: z.record(z.string(), paneStateSchema),
   remembered: rememberedSchema,
 });
 export type DeviceSettings = z.infer<typeof deviceSettingsSchema>;
 export const defaultDeviceSettings: DeviceSettings = {
   textSize: 'default',
   editorFont: 'default',
+  theme: 'system',
+  panes: {},
   remembered: {},
 };
 
@@ -88,6 +106,8 @@ export interface SettingsState {
   scope: string;
   settings: SyncedSettings;
   device: DeviceSettings;
+  /** Counts pane-width resets, so a mounted pane that keeps its own state can start over. */
+  paneResets: number;
   revision: string | null;
   pending: SyncedKey[];
   pendingSince: string | null;
@@ -104,6 +124,11 @@ export interface SettingsState {
   updateDevice(patch: Partial<DeviceSettings>): void;
   /** Remembers an editor toggle on this device only: no sync, no pending marker, no prompt. */
   remember(patch: Remembered): void;
+  /**
+   * Forgets every saved pane width (and the old single split) on this device. Mounted panes see
+   * the empty map at once; returns false, with a notice, when the browser refused the write.
+   */
+  resetPaneWidths(): boolean;
   /** Called when leaving the Settings page; no-op unless changes are waiting. */
   sync(options?: { keepalive?: boolean }): Promise<void>;
   /** Best-effort sync when the tab is hidden or closed, only for this visit's own edits. */
@@ -115,7 +140,6 @@ export interface SettingsState {
   keepLocal(): Promise<void>;
   useRemote(): void;
   retry(): Promise<void>;
-  resetLayout(): void;
 }
 
 function browserStorage(): SettingsStorage {
@@ -142,6 +166,7 @@ function browserStorage(): SettingsStorage {
 
 export function applyDeviceSettings(device: DeviceSettings): void {
   if (typeof document === 'undefined') return;
+  applyTheme(device.theme);
   document.documentElement.dataset.editorFont = device.editorFont;
   if (device.textSize === 'large') document.documentElement.dataset.textSize = 'large';
   else delete document.documentElement.dataset.textSize;
@@ -159,6 +184,18 @@ function readSynced(raw: unknown): SyncedSettings {
     if (result.success) Object.assign(settings, { [key]: result.data });
   }
   return settings;
+}
+
+/** Entry-wise: a bad key or value drops only that pane, never the others. */
+function readPanes(raw: unknown): Record<string, PaneState> {
+  const panes: Record<string, PaneState> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return panes;
+  for (const [key, value] of Object.entries(raw)) {
+    if (!paneKeyPattern.test(key)) continue;
+    const result = paneStateSchema.safeParse(value);
+    if (result.success) panes[key] = result.data;
+  }
+  return panes;
 }
 
 const storedSchema = z.object({
@@ -291,9 +328,12 @@ export function createSettingsStore({
       const result = rememberedSchema.shape[key].safeParse(stored[key]);
       if (result.success && result.data) Object.assign(remembered, { [key]: result.data });
     }
+    const theme = deviceSettingsSchema.shape.theme.safeParse(record.theme);
     return {
       textSize: textSize.success ? textSize.data : 'default',
       editorFont: editorFont.success ? editorFont.data : 'default',
+      theme: theme.success ? theme.data : 'system',
+      panes: readPanes(record.panes),
       remembered,
     };
   }
@@ -552,6 +592,7 @@ export function createSettingsStore({
       scope: 'anonymous',
       ...initial,
       device,
+      paneResets: 0,
       status: 'device',
       reason: syncEnabled ? 'signed-out' : 'no-api',
       error: '',
@@ -689,13 +730,19 @@ export function createSettingsStore({
         return get().sync();
       },
 
-      resetLayout() {
+      resetPaneWidths() {
+        const device = { ...get().device, panes: {} };
+        // Mounted panes read the store, so they snap back even if the browser cannot save.
+        set({ device, paneResets: get().paneResets + 1 });
         try {
           storage.remove(layoutKey);
-          set({ notice: '' });
         } catch (error) {
-          set({ notice: `Cannot reset the layout: ${errorMessage(error)}` });
+          set({ notice: `Cannot reset pane widths: ${errorMessage(error)}` });
+          return false;
         }
+        const failed = write(deviceKey, device);
+        set({ notice: failed });
+        return !failed;
       },
     };
   });

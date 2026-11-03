@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { dateFormats, timeDisplays, type SyncedSettings } from '@clarity/core';
 import { useSettingsStore, editorFonts } from '../../stores/settings';
+import { themePreferences, type ThemePreference } from '../../ui/theme';
 import { exactDate, formatDate } from '../../services/format/date';
-import { browserTimeZone, syncStatusText, valueLabel } from './labels';
+import { browserTimeZone, syncStatusText, themeLabels, valueLabel } from './labels';
 import { SettingsChoice } from './SettingsChoice';
 import styles from './Settings.module.scss';
 
@@ -18,9 +19,9 @@ function timeZones(): string[] {
 
 export function SettingsContent() {
   const state = useSettingsStore();
-  const { settings, device, update, updateDevice, remember, retry, resetLayout } = state;
+  const { settings, device, update, updateDevice, remember, retry, resetPaneWidths } = state;
   const zones = useMemo(timeZones, []);
-  const [layoutReset, setLayoutReset] = useState(false);
+  const [panesReset, setPanesReset] = useState(false);
   const zoneOptions =
     settings.timeZone === 'auto' || settings.timeZone === 'UTC' || zones.includes(settings.timeZone)
       ? zones
@@ -106,6 +107,19 @@ export function SettingsContent() {
         <legend>This device</legend>
         <p className={styles.hint}>Kept in this browser only; never synced.</p>
         <label>
+          Theme
+          <select
+            value={device.theme}
+            onChange={(event) => updateDevice({ theme: event.target.value as ThemePreference })}
+          >
+            {themePreferences.map((theme) => (
+              <option key={theme} value={theme}>
+                {themeLabels[theme]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
           Editor font
           <select
             value={device.editorFont}
@@ -144,15 +158,12 @@ export function SettingsContent() {
           <button
             type="button"
             onClick={() => {
-              resetLayout();
-              setLayoutReset(true);
+              setPanesReset(resetPaneWidths());
             }}
           >
-            Reset editor layout
+            Reset pane widths
           </button>
-          {layoutReset && (
-            <span role="status">Editor and preview split reset to half and half.</span>
-          )}
+          {panesReset && <span role="status">Pane widths reset to their defaults.</span>}
         </div>
       </fieldset>
     </div>
