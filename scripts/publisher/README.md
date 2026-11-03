@@ -1,4 +1,4 @@
-# Publisher P1-A (writes disabled)
+# Publisher (publish writes disabled)
 
 `npm run build:publisher` builds the plain Node 24 CLI and integrity PIN in `dist/`.
 `node scripts/publisher/dist/publisher.mjs --dry-run <local repository> <config.json> <artifact directory>`
@@ -8,8 +8,8 @@ of would-be commits plus result.json. It never changes the source or contacts a 
 Config supplies repo, dataBranch, liveBranch, publicKey (PEM from the independently trusted Worker key
 endpoint), keyFingerprint (SHA-256 of SPKI DER, pinned independently), publisherSha, generatorSha,
 facts, aliases, and runUrl. Facts and aliases must come from the pinned generator commit.
-No key fetching, production Git transport, workflow, Worker endpoints, or write enable switch ships
-in this phase. The later transport must enforce forward-only LIVE/data refs and serialized execution;
+The standalone dry-run does not fetch keys or provide a write enable switch.
+The later publish transport must enforce forward-only LIVE/data refs and serialized execution;
 candidate ref swaps/deletes require exact old OIDs. Unresolved pushes wait 30 seconds between
 attempts (five waits maximum); successful writes record immediately. Tests inject a no-wait backoff.
 The local simulator deliberately fails closed on non-100644 modes; a real transport must preserve
@@ -61,3 +61,44 @@ also assert that 20-ID status calls are rejected before upstream I/O. Do not rai
 the status cap without measuring the maximum log size times the proposed cap.
 All endpoints retain the shared 48-subrequest hard cap. CPU measurement and
 workflow registration/enablement belong to subsequent phases.
+
+## Pipeline template (P1-C)
+
+`template/.github/workflows/pipeline.yml` and `template/.publisher/` are installation
+artifacts, not active workflows in this editor repository. No installation is performed here.
+The plain Node 24 runtime includes packages/core and has no runtime npm dependencies.
+`npm run build:publisher -- --template` rebuilds both runtime and PIN from the committed
+source HEAD. Commit source first, then build/commit the generated files so the source pin
+identifies the exact implementation. Do not edit generated publisher.mjs by hand.
+
+At enable step E, the root operator must replace editor-data's bundle.yml with pipeline.yml
+in the SAME commit and copy .publisher. Fill config.json from config.example.json with the
+trusted Worker /publish/key URL and independently verified SPKI fingerprint, PIN.sourceSha,
+verified generator commit and its facts/aliases. Empty example facts are not production inputs.
+Set runUrl to the installed workflow run URL when preparing config. No private key belongs here.
+Verify Actions permissions and branch rules before enabling publish writes in a later release:
+data/live must deny force-push/deletion, candidate refs must permit create/CAS/delete. Trusted
+writers control workflows and .publisher; the neighboring PIN detects corruption, not a hostile writer.
+
+The installed command is:
+`node .publisher/publisher.mjs --pipeline-dry-run . .publisher/config.json <artifact directory>`.
+It fetches latest remote branch heads after getting the serialized slot, publishes the real data
+bundle with an explicit lease, simulates at most 20 operations/20 minutes in a no-remote bare copy,
+then unconditionally fetches again and catches the real bundle up. Prior sourceCommit must be
+an ancestor; already-current bundles are skipped. A bundle lease race fails closed and is repaired
+on the next run. Source and live branches, candidate refs, requests, logs and pushed markers are
+NEVER pushed by this transport. The simulation's bundle is artifact-only. Public-key fetches are
+HTTPS, forbid redirects, have a 15-second timeout and require the independent fingerprint.
+A failed key fetch/drain still gets a real bundle catch-up and result/summary artifacts.
+
+All editor-data pushes (requests, kicks, saves) start the pipeline. GITHUB_TOKEN bundle pushes
+suppress downstream workflows; no workflow_dispatch/schedule is registered on production live.
+The bounded in-run catch-up watchdog runs before/after drain, including empty/failed drains.
+Pending count/recovery instructions appear in the job summary and result.json, and publishQueue
+is visible in the real bundle. P1 recovery between runs requires the authorized client once-after-3-min
+kick, maintainer/editor Retry, or another save (P1-B API and P1-D UI). There is NO unattended cron
+watchdog in P1; Phase 3 owns that gate. Do not claim automatic unattended recovery after a final crash.
+Dry-run intentionally leaves every remote request pending. Replaced pending Actions runs cannot
+lose that durable queue; cancel-in-progress:false protects an executing job. Test-only local fixtures
+prove data/live/candidate refs stay untouched, even if a save arrives during the simulation or key
+verification fails. Existing P1-A fixtures cover ambiguous publication/RECORD recovery and golden parity.

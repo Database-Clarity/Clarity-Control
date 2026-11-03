@@ -16,6 +16,69 @@ import {
 import { LocalRepository, RefRace, type Tree } from './git.js';
 import { Publisher, paths, type Options } from './publisher.js';
 import { createRequest } from './request.js';
+import { runPipeline } from './pipeline.js';
+
+it.each([false, true])(
+  'pipeline bundles real heads, isolates publish writes, and catches up (bad key=%s)',
+  async (badKey) => {
+    const f = await setup();
+    const repo = 'Database-Clarity/Live-Clarity-Database';
+    await f.request(A, [123], undefined, { repo });
+    const originalLive = f.git.head(L);
+    const checkoutRoot = mkdtempSync(join(tmpdir(), 'pipeline-checkout-'));
+    const checkout = join(checkoutRoot, 'checkout');
+    roots.push(checkoutRoot);
+    execFileSync('git', ['clone', '--branch', 'editor-data', '--', f.git.path, checkout], {
+      stdio: 'pipe',
+    });
+    let latest = f.git.head(D)!;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        latest = f.change(D, { 'tooltips/123.json': { ...f.tooltip, associated: [456] } });
+        return new Response(
+          JSON.stringify({
+            algorithm: 'Ed25519',
+            publicKey: f.options.publicKey,
+            fingerprint: badKey ? 'bad' : f.options.keyFingerprint,
+          }),
+        );
+      }),
+    );
+    const out = join(checkout, 'artifacts');
+    const task = runPipeline(
+      checkout,
+      { ...f.options, repo, keyEndpoint: 'https://worker.invalid/publish/key' },
+      out,
+    );
+    if (badKey) await expect(task).rejects.toThrow('fingerprint');
+    else await task;
+    expect(f.git.head(D)).toBe(latest);
+    expect(f.git.head(L)).toBe(originalLive);
+    expect(f.git.tree(latest)[paths(A).request]).toBeDefined();
+    expect(f.git.tree(latest)[paths(A).log]).toBeUndefined();
+    expect(f.git.head(paths(A).candidate)).toBeUndefined();
+    const bundle = f.pub.read<{ sourceCommit: string; publishQueue: { opId: string }[] }>(
+      f.git.tree(f.git.head('refs/heads/editor-data-bundle')!),
+      'bundle.json',
+    )!;
+    expect(bundle.sourceCommit).toBe(latest);
+    expect(bundle.publishQueue.map((p) => p.opId)).toEqual([A]);
+    const report = JSON.parse(readFileSync(join(out, 'result.json'), 'utf8'));
+    expect(report.publishWritesEnabled).toBe(false);
+    expect(report.reports).toHaveLength(2);
+    const artifact = join(checkout, 'inspect.git');
+    execFileSync('git', ['clone', '--bare', join(out, 'would-be-commits.bundle'), artifact], {
+      stdio: 'pipe',
+    });
+    const simulatedLog = execFileSync(
+      'git',
+      ['--git-dir', artifact, 'ls-tree', '-r', 'refs/heads/editor-data'],
+      { encoding: 'utf8' },
+    );
+    expect(simulatedLog.includes(paths(A).log)).toBe(!badKey);
+  },
+);
 import { Fixture, makePrivateKey } from '../../apps/worker/test/fixture.js';
 import { seedPushGroups, pushTime } from '../../apps/worker/test/push-fixture.js';
 

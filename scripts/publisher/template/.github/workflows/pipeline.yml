@@ -1,0 +1,46 @@
+name: Editor data pipeline (publish dry-run)
+
+on:
+  push:
+    branches: [editor-data]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: editor-data-pipeline
+  cancel-in-progress: false
+
+jobs:
+  pipeline:
+    if: github.repository == 'Database-Clarity/Live-Clarity-Database' && github.ref == 'refs/heads/editor-data'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: editor-data
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      - name: Bundle live data and simulate publishing
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/publisher-dry-run
+        run: node .publisher/publisher.mjs --pipeline-dry-run . .publisher/config.json "$ARTIFACT_DIR"
+      - name: Upload would-be commits and catch-up status
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: publisher-dry-run-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/publisher-dry-run/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Show catch-up watchdog status
+        if: always()
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/publisher-dry-run
+        run: |
+          if [ -f "$ARTIFACT_DIR/summary.md" ]; then
+            cat "$ARTIFACT_DIR/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
