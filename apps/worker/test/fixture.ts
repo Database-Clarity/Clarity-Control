@@ -44,6 +44,7 @@ export class Fixture {
   sequence = 10;
   snapshots = new Map<string, Record<string, unknown>>();
   commits: Record<string, unknown>[] = [];
+  commitParents = new Map<string, string[]>();
   writes: Record<string, unknown>[] = [];
   live: Record<string, unknown> = {
     perks: { '999': { hash: 999, editor: { en: { main: 'untouched' } } } },
@@ -168,6 +169,33 @@ export class Fixture {
       .object({ query: z.string(), variables: z.record(z.string(), z.string()) })
       .parse(raw);
     const repository: Record<string, unknown> = {};
+    if (input.variables.branch) {
+      const files = this.current();
+      const target: Record<string, unknown> = { oid: this.dataHead, tree: { oid: this.dataHead } };
+      for (const [name, path] of Object.entries(input.variables)) {
+        if (!/^p[0-9]+$/.test(name)) continue;
+        const value = files[path];
+        const oidOnly = input.query.includes(
+          `o${name.slice(1)}:file(path:$${name}){object{... on Blob{oid}}}`,
+        );
+        target[`o${name.slice(1)}`] =
+          value === undefined
+            ? null
+            : {
+                object: {
+                  oid: createHash('sha1').update(JSON.stringify(value)).digest('hex'),
+                  ...(oidOnly
+                    ? {}
+                    : {
+                        isTruncated: this.truncateGraphql,
+                        text: this.truncateGraphql ? null : JSON.stringify(value),
+                      }),
+                },
+              };
+      }
+      return this.response({ data: { repository: { ref: { target } } } });
+    }
+
     for (const [name, expression] of Object.entries(input.variables)) {
       if (!/^e[0-9]+$/.test(name)) continue;
       const [ref, path] = expression.split(':');
@@ -287,6 +315,7 @@ export class Fixture {
       const input = commitSchema.parse(raw);
       const id = sha(this.sequence++);
       this.commits.push(objectSchema.parse(raw));
+      this.commitParents.set(id, input.parents);
       this.snapshots.set(id, this.snapshots.get(input.tree)!);
       return this.response({ sha: id });
     }
@@ -307,12 +336,17 @@ export class Fixture {
       if (this.patchRaces-- > 0) return this.response({}, 422);
       const hook = this.beforePatch;
       this.beforePatch = undefined;
-      if (hook) {
-        hook();
+      if (hook) hook();
+      const next = z.object({ sha: z.string(), force: z.literal(false) }).parse(raw).sha;
+      // GitHub refuses this sole-parent commit once H has moved. Never fake a race rejection.
+      if (next !== this.dataHead && this.commitParents.get(next)?.[0] !== this.dataHead)
         return this.response({}, 422);
-      }
-      this.dataHead = z.object({ sha: z.string(), force: z.literal(false) }).parse(raw).sha;
+      this.dataHead = next;
       return this.response({ object: { sha: this.dataHead } });
+    }
+    if (path.startsWith('/contents/publish/kicks/') && method === 'PUT') {
+      this.writes.push(objectSchema.parse(raw));
+      return this.response({ commit: { sha: sha(this.sequence++) } }, 201);
     }
     if (path === '/contents/liveDescriptions.json' && method === 'PUT') {
       if (this.liveRaces-- > 0) return this.response({}, 409);

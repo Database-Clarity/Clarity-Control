@@ -15,15 +15,21 @@ export function unbase64(value: string): Uint8Array<ArrayBuffer> {
   );
 }
 
+let hmacCache: { secret: string; key: CryptoKey } | undefined;
+let rsaCache: { pem: string; key: CryptoKey } | undefined;
+
 async function hmac(secret: string) {
+  if (hmacCache?.secret === secret) return hmacCache.key;
   if (secret.length < 32) throw new Error('SESSION_SECRET must contain at least 32 characters');
-  return crypto.subtle.importKey(
+  const key = await crypto.subtle.importKey(
     'raw',
     encoder.encode(secret),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign', 'verify'],
   );
+  hmacCache = { secret, key };
+  return key;
 }
 
 export async function signToken(payload: object, secret: string): Promise<string> {
@@ -64,14 +70,18 @@ export async function appJwt(id: string, pem: string): Promise<string> {
   const payload = base64url(
     encoder.encode(JSON.stringify({ iat: now - 60, exp: now + 540, iss: id })),
   );
-  const der = unbase64(pem.replaceAll('\\n', '\n').replace(/-----[^-]+-----|\s/g, ''));
-  const key = await crypto.subtle.importKey(
-    'pkcs8',
-    der,
-    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
+  let key = rsaCache?.pem === pem ? rsaCache.key : undefined;
+  if (!key) {
+    const der = unbase64(pem.replaceAll('\\n', '\n').replace(/-----[^-]+-----|\s/g, ''));
+    key = await crypto.subtle.importKey(
+      'pkcs8',
+      der,
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+      false,
+      ['sign'],
+    );
+    rsaCache = { pem, key };
+  }
   const value = `${header}.${payload}`;
   const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, encoder.encode(value));
   return `${value}.${base64url(new Uint8Array(signature))}`;

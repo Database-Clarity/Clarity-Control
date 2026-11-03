@@ -15,6 +15,8 @@ export interface Env {
   GITHUB_CLIENT_SECRET: string;
   GITHUB_PRIVATE_KEY: string;
   SESSION_SECRET: string;
+  /** Enable-time Ed25519 PKCS8 PEM secret; absent during the write-disabled rollout. */
+  PUBLISH_SIGNING_KEY?: string;
   OAUTH_CALLBACK_URL: string;
   COMPENDIUM_OWNER?: string;
   COMPENDIUM_REPO?: string;

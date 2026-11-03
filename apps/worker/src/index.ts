@@ -1,3 +1,4 @@
+import publisherConfig from '../../../config/publisher.json';
 import { ZodError } from 'zod';
 import { agentGuidance } from './agentGuidance.js';
 import { callback, identity, login } from './auth.js';
@@ -6,6 +7,7 @@ import { compendiumRefresh } from './compendium.js';
 import { GitHub } from './github.js';
 import { HttpError, json } from './http.js';
 import { permissions } from './permissions.js';
+import { publish, publishKey, publishStatus, publishKick } from './publish.js';
 import { pushLive } from './push.js';
 import { save } from './save.js';
 import { userSettings } from './settings.js';
@@ -16,8 +18,17 @@ async function route(request: Request, env: Env): Promise<Response> {
   const path = url.pathname;
   if (request.method === 'GET' && path === '/auth/login') return login(env);
   if (request.method === 'GET' && path === '/auth/callback') return callback(request, env);
+  if (publisherConfig.enabled && path === '/push-live') throw new HttpError(410, 'Use /publish');
+  if (!publisherConfig.enabled && ['/publish', '/publish/kick'].includes(path))
+    throw new HttpError(503, 'Publisher is not enabled');
+  if (request.method === 'GET' && path === '/publish/key') return publishKey(env);
   const user = await identity(request, env);
   const github = new GitHub(env);
+  if (request.method === 'POST' && path === '/publish') return publish(request, github, user);
+  if (request.method === 'GET' && path === '/publish/status')
+    return publishStatus(request, github, user);
+  if (request.method === 'POST' && path === '/publish/kick')
+    return publishKick(request, github, user);
   if (
     (request.method === 'POST' && path === '/compendium/refresh') ||
     (request.method === 'GET' && path === '/compendium/refresh/status')

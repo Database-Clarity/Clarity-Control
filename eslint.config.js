@@ -12,6 +12,7 @@ export default tseslint.config(
       '**/coverage/**',
       '.agents/**',
       '**/.wrangler/**',
+      'scripts/publisher/template/.publisher/publisher.mjs',
     ],
   },
   {

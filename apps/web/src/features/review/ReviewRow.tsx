@@ -12,6 +12,7 @@ export function ReviewRow({
   onToggle,
   onOpen,
   disabled,
+  publishing = false,
   historyAvailable,
 }: {
   entry: PendingTooltip;
@@ -20,6 +21,8 @@ export function ReviewRow({
   onToggle(): void;
   onOpen(): void;
   disabled: boolean;
+  /** Part of a publish that is still queued or being sent: cannot be selected again. */
+  publishing?: boolean;
   historyAvailable: boolean;
 }) {
   const [latest, setLatest] = useState<HistoryCommit>();
@@ -51,8 +54,8 @@ export function ReviewRow({
           type="checkbox"
           checked={checked}
           onChange={onToggle}
-          disabled={disabled || Boolean(entry.unpublishable)}
-          title={entry.unpublishable}
+          disabled={disabled || publishing || Boolean(entry.unpublishable)}
+          title={entry.unpublishable ?? (publishing ? 'Publishing…' : undefined)}
           aria-label={`Select ${entry.name}, ${entry.category}, ${entry.tooltip.hash}`}
         />{' '}
         <button
@@ -64,6 +67,7 @@ export function ReviewRow({
           <span className={styles.rowIdentity}>
             {entry.name} <small>#{entry.tooltip.hash}</small>
             {entry.unpublishable && <small> · unpublishable: no generator entry</small>}
+            {publishing && <small> · publishing…</small>}
           </span>
         </button>
       </label>

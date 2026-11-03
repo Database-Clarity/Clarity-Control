@@ -1,0 +1,4 @@
+{
+  "extends": "../../packages/core/tsconfig.json",
+  "include": ["*.ts", "../../packages/core/src", "../../apps/worker/src/stamp.ts"]
+}
