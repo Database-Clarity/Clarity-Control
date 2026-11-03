@@ -72,6 +72,8 @@ export interface SettingsStorage {
   get(key: string): string | null;
   set(key: string, value: string): void;
   remove(key: string): void;
+  /** Changes from other tabs; the writer does not receive its own events. */
+  subscribe?(listener: (key: string | null) => void): void;
 }
 export interface SettingsApi {
   get(): Promise<RemoteSettings>;
@@ -130,6 +132,11 @@ function browserStorage(): SettingsStorage {
     get: (key) => localStorage.getItem(key),
     set: (key, value) => localStorage.setItem(key, value),
     remove: (key) => localStorage.removeItem(key),
+    subscribe(listener) {
+      window.addEventListener('storage', (event) => {
+        if (event.storageArea === localStorage) listener(event.key);
+      });
+    },
   };
 }
 
@@ -317,13 +324,83 @@ export function createSettingsStore({
   const device = loadDevice(legacyRemembered);
   if (Object.keys(legacyRemembered).length) write(deviceKey, device);
   const initial = load('anonymous');
+  let observed = read(settingsKey('anonymous'));
   const initialNotice = notice;
   applyDeviceSettings(device);
 
   return create<SettingsState>((set, get) => {
+    // Keep the shared revision and local fields the user was actually offered. The visible
+    // local preview can change, but choosing the account copy must retain later edits.
+    let choiceBasis: ScopeCopy | null = null;
+    function makeChoice(
+      remote: RemoteSettings,
+      recovered: boolean,
+      revision = get().revision,
+    ): SettingsChoice {
+      const { settings, pending, pendingSince } = get();
+      choiceBasis = { settings, revision, pending, pendingSince };
+      return { local: settings, remote, recovered, since: pendingSince };
+    }
+
+    /** Import newer shared fields before a stale tab can persist or send its snapshot. */
+    function reconcile(): void {
+      const state = get();
+      const raw = read(settingsKey(state.scope));
+      if (raw === observed) return;
+      const previous = parse(observed);
+      const shared = parse(raw);
+      observed = raw;
+      if (!shared) return;
+      const settings = { ...state.settings };
+      const pending = new Set(state.pending);
+      for (const key of syncedKeys) {
+        // Another tab's newest value/acknowledgement wins for fields it changed.
+        if (
+          !previous ||
+          shared.settings[key] !== previous.settings[key] ||
+          shared.pending.includes(key) !== previous.pending.includes(key)
+        ) {
+          Object.assign(settings, { [key]: shared.settings[key] });
+          if (shared.pending.includes(key)) pending.add(key);
+          else pending.delete(key);
+        }
+      }
+      const keys = syncedKeys.filter((key) => pending.has(key));
+      const since = keys.length
+        ? ((shared.revision !== state.revision ? shared.pendingSince : null) ??
+          [state.pendingSince, shared.pendingSince]
+            .filter((v): v is string => v !== null)
+            .sort()[0] ??
+          now())
+        : null;
+      const staleChoice = state.choice && choiceBasis?.revision !== shared.revision;
+      if (!keys.length || staleChoice) {
+        recovered = false;
+      }
+      set({
+        settings,
+        revision: shared.revision,
+        pending: keys,
+        pendingSince: since,
+        ...(canSync && state.status !== 'loading' && state.status !== 'syncing'
+          ? { status: keys.length ? ('unsynced' as const) : ('synced' as const) }
+          : {}),
+        // A server snapshot offered against an older shared revision is no longer a valid
+        // choice. Keep the reconciled fields and their pending markers instead.
+        ...(!keys.length || staleChoice
+          ? { choice: null }
+          : state.choice
+            ? { choice: { ...state.choice, local: settings } }
+            : {}),
+      });
+    }
+
     function persist(): void {
+      reconcile();
       const { scope, settings, revision, pending, pendingSince } = get();
-      const failed = write(settingsKey(scope), { settings, revision, pending, pendingSince });
+      const copy = { settings, revision, pending, pendingSince };
+      const failed = write(settingsKey(scope), copy);
+      if (!failed) observed = JSON.stringify(copy);
       if (
         failed !== get().notice &&
         (failed || get().notice.startsWith('Settings cannot be saved'))
@@ -331,17 +408,22 @@ export function createSettingsStore({
         set({ notice: failed });
     }
 
+    storage.subscribe?.((key) => {
+      if (key === null || key === settingsKey(get().scope)) reconcile();
+    });
+
     function synced(remote: RemoteSettings, sent: SyncedSettings): void {
+      reconcile();
       const current = get().settings;
       const pending = get().pending.filter((key) => current[key] !== sent[key]);
       uploadNeeded = false;
-      recovered = false;
+      recovered = recovered && pending.length > 0;
       set({
         revision: remote.revision,
         pending,
         pendingSince: pending.length ? get().pendingSince : null,
-        status: pending.length ? 'unsynced' : 'synced',
-        choice: null,
+        status: pending.length ? (recovered ? 'choice' : 'unsynced') : 'synced',
+        choice: recovered ? makeChoice(remote, true, remote.revision) : null,
         error: '',
         errorDetail: '',
       });
@@ -363,6 +445,15 @@ export function createSettingsStore({
       const result = await api.put(settings, revision, keepalive);
       if (token !== activation) return;
       inFlight = false;
+      reconcile();
+      if (
+        get().revision !== revision &&
+        (result.kind === 'failed' || get().revision !== result.remote.revision)
+      ) {
+        // A later tab acknowledgement can arrive before this response is handled. Fetch a
+        // current server copy rather than persisting the response's obsolete revision.
+        return refresh(token);
+      }
       if (result.kind === 'synced') {
         synced(result.remote, settings);
         return flushQueued();
@@ -375,12 +466,7 @@ export function createSettingsStore({
         exitQueued = false;
         set({
           status: 'choice',
-          choice: {
-            local: get().settings,
-            remote: result.remote,
-            recovered: false,
-            since: get().pendingSince,
-          },
+          choice: makeChoice(result.remote, false),
         });
         return;
       }
@@ -392,21 +478,40 @@ export function createSettingsStore({
 
     async function refresh(token: number): Promise<void> {
       set({ status: 'loading', error: '' });
-      let remote: RemoteSettings;
-      try {
-        remote = await api.get();
-      } catch (error) {
-        if (token === activation) {
-          exitQueued = false;
-          set({
-            status: 'error',
-            error: 'your synced settings could not be loaded',
-            errorDetail: errorMessage(error),
-          });
+      let remote: RemoteSettings | null = null;
+      // Another tab may sync while this GET is in flight; its response is then older than the
+      // shared copy and must not replace it, so ask again (a few times at most).
+      for (let attempt = 0; attempt < 3 && !remote; attempt++) {
+        reconcile();
+        const started = get().revision;
+        let received: RemoteSettings;
+        try {
+          received = await api.get();
+        } catch (error) {
+          if (token === activation) {
+            exitQueued = false;
+            set({
+              status: 'error',
+              error: 'your synced settings could not be loaded',
+              errorDetail: errorMessage(error),
+            });
+          }
+          return;
         }
+        if (token !== activation) return;
+        reconcile();
+        const current = get().revision;
+        if (current === started || current === received.revision) remote = received;
+      }
+      if (!remote) {
+        exitQueued = false;
+        set({
+          status: 'error',
+          error: 'your synced settings changed in another tab while loading',
+          errorDetail: '',
+        });
         return;
       }
-      if (token !== activation) return;
       remoteLoaded = true;
       const state = get();
       uploadNeeded = remote.settings === null;
@@ -419,7 +524,7 @@ export function createSettingsStore({
           exitQueued = false;
           set({
             status: 'choice',
-            choice: { local: state.settings, remote, recovered: true, since: state.pendingSince },
+            choice: makeChoice(remote, true),
           });
           return;
         }
@@ -458,6 +563,7 @@ export function createSettingsStore({
         const token = ++activation;
         const scope = user ? String(user.id) : 'anonymous';
         const copy = load(scope);
+        observed = read(settingsKey(scope));
         canSync = Boolean(syncEnabled && user?.role);
         remoteLoaded = false;
         uploadNeeded = false;
@@ -468,7 +574,6 @@ export function createSettingsStore({
         set({
           scope,
           ...copy,
-          ...(canSync ? {} : { pending: [], pendingSince: null }),
           notice,
           choice: null,
           error: '',
@@ -480,6 +585,7 @@ export function createSettingsStore({
       },
 
       update(patch) {
+        reconcile();
         const state = get();
         const settings = readSynced({ ...state.settings, ...patch });
         const changed = syncedKeys.filter((key) => settings[key] !== state.settings[key]);
@@ -514,6 +620,7 @@ export function createSettingsStore({
       },
 
       async sync({ keepalive = false } = {}) {
+        reconcile();
         const state = get();
         if (canSync && !keepalive && (inFlight || state.status === 'loading')) exitQueued = true;
         if (!canSync || inFlight || state.choice || state.status === 'loading') return;
@@ -540,6 +647,7 @@ export function createSettingsStore({
       },
 
       async keepLocal() {
+        reconcile();
         const choice = get().choice;
         if (!choice || inFlight) return;
         recovered = false;
@@ -548,17 +656,27 @@ export function createSettingsStore({
       },
 
       useRemote() {
+        reconcile();
         const choice = get().choice;
         if (!choice) return;
         recovered = false;
         uploadNeeded = false;
+        const state = get();
+        const settings = { ...(choice.remote.settings ?? defaultSyncedSettings) };
+        const pending = state.pending.filter(
+          (key) =>
+            !choiceBasis ||
+            !choiceBasis.pending.includes(key) ||
+            state.settings[key] !== choiceBasis.settings[key],
+        );
+        for (const key of pending) Object.assign(settings, { [key]: state.settings[key] });
         set({
-          settings: choice.remote.settings ?? { ...defaultSyncedSettings },
+          settings,
           revision: choice.remote.revision,
-          pending: [],
-          pendingSince: null,
+          pending,
+          pendingSince: pending.length ? state.pendingSince : null,
           choice: null,
-          status: 'synced',
+          status: pending.length ? 'unsynced' : 'synced',
           error: '',
           errorDetail: '',
         });

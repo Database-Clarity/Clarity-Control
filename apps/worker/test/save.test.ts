@@ -58,6 +58,32 @@ describe('save permission matrix', () => {
     expect((await fixture.request('/save', 'POST', change(tooltip(), next), 4)).status).toBe(200);
   });
 
+  it('rejects the translator null-base creation repro without writing', async () => {
+    const response = await fixture.request(
+      '/save',
+      'POST',
+      {
+        message: 'Create',
+        changes: [
+          {
+            hash: 125,
+            base: null,
+            next: {
+              hash: 125,
+              text: {
+                de: { text: 'Deutsch', updatedAt: '2026-11-03T00:00:00Z', updatedBy: 'dan' },
+              },
+              associated: [],
+            },
+          },
+        ],
+      },
+      4,
+    );
+    expect(response.status).toBe(403);
+    expect(fixture.commits).toHaveLength(0);
+  });
+
   it.each(['en', 'fr', 'associated', 'compendium', 'legacy', 'custom'])(
     'rejects translator changes to %s',
     async (field) => {

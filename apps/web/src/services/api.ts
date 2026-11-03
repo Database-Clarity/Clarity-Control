@@ -42,7 +42,7 @@ export {
   rememberSignIn,
   consumePendingSignIn,
 } from './session';
-import { sessionToken, clearSession } from './session';
+import { sessionToken, dropRejectedSession } from './session';
 function authorization(): Record<string, string> {
   const token = sessionToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -74,8 +74,8 @@ export async function getMe(): Promise<User | null> {
     headers,
   });
   if (response.status === 401) {
-    if (headers.Authorization && headers.Authorization === authorization().Authorization)
-      clearSession();
+    const token = sessionToken();
+    if (token && headers.Authorization === `Bearer ${token}`) dropRejectedSession(token);
     return null;
   }
   if (!response.ok) return failure(response);

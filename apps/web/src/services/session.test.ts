@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   clearSession,
   consumePendingSignIn,
+  dropRejectedSession,
   rememberSignIn,
   sessionToken,
   setSession,
@@ -104,4 +105,41 @@ it('remember-me sign-in still persists after a pending check, and a forged callb
   const fresh = token() + 'x';
   setSession(fresh);
   expect(localStorage.getItem(key)).toBe(fresh);
+});
+
+it('expires an older per-tab token without deleting or signing out a newer remembered session', () => {
+  vi.useFakeTimers();
+  setSession(token()); // Tab A, without Remember me.
+  vi.advanceTimersByTime(30000);
+  const newer = token();
+  localStorage.setItem(key, newer); // Tab B, with Remember me; A retains its per-tab token.
+  const reload = vi.fn();
+  const stop = subscribeSession(reload);
+  vi.advanceTimersByTime(31000);
+  expect(sessionStorage.getItem(key)).toBeNull();
+  expect(localStorage.getItem(key)).toBe(newer);
+  expect(localStorage.getItem('clarity-editor-signout')).toBeNull();
+  expect(sessionToken()).toBe(newer);
+  expect(reload).toHaveBeenCalledOnce();
+  stop();
+});
+
+it('removes an expired shared entry without broadcasting global logout', () => {
+  vi.useFakeTimers();
+  setSession(token(), true);
+  vi.advanceTimersByTime(61000);
+  expect(sessionToken()).toBeNull();
+  expect(localStorage.getItem(key)).toBeNull();
+  expect(localStorage.getItem('clarity-editor-signout')).toBeNull();
+});
+
+it('a server-rejected per-tab token leaves a different remembered token and does not sign out other tabs', () => {
+  const rejected = token();
+  setSession(rejected); // This tab, without Remember me.
+  const remembered = token() + 'x';
+  localStorage.setItem(key, remembered);
+  dropRejectedSession(rejected);
+  expect(sessionStorage.getItem(key)).toBeNull();
+  expect(localStorage.getItem(key)).toBe(remembered);
+  expect(localStorage.getItem('clarity-editor-signout')).toBeNull();
 });

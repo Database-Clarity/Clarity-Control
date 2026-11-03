@@ -456,3 +456,232 @@ describe('editor font device preference', () => {
     expect(make(storage, server).getState().device.editorFont).toBe('default');
   });
 });
+
+describe('settings store: two tabs', () => {
+  it('preserves another tab pending edit and recovery marker when a delayed GET finishes', async () => {
+    const { storage, values } = memoryStorage();
+    const server = fakeServer({ settings: { ...defaultSyncedSettings }, revision: 'r1' });
+    const a = make(storage, server);
+    await a.getState().activate(editor);
+    let release!: (remote: typeof server.remote) => void;
+    const b = createSettingsStore({
+      storage,
+      syncEnabled: true,
+      api: {
+        ...server.api,
+        get: () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+      },
+    });
+    const loading = b.getState().activate(editor);
+    a.getState().enterSettings();
+    a.getState().update({ dateFormat: 'iso' });
+    const marker = a.getState().pendingSince;
+    release({ settings: { ...defaultSyncedSettings }, revision: 'r1' });
+    await loading;
+    expect(JSON.parse(values.get(settingsKey('7'))!)).toMatchObject({
+      settings: { dateFormat: 'iso' },
+      pending: ['dateFormat'],
+      pendingSince: marker,
+    });
+    // A live tab's edit is imported as pending, not as an "earlier visit" prompt.
+    expect(b.getState()).toMatchObject({
+      status: 'unsynced',
+      choice: null,
+      pending: ['dateFormat'],
+      settings: { dateFormat: 'iso' },
+    });
+    b.getState().syncOnHide();
+    expect(server.calls.put).toHaveLength(0);
+    const reloaded = make(storage, server);
+    await reloaded.getState().activate(editor);
+    expect(reloaded.getState()).toMatchObject({
+      status: 'choice',
+      choice: { recovered: true, local: { dateFormat: 'iso' } },
+    });
+  });
+
+  it('reconciles disjoint and same-field edits before writing even without storage events', async () => {
+    const { storage, values } = memoryStorage();
+    const server = fakeServer({ settings: { ...defaultSyncedSettings }, revision: 'r1' });
+    const a = make(storage, server);
+    const b = make(storage, server);
+    await a.getState().activate(editor);
+    await b.getState().activate(editor);
+    a.getState().update({ dateFormat: 'iso' });
+    b.getState().update({ timeZone: 'UTC' });
+    a.getState().update({ dateFormat: 'mdy' });
+    const copy = JSON.parse(values.get(settingsKey('7'))!);
+    expect(copy.settings).toMatchObject({ dateFormat: 'mdy', timeZone: 'UTC' });
+    expect(copy.pending.sort()).toEqual(['dateFormat', 'timeZone']);
+    b.getState().update({ dateFormat: 'dmy' });
+    expect(JSON.parse(values.get(settingsKey('7'))!).settings).toMatchObject({
+      dateFormat: 'dmy',
+      timeZone: 'UTC',
+    });
+  });
+
+  it('reacts to storage events without writing or uploading the other tab edits', async () => {
+    const { storage, values } = memoryStorage();
+    const listeners: ((key: string | null) => void)[] = [];
+    const server = fakeServer({ settings: { ...defaultSyncedSettings }, revision: 'r1' });
+    const a = make(storage, server);
+    const b = make(
+      {
+        ...storage,
+        subscribe: (listener) => {
+          listeners.push(listener);
+        },
+      },
+      server,
+    );
+    await a.getState().activate(editor);
+    await b.getState().activate(editor);
+    a.getState().update({ dateFormat: 'iso' });
+    const raw = values.get(settingsKey('7'));
+    listeners.forEach((listener) => listener(settingsKey('8')));
+    expect(b.getState().settings.dateFormat).toBe('auto');
+    listeners.forEach((listener) => listener(settingsKey('7')));
+    expect(b.getState()).toMatchObject({
+      settings: { dateFormat: 'iso' },
+      pending: ['dateFormat'],
+      status: 'unsynced',
+      choice: null,
+    });
+    expect(values.get(settingsKey('7'))).toBe(raw);
+    expect(server.calls.put).toHaveLength(0);
+  });
+
+  it('does not clear a pending marker when a tab temporarily has no sync access', async () => {
+    const { storage, values } = memoryStorage();
+    const server = fakeServer({ settings: { ...defaultSyncedSettings }, revision: 'r1' });
+    const a = make(storage, server);
+    await a.getState().activate(editor);
+    a.getState().update({ dateFormat: 'iso' });
+    const b = make(storage, server);
+    await b.getState().activate({ ...editor, role: null });
+    b.getState().update({ timeZone: 'UTC' });
+    expect(JSON.parse(values.get(settingsKey('7'))!)).toMatchObject({
+      settings: { dateFormat: 'iso', timeZone: 'UTC' },
+      pending: ['dateFormat'],
+      pendingSince: a.getState().pendingSince,
+    });
+  });
+
+  it('clears a stale recovery choice after the other tab acknowledges pending settings', async () => {
+    const { storage } = memoryStorage();
+    const listeners: ((key: string | null) => void)[] = [];
+    const server = fakeServer({ settings: { ...defaultSyncedSettings }, revision: 'r1' });
+    const a = make(storage, server);
+    const b = make(
+      {
+        ...storage,
+        subscribe: (listener) => {
+          listeners.push(listener);
+        },
+      },
+      server,
+    );
+    await a.getState().activate(editor);
+    await b.getState().activate(editor);
+    a.getState().update({ dateFormat: 'iso' });
+    listeners.forEach((listener) => listener(settingsKey('7')));
+    expect(b.getState().status).toBe('unsynced');
+    await a.getState().sync();
+    listeners.forEach((listener) => listener(settingsKey('7')));
+    expect(b.getState()).toMatchObject({ status: 'synced', choice: null, pending: [] });
+    b.getState().update({ timeZone: 'UTC' });
+    await b.getState().sync();
+    expect(server.calls.put).toHaveLength(2);
+  });
+
+  it('keeps edits made in another tab while a PUT is in flight', async () => {
+    const { storage, values } = memoryStorage();
+    const server = fakeServer({ settings: { ...defaultSyncedSettings }, revision: null });
+    const a = make(storage, server);
+    const b = make(storage, server);
+    await a.getState().activate(editor);
+    await b.getState().activate(editor);
+    a.getState().update({ dateFormat: 'iso' });
+    server.hold();
+    const sending = a.getState().sync();
+    b.getState().update({ dateFormat: 'mdy', timeZone: 'UTC' });
+    await server.release();
+    await sending;
+    expect(JSON.parse(values.get(settingsKey('7'))!)).toMatchObject({
+      settings: { dateFormat: 'mdy', timeZone: 'UTC' },
+      pending: ['dateFormat', 'timeZone'],
+    });
+    expect(a.getState()).toMatchObject({ status: 'unsynced', choice: null });
+    expect(server.calls.put).toHaveLength(1);
+    const reloaded = make(storage, server);
+    await reloaded.getState().activate(editor);
+    expect(reloaded.getState().choice?.recovered).toBe(true);
+  });
+
+  it('drops a GET that finished after another tab synced newer settings and asks again', async () => {
+    const { storage } = memoryStorage();
+    const server = fakeServer({ settings: { ...defaultSyncedSettings }, revision: 'r1' });
+    const a = make(storage, server);
+    await a.getState().activate(editor);
+    const stale = { settings: { ...defaultSyncedSettings }, revision: 'r1' };
+    let release!: (remote: typeof stale) => void;
+    let gets = 0;
+    const b = createSettingsStore({
+      storage,
+      syncEnabled: true,
+      api: {
+        ...server.api,
+        get: () =>
+          gets++ === 0
+            ? new Promise((resolve) => {
+                release = resolve;
+              })
+            : server.api.get(),
+      },
+    });
+    const loading = b.getState().activate(editor);
+    a.getState().update({ dateFormat: 'iso' });
+    await a.getState().sync();
+    release(stale);
+    await loading;
+    expect(gets).toBe(2);
+    expect(b.getState().settings.dateFormat).toBe('iso');
+    expect(b.getState().revision).toBe(server.remote.revision);
+    // The first tab keeps its saved value and is not pushed into a conflict.
+    a.getState().update({ timeZone: 'UTC' });
+    await a.getState().sync();
+    expect(a.getState()).toMatchObject({
+      status: 'synced',
+      choice: null,
+      settings: { dateFormat: 'iso', timeZone: 'UTC' },
+    });
+    expect(server.remote.settings).toMatchObject({ dateFormat: 'iso', timeZone: 'UTC' });
+  });
+
+  it('never offers an out-of-date account copy because another open tab has pending edits', async () => {
+    const { storage } = memoryStorage();
+    const server = fakeServer({ settings: { ...defaultSyncedSettings }, revision: 'r1' });
+    const a = make(storage, server);
+    const b = make(storage, server);
+    await a.getState().activate(editor);
+    await b.getState().activate(editor);
+    b.getState().update({ timeZone: 'UTC' });
+    server.hold();
+    const sending = b.getState().sync();
+    a.getState().update({ dateFormat: 'iso' });
+    await server.release();
+    await sending;
+    expect(a.getState().choice).toBeNull();
+    expect(b.getState().choice).toBeNull();
+    expect(a.getState()).toMatchObject({
+      status: 'unsynced',
+      settings: { dateFormat: 'iso', timeZone: 'UTC' },
+    });
+    await a.getState().sync();
+    expect(a.getState().status).toBe('synced');
+    expect(server.remote.settings).toMatchObject({ dateFormat: 'iso', timeZone: 'UTC' });
+  });
+});

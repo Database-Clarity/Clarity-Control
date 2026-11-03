@@ -22,6 +22,8 @@ export function requireAccess(
 }
 
 export function checkEdit(access: Access, base: Tooltip | null, next: Tooltip): void {
+  if (access.role === 'translator' && base === null)
+    throw new HttpError(403, 'Translators may not create tooltips');
   if (
     JSON.stringify(base?.archive) !== JSON.stringify(next.archive) &&
     access.role !== 'maintainer' &&
@@ -47,7 +49,7 @@ export function checkEdit(access: Access, base: Tooltip | null, next: Tooltip): 
       ),
     ),
   });
-  const original = base ?? { hash: next.hash, text: {}, associated: [] };
+  const original = base!;
   if (stableStringify(withoutAllowed(original)) !== stableStringify(withoutAllowed(next))) {
     throw new HttpError(403, 'Translators may change only text in their assigned languages');
   }
