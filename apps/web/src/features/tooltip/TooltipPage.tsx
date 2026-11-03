@@ -364,6 +364,7 @@ export function TooltipPage({
             globals={globalsFor(variant)}
             requireEnglish={false}
             readOnly
+            readOnlyReason="Stored form: read only"
             symbols={false}
             onChange={() => undefined}
           />
