@@ -1,3 +1,4 @@
+import { setBonusCell } from './setBonus.js';
 import { reviewedCompendiumLink, reviewedCompendiumRules } from './reviewed.js';
 import { resolveAlias } from '../aliases.js';
 import type { Aliases } from '../aliases.js';
@@ -25,6 +26,10 @@ export interface CompendiumItem {
   categoryId: string;
   itemName?: string;
   baseHash?: number;
+  setName?: string;
+  pieceCount?: 2 | 4;
+  hiddenFromEditor?: boolean;
+  inGameDescription?: string;
 }
 export interface AutoLinkResult {
   hash: number;
@@ -47,6 +52,8 @@ export function autoLinkCompendium(
   const category = item?.categoryId ?? tooltip.custom?.categoryId ?? 'unknown';
   const result = { hash: tooltip.hash, name, category, candidates: [] };
   if (resolveAlias(tooltip.hash, aliases) !== tooltip.hash) return { ...result, reason: 'alias' };
+  if (item?.hiddenFromEditor || (category === 'armor-mod-general' && /^Set Bonus:/.test(name)))
+    return { ...result, reason: 'no-equivalent' };
   if (tooltip.hash <= 3) return { ...result, reason: 'no-equivalent' };
   if (tooltip.compendium) {
     const resolved = resolveCompendiumLink(tooltip.compendium, data);
@@ -60,6 +67,34 @@ export function autoLinkCompendium(
     return compendium
       ? { ...result, reason: 'linked', next: { ...tooltip, compendium } }
       : { ...result, reason: 'unmatched' };
+  }
+  if (category === 'armor-set-bonus') {
+    if (!item?.setName || !item.pieceCount) return { ...result, reason: 'unmatched' };
+    const matches: CompendiumMatch[] = data.tabs
+      .filter((tab) => tab.gid === '1287885342' && isTrackedCompendiumTab(tab.name))
+      .flatMap((tab) =>
+        tab.rows.flatMap((row) => {
+          if (
+            !compendiumIdentifiers(row.name).some(
+              (name) => normaliseCompendiumName(name) === normaliseCompendiumName(item.setName!),
+            )
+          )
+            return [];
+          const cell = setBonusCell(row.cell, item.pieceCount!);
+          return cell ? [{ tab, row: { ...row, cell }, setBonusPieces: item.pieceCount }] : [];
+        }),
+      );
+    return matches.length === 1
+      ? {
+          ...result,
+          reason: 'linked',
+          next: { ...tooltip, compendium: snapshotCompendium(matches[0], now) },
+        }
+      : {
+          ...result,
+          reason: matches.length ? 'ambiguous' : 'unmatched',
+          candidates: matches.map((match) => ({ ...match, similarity: 1 })),
+        };
   }
   const family = Object.values(items).filter(
     (entry) => resolveAlias(entry.hash, aliases) === tooltip.hash,

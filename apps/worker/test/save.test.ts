@@ -232,3 +232,24 @@ describe('save concurrency', () => {
     expect(fixture.commits).toHaveLength(0);
   });
 });
+
+describe('sandbox set-bonus creation follows existing armor permissions', () => {
+  it.each([1, 2, 3, 4])('uses the existing role rule for user %s', async (id) => {
+    const next: Tooltip = {
+      ...tooltip('Set-bonus text'),
+      hash: 3333333333,
+      custom: { name: 'Example Set (2 pc): Bonus', categoryId: 'armor-set-bonus' },
+    };
+    const response = await fixture.request(
+      '/save',
+      'POST',
+      {
+        changes: [{ hash: next.hash, base: null, next }],
+        message: 'Create set bonus',
+      },
+      id,
+    );
+    expect(response.status).toBe(id === 4 ? 403 : 200);
+    expect(fixture.commits).toHaveLength(id === 4 ? 0 : 1);
+  });
+});

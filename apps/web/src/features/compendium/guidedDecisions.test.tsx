@@ -106,10 +106,7 @@ it('requires catalog parent and perk identity on the exotic card', () => {
 });
 
 it('uses core armor variants while protecting multipart and owner samples', () => {
-  for (const [name, row, gid] of [
-    ['Harmonic Dexterity', 'Dexterity', '1934379638'],
-    ['Set Bonus: AION Adapter', 'AION Adapter', '1287885342'],
-  ]) {
+  for (const [name, row, gid] of [['Harmonic Dexterity', 'Dexterity', '1934379638']]) {
     const f = guidedFixture();
     const category = f.categories[0];
     const record = f.document.categories[category.id];

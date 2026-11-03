@@ -66,3 +66,10 @@ The app uses hash URLs so refreshing a link works on static hosting:
 The left navigation uses normal router links, so browser back/forward works.
 SCSS modules, original theme colors, and the DestinySymbols font keep the familiar
 dark-and-orange look. No connection to production services is made by this shell.
+
+
+Armor set bonuses use the generator's `armor-set-bonus` category and sandbox perk hash as
+the tooltip identity. Finder entries show the set and piece count in 2pc/4pc order; retained
+set-conversion selector records are hidden from finder and worklists. Compendium links match
+Armor Perks cards by set name and explicit piece count and preserve that count when refreshed.
+The existing Worker save permissions and hash-keyed export apply to these tooltips unchanged.

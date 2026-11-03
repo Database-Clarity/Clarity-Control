@@ -1,4 +1,4 @@
-import { classifyItem, derivedCategories } from '../compendium/itemClassification';
+import { classifyItem, derivedCategories, isSetSelector } from '../compendium/itemClassification';
 import { currentArtifactOwners } from '../compendium/artifactIdentity';
 import { resolveAlias, type Tooltip, type CompendiumData } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
@@ -147,9 +147,11 @@ export function navigationGroups(data: EditorData, query: string): CategoryGroup
     )
     .filter(
       (item) =>
+        !isSetSelector(item) &&
         canonicalHash(item.hash, data) === item.hash &&
         (!search ||
           item.name.toLocaleLowerCase().includes(search) ||
+          item.setName?.toLocaleLowerCase().includes(search) ||
           variantHashes(item.hash, data).some(
             (hash) =>
               String(hash).includes(search) ||
@@ -178,7 +180,13 @@ export function navigationGroups(data: EditorData, query: string): CategoryGroup
   for (const category of categories.sort((a, b) => a.order - b.order)) {
     const entries = classifiedItems
       .filter((item) => item.categoryId === category.id)
-      .sort((a, b) => a.name.localeCompare(b.name) || a.hash - b.hash);
+      .sort(
+        (a, b) =>
+          (a.setName ?? a.name).localeCompare(b.setName ?? b.name) ||
+          (a.pieceCount ?? 0) - (b.pieceCount ?? 0) ||
+          a.name.localeCompare(b.name) ||
+          a.hash - b.hash,
+      );
     if (!entries.length) continue;
     const group = groups.get(category.group) ?? { name: category.group, sections: [] };
     group.sections.push({ ...category, items: entries });

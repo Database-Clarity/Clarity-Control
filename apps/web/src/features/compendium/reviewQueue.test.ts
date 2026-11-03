@@ -248,3 +248,13 @@ it('reuses resolved evidence for local navigation and decisions; changed source 
   });
   expect(progress.decisions[100]).toBe(decision);
 });
+
+it('hides selectors from review worklists without deleting their tooltip records', () => {
+  const editor = fixture();
+  editor.items[100] = { ...editor.items[100], name: 'Set Bonus: Example', hiddenFromEditor: true };
+  const before = JSON.stringify(editor);
+  expect(reviewEvidence(editor, source, {}, fingerprint).some((entry) => entry.hash === 100)).toBe(
+    false,
+  );
+  expect(JSON.stringify(editor)).toBe(before);
+});

@@ -4,6 +4,16 @@ import { loadManifestFacts, type ManifestFacts } from './manifestFacts';
 import triage from './owner-triage.json';
 import { approvedExoticStat } from './ownerExceptions';
 
+export function isSetSelector(
+  item: Pick<Item, 'name' | 'hiddenFromEditor' | 'inGameDescription'>,
+): boolean {
+  return (
+    item.hiddenFromEditor === true ||
+    (/^Set Bonus:/.test(item.name) &&
+      /^Converts this armor to the .+ armor set,/.test(item.inGameDescription))
+  );
+}
+
 export const attachmentCategory = 'weapon-attachment';
 export const effectCategory = 'attachment-effect';
 export const inactiveCategory = 'inactive-placeholder';

@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EditorData } from '../../stores/data';
-import { canonicalHash, navigationGroups, sharedPerkLabel, singleOwnerLabel, variantHashes } from './catalog';
+import {
+  canonicalHash,
+  navigationGroups,
+  sharedPerkLabel,
+  singleOwnerLabel,
+  variantHashes,
+} from './catalog';
 import {
   categoryPosition,
   createStepping,
@@ -80,11 +86,17 @@ const data: EditorData = {
 
 describe('tooltip catalog', () => {
   it('retains and discovers single owner identity with fallback names', () => {
-    const single: EditorData = { ...data, items: { 10: { ...data.items[10], itemHash: 42, itemName: 'Hidden Exotic' } } };
+    const single: EditorData = {
+      ...data,
+      items: { 10: { ...data.items[10], itemHash: 42, itemName: 'Hidden Exotic' } },
+    };
     expect(singleOwnerLabel(10, single)).toBe('Owner: Hidden Exotic / 42');
     expect(navigationGroups(single, 'hidden exotic')[0].sections[0].items[0].hash).toBe(10);
     expect(navigationGroups(single, '42')[0].sections[0].items[0].hash).toBe(10);
-    const fallback: EditorData = { ...single, items: { 10: { ...single.items[10], itemName: undefined } } };
+    const fallback: EditorData = {
+      ...single,
+      items: { 10: { ...single.items[10], itemName: undefined } },
+    };
     expect(singleOwnerLabel(10, fallback)).toBe('Owner: 42');
   });
 
@@ -486,4 +498,36 @@ describe('stepping history', () => {
       expect(entries).toEqual(['/t/10?lang=fr&line=3', '/t/30?lang=fr']);
     });
   });
+});
+
+it('finds set names in 2pc/4pc order and hides set-conversion selectors', () => {
+  const entry = {
+    icon: '',
+    inGameDescription: '',
+    categoryId: 'armor-set-bonus',
+    setName: 'Example Set',
+    setHash: 901,
+  };
+  const editor: EditorData = {
+    ...data,
+    aliases: {},
+    items: {
+      701: { ...entry, hash: 701, name: 'A fourth perk', pieceCount: 4 },
+      702: { ...entry, hash: 702, name: 'Z second perk', pieceCount: 2 },
+      703: {
+        hash: 703,
+        name: 'Set Bonus: Example Set',
+        icon: '',
+        categoryId: 'armor-mod-general',
+        inGameDescription:
+          'Converts this armor to the Example Set armor set, reducing the requirements for its set bonus perks by 1',
+      },
+    },
+  };
+  expect(
+    navigationGroups(editor, 'Example Set').flatMap((g) =>
+      g.sections.flatMap((s) => s.items.map((i) => i.hash)),
+    ),
+  ).toEqual([702, 701]);
+  expect(navigationGroups(editor, '703')).toEqual([]);
 });

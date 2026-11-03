@@ -1,3 +1,4 @@
+import { isSetSelector } from '../compendium/itemClassification';
 import { languageLabel } from '../../languageLabels';
 import { useDeferredValue, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -95,7 +96,15 @@ export function TranslationsPage() {
   );
   const queue = useMemo(
     () =>
-      data ? translationQueue(Object.values(data.bundle.tooltips), selected, data.aliases) : [],
+      data
+        ? translationQueue(
+            Object.values(data.bundle.tooltips).filter(
+              (tooltip) => !data.items[tooltip.hash] || !isSetSelector(data.items[tooltip.hash]),
+            ),
+            selected,
+            data.aliases,
+          )
+        : [],
     [data, selected],
   );
   const nameOf = useMemo(
@@ -128,7 +137,9 @@ export function TranslationsPage() {
         the gap exceeds 90 days, so it is exported in English). Only tooltips with English text are
         listed. Local drafts are not included.
       </p>
-      {translator && <p>Your assigned languages: {available.map(languageLabel).join(', ') || 'none'}.</p>}
+      {translator && (
+        <p>Your assigned languages: {available.map(languageLabel).join(', ') || 'none'}.</p>
+      )}
       <div className={styles.filters}>
         <div role="group" aria-label="Translation status" className={styles.chips}>
           {worklistFilters.map((filter) => (
