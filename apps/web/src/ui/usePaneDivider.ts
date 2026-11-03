@@ -29,6 +29,8 @@ export interface PaneDividerOptions {
   reserve?: number;
   /** The pane may be collapsed to nothing. Only an explicit action collapses it, never a drag. */
   collapsible?: boolean;
+  /** Collapsed until the user expands it, when nothing is saved (compact windows). */
+  defaultCollapsed?: boolean;
   /** false (phone): the size lives in memory only and nothing is read from or written to the device. */
   persist?: boolean;
 }
@@ -73,7 +75,16 @@ const clamp = (value: number, low: number, high: number) => Math.max(low, Math.m
  * that size clamped to the limits and the space available, so a narrow window never overwrites it.
  */
 export function usePaneDivider(options: PaneDividerOptions): PaneDividerHandle {
-  const { storeKey, sizes, min, max, defaultWidth, reserve = 0, collapsible = false } = options;
+  const {
+    storeKey,
+    sizes,
+    min,
+    max,
+    defaultWidth,
+    reserve = 0,
+    collapsible = false,
+    defaultCollapsed = false,
+  } = options;
   const persist = options.persist ?? true;
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -105,7 +116,7 @@ export function usePaneDivider(options: PaneDividerOptions): PaneDividerHandle {
     containerWidth > 0 ? Math.max(0, containerWidth - reserve - DIVIDER_TRACK) : Infinity;
   const upper = Math.min(max, space);
   const lower = Math.min(min, upper);
-  const collapsed = collapsible && Boolean(saved?.collapsed);
+  const collapsed = collapsible && (saved ? Boolean(saved.collapsed) : defaultCollapsed);
   const intended = dragWidth ?? saved?.width ?? fallback;
   const width = collapsed ? 0 : clamp(intended, lower, upper);
 

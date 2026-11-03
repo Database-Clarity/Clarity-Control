@@ -23,27 +23,12 @@
 .variant {
   margin-block: 2rem;
 }
-.columns {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
-  > * {
-    min-width: 0;
-  }
-  h3 {
-    margin-top: 0;
-  }
-}
 
-@media (max-width: 1000px) {
-  .columns {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
+// One column: the editor, then the pane that follows it. Where the editor can keep its width
+// beside the pane the workspace is split (data-split, set from the measured width, not the viewport).
 .workspace {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
   > * {
     min-width: 0;
@@ -60,7 +45,7 @@
     flex: 1;
     min-height: 44px;
     &[aria-selected='true'] {
-      border-color: theme.$orange-color;
+      border-color: var(--accent-ink);
     }
   }
 }
@@ -99,12 +84,6 @@
   .variant button {
     min-height: 44px;
     min-width: 44px;
-  }
-}
-
-@media (max-width: 1000px) {
-  .workspace {
-    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -227,28 +206,35 @@
   display: none;
 }
 
-@media (min-width: 1001px) {
-  .columns,
-  .workspace {
-    grid-template-columns: minmax(0, var(--editor-width)) 16px minmax(0, 1fr);
-    column-gap: 0;
-  }
-  .workspace .panel[data-panel='translation'] {
+// The look (hit zone, line, pill) belongs to the shared PaneDivider.
+.workspace[data-split] {
+  grid-template-columns: minmax(0, 1fr) 16px var(--right-width);
+  column-gap: 0;
+  .panel[data-panel='translation'] {
     grid-column: 1;
     grid-row: 2;
   }
-  .workspace .panel[data-panel='preview'] {
+  .panel[data-panel='preview'] {
     grid-column: 3;
     grid-row: 2;
   }
-  .workspace .divider {
+  .divider {
+    display: block;
     grid-column: 2;
     grid-row: 2;
   }
-  // The look (hit zone, line, pill) belongs to the shared PaneDivider.
-  .divider {
-    display: block;
-  }
+}
+
+// The preview column in the shell: one block per variant.
+.previewItem {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 12px;
+}
+.previewTitle {
+  margin: 0;
+  font-size: 0.875rem;
 }
 
 .categorySwitch {

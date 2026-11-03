@@ -40,7 +40,9 @@
 
 .hint {
   margin-left: 0.5rem;
-  font: 11px/1 ui-monospace, monospace;
+  font:
+    11px/1 ui-monospace,
+    monospace;
   padding: 1px 4px;
   border: 1px solid currentColor;
   border-radius: 3px;
@@ -75,11 +77,17 @@
   min-width: 0;
 }
 
+// The footer's one primary action is drawn with the accent edge.
 .footer {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 1rem;
+
+  button[data-primary] {
+    border-color: var(--accent-ink);
+    font-weight: 600;
+  }
 }
 
 // Full-height sheet: the header and the action footer stay reachable while the body scrolls.

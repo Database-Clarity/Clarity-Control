@@ -17,18 +17,21 @@ export function Header({
   pathname,
   routeFor,
   finder,
+  overlay,
 }: {
   user: Pick<User, 'role'> | null | undefined;
   pathname: string;
   routeFor(to: string): string;
   /** The finder slot content; rendered in the bar, or in the band when compact. */
   finder: ReactNode;
+  /** Notices that hang from the header's lower edge without taking space. */
+  overlay?: ReactNode;
 }) {
   const compact = useMedia(compactQuery);
   return (
     <header className={styles.header} data-compact={compact || undefined}>
       <div className={styles.bar}>
-        <Brand className={styles.brand} />
+        <Brand className={styles.brand} compact={compact} />
         <WorkspaceTabs user={user} pathname={pathname} routeFor={routeFor} />
         {!compact && <div className={styles.finder}>{finder}</div>}
         <div className={styles.end}>
@@ -37,6 +40,7 @@ export function Header({
         </div>
       </div>
       {compact && <div className={`${styles.finder} ${styles.band}`}>{finder}</div>}
+      {overlay}
     </header>
   );
 }

@@ -1,60 +1,41 @@
-import { useEffect, useRef, type CSSProperties } from 'react';
+import type { CSSProperties } from 'react';
 import { PaneDivider } from '../../ui/PaneDivider';
 import { DIVIDER_TRACK, usePaneDivider } from '../../ui/usePaneDivider';
-import { layoutKey } from '../../stores/settings';
 import styles from './TooltipPage.module.scss';
 
-const MIN_PANE = 240;
-
-/** The container must hold both minimum panes and the handle before an old percentage means anything. */
-const MEASURABLE = MIN_PANE * 2 + DIVIDER_TRACK;
-
-function readLegacySplit(): number | undefined {
-  try {
-    const saved = localStorage.getItem(layoutKey);
-    if (saved === null || saved.trim() === '') return undefined;
-    const value = Number(saved);
-    return Number.isFinite(value) ? value : undefined;
-  } catch {
-    return undefined;
-  }
-}
+/** The editor never gets narrower than this; the right pane is 320–640 beside it. */
+const EDITOR_MIN = 480;
+const RIGHT_MIN = 320;
+const RIGHT_MAX = 640;
+const RIGHT_DEFAULT = 384;
 
 /**
- * Compatibility adapter: today's editor | preview split on the shared divider, until the editor
- * page is rebuilt around its own pair. The old single percentage is converted once, the first time
- * the container is wide enough to measure; after that only the new pixel key is read or written.
+ * The editor | right pane pair (the Compendium comparison; the preview has its own column in the
+ * shell). The right pane is the one sized: 320–640, 384 by default, saved on this device as
+ * `editor:right`. Where the editor cannot keep 480px beside a 320px pane the pair stacks, so the
+ * editor is never squeezed: the pane follows below it. A phone has no divider at all (its panels
+ * are tabs). A pane that is not there (`hasPane` false) leaves the editor the whole width.
  */
-export function useWorkspaceDivider() {
+export function useWorkspaceDivider(hasPane = true) {
   const pane = usePaneDivider({
-    storeKey: 'workspace:editor',
-    sizes: 'start',
-    min: MIN_PANE,
-    max: 100_000,
-    reserve: MIN_PANE,
-    // The old default: an even split of the space beside the handle.
-    defaultWidth: (container) => Math.max(MIN_PANE, (container - DIVIDER_TRACK) / 2),
+    storeKey: 'editor:right',
+    sizes: 'end',
+    min: RIGHT_MIN,
+    max: RIGHT_MAX,
+    reserve: EDITOR_MIN,
+    defaultWidth: RIGHT_DEFAULT,
   });
-  const migrated = useRef(false);
-  const { saved, containerWidth, setWidth } = pane;
-  useEffect(() => {
-    if (migrated.current || containerWidth < MEASURABLE) return;
-    migrated.current = true;
-    if (saved) return;
-    const percent = readLegacySplit();
-    if (percent === undefined) return;
-    setWidth(((containerWidth - DIVIDER_TRACK) * percent) / 100);
-    try {
-      localStorage.removeItem(layoutKey);
-    } catch {
-      /* The old key stays; it is never read again once the new one exists. */
-    }
-  }, [saved, containerWidth, setWidth]);
+  const split = hasPane && pane.containerWidth >= EDITOR_MIN + DIVIDER_TRACK + RIGHT_MIN;
   return {
     container: pane.containerRef,
+    split,
     separator: (
-      <PaneDivider {...pane.divider} className={styles.divider} label="Resize editor and preview" />
+      <PaneDivider
+        {...pane.divider}
+        className={styles.divider}
+        label="Resize editor and Compendium"
+      />
     ),
-    style: { '--editor-width': `${pane.width}px` } as CSSProperties,
+    style: { '--right-width': `${pane.width}px` } as CSSProperties,
   };
 }

@@ -13,6 +13,11 @@ interface VariantWorkspaceProps {
   /** Present only when editing a non-English language; adds the source panel and tablist. */
   source?: ReactNode;
   editor: ReactNode;
+  /**
+   * The panel beside the editor. On a phone it is the preview view; on desktop, where the shell
+   * shows the preview in its left column, it holds only what stays beside the editor (the
+   * Compendium). Null leaves the editor alone: no panel, no tab, no divider.
+   */
   preview: ReactNode;
   /** Panel shown first; defaults to the editor. */
   initialPanel?: Panel;
@@ -28,15 +33,18 @@ export function VariantWorkspace({
   preview,
   initialPanel = 'translation',
 }: VariantWorkspaceProps) {
-  const { container, separator, style } = useWorkspaceDivider();
+  const hasPreview = preview !== null && preview !== undefined && preview !== false;
+  const { container, separator, style, split } = useWorkspaceDivider(hasPreview);
   const prefix = useId();
   const [active, setActive] = useState<Panel>(initialPanel);
   const tabs = useRef<Partial<Record<Panel, HTMLButtonElement | null>>>({});
-  const activePanel = !source && active === 'source' ? 'translation' : active;
+  const visiblePanels = panels.filter(
+    (panel) => (panel.id !== 'source' || source) && (panel.id !== 'preview' || hasPreview),
+  );
+  const activePanel = visiblePanels.some((panel) => panel.id === active) ? active : 'translation';
   useEffect(() => {
-    if (!source && active === 'source') setActive('translation');
-  }, [source, active]);
-  const visiblePanels = source ? panels : panels.filter((panel) => panel.id !== 'source');
+    if (activePanel !== active) setActive(activePanel);
+  }, [activePanel, active]);
   const content: Record<Panel, ReactNode> = { source, translation: editor, preview };
   function onKeyDown(event: KeyboardEvent) {
     const index = visiblePanels.findIndex((panel) => panel.id === activePanel);
@@ -57,7 +65,7 @@ export function VariantWorkspace({
     tabs.current[next]?.focus();
   }
   return (
-    <div className={styles.workspace} ref={container} style={style}>
+    <div className={styles.workspace} ref={container} style={style} data-split={split || undefined}>
       <div role="tablist" aria-label="Tooltip panels" className={styles.tabs} onKeyDown={onKeyDown}>
         {visiblePanels.map(({ id, label }) => (
           <button
@@ -90,7 +98,7 @@ export function VariantWorkspace({
           {content[id]}
         </div>
       ))}
-      {separator}
+      {split && separator}
     </div>
   );
 }
