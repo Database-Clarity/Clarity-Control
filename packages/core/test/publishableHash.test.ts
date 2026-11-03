@@ -200,11 +200,21 @@ test('incoming aliases are part of the digest, sorted, and absent aliases leave 
   expect(await publishableHash(value, { 7: { to: 42, kind: 'sandbox' } })).not.toBe(one);
 });
 
-test('digesting thousands of tooltips against thousands of aliases stays fast', async () => {
+test('digesting thousands of tooltips against thousands of aliases stays linear', async () => {
   const aliases: Record<string, { to: number; kind: 'frame' | 'sandbox' }> = {};
-  for (let index = 0; index < 3000; index++)
+  for (let index = 0; index < 3000; index++) {
     aliases[10_000 + index] = { to: index % 2900, kind: 'frame' };
-  const started = performance.now();
-  for (let hash = 0; hash < 2900; hash++) await publishableHash({ ...tooltip(), hash }, aliases);
-  expect(performance.now() - started).toBeLessThan(1500);
+  }
+  const run = async (withAliases: boolean) => {
+    const started = performance.now();
+    for (let hash = 0; hash < 2900; hash++) {
+      await publishableHash({ ...tooltip(), hash }, withAliases ? aliases : {});
+    }
+    return performance.now() - started;
+  };
+  await run(false);
+  const plain = await run(false);
+  const indexed = await run(true);
+  // A scan of every alias per tooltip was ~60x the plain cost; the index adds a small constant.
+  expect(indexed).toBeLessThan(plain * 15 + 300);
 });
