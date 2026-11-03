@@ -348,3 +348,19 @@ test('accepted duplicate bases preserve enhanced membership in older catalogs wi
   expect(pending.aliases[51]).toBeUndefined();
   expect(pending.issues).toHaveLength(1);
 });
+
+test('enhanced legendary frames retain the generated canonical across weapon types', () => {
+  const base = { ...items[42]!, categoryId: 'weapon-frame', name: 'Aggressive Frame' };
+  const facts = {
+    42: base,
+    43: { ...base, hash: 43, inGameDescription: 'Different weapon frame' },
+    50: { ...base, hash: 50, categoryId: 'weapon-frame-enhanced', baseHash: 42 },
+    51: { ...base, hash: 51, categoryId: 'weapon-frame-exotic' },
+  };
+  const generated = { 43: { to: 42, kind: 'frame' as const }, 50: { to: 42, kind: 'frame' as const } };
+  const result = effectiveAliases(generated, { version: 1, groups: {}, rejected: {} }, facts);
+  expect(result.issues).toEqual([]);
+  expect(aliasCanonicalHash(50, facts, result.aliases)).toBe(42);
+  expect(aliasCanonicalHash(43, facts, result.aliases)).toBe(42);
+  expect(aliasCanonicalHash(51, facts, result.aliases)).toBe(51);
+});
