@@ -1,0 +1,203 @@
+@use '../../../data/variables' as theme;
+@use '../../../ui/controls';
+
+// The suggestion popover: anchored to the caret but fixed, so it is never part of the text flow
+// and browsing it moves nothing. Dense (12px, 24px rows), token colours in both themes; a bottom
+// sheet with 44px rows on a phone or touch screen.
+.menu {
+  position: fixed;
+  z-index: 70;
+  left: var(--menu-left);
+  top: var(--menu-top);
+  display: flex;
+  width: min(34rem, calc(100vw - 16px));
+  max-height: var(--menu-max);
+  box-sizing: border-box;
+  overflow: hidden;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  border-radius: 0.25rem;
+  @include controls.overlay-surface;
+
+  &.above {
+    transform: translateY(-100%);
+  }
+}
+
+.list {
+  flex: 0 0 13.5rem;
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.25rem 0;
+  border-right: 1px solid var(--hair);
+}
+
+.category {
+  padding: 0.25rem 0.5rem 0.125rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text3);
+}
+
+.option {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-height: 1.5rem;
+  padding: 0.125rem 0.5rem;
+  cursor: pointer;
+  &[aria-selected='true'] {
+    background: var(--sel);
+    box-shadow: inset 2px 0 0 var(--accent-ink);
+  }
+}
+
+.label {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  [data-category='Tags'] > &,
+  [data-category='Symbols'] > &,
+  [data-category='Globals'] > & {
+    font-family: var(--editor-font, Consolas, monospace);
+  }
+}
+
+.hint {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text3);
+}
+
+.detail {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.375rem 0.5rem;
+  p {
+    margin: 0;
+  }
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.kind {
+  margin-left: auto;
+  flex: none;
+  font-size: 0.625rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text3);
+}
+
+.close {
+  @include controls.button;
+  display: none;
+  flex: none;
+  @include theme.mobile-or-coarse {
+    display: inline-flex;
+  }
+}
+
+.markup {
+  margin: 0;
+  max-height: 5.5rem;
+  overflow: auto;
+  padding: 0.125rem 0.25rem;
+  font: inherit;
+  font-family: var(--editor-font, Consolas, monospace);
+  color: var(--text2);
+  background: var(--fld);
+  border: 1px solid var(--hair);
+  border-radius: 2px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+// The rendered line keeps the tooltip preview's own surface (it has one per theme).
+.rendered {
+  max-height: 8rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
+.about {
+  color: var(--text2);
+}
+
+.usage {
+  color: var(--text3);
+}
+
+.note {
+  color: var(--warn);
+}
+
+.keys {
+  margin-top: auto;
+  padding-top: 0.125rem;
+  font-size: 0.6875rem;
+  color: var(--text3);
+}
+
+@include theme.mobile-or-coarse {
+  .menu {
+    font-size: max(14px, 0.875rem);
+  }
+  .option {
+    min-height: max(44px, 2.75rem);
+    align-items: center;
+  }
+  .keys {
+    display: none;
+  }
+}
+
+// A phone: the same caret-anchored popover, edge to edge, list above the detail pane. It sits
+// above the caret line when there is no room below (the keyboard shortens the visible area), so
+// the line being typed is never covered.
+@include theme.mobile {
+  .menu {
+    left: 8px;
+    right: 8px;
+    width: auto;
+    flex-direction: column;
+  }
+  .list {
+    flex: 1 1 auto;
+    min-height: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--hair);
+  }
+  .detail {
+    flex: 0 0 auto;
+    max-height: 7.5rem;
+  }
+  .markup {
+    display: none;
+  }
+}

@@ -32,10 +32,6 @@
     :global(.cm-gutters) {
       display: none;
     }
-    :global(.cm-tooltip-autocomplete > ul) {
-      // CodeMirror's own rule is `max-width: 700px` with equal specificity.
-      max-width: min(90vw, 20rem) !important;
-    }
   }
   :global(.cm-scroller) {
     font-family: var(--editor-font, Consolas, monospace);
@@ -69,9 +65,12 @@
     color: var(--text);
     border: 1px solid var(--pop-edge);
   }
-  :global(.cm-tooltip-autocomplete > ul > li[aria-selected]) {
+  // Tab stops left by a snippet: background and underline only, so the text never moves.
+  :global(.cm-suggestStop) {
     background: var(--sel);
-    color: var(--text);
+    text-decoration: underline;
+    text-decoration-color: var(--accent-ink);
+    text-underline-offset: 2px;
   }
   // Find and replace.
   :global(.cm-panels) {

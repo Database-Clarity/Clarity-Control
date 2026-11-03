@@ -89,6 +89,15 @@
   display: none;
 }
 
+// Touch has no Ctrl+Space: the same job as a real button.
+.item.suggest {
+  display: none;
+
+  @include theme.mobile-or-coarse {
+    display: inline-flex;
+  }
+}
+
 .live {
   display: contents;
 }

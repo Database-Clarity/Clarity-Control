@@ -66,7 +66,7 @@ interface ProtectedRange {
   protectEnd?: boolean;
 }
 
-type Rejection = 'context' | 'expansion' | 'table-link' | 'line-style';
+export type Rejection = 'context' | 'expansion' | 'table-link' | 'line-style';
 type PreparedContext = { text: string; offsets: number[] };
 
 function expandedContext(text: string, globals: MarkupGlobals): PreparedContext | null {
@@ -228,14 +228,11 @@ function intersects(from: number, to: number, protectedRange: ProtectedRange) {
   );
 }
 
-function createMarkupTransaction(
-  state: EditorState,
-  option: MarkupOption,
-  globals: MarkupGlobals = { variables: '', titles: '' },
-): { transaction: Transaction; rejection?: never } | { transaction?: never; rejection: Rejection } {
+/** The expanded document and every protected range in it, for the insertion safety rules. */
+function analyse(state: EditorState, globals: MarkupGlobals) {
   const text = state.doc.toString();
   const context = expandedContext(text, globals);
-  if (!context) return { rejection: 'expansion' };
+  if (!context) return null;
   const { tokens, tables } = protectedRanges(state, markupCommentContext(text).comments);
   const tableBlocks = [...context.text.matchAll(/< table [^]+?\n<\$>\n?/g)];
   const preparedTables = tableBlocks.map((block) => ({
@@ -254,6 +251,82 @@ function createMarkupTransaction(
       });
     }
   }
+  return { context, tokens, tables, tableBlocks, preparedTables };
+}
+
+/**
+ * A line style (`<center/>`, `<background/>`, …) may appear only as often as the line can show it,
+ * and never on a table's header lines. `heads` are the insertion points, in document positions.
+ */
+function lineStyleRejection(
+  analysis: NonNullable<ReturnType<typeof analyse>>,
+  heads: readonly number[],
+  name: string,
+): Rejection | null {
+  const { context, tableBlocks } = analysis;
+  const pending = new Map<number, number>();
+  for (const head of heads) {
+    const position = context.offsets.findIndex((offset) => offset >= head);
+    const point = position < 0 ? context.text.length : position;
+    const start = point === 0 ? 0 : context.text.lastIndexOf('\n', point - 1) + 1;
+    const end = context.text.indexOf('\n', point);
+    const line = context.text.slice(start, end < 0 ? undefined : end);
+    const inTable = tableBlocks.some(
+      (block) => point >= block.index && point < block.index + block[0].length,
+    );
+    if (inTable && (line.startsWith('< table ') || line === '<$>')) return 'context';
+    const allowed = inTable ? markupEmpty : markupLineClasses;
+    const capacity = allowed.filter((entry) => entry === name).length;
+    const existing = line.split(`<${name}/>`).length - 1;
+    const additions = (pending.get(start) ?? 0) + 1;
+    if (existing + additions > capacity) return 'line-style';
+    pending.set(start, additions);
+  }
+  return null;
+}
+
+/**
+ * Whether `from`..`to` may be replaced by new markup, under the same rules as the markup toolbar.
+ * A `typed` range is a trigger the author has just typed (`<so`, `#da`): it is judged as the
+ * point it leaves behind, because it is about to be replaced; otherwise the range is a selection.
+ * `link` marks text that must not land in a legacy table cell.
+ */
+export function insertionRejection(
+  state: EditorState,
+  range: { from: number; to: number },
+  globals: MarkupGlobals,
+  options: { typed?: boolean; link?: boolean; lineStyle?: string } = {},
+): Rejection | null {
+  const probe =
+    options.typed && range.from !== range.to
+      ? state.update({ changes: { from: range.from, to: range.to } }).state
+      : state;
+  const analysis = analyse(probe, globals);
+  if (!analysis) return 'expansion';
+  const to = options.typed ? range.from : range.to;
+  if (options.link && analysis.preparedTables.some((table) => intersects(range.from, to, table)))
+    return 'table-link';
+  const selected = options.typed ? '' : probe.sliceDoc(range.from, to);
+  if (analysis.tokens.some((token) => intersects(range.from, to, token)) || selected.includes('/>'))
+    return 'context';
+  return options.lineStyle ? lineStyleRejection(analysis, [range.from], options.lineStyle) : null;
+}
+
+export const insertionMessages: Record<Rejection, string> = {
+  'table-link': 'Links are not supported in table cells. Insert the link outside the table.',
+  expansion: 'Imports or variable expansions may change the surrounding markup. Edit the markup directly.',
+  'line-style': 'This line cannot display another of that line style. Edit the markup directly.',
+  context: 'Cannot insert markup in this syntax or selection. Edit the markup directly.',
+};
+
+function createMarkupTransaction(
+  state: EditorState,
+  option: MarkupOption,
+  globals: MarkupGlobals = { variables: '', titles: '' },
+): { transaction: Transaction; rejection?: never } | { transaction?: never; rejection: Rejection } {
+  const analysis = analyse(state, globals);
+  if (!analysis) return { rejection: 'expansion' };
+  const { tokens, tables, preparedTables } = analysis;
   if (
     option.kind === 'link' &&
     state.selection.ranges.some((range) =>
@@ -278,26 +351,12 @@ function createMarkupTransaction(
   if (unsafe) return { rejection: 'context' };
 
   if (option.kind === 'line') {
-    const pending = new Map<number, number>();
-    for (const range of state.selection.ranges) {
-      const position = context.offsets.findIndex((offset) => offset >= range.head);
-      const point = position < 0 ? context.text.length : position;
-      const start = point === 0 ? 0 : context.text.lastIndexOf('\n', point - 1) + 1;
-      const end = context.text.indexOf('\n', point);
-      const line = context.text.slice(start, end < 0 ? undefined : end);
-      const inTable = tableBlocks.some(
-        (block) => point >= block.index && point < block.index + block[0].length,
-      );
-      if (inTable && (line.startsWith('< table ') || line === '<$>'))
-        return { rejection: 'context' };
-      const allowed = inTable ? markupEmpty : markupLineClasses;
-      const capacity = allowed.filter((name) => name === option.name).length;
-      const marker = `<${option.name}/>`;
-      const existing = line.split(marker).length - 1;
-      const additions = (pending.get(start) ?? 0) + 1;
-      if (existing + additions > capacity) return { rejection: 'line-style' };
-      pending.set(start, additions);
-    }
+    const rejection = lineStyleRejection(
+      analysis,
+      state.selection.ranges.map((range) => range.head),
+      option.name,
+    );
+    if (rejection) return { rejection };
   }
 
   const changes = state.changeByRange((range) => {
