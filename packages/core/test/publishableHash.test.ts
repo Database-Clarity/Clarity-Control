@@ -103,3 +103,34 @@ test('real legacy sources have only 12 publishable differences, not 2761 metadat
   expect(intermediate).toHaveLength(2761);
   expect(pending.filter(Boolean)).toHaveLength(12);
 });
+
+test('a stale translation hashes as the English text it exports, and flips are visible', async () => {
+  const stamp = '2026-10-01T00:00:00Z';
+  const base = tooltip();
+  const build = (sourceUpdatedAt: string) => ({
+    ...base,
+    text: {
+      en: { text: 'English', updatedAt: stamp, updatedBy: 'a' },
+      de: { text: 'Deutsch', updatedAt: stamp, updatedBy: 'd', sourceUpdatedAt },
+    },
+  });
+  const fresh = await publishableHash(build(stamp));
+  const stale = await publishableHash(build('2026-01-01T00:00:00Z'));
+  expect(stale).not.toBe(fresh);
+  // Under fallback the German words no longer matter to what is exported or hashed.
+  const edited = build('2026-01-01T00:00:00Z');
+  edited.text.de.text = 'Anders';
+  expect(await publishableHash(edited)).toBe(stale);
+  // Unchanged data without any fallback keeps its pre-fallback digest shape.
+  expect(await publishableHash(build(stamp))).toBe(
+    createHash('sha256')
+      .update(
+        stableStringify({
+          text: { en: 'English', de: 'Deutsch' },
+          associated: [],
+          custom: undefined,
+        }),
+      )
+      .digest('hex'),
+  );
+});

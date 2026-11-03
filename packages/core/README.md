@@ -48,8 +48,10 @@ npx tsc --noEmit
   `associated`, whose authored order is meaningful) are significant. `stableStringify` accepts finite JSON data
   (optional object properties with `undefined` are omitted).
 - `publishableHash(tooltip)` uses the same canonical JSON/SHA-256 algorithm, but
-  hashes only per-language text strings, associations (authored order), and custom
-  facts. `live/pushed.json` stores these digests: metadata-only edits do not mark
+  hashes the per-language text as exported (a translation that falls back to English
+  hashes as the English text, and a `fallback` language list is added only when some
+  language falls back, so other digests are unchanged), associations (authored order),
+  and custom facts. `live/pushed.json` stores these digests: metadata-only edits do not mark
   a tooltip pending. Identity, timestamps, author credits, source revisions,
   legacy metadata and snapshots are excluded; they remain stored in the tooltip.
 - `merge3(base, head, next)` returns `{ ok: true, merged }` or

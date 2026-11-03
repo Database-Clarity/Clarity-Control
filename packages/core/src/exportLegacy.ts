@@ -14,6 +14,18 @@ function exportFacts(facts: LegacyFacts | undefined): Partial<LegacyFacts> {
 }
 
 export const translationMaxAge = 90 * 24 * 60 * 60 * 1000;
+/** Whether a translation is exported as the English text instead of its own (stale-translation fallback). */
+export function usesEnglishFallback(tooltip: Tooltip, language: keyof Tooltip['text']): boolean {
+  const english = tooltip.text.en;
+  const translation = tooltip.text[language];
+  return Boolean(
+    language !== 'en' &&
+    english &&
+    translation &&
+    translation.sourceUpdatedAt !== undefined &&
+    Date.parse(english.updatedAt) - Date.parse(translation.sourceUpdatedAt) > translationMaxAge,
+  );
+}
 export type LegacyEntry = LegacyMetadata &
   Pick<LegacyPerk, 'hash' | 'editor'> &
   Partial<Pick<LegacyPerk, 'name' | 'type' | 'itemHash' | 'itemName'>> & {
@@ -56,12 +68,7 @@ export function exportLegacy(
     for (const language of languages) {
       const translation = tooltip.text[language];
       if (!translation) continue;
-      const outdated =
-        language !== 'en' &&
-        english &&
-        translation.sourceUpdatedAt !== undefined &&
-        Date.parse(english.updatedAt) - Date.parse(translation.sourceUpdatedAt) > translationMaxAge;
-      const exported = outdated && english ? english : translation;
+      const exported = usesEnglishFallback(tooltip, language) && english ? english : translation;
       editor[language] = { main: exported.text, secondary: exported.text };
       const old = tooltip.legacy?.updateTracker?.descriptions[language];
       descriptions[language] = {

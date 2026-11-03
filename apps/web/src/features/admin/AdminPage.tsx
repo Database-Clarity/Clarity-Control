@@ -3,7 +3,13 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { languages, type Permissions } from '@clarity/core';
 import { apiUrl } from '../../services/api';
 import { errorMessage } from '../../services/http';
-import { getPermissions, putPermissions, resolveGitHubLogin } from '../../services/permissions';
+import {
+  getPermissions,
+  putPermissions,
+  resolveGitHubLogin,
+  permissionsChangedMessage,
+  type LoadedPermissions,
+} from '../../services/permissions';
 import { useAuthStore } from '../../stores/auth';
 import { changeAccess, maintainerCount, roles, type Access } from './permissions';
 import pageStyles from '../drift/Status.module.scss';
@@ -13,6 +19,8 @@ export function AdminPage() {
   const { user, loading: authLoading } = useAuthStore();
   const [config, setConfig] = useState<Permissions | null>(null);
   const [original, setOriginal] = useState<Permissions | null>(null);
+  const [revision, setRevision] = useState<string | null>(null);
+  const [stale, setStale] = useState(false);
   const [login, setLogin] = useState('');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -26,10 +34,12 @@ export function AdminPage() {
     setLoading(true);
     setError(null);
     void getPermissions(controller.signal)
-      .then((value) => {
+      .then((value: LoadedPermissions) => {
         if (controller.signal.aborted) return;
-        setConfig(value);
-        setOriginal(value);
+        setConfig(value.permissions);
+        setOriginal(value.permissions);
+        setRevision(value.revision);
+        setStale(false);
       })
       .catch((cause: unknown) => {
         if (!controller.signal.aborted) setError(errorMessage(cause));
@@ -85,18 +95,22 @@ export function AdminPage() {
     }
   }
   async function savePermissions() {
-    if (!config) return;
+    if (!config || !revision) return;
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      const saved = await putPermissions(config);
-      setConfig(saved);
-      setOriginal(saved);
+      const saved = await putPermissions(config, revision);
+      setConfig(saved.permissions);
+      setOriginal(saved.permissions);
+      setRevision(saved.revision);
+      setStale(false);
       setNotice('Permissions saved.');
       await useAuthStore.getState().load();
     } catch (cause) {
-      setError(errorMessage(cause));
+      const message = errorMessage(cause);
+      setError(message);
+      if (message === permissionsChangedMessage) setStale(true);
     } finally {
       setBusy(false);
     }
@@ -110,9 +124,9 @@ export function AdminPage() {
       {error && (
         <p role="alert">
           {error}{' '}
-          {!config && (
+          {(!config || stale) && (
             <button type="button" onClick={() => setReload((value) => value + 1)}>
-              Retry
+              {stale ? 'Reload permissions' : 'Retry'}
             </button>
           )}
         </p>
@@ -234,7 +248,7 @@ export function AdminPage() {
             <button type="submit">Add account</button>
           </form>
           <div className={pageStyles.actions}>
-            <button type="button" disabled={!dirty} onClick={() => void savePermissions()}>
+            <button type="button" disabled={!dirty || stale} onClick={() => void savePermissions()}>
               {busy ? 'Working...' : 'Save permissions'}
             </button>
             <button
