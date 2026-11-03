@@ -20,6 +20,12 @@ interface DraftState {
   generation: number;
   /** Unowned drafts waiting for an adopt / keep-separate decision (only while signed in). */
   unowned: number;
+  /** Another tab wrote this account's drafts since this tab last read or wrote them. */
+  external: boolean;
+  /** The drafts as this tab last read or wrote them in storage: the common ancestor for a merge. */
+  stored: Drafts;
+  /** Start of the latest successful storage read, for cross-tab conflict orphan checks. */
+  readStartedAt: number;
   hydrate(): Promise<void>;
   /** Switches to the drafts of this account (null = signed out). Same account: no-op. */
   activate(userId: string | number | null): Promise<void>;
@@ -31,6 +37,17 @@ interface DraftState {
   updateDraft(base: Tooltip, update: (tooltip: Tooltip) => Tooltip): void;
   updateDrafts(updates: { base: Tooltip; update: (tooltip: Tooltip) => Tooltip }[]): void;
   discard(hash: number): void;
+  /**
+   * Answers "another tab changed the drafts" with Reload: reads what is stored now and merges it
+   * with this tab's drafts (`merge(ancestor, mine, theirs)`), then stores the result.
+   */
+  reloadFromStorage(
+    merge: (ancestor: Drafts, mine: Drafts, theirs: Drafts) => Drafts,
+  ): Promise<void>;
+  /** ...or with Keep mine: this tab's drafts overwrite what the other tab stored. */
+  keepMine(): Promise<void>;
+  /** Calls back after a draft is deliberately discarded (not when it is saved or reverted). */
+  onDiscard(listener: (hash: number) => void): () => void;
   retry(): void;
   flush(): Promise<void>;
 }
@@ -59,6 +76,15 @@ export function createDraftStore(storage: DraftStorage) {
   const bucket = (id: string | null) =>
     id === null ? storage : (storage.forUser?.(id) ?? storage);
   let target = bucket(null);
+  let unwatch: (() => void) | undefined;
+  /** Resolves when everything queued so far, including writes queued meanwhile, has finished. */
+  const settled = async () => {
+    for (let last = queue; ; last = queue) {
+      await last;
+      if (last === queue) return;
+    }
+  };
+  const discardListeners = new Set<(hash: number) => void>();
   return create<DraftState>((set, get) => {
     function persist(drafts: Drafts) {
       // Bind the bucket now: a later account switch must never redirect this write.
@@ -69,7 +95,7 @@ export function createDraftStore(storage: DraftStorage) {
       queue = queue.then(async () => {
         try {
           await destination.write(drafts);
-          if (writerGeneration === generation) set({ error: null });
+          if (writerGeneration === generation) set({ error: null, stored: drafts });
         } catch (error) {
           if (writerGeneration === generation)
             set({
@@ -93,17 +119,35 @@ export function createDraftStore(storage: DraftStorage) {
       owner: null,
       generation: 0,
       unowned: 0,
+      external: false,
+      stored: {},
+      readStartedAt: 0,
       hydrate() {
         if (hydration) return hydration;
         const mine = generation;
         const source = target;
+        let readStartedAt = 0;
         // Reading waits for earlier writes, so re-entering an account never sees stale drafts.
         hydration = queue
-          .then(() => source.read())
+          .then(() => {
+            readStartedAt = Date.now();
+            return source.read();
+          })
           .then(
             async (drafts) => {
               if (mine !== generation) return;
-              set({ drafts, hydrated: true, error: null });
+              set({
+                drafts,
+                hydrated: true,
+                error: null,
+                external: false,
+                stored: drafts,
+                readStartedAt,
+              });
+              unwatch?.();
+              unwatch = source.subscribe?.(() => {
+                if (mine === generation) set({ external: true });
+              });
               if (owner === null || !storage.forUser || keptSeparate(owner)) return;
               try {
                 const unowned = Object.keys(await storage.read()).length;
@@ -129,7 +173,19 @@ export function createDraftStore(storage: DraftStorage) {
         generation++;
         target = bucket(next);
         hydration = undefined;
-        set({ drafts: {}, hydrated: false, error: null, owner: next, generation, unowned: 0 });
+        unwatch?.();
+        unwatch = undefined;
+        set({
+          drafts: {},
+          hydrated: false,
+          error: null,
+          owner: next,
+          generation,
+          unowned: 0,
+          external: false,
+          stored: {},
+          readStartedAt: 0,
+        });
         return get().hydrate();
       },
       async adopt() {
@@ -246,6 +302,50 @@ export function createDraftStore(storage: DraftStorage) {
         delete drafts[hash];
         set({ drafts });
         persist(drafts);
+        for (const listener of discardListeners) listener(hash);
+      },
+      reloadFromStorage(merge) {
+        const mine = generation;
+        queue = queue.then(async () => {
+          if (mine !== generation) return;
+          try {
+            const readStartedAt = Date.now();
+            const theirs = await target.read();
+            if (mine !== generation) return;
+            const merged = merge(get().stored, get().drafts, theirs);
+            set({ drafts: merged, external: false, stored: theirs, readStartedAt });
+            persist(merged);
+          } catch (error) {
+            if (mine === generation)
+              set({
+                error: `Cannot reload the drafts another tab stored: ${errorMessage(error).replace(/\.+$/, '')}. Keep this tab open and retry.`,
+              });
+          }
+        });
+        return settled();
+      },
+      keepMine() {
+        const mine = generation;
+        queue = queue.then(async () => {
+          if (mine !== generation) return;
+          try {
+            // Reading refreshes the compare-and-set baseline, so this tab's write replaces theirs.
+            const theirs = await target.read();
+            if (mine !== generation) return;
+            set({ external: false, stored: theirs });
+            persist(get().drafts);
+          } catch (error) {
+            if (mine === generation)
+              set({
+                error: `Cannot overwrite the drafts another tab stored: ${errorMessage(error).replace(/\.+$/, '')}. Keep this tab open and retry.`,
+              });
+          }
+        });
+        return settled();
+      },
+      onDiscard(listener) {
+        discardListeners.add(listener);
+        return () => void discardListeners.delete(listener);
       },
       retry() {
         if (!get().hydrated) throw new Error('Drafts must finish recovery before retrying storage');

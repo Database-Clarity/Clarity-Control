@@ -1,4 +1,4 @@
-import { validateText, type Lang, type MarkupGlobals } from '@clarity/core';
+import { maskConflicts, validateText, type Lang, type MarkupGlobals } from '@clarity/core';
 import { Decoration, EditorView } from '@codemirror/view';
 
 export function validationDiagnostics(
@@ -9,7 +9,7 @@ export function validationDiagnostics(
 ) {
   return EditorView.decorations.compute(['doc'], (state) =>
     Decoration.set(
-      validateText(state.doc.toString(), lang, globals, requireEnglish, selfHash())
+      validateText(maskConflicts(state.doc.toString()), lang, globals, requireEnglish, selfHash())
         .filter((issue) => issue.to > issue.from)
         .sort((a, b) => a.from - b.from || a.to - b.to)
         .map((issue) =>

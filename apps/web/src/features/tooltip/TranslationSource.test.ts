@@ -18,7 +18,18 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
 });
 afterEach(() => vi.unstubAllGlobals());
-it('remembers the last click on this device, starting from the Settings default, with no toggle for current translations', async () => {
+const select = (host: HTMLElement) =>
+  host.querySelector<HTMLSelectElement>('select[aria-label="English shows"]');
+const choose = async (element: HTMLSelectElement, value: string) =>
+  act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(
+      element,
+      value,
+    );
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+
+it('shows English in a headed pane; "Shows" is remembered on this device, starting from the Settings default, and absent for current translations', async () => {
   const host = document.createElement('div');
   document.body.append(host);
   let root = createRoot(host);
@@ -27,26 +38,38 @@ it('remembers the last click on this device, starting from the Settings default,
     diff: { hash: 10, sourceUpdatedAt: 'old', current: 'Current source' },
   };
   await act(async () => root.render(createElement(TranslationSource, props)));
-  const toggle = host.querySelector('button')!;
-  expect(toggle.getAttribute('aria-pressed')).toBe('true');
+  expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe('English source');
+  expect(host.querySelector('h3')?.textContent).toBe('English');
+  expect(select(host)!.value).toBe('changes');
   expect(host.textContent).toContain('Diff content');
-  await act(async () => toggle.click());
-  expect(toggle.getAttribute('aria-pressed')).toBe('false');
+  await choose(select(host)!, 'current');
+  expect(select(host)!.value).toBe('current');
   expect(host.textContent).toContain('Current source');
   expect(host.textContent).not.toContain('Diff content');
   await act(async () => root.unmount());
   root = createRoot(host);
   await act(async () => root.render(createElement(TranslationSource, props)));
   // Remembered on this device, but never a synced change (no pending marker, no prompt).
-  expect(host.querySelector('button')?.getAttribute('aria-pressed')).toBe('false');
+  expect(select(host)!.value).toBe('current');
   const state = useSettingsStore.getState();
   expect(state.device.remembered.englishSource).toBe('current');
   expect(state.settings.englishSource).toBe('changes');
   expect(state.pending).toEqual([]);
-  await act(async () => host.querySelector('button')!.click());
+  await choose(select(host)!, 'changes');
   expect(host.textContent).toContain('Diff content');
   await act(async () => root.render(createElement(TranslationSource, { text: 'Current source' })));
-  expect(host.querySelector('button')).toBeNull();
+  expect(select(host)).toBeNull();
+  expect(host.textContent).toContain('Current source');
+  await act(async () => root.unmount());
+  host.remove();
+});
+
+it('says so when the English has no text yet', async () => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => root.render(createElement(TranslationSource, { text: undefined })));
+  expect(host.textContent).toContain('This tooltip has no English text yet.');
   await act(async () => root.unmount());
   host.remove();
 });

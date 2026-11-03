@@ -3,7 +3,7 @@ import { act, createElement, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CompendiumCell, CompendiumData, Tooltip } from '@clarity/core';
-import { SavePanel } from './SavePanel';
+import { SaveController } from './SavePanel';
 import { useSaveState } from './state';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
@@ -117,7 +117,7 @@ afterEach(async () => {
 });
 
 describe('saving over a Compendium source that changed since it was shown', () => {
-  const render = () => act(async () => root.render(createElement(SavePanel)));
+  const render = () => act(async () => root.render(createElement(SaveController)));
 
   it('saves straight away when the source is what the editor was shown', async () => {
     const fresh = source('shown', '2026-10-02T00:00:00Z');

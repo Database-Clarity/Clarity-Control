@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import { TooltipPage } from './TooltipPage';
 import { ClarityEditor, type ClarityEditorProps } from '../editor';
-import { TooltipPreview, type TooltipPreviewProps } from '../preview';
+import { PreviewColumn, type PreviewColumnProps } from '../preview';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { useAuthStore } from '../../stores/auth';
@@ -25,8 +25,8 @@ vi.mock('../editor', () => ({
   ),
 }));
 vi.mock('../preview', () => ({
-  TooltipPreview: vi.fn((props: TooltipPreviewProps) =>
-    createElement('div', { 'data-preview': true }, props.text),
+  PreviewColumn: vi.fn((props: PreviewColumnProps) =>
+    createElement('div', { 'data-preview': true }, props.baseText),
   ),
 }));
 vi.mock('../../stores/data', async (importOriginal) => {
@@ -148,7 +148,8 @@ describe('translator tooltip page', () => {
     expect(props.lang).toBe('de');
     expect(props.value).toBe('Deutscher Text');
     expect(props.readOnly).toBe(false);
-    expect(props.markupToolbar).toBe(true);
+    // The markup row is for every role and starts closed (Settings or Ctrl+. opens it).
+    expect(props.markupRow).toBe(false);
     expect(html).not.toContain('Read-only');
     expect(html).not.toContain('Switch to');
   });
@@ -161,15 +162,22 @@ describe('translator tooltip page', () => {
     expect(html).not.toContain('English source');
   });
 
-  it('keeps primary provenance and read-only help reachable from the identity header', () => {
+  it('keeps provenance and the read-only reason in the 28px pane header', () => {
     const html = render('/t/10?lang=en');
-    const header = /<header class="[^"]*">([\s\S]*?)<\/header>/.exec(html)?.[1] ?? '';
+    const header =
+      /<div class="[^"]*paneHeader[^"]*"[^>]*>([\s\S]*?)<\/div><div[^>]*data-panel/.exec(
+        html,
+      )?.[1] ?? '';
 
     expect(header).toContain('aria-label="Language"');
-    expect(header).toContain('Edited by owner');
-    expect(header).toContain('<summary>Read-only details</summary>');
-    expect(header).toContain('Read-only: you can translate German, not English.');
-    expect(html).toContain('primaryMetadata');
+    // Who edited it and when sit behind the Details popover, not in a block of their own.
+    expect(header).toMatch(/<button[^>]*aria-haspopup="dialog"[^>]*>Details<\/button>/);
+    // The badge only names the state; the sentence is the status bar's, and the badge's tooltip.
+    expect(header).toMatch(/role="status"[^>]*title="Read-only: you can translate German[^"]*"/);
+    expect(header).toMatch(/role="status"[^>]*>[\s\S]*?<span[^>]*>Read-only<\/span>/);
+    expect(header.replace(/title="[^"]*"/g, '')).not.toContain('you can translate German');
+    expect(header).toContain('Switch to German');
+    expect(html).not.toContain('Read-only details');
   });
 
   it.each([
@@ -229,7 +237,7 @@ describe('translator tooltip page', () => {
   it('shows English editor and panel tabs without a translation source', () => {
     useAuthStore.setState({ user: editor });
     const html = render('/t/10');
-    expect(vi.mocked(ClarityEditor).mock.calls[0][0].markupToolbar).toBe(false);
+    expect(vi.mocked(ClarityEditor).mock.calls[0][0].markupRow).toBe(false);
     expect(html).not.toContain('Read-only');
     expect(html).not.toContain('English source');
     expect(html).toContain('role="tablist"');
@@ -261,10 +269,10 @@ describe('translator tooltip page', () => {
   });
 
   describe('tablist', () => {
-    it('renders Source · Editor · Preview with ARIA tab semantics', () => {
+    it('renders Editor · Preview · English with ARIA tab semantics', () => {
       const html = render('/t/10?lang=de');
       const tabs = [...html.matchAll(/<button[^>]*role="tab"[^>]*>([^<]*)<\/button>/g)];
-      expect(tabs.map((match) => match[1])).toEqual(['Source', 'Editor', 'Preview']);
+      expect(tabs.map((match) => match[1])).toEqual(['Editor', 'Preview', 'English']);
       expect(html).toContain('role="tablist"');
       expect(html.match(/aria-selected="true"/g)).toHaveLength(1);
       expect(html.match(/tabindex="-1"/g)).toHaveLength(2);
@@ -280,7 +288,7 @@ describe('translator tooltip page', () => {
     it('keeps the editor and preview mounted while another panel is active', () => {
       const html = render('/t/10?lang=de');
       expect(vi.mocked(ClarityEditor)).toHaveBeenCalledTimes(1);
-      expect(vi.mocked(TooltipPreview)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(PreviewColumn)).toHaveBeenCalledTimes(1);
       const panel = (name: string) =>
         new RegExp(`<div[^>]*data-panel="${name}"[^>]*data-active="(true|false)"[^>]*>(.*?)</div>`);
       expect(html.match(panel('translation'))?.[1]).toBe('true');
@@ -293,12 +301,14 @@ describe('translator tooltip page', () => {
   });
 
   describe('associations and history', () => {
-    it('collapses them in a details element for translators', () => {
+    it('shows the same compact rows to translators as to everyone else', () => {
       const html = render('/t/10?lang=de');
-      expect(html).toMatch(/<details[^>]*><summary>Associations and history<\/summary>/);
+      expect(html).not.toContain('Associations and history');
+      expect(html).toContain('Associated tooltips');
+      expect(html).toContain('>History<');
       expect(html).not.toContain('Association editing requires an editor account');
     });
-    it('leaves them expanded for other roles', () => {
+    it('keeps the same rows for other roles', () => {
       useAuthStore.setState({ user: editor });
       const html = render('/t/10');
       expect(html).not.toContain('Associations and history');

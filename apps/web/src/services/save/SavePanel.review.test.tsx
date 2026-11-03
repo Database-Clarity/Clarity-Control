@@ -1,7 +1,7 @@
 import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SavePanel } from './SavePanel';
+import { SaveController } from './SavePanel';
 import { useSaveState } from './state';
 import { useAuthStore } from '../../stores/auth';
 
@@ -43,7 +43,7 @@ vi.mock('../../stores/auth', async (importOriginal) => {
   };
 });
 
-describe('SavePanel review dialog', () => {
+describe('SaveController review dialog', () => {
   const originalAuth = useAuthStore.getState();
   beforeEach(() => {
     useAuthStore.setState({ user: { id: 1, login: 'alice', role: 'editor' } });
@@ -53,7 +53,7 @@ describe('SavePanel review dialog', () => {
     useAuthStore.setState(originalAuth);
     useSaveState.setState({ locked: false, review: null });
   });
-  const render = () => renderToStaticMarkup(createElement(SavePanel));
+  const render = () => renderToStaticMarkup(createElement(SaveController));
 
   it('puts Save and Cancel in the footer slot, not the body', () => {
     const html = render();

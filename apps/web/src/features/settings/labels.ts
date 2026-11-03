@@ -1,14 +1,21 @@
 import type { SyncedSettings } from '@clarity/core';
 import type { SettingsState, SyncedKey } from '../../stores/settings';
 import { browserTimeZone } from '../../services/format/date';
+import type { ThemePreference } from '../../ui/theme';
 
 export { browserTimeZone };
+
+export const themeLabels: Record<ThemePreference, string> = {
+  system: 'Match system',
+  light: 'Light',
+  dark: 'Dark',
+};
 
 export const settingLabels: Record<SyncedKey, string> = {
   dateFormat: 'Date format',
   timeDisplay: 'Time display',
   timeZone: 'Time zone',
-  markupToolbar: 'Markup toolbar',
+  markupToolbar: 'Markup row',
   englishSource: 'English source shows',
 };
 

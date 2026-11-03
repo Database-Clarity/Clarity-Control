@@ -29,8 +29,15 @@ vi.mock('../../services/draftStorage', () => ({
 vi.mock('./useProposals', () => ({
   useProposals: () => ({ proposals: captured.proposals, loading: false }),
 }));
-vi.mock('../auth/AuthStatus', () => ({ AuthStatus: () => null }));
-vi.mock('./CompendiumBadge', () => ({ CompendiumBadge: () => null }));
+vi.mock('../auth/AuthStatus', () => ({
+  useAuthSession: () => undefined,
+  IdentityStatus: () => null,
+  identitySummary: () => ({ label: 'Account', detail: 'Account', tone: 'out' }),
+}));
+vi.mock('./CompendiumBadge', () => ({
+  CompendiumBadge: () => null,
+  useCompendiumCount: () => ({ state: 'ready', count: 0 }),
+}));
 
 const storageKey = 'synthetic-navigation-review';
 const originalData = useDataStore.getState();
@@ -463,7 +470,10 @@ describe('category filtering and history', () => {
     expect(control<HTMLInputElement>('Find entry').value).toBe('100');
     expect(control<HTMLSelectElement>('Show').value).toBe('skipped');
     expect(control<HTMLSelectElement>('Proposal').value).toBe('yes');
-    expect(host.querySelector('nav a[aria-current="page"]')?.textContent).toContain('weapon-trait');
+    expect(
+      host.querySelector('[aria-label="Compendium category queue"] a[aria-current="page"]')
+        ?.textContent,
+    ).toContain('weapon-trait');
     await go(1);
     expect(selected()).toBe('Armor 200');
     expect(route().searchParams.get('group')).toBe(categoryId('armor-perk'));
@@ -561,35 +571,46 @@ describe('category filtering and history', () => {
   });
 });
 
-describe('Browse and save-dialog keyboard ownership', () => {
+describe('Shell overlay and save-dialog keyboard ownership', () => {
+  const draftsButton = () => host.querySelector<HTMLButtonElement>('[data-drafts-button]')!;
+  const overlay = () => document.querySelector<HTMLElement>('[data-shell-overlay]');
+  const openDrafts = async () => {
+    await act(async () => draftsButton().click());
+  };
+
   it.each(['a', 's'])(
-    'Browse with Close focused blocks background %s without mutations',
+    'an open Drafts popover blocks background %s without mutations',
     async (shortcut) => {
       await mount();
-      await click('Browse');
-      const close = button('Close');
-      close.focus();
+      await openDrafts();
+      expect(overlay()).not.toBeNull();
+      const inside = overlay()!.querySelector<HTMLElement>('button')!;
+      inside.focus();
       const beforeRoute = route().href;
       const beforeProgress = localStorage.getItem(storageKey);
-      await key(shortcut, close);
+      await key(shortcut, inside);
       expect(useDraftStore.getState().drafts).toEqual({});
       expect(localStorage.getItem(storageKey)).toBe(beforeProgress);
       expect(route().href).toBe(beforeRoute);
       expect(selected()).toBe('Sample 100');
-      expect(host.querySelector('#main-content')!.hasAttribute('inert')).toBe(true);
+      expect(host.querySelector('#shell-root')!.hasAttribute('inert')).toBe(true);
     },
   );
 
-  it.each(['Close', 'Escape'])(
-    'closing Browse by %s restores focus and normal shortcuts',
+  it.each(['Escape', 'outside click'])(
+    'closing the Drafts popover by %s restores focus and normal shortcuts',
     async (closeWith) => {
       await mount();
-      await click('Browse');
-      const close = button('Close');
-      if (closeWith === 'Close') await click('Close');
-      else await key('Escape', close);
-      expect(document.activeElement).toBe(button('Browse'));
-      expect(host.querySelector('#main-content')!.hasAttribute('inert')).toBe(false);
+      await openDrafts();
+      const inside = overlay()!.querySelector<HTMLElement>('button')!;
+      if (closeWith === 'Escape') await key('Escape', inside);
+      else
+        await act(async () => {
+          document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+        });
+      expect(overlay()).toBeNull();
+      expect(document.activeElement).toBe(draftsButton());
+      expect(host.querySelector('#shell-root')!.hasAttribute('inert')).toBe(false);
       expect(selected()).toBe('Sample 100');
       expect(document.body.style.overflow).toBe('');
       await key('s', window);
@@ -603,19 +624,22 @@ describe('Browse and save-dialog keyboard ownership', () => {
     },
   );
 
-  it('traps Tab/Shift+Tab without consuming drawer input or changing selection', async () => {
+  it('keeps Tab inside the popover without consuming typing or changing the selection', async () => {
     await mount(categoryRoute());
-    await click('Browse');
-    const close = button('Close');
-    close.focus();
-    const workspace = control<HTMLSelectElement>('Workspace');
-    expect((await key('Tab', close, true)).defaultPrevented).toBe(true);
-    expect(document.activeElement).toBe(workspace);
-    expect((await key('Tab', workspace)).defaultPrevented).toBe(true);
-    expect(document.activeElement).toBe(close);
-    expect((await key('a', workspace)).defaultPrevented).toBe(false);
-    expect(selected()).toBe('Sample 100');
-    expect(progress().decisions).toEqual({});
+    await click('Accept proposed');
+    await openDrafts();
+    const items = [...overlay()!.querySelectorAll<HTMLElement>('button:not([disabled])')];
+    expect(items.length).toBeGreaterThan(1);
+    const first = items[0];
+    const last = items.at(-1)!;
+    first.focus();
+    expect((await key('Tab', first, true)).defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(last);
+    expect((await key('Tab', last)).defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(first);
+    const before = progress();
+    expect((await key('a', first)).defaultPrevented).toBe(false);
+    expect(progress()).toEqual(before);
   });
 
   it('keeps Escape and decision keys owned by the modal picker', async () => {
@@ -630,45 +654,42 @@ describe('Browse and save-dialog keyboard ownership', () => {
     expect(document.querySelector('dialog[open]')).toBeNull();
   });
 
-  it.each([false, true])(
-    'native save-dialog typing, Tab and Escape stay owned with Browse=%s',
-    async (browse) => {
-      await mount();
-      await click('Accept proposed');
-      if (browse) await click('Browse');
-      const opener = button('Review and save drafts');
-      opener.focus();
-      await click('Review and save drafts');
-      const dialog = host.querySelector<HTMLDialogElement>('dialog[aria-label="Review save"]')!;
-      expect(dialog.open).toBe(true);
-      const beforeDrafts = structuredClone(useDraftStore.getState().drafts);
-      const beforeProgress = localStorage.getItem(storageKey);
-      const beforeRoute = route().href;
-      const save = button('Save changes', dialog);
-      save.focus();
-      for (const shortcut of ['a', 's', 'n', 'p', 'u']) await key(shortcut, save);
-      expect((await key('Tab', save)).defaultPrevented).toBe(false);
-      dialog.querySelector('details')!.open = true;
-      const input = dialog.querySelector('textarea')!;
-      input.focus();
-      await key('s', input);
-      expect((await key('Escape', input)).defaultPrevented).toBe(false);
-      expect(host.querySelector('#sidebar')!.getAttribute('data-open')).toBe(String(browse));
-      expect(useDraftStore.getState().drafts).toEqual(beforeDrafts);
-      expect(localStorage.getItem(storageKey)).toBe(beforeProgress);
-      expect(route().href).toBe(beforeRoute);
-      expect(captured.save).not.toHaveBeenCalled();
-      await act(async () => dialog.dispatchEvent(new Event('cancel', { cancelable: true })));
-      expect(host.querySelector('dialog')).toBeNull();
-      expect(document.activeElement).toBe(opener);
-      expect(useSaveState.getState().locked).toBe(false);
-      if (browse) {
-        expect(host.querySelector('#sidebar')!.getAttribute('data-open')).toBe('true');
-        await click('Close');
-      }
-      await key('s', window);
-      expect(selected()).toBe('Sample 102');
-      expect(progress().decisions[101].kind).toBe('skipped');
-    },
-  );
+  it('native save-dialog typing, Tab and Escape stay owned; the popover closes first', async () => {
+    await mount();
+    await click('Accept proposed');
+    await openDrafts();
+    const reviewButton = document.querySelector<HTMLButtonElement>('[data-drafts-review]')!;
+    reviewButton.focus();
+    await act(async () => reviewButton.click());
+    // The popover is gone before the native dialog takes over.
+    expect(overlay()).toBeNull();
+    const dialog = host.ownerDocument.querySelector<HTMLDialogElement>(
+      'dialog[aria-label="Review save"]',
+    )!;
+    expect(dialog.open).toBe(true);
+    const beforeDrafts = structuredClone(useDraftStore.getState().drafts);
+    const beforeProgress = localStorage.getItem(storageKey);
+    const beforeRoute = route().href;
+    const save = button('Save changes', dialog);
+    save.focus();
+    for (const shortcut of ['a', 's', 'n', 'p', 'u']) await key(shortcut, save);
+    expect((await key('Tab', save)).defaultPrevented).toBe(false);
+    dialog.querySelector('details')!.open = true;
+    const input = dialog.querySelector('textarea')!;
+    input.focus();
+    await key('s', input);
+    expect((await key('Escape', input)).defaultPrevented).toBe(false);
+    expect(useDraftStore.getState().drafts).toEqual(beforeDrafts);
+    expect(localStorage.getItem(storageKey)).toBe(beforeProgress);
+    expect(route().href).toBe(beforeRoute);
+    expect(captured.save).not.toHaveBeenCalled();
+    await act(async () => dialog.dispatchEvent(new Event('cancel', { cancelable: true })));
+    expect(document.querySelector('dialog')).toBeNull();
+    // Focus lands on the stable Drafts button in the header.
+    expect(document.activeElement).toBe(draftsButton());
+    expect(useSaveState.getState().locked).toBe(false);
+    await key('s', window);
+    expect(selected()).toBe('Sample 102');
+    expect(progress().decisions[101].kind).toBe('skipped');
+  });
 });

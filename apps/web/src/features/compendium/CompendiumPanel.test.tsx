@@ -16,7 +16,10 @@ vi.mock('../../services/api', async (original) => ({
 vi.mock('./LinkPicker', () => ({
   LinkPicker: () => createElement('p', null, 'Choose a different row'),
 }));
-vi.mock('./CompendiumDiff', () => ({ CompendiumDiff: () => null }));
+vi.mock('./CompendiumDiff', async (original) => ({
+  ...(await original<typeof import('./CompendiumDiff')>()),
+  CompendiumDiff: () => null,
+}));
 it('preselects a renamed suggestion without drafting or reviewing until Confirm is clicked', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   const text = 'Grants increased damage for ten seconds.';

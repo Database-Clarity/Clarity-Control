@@ -1,5 +1,7 @@
 import { useSettingsStore, syncedKeys } from '../../stores/settings';
 import { When } from '../../ui/When';
+import type { ShellNotice } from '../navigation/notices';
+import { useSettingsPanel } from './panel';
 import { settingLabels, valueLabel } from './labels';
 import styles from './Settings.module.scss';
 
@@ -66,17 +68,45 @@ export function SettingsChoice() {
   );
 }
 
-/** Shown outside the Settings page when a sync needs the user: a choice or a failed sync. */
-export function SettingsNotice() {
-  const { status, error, errorDetail, pending, retry } = useSettingsStore();
-  if (status === 'choice') return <SettingsChoice />;
-  if (status !== 'error' || !pending.length) return null;
-  return (
-    <p role="alert" className={styles.notice} title={errorDetail || undefined}>
-      Settings not synced: {error}. Your changes are kept on this device.{' '}
-      <button type="button" onClick={() => void retry()}>
-        Retry sync
-      </button>
-    </p>
-  );
+/**
+ * What a sync needs from the user, as shell notices: a choice (decided in Settings, never
+ * duplicated outside it) or a failed sync with its retry. The Layout hides these while Settings is open.
+ */
+export function useSettingsNotices(): ShellNotice[] {
+  const status = useSettingsStore((state) => state.status);
+  const error = useSettingsStore((state) => state.error);
+  const errorDetail = useSettingsStore((state) => state.errorDetail);
+  const pending = useSettingsStore((state) => state.pending);
+  const choice = useSettingsStore((state) => state.choice);
+  const retry = useSettingsStore((state) => state.retry);
+  if (status === 'choice') {
+    return [
+      {
+        id: 'settings-choice',
+        level: 'warning',
+        text: choice?.recovered
+          ? 'Settings changed on this device were not synced. Choose which to keep.'
+          : 'Settings changed on another device. Choose which to keep.',
+        actions: [
+          {
+            label: 'Review in Settings',
+            onClick: () =>
+              useSettingsPanel
+                .getState()
+                .show(document.querySelector<HTMLElement>('[data-identity-button]')),
+          },
+        ],
+      },
+    ];
+  }
+  if (status !== 'error' || !pending.length) return [];
+  return [
+    {
+      id: 'settings-sync',
+      level: 'alert',
+      text: `Settings not synced: ${error}. Your changes are kept on this device.`,
+      detail: errorDetail || undefined,
+      actions: [{ label: 'Retry sync', onClick: () => void retry() }],
+    },
+  ];
 }

@@ -6,6 +6,7 @@ exports[`real htmlview golden fixtures > normalises arc cell text and styles aga
   "grid": [
     {
       "cell": {
+        "background": "#273f42",
         "plain": "Go back to the top!",
         "runs": [
           {
@@ -26,6 +27,7 @@ exports[`real htmlview golden fixtures > normalises arc cell text and styles aga
     },
     {
       "cell": {
+        "background": "#213236",
         "plain": "Arc Subclasses",
         "runs": [
           {
@@ -43,6 +45,7 @@ exports[`real htmlview golden fixtures > normalises arc cell text and styles aga
     },
     {
       "cell": {
+        "background": "#362532",
         "plain": "Support the Data Compendium",
         "runs": [
           {
@@ -63,6 +66,7 @@ exports[`real htmlview golden fixtures > normalises arc cell text and styles aga
     },
     {
       "cell": {
+        "background": "#2b3b49",
         "plain": "Hunter",
         "runs": [
           {
@@ -82,6 +86,7 @@ exports[`real htmlview golden fixtures > normalises arc cell text and styles aga
     },
     {
       "cell": {
+        "background": "#492b2b",
         "plain": "Titan",
         "runs": [
           {
@@ -101,6 +106,7 @@ exports[`real htmlview golden fixtures > normalises arc cell text and styles aga
     },
     {
       "cell": {
+        "background": "#49422b",
         "plain": "Warlock",
         "runs": [
           {
@@ -120,6 +126,7 @@ exports[`real htmlview golden fixtures > normalises arc cell text and styles aga
     },
     {
       "cell": {
+        "background": "#28434c",
         "plain": "Glossary",
         "runs": [
           {
@@ -136,6 +143,7 @@ exports[`real htmlview golden fixtures > normalises arc cell text and styles aga
     },
     {
       "cell": {
+        "background": "#233234",
         "plain": "Amplified",
         "runs": [
           {
@@ -151,6 +159,7 @@ exports[`real htmlview golden fixtures > normalises arc cell text and styles aga
     },
     {
       "cell": {
+        "background": "#242f34",
         "plain": "Intrinsic Arc Subclass Buff
 Obtained by reaching 100% Counter Progress through Arc Kills within 6 seconds of each, or through Aspects.
 Rank-And-File = 25% | Elite = 50% | Miniboss+ = 100% | Guardians = 50%
@@ -472,6 +481,7 @@ Performing a Speed Booster Slide permanently increases base Slide Distance from 
     },
     {
       "cell": {
+        "background": "#233234",
         "plain": "Bolt Charge",
         "runs": [
           {
@@ -487,6 +497,7 @@ Performing a Speed Booster Slide permanently increases base Slide Distance from 
     },
     {
       "cell": {
+        "background": "#242f34",
         "plain": "Upon scoring a Magazine-Based amount of Weapon Damage Instances within 5 seconds of each while Bolt Charge is active:
 The next damage instance from any source will grant a stack of Bolt Charge.
 Swapping weapons resets the counter. Can only gain up to 1 stack per simultaneous damage instance.
@@ -1380,6 +1391,7 @@ Do NOT trigger Discharge:
         "row": 6,
       },
       "cell": {
+        "background": "#242f34",
         "plain": "Intrinsic Arc Subclass Buff
 Obtained by reaching 100% Counter Progress through Arc Kills within 6 seconds of each, or through Aspects.
 Rank-And-File = 25% | Elite = 50% | Miniboss+ = 100% | Guardians = 50%
@@ -1706,6 +1718,7 @@ Performing a Speed Booster Slide permanently increases base Slide Distance from 
         "row": 7,
       },
       "cell": {
+        "background": "#242f34",
         "plain": "Upon scoring a Magazine-Based amount of Weapon Damage Instances within 5 seconds of each while Bolt Charge is active:
 The next damage instance from any source will grant a stack of Bolt Charge.
 Swapping weapons resets the counter. Can only gain up to 1 stack per simultaneous damage instance.
@@ -2601,6 +2614,7 @@ exports[`real htmlview golden fixtures > normalises armor cell text and styles a
   "grid": [
     {
       "cell": {
+        "background": "#2e212a",
         "plain": "Armor Set Bonuses",
         "runs": [
           {
@@ -2618,6 +2632,7 @@ exports[`real htmlview golden fixtures > normalises armor cell text and styles a
     },
     {
       "cell": {
+        "background": "#23171f",
         "plain": "Armor Set",
         "runs": [
           {
@@ -2635,6 +2650,7 @@ exports[`real htmlview golden fixtures > normalises armor cell text and styles a
     },
     {
       "cell": {
+        "background": "#23171f",
         "plain": "Description",
         "runs": [
           {
@@ -2652,6 +2668,7 @@ exports[`real htmlview golden fixtures > normalises armor cell text and styles a
     },
     {
       "cell": {
+        "background": "#2f2b26",
         "plain": "AION Renewal
 
 Kepler
@@ -2680,6 +2697,7 @@ Destination",
     },
     {
       "cell": {
+        "background": "#2f2b26",
         "plain": "2 Piece | Force Converter
 
 Upon scoring a Micro-Missile, Rocket Launcher or Grenade Launcher Kill:
@@ -2933,6 +2951,7 @@ Quicksilver Storm's Rocket Tracer, Nanotech Tracer Rounds, Exhaustive Research R
     },
     {
       "cell": {
+        "background": "#2f2b26",
         "plain": "4 Piece | Reactive Booster
 
 Sprinting while at Critical Health, being Suspended, or being affected by a Stasis Debuff will grant Speed Booster.
@@ -3040,6 +3059,7 @@ Can only trigger once per Force Converter activation.",
     },
     {
       "cell": {
+        "background": "#292f26",
         "plain": "AION Adapter
 
 Kepler
@@ -3068,6 +3088,7 @@ Destination",
     },
     {
       "cell": {
+        "background": "#292f26",
         "plain": "2 Piece | Force Absorption
 
 Upon scoring a Missile, Rocket Launcher or Grenade Launcher Kill:
@@ -3289,6 +3310,7 @@ Quicksilver Storm's Rocket Tracer, Nanotech Tracer Round, Exhaustive Research Ro
         "row": 3,
       },
       "cell": {
+        "background": "#2f2b26",
         "plain": "2 Piece | Force Converter
 
 Upon scoring a Micro-Missile, Rocket Launcher or Grenade Launcher Kill:
@@ -3652,6 +3674,7 @@ Destination",
         "row": 5,
       },
       "cell": {
+        "background": "#292f26",
         "plain": "2 Piece | Force Absorption
 
 Upon scoring a Missile, Rocket Launcher or Grenade Launcher Kill:
@@ -3878,6 +3901,7 @@ exports[`real htmlview golden fixtures > normalises weapon cell text and styles 
   "grid": [
     {
       "cell": {
+        "background": "#303e4f",
         "plain": "Gear Perks, Traits, and Mods",
         "runs": [
           {
@@ -3895,6 +3919,7 @@ exports[`real htmlview golden fixtures > normalises weapon cell text and styles 
     },
     {
       "cell": {
+        "background": "#2e3c4e",
         "plain": "Weapon Traits",
         "runs": [
           {
@@ -3914,6 +3939,7 @@ exports[`real htmlview golden fixtures > normalises weapon cell text and styles 
     },
     {
       "cell": {
+        "background": "#213849",
         "plain": "Weapon Mods",
         "runs": [
           {
@@ -3932,6 +3958,7 @@ exports[`real htmlview golden fixtures > normalises weapon cell text and styles 
     },
     {
       "cell": {
+        "background": "#2a2a2a",
         "plain": "Intrinsic Traits",
         "runs": [
           {
@@ -3950,6 +3977,7 @@ exports[`real htmlview golden fixtures > normalises weapon cell text and styles 
     },
     {
       "cell": {
+        "background": "#2d2234",
         "plain": "Crossbow/Glaive/Sword Info",
         "runs": [
           {
@@ -3968,6 +3996,7 @@ exports[`real htmlview golden fixtures > normalises weapon cell text and styles 
     },
     {
       "cell": {
+        "background": "#222a2c",
         "plain": "Origin Traits",
         "runs": [
           {
@@ -3986,6 +4015,7 @@ exports[`real htmlview golden fixtures > normalises weapon cell text and styles 
     },
     {
       "cell": {
+        "background": "#353d45",
         "plain": "Perk",
         "runs": [
           {
@@ -4003,6 +4033,7 @@ exports[`real htmlview golden fixtures > normalises weapon cell text and styles 
     },
     {
       "cell": {
+        "background": "#353d45",
         "plain": "Description",
         "runs": [
           {
@@ -4020,6 +4051,7 @@ exports[`real htmlview golden fixtures > normalises weapon cell text and styles 
     },
     {
       "cell": {
+        "background": "#2e1f1f",
         "plain": "Enhanced Traits are shown in ↑Yellow.
 
 Smaller + signs are color-coded for Subclass-specific fragment interactions.
@@ -4294,6 +4326,7 @@ At ",
     },
     {
       "cell": {
+        "background": "#2e3c4e",
         "plain": "Weapon Traits",
         "runs": [
           {
@@ -4311,6 +4344,7 @@ At ",
     },
     {
       "cell": {
+        "background": "#1b130f",
         "plain": "Accelerated Heatsink",
         "runs": [
           {
@@ -4326,6 +4360,7 @@ At ",
     },
     {
       "cell": {
+        "background": "#1b130f",
         "plain": "Passively grants +25 Cooling Efficiency stat ↑and +2 Reload Speed at the downside of 2% decreased damage.
 
 How do Heat Weapons work?",
@@ -4392,6 +4427,7 @@ How do Heat Weapons work?",
     },
     {
       "cell": {
+        "background": "#262c34",
         "plain": "Adagio",
         "runs": [
           {
@@ -4407,6 +4443,7 @@ How do Heat Weapons work?",
     },
     {
       "cell": {
+        "background": "#262c34",
         "plain": "On Weapon Kill:
 30% (27% Hand Cannons) increased damage, +10 Range, and 1.2x Fire Recovery Delay/Charge Time Multiplier/Draw Time Multiplier for 7 ↑8 seconds.
 Buff is removed on stow.",
@@ -4485,6 +4522,7 @@ Buff is removed on stow.",
         "row": 6,
       },
       "cell": {
+        "background": "#1b130f",
         "plain": "Passively grants +25 Cooling Efficiency stat ↑and +2 Reload Speed at the downside of 2% decreased damage.
 
 How do Heat Weapons work?",
@@ -4556,6 +4594,7 @@ How do Heat Weapons work?",
         "row": 7,
       },
       "cell": {
+        "background": "#262c34",
         "plain": "On Weapon Kill:
 30% (27% Hand Cannons) increased damage, +10 Range, and 1.2x Fire Recovery Delay/Charge Time Multiplier/Draw Time Multiplier for 7 ↑8 seconds.
 Buff is removed on stow.",

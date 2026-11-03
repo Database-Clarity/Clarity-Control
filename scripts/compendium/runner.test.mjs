@@ -38,6 +38,36 @@ describe('dependency-free Compendium publisher', () => {
     expect(changed.changed).toBe(true);
     expect(changed.data.fetchedAt).toBe('2026-10-28T00:00:00Z');
   });
+  it('records cell backgrounds, publishes a background-only change, and accepts data from before them', async () => {
+    const first = await buildCompendium({ parser, load, now: '2026-10-27T00:00:00Z' });
+    const backgrounds = (data) =>
+      data.tabs.flatMap((tab) => tab.grid.map((entry) => entry.cell.background)).filter(Boolean);
+    expect(backgrounds(first.data).length).toBeGreaterThan(0);
+    // Data written before backgrounds existed still validates, and the first refresh adds them.
+    const legacy = structuredClone(first.data);
+    for (const tab of legacy.tabs) {
+      for (const entry of tab.grid) delete entry.cell.background;
+      for (const row of tab.rows) delete row.cell.background;
+    }
+    const upgraded = await buildCompendium({
+      parser,
+      load,
+      previous: legacy,
+      now: '2026-10-28T00:00:00Z',
+    });
+    expect(upgraded.changed).toBe(true);
+    expect(backgrounds(upgraded.data)).toEqual(backgrounds(first.data));
+    // Only a colour in the sheet changed: still new content, so it is committed.
+    const recoloured = await buildCompendium({
+      parser,
+      previous: first.data,
+      now: '2026-10-29T00:00:00Z',
+      load: async (url) =>
+        (await load(url)).replace(/background-color:#262c34/g, 'background-color:#123456'),
+    });
+    expect(recoloured.changed).toBe(true);
+    expect(JSON.stringify(recoloured.data)).toContain('#123456');
+  });
   it('fails the whole build on missing headers, a failed fetch, or invalid previous data', async () => {
     await expect(
       buildCompendium({ parser, load: async () => '<html>login required</html>' }),

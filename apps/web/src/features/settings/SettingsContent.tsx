@@ -1,8 +1,17 @@
 import { useMemo, useState } from 'react';
 import { dateFormats, timeDisplays, type SyncedSettings } from '@clarity/core';
-import { useSettingsStore, editorFonts } from '../../stores/settings';
+import {
+  useSettingsStore,
+  editorFonts,
+  uiScaleMax,
+  uiScaleMin,
+  uiScaleStep,
+  type SuggestAccept,
+  type SymbolReveal,
+} from '../../stores/settings';
+import { themePreferences, type ThemePreference } from '../../ui/theme';
 import { exactDate, formatDate } from '../../services/format/date';
-import { browserTimeZone, syncStatusText, valueLabel } from './labels';
+import { browserTimeZone, syncStatusText, themeLabels, valueLabel } from './labels';
 import { SettingsChoice } from './SettingsChoice';
 import styles from './Settings.module.scss';
 
@@ -18,9 +27,9 @@ function timeZones(): string[] {
 
 export function SettingsContent() {
   const state = useSettingsStore();
-  const { settings, device, update, updateDevice, remember, retry, resetLayout } = state;
+  const { settings, device, update, updateDevice, remember, retry, resetPaneWidths } = state;
   const zones = useMemo(timeZones, []);
-  const [layoutReset, setLayoutReset] = useState(false);
+  const [panesReset, setPanesReset] = useState(false);
   const zoneOptions =
     settings.timeZone === 'auto' || settings.timeZone === 'UTC' || zones.includes(settings.timeZone)
       ? zones
@@ -94,7 +103,7 @@ export function SettingsContent() {
           this device.
         </p>
         <label>
-          Markup toolbar
+          Markup row
           {select('markupToolbar', ['closed', 'open'] as const)}
         </label>
         <label>
@@ -105,6 +114,19 @@ export function SettingsContent() {
       <fieldset>
         <legend>This device</legend>
         <p className={styles.hint}>Kept in this browser only; never synced.</p>
+        <label>
+          Theme
+          <select
+            value={device.theme}
+            onChange={(event) => updateDevice({ theme: event.target.value as ThemePreference })}
+          >
+            {themePreferences.map((theme) => (
+              <option key={theme} value={theme}>
+                {themeLabels[theme]}
+              </option>
+            ))}
+          </select>
+        </label>
         <label>
           Editor font
           <select
@@ -129,29 +151,67 @@ export function SettingsContent() {
         </label>
         <p className={styles.hint}>Ligatures are off so typed symbols stay distinct.</p>
         <label>
-          Text size
+          Accept suggestion chips with
           <select
-            value={device.textSize}
+            value={device.suggestAccept}
             onChange={(event) =>
-              updateDevice({ textSize: event.target.value === 'large' ? 'large' : 'default' })
+              updateDevice({ suggestAccept: event.target.value as SuggestAccept })
             }
           >
-            <option value="default">Default</option>
-            <option value="large">Large</option>
+            <option value="enter">Enter (Shift+Enter makes a new line)</option>
+            <option value="tab">Tab (Enter always makes a new line)</option>
           </select>
         </label>
+        <label>
+          Show symbol markup
+          <select
+            value={device.symbolReveal}
+            onChange={(event) =>
+              updateDevice({ symbolReveal: event.target.value as SymbolReveal })
+            }
+          >
+            <option value="popover">In a popover on hover (text never moves)</option>
+            <option value="caret">As raw text while the caret is on the symbol</option>
+          </select>
+        </label>
+        <label>
+          Interface scale
+          <span className={styles.scale}>
+            <input
+              type="range"
+              min={uiScaleMin}
+              max={uiScaleMax}
+              step={uiScaleStep}
+              value={device.uiScale}
+              aria-valuetext={`${device.uiScale} percent`}
+              onChange={(event) => updateDevice({ uiScale: Number(event.target.value) })}
+            />
+            <output>{device.uiScale}%</output>
+            <button
+              type="button"
+              disabled={device.uiScale === 100}
+              onClick={() => updateDevice({ uiScale: 100 })}
+            >
+              100%
+            </button>
+          </span>
+        </label>
+        <p className={styles.hint}>
+          Scales the whole interface on this device ({uiScaleMin}–{uiScaleMax}%), on top of the
+          browser&apos;s own zoom. In a narrow window a large scale is limited so the layout keeps
+          fitting.
+        </p>
         <div className={styles.actions}>
           <button
             type="button"
             onClick={() => {
-              resetLayout();
-              setLayoutReset(true);
+              setPanesReset(resetPaneWidths());
             }}
           >
-            Reset editor layout
+            Reset pane widths and Compendium zoom
           </button>
-          {layoutReset && (
-            <span role="status">Editor and preview split reset to half and half.</span>
+          {panesReset && (
+            <span role="status">Pane widths and Compendium zoom reset to their defaults.</span>
           )}
         </div>
       </fieldset>

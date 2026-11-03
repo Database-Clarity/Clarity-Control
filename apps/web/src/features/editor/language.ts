@@ -47,12 +47,12 @@ export const clarityLanguage = StreamLanguage.define({
 
 export const clarityHighlighting = syntaxHighlighting(
   HighlightStyle.define([
-    { tag: tags.comment, color: '#6a9955' },
-    { tag: tags.keyword, color: '#c586c0' },
-    { tag: tags.variableName, color: '#4ec9b0' },
-    { tag: tags.typeName, color: '#4fc1ff' },
-    { tag: tags.tagName, color: '#4ec9b0' },
-    { tag: tags.number, color: '#dcdcaa' },
-    { tag: tags.string, color: '#9cdcfe' },
+    { tag: tags.comment, color: 'var(--syn-comment)' },
+    { tag: tags.keyword, color: 'var(--syn-keyword)' },
+    { tag: tags.variableName, color: 'var(--var)' },
+    { tag: tags.typeName, color: 'var(--syn-type)' },
+    { tag: tags.tagName, color: 'var(--var)' },
+    { tag: tags.number, color: 'var(--syn-number)' },
+    { tag: tags.string, color: 'var(--syn-string)' },
   ]),
 );

@@ -75,8 +75,11 @@ export function AttachmentCategoryControl({ base, item }: { base: Tooltip; item:
     }
   };
   const options = [attachmentCategory, effectCategory];
+  const hint = hasOwnIdentity
+    ? 'This item has its own custom identity; change its category in the identity editor.'
+    : 'This creates a category draft; use the normal save flow. Editor role or higher required.';
   return (
-    <div>
+    <div className={styles.categoryRow}>
       <div role="group" aria-label="Attachment category" className={styles.categorySwitch}>
         {options.map((id) => {
           const selected = (id === effectCategory) === isEffect;
@@ -111,11 +114,7 @@ export function AttachmentCategoryControl({ base, item }: { base: Tooltip; item:
           </button>
         </div>
       )}
-      <small>
-        {hasOwnIdentity
-          ? 'This item has its own custom identity; change its category in the identity editor.'
-          : 'This creates a category draft; use the normal save flow. Editor role or higher required.'}
-      </small>
+      <small title={hint}>{hint}</small>
     </div>
   );
 }

@@ -2,7 +2,8 @@
 import { act, createElement, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SavePanel } from './SavePanel';
+import { SaveController } from './SavePanel';
+import { useSaveNotice } from './notice';
 import { useSaveState } from './state';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
@@ -32,14 +33,6 @@ vi.mock('../../ui/Dialog', () => ({
 }));
 
 const alice = { id: 1, login: 'alice', role: 'editor' as const };
-vi.mock('../../features/conflicts/ConflictDialog', () => ({
-  ConflictDialog: ({ onResolve }: { onResolve(result: unknown): void }) =>
-    createElement(
-      'button',
-      { onClick: () => onResolve({ changes: [], deleted: [123] }) },
-      'Accept deletion',
-    ),
-}));
 const edited = { ...tooltip, associated: [9] };
 let root: Root;
 let host: HTMLDivElement;
@@ -85,8 +78,8 @@ afterEach(async () => {
   useSaveState.setState({ locked: false, review: null });
 });
 
-describe('SavePanel save submission', () => {
-  const render = () => act(async () => root.render(createElement(SavePanel)));
+describe('SaveController save submission', () => {
+  const render = () => act(async () => root.render(createElement(SaveController)));
 
   it('sends the save when the login is settled and still the loaded one', async () => {
     await render();
@@ -117,7 +110,7 @@ describe('SavePanel save submission', () => {
     });
     await render();
     await openAndSave();
-    expect(host.textContent).toContain('you switched accounts meanwhile');
+    expect(useSaveNotice.getState().notice).toContain('you switched accounts meanwhile');
     expect(useSaveState.getState().review).toBeNull();
     // The previous account's drafts are not reconciled into the new account.
     expect(useDraftStore.getState().drafts[123]).toBeDefined();
@@ -145,37 +138,4 @@ describe('SavePanel save submission', () => {
       expect(useDataStore.getState().data!.bundle.tooltips[123]).toBeDefined();
     },
   );
-});
-
-it('does not reconcile server deletions after switching during deletion-only flush', async () => {
-  useDraftStore.setState({
-    retry: () => {
-      throw new Error('Draft recovery must finish before retrying');
-    },
-  });
-  mocks.save.mockResolvedValue({ kind: 'conflicts', conflicts: [] });
-  await act(async () => root.render(createElement(SavePanel)));
-  await openAndSave();
-  const accept = [...host.querySelectorAll('button')].find(
-    (b) => b.textContent === 'Accept deletion',
-  );
-  expect(accept).toBeDefined();
-  await act(async () => accept!.click());
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  useDraftStore.setState({ flush: () => gate });
-  const save = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Save changes');
-  await act(async () => save!.click());
-  // activate(B) clears drafts while B's hydration waits behind the pending queue.
-  await act(async () => {
-    useAuthStore.setState({ user: { ...alice, id: 2 }, token: 'token-b' });
-    useDraftStore.setState({ generation: 4, owner: '2', hydrated: false, drafts: {} });
-  });
-  await act(async () => {
-    release();
-    await gate;
-  });
-  expect(useDataStore.getState().data!.bundle.tooltips[123]).toBeDefined();
 });

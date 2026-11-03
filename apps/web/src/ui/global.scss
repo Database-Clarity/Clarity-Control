@@ -1,4 +1,5 @@
 @use '../data/variables' as theme;
+@use './tokens';
 
 @font-face {
   font-family: DestinySymbols;
@@ -8,9 +9,8 @@
 
 :root {
   font-family: Arial, Helvetica, DestinySymbols, sans-serif;
-  color: hsl(0, 0%, 94%);
-  background: hsl(240, 7%, 10%);
-  color-scheme: dark;
+  color: var(--text);
+  background: var(--page);
   font-synthesis: none;
 }
 
@@ -24,7 +24,7 @@ body {
 }
 
 a {
-  color: theme.$orange-color;
+  color: var(--link);
 }
 
 button {
@@ -37,13 +37,13 @@ button {
   input,
   select,
   textarea {
-    font-size: 16px;
+    font-size: max(16px, 1rem);
   }
 }
 
 a:focus-visible,
 button:focus-visible {
-  outline: 2px solid theme.$orange-color;
+  outline: 2px solid var(--accent-ink);
   outline-offset: 4px;
 }
 
@@ -51,10 +51,8 @@ h1 {
   font-size: clamp(1.75rem, 4vw, 2.5rem);
 }
 
-// Device-only "Large text" setting (Settings page): scales every rem-based size one step.
-:root[data-text-size='large'] {
-  font-size: 112.5%;
-}
+// Device-only "Interface scale" (Settings): applyDeviceSettings sets the root font size inline, and
+// every size in the stylesheets is rem-based, so the whole interface scales together.
 
 // The Settings button beside Sign out opens the settings popover; it is a native button already.
 
@@ -90,4 +88,17 @@ h1 {
   font-feature-settings:
     'liga' 0,
     'calt' 0;
+}
+
+// Text for assistive technology only; keeps its place in the accessibility tree.
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }

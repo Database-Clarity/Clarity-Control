@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Tooltip } from '@clarity/core';
 import { TooltipPage } from './TooltipPage';
 import { ClarityEditor, type ClarityEditorProps } from '../editor';
-import { TooltipPreview, type TooltipPreviewProps } from '../preview';
+import { PreviewColumn, type PreviewColumnProps } from '../preview';
 import { CompendiumPanel } from '../compendium/CompendiumPanel';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
@@ -30,7 +30,7 @@ vi.mock('../editor', () => ({
   ClarityEditor: vi.fn((props: ClarityEditorProps) => createElement('div', null, props.value)),
 }));
 vi.mock('../preview', () => ({
-  TooltipPreview: vi.fn((props: TooltipPreviewProps) => createElement('div', null, props.text)),
+  PreviewColumn: vi.fn((props: PreviewColumnProps) => createElement('div', null, props.baseText)),
 }));
 vi.mock('../compendium/CompendiumPanel', () => ({
   CompendiumPanel: vi.fn(({ base }: { base: Tooltip }) =>
@@ -140,6 +140,28 @@ function render(location = '/t/10') {
   );
 }
 
+/** The column's props as one preview per render it can show: the base, then each enhanced version. */
+function previewsOf() {
+  return vi.mocked(PreviewColumn).mock.calls.flatMap(([props]) => [
+    {
+      text: props.baseText,
+      lang: props.lang,
+      globals: props.baseGlobals,
+      name: props.name,
+      icon: props.icon,
+      categoryLabel: props.categoryLabel,
+    },
+    ...props.enhanced.map((view) => ({
+      text: view.text,
+      lang: props.lang,
+      globals: view.globals,
+      name: view.name,
+      icon: undefined,
+      categoryLabel: undefined,
+    })),
+  ]);
+}
+
 describe('tooltip screen composition', () => {
   const originalDraftState = useDraftStore.getState();
   const originalDataState = useDataStore.getState();
@@ -160,17 +182,18 @@ describe('tooltip screen composition', () => {
     useDataStore.setState(originalDataState);
     useAuthStore.setState(originalAuthState);
   });
-  it('wires raw text, ALL variants, draft-aware imports and per-variant legacy types to both real contracts', () => {
+  it('wires ONE base editor, draft-aware imports and a preview for the base and its override', () => {
     render();
     const editors = vi.mocked(ClarityEditor).mock.calls.map(([props]) => props);
-    const previews = vi.mocked(TooltipPreview).mock.calls.map(([props]) => props);
-    expect(editors).toHaveLength(2);
+    const previews = previewsOf();
+    expect(editors).toHaveLength(1);
     expect(previews).toHaveLength(2);
-    expect(editors.map((props) => props.value)).toEqual([
+    expect(editors[0].value).toBe(base.text.en?.text);
+    // The enhanced version keeps its own text (it does not render like the base), so it previews as is.
+    expect(previews.map((props) => props.text)).toEqual([
       base.text.en?.text,
       enhanced.text.en?.text,
     ]);
-    expect(previews.map((props) => props.text)).toEqual(editors.map((props) => props.value));
     for (const props of [...editors, ...previews]) {
       expect(props.lang).toBe('en');
       expect(props.globals).toMatchObject({
@@ -179,22 +202,17 @@ describe('tooltip screen composition', () => {
         imports: { 1: 'Draft imports', 10: base.text.en?.text, 11: enhanced.text.en?.text },
       });
     }
-    expect(editors.map((props) => props.globals.type)).toEqual([
-      'Weapon Frame',
-      'Weapon Frame Enhanced',
-    ]);
+    expect(editors[0].globals.type).toBe('Weapon Frame');
     expect(previews.map((props) => props.globals.type)).toEqual([
       'Weapon Frame',
       'Weapon Frame Enhanced',
     ]);
-    expect(previews[1]).toMatchObject({
-      name: 'Enhanced',
-      icon: '/enhanced.png',
-      categoryLabel: 'Enhanced category',
-    });
-    expect(editors.every((props) => props.readOnly === !apiUrl)).toBe(true);
+    // One column carries the base's header; the enhanced version is a view of it.
+    expect(previews[1]).toMatchObject({ name: 'Enhanced' });
+    expect(previews[0]).toMatchObject({ icon: '/base.png' });
+    expect(editors[0].readOnly).toBe(!apiUrl);
   });
-  it('keeps each Compendium panel attached to its own variant in English and translation workspaces', () => {
+  it('keeps the one Compendium panel on the base, in English and translation workspaces', () => {
     for (const [location, role] of [
       ['/t/10', 'editor'],
       ['/t/10?lang=fr', 'maintainer'],
@@ -204,12 +222,9 @@ describe('tooltip screen composition', () => {
         user: { id: 1, login: 'alice', role, languages: ['fr'] },
       });
       const markup = render(location);
-      expect(vi.mocked(CompendiumPanel).mock.calls.map(([props]) => props.base)).toEqual([
-        base,
-        enhanced,
-      ]);
+      expect(vi.mocked(CompendiumPanel).mock.calls.map(([props]) => props.base)).toEqual([base]);
       expect(markup).toContain('data-compendium-hash="10"');
-      expect(markup).toContain('data-compendium-hash="11"');
+      expect(markup).not.toContain('data-compendium-hash="11"');
     }
   });
   it('hides Compendium from translators and shows changes only for outdated translations', () => {
@@ -235,13 +250,13 @@ describe('tooltip screen composition', () => {
       },
     });
     const markup = render('/t/10?lang=fr');
-    expect(markup).toContain('English changes since this translation');
-    expect(markup).toContain('aria-pressed="true"');
+    expect(markup).toContain('aria-label="English shows"');
+    expect(markup).toContain('Changes since translation');
     expect(markup).not.toContain('data-compendium-hash');
     translated.text.fr.sourceUpdatedAt = '2026-10-27T00:00:00Z';
-    expect(render('/t/10?lang=fr')).not.toContain('English changes since this translation');
+    expect(render('/t/10?lang=fr')).not.toContain('English shows');
     useDataStore.setState({ data });
-    expect(render('/t/10?lang=fr')).not.toContain('English changes since this translation');
+    expect(render('/t/10?lang=fr')).not.toContain('English shows');
   });
   it('shows the shared-perk callout in the header only when 2+ exotics own the perk', () => {
     expect(render()).not.toContain('Shared perk');
@@ -293,15 +308,65 @@ describe('tooltip screen composition', () => {
       useCompendiumStore.setState({ data: previous });
     }
   });
-  it('sends an enhanced edit to that exact tooltip with the signed-in author and loaded base', () => {
+  it('sends a base edit to the base, and an override edit to that exact enhanced tooltip', () => {
     render();
-    vi.mocked(ClarityEditor).mock.calls[1][0].onChange('Edited enhanced');
+    vi.mocked(ClarityEditor).mock.calls[0][0].onChange('Edited base');
+    expect(useDraftStore.getState().edit).toHaveBeenCalledWith(base, 'en', 'Edited base', 'alice');
+    vi.mocked(ClarityEditor).mockClear();
+    // ?variant= opens the override in the editor slot; the base editor stays mounted beside it.
+    render('/t/10?variant=11');
+    const editors = vi.mocked(ClarityEditor).mock.calls.map(([props]) => props);
+    expect(editors.map((props) => props.tooltipHash)).toEqual([10, 11]);
+    editors[1].onChange('Edited enhanced');
     expect(useDraftStore.getState().edit).toHaveBeenCalledWith(
       enhanced,
       'en',
       'Edited enhanced',
       'alice',
     );
+  });
+  it('renders a derived enhanced version from the base text, with no editor of its own', () => {
+    const derived = tooltip(11, base.text.en!.text);
+    useDataStore.setState({
+      data: {
+        ...data,
+        bundle: { ...data.bundle, tooltips: { ...data.bundle.tooltips, 11: derived } },
+      },
+    });
+    useDraftStore.setState({
+      drafts: { 10: { base, next: tooltip(10, '<enhanced Edited base />') } },
+    });
+    const markup = render('/t/10?variant=11');
+    expect(vi.mocked(ClarityEditor)).toHaveBeenCalledTimes(1);
+    const previews = previewsOf();
+    // The draft base text flows into the enhanced preview, read with the enhanced type.
+    expect(previews.map((props) => props.text)).toEqual([
+      '<enhanced Edited base />',
+      '<enhanced Edited base />',
+    ]);
+    expect(previews[1].globals.type).toBe('Weapon Frame Enhanced');
+    expect(markup).not.toContain('Edit override');
+  });
+  it('offers no override for a blank copy, and Stored form only to maintainers on derived versions', () => {
+    const blank = tooltip(11, '');
+    const derived = tooltip(11, base.text.en!.text);
+    for (const [variant, role, edit, stored] of [
+      [blank, 'editor', false, false],
+      [derived, 'editor', false, false],
+      [derived, 'maintainer', false, true],
+      [enhanced, 'maintainer', true, false],
+    ] as const) {
+      useAuthStore.setState({ user: { id: 1, login: 'alice', role } });
+      useDataStore.setState({
+        data: {
+          ...data,
+          bundle: { ...data.bundle, tooltips: { ...data.bundle.tooltips, 11: variant } },
+        },
+      });
+      const markup = render();
+      expect(markup.includes('Edit override')).toBe(edit);
+      expect(markup.includes('Stored form')).toBe(stored);
+    }
   });
   it('composes one frame editor and projects shared imports into both editor and preview', () => {
     useDataStore.setState({
@@ -312,7 +377,7 @@ describe('tooltip screen composition', () => {
     });
     render();
     const editors = vi.mocked(ClarityEditor).mock.calls.map(([props]) => props);
-    const previews = vi.mocked(TooltipPreview).mock.calls.map(([props]) => props);
+    const previews = previewsOf();
     expect(editors).toHaveLength(1);
     expect(previews).toHaveLength(1);
     for (const props of [...editors, ...previews]) {

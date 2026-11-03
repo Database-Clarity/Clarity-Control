@@ -20,6 +20,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { TooltipNavigation } from './TooltipNavigation';
+import { RecoveredDrafts } from './DraftButton';
 import { Layout } from './Layout';
 import { useDraftStore } from '../../stores/drafts';
 
@@ -125,8 +126,9 @@ describe('tooltip catalog', () => {
         createElement(
           MemoryRouter,
           null,
-          createElement(TooltipNavigation, {
+          createElement(RecoveredDrafts, {
             data: { ...data, aliases: { 11: { to: 10, kind: 'frame' } } },
+            onOpen: () => undefined,
           }),
         ),
       );
@@ -138,7 +140,7 @@ describe('tooltip catalog', () => {
       useDraftStore.setState(previous);
     }
   });
-  it('uses grouped dropdowns and only the Previous/Next stepping buttons', () => {
+  it('uses a grouped category dropdown and a tooltip combobox, with no stepper in the header form', () => {
     const markup = renderToStaticMarkup(
       createElement(
         MemoryRouter,
@@ -146,13 +148,16 @@ describe('tooltip catalog', () => {
         createElement(TooltipNavigation, { data }),
       ),
     );
-    expect(markup.match(/<select/g)).toHaveLength(2);
+    expect(markup.match(/<select/g)).toHaveLength(1);
     expect(markup).toContain('<optgroup label="Armor">');
     expect(markup).toContain('<optgroup label="Weapons">');
     expect(markup).not.toContain('<details');
-    expect(markup.match(/<button/g)).toHaveLength(2);
-    expect(markup).toContain('value="10" selected=""');
-    expect(markup).not.toContain('value="11"');
+    // The combobox shows the current item and keeps its list closed until asked.
+    expect(markup).toMatch(/<input[^>]*role="combobox"[^>]*aria-expanded="false"[^>]*value="Base"/);
+    expect(markup).not.toContain('role="listbox"');
+    expect(markup).not.toContain('Step within category');
+    expect(markup.match(/<button/g)).toBeNull();
+    expect(markup).toContain('value="later" selected=""');
   });
   it('marks shared perks in the navigation item and callout', () => {
     const shared: EditorData = {
@@ -172,7 +177,7 @@ describe('tooltip catalog', () => {
     expect(sharedPerkLabel(20, shared)).toBeUndefined();
     const markup = render(shared);
     expect(markup).toContain('Shared perk — used on: Armor, 77');
-    expect(markup).toContain('· shared perk');
+    expect(markup).toContain('title="Shared perk — used on: Armor, 77"');
     expect(render(data)).not.toContain('hared perk');
     expect(
       sharedPerkLabel(10, {
@@ -312,9 +317,8 @@ describe('tooltip catalog', () => {
         createElement(TooltipNavigation, { data: frames }),
       ),
     );
-    expect(markup).toContain('×3');
-    expect(markup).not.toContain('value="11"');
-    expect(markup).not.toContain('value="12"');
+    // One category entry for the whole frame group; the variants have no entry of their own.
+    expect(markup).toContain('Later (1)');
   });
 });
 
@@ -332,14 +336,19 @@ describe('previous/next stepping buttons', () => {
       createElement(
         MemoryRouter,
         { initialEntries: [path] },
-        createElement(TooltipNavigation, { data: category }),
+        createElement(TooltipNavigation, { data: category, variant: 'sheet' }),
       ),
     );
-    const buttons = [...markup.matchAll(/<button([^>]*)>(Previous|Next)<\/button>/g)];
+    const buttons = [...markup.matchAll(/<button([^>]*)>/g)].filter((match) =>
+      /aria-label="(Previous|Next) tooltip"/.test(match[1]),
+    );
     return {
       markup,
       disabled: Object.fromEntries(
-        buttons.map((match) => [match[2], match[1].includes('disabled')]),
+        buttons.map((match) => [
+          /aria-label="(Previous|Next) tooltip"/.exec(match[1])![1],
+          match[1].includes('disabled'),
+        ]),
       ),
     };
   }
@@ -390,7 +399,7 @@ describe('previous/next stepping buttons', () => {
   });
   it('wraps the keyboard/wheel help so touch devices can hide it but keeps the draft legend', () => {
     const { markup } = stepper('/t/20');
-    expect(markup).toMatch(/<small id="tooltip-stepping-help"><span[^>]*>Shift\+Scroll/);
+    expect(markup).toMatch(/<small id="tooltip-stepping-help"[^>]*>Type to search\. Shift\+Scroll/);
     expect(markup).toContain('* = unsaved draft.');
   });
 });
@@ -461,6 +470,83 @@ describe('stepping history', () => {
     stepping.step('/t/20', '/t/10');
     vi.advanceTimersByTime(1000);
     expect(entries).toEqual(['/t/10']);
+  });
+  describe('with the preview leave guard', () => {
+    function guarded(allowed: boolean) {
+      const entries = ['/t/10'];
+      const navigate = vi.fn((path: string, { replace }: { replace: boolean }) => {
+        if (replace) entries[entries.length - 1] = path;
+        else entries.push(path);
+      });
+      let epoch = 0;
+      const guard = {
+        allow: vi.fn(() => allowed),
+        epoch: () => epoch,
+        authorized: vi.fn((run: () => void) => run()),
+      };
+      return {
+        entries,
+        navigate,
+        guard,
+        stepping: createStepping(navigate, guard),
+        bump: () => void epoch++,
+      };
+    }
+    it('asks before any history or timer state changes, and a refusal leaves nothing pending', () => {
+      vi.useFakeTimers();
+      const { entries, navigate, guard, stepping } = guarded(false);
+      expect(stepping.step('/t/10', '/t/20')).toBe(false);
+      expect(guard.allow).toHaveBeenCalledWith('/t/10', '/t/20');
+      expect(navigate).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(2000);
+      stepping.commit();
+      expect(navigate).not.toHaveBeenCalled();
+      expect(entries).toEqual(['/t/10']);
+    });
+    it('finishes what a gesture already stepped through when it is refused part-way', () => {
+      vi.useFakeTimers();
+      const { entries, guard, stepping } = guarded(true);
+      stepping.step('/t/10', '/t/20');
+      guard.allow.mockReturnValue(false);
+      expect(stepping.step('/t/20', '/t/30')).toBe(false);
+      // The origin entry is kept and the stepped route added, as for any finished gesture.
+      expect(entries).toEqual(['/t/10', '/t/20']);
+      expect(guard.authorized).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(2000);
+      expect(entries).toEqual(['/t/10', '/t/20']);
+    });
+    it('finishes an allowed gesture as the usual two history operations', () => {
+      vi.useFakeTimers();
+      const { entries, stepping } = guarded(true);
+      expect(stepping.step('/t/10', '/t/20')).toBe(true);
+      vi.advanceTimersByTime(1000);
+      expect(entries).toEqual(['/t/10', '/t/20']);
+    });
+    it('runs the history restore inside the authorized pass of the guard, and only that', () => {
+      vi.useFakeTimers();
+      const { navigate, guard, stepping } = guarded(true);
+      const calls: string[] = [];
+      guard.authorized.mockImplementation((run: () => void) => {
+        calls.push('open');
+        run();
+        calls.push('close');
+      });
+      navigate.mockImplementation((path: string) => void calls.push(path));
+      stepping.step('/t/10', '/t/20');
+      expect(calls).toEqual(['/t/20']);
+      vi.advanceTimersByTime(1000);
+      expect(calls).toEqual(['/t/20', 'open', '/t/10', '/t/20', 'close']);
+    });
+    it('spends the allowance when something changed meanwhile: no history is rewritten', () => {
+      vi.useFakeTimers();
+      const { entries, navigate, stepping, bump } = guarded(true);
+      stepping.step('/t/10', '/t/20');
+      navigate.mockClear();
+      bump();
+      vi.advanceTimersByTime(1000);
+      expect(navigate).not.toHaveBeenCalled();
+      expect(entries).toEqual(['/t/20']);
+    });
   });
   describe('language from a worklist link', () => {
     it('keeps a valid ?lang= in targets and drops line/variant highlights and invalid values', () => {

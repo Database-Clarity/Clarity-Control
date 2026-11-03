@@ -1,128 +1,43 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type KeyboardEvent,
-  type PointerEvent,
-} from 'react';
+import type { CSSProperties } from 'react';
+import { PaneDivider } from '../../ui/PaneDivider';
+import { scaledPx } from '../../ui/scale';
+import { DIVIDER_TRACK, usePaneDivider } from '../../ui/usePaneDivider';
 import styles from './TooltipPage.module.scss';
 
-const STORAGE_KEY = 'description-editor-split';
-const DEFAULT_SPLIT = 50;
-const MIN_PANE = 240;
-const HANDLE_WIDTH = 16;
+/** The editor never gets narrower than this; the right pane is 320–640 beside it (design pixels). */
+const EDITOR_MIN = 480;
+const RIGHT_MIN = 320;
+const RIGHT_MAX = 640;
+const RIGHT_DEFAULT = 384;
 
-function readSplit() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved !== null && saved.trim() !== '') {
-      const value = Number(saved);
-      if (Number.isFinite(value)) return value;
-    }
-  } catch {
-    /* The preference is optional. */
-  }
-  return DEFAULT_SPLIT;
-}
-
-export function useWorkspaceDivider() {
-  const container = useRef<HTMLDivElement>(null);
-  const dragging = useRef<number | null>(null);
-  const [width, setWidth] = useState(0);
-  const [split, setSplit] = useState(readSplit);
-
-  useEffect(() => {
-    const element = container.current;
-    if (!element) return;
-    const update = () => setWidth(element.getBoundingClientRect().width);
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
-
-  const available = Math.max(0, width - HANDLE_WIDTH);
-  const min = available >= MIN_PANE * 2 ? (MIN_PANE / available) * 100 : 50;
-  const max = 100 - min;
-  const value = Math.max(min, Math.min(max, split));
-  function change(next: number) {
-    const clamped = Math.max(min, Math.min(max, next));
-    setSplit(clamped);
-    try {
-      localStorage.setItem(STORAGE_KEY, String(clamped));
-    } catch {
-      /* Optional preference. */
-    }
-  }
-  function move(event: PointerEvent<HTMLDivElement>) {
-    if (dragging.current !== event.pointerId || !container.current || !available) return;
-    change(
-      ((event.clientX - container.current.getBoundingClientRect().left - HANDLE_WIDTH / 2) /
-        available) *
-        100,
-    );
-  }
-  function finish(event: PointerEvent<HTMLDivElement>) {
-    if (dragging.current !== event.pointerId) return;
-    dragging.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId))
-      event.currentTarget.releasePointerCapture(event.pointerId);
-  }
-  function keyboard(event: KeyboardEvent<HTMLDivElement>) {
-    const next =
-      event.key === 'ArrowLeft'
-        ? value - 2
-        : event.key === 'ArrowRight'
-          ? value + 2
-          : event.key === 'Home'
-            ? min
-            : event.key === 'End'
-              ? max
-              : null;
-    if (next === null) return;
-    event.preventDefault();
-    change(next);
-  }
-  const separator = (
-    <div
-      className={styles.divider}
-      role="separator"
-      aria-label="Resize editor and preview"
-      aria-orientation="vertical"
-      aria-valuemin={Math.round(min)}
-      aria-valuemax={Math.round(max)}
-      aria-valuenow={Math.round(value)}
-      tabIndex={0}
-      onKeyDown={keyboard}
-      onPointerDown={(event) => {
-        if (event.button !== 0) return;
-        event.preventDefault();
-        event.currentTarget.focus();
-        dragging.current = event.pointerId;
-        event.currentTarget.setPointerCapture(event.pointerId);
-      }}
-      onPointerMove={move}
-      onPointerUp={finish}
-      onPointerCancel={finish}
-      onLostPointerCapture={() => {
-        dragging.current = null;
-      }}
-      onDoubleClick={() => {
-        setSplit(DEFAULT_SPLIT);
-        try {
-          localStorage.removeItem(STORAGE_KEY);
-        } catch {
-          /* Optional preference. */
-        }
-      }}
-    />
-  );
+/**
+ * The editor | right pane pair (the Compendium comparison; the preview has its own column in the
+ * shell). The right pane is the one sized: 320–640, 384 by default, saved on this device as
+ * `editor:right`. Where the editor cannot keep 480px beside a 320px pane the pair stacks, so the
+ * editor is never squeezed: the pane follows below it. A phone has no divider at all (its panels
+ * are tabs). A pane that is not there (`hasPane` false) leaves the editor the whole width.
+ */
+export function useWorkspaceDivider(hasPane = true) {
+  const pane = usePaneDivider({
+    storeKey: 'editor:right',
+    sizes: 'end',
+    min: RIGHT_MIN,
+    max: RIGHT_MAX,
+    reserve: EDITOR_MIN,
+    defaultWidth: RIGHT_DEFAULT,
+  });
+  // The limits are design pixels; the window is measured in CSS pixels at the current scale.
+  const split = hasPane && pane.containerWidth >= scaledPx(EDITOR_MIN + DIVIDER_TRACK + RIGHT_MIN);
   return {
-    container,
-    separator,
-    style: {
-      '--editor-width': `calc(${value}% - ${(HANDLE_WIDTH * value) / 100}px)`,
-    } as CSSProperties,
+    container: pane.containerRef,
+    split,
+    separator: (
+      <PaneDivider
+        {...pane.divider}
+        className={styles.divider}
+        label="Resize editor and Compendium"
+      />
+    ),
+    style: { '--right-width': `${pane.width}px` } as CSSProperties,
   };
 }

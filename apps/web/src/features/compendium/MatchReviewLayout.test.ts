@@ -1,8 +1,13 @@
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { compile } from 'sass';
 import { expect, it } from 'vitest';
 
 const css = compile(fileURLToPath(new URL('./MatchReview.module.scss', import.meta.url))).css;
+const layoutSource = readFileSync(
+  fileURLToPath(new URL('../navigation/Layout.tsx', import.meta.url)),
+  'utf8',
+);
 const layoutCss = compile(
   fileURLToPath(new URL('../navigation/Layout.module.scss', import.meta.url)),
 ).css;
@@ -32,25 +37,30 @@ it('budgets desktop panels from remaining viewport space, with phone document sc
     /@media \(max-width: 700px\)[\s\S]*\.entryReview \{\s*display: block;\s*height: auto;/,
   );
 });
-it('keeps the phone review actions and overlay above the measured save dock', () => {
+it('keeps the phone review actions and overlay clear of the home indicator, with no dock to reserve', () => {
   const mobile = css.slice(css.indexOf('@media (max-width: 700px)'));
-  expect(mobile).toMatch(/\.actionBar \{[^}]*bottom: var\(--save-dock-height,/);
+  expect(mobile).toMatch(/\.actionBar \{[^}]*bottom: env\(safe-area-inset-bottom, 0px\);/);
   expect(mobile).toMatch(/\.overlay \{[^}]*--review-action-bar-height/);
   expect(css).toContain('var(--review-action-bar-height, 0px)');
-  expect(mobile).toContain('calc(5rem + env(safe-area-inset-bottom, 0px))');
-  expect(layoutCss).toContain('calc(5rem + env(safe-area-inset-bottom, 0px))');
-  expect(css).toMatch(/\.actionBar button \{\s*min-height: 44px;\s*\}/);
+  expect(css).not.toContain('--save-dock-height');
+  expect(layoutCss).not.toContain('--save-dock-height');
+  expect(css).toMatch(/\.actionBar button \{\s*min-height: max\(44px, 2\.75rem\);\s*\}/);
   expect(css).toContain('.actionConsequence');
   const reviewMobile = reviewCss.slice(reviewCss.indexOf('@media (max-width: 700px)'));
   const emptyActionRule = reviewMobile.match(/([^{}]*\.empty button[^{}]*)\{([^{}]*)\}/);
-  expect(emptyActionRule?.[2]).toContain('min-height: 44px;');
+  expect(emptyActionRule?.[2]).toContain('min-height: max(44px, 2.75rem);');
   expect(categoryCss).toMatch(/@media \(max-width: 700px\)[\s\S]*\.actions \{\s*position: fixed;/);
   expect(categoryCss).toContain('.actionEyebrow');
 });
-it('bounds the mobile context-aware sidebar without hiding the Editor stepper globally', () => {
-  expect(layoutCss).toMatch(/\.sidebar\[data-open=true\] \{[^}]*height: 100dvh;/);
-  expect(layoutCss).toMatch(/\.sidebar\[data-open=true\] \.sidebarBody \{[^}]*overflow-y: auto;/);
-  expect(layoutCss.match(/(?:^|\n)\.stepper \{([^}]+)\}/)?.[1]).not.toContain('display: none');
+it('keeps the desktop list column bounded under the header (whatever its height) and gives phones none', () => {
+  const list = layoutCss.match(/\.left\[data-list\] \{([^}]+)\}/)?.[1];
+  expect(list).toContain('position: sticky;');
+  expect(list).toContain('top: var(--header-h, 37px);');
+  expect(list).toContain('height: calc(100dvh - var(--header-h, 37px));');
+  expect(layoutCss).toMatch(/\n\.left \{[^}]*overflow: auto;/);
+  // The column exists only where the Layout sets data-column; a phone never does.
+  expect(layoutCss).toContain('.body[data-column]');
+  expect(layoutSource).toMatch(/hasColumn = !phone &&/);
 });
 it('gives category and pending queue links 44px phone/coarse targets without changing desktop density', () => {
   const desktop = layoutCss.match(/(?:^|\n)\.sidebarNavigation a \{([^}]+)\}/)?.[1];
@@ -62,7 +72,7 @@ it('gives category and pending queue links 44px phone/coarse targets without cha
         `@media ${media.replace(/[()]/g, '\\$&')} \\{\\s*\\.sidebarNavigation a \\{([^}]+)\\}`,
       ),
     )?.[1];
-    expect(targets).toContain('min-height: 44px;');
+    expect(targets).toContain('min-height: max(44px, 2.75rem);');
     expect(targets).toContain('box-sizing: border-box;');
     expect(targets).toContain('align-items: center;');
   }

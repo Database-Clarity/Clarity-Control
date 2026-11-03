@@ -1,0 +1,67 @@
+@use '../../ui/controls';
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 3rem;
+  padding: 0 0.25rem;
+  box-sizing: border-box;
+  background: var(--chrome);
+  border-bottom: 1px solid var(--line);
+}
+
+.mark {
+  @include controls.button;
+  flex: none;
+  width: 2.75rem;
+  padding: 0;
+}
+
+.title {
+  @include controls.button;
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: space-between;
+  margin: 0;
+  padding: 0 0.625rem;
+  font-size: 1rem;
+  font-weight: 600;
+  background: none;
+  border: 0;
+
+  span:first-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &:is(h1) {
+    cursor: default;
+    justify-content: flex-start;
+  }
+}
+
+.chevron {
+  flex: none;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid currentColor;
+}
+
+.end {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+
+  button {
+    min-width: max(44px, 2.75rem);
+  }
+}
