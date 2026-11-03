@@ -87,10 +87,13 @@ export function validatePublishBody(value: unknown, now: number, creating = true
   if (new TextEncoder().encode(JSON.stringify(value)).length > 300 * 1024)
     throw new Error('Publish body exceeds 300 KB');
   const parsed = publishBodySchema.parse(value);
-  if (creating) {
-    const alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
-    const time = [...parsed.opId.slice(0, 10)].reduce((n, c) => n * 32 + alphabet.indexOf(c), 0);
-    if (Math.abs(time - now) > 86_400_000) throw new Error('Publish opId outside creation window');
-  }
+  if (creating) validatePublishTime(parsed.opId, now);
   return parsed;
+}
+
+/** For bodies already schema-validated and byte-limited by the HTTP boundary. */
+export function validatePublishTime(opId: string, now: number) {
+  const alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+  const time = [...opId.slice(0, 10)].reduce((n, c) => n * 32 + alphabet.indexOf(c), 0);
+  if (Math.abs(time - now) > 86_400_000) throw new Error('Publish opId outside creation window');
 }

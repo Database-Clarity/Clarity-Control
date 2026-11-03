@@ -7,7 +7,7 @@ globalThis.fetch = () => {
   throw new Error('External I/O escaped CPU harness');
 };
 for (const mode of ['publish', 'pending', 'terminal', 'kick'])
-  for (const count of [1, 100, 2511]) {
+  for (const count of [1, 50, 100, 2511]) {
     execFileSync(process.execPath, ['scripts/publisher/cpu/prepare.mjs', mode, String(count)], {
       stdio: 'pipe',
     });

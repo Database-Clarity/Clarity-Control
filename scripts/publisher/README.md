@@ -117,8 +117,35 @@ legacy/new write routes and Vite's VITE_PUBLISHER_ENABLED constant; shell overri
 the two builds. Pipeline publication remains simulation-only even when this switch is ON.
 See [E2-RUNBOOK.md](./E2-RUNBOOK.md) for local-only install preparation, preview CPU measurement,
 first-output parity, and rollback. No remote measurements or installation are performed by E1.
-`node scripts/publisher/cpu/smoke.mjs` verifies all 12 synthetic endpoint/size cases without a server.
+`node scripts/publisher/cpu/smoke.mjs` verifies all 16 synthetic endpoint/size cases without a server.
 `npx vitest run scripts/publisher/startup.test.ts` dry-run bundles the harness and real Worker,
 then imports both without invoking handlers under a shim that rejects startup randomness,
 crypto, network I/O and timers. It also checks lazy per-isolate UUID and invocation metadata.
 The harness creates its isolate ID on the first request, never during Worker startup.
+
+## CPU-bounded logical publishes
+
+The browser saves a confirmed selection atomically as chunks of 50 hashes, each with its own
+stable opId, immutable body, signature, numeric role check and CAS reconciliation. It sends the
+chunks sequentially and shows one logical activity row. Success requires every chunk to finish
+successfully; mixed outcomes are explicitly incomplete. Completed chunks may go live before
+others, so the whole selection is no longer atomic. Retry and reload reuse the original identities.
+Chunk metadata is local to this browser; repository queue entries remain individual requests.
+
+Imported HMAC, RSA and Ed25519 keys use bounded single-entry caches keyed by the exact secret.
+Only completed CryptoKeys/derived public metadata are shared; rotation or missing secrets cannot
+hit another key. GitHub installation tokens are deliberately fetched per request: caching them
+would mask installation/key revocation until expiry. Permissions are read from the current head
+on every request and CAS retry. Full request signing, digest format and byte/schema checks remain.
+
+Run `node scripts/publisher/cpu/local.mjs` for synthetic no-network local CPU measurements and
+V8 profiles of publish, pending status, terminal status and kick at 1/50/100/2511 hashes. On Windows,
+process CPU has coarse ticks: each of 30 samples is a mean of 20 requests, after 20 warmups. p95
+is a percentile of batch means, **not** a per-request tail percentile. Cold values are wall time.
+Set `CPU_BASELINE=1` to bundle the original hot paths from commit 30c0a5a with the same fixture.
+`node scripts/publisher/cpu/profile.mjs <file.cpuprofile>` gives approximate stack attribution and
+self-sampled hotspots; asynchronous native crypto may be charged to runtime/idle frames.
+The fixture precomputes upstream JSON and honors OID-only projections. It excludes network
+latency but includes synthetic Response construction. Node timings cannot certify Workers CPU;
+real Workers tail measurements on the Free plan remain a release gate, including cold requests.
+The existing preview harness accepts size 50 for that follow-up. No plan change is required.

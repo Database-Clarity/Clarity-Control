@@ -1,5 +1,7 @@
 // esbuild injects this binding into the real Worker modules. There is NO network fallback.
 import fixture from './dist/fixture.json';
+const envelopeText = JSON.stringify(fixture.envelope);
+const logText = JSON.stringify(fixture.log);
 export async function fetch(input, init) {
   const url = new URL(String(input));
   const method = init?.method ?? 'GET';
@@ -9,7 +11,7 @@ export async function fetch(input, init) {
   if (url.pathname.endsWith('/access_tokens') && method === 'POST')
     return json({ token: 'synthetic' });
   if (url.pathname === '/graphql' && method === 'POST') {
-    const { variables } = JSON.parse(init.body);
+    const { variables, query } = JSON.parse(init.body);
     const target = { oid: sha, tree: { oid: sha } };
     for (let i = 0; variables[`p${i}`]; i++) {
       const path = variables[`p${i}`];
@@ -22,7 +24,20 @@ export async function fetch(input, init) {
       target[`o${i}`] =
         value === null
           ? null
-          : { object: { oid: sha, isTruncated: false, text: JSON.stringify(value) } };
+          : query.includes(`o${i}:file(path:$p${i}){object{... on Blob{oid}}}`)
+            ? { object: { oid: sha } }
+            : {
+                object: {
+                  oid: sha,
+                  isTruncated: false,
+                  text:
+                    value === fixture.envelope
+                      ? envelopeText
+                      : value === fixture.log
+                        ? logText
+                        : JSON.stringify(value),
+                },
+              };
     }
     return json({ data: { repository: { ref: { target } } } });
   }

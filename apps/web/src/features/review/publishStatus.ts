@@ -109,3 +109,49 @@ export function foreignWaiting(
     ? { count: waiting.length, since: waiting[0]!.since, opId: waiting[0]!.opId }
     : undefined;
 }
+
+/** Present one confirmed action; pending always wins over partial success or failure. */
+export function groupPublishes(
+  ops: readonly PublishOp[],
+): { op: PublishOp; members: PublishOp[] }[] {
+  const groups = new Map<string, PublishOp[]>();
+  for (const op of ops) {
+    const id = op.groupId ?? op.opId;
+    const members = groups.get(id) ?? [];
+    members.push(op);
+    groups.set(id, members);
+  }
+  return [...groups.values()].map((members) => {
+    const first = members[0]!;
+    const missing = members.length < (first.groupSize ?? members.length);
+    if (members.length === 1 && !missing) return { op: first, members };
+    const unfinished = members.find((op) => !isTerminal(op.status));
+    const failed = members.find(
+      (op) => isTerminal(op.status) && op.status !== 'done' && op.status !== 'unchanged',
+    );
+    const successful = members
+      .filter((op) => op.status === 'done' || op.status === 'unchanged')
+      .reduce((count, op) => count + op.hashes.length, 0);
+    return {
+      members,
+      op: {
+        ...first,
+        hashes: members.flatMap((op) => op.hashes),
+        status: missing
+          ? 'failed'
+          : unfinished
+            ? 'pending'
+            : failed
+              ? 'failed'
+              : members.every((op) => op.status === 'unchanged')
+                ? 'unchanged'
+                : 'done',
+        error: missing
+          ? 'Some local publish records are unavailable. Check live status before publishing again.'
+          : failed
+            ? `Publish incomplete: ${successful} of ${members.reduce((count, op) => count + op.hashes.length, 0)} tooltips confirmed live. Check live status before publishing again.`
+            : undefined,
+      },
+    };
+  });
+}

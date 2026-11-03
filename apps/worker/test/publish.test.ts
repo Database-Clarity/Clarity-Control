@@ -319,3 +319,21 @@ it('status/kick query request IDs only; kick also avoids downloading a large ter
   );
   expect(f.subrequests).toBe(before);
 });
+
+it('isolates cached signing keys by exact secret and rejects removed or invalid keys', async () => {
+  const key = async () =>
+    worker.fetch(new Request('https://api.example/publish/key'), f.env, { waitUntil() {} });
+  const original = f.env.PUBLISH_SIGNING_KEY;
+  const a = (await (await key()).json()) as { fingerprint: string };
+  f.env.PUBLISH_SIGNING_KEY = generateKeyPairSync('ed25519')
+    .privateKey.export({ type: 'pkcs8', format: 'pem' })
+    .toString();
+  const b = (await (await key()).json()) as { fingerprint: string };
+  expect(a.fingerprint).not.toBe(b.fingerprint);
+  f.env.PUBLISH_SIGNING_KEY = undefined;
+  expect((await key()).status).toBe(503);
+  f.env.PUBLISH_SIGNING_KEY = 'invalid';
+  expect((await key()).status).toBe(503);
+  f.env.PUBLISH_SIGNING_KEY = original;
+  expect(((await (await key()).json()) as { fingerprint: string }).fingerprint).toBe(a.fingerprint);
+});

@@ -8,7 +8,7 @@ import {
   publishOpIdSchema,
   publishPayloadSchema,
   stableStringify,
-  validatePublishBody,
+  validatePublishTime,
 } from '@clarity/core';
 import { unbase64 } from './crypto.js';
 import { body, HttpError, json } from './http.js';
@@ -25,9 +25,23 @@ const opPaths = (id: string) => [
 const encoder = new TextEncoder();
 const base64 = (bytes: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
 
+// One completed value per isolate, keyed by exact secret; no shared in-flight I/O.
+let signingCache:
+  | {
+      secret: string;
+      value: { key: CryptoKey; publicKey: string; fingerprint: string };
+    }
+  | undefined;
+const statusIdsSchema = z.array(publishOpIdSchema).min(1).max(1);
+const resultStatusSchema = z.object({
+  status: z.enum(['done', 'unchanged', 'stale', 'rejected', 'failed']),
+});
+const kickSchema = z.object({ opId: publishOpIdSchema }).strict();
+
 /** PKCS8 PEM secret. Only the public SPKI and its fingerprint may leave this module. */
 async function signingKey(env: Env) {
   if (!env.PUBLISH_SIGNING_KEY) throw new HttpError(503, 'Publisher is not enabled');
+  if (signingCache?.secret === env.PUBLISH_SIGNING_KEY) return signingCache.value;
   try {
     const der = unbase64(env.PUBLISH_SIGNING_KEY.replace(/-----[^-]+-----|\s/g, ''));
     const key = await crypto.subtle.importKey('pkcs8', der, 'Ed25519', true, ['sign']);
@@ -50,7 +64,9 @@ async function signingKey(env: Env) {
     const fingerprint = [...new Uint8Array(await crypto.subtle.digest('SHA-256', spki))]
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
-    return { key, publicKey: pem, fingerprint };
+    const value = { key, publicKey: pem, fingerprint };
+    signingCache = { secret: env.PUBLISH_SIGNING_KEY, value };
+    return value;
   } catch {
     throw new HttpError(503, 'Publisher signing key unavailable');
   }
@@ -101,7 +117,8 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
     if (decision.status === 'pending') return json({ opId: value.opId, status: 'pending' }, 202);
     if (attempt === 2) break;
     try {
-      validatePublishBody(value, Date.now());
+      // body() already enforced the byte cap and full schema. Only the clock can change.
+      validatePublishTime(value.opId, Date.now());
     } catch {
       throw new HttpError(400, 'Publish opId outside creation window');
     }
@@ -130,11 +147,7 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
 
 export async function publishStatus(request: Request, github: GitHub, user: Identity) {
   const url = new URL(request.url);
-  const parsed = z
-    .array(publishOpIdSchema)
-    .min(1)
-    .max(1)
-    .safeParse(url.searchParams.getAll('opId'));
+  const parsed = statusIdsSchema.safeParse(url.searchParams.getAll('opId'));
   if (!parsed.success || [...url.searchParams.keys()].some((k) => k !== 'opId'))
     throw new HttpError(400, 'Supply exactly one opId query parameter');
   const ids = parsed.data;
@@ -149,9 +162,7 @@ export async function publishStatus(request: Request, github: GitHub, user: Iden
   return json({
     operations: ids.map((opId, i) => {
       const log = logged(snapshot.files[2 + i * 2]);
-      const result = z
-        .object({ status: z.enum(['done', 'unchanged', 'stale', 'rejected', 'failed']) })
-        .safeParse(log?.result);
+      const result = resultStatusSchema.safeParse(log?.result);
       return {
         opId,
         status: log
@@ -167,7 +178,7 @@ export async function publishStatus(request: Request, github: GitHub, user: Iden
 }
 
 export async function publishKick(request: Request, github: GitHub, user: Identity) {
-  const { opId } = await body(request, z.object({ opId: publishOpIdSchema }).strict(), 1024);
+  const { opId } = await body(request, kickSchema, 1024);
   const paths = opPaths(opId);
   const snapshot = await github.publishSnapshot(['config/permissions.json', ...paths], paths);
   requireAccess(permissionsSchema.parse(snapshot.files[0]?.value), user, ['maintainer', 'editor']);

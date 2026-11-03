@@ -26,6 +26,8 @@ export const publishTiming = {
   pollGiveUpMs: 24 * 3_600_000,
   /** Worker caps (core publishRequest.ts): at most 3,000 hashes, body at most 300 KB. */
   maxHashes: 3000,
+  /** Conservative local CPU measurement; deployed tail gate still required. */
+  chunkHashes: 50,
   maxBodyBytes: 300 * 1024,
 } as const;
 
@@ -138,6 +140,7 @@ export class PublishDriver {
    */
   async create(inputs: PublishInput[]): Promise<PublishOp> {
     const userId = this.userId;
+    const generation = this.generation;
     if (!userId) throw new Error('Sign in to publish.');
     if (!inputs.length) throw new Error('Nothing to publish.');
     if (inputs.length > publishTiming.maxHashes)
@@ -146,35 +149,53 @@ export class PublishDriver {
       );
     const now = this.deps.now();
     const sorted = [...inputs].sort((a, b) => a.hash - b.hash);
-    const op: PublishOp = {
-      opId: newOpId(now),
-      userId,
-      createdAt: now,
-      hashes: sorted.map((input) => input.hash),
-      expected: Object.fromEntries(sorted.map((input) => [input.hash, input.digest])),
-      previous: Object.fromEntries(sorted.map((input) => [input.hash, input.previous ?? null])),
-      status: 'created',
-      updatedAt: now,
-    };
-    const bodyBytes = new TextEncoder().encode(
-      JSON.stringify({ opId: op.opId, hashes: op.hashes, expected: op.expected }),
-    ).length;
-    if (bodyBytes > publishTiming.maxBodyBytes)
-      throw new Error(
-        'This publish is too large to send. Select fewer tooltips. Nothing was sent.',
-      );
+    const groupId = newOpId(now);
+    const chunks: PublishOp[] = [];
+    for (let offset = 0; offset < sorted.length; offset += publishTiming.chunkHashes) {
+      const chunk = sorted.slice(offset, offset + publishTiming.chunkHashes);
+      const op: PublishOp = {
+        opId: offset === 0 ? groupId : newOpId(now),
+        ...(sorted.length > publishTiming.chunkHashes
+          ? { groupId, groupSize: Math.ceil(sorted.length / publishTiming.chunkHashes) }
+          : {}),
+        userId,
+        createdAt: now,
+        hashes: chunk.map((input) => input.hash),
+        expected: Object.fromEntries(chunk.map((input) => [input.hash, input.digest])),
+        previous: Object.fromEntries(chunk.map((input) => [input.hash, input.previous ?? null])),
+        status: 'created',
+        updatedAt: now,
+      };
+      const bodyBytes = new TextEncoder().encode(
+        JSON.stringify({ opId: op.opId, hashes: op.hashes, expected: op.expected }),
+      ).length;
+      if (bodyBytes > publishTiming.maxBodyBytes)
+        throw new Error('This publish is too large to send. Nothing was sent.');
+      chunks.push(op);
+    }
     try {
-      await this.deps.store.add(op);
+      if (chunks.length === 1) await this.deps.store.add(chunks[0]!);
+      else await this.deps.store.addMany(chunks);
     } catch (reason) {
       const detail = reason instanceof Error ? reason.message : 'unknown error';
       throw new Error(
         `Publishing needs browser storage, which is unavailable (${detail}). Nothing was sent.`,
       );
     }
-    usePublishState.setState((state) => ({ ops: [...state.ops, op] }));
+    if (generation !== this.generation) return chunks[0]!;
+    usePublishState.setState((state) => ({ ops: [...state.ops, ...chunks] }));
     this.deps.broadcast();
-    void this.send(op.opId);
-    return op;
+    // Send in sequence to avoid a burst of CAS collisions between our own chunks.
+    void this.sendChunks(chunks);
+    return chunks[0]!;
+  }
+
+  private async sendChunks(chunks: PublishOp[]) {
+    const generation = this.generation;
+    for (const op of chunks) {
+      if (generation !== this.generation) return;
+      await this.send(op.opId);
+    }
   }
 
   async dismiss(opId: string): Promise<void> {
@@ -222,8 +243,16 @@ export class PublishDriver {
     }
     if (generation !== this.generation) return;
     const now = this.deps.now();
+    const liveGroups = new Set(
+      stored.filter((op) => !isTerminal(op.status)).map((op) => op.groupId ?? op.opId),
+    );
     const expired = stored.filter(
-      (op) => isTerminal(op.status) && now - op.updatedAt > publishTiming.retainMs,
+      (op) =>
+        !liveGroups.has(op.groupId ?? op.opId) &&
+        isTerminal(op.status) &&
+        stored
+          .filter((entry) => (entry.groupId ?? entry.opId) === (op.groupId ?? op.opId))
+          .every((entry) => now - entry.updatedAt > publishTiming.retainMs),
     );
     if (expired.length) {
       await this.deps.store.remove(expired.map((op) => op.opId)).catch(() => undefined);

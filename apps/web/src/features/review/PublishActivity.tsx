@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { isTerminal } from '../../services/publisher/opStore';
 import { publishDriver } from './publisher';
 import { usePublishState } from './publishDriver';
-import { describeOp, foreignWaiting } from './publishStatus';
+import { describeOp, foreignWaiting, groupPublishes } from './publishStatus';
 import { exactDate, formatDate } from '../../services/format/date';
 import { useSyncedSettings } from '../../stores/settings';
 import type { Bundle } from '../../services/bundle';
@@ -40,8 +40,15 @@ export function PublishActivity({ queue }: { queue: Bundle['publishQueue'] }) {
     <section className={styles.activity} aria-label="Publish activity">
       {storageError && <p role="alert">{storageError}</p>}
       <ul>
-        {ops.map((op) => {
-          const view = describeOp(op, notes[op.opId], now, when);
+        {groupPublishes(ops).map(({ op, members }) => {
+          const note = members.map((member) => notes[member.opId]).find(Boolean);
+          const view = describeOp(op, note, now, when);
+          if (members.length > 1 && !view.finished) {
+            const done = members
+              .filter((member) => member.status === 'done' || member.status === 'unchanged')
+              .reduce((count, member) => count + member.hashes.length, 0);
+            view.detail = `${done} of ${op.hashes.length} tooltips confirmed live. ${view.detail}`;
+          }
           return (
             <li key={op.opId} data-tone={view.tone} data-status={op.status}>
               <span className={styles.activityChip}>{view.chip}</span>
@@ -53,7 +60,12 @@ export function PublishActivity({ queue }: { queue: Bundle['publishQueue'] }) {
               </span>
               <span className={styles.activityAction}>
                 {view.waiting && (
-                  <button type="button" onClick={() => void publishDriver.kickWaiting(op.opId)}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      for (const member of members) void publishDriver.kickWaiting(member.opId);
+                    }}
+                  >
                     Retry
                   </button>
                 )}
@@ -61,7 +73,9 @@ export function PublishActivity({ queue }: { queue: Bundle['publishQueue'] }) {
                   <button
                     type="button"
                     aria-label={`Dismiss publish from ${exact(op.createdAt)}`}
-                    onClick={() => void publishDriver.dismiss(op.opId)}
+                    onClick={() => {
+                      for (const member of members) void publishDriver.dismiss(member.opId);
+                    }}
                   >
                     Dismiss
                   </button>

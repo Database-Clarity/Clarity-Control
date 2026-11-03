@@ -34,6 +34,14 @@ for (const [name, make] of [
     store = make();
   });
 
+  it(`${name}: chunks are inserted atomically, including duplicate failures`, async () => {
+    await store.add(op('existing'));
+    await expect(store.addMany([op('new'), op('existing')])).rejects.toThrow();
+    expect((await store.list('1')).map((entry) => entry.opId)).toEqual(['existing']);
+    await store.addMany([op('A', { groupId: 'A' }), op('B', { groupId: 'A' })]);
+    expect(await store.list('1')).toHaveLength(3);
+  });
+
   it(`${name}: persists per account and never replaces an opId`, async () => {
     await store.add(op('A'));
     await store.add(op('B', { userId: '2' }));
