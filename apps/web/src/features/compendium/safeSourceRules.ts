@@ -1,3 +1,4 @@
+import { compendiumTabId } from '@clarity/core';
 import { type CompendiumData } from '@clarity/core';
 import type { ReviewSample } from './reviewCategories';
 import { confirmCompendiumSelection } from './selection';
@@ -19,7 +20,7 @@ export function inferredSiphonDecision(
   )
     return;
   const matches = source.tabs
-    .filter((tab) => tab.gid === '1934379638')
+    .filter((tab) => tab.gid === compendiumTabId('Armor Mods'))
     .flatMap((tab) =>
       tab.rows
         .filter((row) => row.section === 'Helmet' && row.nameNorm === 'siphon')

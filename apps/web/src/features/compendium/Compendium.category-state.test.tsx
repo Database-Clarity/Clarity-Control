@@ -106,6 +106,9 @@ async function mount(path: string) {
       ),
     ),
   );
+  await act(async () => {
+    await vi.dynamicImportSettled();
+  });
 }
 function missingLink(): CompendiumLink {
   return {

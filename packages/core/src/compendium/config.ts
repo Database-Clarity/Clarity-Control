@@ -238,3 +238,8 @@ export function compendiumIdentifiers(name: string): string[] {
         ];
   });
 }
+
+/** Stable sheet IDs live only in compendiumTabs. Matchers refer to their configured names. */
+export function compendiumTabId(name: string): string | undefined {
+  return Object.entries(compendiumTabs).find(([, tab]) => tab.name === name)?.[0];
+}
