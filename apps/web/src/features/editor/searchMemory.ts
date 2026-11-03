@@ -137,9 +137,10 @@ export function restoreSearch(view: EditorView): void {
   if (saved.open) {
     const focused = document.activeElement;
     // The panel focuses its field on opening; hand focus back to where it was.
+    // That includes the editor's own text (a rebuild keeps the same content element).
     if (focused !== active && view.dom.contains(focused) && focused !== view.contentDOM) {
-      if (active instanceof HTMLElement && active !== document.body && !view.dom.contains(active))
-        active.focus();
+      if (active instanceof HTMLElement && active !== document.body && active.isConnected)
+        active.focus({ preventScroll: true });
       else if (focused instanceof HTMLElement) focused.blur();
     }
   }

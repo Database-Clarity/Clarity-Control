@@ -30,6 +30,7 @@ afterEach(() => {
   host.remove();
   resetSearchMemory();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 function render(value: string) {
@@ -80,6 +81,43 @@ describe('find and replace persistence', () => {
     render('two');
     expect(document.activeElement).toBe(outside);
     outside.remove();
+  });
+
+  it('keeps the caret in the editor when the same editor is rebuilt', () => {
+    // Browsers focus a field on select(), which the panel calls when it opens; jsdom does not.
+    vi.spyOn(HTMLInputElement.prototype, 'select').mockImplementation(function (this: HTMLInputElement) {
+      this.focus();
+    });
+    const view = render('one');
+    act(() => void openSearchPanel(view));
+    act(() => view.focus());
+    view.contentDOM.focus();
+    const before = document.activeElement;
+    expect(before).toBe(view.contentDOM);
+    render('two');
+    expect(document.activeElement).toBe(before);
+  });
+
+  it('leaves a second editor that opts out (stored forms) alone', () => {
+    const view = render('one');
+    act(() => {
+      openSearchPanel(view);
+      view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: 'kept' })) });
+    });
+    const other = document.createElement('div');
+    document.body.append(other);
+    const otherRoot = createRoot(other);
+    act(() =>
+      otherRoot.render(
+        <ClarityEditor value="stored" lang="en" globals={globals} readOnly findMemory={false} onChange={() => {}} />,
+      ),
+    );
+    const second = EditorView.findFromDOM(other.querySelector<HTMLElement>('.cm-editor')!)!;
+    expect(searchPanelOpen(second.state)).toBe(false);
+    act(() => void openSearchPanel(second));
+    expect(readSearchMemory().search).toBe('kept');
+    act(() => otherRoot.unmount());
+    other.remove();
   });
 
   it('survives leaving the page and coming back (a fresh editor)', () => {
