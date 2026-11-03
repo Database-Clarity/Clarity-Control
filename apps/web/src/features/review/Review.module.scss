@@ -202,3 +202,118 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+// Publisher activity: one fixed-grid line per publish (chip | text | action). Heights are constant
+// across status changes; long reasons clamp to two lines (one on wide screens) with a tooltip.
+.activity {
+  margin-block: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #424e62;
+  border-radius: 0.4rem;
+  background: #1c2130;
+  font-size: 0.85rem;
+
+  ul {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  li {
+    display: grid;
+    grid-template-columns: 6.5rem minmax(0, 1fr) 4.5rem;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 1.9rem;
+    padding-block: 0.1rem;
+  }
+
+  li + li {
+    border-top: 1px solid #2c3546;
+  }
+
+  button {
+    min-width: 0;
+    min-height: 1.5rem;
+    padding: 0 0.5rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
+
+  [role='alert'] {
+    margin: 0.25rem 0;
+  }
+}
+
+.activityChip {
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: 0.1rem 0.25rem;
+  border: 1px solid #596478;
+  border-radius: 0.25rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  [data-tone='busy'] > & {
+    border-color: #87beff;
+    color: #87beff;
+  }
+
+  [data-tone='ok'] > & {
+    border-color: #4fbf7a;
+    color: #4fbf7a;
+  }
+
+  [data-tone='warn'] > & {
+    border-color: #f6a14b;
+    color: #f6a14b;
+  }
+
+  [data-tone='bad'] > & {
+    border-color: #ee6b6b;
+    color: #ee6b6b;
+  }
+}
+
+.activityText {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  color: #aab8cc;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+
+  b {
+    color: inherit;
+    font-weight: 600;
+  }
+}
+
+.activityAction {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 700px) {
+  .activity li {
+    grid-template-columns: 6.5rem minmax(0, 1fr) 4.25rem;
+    // Constant row height: a row with a 44px action and a row without one are the same size.
+    min-height: 3.1rem;
+    padding-block: 0;
+  }
+
+  .activityText {
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+
+  .activity button {
+    min-height: 44px;
+  }
+}
