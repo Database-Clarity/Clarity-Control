@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { generateKeyPairSync, createHash, sign } from 'node:crypto';
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -69,10 +69,25 @@ it.each([false, true])(
     const report = JSON.parse(readFileSync(join(out, 'result.json'), 'utf8'));
     expect(report.publishWritesEnabled).toBe(false);
     expect(report.reports).toHaveLength(2);
+    const manifest = JSON.parse(readFileSync(join(out, 'would-be-commits.json'), 'utf8'));
+    expect(manifest.commits > 0).toBe(!badKey);
+    expect(existsSync(join(out, 'would-be-commits.bundle'))).toBe(!badKey);
+    if (badKey) return;
     const artifact = join(checkout, 'inspect.git');
-    execFileSync('git', ['clone', '--bare', join(out, 'would-be-commits.bundle'), artifact], {
+    execFileSync('git', ['clone', '--bare', f.git.path, artifact], {
       stdio: 'pipe',
     });
+    execFileSync(
+      'git',
+      [
+        '--git-dir',
+        artifact,
+        'fetch',
+        join(out, 'would-be-commits.bundle'),
+        '+refs/heads/*:refs/heads/*',
+      ],
+      { stdio: 'pipe' },
+    );
     const simulatedLog = execFileSync(
       'git',
       ['--git-dir', artifact, 'ls-tree', '-r', 'refs/heads/editor-data'],
@@ -84,6 +99,54 @@ it.each([false, true])(
 import { Fixture, makePrivateKey } from '../../apps/worker/test/fixture.js';
 import { seedPushGroups, pushTime } from '../../apps/worker/test/push-fixture.js';
 
+it('invalid bundle inputs preserve the prior bundle, including the remote pipeline bundle', async () => {
+  const f = await setup();
+  f.pub.bundle();
+  const ref = 'refs/heads/editor-data-bundle',
+    old = f.git.head(ref);
+  const base = f.git.tree(f.git.head(D)!);
+  const invalid = [
+    { 'tooltips/123.json': { ...f.tooltip, hash: 234 } },
+    { 'tooltips/123.json': { hash: 123, text: 'bad schema' } },
+    { 'tooltips/0123.json': f.tooltip },
+    { 'tooltips/nested/123.json': f.tooltip },
+    { 'config/permissions.json': { users: [] } },
+    { 'live/pushed.json': { 123: 'invalid digest' } },
+  ];
+  for (const files of invalid) {
+    const tree = { ...base };
+    for (const [path, value] of Object.entries(files)) tree[path] = f.git.writeBlob(encode(value));
+    const h = f.git.head(D)!;
+    f.git.cas(D, h, f.git.commit(h, tree, 'Invalid bundle fixture'));
+    expect(() => f.pub.bundle()).toThrow();
+    expect(f.git.head(ref)).toBe(old);
+  }
+  const empty = { ...base };
+  delete empty['tooltips/123.json'];
+  f.git.cas(D, f.git.head(D), f.git.commit(f.git.head(D), empty, 'Empty tooltips'));
+  expect(() => f.pub.bundle()).toThrow('No tooltips');
+  expect(f.git.head(ref)).toBe(old);
+  const checkoutRoot = mkdtempSync(join(tmpdir(), 'invalid-pipeline-'));
+  roots.push(checkoutRoot);
+  const checkout = join(checkoutRoot, 'checkout');
+  execFileSync('git', ['clone', '--branch', 'editor-data', f.git.path, checkout], {
+    stdio: 'pipe',
+  });
+  vi.stubGlobal('fetch', vi.fn());
+  await expect(
+    runPipeline(
+      checkout,
+      {
+        ...f.options,
+        repo: 'Database-Clarity/Live-Clarity-Database',
+        keyEndpoint: 'https://worker.invalid/publish/key',
+      },
+      join(checkoutRoot, 'artifacts'),
+    ),
+  ).rejects.toThrow('No tooltips');
+  expect(f.git.head(ref)).toBe(old);
+  expect(fetch).not.toHaveBeenCalled();
+});
 
 const A = '01K95H00000000000000000001',
   B = '01K95H00000000000000000002';

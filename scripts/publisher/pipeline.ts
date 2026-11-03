@@ -17,6 +17,21 @@ const gitAt = (cwd: string, args: string[]) =>
     timeout: 120_000,
   });
 
+export function simulationArtifact(repo: LocalRepository, out: string, bases: string[]) {
+  const revisions = ['--branches', '--not', ...bases];
+  const count = Number(gitAt(repo.path, ['rev-list', '--count', ...revisions]).trim());
+  if (count)
+    gitAt(repo.path, ['bundle', 'create', join(out, 'would-be-commits.bundle'), ...revisions]);
+  writeFileSync(
+    join(out, 'would-be-commits.json'),
+    JSON.stringify(
+      { commits: count, bundle: count ? 'would-be-commits.bundle' : null, prerequisites: bases },
+      null,
+      2,
+    ) + '\n',
+  );
+}
+
 /** The ONLY remote write in this transport is the fixed bundle ref. Publishing stays local. */
 export async function runPipeline(checkout: string, config: PipelineConfig, output: string) {
   if (
@@ -89,6 +104,9 @@ export async function runPipeline(checkout: string, config: PipelineConfig, outp
   try {
     const initial = snapshot('initial');
     publishBundle(initial, options);
+    const bases = gitAt(initial.path, ['for-each-ref', '--format=%(objectname)', 'refs/heads/'])
+      .trim()
+      .split('\n');
     try {
       const endpoint = new URL(config.keyEndpoint);
       if (endpoint.protocol !== 'https:') throw new Error('HTTPS Worker key endpoint required');
@@ -116,7 +134,7 @@ export async function runPipeline(checkout: string, config: PipelineConfig, outp
     } catch (e) {
       failure = e;
     }
-    gitAt(initial.path, ['bundle', 'create', join(out, 'would-be-commits.bundle'), '--all']);
+    simulationArtifact(initial, out, bases);
   } catch (e) {
     failure = e;
   } finally {

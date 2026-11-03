@@ -71,7 +71,8 @@ The plain Node 24 runtime includes packages/core and has no runtime npm dependen
 source HEAD. Commit source first, then build/commit the generated files so the source pin
 identifies the exact implementation. Do not edit generated publisher.mjs by hand.
 
-At enable step E, the root operator must replace editor-data's bundle.yml with pipeline.yml
+At enable step E, first wait for or cancel every in-flight bundle.yml run: its old concurrency
+group and force-push could overwrite the first pipeline bundle. Then replace bundle.yml with pipeline.yml
 in the SAME commit and copy .publisher. Fill config.json from config.example.json with the
 trusted Worker /publish/key URL and independently verified SPKI fingerprint, PIN.sourceSha,
 verified generator commit and its facts/aliases. Empty example facts are not production inputs.
@@ -90,6 +91,12 @@ on the next run. Source and live branches, candidate refs, requests, logs and pu
 NEVER pushed by this transport. The simulation's bundle is artifact-only. Public-key fetches are
 HTTPS, forbid redirects, have a 15-second timeout and require the independent fingerprint.
 A failed key fetch/drain still gets a real bundle catch-up and result/summary artifacts.
+Bundle construction validates core tooltip, permissions and pushed schemas, canonical filenames,
+matching tooltip hashes and a non-empty tooltip set before any ref update; invalid data keeps the
+previous remote bundle. Simulation artifacts exclude all fetched remote history (and the real
+bundle just published). would-be-commits.json lists prerequisite commits; when commits is zero,
+no Git bundle is emitted. Otherwise fetch would-be-commits.bundle into a clone containing those
+prerequisites to inspect the simulated heads.
 
 All editor-data pushes (requests, kicks, saves) start the pipeline. GITHUB_TOKEN bundle pushes
 suppress downstream workflows; no workflow_dispatch/schedule is registered on production live.
