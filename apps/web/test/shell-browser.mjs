@@ -57,7 +57,7 @@ const clipped = (page) =>
   page.evaluate(() =>
     [
       ...document.querySelectorAll(
-        'header button, header a, header input, [data-shell-status] button, [data-notice-strip] button',
+        'header button, header a, header input, [data-editor-status] button, [data-notice-strip] button',
       ),
     ]
       .filter((el) => {
@@ -263,8 +263,8 @@ try {
       assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
       await page.screenshot({ path: out('collapsed') });
       await typeInEditor(page, ' more');
-      await page.locator('[data-shell-status][data-attention]').waitFor();
-      assert.match(await page.locator('[data-shell-status]').innerText(), /1 change not reviewed/);
+      await page.locator('[data-editor-status] [data-attention]').waitFor();
+      assert.match(await page.locator('[data-editor-status]').innerText(), /1 not previewed/);
       assert.match(await toggle.getAttribute('aria-label'), /1 change not reviewed/);
       await page.screenshot({ path: out('collapsed-unreviewed') });
 
@@ -286,7 +286,7 @@ try {
         'and moves focus into it',
       );
       assert.equal(await page.evaluate(() => location.hash), hash, 'and stays on the item');
-      await page.locator('[data-shell-status]:not([data-attention])').waitFor();
+      await page.locator('[data-editor-status] [data-attention]').waitFor({ state: 'detached' });
       // The preview has been shown with the current text: leaving works now.
       await combobox.click();
       await page.getByRole('option', { name: /Forerunner/ }).click();
