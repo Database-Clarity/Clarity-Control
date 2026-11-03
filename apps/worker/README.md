@@ -211,6 +211,8 @@ files; refs must be full SHAs and paths plain repository paths), also in `save` 
 history fallback. Push totals: 19 + ceil(n/500) first try (25 for all ~2 500 tooltips), +5 per
 live-branch retry. `push-budget.test.ts` pins these numbers.
 
-CPU is a separate matter: pushing rewrites the whole ~2 MB `liveDescriptions.json`, which costs
-tens of milliseconds (JSON parse + stringify + base64) whatever the selection. The native base64
-codecs are used where the runtime has them; the free plan's 10 ms cannot be met by any push.
+CPU is a separate matter and is NOT met on the free plan (10 ms). Measured on Node with the real
+~2 MB `liveDescriptions.json`: rewriting that file (decode, parse, stringify, encode) costs about
+17-24 ms per push whatever the selection, and a push of all ~2 600 tooltips costs 150-300 ms in
+total (digests ~110 ms). Native base64 codecs are used where the runtime has them. Real options:
+the Workers Paid plan ($5/month, 30 s CPU) or a multi-request / text-splice redesign of push.
