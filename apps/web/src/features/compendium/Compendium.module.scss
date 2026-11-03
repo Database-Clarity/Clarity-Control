@@ -103,7 +103,7 @@
 .headerButton {
   @include controls.button;
   min-height: 1.5rem;
-  padding: 0 0.3125rem;
+  padding: 0 0.25rem;
   font-size: 0.75rem;
   white-space: nowrap;
   &[aria-pressed='true'] {
@@ -116,7 +116,7 @@
 }
 .surfaceToggle {
   @include controls.button;
-  min-width: 1.5rem;
+  min-width: 1.375rem;
   min-height: 1.5rem;
   padding: 0;
   &[aria-pressed='true'] {

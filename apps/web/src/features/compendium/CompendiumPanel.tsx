@@ -23,9 +23,10 @@ import { confirmCompendiumSelection } from './selection';
 /**
  * Below this pane width (design pixels at 100 % interface scale; scaledPx() follows the scale) the
  * Changes / Before-After switch moves from the header to above the diff. Measured: title + switch +
- * Relink + sheet colours + zoom need 381px, so the default 384px pane keeps it in the header.
+ * Relink + sheet colours + zoom need 373px, so the default 384px pane keeps it in the header
+ * with room to spare for font rounding.
  */
-const HEADER_TOGGLE_MIN = 383;
+const HEADER_TOGGLE_MIN = 381;
 
 /** Compendium zoom (70–100 %), kept on this device: − / value / +. */
 function ScaleControl() {

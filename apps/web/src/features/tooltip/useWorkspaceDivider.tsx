@@ -1,9 +1,10 @@
 import type { CSSProperties } from 'react';
 import { PaneDivider } from '../../ui/PaneDivider';
+import { scaledPx } from '../../ui/scale';
 import { DIVIDER_TRACK, usePaneDivider } from '../../ui/usePaneDivider';
 import styles from './TooltipPage.module.scss';
 
-/** The editor never gets narrower than this; the right pane is 320–640 beside it. */
+/** The editor never gets narrower than this; the right pane is 320–640 beside it (design pixels). */
 const EDITOR_MIN = 480;
 const RIGHT_MIN = 320;
 const RIGHT_MAX = 640;
@@ -25,7 +26,8 @@ export function useWorkspaceDivider(hasPane = true) {
     reserve: EDITOR_MIN,
     defaultWidth: RIGHT_DEFAULT,
   });
-  const split = hasPane && pane.containerWidth >= EDITOR_MIN + DIVIDER_TRACK + RIGHT_MIN;
+  // The limits are design pixels; the window is measured in CSS pixels at the current scale.
+  const split = hasPane && pane.containerWidth >= scaledPx(EDITOR_MIN + DIVIDER_TRACK + RIGHT_MIN);
   return {
     container: pane.containerRef,
     split,

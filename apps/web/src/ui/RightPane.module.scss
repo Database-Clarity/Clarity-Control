@@ -28,6 +28,10 @@
   margin: 0;
   font-size: 0.8125rem;
   font-weight: 700;
+  // The tab above the pane already says Compendium / English; the controls need the room.
+  @media (max-width: 700px) {
+    display: none;
+  }
 }
 .controls {
   display: inline-flex;
@@ -59,7 +63,7 @@
   button {
     @include controls.button;
     min-height: 1.5rem;
-    padding: 0 0.3125rem;
+    padding: 0 0.25rem;
     font-size: 0.75rem;
     border-radius: 0;
     white-space: nowrap;

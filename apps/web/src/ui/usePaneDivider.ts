@@ -9,6 +9,7 @@ import {
   type RefObject,
 } from 'react';
 import { useSettingsStore, type PaneState } from '../stores/settings';
+import { scaledPx } from './scale';
 
 /** Width of the grid track a divider occupies; the line sits in its middle. */
 export const DIVIDER_TRACK = 16;
@@ -71,20 +72,32 @@ export interface PaneDividerHandle {
 const clamp = (value: number, low: number, high: number) => Math.max(low, Math.min(high, value));
 
 /**
+ * The interface scale as a factor (1 at 100 %): the root font size over 16. Pane limits, defaults and
+ * saved sizes are design pixels, so a pane keeps its share of the window at every scale.
+ */
+function useScaleFactor(): number {
+  const [factor, setFactor] = useState(() => scaledPx(1));
+  useEffect(() => {
+    const update = () => setFactor(scaledPx(1));
+    update();
+    window.addEventListener('clarity-ui-scale', update);
+    return () => window.removeEventListener('clarity-ui-scale', update);
+  }, []);
+  return factor;
+}
+
+/**
  * One behaviour for every resizable pair. The saved size is the size the user chose; what is shown is
  * that size clamped to the limits and the space available, so a narrow window never overwrites it.
  */
 export function usePaneDivider(options: PaneDividerOptions): PaneDividerHandle {
-  const {
-    storeKey,
-    sizes,
-    min,
-    max,
-    defaultWidth,
-    reserve = 0,
-    collapsible = false,
-    defaultCollapsed = false,
-  } = options;
+  const { storeKey, sizes, defaultWidth, collapsible = false, defaultCollapsed = false } = options;
+  const k = useScaleFactor();
+  // Design pixels -> CSS pixels at the current interface scale.
+  const min = options.min * k;
+  const max = options.max * k;
+  const reserve = (options.reserve ?? 0) * k;
+  const track = DIVIDER_TRACK * k;
   const persist = options.persist ?? true;
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -111,13 +124,13 @@ export function usePaneDivider(options: PaneDividerOptions): PaneDividerHandle {
     return () => observer.disconnect();
   }, []);
 
-  const fallback = typeof defaultWidth === 'function' ? defaultWidth(containerWidth) : defaultWidth;
-  const space =
-    containerWidth > 0 ? Math.max(0, containerWidth - reserve - DIVIDER_TRACK) : Infinity;
+  const fallback =
+    (typeof defaultWidth === 'function' ? defaultWidth(containerWidth) : defaultWidth) * k;
+  const space = containerWidth > 0 ? Math.max(0, containerWidth - reserve - track) : Infinity;
   const upper = Math.min(max, space);
   const lower = Math.min(min, upper);
   const collapsed = collapsible && (saved ? Boolean(saved.collapsed) : defaultCollapsed);
-  const intended = dragWidth ?? saved?.width ?? fallback;
+  const intended = dragWidth ?? (saved ? saved.width * k : fallback);
   const width = collapsed ? 0 : clamp(intended, lower, upper);
 
   const write = useCallback(
@@ -130,11 +143,14 @@ export function usePaneDivider(options: PaneDividerOptions): PaneDividerHandle {
   // Latest values for handlers that outlive a render (pointer events, effects).
   const latest = useRef({ width, lower, upper, collapsed, fallback, saved });
   latest.current = { width, lower, upper, collapsed, fallback, saved };
+  const factor = useRef(k);
+  factor.current = k;
 
   const setWidth = useCallback(
     (next: number) => {
       const { lower: low, upper: high, saved: current } = latest.current;
-      const value = Math.round(clamp(next, low, high));
+      // Saved in design pixels, so the size survives a change of interface scale.
+      const value = Math.round(clamp(next, low, high) / factor.current);
       if (current && !current.collapsed && current.width === value) return;
       write({ width: value, collapsed: false });
     },
@@ -143,13 +159,18 @@ export function usePaneDivider(options: PaneDividerOptions): PaneDividerHandle {
   const collapse = useCallback(() => {
     const { width: shown, collapsed: already, saved: current, fallback: base } = latest.current;
     if (!collapsible || already) return;
-    const restore = Math.round(shown || current?.width || base);
+    const restore = Math.round(
+      (shown || (current?.width ?? 0) * factor.current || base) / factor.current,
+    );
     write({ width: restore, collapsed: true, lastExpanded: restore });
   }, [collapsible, write]);
   const expand = useCallback(() => {
     const { saved: current, fallback: base } = latest.current;
     if (!latest.current.collapsed) return;
-    write({ width: Math.round(current?.lastExpanded ?? current?.width ?? base), collapsed: false });
+    write({
+      width: Math.round(current?.lastExpanded ?? current?.width ?? base / factor.current),
+      collapsed: false,
+    });
   }, [write]);
   const reset = useCallback(() => {
     setDragWidth(null);
@@ -161,7 +182,7 @@ export function usePaneDivider(options: PaneDividerOptions): PaneDividerHandle {
 
   function onKeyDown(event: KeyboardEvent<HTMLElement>) {
     if (event.altKey || event.ctrlKey || event.metaKey) return;
-    const step = event.shiftKey ? SHIFT_ARROW_STEP : ARROW_STEP;
+    const step = (event.shiftKey ? SHIFT_ARROW_STEP : ARROW_STEP) * k;
     const { width: shown, lower: low, upper: high } = latest.current;
     if (event.key === grows || event.key === shrinks) {
       event.preventDefault();

@@ -139,6 +139,60 @@ describe('PaneDivider', () => {
     expect(stored()).toBeUndefined();
   });
 
+  describe('at another interface scale', () => {
+    // The settings store re-applies the real root font size on every device change, so the root
+    // size is stubbed here (as the browser would compute it) and announced like the store does.
+    let rootPx = 16;
+    const setRoot = (px: number) => {
+      rootPx = px;
+      act(() => void window.dispatchEvent(new Event('clarity-ui-scale')));
+    };
+    beforeEach(() => {
+      rootPx = 16;
+      const real = window.getComputedStyle.bind(window);
+      vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudo) =>
+        element === document.documentElement
+          ? ({ fontSize: `${rootPx}px` } as CSSStyleDeclaration)
+          : real(element, pseudo),
+      );
+    });
+
+    it('scales limits, the default and the saved size from design pixels, and follows a scale change', () => {
+      containerWidth = 1920;
+      rootPx = 24; // 150 %
+      const divider = render({ sizes: 'end', min: 320, max: 640, defaultWidth: 384 });
+      expect(shown()).toBe(576);
+      expect(divider.getAttribute('aria-valuemin')).toBe('480');
+      expect(divider.getAttribute('aria-valuemax')).toBe('960');
+      // A saved size is design pixels: 400 is 600 on screen at 150 %, and 340 at 85 %.
+      act(() => useSettingsStore.getState().setPane(key, { width: 400, collapsed: false }));
+      expect(shown()).toBe(600);
+      setRoot(13.6);
+      expect(shown()).toBe(340);
+      setRoot(16);
+      expect(shown()).toBe(400);
+    });
+
+    it('saves a keyboard resize in design pixels, so another scale shows the same share', () => {
+      containerWidth = 1920;
+      rootPx = 24;
+      const divider = render({ sizes: 'end', min: 320, max: 640, defaultWidth: 384 });
+      press(divider, 'ArrowLeft'); // one 8px design step = 12px on screen
+      expect(shown()).toBe(588);
+      expect(stored()).toEqual({ width: 392, collapsed: false });
+      setRoot(16);
+      expect(shown()).toBe(392);
+    });
+
+    it('keeps the editor its minimum share: the viewport clamp uses scaled reserve and divider', () => {
+      rootPx = 24;
+      containerWidth = 1500;
+      render({ sizes: 'end', min: 320, max: 640, defaultWidth: 640, reserve: 480 });
+      // 1500 - 480*1.5 reserve - 16*1.5 divider = 756 available; the pane wants 960.
+      expect(shown()).toBe(756);
+    });
+  });
+
   it('reverses the arrows for a pane after the divider', () => {
     const divider = render({ sizes: 'end', min: 320, max: 640, defaultWidth: 384 });
     expect(shown()).toBe(384);

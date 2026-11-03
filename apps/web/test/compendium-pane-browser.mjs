@@ -68,13 +68,20 @@ const clipped = (page) =>
       .filter((el) => {
         const r = el.getBoundingClientRect();
         if (!r.width || !r.height) return false;
+        // A flex child pushed past its overflow-hidden header is cut without any scrollWidth.
+        const box = el.closest('[aria-label$=" tools"]').getBoundingClientRect();
+        if (r.right > box.right + 0.5 || r.left < box.left - 0.5) return true;
         const style = getComputedStyle(el);
         if (el.scrollWidth > el.clientWidth + 1 && style.overflow !== 'visible') return true;
         if (el.tagName === 'SELECT') return false;
         const line = parseFloat(style.lineHeight) || 16;
         return (
           ['BUTTON', 'H3', 'OUTPUT', 'LABEL'].includes(el.tagName) &&
-          r.height > Math.max(2 * line + 8, 50)
+          r.height >
+            Math.max(
+              2 * line + 8,
+              50 * (parseFloat(getComputedStyle(document.documentElement).fontSize) / 16),
+            )
         );
       })
       .map((el) => `${el.tagName} ${el.textContent.trim().slice(0, 30)}`),
@@ -395,7 +402,7 @@ try {
     // end, and the Changes / Before-After switch moves above the diff when the pane runs out of room.
     for (const scale of [85, 150]) {
       const context = await browser.newContext({
-        viewport: { width: 1440, height: 900 },
+        viewport: { width: 1920, height: 1000 },
         colorScheme: theme,
       });
       await context.addInitScript((value) => {
@@ -436,21 +443,66 @@ try {
         metrics.buttons.every((h) => h === Math.round((24 * scale) / 100)),
         `${label}: header controls follow the scale (${metrics.buttons})`,
       );
-      assert.equal(metrics.pad, (6 * metrics.root) / 16, `${label}: body spacing follows the scale`);
+      assert.equal(
+        metrics.pad,
+        (6 * metrics.root) / 16,
+        `${label}: body spacing follows the scale`,
+      );
       assert.deepEqual(await clipped(page), [], `${label}: header clips`);
       await noOverflow(page, label);
-      if (scale === 150) {
-        assert.equal(
-          await page
-            .locator('[aria-label="Compendium tools"] [aria-label="Compendium diff view"]')
-            .count(),
-          0,
-          `${label}: switch above the diff when the header is out of room`,
-        );
-        assert.equal(await page.locator('[aria-label="Compendium diff view"]').count(), 1);
-      }
+      // The pane's width follows the scale (384 design px), so the header keeps its room.
+      const pane = await page.evaluate(() =>
+        Math.round(
+          document.querySelector('aside[aria-label^="Compendium for"]').getBoundingClientRect()
+            .width,
+        ),
+      );
+      assert.ok(
+        Math.abs(pane - (384 * scale) / 100) <= 1.5,
+        `${label}: pane is ${pane}px, expected ${(384 * scale) / 100}`,
+      );
+      assert.equal(
+        await page
+          .locator('[aria-label="Compendium tools"] [aria-label="Compendium diff view"]')
+          .count(),
+        1,
+        `${label}: the diff switch stays in the header`,
+      );
       await page.screenshot({ path: out(`scale-${scale}`) });
       assert.deepEqual(errors, [], `${label}: page errors`);
+      await context.close();
+    }
+
+    // Phone at the largest scale: the title gives way, nothing is cut at the right edge.
+    for (const scale of [100, 150]) {
+      const context = await browser.newContext({
+        viewport: { width: 390, height: 844 },
+        colorScheme: theme,
+        hasTouch: true,
+        isMobile: true,
+      });
+      await context.addInitScript((value) => {
+        localStorage.setItem('clarity-settings:device:v1', JSON.stringify({ uiScale: value }));
+      }, scale);
+      const page = await context.newPage();
+      await page.goto(url);
+      await page.locator('header').first().waitFor();
+      await page.evaluate(() => {
+        window.shellFixture.role('maintainer');
+        window.shellFixture.variants();
+        window.shellFixture.compendiumRows();
+      });
+      await page.evaluate(() => {
+        window.location.hash = '#/t/1001?lang=en';
+      });
+      await page.getByRole('tab', { name: 'Compendium' }).click();
+      await page.locator('[aria-label="Compendium tools"]').waitFor();
+      await page.waitForTimeout(300);
+      const label = `${theme} phone scale ${scale}`;
+      assert.deepEqual(await clipped(page), [], `${label}: header cuts a control`);
+      assert.ok(await page.getByRole('button', { name: 'Larger' }).isVisible());
+      await noOverflow(page, label);
+      await page.screenshot({ path: out(`phone-scale-${scale}`) });
       await context.close();
     }
 
