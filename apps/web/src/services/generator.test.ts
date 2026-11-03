@@ -10,6 +10,7 @@ const item = {
   owners: [2, 3],
   ownerNames: { 2: 'Exotic A', 3: 'Exotic B' },
   weaponTypes: ['Sword'],
+  plugCategoryHash: 20,
 };
 
 function stubFetch(weaponTypes: () => Response) {
@@ -39,8 +40,18 @@ describe('generator catalog', () => {
       Object.entries(item).filter(([key]) => key !== 'ownerNames'),
     );
     expect(itemSchema.parse(oldItem).ownerNames).toBeUndefined();
-    expect(itemSchema.parse({ ...oldItem, itemHash: 42, itemName: 'Exotic' }).itemName).toBe('Exotic');
+    expect(itemSchema.parse({ ...oldItem, itemHash: 42, itemName: 'Exotic' }).itemName).toBe(
+      'Exotic',
+    );
     expect(() => itemSchema.parse({ ...item, ownerNames: { 2: 42 } })).toThrow();
+  });
+  it('preserves non-enhanced DIM provenance without creating an enhanced mapping', () => {
+    const twin = itemSchema.parse({ ...item, dimBaseHash: 42 });
+    expect(twin.dimBaseHash).toBe(42);
+    expect(twin.baseHash).toBeUndefined();
+    expect(twin.enhancedHash).toBeUndefined();
+    expect(twin.enhancedHashes).toBeUndefined();
+    expect(() => itemSchema.parse({ ...item, dimBaseHash: -1 })).toThrow();
   });
   it.each([
     () => new Response('missing', { status: 404 }),
@@ -56,5 +67,6 @@ describe('generator catalog', () => {
     expect(catalog.items[1].owners).toEqual([2, 3]);
     expect(catalog.items[1].ownerNames).toEqual({ 2: 'Exotic A', 3: 'Exotic B' });
     expect(catalog.items[1]).not.toHaveProperty('weaponTypes');
+    expect(catalog.items[1].plugCategoryHash).toBe(20);
   });
 });

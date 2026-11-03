@@ -36,7 +36,7 @@ export type LegacyEntry = LegacyMetadata &
 export type LegacyAliasStub = Partial<LegacyFacts> & {
   hash: number;
   aliasOf: number;
-  aliasKind: 'sandbox' | 'frame';
+  aliasKind: 'sandbox' | 'frame' | 'name';
 };
 export type LegacyExportEntry = LegacyEntry | LegacyAliasStub;
 

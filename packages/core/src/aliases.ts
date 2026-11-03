@@ -6,7 +6,7 @@ export const aliasesSchema = z.record(
     .string()
     .regex(/^(0|[1-9]\d*)$/)
     .refine((value) => Number(value) <= 0xffffffff),
-  z.object({ to: hashSchema, kind: z.enum(['sandbox', 'frame']) }).strict(),
+  z.object({ to: hashSchema, kind: z.enum(['sandbox', 'frame', 'name']) }).strict(),
 );
 export type Aliases = z.infer<typeof aliasesSchema>;
 
@@ -20,7 +20,7 @@ export function resolveAlias(hash: number, aliases: Aliases): number {
   return hash;
 }
 
-type IncomingAlias = [number, 'sandbox' | 'frame'];
+type IncomingAlias = [number, 'sandbox' | 'frame' | 'name'];
 const incomingIndexes = new WeakMap<Aliases, Map<number, IncomingAlias[]>>();
 
 /**

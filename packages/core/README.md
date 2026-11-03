@@ -66,8 +66,23 @@ npx tsc --noEmit
   other side's order wins; if both reordered, `next`'s order is kept for surviving
   members and `head`-only additions are appended in `head`'s order. All other top-level fields are atomic, including
   snapshots and legacy metadata. A hash mismatch is an error.
-- `aliasesSchema` validates generic `{ to, kind: 'sandbox' | 'frame' }` aliases;
+- `aliasesSchema` validates generic `{ to, kind: 'sandbox' | 'frame' | 'name' }` aliases;
   `resolveAlias(hash, aliases)` follows chains and rejects cycles.
+- `aliasGroupsSchema` validates approved S/X decisions. `effectiveAliases` merges
+  them with generated aliases, dropping incompatible members with diagnostic issues
+  after manifest drift. Enhanced groups must resolve to one base group. Numbered
+  exotic frames require `basis.exoticFrameOwner` and an unnumbered canonical from
+  the same exotic; exotic facts never create enhanced pairs.
+  Kind X requires identical in-game wording and `dimBaseHash` provenance.
+- `readAliasProposals(input, tooltips)` adds Clarity text state and canonical
+  suggestions without changing an exotic frame's unnumbered canonical. Only
+  identical-wording S proposals without text conflicts are bulk-eligible; X
+  proposals always require individual review, with enhanced-only Clarity markup
+  selecting derivation instead of aliasing. `readPossibleEnhanced(input)` returns
+  the separate wording-different DIM pairs for a maintainer call, never alias proposals.
+  `aliasCanonicalHash` / `aliasVariantHashes` resolve enhanced pairs through approved
+  groups; `enhancedWordingNeeded` lists real enhanced pairs with different in-game
+  wording whose canonical Clarity text has no enhanced section.
 - Compendium APIs live in `src/compendium/`. `parseCompendiumTabs(html)` reads
   the Landing tab switcher without executing scripts. `parseCompendiumSheet`
   builds the physical row/column grid (including omitted empty rows and
@@ -93,8 +108,8 @@ npx tsc --noEmit
   The separate Compendium-data repository runs the bundled core parser outside
   the Worker CPU budget; see `scripts/compendium/README.md` in the editor root.
 - `exportLegacy(tooltips, now, catalog?, aliases?)` returns legacy entries keyed by hash.
-  Supply canonical tooltips only. Every frame and sandbox alias is exported as a
-  reference stub `{ hash, aliasOf, aliasKind: 'frame' | 'sandbox', ...ownFacts }`
+  Supply canonical tooltips only. Every frame, sandbox and name alias is exported as a
+  reference stub `{ hash, aliasOf, aliasKind: 'frame' | 'sandbox' | 'name', ...ownFacts }`
   (`LegacyAliasStub`; `isLegacyAliasStub` narrows the `LegacyExportEntry` union).
   `aliasOf` is the final canonical hash. `ownFacts` (`name`, `type`, `itemHash`,
   `itemName`) are only the alias's own catalog facts: required for frames when a catalog
@@ -131,6 +146,13 @@ With a catalog, any missing manifest record throws (custom tooltip facts can
 supply their own name/category). Without one, export returns authored entries,
 not a complete converter database. Caller owns `databaseSettings`, loading manifest
 aliases, and selection of canonical tooltips to publish.
+
+After generating cached before/after catalogs with the generator's Phase A audit,
+run `node scripts\alias-groups-export-parity.mjs <audit directory> <data repository> <editor-data commit>`
+from the editor repository root. The data repository is read-only. The report
+lists every expected/actual export hash, requires type-only legendary enhancement
+corrections with reciprocal base pairings, and checks emitted proposals through
+`effectiveAliases`. Generated aliases and exotic enhancement mappings cannot change.
 
 ## Legacy field inventory
 
