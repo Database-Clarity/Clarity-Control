@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import { ArchivePage } from './ArchivePage';
@@ -266,6 +266,116 @@ it('never silently overwrites an existing draft on the destination', async () =>
   await act(async () => button('Confirm association as drafts').click());
   expect(updateDrafts).toHaveBeenCalledTimes(1);
   expect(updateDrafts.mock.calls[0][0][1].update(targetTooltip).associated).toEqual([5]);
+});
+async function search(text: string) {
+  const input = [...host.querySelectorAll('input')].find((entry) =>
+    entry.closest('label')?.textContent?.includes('Search items'),
+  )!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, text);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+const replaceBox = () =>
+  [...host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].find((entry) =>
+    entry.closest('label')?.textContent?.includes('Replace the selected languages'),
+  );
+it('does not carry replace-draft consent to a different destination or a re-opened item', async () => {
+  const second: Tooltip = {
+    hash: 11,
+    text: { en: { text: 'Second', updatedAt: time, updatedBy: 'other' } },
+    associated: [],
+  };
+  const first: Tooltip = { ...second, hash: 10 };
+  const updateDrafts = vi.fn();
+  useDataStore.setState({
+    data: {
+      ...data,
+      items: {
+        ...data.items,
+        11: {
+          hash: 11,
+          name: 'Current second',
+          categoryId: 'trait',
+          inGameDescription: '',
+          icon: '',
+        },
+      },
+    },
+  });
+  useDraftStore.setState({
+    updateDrafts,
+    drafts: {
+      10: { base: first, next: { ...first, associated: [5] } },
+      11: { base: second, next: { ...second, associated: [6] } },
+    } as never,
+  });
+  await render(`/archive?item=${archived.hash}`);
+  await act(async () => button('Associate with new item').click());
+  await search('Current');
+  await act(async () => button('Current (10)').click());
+  await act(async () => replaceBox()!.click());
+  expect(button('Confirm association as drafts').disabled).toBe(false);
+  await act(async () => button('Current second (11)').click());
+  expect(replaceBox()!.checked).toBe(false);
+  expect(replaceBox()!.closest('label')?.textContent).toContain('Current second (11)');
+  expect(button('Confirm association as drafts').disabled).toBe(true);
+  await act(async () => button('Confirm association as drafts').click());
+  expect(updateDrafts).not.toHaveBeenCalled();
+  // Consent given for 10 does not come back when returning to 10 after 11.
+  await act(async () => button('Current (10)').click());
+  expect(replaceBox()!.checked).toBe(false);
+  // Cancel and re-open also starts clean.
+  await act(async () => replaceBox()!.click());
+  await act(async () => button('Cancel association').click());
+  await act(async () => button('Associate with new item').click());
+  await search('Current');
+  await act(async () => button('Current (10)').click());
+  expect(replaceBox()!.checked).toBe(false);
+});
+it('drops the picker destination and consent when the archived item changes (browser Back)', async () => {
+  const other: Tooltip = { ...archived, hash: 4000000001 };
+  const targetTooltip: Tooltip = {
+    hash: 10,
+    text: { en: { text: 'Destination', updatedAt: time, updatedBy: 'other' } },
+    associated: [],
+  };
+  useDataStore.setState({
+    data: {
+      ...data,
+      bundle: { ...data.bundle, tooltips: { [archived.hash]: archived, [other.hash]: other } },
+    },
+  });
+  useDraftStore.setState({
+    drafts: { 10: { base: targetTooltip, next: { ...targetTooltip, associated: [5] } } } as never,
+  });
+  let go!: (to: string) => void;
+  function Capture() {
+    go = useNavigate();
+    return null;
+  }
+  await act(async () =>
+    root.render(
+      <MemoryRouter initialEntries={[`/archive?item=${archived.hash}`]}>
+        <Capture />
+        <ArchivePage />
+      </MemoryRouter>,
+    ),
+  );
+  await act(async () => button('Associate with new item').click());
+  await search('Current');
+  await act(async () => button('Current (10)').click());
+  await act(async () => replaceBox()!.click());
+  expect(button('Confirm association as drafts').disabled).toBe(false);
+  await act(async () => go(`/archive?item=${other.hash}`));
+  expect(host.querySelector('[contenteditable="true"]')).toBeNull();
+  expect(replaceBox()).toBeUndefined();
+  expect(button('Confirm association as drafts')).toBeUndefined();
+  await act(async () => button('Associate with new item').click());
+  await search('Current');
+  await act(async () => button('Current (10)').click());
+  expect(replaceBox()!.checked).toBe(false);
+  expect(button('Confirm association as drafts').disabled).toBe(true);
 });
 it('replaces failed images with a neutral accessible glyph', async () => {
   await act(async () => root.render(<ArchiveIcon icon="/missing.png" />));

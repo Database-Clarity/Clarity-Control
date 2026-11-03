@@ -87,7 +87,8 @@ undo from restoring a different tooltip or language.
 first, with a navigation count badge. The Unlinked list supports incremental linking.
 The tooltip's Compendium panel suggests exact name matches, lets editors choose a
 tab and row, and remembers the tab per category. Linking/unlinking is a local draft.
-Literal uppercase `OLD` tab names are excluded; lowercase and mixed-case names remain.
+Tab names containing the whole word `OLD` in uppercase are excluded ("OLD Perks"); lowercase, mixed-case and
+embedded names such as "GOLD" remain.
 
 The panel preserves source run colors, font sizes, emphasis and safe links. Inline
 word changes and style-only changes are distinct; hover, focus or tap a dotted style

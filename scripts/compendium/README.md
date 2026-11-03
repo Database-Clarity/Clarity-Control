@@ -7,10 +7,13 @@ this README, `parser-source.txt`, `compendium.json`, and
 
 The Action runs daily at 05:17 UTC and on demand. GitHub schedules can be delayed.
 The runner fetches the Landing htmlview to discover all tabs, then parses each
-tracked tab using the editor core parser. Tab names containing literal uppercase
-`OLD` are excluded case-sensitively; `Old` and `old` remain eligible.
-A failed fetch, invalid schema, unknown layout
-or empty non-Landing tab fails the entire run without replacing the old data.
+tracked tab using the editor core parser. Tab names containing the whole word
+`OLD` in uppercase are excluded; `Old`, `old` and embedded forms such as `GOLD`
+remain eligible. A failed fetch, invalid schema, unknown layout, empty non-Landing
+tab or sharp shrink fails the entire run without replacing the old data. A tab with
+at least 10 rows in the previous snapshot that loses more than 20% of them (or
+disappears) is a sharp shrink; a tab recreated under a new gid is compared by name. Re-run the
+workflow manually with `allow_shrink` (sets `COMPENDIUM_ALLOW_SHRINK=1`) for a deliberate one.
 Landing is a navigation-only tab. Other tabs support ordinary/parallel tables,
 row-spanned names/descriptions, and artifact cards with their descriptions on
 the following row. Config overrides are in the editor core's Compendium config.
