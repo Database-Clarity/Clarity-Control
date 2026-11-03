@@ -46,7 +46,7 @@ function Echo() {
   const location = useLocation();
   return <output data-route="">{`${location.pathname}${location.search}`}</output>;
 }
-async function mount(path = '/t/10?lang=de') {
+async function mount(path = '/t/10?lang=de', source: EditorData = data) {
   await act(async () =>
     root.render(
       <MemoryRouter initialEntries={[path]}>
@@ -55,7 +55,7 @@ async function mount(path = '/t/10?lang=de') {
             path="/t/:hash"
             element={
               <>
-                <TooltipNavigation data={data} />
+                <TooltipNavigation data={source} />
                 <Echo />
               </>
             }
@@ -100,6 +100,27 @@ afterEach(async () => {
 });
 
 describe('tooltip finder combobox', () => {
+  it('marks a base with +E when it has enhanced variants, and a search for the variant lands on the base', async () => {
+    const variants = {
+      ...data,
+      items: {
+        ...data.items,
+        13: item(13, 'Alpha helm enhanced', 'armor', { baseHash: 10 }),
+      },
+    } as unknown as EditorData;
+    await mount('/t/10', variants);
+    await open();
+    const marks = options().map((row) => row.querySelector('small span')?.textContent ?? null);
+    // One entry per base: the variant has none of its own; only the base with a variant is marked.
+    expect(marks).toEqual(['+E', null, null]);
+    await type('enhanced');
+    expect(options()).toHaveLength(1);
+    expect(options()[0].textContent).toContain('Alpha helm');
+    expect(options()[0].textContent).toContain('+E');
+    await press('Enter');
+    expect(route()).toBe('/t/10');
+  });
+
   it('shows the current item, the category and the position, with the list closed', async () => {
     await mount();
     expect(field().value).toBe('Alpha helm');

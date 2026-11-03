@@ -164,6 +164,12 @@
   text-align: center;
 }
 
+.enhanced {
+  margin-right: 6px;
+  color: var(--enhanced);
+  font-weight: 600;
+}
+
 .name {
   min-width: 0;
   overflow: hidden;

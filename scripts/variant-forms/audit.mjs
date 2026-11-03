@@ -27,7 +27,10 @@ async function loadVariants() {
 }
 
 function parseBlock(text) {
-  return /^import (main|secondary) from (\d+) *$/m.test(text.trim()) && text.trim().split('\n').length === 1;
+  return (
+    /^import (main|secondary) from (\d+) *$/m.test(text.trim()) &&
+    text.trim().split('\n').length === 1
+  );
 }
 
 /**
@@ -36,7 +39,8 @@ function parseBlock(text) {
  * (the exporter's renderer). Nothing is written.
  */
 export async function audit({ items, categories, aliases, bundle }) {
-  const { variantForm, variantMatchesBase, enhancedVariants, languages, resolveAlias } = await loadVariants();
+  const { variantForm, variantMatchesBase, enhancedVariants, languages, resolveAlias } =
+    await loadVariants();
   const { descriptionConverter } = require('@icemourne/description-converter');
   const data = { items, categories, aliases, bundle };
   const legacyType = (hash) => categories.find((c) => c.id === items[hash]?.categoryId)?.legacyType;
@@ -45,7 +49,10 @@ export async function audit({ items, categories, aliases, bundle }) {
     while (!seen.has(hash)) {
       seen.add(hash);
       const target = resolveAlias(hash, aliases);
-      if (target !== hash) { hash = target; continue; }
+      if (target !== hash) {
+        hash = target;
+        continue;
+      }
       const next = items[hash]?.baseHash;
       if (next === undefined) return hash;
       hash = next;
@@ -56,11 +63,19 @@ export async function audit({ items, categories, aliases, bundle }) {
   const database = {};
   for (const [hash, tooltip] of Object.entries(bundle.tooltips)) {
     const editor = {};
-    for (const [lang, entry] of Object.entries(tooltip.text)) editor[lang] = { main: entry.text, secondary: entry.text };
-    database[hash] = { hash: Number(hash), name: '', type: legacyType(Number(hash)) ?? tooltip.custom?.categoryId ?? 'none', editor };
+    for (const [lang, entry] of Object.entries(tooltip.text))
+      editor[lang] = { main: entry.text, secondary: entry.text };
+    database[hash] = {
+      hash: Number(hash),
+      name: '',
+      type: legacyType(Number(hash)) ?? tooltip.custom?.categoryId ?? 'none',
+      editor,
+    };
   }
   const exported = (descriptionString, language, hash) =>
-    JSON.stringify(descriptionConverter({ descriptionString, editorType: 'main', language, hash, database }));
+    JSON.stringify(
+      descriptionConverter({ descriptionString, editorType: 'main', language, hash, database }),
+    );
 
   const bases = new Set();
   const types = {};
@@ -81,17 +96,29 @@ export async function audit({ items, categories, aliases, bundle }) {
     row[form]++;
     const stored = bundle.tooltips[item.hash];
     const baseTooltip = bundle.tooltips[base];
-    if (!database[item.hash]) database[item.hash] = { hash: item.hash, name: '', type: legacyType(item.hash) ?? 'none', editor: {} };
+    if (!database[item.hash])
+      database[item.hash] = {
+        hash: item.hash,
+        name: '',
+        type: legacyType(item.hash) ?? 'none',
+        editor: {},
+      };
     for (const lang of languages) {
       const own = stored?.text[lang]?.text;
       const inherited = baseTooltip?.text[lang]?.text;
       if (own === undefined && inherited === undefined) continue;
       const kind =
         own === undefined || own.trim() === ''
-          ? inherited?.trim() ? 'emptyOverFilledBase' : 'emptyAndBaseEmpty'
-          : own === inherited ? 'identical'
-          : parseBlock(own) && own.includes(`from ${base}`) ? 'importBase'
-          : variantMatchesBase(base, item.hash, lang, data) ? 'renderedLikeBase' : 'ownText';
+          ? inherited?.trim()
+            ? 'emptyOverFilledBase'
+            : 'emptyAndBaseEmpty'
+          : own === inherited
+            ? 'identical'
+            : parseBlock(own) && own.includes(`from ${base}`)
+              ? 'importBase'
+              : variantMatchesBase(base, item.hash, lang, data)
+                ? 'renderedLikeBase'
+                : 'ownText';
       const counts = (row.languages[lang] ??= {});
       counts[kind] = (counts[kind] ?? 0) + 1;
       if (kind === 'emptyOverFilledBase' && empties.length < 40 && lang === 'en')
@@ -103,7 +130,8 @@ export async function audit({ items, categories, aliases, bundle }) {
         if (viaStored !== viaBase) derivedExportDiffers.push({ hash: item.hash, base, lang, type });
       }
     }
-    if (form === 'override') overrides.push({ hash: item.hash, name: item.name, base, type, baseName: items[base]?.name });
+    if (form === 'override')
+      overrides.push({ hash: item.hash, name: item.name, base, type, baseName: items[base]?.name });
   }
   const finderMarks = [...bases].filter((base) => enhancedVariants(base, data).length > 0).length;
   return {
@@ -124,11 +152,15 @@ async function load(dir, name) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const dir = process.argv[2];
   if (!dir) {
-    console.error('usage: node scripts/variant-forms/audit.mjs <dir with bundle.json items.json categories.json aliases.json>');
+    console.error(
+      'usage: node scripts/variant-forms/audit.mjs <dir with bundle.json items.json categories.json aliases.json>',
+    );
     process.exit(2);
   }
   const [bundle, items, categories, aliases] = await Promise.all(
     ['bundle.json', 'items.json', 'categories.json', 'aliases.json'].map((name) => load(dir, name)),
   );
-  process.stdout.write(`${JSON.stringify(await audit({ bundle, items, categories, aliases }), null, 2)}\n`);
+  process.stdout.write(
+    `${JSON.stringify(await audit({ bundle, items, categories, aliases }), null, 2)}\n`,
+  );
 }

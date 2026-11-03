@@ -2,9 +2,18 @@ import { expect, test } from 'vitest';
 import { audit } from './audit.mjs';
 
 const stamp = { updatedAt: '2026-01-01T00:00:00.000Z', updatedBy: 'x' };
-const tip = (hash, text) => ({ hash, associated: [], text: text === undefined ? {} : { en: { text, ...stamp } } });
+const tip = (hash, text) => ({
+  hash,
+  associated: [],
+  text: text === undefined ? {} : { en: { text, ...stamp } },
+});
 const item = (hash, categoryId, baseHash) => ({
-  hash, name: `Item ${hash}`, icon: '', categoryId, inGameDescription: '', ...(baseHash ? { baseHash } : {}),
+  hash,
+  name: `Item ${hash}`,
+  icon: '',
+  categoryId,
+  inGameDescription: '',
+  ...(baseHash ? { baseHash } : {}),
 });
 
 test('classifies variants by what they render and cross-checks derived ones against the converter', async () => {
@@ -35,10 +44,18 @@ test('classifies variants by what they render and cross-checks derived ones agai
       },
     },
   });
-  expect(report).toMatchObject({ variants: 4, basesWithVariants: 1, finderMarks: 1, derivedExportDiffers: [] });
+  expect(report).toMatchObject({
+    variants: 4,
+    basesWithVariants: 1,
+    finderMarks: 1,
+    derivedExportDiffers: [],
+  });
   expect(report.types.enh).toMatchObject({ variants: 4, derived: 2, override: 2 });
   expect(report.types.enh.languages.en).toEqual({
-    importBase: 1, ownText: 1, emptyOverFilledBase: 1, identical: 1,
+    importBase: 1,
+    ownText: 1,
+    emptyOverFilledBase: 1,
+    identical: 1,
   });
   expect(report.overrides.map((entry) => entry.hash)).toEqual([12, 13]);
 });

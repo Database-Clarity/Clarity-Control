@@ -13,6 +13,7 @@ import {
   variantHashes,
   type CategorySection,
 } from './catalog';
+import { enhancedVariants } from '../tooltip/variants';
 import {
   categoryPosition,
   createStepping,
@@ -270,6 +271,7 @@ export function TooltipNavigation({
     const isDirty = variantHashes(row.hash, data).some((variant) => drafts[variant]);
     const shared = sharedPerkLabel(row.hash, data, compendiumSource);
     const frames = frameGroupSize(row.hash, data);
+    const enhanced = enhancedVariants(row.hash, data).length > 0;
     return (
       <li
         key={row.hash}
@@ -292,6 +294,11 @@ export function TooltipNavigation({
           {row.name}
         </span>
         <small>
+          {enhanced && (
+            <span className={styles.enhanced} title="Has enhanced versions">
+              +E
+            </span>
+          )}
           {row.hash}
           {shared && ' · shared perk'}
           {frames > 1 && ` ×${frames}`}
