@@ -26,7 +26,7 @@ vi.mock('../compendium/CompendiumBadge', () => ({
   useCompendiumCount: () => ({ state: 'ready', count: 0 }),
 }));
 vi.mock('../editor', () => ({ ClarityEditor: () => null }));
-vi.mock('../preview', () => ({ TooltipPreview: () => null }));
+vi.mock('../preview', () => ({ PreviewColumn: () => null, TooltipPreview: () => null }));
 vi.mock('../compendium/CompendiumPanel', () => ({ CompendiumPanel: () => null }));
 vi.mock('../history/HistoryPanel', () => ({ HistoryPanel: () => null }));
 vi.mock('../associations/AssociationsPanel', () => ({ AssociationsPanel: () => null }));

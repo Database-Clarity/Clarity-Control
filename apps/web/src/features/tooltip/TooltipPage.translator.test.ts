@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import { TooltipPage } from './TooltipPage';
 import { ClarityEditor, type ClarityEditorProps } from '../editor';
-import { TooltipPreview, type TooltipPreviewProps } from '../preview';
+import { PreviewColumn, type PreviewColumnProps } from '../preview';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { useAuthStore } from '../../stores/auth';
@@ -25,8 +25,8 @@ vi.mock('../editor', () => ({
   ),
 }));
 vi.mock('../preview', () => ({
-  TooltipPreview: vi.fn((props: TooltipPreviewProps) =>
-    createElement('div', { 'data-preview': true }, props.text),
+  PreviewColumn: vi.fn((props: PreviewColumnProps) =>
+    createElement('div', { 'data-preview': true }, props.baseText),
   ),
 }));
 vi.mock('../../stores/data', async (importOriginal) => {
@@ -286,7 +286,7 @@ describe('translator tooltip page', () => {
     it('keeps the editor and preview mounted while another panel is active', () => {
       const html = render('/t/10?lang=de');
       expect(vi.mocked(ClarityEditor)).toHaveBeenCalledTimes(1);
-      expect(vi.mocked(TooltipPreview)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(PreviewColumn)).toHaveBeenCalledTimes(1);
       const panel = (name: string) =>
         new RegExp(`<div[^>]*data-panel="${name}"[^>]*data-active="(true|false)"[^>]*>(.*?)</div>`);
       expect(html.match(panel('translation'))?.[1]).toBe('true');

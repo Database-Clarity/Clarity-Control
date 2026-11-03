@@ -1,0 +1,104 @@
+// The version switch sits between the perk header and the description, on app chrome rather than
+// the game surface: one 28px strip (44px controls on a phone), nothing wraps.
+.column {
+  min-width: 0;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text2);
+  container-type: inline-size;
+  background: var(--raised);
+  border-block: 1px solid var(--hair);
+  > * {
+    flex: none;
+  }
+  @media (max-width: 700px) {
+    height: 44px;
+  }
+}
+
+.segmented {
+  display: inline-flex;
+  height: 20px;
+  overflow: hidden;
+  border: 1px solid var(--ctl-edge);
+  border-radius: 4px;
+  button {
+    display: flex;
+    align-items: center;
+    padding: 0 6px;
+    font: inherit;
+    color: var(--text2);
+    background: transparent;
+    border: 0;
+    border-left: 1px solid var(--ctl-edge);
+    border-radius: 0;
+    cursor: pointer;
+    &:first-child {
+      border-left: 0;
+    }
+    &[aria-pressed='true'] {
+      font-weight: 700;
+      color: var(--text);
+      background: var(--sel);
+      box-shadow: inset 0 -2px 0 var(--accent-ink);
+    }
+    &:focus-visible {
+      outline: 2px solid var(--accent-ink);
+      outline-offset: -2px;
+    }
+  }
+  @media (max-width: 700px) {
+    height: 32px;
+    font-size: 12px;
+    button {
+      padding: 0 8px;
+      min-width: 44px;
+    }
+  }
+}
+
+.versions {
+  min-width: 0;
+  max-width: 9rem;
+  height: 20px;
+  padding: 0 4px;
+  font: inherit;
+  color: var(--text);
+  background: var(--fld);
+  border: 1px solid var(--fld-edge);
+  border-radius: 4px;
+  @media (max-width: 700px) {
+    height: 32px;
+  }
+}
+
+.summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+// A narrow strip keeps the count and drops " vs Base".
+@container (max-width: 279px) {
+  .vsBase {
+    display: none;
+  }
+}
+.glue {
+  white-space: nowrap;
+}
+
+.compare {
+  display: flex;
+  flex-direction: column;
+}

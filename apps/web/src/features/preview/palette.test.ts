@@ -50,6 +50,7 @@ const onSurface = [
   'blue',
   'purple',
   'arrow',
+  'was',
   'title',
   'link',
 ];
@@ -67,6 +68,15 @@ describe('tooltip preview palette', () => {
       expect(contrast(tokens['pop-text'], tokens['pop-bg'])).toBeGreaterThanOrEqual(4.5);
     });
   }
+
+  it('draws the enhanced arrow in pale gold, the same gold the app uses (DIM style)', () => {
+    expect(block('dark-values').arrow).toBe('#eade8b');
+    expect(block('light-values').arrow).toBe('#7a6400');
+    // The glyph itself is hidden; the thin arrow is a mask coloured by the token.
+    expect(css).toMatch(
+      /\.enhancedArrow \{[^}]*font-size: 0;[^}]*background-color: var\(--tp-arrow\)/s,
+    );
+  });
 
   it('is a separate light palette, not the dark one inverted', () => {
     const dark = block('dark-values');

@@ -153,6 +153,23 @@ describe('preview review store', () => {
     expect(store.getState().unreviewed(10)).toEqual([]);
   });
 
+  it('keeps one obligation per canonical item: a base edit and an override edit are cleared by their own renders', async () => {
+    const { store } = setup();
+    store.getState().registerHost(host);
+    await ready();
+    edit(base, 'Edited base');
+    edit(variant, 'Edited override');
+    expect(store.getState().unreviewed(10).sort()).toEqual([10, 11]);
+    // Seeing the Base render clears the base's edit only; the override still needs its Enhanced render.
+    store.getState().acknowledge(10, 1);
+    expect(store.getState().unreviewed(10)).toEqual([11]);
+    // The item can be left only once nothing under it is unreviewed.
+    expect(store.getState().leaveBlocked('/t/10', '/t/20')).toBe(true);
+    store.getState().acknowledge(11, 1);
+    expect(store.getState().unreviewed(10)).toEqual([]);
+    expect(store.getState().leaveBlocked('/t/10', '/t/20')).toBe(false);
+  });
+
   it('never lets an older render clear a newer edit, and a later edit re-arms', async () => {
     const { store } = setup();
     store.getState().registerHost(host);

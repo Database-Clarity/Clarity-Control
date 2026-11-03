@@ -1,7 +1,7 @@
 import { archiveCategoryLabel, archivedItemFor } from '../archive/archive';
 import { AttachmentCategoryControl } from './AttachmentCategoryControl';
 import { useCompendiumStore } from '../compendium/store';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { translationQueue, type Lang, type MarkupGlobals, type Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
@@ -19,12 +19,14 @@ import {
 import { tooltipPath } from '../navigation/stepping';
 import { ShellSlot } from '../navigation/ShellSlots';
 import { useShellColumn } from '../navigation/ShellColumnContext';
-import { useAcknowledgePreview } from '../navigation/useAcknowledgePreview';
 import { usePreviewReviewStore } from '../../stores/previewReview';
 import { ClarityEditor } from '../editor';
 import { tooltipTextSources } from '../editor/references';
 import type { TooltipTarget } from '../editor/referenceActions';
-import { TooltipPreview } from '../preview';
+import { PreviewColumn, type EnhancedView } from '../preview';
+import { effectiveMode, previewedHashes, type PreviewMode } from '../preview/previewMode';
+import { useAcknowledgePreview } from '../navigation/useAcknowledgePreview';
+import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { HistoryPanel } from '../history/HistoryPanel';
 import { useSaveState } from '../../services/save/state';
 import { AssociationsPanel } from '../associations/AssociationsPanel';
@@ -37,7 +39,12 @@ import { EditorPaneHeader } from './EditorPaneHeader';
 import { TranslationSource } from './TranslationSource';
 import { VariantWorkspace } from './VariantWorkspace';
 import { CompendiumPanel } from '../compendium/CompendiumPanel';
-import { editableOverrides, previewedVariants, storedFormVariants, variantForm } from './variants';
+import {
+  editableOverrides,
+  enhancedRender,
+  previewedVariants,
+  storedFormVariants,
+} from './variants';
 import styles from './TooltipPage.module.scss';
 
 /**
@@ -61,6 +68,11 @@ export function TooltipPage({
   // The enhanced version whose own text is open in the editor (null: the base). Keyed by item, so
   // moving to another tooltip starts on its base.
   const [picked, setPicked] = useState<{ hash: number; variant: number | null }>();
+  // The preview column's view (null: Compare on a desktop, Enhanced on a phone) and, when an item
+  // has several enhanced versions, which one. Both are working choices, never saved.
+  const [previewMode, setPreviewMode] = useState<PreviewMode | null>(null);
+  const [previewPick, setPreviewPick] = useState<{ hash: number; variant: number }>();
+  const phone = useMedia(phoneQuery);
   const user = useAuthStore((state) => state.user);
   const lang = defaultLanguage(user, search, remembered);
   function changeLanguage(next: Lang) {
@@ -77,6 +89,15 @@ export function TooltipPage({
     const imports = tooltipImports(data?.bundle.tooltips ?? {}, drafts, lang, data?.aliases ?? {});
     return { variables: imports[2] ?? '', titles: imports[3] ?? '', imports };
   }, [data, drafts, lang]);
+  // One globals object per type, so renders that share a type share the object (and its parse).
+  const typedGlobals = useMemo(() => {
+    const cache = new Map<string | undefined, MarkupGlobals>();
+    return (type: string | undefined) => {
+      let globals = cache.get(type);
+      if (!globals) cache.set(type, (globals = { ...sharedGlobals, type }));
+      return globals;
+    };
+  }, [sharedGlobals]);
   const referenceSources = useMemo(
     () => tooltipTextSources(data?.bundle.tooltips ?? {}, drafts, data?.aliases ?? {}),
     [data, drafts],
@@ -91,9 +112,17 @@ export function TooltipPage({
   // shown there; without one (a phone, or the page on its own) they stay inline in the page.
   const column = useShellColumn();
   const showPreview = column?.show;
+  // "Show preview" from the leave guard opens the column on a render that counts as seen: Base, or
+  // Enhanced for an override with unseen edits. Compare never does, so it is left.
+  const reveal = useRef<() => void>(undefined);
   useEffect(() => {
     if (!showPreview) return;
-    return usePreviewReviewStore.getState().registerHost({ show: showPreview });
+    return usePreviewReviewStore.getState().registerHost({
+      show() {
+        showPreview();
+        reveal.current?.();
+      },
+    });
   }, [showPreview]);
   if (!data) return null;
   if (
@@ -124,10 +153,7 @@ export function TooltipPage({
   const legacyOf = (variant: number) =>
     data.categories.find((category) => category.id === archivedItemFor(variant, data)?.categoryId)
       ?.legacyType;
-  const globalsFor = (variant: number): MarkupGlobals => ({
-    ...sharedGlobals,
-    type: legacyOf(variant),
-  });
+  const globalsFor = (variant: number): MarkupGlobals => typedGlobals(legacyOf(variant));
   const textOf = (variant: number) =>
     (drafts[variant]?.next ?? tooltipFor(variant, data)).text[lang]?.text ?? '';
 
@@ -145,37 +171,59 @@ export function TooltipPage({
   const activeTooltip = drafts[activeHash]?.next ?? activeBase;
   const value = textOf(hash);
 
-  const previews = [hash, ...previewed].map((variant) => {
-    const entry = archivedItemFor(variant, data);
-    const entryCategory = data.categories.find((candidate) => candidate.id === entry?.categoryId);
-    const derived = variant !== hash && !readOnly && variantForm(hash, variant, data) === 'derived';
-    return (
-      <section
-        key={variant}
-        className={styles.previewItem}
-        aria-label={`${nameOf(variant)} preview`}
-      >
-        {previewed.length > 0 && variant !== hash && (
-          <h2 className={styles.previewTitle}>{nameOf(variant)} (enhanced version)</h2>
-        )}
-        <TooltipPreview
-          text={derived ? value : textOf(variant)}
-          lang={lang}
-          name={nameOf(variant)}
-          icon={entry?.icon || undefined}
-          categoryLabel={
-            readOnly && entry
-              ? archiveCategoryLabel(entry.categoryId, data)
-              : (entryCategory?.label ?? entry?.categoryId)
-          }
-          globals={globalsFor(variant)}
-          archiveIcon={readOnly}
-          tooltipHash={variant}
-        />
-        {column && <PreviewAck variant={variant} visible={!column.collapsed} />}
-      </section>
-    );
+  const enhancedViews: EnhancedView[] = previewed.map((variant) => {
+    // Derived versions render the base text (drafts included) as their own type; overrides and
+    // archived tooltips show the text they hold.
+    const rendered = readOnly ? undefined : enhancedRender(hash, variant, lang, data, drafts);
+    return {
+      hash: variant,
+      name: nameOf(variant),
+      text: rendered ? rendered.text : textOf(variant),
+      globals: globalsFor(variant),
+      derived: rendered?.form === 'derived',
+    };
   });
+  const baseEntry = archivedItemFor(hash, data);
+  const baseCategory = data.categories.find((candidate) => candidate.id === baseEntry?.categoryId);
+  const pickedVariant = previewPick?.hash === hash ? previewPick.variant : undefined;
+  const selectedView =
+    enhancedViews.find((view) => view.hash === pickedVariant) ?? enhancedViews[0];
+  const mode = effectiveMode(previewMode, phone, selectedView !== undefined);
+  reveal.current = () => {
+    const unseen = usePreviewReviewStore.getState().unreviewed(canonical);
+    const override = enhancedViews.find((view) => !view.derived && unseen.includes(view.hash));
+    if (override && !unseen.includes(hash)) {
+      setPreviewPick({ hash, variant: override.hash });
+      setPreviewMode('enhanced');
+    } else setPreviewMode('base');
+  };
+  const previews = (
+    <PreviewColumn
+      hash={hash}
+      lang={lang}
+      name={nameOf(hash)}
+      icon={baseEntry?.icon || undefined}
+      categoryLabel={
+        readOnly && baseEntry
+          ? archiveCategoryLabel(baseEntry.categoryId, data)
+          : (baseCategory?.label ?? baseEntry?.categoryId)
+      }
+      archiveIcon={readOnly}
+      baseText={value}
+      baseGlobals={globalsFor(hash)}
+      enhanced={enhancedViews}
+      mode={mode}
+      onMode={setPreviewMode}
+      variant={selectedView?.hash}
+      onVariant={(variant) => setPreviewPick({ hash, variant })}
+    />
+  );
+  // Reviewed means a Base or Enhanced render of the current text is on screen (never Compare).
+  const seen = column
+    ? previewedHashes(mode, hash, selectedView).map((variant) => (
+        <PreviewAck key={variant} variant={variant} visible={!column.collapsed} />
+      ))
+    : null;
 
   const owner = singleOwnerLabel(hash, data);
   const shared = sharedPerkLabel(hash, data, compendiumSource);
@@ -303,7 +351,10 @@ export function TooltipPage({
       {hosted && (
         <ShellSlot name="left">
           <div className={styles.leftStack}>
-            <div className={styles.previewBody}>{previews}</div>
+            <div className={styles.previewBody}>
+              {previews}
+              {seen}
+            </div>
             {rows}
           </div>
         </ShellSlot>

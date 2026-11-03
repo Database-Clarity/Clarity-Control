@@ -1,6 +1,6 @@
 import { ArchiveIcon } from '../archive/ArchiveIcon';
 import { languageLabel } from '../../languageLabels';
-import { useId, useMemo } from 'react';
+import { useId, useMemo, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   markupLanguage,
@@ -25,9 +25,15 @@ export interface TooltipPreviewProps {
   globals: MarkupGlobals;
   tooltipHash?: number;
   archiveIcon?: boolean;
+  /** Content between the perk header and the description (the column's version switch). */
+  bar?: ReactNode;
+  /** The column variant: header and bar span the whole column and stay put while the body scrolls. */
+  fill?: boolean;
+  /** Replaces the rendered description (the column's Compare view); markup issues are hidden. */
+  children?: ReactNode;
 }
 
-function classNames(names?: (string | undefined)[]) {
+export function classNames(names?: (string | undefined)[]) {
   return names?.flatMap((name) => (name && styles[name] ? [styles[name]] : [])).join(' ');
 }
 
@@ -35,7 +41,8 @@ function linkUrl(url: string): string | undefined {
   return /^(https?:\/\/|mailto:)/i.test(url.trim()) ? url.trim() : undefined;
 }
 
-function Content({ part }: { part: MarkupSpan }) {
+/** One span of rendered markup: text, icon, link or title anchor. */
+export function PreviewSpan({ part }: { part: MarkupSpan }) {
   const id = useId();
   const link = part.link ? linkUrl(part.link) : undefined;
   return (
@@ -75,7 +82,7 @@ export function Lines({ lines }: { lines: MarkupLine[] }) {
                       className={classNames(cell.classNames)}
                     >
                       {cell.cellContent.map((part, partIndex) => (
-                        <Content key={partIndex} part={part} />
+                        <PreviewSpan key={partIndex} part={part} />
                       ))}
                     </td>
                   ))}
@@ -86,7 +93,7 @@ export function Lines({ lines }: { lines: MarkupLine[] }) {
         ) : (
           <div key={index} className={classNames(line.classNames)}>
             {line.linesContent?.map((part, partIndex) => (
-              <Content key={partIndex} part={part} />
+              <PreviewSpan key={partIndex} part={part} />
             ))}
           </div>
         );
@@ -122,26 +129,34 @@ export function TooltipPreview({
   globals,
   tooltipHash,
   archiveIcon = false,
+  bar,
+  fill = false,
+  children,
 }: TooltipPreviewProps) {
   const parsed = useMemo(() => parseMarkup(text, globals), [text, globals]);
   const iconUrl = icon?.startsWith('/common/') ? `https://www.bungie.net${icon}` : icon;
   return (
-    <section className={styles.preview} lang={markupLanguage(lang)} aria-label={`${name} preview`}>
-      <header className={styles.header}>
-        {archiveIcon ? (
-          <ArchiveIcon icon={icon} />
-        ) : (
-          iconUrl && linkUrl(iconUrl) && <img className={styles.icon} src={iconUrl} alt="" />
-        )}
-        <div>
-          <div className={styles.name}>{name}</div>
-          {categoryLabel && <div className={styles.category}>{categoryLabel}</div>}
-        </div>
-      </header>
-      <div className={styles.description}>
-        <Lines lines={parsed.lines} />
+    <section
+      className={[styles.preview, fill ? styles.fill : ''].filter(Boolean).join(' ')}
+      lang={markupLanguage(lang)}
+      aria-label={`${name} preview`}
+    >
+      <div className={styles.top}>
+        <header className={styles.header}>
+          {archiveIcon ? (
+            <ArchiveIcon icon={icon} />
+          ) : (
+            iconUrl && linkUrl(iconUrl) && <img className={styles.icon} src={iconUrl} alt="" />
+          )}
+          <div>
+            <div className={styles.name}>{name}</div>
+            {categoryLabel && <div className={styles.category}>{categoryLabel}</div>}
+          </div>
+        </header>
+        {bar}
       </div>
-      {parsed.diagnostics.length > 0 && (
+      <div className={styles.description}>{children ?? <Lines lines={parsed.lines} />}</div>
+      {!children && parsed.diagnostics.length > 0 && (
         <details className={styles.diagnostics}>
           <summary>{parsed.diagnostics.length} markup issue(s)</summary>
           <ul>
