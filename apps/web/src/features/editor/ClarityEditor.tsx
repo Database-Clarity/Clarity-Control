@@ -238,7 +238,8 @@ export function ClarityEditor({
         <summary>{issues.length ? `${issues.length} markup issue(s)` : 'Markup help'}</summary>
         <p>
           Ctrl/Cmd+F: find and replace. Ctrl/Cmd+Space: complete. Ctrl/Cmd+Z: undo. Ctrl/Cmd+/:
-          comment. Scroll Lock or Ctrl/Cmd+Shift+F: align tables.
+          comment. Scroll Lock or Ctrl/Cmd+Shift+F: align tables. Tab indents; to leave the editor
+          with the keyboard, press Esc, then Tab.
         </p>
         <p>
           Native spelling uses your browser&apos;s enabled dictionaries. Right-click a misspelling

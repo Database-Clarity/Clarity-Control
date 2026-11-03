@@ -635,6 +635,8 @@ describe('Browse and save-dialog keyboard ownership', () => {
       await mount();
       await click('Accept proposed');
       if (browse) await click('Browse');
+      const opener = button('Review and save drafts');
+      opener.focus();
       await click('Review and save drafts');
       const dialog = host.querySelector<HTMLDialogElement>('dialog[aria-label="Review save"]')!;
       expect(dialog.open).toBe(true);
@@ -657,6 +659,7 @@ describe('Browse and save-dialog keyboard ownership', () => {
       expect(captured.save).not.toHaveBeenCalled();
       await act(async () => dialog.dispatchEvent(new Event('cancel', { cancelable: true })));
       expect(host.querySelector('dialog')).toBeNull();
+      expect(document.activeElement).toBe(opener);
       expect(useSaveState.getState().locked).toBe(false);
       if (browse) {
         expect(host.querySelector('#sidebar')!.getAttribute('data-open')).toBe('true');

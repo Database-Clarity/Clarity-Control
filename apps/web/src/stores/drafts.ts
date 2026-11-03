@@ -29,7 +29,7 @@ export function createDraftStore(storage: DraftStorage) {
           set({ error: null });
         } catch (error) {
           set({
-            error: `Drafts are NOT safely stored: ${errorMessage(error)}. Keep this tab open and retry.`,
+            error: `Drafts are NOT safely stored: ${errorMessage(error).replace(/\.+$/, '')}. Keep this tab open and retry.`,
           });
         } finally {
           set((state) => ({ pending: state.pending - 1 }));
@@ -49,7 +49,7 @@ export function createDraftStore(storage: DraftStorage) {
           (error: unknown) => {
             hydration = undefined;
             set({
-              error: `Cannot recover local drafts: ${errorMessage(error)}. Editing is disabled.`,
+              error: `Cannot recover local drafts: ${errorMessage(error).replace(/\.+$/, '')}. Editing is disabled; browsing is read-only.`,
             });
           },
         );

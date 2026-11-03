@@ -39,6 +39,32 @@ describe('association picker', () => {
     expect(associationCandidates(data, 'scorch', 99, [])).toEqual([]);
     expect(associationCandidates(data, '', 10, [20, 30])).toEqual([]);
   });
+  it('does not offer reserved global tooltips or archived tooltips', () => {
+    const withExtras: EditorData = {
+      ...data,
+      items: {
+        ...data.items,
+        2: item(2, 'Tooltip 2'),
+        3: item(3, 'Tooltip 3'),
+        40: item(40, 'Gone'),
+      },
+      bundle: {
+        ...data.bundle,
+        tooltips: {
+          40: {
+            hash: 40,
+            text: {},
+            associated: [],
+            archive: {
+              removedAt: '2026-10-01T00:00:00.000Z',
+              lastSeen: { name: 'Gone', categoryId: 'weapon-frame', manifestVersion: 'v1' },
+            },
+          },
+        },
+      },
+    };
+    expect(associationCandidates(withExtras, '', 10, [])).toEqual([30, 20]);
+  });
   it('reorders without mutating input and leaves boundary moves unchanged', () => {
     const source = [20, 30, 40];
     expect(moveAssociation(source, 1, -1)).toEqual([30, 20, 40]);

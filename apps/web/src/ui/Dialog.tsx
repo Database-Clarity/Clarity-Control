@@ -18,8 +18,15 @@ export function Dialog({
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
+    const opener = document.activeElement;
     dialog?.showModal();
-    return () => dialog?.close();
+    return () => {
+      dialog?.close();
+      // The opener may have been disabled while the dialog was open, which stops the browser
+      // restoring focus; put it back so keyboard users keep their place.
+      if (opener instanceof HTMLElement && opener.isConnected && opener !== document.body)
+        opener.focus();
+    };
   }, []);
   return (
     <dialog
