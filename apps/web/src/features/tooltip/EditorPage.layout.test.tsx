@@ -260,7 +260,10 @@ describe('editor page composition', () => {
     signIn(null);
     await render();
     const badge = host.querySelector('[role="status"]')!;
-    expect(badge.textContent).toContain('Read-only: sign in to edit.');
+    // Short in the header (the status bar under the editor has the sentence); the tooltip keeps it.
+    expect(badge.textContent).toContain('Read-only');
+    expect(badge.textContent).not.toContain('sign in');
+    expect(badge.getAttribute('title')).toBe('Read-only: sign in to edit.');
     expect(editors()[0].hasAttribute('data-readonly')).toBe(true);
     expect(button('Discard')).toBeUndefined();
   });

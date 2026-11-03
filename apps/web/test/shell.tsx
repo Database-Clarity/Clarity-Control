@@ -288,13 +288,19 @@ Object.assign(window, {
         { length: 14 },
         (_, i) => `Line ${i + 1}: the quick brown fox jumps over the lazy dog, again and again.`,
       ).join('\n');
-      const cell = (plain: string) => ({ plain, runs: [{ text: plain }] });
-      const row = (name: string, plain: string, rowIndex: number) => ({
+      // Row 1001: a light sheet background with dark brown text (needs lifting on the editor
+      // surface). Row 1002: a dark sheet background with light teal text.
+      const cell = (plain: string, background?: string) => ({
+        plain,
+        runs: [{ text: plain, ...(background ? { color: background === '#e8dcc8' ? '#783f04' : '#89cdd1' } : {}) }],
+        ...(background ? { background } : {}),
+      });
+      const row = (name: string, plain: string, rowIndex: number, background?: string) => ({
         name,
         nameNorm: name.toLowerCase(),
         section: '',
         rowIndex,
-        cell: cell(plain),
+        cell: cell(plain, background),
       });
       useCompendiumStore.setState({
         data: {
@@ -303,8 +309,8 @@ Object.assign(window, {
               gid: 'g',
               name: 'Weapon Perks',
               rows: [
-                row('Row 1001', `Previous changed\n${long}`, 1),
-                row('Row 1002', 'Previous', 2),
+                row('Row 1001', `Previous changed\n${long}`, 1, '#e8dcc8'),
+                row('Row 1002', 'Previous', 2, '#2e3c4e'),
               ],
               grid: [],
             },

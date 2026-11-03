@@ -1,6 +1,7 @@
 import {
   sameCell,
   normaliseRuns,
+  withBackground,
   type CompendiumData,
   type CompendiumLink,
   type CompendiumRow,
@@ -285,25 +286,28 @@ export function combineCompendiumMatches(matches: CompendiumMatch[]): Compendium
     parts,
     row: {
       ...first.row,
-      cell: normaliseRuns([
-        ...sorted.flatMap(({ row }, index) => {
-          const cells = components[index];
-          const body =
-            cells && shared.length
-              ? normaliseRuns(
-                  cells
-                    .filter((cell) => !shared.some((other) => sameCell(other.cell, cell.cell)))
-                    .flatMap((cell, i) => [...(i ? [{ text: '\n' }] : []), ...cell.cell.runs]),
-                )
-              : row.cell;
-          return [
-            ...(index ? [{ text: '\n\n' }] : []),
-            { text: `${parts[index]}\n`, bold: true as const },
-            ...body.runs,
-          ];
-        }),
-        ...shared.flatMap((cell) => [{ text: '\n\n' }, ...cell.cell.runs]),
-      ]),
+      cell: withBackground(
+        normaliseRuns([
+          ...sorted.flatMap(({ row }, index) => {
+            const cells = components[index];
+            const body =
+              cells && shared.length
+                ? normaliseRuns(
+                    cells
+                      .filter((cell) => !shared.some((other) => sameCell(other.cell, cell.cell)))
+                      .flatMap((cell, i) => [...(i ? [{ text: '\n' }] : []), ...cell.cell.runs]),
+                  )
+                : row.cell;
+            return [
+              ...(index ? [{ text: '\n\n' }] : []),
+              { text: `${parts[index]}\n`, bold: true as const },
+              ...body.runs,
+            ];
+          }),
+          ...shared.flatMap((cell) => [{ text: '\n\n' }, ...cell.cell.runs]),
+        ]),
+        first.row.cell.background,
+      ),
     },
   };
 }
@@ -317,7 +321,8 @@ export function snapshotCompendium(
     ...(match.row.section ? { section: match.row.section } : {}),
     ...(match.cells ? { cells: match.cells } : {}),
     ...(match.parts ? { parts: match.parts } : {}),
-    snapshot: match.row.cell,
+    // The sheet background is display-only and stays out of stored links.
+    snapshot: withBackground(match.row.cell),
     snapshotAt: now,
   };
 }

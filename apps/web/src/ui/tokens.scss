@@ -93,6 +93,9 @@
   --grid-edge: #454c5a;
   --grid-on: #263044;
   --grid-text: #ccc;
+  // Compendium cell on the editor surface (the sheet's text colours are tuned for a dark cell)
+  --sheet-bg: #1a1b29;
+  --sheet-text: #ccc;
   // Overlays
   --shadow: 0 12px 32px rgb(0 0 0 / 0.5);
   --scrim: rgb(0 0 0 / 0.6);
@@ -183,6 +186,9 @@
   --grid-edge: #b5c9d8;
   --grid-on: #c2e2ee;
   --grid-text: #2c3640;
+  // The dark cell raised a little so it sits better on the light page; sheet text stays AA on it
+  --sheet-bg: #2a2e44;
+  --sheet-text: #ccc;
   // Overlays
   --shadow: 0 8px 24px rgb(20 23 27 / 0.18);
   --scrim: rgb(20 23 27 / 0.35);

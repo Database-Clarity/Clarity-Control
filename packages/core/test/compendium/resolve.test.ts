@@ -88,3 +88,17 @@ describe('robust Compendium link resolution', () => {
     expect(resolveCompendiumLink(link, data()).status).toBe('missing');
   });
 });
+
+describe('Compendium sheet backgrounds', () => {
+  const tinted = { ...cell('Grants increased damage for ten seconds.'), background: '#2e3c4e' };
+  it('are display-only: ignored when comparing, kept out of stored links', () => {
+    const source: CompendiumRow = { ...row('Test'), cell: tinted };
+    const resolved = resolveCompendiumLink(link, data([source]));
+    expect(resolved.status).toBe('ok');
+    if (!('row' in resolved)) throw new Error('expected a matched row');
+    expect(resolved.row.cell.background).toBe('#2e3c4e');
+    const stored = snapshotCompendium(resolved);
+    expect(stored.snapshot).toEqual(cell('Grants increased damage for ten seconds.'));
+    expect('background' in stored.snapshot).toBe(false);
+  });
+});

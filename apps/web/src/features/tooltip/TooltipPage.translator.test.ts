@@ -171,9 +171,10 @@ describe('translator tooltip page', () => {
     expect(header).toContain('aria-label="Language"');
     // Who edited it and when sit behind the Details popover, not in a block of their own.
     expect(header).toMatch(/<button[^>]*aria-haspopup="dialog"[^>]*>Details<\/button>/);
-    expect(header).toMatch(
-      /role="status"[^>]*>[\s\S]*Read-only: you can translate German, not English\./,
-    );
+    // The badge only names the state; the sentence is the status bar's, and the badge's tooltip.
+    expect(header).toMatch(/role="status"[^>]*title="Read-only: you can translate German[^"]*"/);
+    expect(header).toMatch(/role="status"[^>]*>[\s\S]*?<span[^>]*>Read-only<\/span>/);
+    expect(header.replace(/title="[^"]*"/g, '')).not.toContain('you can translate German');
     expect(header).toContain('Switch to German');
     expect(html).not.toContain('Read-only details');
   });

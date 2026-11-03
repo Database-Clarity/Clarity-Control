@@ -71,3 +71,34 @@ describe('device Compendium scale', () => {
     expect(make(storage).getState().device.compendiumScale).toBe(100);
   });
 });
+
+describe('device Compendium cell backgrounds', () => {
+  const surfaceOf = (remembered: unknown) =>
+    make(memoryStorage({ [deviceKey]: JSON.stringify({ remembered }) }).storage).getState().device
+      .remembered.compendiumSurface;
+
+  it('are not chosen until the user picks one (the sheet colours show)', () => {
+    expect(surfaceOf({})).toBeUndefined();
+    expect(make(memoryStorage().storage).getState().device.remembered).toEqual({});
+  });
+
+  it('remembers the choice per device and recovers from a corrupt value', () => {
+    expect(surfaceOf({ compendiumSurface: 'editor' })).toBe('editor');
+    expect(surfaceOf({ compendiumSurface: 'sheet' })).toBe('sheet');
+    for (const bad of ['dark', 3, null, {}, true])
+      expect(surfaceOf({ compendiumSurface: bad })).toBeUndefined();
+    const { storage, values } = memoryStorage();
+    const store = make(storage);
+    store.getState().remember({ compendiumSurface: 'editor' });
+    expect(JSON.parse(values.get(deviceKey)!).remembered.compendiumSurface).toBe('editor');
+    expect(store.getState().pending).toEqual([]);
+    expect(make(storage).getState().device.remembered.compendiumSurface).toBe('editor');
+  });
+
+  it('is not undone by resetting the pane widths (only the zoom is)', () => {
+    const store = make(memoryStorage().storage);
+    store.getState().remember({ compendiumSurface: 'editor' });
+    store.getState().resetPaneWidths();
+    expect(store.getState().device.remembered.compendiumSurface).toBe('editor');
+  });
+});

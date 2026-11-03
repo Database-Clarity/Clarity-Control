@@ -150,6 +150,25 @@ export function resolveStyle(
   return apply(style, declarations(attr(node, 'style')));
 }
 
+/**
+ * A cell's own background colour (opaque hex), from the sheet's classes and inline style.
+ * Unsupported or transparent values mean "none"; unlike text colours this never throws, because a
+ * background is decoration the Compendium still reads fine without.
+ */
+export function resolveBackground(node: HtmlElement, rules: Rule[]): string | undefined {
+  let background: string | undefined;
+  const take = (css: Declarations) => {
+    const value = css['background-color'] ?? css.background;
+    if (!value) return;
+    const resolved = colour(value);
+    // colour() drops a fully opaque alpha, so an 8-digit result is translucent: not a sheet colour.
+    background = resolved?.length === 7 ? resolved : undefined;
+  };
+  for (const rule of rules) if (matches(node, rule.selector)) take(rule.declarations);
+  take(declarations(attr(node, 'style')));
+  return background;
+}
+
 export function safeHref(value: string): string | undefined {
   if (!value) return undefined;
   try {

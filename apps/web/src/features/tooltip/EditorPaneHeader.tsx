@@ -9,6 +9,9 @@ export interface OverrideTarget {
   name: string;
 }
 
+/** "Read-only: sign in to edit." -> "Read-only". */
+export const shortReason = (reason: string) => reason.split(':')[0].trim();
+
 /**
  * The 28px header above the editor: language, draft state, read-only reason, and the actions for
  * the enhanced version ("Stored form" for maintainers on derived versions; "Edit override" where
@@ -100,8 +103,10 @@ export function EditorPaneHeader({
         </>
       )}
       {reason && (
+        // The status bar under the editor says the whole sentence; the badge only names the state
+        // (its tooltip has the sentence too), so the same words are not on screen twice.
         <span className={styles.badge} role="status" title={reason}>
-          <span className={styles.ell}>{reason}</span>
+          <span className={styles.ell}>{shortReason(reason)}</span>
           {switchTo && (
             <button type="button" className={styles.ghost} onClick={() => onSwitch(switchTo)}>
               Switch to {languageLabel(switchTo)}

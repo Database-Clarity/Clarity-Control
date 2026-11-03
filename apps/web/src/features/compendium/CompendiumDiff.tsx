@@ -1,6 +1,7 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { diffCompendium, type CompendiumCell, type CompendiumDiffPart } from '@clarity/core';
 import { RichCell } from './RichCell';
+import { SheetCell } from './sheetSurface';
 import { useSettingsStore } from '../../stores/settings';
 import { Segmented } from '../../ui/RightPane';
 import styles from './Compendium.module.scss';
@@ -176,6 +177,8 @@ export function CompendiumDiff({
   const [remembered, setRemembered] = useCompendiumDiffMode();
   const mode = given ?? remembered;
   const sideBySide = mode === 'before-after';
+  // Links store no background; both sides sit on the row's current one.
+  const background = after.background ?? before.background;
   const parts = useMemo(() => diffCompendium(before, after), [before, after]);
   return (
     <section aria-label="Styled Compendium diff">
@@ -188,15 +191,15 @@ export function CompendiumDiff({
         <div className={styles.comparison}>
           <section>
             <h4>Snapshot</h4>
-            <div className={styles.cell}>
+            <SheetCell background={background}>
               <RichCell cell={before} />
-            </div>
+            </SheetCell>
           </section>
           <section>
             <h4>Current</h4>
-            <div className={styles.cell}>
+            <SheetCell background={background}>
               <RichCell cell={after} />
-            </div>
+            </SheetCell>
           </section>
         </div>
       ) : (
@@ -205,7 +208,7 @@ export function CompendiumDiff({
             Removed: red strike-through. Added: green underline. Dotted: tap or hover for style
             changes.
           </p>
-          <div className={styles.cell}>
+          <SheetCell background={background}>
             {diffLines(parts).map((line, lineIndex) => (
               <span
                 key={lineIndex}
@@ -234,7 +237,7 @@ export function CompendiumDiff({
                 )}
               </span>
             ))}
-          </div>
+          </SheetCell>
         </>
       )}
     </section>

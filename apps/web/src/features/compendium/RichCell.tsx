@@ -1,10 +1,11 @@
 import type { CSSProperties, ReactNode } from 'react';
 import type { CompendiumCell, CompendiumRun } from '@clarity/core';
+import { readableOn, useLegibleOn } from './sheetSurface';
 import styles from './RichCell.module.scss';
 
-function runStyle(run: CompendiumRun): CSSProperties {
+function runStyle(run: CompendiumRun, legibleOn?: string): CSSProperties {
   return {
-    color: run.color,
+    color: run.color && legibleOn ? readableOn(run.color, legibleOn) : run.color,
     fontSize: run.sizePt === undefined ? undefined : `${run.sizePt}pt`,
     fontWeight: run.bold ? 700 : 400,
     fontStyle: run.italic ? 'italic' : 'normal',
@@ -29,6 +30,7 @@ export function RichCell({
   links?: boolean;
   inline?: boolean;
 }) {
+  const legibleOn = useLegibleOn();
   // A block per physical line lets joined cells retain different alignments without
   // changing their text, rich runs, or blank lines. Diff fragments opt into inline.
   if (!inline && cell.runs.some((run) => run.textAlign)) {
@@ -63,7 +65,7 @@ export function RichCell({
   return (
     <Multiline>
       {cell.runs.map((run, index) => {
-        const content = <span style={runStyle(run)}>{run.text}</span>;
+        const content = <span style={runStyle(run, legibleOn)}>{run.text}</span>;
         return run.href && links ? (
           <a key={index} href={run.href} target="_blank" rel="noreferrer">
             {content}

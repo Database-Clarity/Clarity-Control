@@ -13,9 +13,10 @@ import {
   type HtmlElement,
   type HtmlNode,
 } from './html.js';
-import { cssRules, resolveStyle, safeHref } from './styles.js';
+import { cssRules, resolveBackground, resolveStyle, safeHref } from './styles.js';
 import {
   normaliseRuns,
+  withBackground,
   type CompendiumCell,
   type CompendiumGridCell,
   type CompendiumRun,
@@ -74,7 +75,10 @@ export function parseCompendiumGrid(html: string): GridRow[] {
       (style, ancestor) => resolveStyle(ancestor, style, rules),
       {},
     );
-    return normaliseRuns(runs(element, inherited));
+    return withBackground(
+      normaliseRuns(runs(element, inherited)),
+      resolveBackground(element, rules),
+    );
   }
   const table =
     descendants(document, 'table').find((node) =>
@@ -275,16 +279,22 @@ export function parseCompendiumSheet(html: string, tab: string, tabName?: string
       }
       for (const description of descriptions) seen!.add(description.element);
       seenDescriptions.set(name.element, seen!);
-      const combined = normaliseRuns(
-        descriptions.flatMap((entry, index) => [
-          ...(index ? [{ text: '\n' }] : []),
-          ...entry.cell.runs,
-        ]),
+      const combined = withBackground(
+        normaliseRuns(
+          descriptions.flatMap((entry, index) => [
+            ...(index ? [{ text: '\n' }] : []),
+            ...entry.cell.runs,
+          ]),
+        ),
+        descriptions[0].cell.background,
       );
       const existing = sources.get(name.element);
       if (existing) {
         // Row-spanned names own all their description rows, not just the first.
-        existing.cell = normaliseRuns([...existing.cell.runs, { text: '\n' }, ...combined.runs]);
+        existing.cell = withBackground(
+          normaliseRuns([...existing.cell.runs, { text: '\n' }, ...combined.runs]),
+          existing.cell.background,
+        );
       } else {
         const entry = {
           name: rowKey,

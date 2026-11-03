@@ -174,4 +174,61 @@ describe('Compendium pane', () => {
     expect(host.textContent).toContain('Current');
     expect(useSettingsStore.getState().device.remembered.compendiumDiff).toBe('before-after');
   });
+
+  describe('sheet colours', () => {
+    const surfaces = (host: ParentNode) => [
+      ...host.querySelectorAll<HTMLElement>('[data-surface]'),
+    ];
+    const withCell = (cellOverride: Partial<CompendiumCell>) =>
+      useCompendiumStore.setState({
+        data: {
+          fetchedAt: '2026-11-01T00:00:00Z',
+          tabs: [{ ...tab, rows: [{ ...row, cell: { ...row.cell, ...cellOverride } }] }],
+        },
+      } as never);
+
+    it("shows the cell on the sheet's own background by default, with a header toggle", async () => {
+      withCell({ background: '#2e3c4e' });
+      const host = await mount();
+      const toggle = button(header(host), 'Sheet colours')!;
+      expect(toggle.getAttribute('aria-pressed')).toBe('true');
+      const [cell] = surfaces(host);
+      expect(cell.dataset.surface).toBe('sheet');
+      expect(cell.style.background).toBe('rgb(46, 60, 78)');
+    });
+
+    it('switches to the editor surface, remembers it on this device, and switches back', async () => {
+      withCell({ background: '#2e3c4e' });
+      const host = await mount();
+      await act(async () => button(header(host), 'Sheet colours')!.click());
+      const [cell] = surfaces(host);
+      expect(cell.dataset.surface).toBe('editor');
+      expect(cell.style.background).toBe('');
+      expect(button(header(host), 'Sheet colours')!.getAttribute('aria-pressed')).toBe('false');
+      expect(useSettingsStore.getState().device.remembered.compendiumSurface).toBe('editor');
+      expect(useSettingsStore.getState().pending).toEqual([]);
+      await act(async () => button(header(host), 'Sheet colours')!.click());
+      expect(surfaces(host)[0].dataset.surface).toBe('sheet');
+    });
+
+    it('uses the editor surface for a cell the sheet gave no background', async () => {
+      withCell({});
+      const host = await mount();
+      expect(surfaces(host).every((cell) => cell.dataset.surface === 'editor')).toBe(true);
+    });
+
+    it('keeps the sheet text colours exactly on a sheet background, and makes them AA on the editor surface', async () => {
+      withCell({
+        background: '#efeded',
+        runs: [{ text: 'New text', color: '#783f04' }],
+      });
+      const host = await mount();
+      const colour = () => surfaces(host)[0].querySelector<HTMLElement>('span[style*="color"]')!.style.color;
+      expect(colour()).toBe('rgb(120, 63, 4)');
+      // On the editor surface that dark brown would be unreadable, so it is lifted to AA.
+      await act(async () => button(header(host), 'Sheet colours')!.click());
+      expect(colour()).not.toBe('rgb(120, 63, 4)');
+      expect(colour()).not.toBe('');
+    });
+  });
 });
