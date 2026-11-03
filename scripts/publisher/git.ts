@@ -14,6 +14,7 @@ export interface Repository {
   cas(ref: string, old: string | undefined, next: string | undefined): void;
   ancestor(a: string, b: string): boolean;
   history(ref: string): string[];
+  additions(head: string, path: string): { commit: string; path: string }[];
 }
 
 /** Only a disposable local bare repository can be mutated. No network transport exists in P1-A. */
@@ -127,5 +128,28 @@ export class LocalRepository implements Repository {
       .trim()
       .split('\n')
       .filter(Boolean);
+  }
+  additions(head: string, path: string) {
+    const lines = this.git([
+      'log',
+      '--first-parent',
+      '--diff-merges=first-parent',
+      '--diff-filter=A',
+      '--no-renames',
+      '--root',
+      '--reverse',
+      '--format=%H',
+      '--name-only',
+      head,
+      '--',
+      path,
+    ]).split('\n');
+    let commit = '';
+    const entries: { commit: string; path: string }[] = [];
+    for (const line of lines) {
+      if (/^[0-9a-f]{40}$/.test(line)) commit = line;
+      else if (line) entries.push({ commit, path: line });
+    }
+    return entries;
   }
 }

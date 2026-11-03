@@ -10,7 +10,11 @@ endpoint), keyFingerprint (SHA-256 of SPKI DER, pinned independently), publisher
 facts, aliases, and runUrl. Facts and aliases must come from the pinned generator commit.
 No key fetching, production Git transport, workflow, Worker endpoints, or write enable switch ships
 in this phase. The later transport must enforce forward-only LIVE/data refs and serialized execution;
-candidate ref swaps/deletes require exact old OIDs. Backoff is injectable for transport tests.
+candidate ref swaps/deletes require exact old OIDs. Unresolved pushes wait 30 seconds between
+attempts (five waits maximum); successful writes record immediately. Tests inject a no-wait backoff.
+The local simulator deliberately fails closed on non-100644 modes; a real transport must preserve
+all existing tree modes before it can be enabled. Queue ordering and receipt lookup use first-parent
+Git addition history rather than enumerating historical trees.
 
 Receipts include frozen export inputs so rebasing never revalidates content or changes the timestamp.
 Terminal logs contain recordCommit:null because embedding a commit's own hash is circular; consumers

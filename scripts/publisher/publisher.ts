@@ -18,6 +18,10 @@ import {
 } from '../../packages/core/src/index.js';
 import { stampUploads } from '../../apps/worker/src/stamp.js';
 import { RefRace, type Repository, type Tree } from './git.js';
+import { setTimeout } from 'node:timers/promises';
+
+// Five unresolved retries total ~2.5 min. Simulator fixtures inject a no-wait backoff.
+export const publishBackoff = () => setTimeout(30_000);
 
 const json = (v: unknown) => JSON.stringify(v, null, 2) + '\n';
 const dataRef = (branch: string) => `refs/heads/${branch}`;
@@ -86,12 +90,8 @@ export class Publisher {
       ),
     );
     const added = new Map<string, number>();
-    let previous: Tree = {};
-    for (const [i, c] of this.git.history(head).entries()) {
-      const tree = this.git.tree(c);
-      for (const p of pending) if (tree[p] && !previous[p]) added.set(p, i);
-      previous = tree;
-    }
+    for (const [i, entry] of this.git.additions(head, 'publish/requests/').entries())
+      if (pending.has(entry.path)) added.set(entry.path, i);
     return [...pending]
       .sort((a, b) => added.get(a)! - added.get(b)! || a.localeCompare(b))
       .map((p) => p.slice(17, -5));
@@ -197,6 +197,22 @@ export class Publisher {
         }
         tree['live/pushed.json'] = this.git.writeBlob(json(pushed));
       }
+      if (receipt && tree[p.request] && tree[p.request] !== receipt.requestBlob) {
+        let strayIntent: string | undefined;
+        try {
+          strayIntent = JSON.parse(JSON.parse(this.git.blob(tree[p.request])).payload).intentDigest;
+        } catch {
+          /* malformed stray is a conflict */
+        }
+        let n = 1;
+        while (tree[p.log.replace('.json', `.dup-${n}.json`)]) n++;
+        tree[p.log.replace('.json', `.dup-${n}.json`)] = this.git.writeBlob(
+          json({
+            status: strayIntent === receipt.intentDigest ? 'duplicate' : 'conflict',
+            requestBlob: tree[p.request],
+          }),
+        );
+      }
       delete tree[p.request];
       // A commit cannot contain its own SHA. recordCommit is deliberately null; resolve it via log blob history.
       tree[p.log] = this.git.writeBlob(
@@ -278,7 +294,8 @@ export class Publisher {
       landed = this.receipt(live, opId);
     if (landed) {
       // Find the actual receipt-adding commit even if another writer advanced LIVE.
-      const c = this.git.history(live).find((c) => this.git.tree(c)[p.receipt]);
+      const c = this.git.additions(live, p.receipt)[0]?.commit;
+      if (!c) throw new Error('Receipt addition commit missing');
       await this.record(opId, landed, c);
       return;
     }
@@ -380,10 +397,21 @@ export class Publisher {
         return;
       }
       if (l === r.liveParent) {
+        let pushed = false;
         try {
           this.git.cas(dataRef(this.options.liveBranch), l, c);
+          pushed = true;
         } catch {
           /* unresolved: SAME candidate next attempt */
+        }
+        if (pushed) {
+          await this.record(opId, r, c);
+          try {
+            this.git.cas(p.candidate, c, undefined);
+          } catch {
+            /* best effort */
+          }
+          return;
         }
       } else {
         if (++rebases > 3) throw new Error('Rebase limit');
@@ -393,8 +421,9 @@ export class Publisher {
         } catch {
           /* reread on next iteration */
         }
+        continue;
       }
-      await this.options.backoff?.(attempt);
+      if (attempt < 5) await (this.options.backoff ?? publishBackoff)(attempt);
     }
     throw new Error('Publish unresolved; no later operation may run');
   }

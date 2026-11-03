@@ -55,6 +55,7 @@ async function setup() {
     facts: { 123: { name: 'Thing', type: 'perk' } },
     now: () => pushTime,
     runUrl: 'local://fixture',
+    backoff: async () => {},
   };
   const pub = new Publisher(git, options);
   const tooltip: Tooltip = {
@@ -158,6 +159,55 @@ it('publishes and records exactly the reviewed blobs', async () => {
   await f.pub.run();
   f.assertDone();
 });
+it('records a successful sixth push immediately, with only five backoffs', async () => {
+  const f = await setup();
+  await f.request();
+  const cas = f.git.cas.bind(f.git);
+  let pushes = 0,
+    backoffs = 0;
+  f.options.backoff = async () => {
+    backoffs++;
+  };
+  f.git.cas = (ref, old, next) => {
+    if (ref === L && ++pushes < 6) throw new Error('disconnect');
+    cas(ref, old, next);
+  };
+  await f.pub.run();
+  f.assertDone();
+  expect(pushes).toBe(6);
+  expect(backoffs).toBe(5);
+  expect(f.git.head(paths(A).candidate)).toBeUndefined();
+});
+it.each([false, true])(
+  'RECORD closes a changed request blob as duplicate/conflict (conflict=%s)',
+  async (conflict) => {
+    const f = await setup();
+    const { envelope, payload } = await f.request();
+    const cas = f.git.cas.bind(f.git);
+    let swapped = false;
+    f.git.cas = (ref, old, next) => {
+      cas(ref, old, next);
+      if (ref === L && !swapped) {
+        swapped = true;
+        f.change(D, {
+          [paths(A).request]: {
+            ...envelope,
+            payload: stableStringify({
+              ...payload,
+              createdAt: '2027-01-01T00:00:00.000Z',
+              intentDigest: conflict ? 'f'.repeat(64) : payload.intentDigest,
+            }),
+          },
+        });
+      }
+    };
+    await f.pub.run();
+    f.assertDone();
+    expect(
+      f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log.replace('.json', '.dup-1.json')),
+    ).toMatchObject({ status: conflict ? 'conflict' : 'duplicate' });
+  },
+);
 it('plain-node dry-run CLI emits artifacts and never changes its input refs', async () => {
   const f = await setup();
   await f.request();
@@ -269,12 +319,14 @@ it.each(['ambiguous', 'exists'])('uses persisted candidate: %s', async (mode) =>
   await f.request();
   const cas = f.git.cas.bind(f.git);
   let stored = '';
+  let deadRun = mode === 'exists';
   f.git.cas = (ref, old, next) => {
     if (ref === paths(A).candidate && !stored) {
       stored = next!;
       cas(ref, old, next);
       throw new Error(mode);
     }
+    if (ref === L && deadRun) throw new Error('disconnect before LIVE update');
     cas(ref, old, next);
   };
   if (mode === 'exists') {
@@ -282,6 +334,9 @@ it.each(['ambiguous', 'exists'])('uses persisted candidate: %s', async (mode) =>
       throw new Error('crash');
     };
     await expect(f.pub.run()).rejects.toThrow();
+    expect(f.pub.receipt(f.git.head(L)!, A)).toBeUndefined();
+    expect(f.git.head(paths(A).candidate)).toBe(stored);
+    deadRun = false;
     f.options.backoff = undefined;
   }
   await f.pub.run();
