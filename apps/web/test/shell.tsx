@@ -52,7 +52,8 @@ for (const [category, names] of [
     tooltips[hash] = tooltip(
       hash,
       `<solar/>${name} deals <pve 6 /> <pvp [4] /> extra <green damage /> with <blue reload speed />,
-<yellow 10% /> and <purple void /> <kinetic/><arc/><strand/>
+<yellow 10% /> and <purple void /> <kinetic/><arc/><strand/><void/><stasis/>
+<primary/><special/><heavy/> <barrier/><overload/><unstoppable/> <hunter/><titan/><warlock/>
 <bold Bold line />`,
     );
     hash++;

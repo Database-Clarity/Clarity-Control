@@ -42,6 +42,31 @@
   --tp-pop-text: #1a2027;
   --tp-pop-edge: #6a8294;
 }
+// White game glyphs vanish on a light surface and a dark box behind them looks heavy. The light
+// theme swaps them for pre-processed copies (assets/light): a dark outline traced round the glyph
+// with every enclosed area filled, edges smoothed. Coloured glyphs are used as they are.
+@mixin light-icons {
+  .kinetic::before {
+    background-image: url('./assets/light/kinetic.png');
+    background-size: 15px 15px;
+  }
+  .primary::before {
+    background-image: url('./assets/light/primary.png');
+    background-size: 24px 24px;
+  }
+  .barrier::before {
+    background-image: url('./assets/light/barrier.png');
+    background-size: 15px 15px;
+  }
+  .overload::before {
+    background-image: url('./assets/light/overload.png');
+    background-size: 15px 15px;
+  }
+  .unstoppable::before {
+    background-image: url('./assets/light/unstoppable.png');
+    background-size: 15px 15px;
+  }
+}
 .preview,
 .snippet {
   @include dark-values;
@@ -52,10 +77,7 @@
     @include light-values;
     outline: 1px solid var(--line);
   }
-  // The damage icons are game artwork; the white kinetic one needs an edge on a light surface.
-  .kinetic::before {
-    filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);
-  }
+  @include light-icons;
 }
 @media (prefers-color-scheme: light) {
   :global(:root:not([data-theme])) {
@@ -64,9 +86,7 @@
       @include light-values;
       outline: 1px solid var(--line);
     }
-    .kinetic::before {
-      filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);
-    }
+    @include light-icons;
   }
 }
 .preview {
@@ -242,13 +262,17 @@
   display: flex;
 }
 
-@mixin icon($url, $width: 10px, $size: 10px 10px) {
+// Every inline symbol is the same 12px box in both themes, so lines of text keep one rhythm;
+// $size fits the artwork to the box (some artwork carries transparent padding).
+$symbol: 12px;
+@mixin icon($url, $size: 12px 12px) {
   &::before {
     content: '';
     display: inline-block;
-    height: 10px;
-    width: $width;
-    margin: 0 1px;
+    height: $symbol;
+    width: $symbol;
+    margin: 0 2px;
+    vertical-align: -1px;
     background: url($url) center / $size no-repeat;
   }
 }
@@ -285,22 +309,19 @@
 .primary {
   @include icon(
     'https://www.bungie.net/common/destiny2_content/icons/99f3733354862047493d8550e46a45ec.png',
-    13px,
-    18px 20px
+    20px 20px
   );
 }
 .special {
   @include icon(
     'https://www.bungie.net/common/destiny2_content/icons/d920203c4fd4571ae7f39eb5249eaecb.png',
-    13px,
-    18px 20px
+    20px 20px
   );
 }
 .heavy {
   @include icon(
     'https://www.bungie.net/common/destiny2_content/icons/78ef0e2b281de7b60c48920223e0f9b1.png',
-    13px,
-    18px 20px
+    20px 20px
   );
 }
 .barrier {
@@ -319,11 +340,11 @@
   );
 }
 .hunter {
-  @include icon('./assets/hunter.svg');
+  @include icon('./assets/hunter.svg', contain);
 }
 .titan {
-  @include icon('./assets/titan.svg', 11px);
+  @include icon('./assets/titan.svg', contain);
 }
 .warlock {
-  @include icon('./assets/warlock.svg', 22px);
+  @include icon('./assets/warlock.svg', contain);
 }

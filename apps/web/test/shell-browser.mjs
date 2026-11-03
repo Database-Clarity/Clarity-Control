@@ -166,6 +166,43 @@ try {
       await context.close();
     }
 
+    // Symbols: one box size everywhere; the light theme swaps white glyphs for outlined, filled copies.
+    {
+      const { context, page } = await open(theme, { width: 1280, height: 800 });
+      const symbols = await page.evaluate(() =>
+        [...document.querySelectorAll('[class*="_preview_"] span, [class*="_preview_"] div')]
+          .map((el) => {
+            const style = getComputedStyle(el, '::before');
+            const name =
+              /_(kinetic|arc|solar|void|stasis|strand|primary|special|heavy|barrier|overload|unstoppable|hunter|titan|warlock)_/.exec(
+                el.className,
+              )?.[1];
+            return name
+              ? { name, width: style.width, height: style.height, image: style.backgroundImage }
+              : null;
+          })
+          .filter(Boolean),
+      );
+      assert.ok(symbols.length >= 14, `symbols rendered (${symbols.length})`);
+      assert.deepEqual(
+        [...new Set(symbols.map((s) => `${s.width}x${s.height}`))],
+        ['12px x 12px'.replace(' x ', 'x')],
+        'every symbol has the same width and height',
+      );
+      for (const symbol of symbols.filter((s) =>
+        ['kinetic', 'primary', 'barrier', 'overload', 'unstoppable'].includes(s.name),
+      ))
+        assert.equal(
+          symbol.image.includes('/assets/light/') || symbol.image.includes('light'),
+          theme === 'light',
+          `${symbol.name} uses the outlined copy only in the light theme`,
+        );
+      await page
+        .locator('#shell-left [class*="_preview_"]')
+        .screenshot({ path: out('preview-symbols') });
+      await context.close();
+    }
+
     // Notices: overlays under the header; the editor text never moves.
     {
       const { context, page } = await open(theme, { width: 1280, height: 800 });
