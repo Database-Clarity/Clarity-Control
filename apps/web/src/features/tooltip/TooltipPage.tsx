@@ -22,6 +22,7 @@ import { useShellColumn } from '../navigation/ShellColumnContext';
 import { usePreviewReviewStore } from '../../stores/previewReview';
 import { ClarityEditor } from '../editor';
 import { tooltipTextSources } from '../editor/references';
+import { corpusUsage } from '../editor/suggest/usage';
 import type { TooltipTarget } from '../editor/referenceActions';
 import { PreviewColumn, type EnhancedView } from '../preview';
 import { effectiveMode, previewedHashes, type PreviewMode } from '../preview/previewMode';
@@ -102,6 +103,8 @@ export function TooltipPage({
     () => tooltipTextSources(data?.bundle.tooltips ?? {}, drafts, data?.aliases ?? {}),
     [data, drafts],
   );
+  // Saved text only, so the suggestion menu's usage counts do not change as you type.
+  const usage = useMemo(() => corpusUsage(data?.bundle.tooltips ?? {}), [data?.bundle.tooltips]);
   const navigate = useNavigate();
   function openDefinition(target: TooltipTarget) {
     // Ordinary navigation (a pushed history entry), the same route a Globals page link takes.
@@ -266,6 +269,7 @@ export function TooltipPage({
       preview={previewStatus}
       tooltipHash={variant}
       referenceSources={referenceSources}
+      usage={usage}
       onOpenTooltip={openDefinition}
       // The translator toolbar stays until the markup row (a later step) replaces it.
       markupToolbar={lang !== 'en'}

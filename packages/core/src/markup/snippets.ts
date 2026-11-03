@@ -1,0 +1,381 @@
+import { markupEmpty, markupIcons } from './syntax.js';
+
+/**
+ * The editor's snippet catalogue. A template is plain markup with tab stops written `{{1:default}}`
+ * (`{{0}}` marks where the caret ends). Nothing here changes the grammar: every snippet expands to
+ * text the existing parser already understands, and the catalogue is pure data so the suggestion
+ * menu, the markup row and the chips can all share it.
+ */
+
+export type SnippetGroup =
+  'Values' | 'Stacks' | 'Enhanced' | 'Icons' | 'References' | 'Format' | 'Blocks';
+
+export interface Snippet {
+  /** Stable; used for the recently-used list and the usage-count cache. */
+  id: string;
+  label: string;
+  group: SnippetGroup;
+  /** `{{n:default}}` tab stops; a leading selection replaces the first stop's default. */
+  template: string;
+  /** Extra words the menu's fuzzy filter matches. */
+  keywords: string;
+  /** Matches one use in a tooltip's text, for the corpus usage count. */
+  usage: RegExp;
+  /** Starts at the beginning of a line (a multi-line declaration). */
+  block?: boolean;
+  /** A selection is wrapped, one tag per line. */
+  wraps?: boolean;
+  /** A selection becomes the first stop's value (without being wrapped per line). */
+  fromSelection?: boolean;
+  /** One-line description for the menu's detail pane. */
+  about: string;
+}
+
+export interface ExpandedTemplate {
+  text: string;
+  /** Tab stops in order (`{{0}}` last), as offsets into `text`. */
+  stops: { from: number; to: number }[];
+}
+
+const stopPattern = /\{\{(\d+)(?::((?:[^{}]|\{(?!\{))*?))?\}\}/g;
+
+/**
+ * Expands a template. `replacement` (the user's selection) takes the place of the first stop's
+ * default text; further stops keep theirs. Stops sharing a number are not mirrored: each is a stop.
+ */
+export function expandTemplate(template: string, replacement?: string): ExpandedTemplate {
+  let text = '';
+  let last = 0;
+  const found: { number: number; from: number; to: number }[] = [];
+  let first = true;
+  for (const match of template.matchAll(stopPattern)) {
+    text += template.slice(last, match.index);
+    last = match.index + match[0].length;
+    const number = Number(match[1]);
+    let value = match[2] ?? '';
+    if (first && number > 0 && replacement !== undefined && replacement !== '') {
+      value = replacement;
+      first = false;
+    } else if (number > 0) first = false;
+    found.push({ number, from: text.length, to: text.length + value.length });
+    text += value;
+  }
+  text += template.slice(last);
+  found.sort((a, b) => (a.number || 1e9) - (b.number || 1e9));
+  return { text, stops: found.map(({ from, to }) => ({ from, to })) };
+}
+
+/** A snippet expanded for a selection: wrapping snippets repeat per line. */
+export function expandSnippet(snippet: Snippet, selection = ''): ExpandedTemplate {
+  if (!snippet.wraps || !selection.includes('\n'))
+    return expandTemplate(snippet.template, selection);
+  const lines = selection.split('\n');
+  const expanded = lines.map((line) => expandTemplate(snippet.template, line));
+  let text = '';
+  const stops: ExpandedTemplate['stops'] = [];
+  for (const [index, line] of expanded.entries()) {
+    if (index) text += '\n';
+    for (const stop of line.stops)
+      stops.push({ from: text.length + stop.from, to: text.length + stop.to });
+    text += line.text;
+  }
+  return { text, stops: stops.length ? [stops[0]!] : [] };
+}
+
+const wrap = (tag: string, about: string): Snippet => ({
+  id: `wrap:${tag}`,
+  label: `<${tag} text />`,
+  group: 'Format',
+  template: `<${tag} {{1:text}} />`,
+  keywords: `${tag} wrap colour color format`,
+  usage: new RegExp(`<${tag} `),
+  wraps: true,
+  about,
+});
+
+export const markupSnippets: readonly Snippet[] = [
+  {
+    id: 'pair',
+    label: 'PvE and PvP values',
+    group: 'Values',
+    template: '<pve {{1:value}} /> <pvp [{{2:value}}] />',
+    keywords: 'pve pvp pair both numbers values',
+    usage: /<pve [^<>]*\/>\s*<pvp /,
+    fromSelection: true,
+    about: 'A value for PvE and the bracketed PvP value beside it.',
+  },
+  {
+    id: 'pve',
+    label: '<pve value />',
+    group: 'Values',
+    template: '<pve {{1:value}} />',
+    keywords: 'pve value number',
+    usage: /<pve /,
+    wraps: true,
+    about: 'A PvE-only value.',
+  },
+  {
+    id: 'pvp',
+    label: '<pvp [value] />',
+    group: 'Values',
+    template: '<pvp [{{1:value}}] />',
+    keywords: 'pvp value number',
+    usage: /<pvp /,
+    wraps: true,
+    about: 'A PvP-only value, shown in brackets.',
+  },
+  {
+    id: 'pvp-override',
+    label: 'Value with PvP override',
+    group: 'Values',
+    template: '{{1:value}} <pvp [{{2:value}}] />',
+    keywords: 'pvp override after value unit seconds',
+    usage: /[\w%] <pvp \[/,
+    fromSelection: true,
+    about: 'A plain value followed by the PvP number; the unit stays outside the tag.',
+  },
+  {
+    id: 'stack-list',
+    label: 'Stack list a|b|c',
+    group: 'Stacks',
+    template: '{{1:a}}|{{2:b}}|{{3:c}} at 1|2|3 Stacks',
+    keywords: 'stacks pipe list scale levels',
+    usage: /\d\|[^\n]*Stacks/,
+    about: 'One value per Stack, separated by pipes.',
+  },
+  {
+    id: 'enhanced-block',
+    label: 'Enhanced section',
+    group: 'Enhanced',
+    template: 'enhanced (\nvar d = {{1:amount}}\n#e {{2:What the enhanced version changes.}}\n)',
+    keywords: 'enhanced block arrow section var',
+    usage: /^enhanced \(/m,
+    block: true,
+    about: 'The enhanced-only section. The #e line already carries the enhanced arrow.',
+  },
+  {
+    id: 'enhanced-formula',
+    label: '#e${base+#d}',
+    group: 'Enhanced',
+    template: '#e${{{1:base}}+#d}',
+    keywords: 'enhanced formula e d base add bonus',
+    usage: /#e\$\{/,
+    about: 'The base value with the enhanced bonus #d added in the enhanced version.',
+  },
+  {
+    id: 'icon-word',
+    label: 'Element icon and word',
+    group: 'Icons',
+    template: '<{{1:solar}}/>{{2:Solar}}',
+    keywords: 'element icon word arc solar void stasis strand kinetic',
+    usage: /<(?:kinetic|arc|solar|void|stasis|strand)\/>[A-Za-z]/,
+    about: 'An element icon followed by its name.',
+  },
+  {
+    id: 'title-ref',
+    label: 'Title reference',
+    group: 'References',
+    template: '<title {{1:Text}} [{{2:Name}}] />',
+    keywords: 'title reference global tooltip hover definition',
+    usage: /<title /,
+    wraps: true,
+    about: 'Text that shows a title definition when hovered.',
+  },
+  {
+    id: 'link-ref',
+    label: 'Link',
+    group: 'References',
+    template: '<link {{1:Text}} [{{2:https://example.com}}] />',
+    keywords: 'link url web reference',
+    usage: /<link /,
+    wraps: true,
+    about: 'Text that links to a web address.',
+  },
+  wrap('yellow', 'Yellow text.'),
+  wrap('bold', 'Bold text.'),
+  wrap('blue', 'Blue text.'),
+  wrap('green', 'Green text.'),
+  wrap('purple', 'Purple text.'),
+  {
+    id: 'decl-var',
+    label: 'var name = value',
+    group: 'Blocks',
+    template: 'var {{1:name}} = {{2:value}}',
+    keywords: 'var variable declare define',
+    usage: /^var /m,
+    block: true,
+    about: 'A variable, used elsewhere as #name.',
+  },
+  {
+    id: 'decl-title',
+    label: 'title Name ( … )',
+    group: 'Blocks',
+    template: 'title {{1:Name}} (\n{{2:text}}\n)',
+    keywords: 'title block definition global',
+    usage: /^title [A-Za-z0-9 ]+ \(/m,
+    block: true,
+    about: 'A title definition other text can point at.',
+  },
+  {
+    id: 'decl-export',
+    label: 'export Name ( … )',
+    group: 'Blocks',
+    template: 'export {{1:Name}} (\n{{2:text}}\n)',
+    keywords: 'export share',
+    usage: /^export /m,
+    block: true,
+    about: 'A named text other tooltips can import.',
+  },
+  {
+    id: 'decl-export-hidden',
+    label: 'export hidden Name ( … )',
+    group: 'Blocks',
+    template: 'export hidden {{1:Name}} (\n{{2:text}}\n)',
+    keywords: 'export hidden share',
+    usage: /^export hidden /m,
+    block: true,
+    about: 'An export that does not show in this tooltip.',
+  },
+  {
+    id: 'decl-import',
+    label: 'import name from …',
+    group: 'Blocks',
+    template: 'import {{1:name}} from {{2:global}}',
+    keywords: 'import use',
+    usage: /^import /m,
+    block: true,
+    about: 'Brings in text another tooltip or the globals export.',
+  },
+  {
+    id: 'decl-catalyst',
+    label: 'catalyst ( … )',
+    group: 'Blocks',
+    template: 'catalyst (\n{{1:text}}\n)',
+    keywords: 'catalyst exotic',
+    usage: /^catalyst \(/m,
+    block: true,
+    about: 'Text shown only on the exotic catalyst version.',
+  },
+  {
+    id: 'decl-exotic-perk',
+    label: 'exotic perk ( … )',
+    group: 'Blocks',
+    template: 'exotic perk (\n{{1:text}}\n)',
+    keywords: 'exotic perk',
+    usage: /^exotic perk \(/m,
+    block: true,
+    about: 'Text shown only on the exotic perk version.',
+  },
+];
+
+/** The tags that wrap text, as the menu's Tags category lists them. */
+export interface TagEntry {
+  id: string;
+  label: string;
+  template: string;
+  keywords: string;
+  usage: RegExp;
+  about: string;
+}
+
+export const markupTags: readonly TagEntry[] = [
+  {
+    id: 'tag:pve',
+    label: '<pve />',
+    template: '<pve {{1:value}} />',
+    keywords: 'pve',
+    usage: /<pve /,
+    about: 'A PvE-only value.',
+  },
+  {
+    id: 'tag:pvp',
+    label: '<pvp />',
+    template: '<pvp [{{1:value}}] />',
+    keywords: 'pvp',
+    usage: /<pvp /,
+    about: 'A PvP-only value, shown in brackets.',
+  },
+  ...['yellow', 'blue', 'green', 'purple', 'center', 'background'].map((name) => ({
+    id: `tag:${name}`,
+    label: `<${name} />`,
+    template: `<${name} {{1:text}} />`,
+    keywords: name,
+    usage: new RegExp(`<${name} `),
+    about: name === 'center' ? 'Centred text.' : `${name[0]!.toUpperCase()}${name.slice(1)} text.`,
+  })),
+  {
+    id: 'tag:bold',
+    label: '<bold />',
+    template: '<bold {{1:text}} />',
+    keywords: 'bold strong',
+    usage: /<bold /,
+    about: 'Bold text.',
+  },
+  {
+    id: 'tag:title',
+    label: '<title />',
+    template: '<title {{1:Text}} [{{2:Name}}] />',
+    keywords: 'title reference',
+    usage: /<title /,
+    about: 'Text that shows a title definition when hovered.',
+  },
+  {
+    id: 'tag:link',
+    label: '<link />',
+    template: '<link {{1:Text}} [{{2:https://example.com}}] />',
+    keywords: 'link url',
+    usage: /<link /,
+    about: 'Text that links to a web address.',
+  },
+];
+
+/** Icon and line-style tags that are written as a bare `<name/>` (no text inside). */
+export interface SymbolEntry {
+  id: string;
+  name: string;
+  keywords: string;
+  usage: RegExp;
+  about: string;
+}
+
+const iconAbout: Record<string, string> = {
+  kinetic: 'Kinetic damage icon.',
+  arc: 'Arc damage icon.',
+  solar: 'Solar damage icon.',
+  stasis: 'Stasis damage icon.',
+  void: 'Void damage icon.',
+  strand: 'Strand damage icon.',
+  heavy: 'Heavy ammo icon.',
+  primary: 'Primary ammo icon.',
+  special: 'Special ammo icon.',
+  barrier: 'Barrier champion icon.',
+  overload: 'Overload champion icon.',
+  unstoppable: 'Unstoppable champion icon.',
+  hunter: 'Hunter class icon.',
+  titan: 'Titan class icon.',
+  warlock: 'Warlock class icon.',
+};
+
+const styleAbout: Record<string, string> = {
+  center: 'Centres the whole line.',
+  background: 'Gives the line a highlighted background.',
+  breakSpaces: 'Keeps the spaces at the end of the line.',
+  bold: 'Makes the whole line bold.',
+};
+
+export const markupSymbols: readonly SymbolEntry[] = [
+  ...markupIcons.map((name) => ({
+    id: `icon:${name}`,
+    name,
+    keywords: `${name} icon`,
+    usage: new RegExp(`<${name}/>`),
+    about: iconAbout[name] ?? 'Icon.',
+  })),
+  ...['center', ...markupEmpty].map((name) => ({
+    id: `style:${name}`,
+    name,
+    keywords: `${name} line style`,
+    usage: new RegExp(`<${name}/>`),
+    about: styleAbout[name] ?? 'Line style.',
+  })),
+];

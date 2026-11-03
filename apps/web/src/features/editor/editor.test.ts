@@ -1,8 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { EditorState } from '@codemirror/state';
-import { CompletionContext } from '@codemirror/autocomplete';
 import { markupLanguage, type MarkupGlobals } from '@clarity/core';
-import { clarityCompletions } from './completion';
+import { suggestContext, suggestItems } from './suggest/source';
 import { formatMarkupTables, tableFormattingTransaction } from './formatTable';
 import { coverMargins, editorScrollMargins } from './scrollMargins';
 
@@ -13,8 +12,9 @@ const globals: MarkupGlobals = {
 };
 
 function complete(text: string) {
-  const state = EditorState.create({ doc: text });
-  return clarityCompletions(globals)(new CompletionContext(state, text.length, true));
+  const state = EditorState.create({ doc: text, selection: { anchor: text.length } });
+  const context = suggestContext(state, true);
+  return context ? { from: context.from, options: suggestItems(context, state, globals) } : null;
 }
 
 describe('shared parser symbols drive completion', () => {

@@ -5,3 +5,5 @@ export { markupCommentContext, markupImports, markupVariableReferences } from '.
 export { parseMarkup } from './parse.js';
 export { weaponSectionHeadings } from './weaponHeadings.js';
 export * from './clashes.js';
+export * from './snippets.js';
+export * from './transforms.js';

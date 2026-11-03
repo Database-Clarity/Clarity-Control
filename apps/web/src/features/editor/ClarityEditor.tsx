@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { autocompletion, completionKeymap } from '@codemirror/autocomplete';
 import {
   defaultKeymap,
   history,
@@ -25,7 +24,6 @@ import {
   type Lang,
   type MarkupGlobals,
 } from '@clarity/core';
-import { clarityCompletions } from './completion';
 import { clarityHighlighting, clarityLanguage } from './language';
 import { tableFormattingTransaction } from './formatTable';
 import { editorScrollMargins } from './scrollMargins';
@@ -39,6 +37,9 @@ import {
   type StatusPanel,
 } from './StatusBar';
 import { referenceExtensions, type ReferenceHost, type TooltipTarget } from './referenceActions';
+import { SuggestMenu } from './suggest/SuggestMenu';
+import { suggestConfiguration, suggestExtension, type SuggestSnapshot } from './suggest/state';
+import type { UsageCorpus } from './suggest/usage';
 import type { ReferenceSources } from './references';
 import styles from './ClarityEditor.module.scss';
 
@@ -61,6 +62,8 @@ export interface ClarityEditorProps {
   referenceSources?: ReferenceSources;
   /** Go-to-definition in another tooltip. Without it only same-document jumps are offered. */
   onOpenTooltip?: (target: TooltipTarget) => void;
+  /** Saved English tooltips, for the suggestion menu's usage counts. */
+  usage?: UsageCorpus;
 }
 
 function configuration(
@@ -69,6 +72,7 @@ function configuration(
   readOnly: boolean,
   requireEnglish: boolean,
   references: Omit<ReferenceHost, 'lang' | 'globals'>,
+  onSuggest: (snapshot: SuggestSnapshot | null) => void,
 ) {
   return [
     EditorState.readOnly.of(readOnly),
@@ -81,7 +85,7 @@ function configuration(
       'aria-label': 'Clarity markup',
       'aria-multiline': 'true',
     }),
-    autocompletion({ override: [clarityCompletions(globals)] }),
+    suggestConfiguration({ globals, onChange: onSuggest }),
     validationDiagnostics(lang, globals, requireEnglish, references.selfHash),
     referenceExtensions({ ...references, lang, globals }),
   ];
@@ -101,6 +105,7 @@ export function ClarityEditor({
   tooltipHash,
   referenceSources,
   onOpenTooltip,
+  usage,
 }: ClarityEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
@@ -109,6 +114,8 @@ export function ClarityEditor({
   const panelOpen = useRef(false);
   panelOpen.current = panel !== null;
   const closePanel = useRef(() => setPanel(null));
+  const [suggestion, setSuggestion] = useState<SuggestSnapshot | null>(null);
+  const onSuggest = useRef((snapshot: SuggestSnapshot | null) => setSuggestion(snapshot));
   const [cursor, setCursor] = useState({ line: 1, column: 1 });
   const referenceLive = useRef({ tooltipHash, referenceSources, onOpenTooltip });
   const references = useRef<Omit<ReferenceHost, 'lang' | 'globals'>>({
@@ -178,6 +185,7 @@ export function ClarityEditor({
       bracketMatching(),
       clarityLanguage,
       clarityHighlighting,
+      suggestExtension(),
       keymap.of([
         {
           key: 'Escape',
@@ -192,7 +200,6 @@ export function ClarityEditor({
         { key: 'Mod-Shift-f', run: format },
         { key: 'Mod-/', run: toggleComment },
         ...searchKeymap,
-        ...completionKeymap,
         ...historyKeymap,
         ...defaultKeymap,
         indentWithTab,
@@ -204,6 +211,7 @@ export function ClarityEditor({
           initial.current.readOnly,
           initial.current.requireEnglish,
           references.current,
+          onSuggest.current,
         ),
       ),
       EditorView.updateListener.of((update) => {
@@ -237,7 +245,7 @@ export function ClarityEditor({
     editor.setState(EditorState.create({ doc: value, extensions: extensions.current }));
     editor.dispatch({
       effects: config.current.reconfigure(
-        configuration(lang, globals, readOnly, requireEnglish, references.current),
+        configuration(lang, globals, readOnly, requireEnglish, references.current, onSuggest.current),
       ),
     });
   }, [value, lang, globals, readOnly, requireEnglish]);
@@ -245,7 +253,7 @@ export function ClarityEditor({
   useEffect(() => {
     view.current?.dispatch({
       effects: config.current.reconfigure(
-        configuration(lang, globals, readOnly, requireEnglish, references.current),
+        configuration(lang, globals, readOnly, requireEnglish, references.current, onSuggest.current),
       ),
     });
   }, [lang, globals, readOnly, requireEnglish]);
@@ -284,6 +292,15 @@ export function ClarityEditor({
         )}
         {open === 'help' && <HelpPanel issues={issues} onClose={() => setPanel(null)} />}
       </div>
+      {suggestion && view.current && (
+        <SuggestMenu
+          snapshot={suggestion}
+          view={view.current}
+          globals={globals}
+          lang={lang}
+          usage={usage}
+        />
+      )}
       <StatusBar
         readOnlyReason={readOnlyReason}
         issues={issues}

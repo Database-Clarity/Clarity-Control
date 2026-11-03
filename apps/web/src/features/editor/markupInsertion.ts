@@ -66,7 +66,7 @@ interface ProtectedRange {
   protectEnd?: boolean;
 }
 
-type Rejection = 'context' | 'expansion' | 'table-link' | 'line-style';
+export type Rejection = 'context' | 'expansion' | 'table-link' | 'line-style';
 type PreparedContext = { text: string; offsets: number[] };
 
 function expandedContext(text: string, globals: MarkupGlobals): PreparedContext | null {
@@ -228,14 +228,11 @@ function intersects(from: number, to: number, protectedRange: ProtectedRange) {
   );
 }
 
-function createMarkupTransaction(
-  state: EditorState,
-  option: MarkupOption,
-  globals: MarkupGlobals = { variables: '', titles: '' },
-): { transaction: Transaction; rejection?: never } | { transaction?: never; rejection: Rejection } {
+/** The expanded document and every protected range in it, for the insertion safety rules. */
+function analyse(state: EditorState, globals: MarkupGlobals) {
   const text = state.doc.toString();
   const context = expandedContext(text, globals);
-  if (!context) return { rejection: 'expansion' };
+  if (!context) return null;
   const { tokens, tables } = protectedRanges(state, markupCommentContext(text).comments);
   const tableBlocks = [...context.text.matchAll(/< table [^]+?\n<\$>\n?/g)];
   const preparedTables = tableBlocks.map((block) => ({
@@ -254,6 +251,52 @@ function createMarkupTransaction(
       });
     }
   }
+  return { context, tokens, tables, tableBlocks, preparedTables };
+}
+
+/**
+ * Whether `from`..`to` may be replaced by new markup, under the same rules as the markup toolbar.
+ * A `typed` range is a trigger the author has just typed (`<so`, `#da`): it is judged as the
+ * point it leaves behind, because it is about to be replaced; otherwise the range is a selection.
+ * `link` marks text that must not land in a legacy table cell.
+ */
+export function insertionRejection(
+  state: EditorState,
+  range: { from: number; to: number },
+  globals: MarkupGlobals,
+  options: { typed?: boolean; link?: boolean } = {},
+): Rejection | null {
+  const probe =
+    options.typed && range.from !== range.to
+      ? state.update({ changes: { from: range.from, to: range.to } }).state
+      : state;
+  const analysis = analyse(probe, globals);
+  if (!analysis) return 'expansion';
+  const to = options.typed ? range.from : range.to;
+  if (options.link && analysis.preparedTables.some((table) => intersects(range.from, to, table)))
+    return 'table-link';
+  const selected = options.typed ? '' : probe.sliceDoc(range.from, to);
+  return analysis.tokens.some((token) => intersects(range.from, to, token)) ||
+    selected.includes('/>')
+    ? 'context'
+    : null;
+}
+
+export const insertionMessages: Record<Rejection, string> = {
+  'table-link': 'Links are not supported in table cells. Insert the link outside the table.',
+  expansion: 'Imports or variable expansions may change the surrounding markup. Edit the markup directly.',
+  'line-style': 'This line cannot display another of that line style. Edit the markup directly.',
+  context: 'Cannot insert markup in this syntax or selection. Edit the markup directly.',
+};
+
+function createMarkupTransaction(
+  state: EditorState,
+  option: MarkupOption,
+  globals: MarkupGlobals = { variables: '', titles: '' },
+): { transaction: Transaction; rejection?: never } | { transaction?: never; rejection: Rejection } {
+  const analysis = analyse(state, globals);
+  if (!analysis) return { rejection: 'expansion' };
+  const { context, tokens, tables, tableBlocks, preparedTables } = analysis;
   if (
     option.kind === 'link' &&
     state.selection.ranges.some((range) =>
