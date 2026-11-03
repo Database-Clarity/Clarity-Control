@@ -24,10 +24,38 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   column-gap: 0;
-  row-gap: 4px;
+  row-gap: 2px;
   > * {
     min-width: 0;
   }
+}
+
+// On the desktop page (the window is the frame) the workspace fills the scroller: the editor takes
+// the rest of the height and its text scrolls inside it. The text's top edge never moves.
+:global([data-fixed]) .page {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+}
+:global([data-fixed]) .workspace:not([data-mode='phone']) {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.workspace[data-mode='toggle'] {
+  grid-template-rows: auto minmax(0, 1fr);
+  .paneHeader {
+    grid-row: 1;
+  }
+  .panel {
+    grid-row: 2;
+    grid-column: 1;
+  }
+}
+.panel[data-panel='translation'] {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .tabs {
@@ -149,7 +177,17 @@
   border-radius: 4px;
 }
 .editorSection {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
+}
+.editorSlot {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
 }
 .editorSlot[hidden] {
   display: none;
@@ -191,6 +229,7 @@
   .panel[data-panel='translation'] {
     grid-column: 1;
     grid-row: 3;
+    align-self: stretch;
   }
   .side {
     display: flex;
@@ -330,7 +369,9 @@
     min-height: 44px;
     min-width: 44px;
   }
+  // The right-hand buttons stay on the first row; the read-only badge is the only second row.
   .badge {
+    order: 1;
     flex: 1 1 100%;
     height: auto;
     min-height: 44px;
@@ -346,8 +387,8 @@
     }
   }
   .paneRight {
-    flex: 1 1 100%;
-    flex-wrap: wrap;
-    margin-left: 0;
+    flex: 0 1 auto;
+    flex-wrap: nowrap;
+    margin-left: auto;
   }
 }

@@ -224,7 +224,7 @@ export function TooltipPage({
           base={activeBase}
           lang={lang}
           draft={activeTooltip.text[lang]?.text !== activeBase.text[lang]?.text}
-          open
+          plain
         />
       }
       overrides={overrideTargets}

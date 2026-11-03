@@ -17,6 +17,9 @@
   overscroll-behavior: contain;
   padding: 8px;
   font-size: 0.8125rem;
+  // The surface can be opened from a nowrap header; its text must wrap.
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 @include theme.mobile {

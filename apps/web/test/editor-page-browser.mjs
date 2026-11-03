@@ -122,19 +122,31 @@ try {
           .locator('[role="group"][aria-label="Editor tools"] button')
           .allTextContents();
         if (name === 'derived') {
-          assert.ok(buttons.some((text) => text.includes('Stored form')), `${label}: Stored form`);
-          assert.ok(!buttons.some((text) => text.includes('Edit override')), `${label}: no override`);
+          assert.ok(
+            buttons.some((text) => text.includes('Stored form')),
+            `${label}: Stored form`,
+          );
+          assert.ok(
+            !buttons.some((text) => text.includes('Edit override')),
+            `${label}: no override`,
+          );
         }
         if (name === 'override')
-          assert.ok(buttons.some((text) => text.includes('Edit override')), `${label}: override`);
+          assert.ok(
+            buttons.some((text) => text.includes('Edit override')),
+            `${label}: override`,
+          );
         if (name === 'blank') {
-          assert.ok(!buttons.some((text) => text.includes('Edit override')), `${label}: blank copy`);
+          assert.ok(
+            !buttons.some((text) => text.includes('Edit override')),
+            `${label}: blank copy`,
+          );
           assert.ok(!buttons.some((text) => text.includes('Stored form')), `${label}: blank copy`);
         }
         if (!phone && width >= 1280) {
           const top = (await firstLine(page)).top;
-          if (top > 130) await page.screenshot({ path: out(`FAIL-${name}-${width}`) });
-          assert.ok(top <= 130, `${label}: editor first line ${top}px from the top`);
+          if (top > 80) await page.screenshot({ path: out(`FAIL-${name}-${width}`) });
+          assert.ok(top <= 80, `${label}: editor first line ${top}px from the top`);
         }
         if (width === 800) {
           // 701-850: the pane header toggles the main slot; nothing stacks under the editor.
@@ -159,11 +171,30 @@ try {
 
     // Override round trip at 1280: the base editor keeps its text and caret; popovers move nothing.
     {
-      const { context, page, errors } = await open(theme, { width: 1280, height: 800 }, '/t/1001?lang=en');
+      const { context, page, errors } = await open(
+        theme,
+        { width: 1280, height: 800 },
+        '/t/1001?lang=en',
+      );
       const label = `${theme} override round trip`;
       await page.locator('.cm-content').first().click();
       await page.keyboard.press('Control+End');
       await page.keyboard.type(' typed');
+      // A long text scrolls inside the editor: the page does not grow, the first line stays put.
+      const boxTop = () =>
+        page
+          .locator('.cm-editor')
+          .first()
+          .evaluate((el) => Math.round(el.getBoundingClientRect().top));
+      const topBeforeLong = await boxTop();
+      for (let i = 0; i < 70; i++) await page.keyboard.press('Enter');
+      const fit = await page.evaluate(() => {
+        const main = document.getElementById('main-content');
+        return main.scrollHeight - main.clientHeight;
+      });
+      assert.ok(fit <= 2, `${label}: long text made the page scroll (${fit}px)`);
+      assert.equal(await boxTop(), topBeforeLong, `${label}: long text moved the editor`);
+      for (let i = 0; i < 70; i++) await page.keyboard.press('Backspace');
       const baseText = await page.locator('.cm-content').first().innerText();
       const topBefore = await firstLine(page);
       // Details popover: opens over the page, takes no space.
@@ -174,11 +205,18 @@ try {
       await page.keyboard.press('Escape');
       await page.getByRole('button', { name: 'Edit override' }).click();
       assert.equal(await page.locator('.cm-editor').count(), 2, `${label}: base stays mounted`);
-      assert.match(await page.locator('[role="group"][aria-label="Editor tools"]').innerText(), /Enhanced override/);
+      assert.match(
+        await page.locator('[role="group"][aria-label="Editor tools"]').innerText(),
+        /Enhanced override/,
+      );
       assert.match(await page.locator('.cm-content').nth(1).innerText(), /Enhanced override text/);
       await page.screenshot({ path: out('override-open-1280') });
       await page.getByRole('button', { name: 'Back to base' }).click();
-      assert.equal(await page.locator('.cm-content').first().innerText(), baseText, `${label}: base text kept`);
+      assert.equal(
+        await page.locator('.cm-content').first().innerText(),
+        baseText,
+        `${label}: base text kept`,
+      );
       assert.deepEqual(await firstLine(page), topBefore, `${label}: base editor back in place`);
       // Maintainer: Stored form on a derived version opens a read-only editor in a popover.
       await page.evaluate(() => {
@@ -198,14 +236,19 @@ try {
       const { context, page } = await open(theme, { width: 390, height: 844 }, '/t/1001?lang=en', {
         phone: true,
       });
-      const tabs = await page.locator('[role="tab"]').evaluateAll((els) =>
-        els.map((el) => [el.textContent, Math.round(el.getBoundingClientRect().height)]),
-      );
+      const tabs = await page
+        .locator('[role="tab"]')
+        .evaluateAll((els) =>
+          els.map((el) => [el.textContent, Math.round(el.getBoundingClientRect().height)]),
+        );
       assert.deepEqual(
         tabs.map(([text]) => text),
         ['Editor', 'Preview', 'Compendium'],
       );
-      assert.ok(tabs.every(([, height]) => height >= 44), `phone tabs 44px (${tabs})`);
+      assert.ok(
+        tabs.every(([, height]) => height >= 44),
+        `phone tabs 44px (${tabs})`,
+      );
       await page.getByRole('tab', { name: 'Preview' }).click();
       assert.equal(await page.locator('.cm-editor').count(), 1, 'editor stays mounted');
       await noOverflow(page, `${theme} phone preview`);

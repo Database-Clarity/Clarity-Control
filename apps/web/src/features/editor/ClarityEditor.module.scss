@@ -1,9 +1,20 @@
 @use '../../data/variables' as theme;
 
 .editor {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
   border: 1px solid #454545;
+  .host {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+  }
   :global(.cm-editor) {
+    flex: 1 1 auto;
     background: #1e1e1e;
     color: #fff;
     min-height: 220px;
