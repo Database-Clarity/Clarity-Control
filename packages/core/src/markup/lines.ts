@@ -48,9 +48,10 @@ export function markupStrayTags(text: string): string[] {
   for (const line of weaponSectionHeadings(text).split('\n')) {
     if (line.startsWith('< table ') || line.startsWith('<$>')) continue;
     for (const segment of line.split(new RegExp(`(${inlineToken.source})`, 'g'))) {
-      if (new RegExp(`^${inlineToken.source}$`).test(segment)) continue;
-      const tag = segment.match(/<\w+/)?.[0];
-      if (tag) stray.push(tag);
+      const tags = segment.match(/<\w+/g) ?? [];
+      // A complete token holds one tag; a second `<word` inside it means a missing `/>`.
+      const isToken = new RegExp(`^${inlineToken.source}$`).test(segment);
+      if (tags.length > (isToken ? 1 : 0)) stray.push(tags[0]!);
     }
   }
   return stray;

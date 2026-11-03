@@ -27,6 +27,6 @@ const networkFailure = /failed to fetch|networkerror|load failed|network request
 
 export function errorMessage(error: unknown): string {
   if (error instanceof TypeError && networkFailure.test(error.message))
-    return 'Could not reach the server (the connection failed or you may be offline). Check your connection and retry.';
+    return 'Could not reach the server (the connection failed or you may be offline). Check your connection.';
   return error instanceof Error ? error.message : String(error);
 }

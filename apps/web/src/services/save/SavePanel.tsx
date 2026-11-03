@@ -107,7 +107,7 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
           acceptSaved(review.submitted, result.tooltips, result.commit, deleted);
         } catch (error) {
           throw new Error(
-            `Remote save ${result.commit} succeeded, but local reconciliation failed: ${errorMessage(error)}. Drafts are retained; close this dialog and reload data before continuing.`,
+            `Remote save ${result.commit} succeeded, but local reconciliation failed: ${errorMessage(error).replace(/\.+$/, '')}. Drafts are retained; close this dialog and reload data before continuing.`,
           );
         }
         onSaved(`Saved ${result.tooltips.length} tooltip(s) in ${result.commit.slice(0, 8)}.`);

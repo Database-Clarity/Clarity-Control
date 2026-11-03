@@ -191,4 +191,13 @@ test('reports stray <word text instead of silently changing it', () => {
     expect.stringContaining('"<blue"'),
   ]);
   expect(parseMarkup('Rapid kills <blue reload speed />. Fine.').diagnostics).toEqual([]);
+  // Missing `/>` before a later valid tag on the same line.
+  expect(parseMarkup('Rapid <blue kills <green x />').diagnostics).toHaveLength(1);
+  // Title bodies are checked too.
+  expect(
+    parseMarkup('<title A [Info] />', {
+      variables: '',
+      titles: 'title Info (\nRapid <blue broken\n)',
+    }).diagnostics,
+  ).toHaveLength(1);
 });

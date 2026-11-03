@@ -8,7 +8,10 @@ export function parseMarkup(
 ): ParsedMarkup {
   const diagnostics: MarkupDiagnostic[] = [];
   const prepared = prepareMarkup(text, globals, diagnostics);
-  for (const tag of new Set(markupStrayTags(prepared.text))) {
+  const titleBodies = Object.values(prepared.titles).map(
+    (content) => prepareMarkup(content, globals, []).text,
+  );
+  for (const tag of new Set([prepared.text, ...titleBodies].flatMap(markupStrayTags))) {
     diagnostics.push({
       severity: 'warning',
       message: `Unclosed or unknown tag "${tag}": text after it is read as markup and may be dropped or recoloured. Write a complete "${tag} text />" tag, or remove the "<".`,
