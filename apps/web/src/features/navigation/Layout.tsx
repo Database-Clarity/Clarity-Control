@@ -24,7 +24,7 @@ import { PreviewLeaveGuard } from './PreviewLeaveGuard';
 import { ShellColumnContext, type ShellColumn } from './ShellColumnContext';
 import { ShellSlotHost, ShellSlotsProvider } from './ShellSlots';
 import { TooltipNavigation } from './TooltipNavigation';
-import { canonicalHash, editorName, itemFor } from './catalog';
+import { canonicalHash, editorName, exoticPiece, itemFor } from './catalog';
 import { documentTitle } from './documentTitle';
 import { links, workspacePath } from './links';
 import { count } from './notices';
@@ -239,7 +239,8 @@ function LayoutContent() {
             user={user}
             pathname={location.pathname}
             routeFor={routeFor}
-            title={pageName ?? 'Clarity Control'}
+            title={(openItem && exoticPiece(openItem) ? openItem.name : pageName) ?? 'Clarity Control'}
+            kicker={openItem && exoticPiece(openItem)}
             finder={finder}
             hasFinder={isEditor || contextual}
             overlay={overlay}

@@ -312,11 +312,14 @@ export function TooltipNavigation({
               <EnhancedArrow />
             </span>
           )}
-          {row.perk && `${row.perk} · `}
-          {row.hash}
-          {shared && !row.listsPieces && ' · shared perk'}
-          {frames > 1 && ` ×${frames}`}
-          {item && allCategories && ` · ${row.category}`}
+          {row.perk && <span className={styles.perk}>{row.perk}</span>}
+          <span className={styles.tail}>
+            {row.perk && ' · '}
+            {row.hash}
+            {shared && !row.listsPieces && ' · shared perk'}
+            {frames > 1 && ` ×${frames}`}
+            {item && allCategories && ` · ${row.category}`}
+          </span>
         </small>
       </li>
     );

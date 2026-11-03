@@ -92,13 +92,23 @@ try {
       );
       assert.equal(names.length, 3);
       assert.ok(!names.some(Boolean), `${theme} ${width}: Aeon piece names truncate`);
-      const geometry = await page.evaluate(() => ({
-        overflowX: document.documentElement.scrollWidth - window.innerWidth,
-        clipped: [...document.querySelectorAll('[role="option"] small')].filter(
-          (el) => el.scrollWidth > el.clientWidth + 1,
-        ).length,
-      }));
+      // No piece name truncates at any width, and the hash stays whole: a long perk (Mechaneer's
+      // Tricksleeves · Spring-Loaded Mounting) is the only text that gives way.
+      const geometry = await page.evaluate(() => {
+        const clips = (el) => el.scrollWidth > el.clientWidth + 1;
+        const rows = [...document.querySelectorAll('[role="option"]')];
+        return {
+          overflowX: document.documentElement.scrollWidth - window.innerWidth,
+          clipped: rows.filter((row) => clips(row.querySelector('small'))).length,
+          cutNames: rows.filter((row) => clips(row.children[1])).map((row) => row.textContent),
+          cutHashes: rows
+            .filter((row) => clips(row.querySelector('small > span:last-child')))
+            .map((row) => row.textContent),
+        };
+      });
       assert.ok(geometry.overflowX <= 0, `${theme} ${width}: horizontal overflow`);
+      assert.deepEqual(geometry.cutNames, [], `${theme} ${width}: piece names truncate`);
+      assert.deepEqual(geometry.cutHashes, [], `${theme} ${width}: hashes truncate`);
       await page.screenshot({ path: `${shots}/${theme}-list-${width}.png` });
       // A perk search resolves to its piece; Enter opens the perk.
       await field.fill('chaotic exch');
@@ -118,7 +128,25 @@ try {
         () => document.title === 'Clarity Control — Praxic Vestment · Praxic Lift',
       );
       assert.equal(await page.locator('h1').first().textContent(), 'Praxic Vestment · Praxic Lift');
-      if (!phone) {
+      if (phone) {
+        // The phone header stacks the piece over the perk, both whole, instead of cutting the perk.
+        const title = page.locator('header button[aria-haspopup="dialog"][aria-expanded]').nth(1);
+        const lines = await title.evaluate((button) => {
+          const text = button.querySelector('span');
+          const kicker = text.querySelector('span');
+          const clips = (el) => el.scrollWidth > el.clientWidth + 1;
+          return {
+            kicker: kicker?.textContent,
+            name: text.lastChild?.textContent,
+            clipped: clips(text) || (kicker && clips(kicker)),
+            height: button.getBoundingClientRect().height,
+          };
+        });
+        assert.equal(lines.kicker, 'Praxic Vestment');
+        assert.equal(lines.name, 'Praxic Lift');
+        assert.ok(!lines.clipped, 'phone title clipped');
+        assert.ok(lines.height <= 48, `phone title grew the header: ${lines.height}`);
+      } else {
         assert.match(
           await page.locator('section[aria-label$="preview"] header').first().innerText(),
           /Praxic Vestment\s+Praxic Lift/i,

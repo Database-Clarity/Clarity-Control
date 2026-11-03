@@ -193,11 +193,15 @@ export function listedItem(item: Item, data: EditorData): ListedItem {
   };
 }
 
-/** The armour piece(s) an exotic armour perk belongs to, written once for the editor's headings. */
+/**
+ * The armour piece(s) an exotic armour perk belongs to, written once for the editor's headings;
+ * nothing when the perk is already named after its piece (Blastwave Striders).
+ */
 export function exoticPiece(item: Item): string | undefined {
   if (item.categoryId !== exoticArmourCategory) return undefined;
   const names = exoticPieceNames(item);
-  return names.length ? joinPieceNames(names) : undefined;
+  const piece = names.length ? joinPieceNames(names) : undefined;
+  return piece === item.name.trim() ? undefined : piece;
 }
 
 /** How the editor names the open item: "Piece · Perk" for exotic armour, the item's name otherwise. */
