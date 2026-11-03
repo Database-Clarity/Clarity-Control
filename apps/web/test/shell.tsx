@@ -59,6 +59,15 @@ for (const [category, names] of [
     hash++;
   }
 }
+// Telesto has an enhanced version: the finder marks it +E and lists no entry of its own for it.
+items[2000] = {
+  hash: 2000,
+  name: 'Telesto enhanced',
+  icon: '',
+  categoryId: 'weapons',
+  inGameDescription: '',
+  baseHash: 1008,
+};
 const first = 1000;
 // Items whose Compendium link no longer resolves count as changes.
 for (const link of [1001, 1002, 1003]) {
