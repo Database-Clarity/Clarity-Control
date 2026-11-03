@@ -14,11 +14,15 @@ import { useCompendiumStore } from './store';
 import { When } from '../../ui/When';
 import { RightPane, RightPaneHeader } from '../../ui/RightPane';
 import { useElementWidth } from '../../ui/useElementWidth';
+import { phoneQuery, useMedia } from '../../ui/useMedia';
 import styles from './Compendium.module.scss';
 import { confirmCompendiumSelection } from './selection';
 
-/** Below this pane width the Changes / Before-After switch moves from the header to above the diff. */
-const HEADER_TOGGLE_MIN = 420;
+/**
+ * Below this pane width the Changes / Before-After switch moves from the header to above the diff.
+ * Measured: title + switch + Relink + zoom need 364px, so the default 384px pane keeps it in the header.
+ */
+const HEADER_TOGGLE_MIN = 366;
 
 /** Compendium zoom (70–100 %), kept on this device: − / value / +. */
 function ScaleControl() {
@@ -59,7 +63,9 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const width = useElementWidth(bodyRef);
   // Unmeasured (no layout) counts as roomy; a narrow pane puts the switch above the diff instead.
-  const roomy = width === undefined || width >= HEADER_TOGGLE_MIN;
+  // Touch-sized controls (phone, coarse pointer) are wider than the measure below allows for.
+  const touch = useMedia(phoneQuery) || useMedia('(pointer: coarse)');
+  const roomy = !touch && (width === undefined || width >= HEADER_TOGGLE_MIN);
   const tooltip = draft?.next ?? base;
   const link = tooltip.compendium;
   const canEdit =
@@ -92,9 +98,10 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
               type="button"
               className={styles.headerButton}
               aria-pressed={picking}
+              aria-label={picking ? 'Close picker' : link ? 'Pick other row' : 'Link a row'}
               onClick={() => setPicking(!picking)}
             >
-              {picking ? 'Close picker' : link ? 'Pick other row' : 'Link a row'}
+              {picking ? 'Close picker' : link ? 'Relink' : 'Link row'}
             </button>
           )}
           <ScaleControl />
@@ -103,12 +110,14 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
     >
       <div className={styles.zoom} style={{ zoom: scale / 100 }} data-scale={scale}>
         {picking && canEdit && (
-          <LinkPicker
-            base={base}
-            name={item?.name ?? base.custom?.name ?? ''}
-            category={item?.categoryId ?? 'other'}
-            onLinked={() => setPicking(false)}
-          />
+          <div className={styles.picker}>
+            <LinkPicker
+              base={base}
+              name={item?.name ?? base.custom?.name ?? ''}
+              category={item?.categoryId ?? 'other'}
+              onLinked={() => setPicking(false)}
+            />
+          </div>
         )}
         {loading && <p role="status">Loading Compendium...</p>}
         {error && (

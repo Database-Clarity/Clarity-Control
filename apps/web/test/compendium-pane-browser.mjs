@@ -69,7 +69,10 @@ const clipped = (page) =>
         if (el.scrollWidth > el.clientWidth + 1 && style.overflow !== 'visible') return true;
         if (el.tagName === 'SELECT') return false;
         const line = parseFloat(style.lineHeight) || 16;
-        return ['BUTTON', 'H3', 'OUTPUT', 'LABEL'].includes(el.tagName) && r.height > Math.max(2 * line + 8, 50);
+        return (
+          ['BUTTON', 'H3', 'OUTPUT', 'LABEL'].includes(el.tagName) &&
+          r.height > Math.max(2 * line + 8, 50)
+        );
       })
       .map((el) => `${el.tagName} ${el.textContent.trim().slice(0, 30)}`),
   );
@@ -141,8 +144,8 @@ try {
       assert.ok(await header.getByRole('button', { name: 'Pick other row' }).isVisible());
       assert.equal(
         await header.locator('[aria-label="Compendium diff view"]').count(),
-        0,
-        `${label}: a narrow pane keeps the diff switch out of the header`,
+        1,
+        `${label}: the default 384px pane keeps the diff switch in the header`,
       );
       assert.equal(await page.locator('[aria-label="Compendium diff view"]').count(), 1);
       await page.screenshot({ path: out(`compendium-${width}`) });
@@ -207,9 +210,56 @@ try {
       });
       await page.locator('[aria-label="Compendium tools"]').waitFor();
       assert.equal(await headerHeight(page, 'Compendium'), 28, `${theme} 320 pane header`);
+      assert.equal(
+        await page
+          .locator('[aria-label="Compendium tools"] [aria-label="Compendium diff view"]')
+          .count(),
+        0,
+        `${theme} 320 pane: the diff switch sits above the diff`,
+      );
+      assert.equal(await page.locator('[aria-label="Compendium diff view"]').count(), 1);
       assert.deepEqual(await clipped(page), [], `${theme} 320 pane: header clips`);
       await noOverflow(page, `${theme} 320 pane`);
       await page.screenshot({ path: out('compendium-320-pane') });
+      await context.close();
+    }
+
+    // The row picker opens in the pane with the same control style, fields stacked at full width.
+    for (const rightWidth of [384, 320]) {
+      const { context, page } = await open(theme, { width: 1280, height: 800 }, '/t/1001?lang=en', {
+        rightWidth,
+      });
+      const label = `${theme} picker ${rightWidth}`;
+      await page
+        .locator('[aria-label="Compendium tools"]')
+        .getByRole('button', { name: 'Pick other row' })
+        .click();
+      const picker = page.getByRole('region', { name: 'Link a Compendium row' });
+      await picker.waitFor();
+      const text = await firstLine(page);
+      const metrics = await picker.evaluate((section) => {
+        const pane = section.closest('aside').lastElementChild.getBoundingClientRect();
+        const select = section.querySelector('label select').getBoundingClientRect();
+        const heading = parseFloat(getComputedStyle(section.querySelector('h3')).fontSize);
+        const buttons = [...section.querySelectorAll(':scope > ul button')].map((b) =>
+          Math.round(b.getBoundingClientRect().height),
+        );
+        return { pane: pane.width, select: select.width, selectH: select.height, heading, buttons };
+      });
+      assert.ok(
+        metrics.select >= metrics.pane - 24,
+        `${label}: fields span the pane (${JSON.stringify(metrics)})`,
+      );
+      assert.equal(Math.round(metrics.selectH), 24, `${label}: fields are 24px`);
+      assert.ok(metrics.heading <= 14, `${label}: picker heading at pane scale`);
+      assert.ok(
+        metrics.buttons.every((h) => h === 24),
+        `${label}: buttons are 24px (${metrics.buttons})`,
+      );
+      await noOverflow(page, label);
+      assert.deepEqual(await clipped(page), [], `${label}: header clips`);
+      assert.deepEqual(await firstLine(page), text, `${label}: the picker moved the text`);
+      await page.screenshot({ path: out(`picker-${rightWidth}`) });
       await context.close();
     }
 
