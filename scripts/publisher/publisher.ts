@@ -197,7 +197,7 @@ export class Publisher {
         }
         tree['live/pushed.json'] = this.git.writeBlob(json(pushed));
       }
-      if (receipt && tree[p.request] && tree[p.request] !== receipt.requestBlob) {
+      if (tree[p.request] && tree[p.request] !== blob) {
         let strayIntent: string | undefined;
         try {
           strayIntent = JSON.parse(JSON.parse(this.git.blob(tree[p.request])).payload).intentDigest;
@@ -208,7 +208,10 @@ export class Publisher {
         while (tree[p.log.replace('.json', `.dup-${n}.json`)]) n++;
         tree[p.log.replace('.json', `.dup-${n}.json`)] = this.git.writeBlob(
           json({
-            status: strayIntent === receipt.intentDigest ? 'duplicate' : 'conflict',
+            status:
+              strayIntent !== undefined && strayIntent === (receipt?.intentDigest ?? intentDigest)
+                ? 'duplicate'
+                : 'conflict',
             requestBlob: tree[p.request],
           }),
         );

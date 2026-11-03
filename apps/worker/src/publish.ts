@@ -1,0 +1,179 @@
+import { z } from 'zod';
+import {
+  classifyPublishIntent,
+  permissionsSchema,
+  publishBodySchema,
+  publishIntentDigest,
+  publishMonth,
+  publishOpIdSchema,
+  publishPayloadSchema,
+  stableStringify,
+  validatePublishBody,
+} from '@clarity/core';
+import { unbase64 } from './crypto.js';
+import { body, HttpError, json } from './http.js';
+import { requireAccess } from './permissions.js';
+import type { GitHub, RepoFile } from './github.js';
+import type { Env, Identity } from './types.js';
+
+const envelopeSchema = z.object({ payload: z.string(), sig: z.string() }).strict();
+const logSchema = z.object({ intentDigest: z.string().nullable(), result: z.unknown() });
+const opPaths = (id: string) => [
+  `publish/requests/${id}.json`,
+  `publish/log/${publishMonth(id)}/${id}.json`,
+];
+const encoder = new TextEncoder();
+const base64 = (bytes: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
+
+/** PKCS8 PEM secret. Only the public SPKI and its fingerprint may leave this module. */
+async function signingKey(env: Env) {
+  if (!env.PUBLISH_SIGNING_KEY) throw new HttpError(503, 'Publisher is not enabled');
+  try {
+    const der = unbase64(env.PUBLISH_SIGNING_KEY.replace(/-----[^-]+-----|\s/g, ''));
+    const key = await crypto.subtle.importKey('pkcs8', der, 'Ed25519', true, ['sign']);
+    const jwk = await crypto.subtle.exportKey('jwk', key);
+    const publicKey = await crypto.subtle.importKey(
+      'jwk',
+      {
+        kty: 'OKP',
+        crv: 'Ed25519',
+        x: jwk.x,
+      },
+      'Ed25519',
+      true,
+      ['verify'],
+    );
+    const spki = await crypto.subtle.exportKey('spki', publicKey);
+    const pem = `-----BEGIN PUBLIC KEY-----\n${base64(spki)
+      .match(/.{1,64}/g)!
+      .join('\n')}\n-----END PUBLIC KEY-----\n`;
+    const fingerprint = [...new Uint8Array(await crypto.subtle.digest('SHA-256', spki))]
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+    return { key, publicKey: pem, fingerprint };
+  } catch {
+    throw new HttpError(503, 'Publisher signing key unavailable');
+  }
+}
+export async function publishKey(env: Env) {
+  const { publicKey, fingerprint } = await signingKey(env);
+  return json({ algorithm: 'Ed25519', publicKey, fingerprint });
+}
+function pending(file: RepoFile | null) {
+  return file
+    ? publishPayloadSchema.parse(JSON.parse(envelopeSchema.parse(file.value).payload))
+    : undefined;
+}
+function logged(file: RepoFile | null) {
+  return file ? logSchema.parse(file.value) : undefined;
+}
+
+export async function publish(request: Request, github: GitHub, user: Identity) {
+  const value = await body(request, publishBodySchema, 300 * 1024);
+  const intent = {
+    ...value,
+    kind: 'push' as const,
+    repo: `${github.env.GITHUB_OWNER}/${github.env.GITHUB_REPO}`,
+    dataBranch: github.env.DATA_BRANCH,
+    liveBranch: github.env.LIVE_BRANCH,
+    requester: { id: user.id, login: user.login },
+  };
+  const digest = await publishIntentDigest(intent);
+  const paths = opPaths(value.opId);
+  // Two create attempts plus a final reconciliation. Worst case 10 subrequests including token;
+  // a final read is mandatory even when the last create timed out after landing.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const snapshot = await github.publishSnapshot(['config/permissions.json', ...paths]);
+    requireAccess(permissionsSchema.parse(snapshot.files[0]?.value), user, [
+      'maintainer',
+      'editor',
+    ]);
+    const existingLog = logged(snapshot.files[2]);
+    // A tombstone wins even if a malformed stray request was injected later.
+    const decision = classifyPublishIntent(
+      digest,
+      existingLog ? undefined : pending(snapshot.files[1]),
+      existingLog ? { ...existingLog, intentDigest: existingLog.intentDigest ?? '' } : undefined,
+    );
+    if (decision.status === 'conflict')
+      throw new HttpError(409, 'opId already names another publish intent');
+    if (decision.status === 'complete') return json({ opId: value.opId, result: decision.result });
+    if (decision.status === 'pending') return json({ opId: value.opId, status: 'pending' }, 202);
+    if (attempt === 2) break;
+    try {
+      validatePublishBody(value, Date.now());
+    } catch {
+      throw new HttpError(400, 'Publish opId outside creation window');
+    }
+    const { key } = await signingKey(github.env);
+    const payload = stableStringify({
+      ...intent,
+      createdAt: new Date().toISOString(),
+      intentDigest: digest,
+    });
+    const sig = base64(await crypto.subtle.sign('Ed25519', key, encoder.encode(payload)));
+    try {
+      await github.createPublishRequest(
+        snapshot.head,
+        snapshot.tree,
+        paths[0],
+        { payload, sig },
+        user,
+      );
+      return json({ opId: value.opId, status: 'pending' }, 202);
+    } catch {
+      // Every write failure is ambiguous. Re-read at the next head, never overwrite a request.
+    }
+  }
+  throw new HttpError(503, 'Publish create unresolved; retry the same opId and body');
+}
+
+export async function publishStatus(request: Request, github: GitHub, user: Identity) {
+  const url = new URL(request.url);
+  const parsed = z
+    .array(publishOpIdSchema)
+    .min(1)
+    .max(1)
+    .safeParse(url.searchParams.getAll('opId'));
+  if (!parsed.success || [...url.searchParams.keys()].some((k) => k !== 'opId'))
+    throw new HttpError(400, 'Supply exactly one opId query parameter');
+  const ids = parsed.data;
+  // Terminal logs retain per-hash results. A single log per call bounds parse CPU;
+  // pending request bodies are never fetched for status.
+  const snapshot = await github.publishSnapshot(
+    ['config/permissions.json', ...ids.flatMap(opPaths)],
+    ids.map((id) => opPaths(id)[0]),
+  );
+  requireAccess(permissionsSchema.parse(snapshot.files[0]?.value), user, ['maintainer', 'editor']);
+  // Fixed projection: no signed requests, tooltips, digests, run errors or repository metadata.
+  return json({
+    operations: ids.map((opId, i) => {
+      const log = logged(snapshot.files[2 + i * 2]);
+      const result = z
+        .object({ status: z.enum(['done', 'unchanged', 'stale', 'rejected', 'failed']) })
+        .safeParse(log?.result);
+      return {
+        opId,
+        status: log
+          ? result.success
+            ? result.data.status
+            : 'failed'
+          : snapshot.files[1 + i * 2]
+            ? 'pending'
+            : 'unknown',
+      };
+    }),
+  });
+}
+
+export async function publishKick(request: Request, github: GitHub, user: Identity) {
+  const { opId } = await body(request, z.object({ opId: publishOpIdSchema }).strict(), 1024);
+  const paths = opPaths(opId);
+  const snapshot = await github.publishSnapshot(['config/permissions.json', ...paths], paths);
+  requireAccess(permissionsSchema.parse(snapshot.files[0]?.value), user, ['maintainer', 'editor']);
+  if (snapshot.files[2] || !snapshot.files[1])
+    throw new HttpError(409, 'Publish request is not pending');
+  await signingKey(github.env); // Kicks remain disabled until the enable-time secret is installed.
+  await github.kickPublish(opId);
+  return json({ opId, status: 'pending' }, 202);
+}
