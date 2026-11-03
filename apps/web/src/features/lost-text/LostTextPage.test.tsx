@@ -132,6 +132,7 @@ it('explains classes, action consequences and dates before taking an action', ()
   expect(container.textContent).toContain('in this browser only');
   expect(container.textContent).toContain('2 of 480 records shown');
   expect(container.querySelector('time')?.textContent).toBe('12 Feb 2023');
+  expect(container.querySelector('time')?.style.whiteSpace).toBe('nowrap');
   expect(container.querySelector('time')?.title).toBe('2023-02-12T20:12:46+01:00');
   expect(container.textContent).toContain(
     'Unclear — authorship or manifest evidence is inconclusive',

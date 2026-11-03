@@ -1,3 +1,4 @@
+import { compendiumTabId } from '@clarity/core';
 import { inferredSiphonDecision } from './safeSourceRules';
 import {
   combineCompendiumMatches,
@@ -276,7 +277,9 @@ export function guidedDecisions(
               ruleId: artifactNames.size ? 'artifact-sunset' : 'artifact-source-absent',
               reason: 'not in a current artifact',
             };
-          const tab = source.tabs.find((candidate) => candidate.gid === '473308249');
+          const tab = source.tabs.find(
+            (candidate) => candidate.gid === compendiumTabId('Artifact Perks'),
+          );
           const headers = artifactSections(source);
           const matchingHeaders = headers.filter((cell) =>
             [...artifactNames].some((name) => cell.cell.plain.startsWith(`${name} (`)),

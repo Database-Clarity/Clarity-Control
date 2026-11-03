@@ -1,6 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AdminPage } from './features/admin/AdminPage';
-import { MatchReviewPage } from './features/compendium/MatchReviewPage';
+import { LazyMatchReviewPage as MatchReviewPage } from './features/compendium/LazyMatchReviewPage';
 import { TooltipPage } from './features/tooltip/TooltipPage';
 import { useDataStore } from './stores/data';
 import { navigationGroups } from './features/navigation/catalog';

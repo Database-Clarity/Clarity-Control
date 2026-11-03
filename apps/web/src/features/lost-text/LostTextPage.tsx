@@ -191,7 +191,7 @@ export function LostTextPage() {
               {selected.classification}: {selected.reason}
             </p>
             <p>
-              Cleared <When value={selected.clearingDate} /> by {selected.clearingAuthor}.{' '}
+              Cleared <When nowrap value={selected.clearingDate} /> by {selected.clearingAuthor}.{' '}
               <a
                 href={`https://github.com/Database-Clarity/Live-Clarity-Database/commit/${selected.clearingCommit}`}
                 target="_blank"

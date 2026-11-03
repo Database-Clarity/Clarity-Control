@@ -5,9 +5,11 @@ import { useSyncedSettings } from '../stores/settings';
 export function When({
   value,
   fallback = 'unknown time',
+  nowrap = false,
 }: {
   value: string | number | Date | null | undefined;
   fallback?: string;
+  nowrap?: boolean;
 }) {
   const settings = useSyncedSettings();
   const date = parseDate(value);
@@ -20,7 +22,7 @@ export function When({
       ? `${exactDate(date, { ...settings, timeDisplay: 'datetime' })} (${iso})`
       : iso;
   return (
-    <time dateTime={iso} title={title}>
+    <time dateTime={iso} title={title} style={nowrap ? { whiteSpace: 'nowrap' } : undefined}>
       {text}
     </time>
   );

@@ -1,3 +1,4 @@
+import { compendiumTabId } from '@clarity/core';
 import { normaliseCompendiumName, type CompendiumData } from '@clarity/core';
 import { approvedAbsentArtifact } from './ownerExceptions';
 import { loadManifestFacts } from './manifestFacts';
@@ -7,7 +8,7 @@ const facts = loadManifestFacts();
 
 // The sheet's named artifact sections are its currently equippable artifact list.
 export function artifactSections(source: CompendiumData) {
-  return (source.tabs.find((tab) => tab.gid === '473308249')?.grid ?? [])
+  return (source.tabs.find((tab) => tab.gid === compendiumTabId('Artifact Perks'))?.grid ?? [])
     .filter((cell) => cell.col === 3 && /\s\([^()]+\)\s*$/.test(cell.cell.plain))
     .sort((a, b) => a.row - b.row);
 }
@@ -59,7 +60,7 @@ export function notCurrentArtifact(entry: ReviewSample, source: CompendiumData) 
       artifactParents(entry).length === 0 &&
       approvedAbsentArtifact(entry) &&
       !source.tabs
-        .find((t) => t.gid === '473308249')!
+        .find((t) => t.gid === compendiumTabId('Artifact Perks'))!
         .rows.some((row) => row.nameNorm === normaliseCompendiumName(entry.name)))
   );
 }
