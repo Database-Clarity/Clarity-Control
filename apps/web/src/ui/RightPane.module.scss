@@ -1,0 +1,90 @@
+@use '../data/variables' as theme;
+@use './controls';
+
+.pane {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  min-height: 1.75rem;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  @include theme.mobile-or-coarse {
+    min-height: max(44px, 2.75rem);
+  }
+}
+.title {
+  flex: none;
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  // The tab above the pane already says Compendium / English; the controls need the room.
+  @media (max-width: 700px) {
+    display: none;
+  }
+}
+.controls {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 0.1875rem;
+  min-width: 0;
+  margin-left: auto;
+  > * {
+    flex: none;
+  }
+  // A control that has to give way (a select) ellipsises; buttons keep their size.
+  select {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+}
+
+.body {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding-top: 0.125rem;
+}
+
+.segmented {
+  display: inline-flex;
+  button {
+    @include controls.button;
+    min-height: 1.5rem;
+    padding: 0 0.25rem;
+    font-size: 0.75rem;
+    border-radius: 0;
+    white-space: nowrap;
+    position: relative;
+    &:first-child {
+      border-radius: 0.25rem 0 0 0.25rem;
+    }
+    &:last-child {
+      border-radius: 0 0.25rem 0.25rem 0;
+    }
+    & + button {
+      margin-left: -1px;
+    }
+    &[aria-pressed='true'] {
+      z-index: 1;
+      border-color: var(--accent-ink);
+      background: var(--ctl-pressed);
+      color: var(--accent-ink);
+    }
+    @include theme.mobile-or-coarse {
+      min-height: max(44px, 2.75rem);
+    }
+  }
+}

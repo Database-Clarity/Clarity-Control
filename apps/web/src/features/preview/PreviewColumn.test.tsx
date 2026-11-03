@@ -1,0 +1,147 @@
+// @vitest-environment jsdom
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MarkupGlobals } from '@clarity/core';
+import { PreviewColumn, type EnhancedView, type PreviewColumnProps } from './PreviewColumn';
+import type { PreviewMode } from './previewMode';
+
+const BASE = `Intro line.
+
+Hits required:
+• Submachine Guns: #e\${14-#d}
+• Auto Rifles: #e\${12-#d}
+
+var d = 0
+
+enhanced (
+var d = 1
+#e Hit Requirements are decreased by 1.
+)`;
+const globals = (type: string): MarkupGlobals => ({
+  variables: 'var e = 🡅',
+  titles: '',
+  type,
+});
+const enhanced: EnhancedView = {
+  hash: 11,
+  name: 'Perk enhanced',
+  text: BASE,
+  globals: globals('Weapon Trait Enhanced'),
+  derived: true,
+};
+
+let host: HTMLDivElement;
+let root: Root;
+beforeEach(() => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+});
+afterEach(async () => {
+  await act(async () => root.unmount());
+  host.remove();
+});
+
+async function render(props: Partial<PreviewColumnProps> = {}) {
+  const onMode = vi.fn();
+  const onVariant = vi.fn();
+  await act(async () =>
+    root.render(
+      <PreviewColumn
+        hash={10}
+        lang="en"
+        name="Perk"
+        categoryLabel="Weapon Trait"
+        baseText={BASE}
+        baseGlobals={globals('Weapon Trait')}
+        enhanced={[enhanced]}
+        mode="compare"
+        onMode={onMode}
+        variant={11}
+        onVariant={onVariant}
+        {...props}
+      />,
+    ),
+  );
+  return { onMode, onVariant };
+}
+const buttons = () => [...host.querySelectorAll<HTMLButtonElement>('button')];
+const pressed = () =>
+  buttons()
+    .filter((button) => button.getAttribute('aria-pressed') === 'true')
+    .map((button) => button.textContent);
+
+describe('PreviewColumn', () => {
+  it('shows ONE perk header above Base | Enhanced | Compare', async () => {
+    await render();
+    expect(host.querySelectorAll('header')).toHaveLength(1);
+    expect(buttons().map((button) => button.textContent)).toEqual(['Base', 'Enhanced', 'Compare']);
+    const header = host.querySelector('header')!;
+    const bar = host.querySelector('[role="group"]')!;
+    // Header first, then the switch, then the body.
+    expect(header.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(host.querySelectorAll('img[alt]')).toHaveLength(0);
+  });
+
+  it('has no switch for an item with no enhanced version', async () => {
+    await render({ enhanced: [], mode: 'base', variant: undefined });
+    expect(host.querySelector('[role="group"]')).toBeNull();
+    expect(host.querySelectorAll('header')).toHaveLength(1);
+  });
+
+  it('compares in place: changed values, the enhanced-only line, and the count', async () => {
+    await render();
+    expect(pressed()).toEqual(['Compare']);
+    expect(host.querySelector('[aria-live]')?.textContent).toBe('3 changes vs Base');
+    expect(host.querySelectorAll('[data-kind="changed"]')).toHaveLength(2);
+    expect(host.querySelectorAll('[data-kind="added"]')).toHaveLength(1);
+    // Struck base value, an arrow, the enhanced value; the unchanged words stay as they are.
+    const row = host.querySelector('[data-kind="changed"]')!;
+    expect(row.textContent).toContain('• Submachine Guns:');
+    expect(row.textContent).toContain('14');
+    expect(row.textContent).toContain('13');
+    expect(row.querySelector('[role="img"]')).not.toBeNull();
+    // Compare is one body under the one header: no second perk header.
+    expect(host.querySelectorAll('header')).toHaveLength(1);
+  });
+
+  it('shows the plain Base or Enhanced render without comparison marks', async () => {
+    for (const mode of ['base', 'enhanced'] as PreviewMode[]) {
+      await render({ mode });
+      expect(pressed()).toEqual([mode === 'base' ? 'Base' : 'Enhanced']);
+      expect(host.querySelector('[data-compare]')).toBeNull();
+      expect(host.querySelector('[aria-live]')?.textContent).toBe('');
+      expect(host.textContent?.includes('Hit Requirements are decreased by 1.')).toBe(
+        mode === 'enhanced',
+      );
+    }
+  });
+
+  it('reports the chosen view and, with several enhanced versions, which one', async () => {
+    const second: EnhancedView = { ...enhanced, hash: 12, name: 'Other enhanced', derived: false };
+    const { onMode, onVariant } = await render({ enhanced: [enhanced, second] });
+    act(() =>
+      buttons()
+        .find((button) => button.textContent === 'Base')!
+        .click(),
+    );
+    expect(onMode).toHaveBeenCalledWith('base');
+    const select = host.querySelector('select')!;
+    expect([...select.options].map((option) => option.textContent)).toEqual([
+      'Perk enhanced',
+      'Other enhanced',
+    ]);
+    await act(async () => {
+      select.value = '12';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(onVariant).toHaveBeenCalledWith(12);
+  });
+
+  it('says so when nothing differs', async () => {
+    await render({ enhanced: [{ ...enhanced, globals: globals('Weapon Trait') }] });
+    expect(host.querySelector('[aria-live]')?.textContent).toBe('No changes vs Base');
+  });
+});

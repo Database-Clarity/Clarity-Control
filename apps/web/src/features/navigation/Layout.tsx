@@ -1,64 +1,86 @@
-import { useEffect, useRef, useState } from 'react';
-import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
+import { Outlet, useLocation } from 'react-router-dom';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { useAuthStore } from '../../stores/auth';
-import { AuthStatus } from '../auth/AuthStatus';
-import { SavePanel } from '../../services/save/SavePanel';
-import { dockHeightProperty, trackDockHeight } from '../../services/save/dock';
+import { usePreviewReviewStore } from '../../stores/previewReview';
+import { SaveController } from '../../services/save/SavePanel';
+import { workspaceShortcutsBlocked } from '../../ui/interaction';
+import { PaneDivider } from '../../ui/PaneDivider';
+import { usePaneDivider } from '../../ui/usePaneDivider';
+import { compactQuery, laptopQuery, phoneQuery, useMedia } from '../../ui/useMedia';
+import { Header } from './Header';
+import { NoticeStrip } from './NoticeStrip';
+import { PhoneHeader } from './PhoneHeader';
+import { PreviewLeaveGuard } from './PreviewLeaveGuard';
+import { ShellColumnContext, type ShellColumn } from './ShellColumnContext';
+import { ShellSlotHost, ShellSlotsProvider } from './ShellSlots';
 import { TooltipNavigation } from './TooltipNavigation';
-import { visibleLinks } from './links';
+import { canonicalHash, itemFor } from './catalog';
+import { documentTitle } from './documentTitle';
+import { links, workspacePath } from './links';
+import { count } from './notices';
+import { useShellNotices } from './useShellNotices';
 import { CompendiumSidebarNavigation, ReviewSidebarNavigation } from './SidebarNavigation';
-import { CompendiumBadge } from '../compendium/CompendiumBadge';
-import { SettingsNotice } from '../settings/SettingsChoice';
 import { SettingsSync } from '../settings/SettingsSync';
 import { SettingsPopover } from '../settings/SettingsPopover';
 import { RememberRoute } from '../settings/SettingsRedirect';
-import { useSettingsPanel } from '../settings/panel';
 import styles from './Layout.module.scss';
 
-function workspacePath(pathname: string) {
-  if (pathname.startsWith('/t/')) return '/';
-  if (pathname.startsWith('/compendium')) return '/compendium';
-  if (pathname === '/') return '/';
-  return `/${pathname.split('/')[1]}`;
+export function Layout() {
+  return (
+    <ShellSlotsProvider>
+      <LayoutContent />
+    </ShellSlotsProvider>
+  );
 }
 
-export function Layout() {
+/** Left column limits: it sizes 280–480 and the page beside it keeps at least 480. */
+const COLUMN_MIN = 280;
+const COLUMN_MAX = 480;
+const MAIN_MIN = 480;
+
+function LayoutContent() {
   const location = useLocation();
-  const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
-  const workspaceLinks = visibleLinks(user);
-  const [navOpen, setNavOpen] = useState(false);
+  const phone = useMedia(phoneQuery);
+  const compact = useMedia(compactQuery);
+  const laptop = useMedia(laptopQuery);
   const layout = useRef<HTMLDivElement>(null);
-  const sidebar = useRef<HTMLElement>(null);
-  const browseButton = useRef<HTMLButtonElement>(null);
-  const skipLink = useRef<HTMLAnchorElement>(null);
-  const mainContent = useRef<HTMLElement>(null);
+  const aside = useRef<HTMLElement>(null);
+  const toggle = useRef<HTMLButtonElement>(null);
   const lastWorkspaceRoutes = useRef<Record<string, string>>({});
-  const navOpenRef = useRef(false);
-  const restoreBrowseFocus = useRef(false);
   const { data, status, error, load } = useDataStore();
   const authLoading = useAuthStore((state) => state.loading);
   const userId = user?.id;
-  const {
-    hydrated,
-    pending,
-    error: draftError,
-    previousAccountError,
-    dismissPreviousAccountError,
-    hydrate,
-    activate,
-    retry,
-    unowned,
-    adopt,
-    keepSeparate,
-  } = useDraftStore();
-  const [adoptNote, setAdoptNote] = useState<string | null>(null);
-  const settingsOpen = useSettingsPanel((state) => state.open);
+  const { hydrated, pending, error: draftError, activate } = useDraftStore();
+  const notices = useShellNotices();
   const isEditor = location.pathname.startsWith('/t/');
   const isCompendium = location.pathname.startsWith('/compendium');
   const isReview = location.pathname === '/review';
+  const contextual = isCompendium || isReview;
+  // The left column is the editor's preview, or the Compendium / Review queue list. A phone has
+  // neither: the preview is a view of the page and the lists live in the Find sheet.
+  const hasColumn = !phone && (isEditor || contextual);
+  const previewColumn = hasColumn && isEditor;
+  const itemHash = isEditor ? Number(location.pathname.split('/')[2]) : null;
+  const pageName =
+    itemHash !== null
+      ? data?.items
+        ? itemFor(itemHash, data)?.name
+        : undefined
+      : links.find(({ to }) => to === workspacePath(location.pathname))?.label;
+  useEffect(() => {
+    document.title = documentTitle(pageName);
+  }, [pageName]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -68,96 +90,9 @@ export function Layout() {
     void activate(userId === undefined ? null : userId);
   }, [authLoading, userId, activate]);
   useEffect(() => {
-    if (!navOpenRef.current) return;
-    restoreBrowseFocus.current = true;
-    navOpenRef.current = false;
-    setNavOpen(false);
-  }, [location.pathname, location.search]);
-  useEffect(() => {
     const workspace = workspacePath(location.pathname);
     lastWorkspaceRoutes.current[workspace] = `${location.pathname}${location.search}`;
   }, [location.pathname, location.search]);
-  useEffect(() => {
-    if (!navOpen) {
-      if (restoreBrowseFocus.current) {
-        browseButton.current?.focus();
-        restoreBrowseFocus.current = false;
-      }
-      return;
-    }
-    const previousOverflow = document.body.style.overflow;
-    const previousInert = [skipLink.current, mainContent.current]
-      .filter((element): element is HTMLElement => element !== null)
-      .map((element) => ({ element, value: element.getAttribute('inert') }));
-    document.body.style.overflow = 'hidden';
-    for (const { element } of previousInert) element.setAttribute('inert', '');
-    browseButton.current?.focus();
-    const keydown = (event: KeyboardEvent) => {
-      // A native save/conflict dialog or the settings popover owns focus and Escape above Browse.
-      if (useSettingsPanel.getState().open) return;
-      if (document.querySelector('dialog[open]')) return;
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        restoreBrowseFocus.current = true;
-        navOpenRef.current = false;
-        setNavOpen(false);
-        return;
-      }
-      if (event.key !== 'Tab') return;
-      const drawer = sidebar.current;
-      const focusable = drawer
-        ? [
-            ...drawer.querySelectorAll<HTMLElement>(
-              'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-            ),
-          ].filter((element) => {
-            const closedDetails = element.closest('details:not([open])');
-            if (
-              element.closest('[hidden], [inert], [data-idle="true"]') ||
-              (closedDetails && !element.matches('summary'))
-            )
-              return false;
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden';
-          })
-        : [];
-      const first = focusable[0] ?? browseButton.current;
-      const last = focusable.at(-1) ?? browseButton.current;
-      if (!first || !last) return;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      } else if (!drawer?.contains(document.activeElement)) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    window.addEventListener('keydown', keydown);
-    return () => {
-      window.removeEventListener('keydown', keydown);
-      document.body.style.overflow = previousOverflow;
-      for (const { element, value } of previousInert) {
-        if (value === null) element.removeAttribute('inert');
-        else element.setAttribute('inert', value);
-      }
-    };
-  }, [navOpen]);
-  useEffect(() => {
-    // Reserve the dock's real height (wrapped notices, large text, safe area) below the content.
-    const root = layout.current;
-    const dock = root?.querySelector<HTMLElement>(`.${styles.saveDock}`);
-    if (!root || !dock) return;
-    const stop = trackDockHeight(dock, (height) =>
-      root.style.setProperty(dockHeightProperty, height),
-    );
-    return () => {
-      stop();
-      root.style.removeProperty(dockHeightProperty);
-    };
-  }, []);
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
       if (pending || draftError) {
@@ -168,153 +103,234 @@ export function Layout() {
     window.addEventListener('beforeunload', beforeUnload);
     return () => window.removeEventListener('beforeunload', beforeUnload);
   }, [pending, draftError]);
+  // Sticky page columns sit under the header, whatever height it has at this width.
+  useEffect(() => {
+    const element = layout.current;
+    const header = element?.querySelector('header');
+    if (!element || !header) return;
+    const measure = () =>
+      element.style.setProperty('--header-h', `${header.getBoundingClientRect().height}px`);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, [phone]);
+
+  const pane = usePaneDivider({
+    storeKey: isEditor ? 'editor:left' : isCompendium ? 'compendium:list' : 'review:list',
+    sizes: 'start',
+    min: COLUMN_MIN,
+    max: COLUMN_MAX,
+    reserve: MAIN_MIN,
+    defaultWidth: laptop ? 304 : 336,
+    collapsible: previewColumn,
+    // Compact windows start with the preview hidden; opening it pushes the page (the editor is
+    // never covered). That is not a saved choice, so the desktop widths are left as they were.
+    defaultCollapsed: previewColumn && compact,
+    persist: !phone && !(previewColumn && compact),
+  });
+  const columnCollapsed = previewColumn && pane.collapsed;
+
+  // Actions are stable for the column's lifetime; they read the latest pane through a ref.
+  const latest = useRef({ pane, collapsed: columnCollapsed });
+  latest.current = { pane, collapsed: columnCollapsed };
+  const focusAfterExpand = useRef(false);
+  const [actions] = useState(() => ({
+    show() {
+      const { pane: current, collapsed } = latest.current;
+      if (collapsed) {
+        focusAfterExpand.current = true;
+        current.expand();
+      } else aside.current?.focus();
+    },
+    toggle() {
+      const { pane: current, collapsed } = latest.current;
+      if (collapsed) {
+        focusAfterExpand.current = true;
+        current.expand();
+        return;
+      }
+      // Focus leaves before the column is hidden, or it would be lost with it.
+      if (aside.current?.contains(document.activeElement)) toggle.current?.focus();
+      current.collapse();
+    },
+  }));
+  useEffect(() => {
+    if (columnCollapsed || !focusAfterExpand.current) return;
+    focusAfterExpand.current = false;
+    aside.current?.focus();
+  }, [columnCollapsed]);
+  useLayoutEffect(() => {
+    if (columnCollapsed && aside.current?.contains(document.activeElement)) toggle.current?.focus();
+  }, [columnCollapsed]);
+  // Alt+P, unless a dialog, sheet or open list owns the keyboard.
+  useEffect(() => {
+    if (!previewColumn) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (event.code !== 'KeyP' && event.key.toLowerCase() !== 'p') return;
+      if (workspaceShortcutsBlocked(event)) return;
+      event.preventDefault();
+      actions.toggle();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [previewColumn, actions]);
+  const column = useMemo<ShellColumn | null>(
+    () =>
+      previewColumn
+        ? { collapsed: columnCollapsed, show: actions.show, toggle: actions.toggle }
+        : null,
+    [previewColumn, columnCollapsed, actions],
+  );
+  const canonical =
+    previewColumn && itemHash !== null && data?.items ? canonicalHash(itemHash, data) : undefined;
+  const unreviewed = usePreviewReviewStore(
+    useCallback(
+      (state) =>
+        canonical === undefined
+          ? 0
+          : Object.values(state.entries).filter(
+              (entry) => entry.canonical === canonical && entry.dirty > entry.reviewed,
+            ).length,
+      [canonical],
+    ),
+  );
+
+  // A workspace tab returns to the page last open there; the current workspace keeps its page.
+  const routeFor = (to: string) =>
+    to === workspacePath(location.pathname)
+      ? `${location.pathname}${location.search}`
+      : (lastWorkspaceRoutes.current[to] ?? to);
+  // The editor's finder is the tooltip combobox; Compendium and Review keep their queue lists.
+  const finder = (
+    <>
+      {data && isEditor && <TooltipNavigation data={data} variant={phone ? 'sheet' : 'bar'} />}
+      {phone && isCompendium && <CompendiumSidebarNavigation />}
+      {phone && isReview && <ReviewSidebarNavigation />}
+      <ShellSlotHost name="finder" className={styles.slotHost} />
+    </>
+  );
+  const overlay = <NoticeStrip notices={notices} />;
+  const collapseLabel = columnCollapsed
+    ? `Show preview column${unreviewed ? `, ${count(unreviewed, 'change')} not reviewed` : ''}`
+    : 'Collapse preview column';
 
   return (
-    <div
-      ref={layout}
-      className={`${styles.layout} ${isCompendium ? styles.reviewMode : ''} ${isReview ? styles.reviewMode : ''} ${isEditor ? styles.editorMode : ''}`}
-    >
-      <a
-        ref={skipLink}
-        className={styles.skipLink}
-        href="#main-content"
-        onClick={(event) => {
-          event.preventDefault();
-          document.getElementById('main-content')?.focus();
-        }}
+    <ShellColumnContext.Provider value={column}>
+      <div
+        id="shell-root"
+        ref={layout}
+        data-fixed={!phone && isEditor ? '' : undefined}
+        className={`${styles.layout} ${isCompendium ? styles.reviewMode : ''} ${isReview ? styles.reviewMode : ''} ${isEditor ? styles.editorMode : ''}`}
       >
-        Skip to content
-      </a>
-      <aside
-        id="sidebar"
-        ref={sidebar}
-        className={styles.sidebar}
-        data-open={navOpen}
-        role={navOpen ? 'dialog' : undefined}
-        aria-modal={navOpen || undefined}
-        aria-label={navOpen ? 'Browse' : undefined}
-      >
-        <header className={styles.brand}>
-          <strong>Clarity</strong>
-          <span>Description editor v2</span>
-        </header>
-        <button
-          ref={browseButton}
-          type="button"
-          className={styles.navToggle}
-          aria-expanded={navOpen}
-          aria-controls="sidebar"
-          aria-label={navOpen ? 'Close Browse' : 'Browse'}
-          onClick={() => {
-            const open = !navOpenRef.current;
-            navOpenRef.current = open;
-            if (!open) restoreBrowseFocus.current = true;
-            setNavOpen(open);
+        <a
+          className={styles.skipLink}
+          href="#main-content"
+          onClick={(event) => {
+            event.preventDefault();
+            document.getElementById('main-content')?.focus();
           }}
         >
-          {navOpen ? 'Close' : 'Browse'}
-        </button>
-        <div className={styles.sidebarBody}>
-          {data && isEditor && <TooltipNavigation data={data} />}
-          {isCompendium && <CompendiumSidebarNavigation />}
-          {isReview && <ReviewSidebarNavigation />}
-          <label className={styles.pageSelection}>
-            Workspace
-            <select
-              value={
-                workspaceLinks.find(({ to }) => to !== '/' && location.pathname.startsWith(to))
-                  ?.to ?? '/'
-              }
-              onChange={(event) =>
-                navigate(lastWorkspaceRoutes.current[event.target.value] ?? event.target.value)
-              }
-            >
-              {workspaceLinks.map(({ to, label }) => (
-                <option key={to} value={to}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <AuthStatus />
-          <SavePanel className={styles.saveDock} />
-          <CompendiumBadge />
-          <p className={styles.status}>
-            {data && `Data revision ${data.bundle.sourceCommit.slice(0, 8)}`}
-          </p>
+          Skip to content
+        </a>
+        {phone ? (
+          <PhoneHeader
+            user={user}
+            pathname={location.pathname}
+            routeFor={routeFor}
+            title={pageName ?? 'Clarity Control'}
+            finder={finder}
+            hasFinder={isEditor || contextual}
+            overlay={overlay}
+          />
+        ) : (
+          <Header
+            user={user}
+            pathname={location.pathname}
+            routeFor={routeFor}
+            finder={finder}
+            overlay={overlay}
+          />
+        )}
+        <div
+          ref={pane.containerRef}
+          className={styles.body}
+          data-column={hasColumn ? '' : undefined}
+          style={hasColumn ? ({ '--left-w': `${pane.width}px` } as CSSProperties) : undefined}
+        >
+          {hasColumn && (
+            <>
+              <aside
+                id="shell-left"
+                ref={aside}
+                tabIndex={-1}
+                className={styles.left}
+                data-list={contextual || undefined}
+                aria-label={previewColumn ? 'Preview' : 'Context'}
+                hidden={columnCollapsed}
+              >
+                {previewColumn && <ShellSlotHost name="left" className={styles.leftHost} />}
+                {isCompendium && <CompendiumSidebarNavigation />}
+                {isReview && <ReviewSidebarNavigation />}
+              </aside>
+              <div className={styles.dividerCell} data-collapsed={columnCollapsed || undefined}>
+                <PaneDivider
+                  {...pane.divider}
+                  className={styles.divider}
+                  label={previewColumn ? 'Resize preview column' : 'Resize list column'}
+                  controls="shell-left"
+                />
+                {previewColumn && (
+                  <button
+                    ref={toggle}
+                    type="button"
+                    className={styles.toggle}
+                    aria-label={collapseLabel}
+                    title={`${columnCollapsed ? 'Show' : 'Collapse'} preview (Alt+P)`}
+                    aria-expanded={!columnCollapsed}
+                    aria-controls="shell-left"
+                    onClick={actions.toggle}
+                  >
+                    <span aria-hidden="true">{columnCollapsed ? '›' : '‹'}</span>
+                    {columnCollapsed && unreviewed > 0 && (
+                      <span className={styles.dot} aria-hidden="true" />
+                    )}
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+          <div className={styles.mainCol}>
+            <main className={styles.main} id="main-content" tabIndex={-1}>
+              <SettingsSync />
+              <RememberRoute />
+              {/* These replace the page while it cannot be shown, so they take space nothing else is using. */}
+              {status === 'loading' && <p role="status">Loading manifest and tooltip data...</p>}
+              {error && location.pathname === '/archive' && <h1>Archive</h1>}
+              {error && (
+                <p role="alert">
+                  Cannot load editor data: {error}{' '}
+                  <button type="button" onClick={() => void load()}>
+                    Retry data loading
+                  </button>
+                </p>
+              )}
+              {!hydrated && !draftError && <p role="status">Recovering local drafts...</p>}
+              {/* A failed draft recovery must not hide read-only browsing; edit actions stay gated on `hydrated`. */}
+              {status === 'ready' && (hydrated || Boolean(draftError)) && <Outlet />}
+            </main>
+          </div>
         </div>
-      </aside>
-      <main
-        ref={mainContent}
-        className={styles.main}
-        id="main-content"
-        tabIndex={-1}
-        aria-hidden={navOpen || undefined}
-      >
-        <SettingsSync />
-        <RememberRoute />
-        {!settingsOpen && <SettingsNotice />}
-        {draftError && (
-          <p role="alert">
-            {draftError}{' '}
-            <button type="button" onClick={() => (hydrated ? retry() : void hydrate())}>
-              Retry draft storage
-            </button>
-          </p>
-        )}
-        {hydrated && unowned > 0 && (
-          <p role="status">
-            {unowned} local draft(s) on this browser were made while signed out or before drafts
-            were tied to accounts. Add them to your account?{' '}
-            <button
-              type="button"
-              onClick={() =>
-                void adopt().then(
-                  ({ adopted, left }) =>
-                    setAdoptNote(
-                      adopted === 0
-                        ? 'No drafts were added. Check draft storage and retry, or keep them separate.'
-                        : `Added ${adopted} draft(s) to your account.${left ? ` ${left} conflicting draft(s) stayed separate.` : ''}`,
-                    ),
-                  (error: unknown) =>
-                    setAdoptNote(
-                      `Could not add drafts: ${error instanceof Error ? error.message : String(error)}`,
-                    ),
-                )
-              }
-            >
-              Add to my account
-            </button>{' '}
-            <button type="button" onClick={keepSeparate}>
-              Keep separate
-            </button>
-          </p>
-        )}
-        {adoptNote && <p role="status">{adoptNote}</p>}
-        {previousAccountError && (
-          <p role="alert">
-            {previousAccountError}{' '}
-            <button type="button" onClick={dismissPreviousAccountError}>
-              Dismiss
-            </button>
-          </p>
-        )}
-        {pending > 0 && <p role="status">Saving local drafts...</p>}
-        {status === 'loading' && <p role="status">Loading manifest and tooltip data...</p>}
-        {error && location.pathname === '/archive' && <h1>Archive</h1>}
-        {error && (
-          <p role="alert">
-            Cannot load editor data: {error}{' '}
-            <button type="button" onClick={() => void load()}>
-              Retry data loading
-            </button>
-          </p>
-        )}
-        {!hydrated && !draftError && <p role="status">Recovering local drafts...</p>}
-        {/* A failed draft recovery must not hide read-only browsing; edit actions stay gated on `hydrated`. */}
-        {status === 'ready' && (hydrated || Boolean(draftError)) && <Outlet />}
-      </main>
+        {/* Places routes publish into (identity, status); empty until they do. */}
+        <ShellSlotHost name="identity" className={styles.slotHost} />
+        <ShellSlotHost name="status" className={styles.slotHost} />
+      </div>
+      {/* Outside the inert-able shell root: native dialogs and the save session must stay usable. */}
       <SettingsPopover layout={layout} />
-    </div>
+      <PreviewLeaveGuard />
+      <SaveController />
+    </ShellColumnContext.Provider>
   );
 }

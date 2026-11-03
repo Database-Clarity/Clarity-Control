@@ -1,9 +1,8 @@
 @use '../data/variables' as theme;
+@use './controls';
 
 .dialog {
-  color: inherit;
-  background: #242429;
-  border: 1px solid #74747e;
+  @include controls.overlay-surface;
   border-radius: 0.5rem;
   width: min(60rem, calc(100vw - 2rem));
   max-height: calc(100dvh - 2rem);
@@ -11,23 +10,49 @@
   padding: 1rem;
 
   &::backdrop {
-    background: #000a;
+    background: var(--scrim);
   }
 
-  button,
+  button {
+    @include controls.button;
+  }
+
   textarea,
-  input {
-    font: inherit;
+  input:not([type='checkbox'], [type='radio']) {
+    @include controls.field;
   }
 
   textarea {
     width: 100%;
     min-height: 6rem;
+    padding: 0.25rem 0.5rem;
   }
 
   section {
     margin-block: 1rem;
   }
+}
+
+// Short prompts (the preview leave guard): a narrow card, not a 60rem sheet.
+.compact {
+  width: min(28rem, calc(100vw - 2rem));
+}
+
+.hint {
+  margin-left: 0.5rem;
+  font:
+    11px/1 ui-monospace,
+    monospace;
+  padding: 1px 0.25rem;
+  border: 1px solid currentColor;
+  border-radius: 0.1875rem;
+  opacity: 0.65;
+}
+
+.caption {
+  margin: 0;
+  color: var(--text2);
+  font-size: 0.75rem;
 }
 
 @include theme.coarse-pointer {
@@ -36,7 +61,7 @@
     select,
     input:not([type='checkbox'], [type='radio']),
     summary {
-      min-height: 44px;
+      min-height: max(44px, 2.75rem);
     }
   }
 }
@@ -52,11 +77,17 @@
   min-width: 0;
 }
 
+// The footer's one primary action is drawn with the accent edge.
 .footer {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 1rem;
+
+  button[data-primary] {
+    border-color: var(--accent-ink);
+    font-weight: 600;
+  }
 }
 
 // Full-height sheet: the header and the action footer stay reachable while the body scrolls.
@@ -82,7 +113,7 @@
     select,
     input:not([type='checkbox'], [type='radio']),
     summary {
-      min-height: 44px;
+      min-height: max(44px, 2.75rem);
     }
   }
 
@@ -91,14 +122,14 @@
     position: sticky;
     z-index: 1;
     flex: none;
-    background: #242429;
+    background: var(--raised);
     padding: 0.5rem 0.75rem;
   }
 
   .header {
     top: 0;
     align-items: center;
-    border-bottom: 1px solid #74747e;
+    border-bottom: 1px solid var(--line);
   }
 
   .body {
@@ -110,6 +141,6 @@
     bottom: 0;
     margin-top: 0;
     padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
-    border-top: 1px solid #74747e;
+    border-top: 1px solid var(--line);
   }
 }

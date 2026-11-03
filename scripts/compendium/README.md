@@ -21,7 +21,10 @@ the following row. Config overrides are in the editor core's Compendium config.
 Only content changes produce a commit; `fetchedAt` is the last changed dataset's
 fetch time, not proof of the most recent unchanged run. The editor polls the
 Actions status as well as this timestamp so an unchanged refresh can complete.
-No class names, raw HTML, scripts or arbitrary CSS are stored in the dataset.
+No class names, raw HTML, scripts or arbitrary CSS are stored in the dataset. Each cell
+may carry `background`, the cell's own opaque sheet background as `#rrggbb` (display only: it is
+not compared when deciding whether a linked row changed, and not stored in links). A refresh after
+the parser that added it is committed, because the content then differs.
 The bundled parser's MIT third-party notices must remain in `parser.mjs`.
 
 ## Updating the parser

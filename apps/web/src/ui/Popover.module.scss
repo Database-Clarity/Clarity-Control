@@ -1,0 +1,33 @@
+@use '../data/variables' as theme;
+@use './controls';
+
+.surface {
+  position: fixed;
+  z-index: 60;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  @include controls.overlay-surface;
+  border-radius: 0.25rem;
+}
+
+.body {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0.5rem;
+  font-size: 0.8125rem;
+  // The surface can be opened from a nowrap header; its text must wrap.
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+@include theme.mobile {
+  .surface {
+    inset: auto 0 0 0 !important;
+    width: auto !important;
+    max-height: 70dvh !important;
+    border-radius: 0.5rem 0.5rem 0 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}

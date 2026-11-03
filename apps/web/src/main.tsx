@@ -1,12 +1,20 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { HashRouter } from 'react-router-dom';
-import { App } from './App';
+import { createHashRouter, RouterProvider } from 'react-router-dom';
+import { routes } from './App';
 import './ui/global.scss';
 import { startPublisher } from './features/review/publisher';
+import { useSettingsStore } from './stores/settings';
+import { watchSystemTheme } from './ui/theme';
 
 // Resumes stored publish operations on any page; does nothing unless VITE_PUBLISHER_ENABLED=1.
 startPublisher();
+
+// The theme is already applied (index.html, then the settings store); this only follows the OS.
+watchSystemTheme(() => useSettingsStore.getState().device.theme);
+
+// A data router: the preview leave guard needs `useBlocker`, which the declarative router lacks.
+const router = createHashRouter(routes);
 
 const root = document.getElementById('root');
 
@@ -16,8 +24,6 @@ if (!root) {
 
 ReactDOM.createRoot(root).render(
   <React.StrictMode>
-    <HashRouter>
-      <App />
-    </HashRouter>
+    <RouterProvider router={router} />
   </React.StrictMode>,
 );

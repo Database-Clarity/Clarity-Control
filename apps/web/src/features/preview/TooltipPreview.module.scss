@@ -1,10 +1,103 @@
+// Tooltip colours are tokens. Dark is the in-game look and is the default; the light set is a
+// separate palette (not an inversion) that keeps every pair at 4.5:1 or better on its surface.
+@mixin dark-values {
+  --tp-surface: hsl(279, 36%, 5%);
+  --tp-text: #fff;
+  --tp-head-bg: hsl(0, 0%, 33%);
+  --tp-head-text: hsl(0, 0%, 93%);
+  --tp-rule: #485362;
+  --tp-tint: hsla(0, 0%, 100%, 0.15);
+  --tp-pvp: hsl(0, 100%, 80%);
+  --tp-pve: hsl(220, 100%, 75%);
+  --tp-green: hsl(116, 58%, 65%);
+  --tp-yellow: hsl(51, 100%, 45%);
+  --tp-blue: hsl(180, 100%, 45%);
+  --tp-purple: hsl(300, 100%, 81%);
+  --tp-arrow: #eade8b;
+  --tp-was: #8d8d8d;
+  --tp-title: hsl(38, 80%, 56%);
+  --tp-link: hsl(201, 100%, 65%);
+  --tp-assoc-link: #b7dcff;
+  --tp-pop-bg: black;
+  --tp-pop-text: white;
+  --tp-pop-edge: #696969;
+}
+@mixin light-values {
+  --tp-surface: #fdfeff;
+  --tp-text: #1a2027;
+  --tp-head-bg: #cfe0ec;
+  --tp-head-text: #1a2027;
+  --tp-rule: #b5c9d8;
+  --tp-tint: hsla(205, 40%, 30%, 0.1);
+  --tp-pvp: #b0211c;
+  --tp-pve: #1f4fd1;
+  --tp-green: #1a7429;
+  --tp-yellow: #7d5d00;
+  --tp-blue: #00677a;
+  --tp-purple: #8a2a9a;
+  --tp-arrow: #7a6400;
+  --tp-was: #6b7682;
+  --tp-title: #96570a;
+  --tp-link: #0a5fa0;
+  --tp-assoc-link: #0a5fa0;
+  --tp-pop-bg: #ffffff;
+  --tp-pop-text: #1a2027;
+  --tp-pop-edge: #6a8294;
+}
+// White game glyphs vanish on a light surface and a dark box behind them looks heavy. The light
+// theme swaps them for pre-processed copies (assets/light): a dark outline traced round the glyph
+// with every enclosed area filled, edges smoothed. Coloured glyphs are used as they are.
+@mixin light-icons {
+  .kinetic::before {
+    background-image: url('./assets/light/kinetic.png');
+    background-size: 0.9375rem 0.9375rem;
+  }
+  .primary::before {
+    background-image: url('./assets/light/primary.png');
+    background-size: 1.5rem 1.5rem;
+  }
+  .barrier::before {
+    background-image: url('./assets/light/barrier.png');
+    background-size: 0.9375rem 0.9375rem;
+  }
+  .overload::before {
+    background-image: url('./assets/light/overload.png');
+    background-size: 0.9375rem 0.9375rem;
+  }
+  .unstoppable::before {
+    background-image: url('./assets/light/unstoppable.png');
+    background-size: 0.9375rem 0.9375rem;
+  }
+}
+.preview,
+.snippet {
+  @include dark-values;
+}
+:global(:root[data-theme='light']) {
+  .preview,
+  .snippet {
+    @include light-values;
+    outline: 1px solid var(--line);
+  }
+  @include light-icons;
+}
+@media (prefers-color-scheme: light) {
+  :global(:root:not([data-theme])) {
+    .preview,
+    .snippet {
+      @include light-values;
+      outline: 1px solid var(--line);
+    }
+    @include light-icons;
+  }
+}
 .preview {
   width: 100%;
-  max-width: 320px;
+  max-width: 20rem;
   min-width: 0;
   height: fit-content;
-  color: #fff;
-  background-color: hsl(279, 36%, 5%);
+  color: var(--tp-text);
+  background-color: var(--tp-surface);
   font:
     14px/1.3 Arial,
     Helvetica,
@@ -12,12 +105,30 @@
     sans-serif;
   overflow-wrap: anywhere;
 }
+// In the preview column the perk header and the version strip stay at the top of the scrolling
+// column; only the description scrolls under them. The strip spans the column while the game
+// render of the text keeps its own 320px measure.
+.top {
+  display: contents;
+}
+.fill {
+  max-width: none;
+  .top {
+    display: block;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
+  .description {
+    max-width: 20rem;
+  }
+}
 .snippet {
   display: flex;
   flex-direction: column;
-  padding: 4px 8px;
-  color: #fff;
-  background-color: hsl(279, 36%, 5%);
+  padding: 0.25rem 0.5rem;
+  color: var(--tp-text);
+  background-color: var(--tp-surface);
   font:
     14px/1.3 Arial,
     Helvetica,
@@ -26,81 +137,111 @@
   overflow-wrap: anywhere;
 }
 .associated {
-  border-top: 1px solid #485362;
-  padding: 8px;
+  border-top: 1px solid var(--tp-rule);
+  padding: 0.5rem;
   details {
-    margin: 4px 0;
+    margin: 0.25rem 0;
   }
   summary {
     cursor: pointer;
-    padding: 6px 0;
+    padding: 0.375rem 0;
   }
   img {
-    width: 24px;
-    height: 24px;
+    width: 1.5rem;
+    height: 1.5rem;
     vertical-align: middle;
-    margin-right: 8px;
+    margin-right: 0.5rem;
   }
   a {
-    color: #b7dcff;
+    color: var(--tp-assoc-link);
   }
 }
 .header {
   display: flex;
-  gap: 8px;
+  gap: 0.5rem;
   align-items: center;
-  font-size: 15px;
-  line-height: 17px;
+  font-size: 0.9375rem;
+  line-height: 1.0625rem;
   letter-spacing: -0.02em;
-  padding: 10px;
-  background-color: hsl(0, 0%, 33%);
-  color: hsl(0, 0%, 93%);
+  padding: 0.625rem;
+  background-color: var(--tp-head-bg);
+  color: var(--tp-head-text);
 }
 .name {
   text-transform: uppercase;
   font-weight: 600;
-  font-size: 21px;
-  line-height: 24px;
+  font-size: 1.3125rem;
+  line-height: 1.5rem;
 }
 .category {
   opacity: 0.7;
-  margin-top: 4px;
+  margin-top: 0.25rem;
 }
 .icon {
-  width: 36px;
-  height: 36px;
+  width: 2.25rem;
+  height: 2.25rem;
   object-fit: contain;
 }
 .description {
   display: flex;
   flex-direction: column;
-  padding: 6px 10px;
+  padding: 0.375rem 0.625rem;
 }
 .diagnostics {
   display: block;
-  padding: 6px 10px;
-  font-size: 12px;
+  padding: 0.375rem 0.625rem;
+  font-size: 0.75rem;
 }
 .pvp {
-  color: hsl(0, 100%, 80%);
+  color: var(--tp-pvp);
 }
 .pve {
-  color: hsl(220, 100%, 75%);
+  color: var(--tp-pve);
 }
 .green {
-  color: hsl(116, 58%, 65%);
+  color: var(--tp-green);
 }
 .yellow {
-  color: hsl(51, 100%, 45%);
+  color: var(--tp-yellow);
 }
 .blue {
-  color: hsl(180, 100%, 45%);
+  color: var(--tp-blue);
 }
 .purple {
-  color: hsl(300, 100%, 81%);
+  color: var(--tp-purple);
 }
+// The enhanced arrow is a filled narrow DIM-style up arrow in pale gold, drawn as a mask so it takes the
+// token colour in both themes. The stored text keeps its 🡅; the glyph itself is not shown.
 .enhancedArrow {
-  color: hsl(46, 100%, 50%);
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin: 0 0.125rem;
+  vertical-align: -1px;
+  font-size: 0;
+  line-height: 0;
+  overflow: hidden;
+  background-color: var(--tp-arrow);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M6 .75 9.5 5.25H7v6H5v-6H2.5Z'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M6 .75 9.5 5.25H7v6H5v-6H2.5Z'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+
+// Compare view: what the enhanced version changes, read in place.
+.was {
+  color: var(--tp-was);
+  text-decoration: line-through;
+}
+.removed {
+  color: var(--tp-was);
+  text-decoration: line-through;
+}
+// A line only the enhanced version has: a gold edge, no padding or box (the text does not move).
+.added {
+  box-shadow: inset 2px 0 0 var(--tp-arrow);
+  margin-left: -10px;
+  padding-left: 0.625rem;
 }
 .center {
   text-align: center;
@@ -109,13 +250,13 @@
   text-align: right;
 }
 .spacer {
-  padding-top: 5px;
+  padding-top: 0.3125rem;
 }
 .bold {
   font-weight: bold;
 }
 .background {
-  background-color: hsla(0, 0%, 100%, 0.15);
+  background-color: var(--tp-tint);
 }
 .breakSpaces {
   white-space: break-spaces;
@@ -123,10 +264,10 @@
 .title {
   text-decoration: underline;
   display: inline-block;
-  color: hsl(38, 80%, 56%);
+  color: var(--tp-title);
 }
 .link a {
-  color: hsl(201, 100%, 65%);
+  color: var(--tp-link);
 }
 .wide {
   width: auto !important;
@@ -137,33 +278,33 @@
 .table {
   border-collapse: collapse;
   td:first-child {
-    padding-left: 3px;
+    padding-left: 0.1875rem;
   }
 }
 .background_2 tr:nth-child(even),
 .background_1 tr:nth-child(odd) {
-  background-color: hsla(0, 0%, 100%, 0.15);
+  background-color: var(--tp-tint);
 }
 .titleAnchor {
   position: relative;
 }
 .titleContainer {
   display: none;
-  color: white;
+  color: var(--tp-pop-text);
   z-index: 2;
-  padding: 2px 4px;
+  padding: 2px 0.25rem;
   flex-direction: column;
   position: absolute;
   left: 0;
   top: 100%;
-  background-color: black;
-  max-width: min(300px, 85vw);
+  background-color: var(--tp-pop-bg);
+  max-width: min(18.75rem, 85vw);
   width: max-content;
-  border: 2px solid #696969;
+  border: 2px solid var(--tp-pop-edge);
   font-weight: normal;
   text-align: left;
   table td:not(:first-child):not(:last-child) {
-    padding: 0 3px;
+    padding: 0 0.1875rem;
   }
 }
 .titleAnchor:hover > .titleContainer,
@@ -171,13 +312,17 @@
   display: flex;
 }
 
-@mixin icon($url, $width: 10px, $size: 10px 10px) {
+// Every inline symbol is the same 12px box in both themes, so lines of text keep one rhythm;
+// $size fits the artwork to the box (some artwork carries transparent padding).
+$symbol: 0.75rem;
+@mixin icon($url, $size: 0.75rem 0.75rem) {
   &::before {
     content: '';
     display: inline-block;
-    height: 10px;
-    width: $width;
-    margin: 0 1px;
+    height: $symbol;
+    width: $symbol;
+    margin: 0 0.125rem;
+    vertical-align: -1px;
     background: url($url) center / $size no-repeat;
   }
 }
@@ -214,22 +359,19 @@
 .primary {
   @include icon(
     'https://www.bungie.net/common/destiny2_content/icons/99f3733354862047493d8550e46a45ec.png',
-    13px,
-    18px 20px
+    1.25rem 1.25rem
   );
 }
 .special {
   @include icon(
     'https://www.bungie.net/common/destiny2_content/icons/d920203c4fd4571ae7f39eb5249eaecb.png',
-    13px,
-    18px 20px
+    1.25rem 1.25rem
   );
 }
 .heavy {
   @include icon(
     'https://www.bungie.net/common/destiny2_content/icons/78ef0e2b281de7b60c48920223e0f9b1.png',
-    13px,
-    18px 20px
+    1.25rem 1.25rem
   );
 }
 .barrier {
@@ -248,11 +390,11 @@
   );
 }
 .hunter {
-  @include icon('./assets/hunter.svg');
+  @include icon('./assets/hunter.svg', contain);
 }
 .titan {
-  @include icon('./assets/titan.svg', 11px);
+  @include icon('./assets/titan.svg', contain);
 }
 .warlock {
-  @include icon('./assets/warlock.svg', 22px);
+  @include icon('./assets/warlock.svg', contain);
 }

@@ -1,4 +1,5 @@
 @use '../../data/variables' as theme;
+@use '../../ui/controls';
 
 .page {
   padding: 1.25rem;
@@ -19,8 +20,8 @@
   gap: 0.75rem;
   margin: 0;
   padding: 0.75rem 1rem 1rem;
-  border: 1px solid theme.$button-border-color;
-  border-radius: 6px;
+  border: 1px solid var(--line);
+  border-radius: 0.375rem;
 }
 .page legend {
   font-weight: bold;
@@ -31,19 +32,37 @@
   gap: 0.25rem;
 }
 .page button,
-.page select,
-.page a,
 .choice button,
 .notice button {
-  min-height: 44px;
-  font: inherit;
+  @include controls.button;
+}
+.page select {
+  @include controls.field;
+  width: 100%;
 }
 .page a {
   display: inline-flex;
   align-items: center;
+  min-height: max(44px, 2.75rem);
 }
-.page select {
-  width: 100%;
+.scale {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  input {
+    flex: 1 1 auto;
+    min-width: 0;
+    accent-color: var(--accent-ink);
+  }
+  output {
+    flex: none;
+    min-width: 3ch;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  button {
+    flex: none;
+  }
 }
 .hint,
 .example {
@@ -61,8 +80,9 @@
   gap: 0.5rem 1rem;
 }
 .choice {
-  border: 1px solid theme.$orange-color;
-  border-radius: 6px;
+  border: 1px solid var(--warn-edge);
+  background: var(--warn-bg);
+  border-radius: 0.375rem;
   padding: 0.75rem 1rem;
   margin-bottom: 1rem;
 }
@@ -113,7 +133,7 @@
   }
   .choice tbody tr {
     padding: 0.5rem 0;
-    border-top: 1px solid theme.$button-border-color;
+    border-top: 1px solid var(--line);
   }
   .choice tbody th {
     padding: 0 0 0.25rem;

@@ -1,0 +1,50 @@
+// Lockup viewBox is 5512 x 1020; 28px (24px on phones) keeps the outlined wordmark crisp.
+.brand {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  line-height: 0;
+}
+.dark,
+.light {
+  display: block;
+  height: 1.75rem;
+  width: auto;
+  @media (max-width: 700px) {
+    height: 1.5rem;
+  }
+}
+.light {
+  display: none;
+}
+
+// The mark alone: square, 24px.
+.mark {
+  display: inline-flex;
+  line-height: 0;
+
+  .dark,
+  .light {
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 0.25rem;
+  }
+}
+:global(:root[data-theme='light']) {
+  .dark {
+    display: none;
+  }
+  .light {
+    display: block;
+  }
+}
+@media (prefers-color-scheme: light) {
+  :global(:root:not([data-theme])) {
+    .dark {
+      display: none;
+    }
+    .light {
+      display: block;
+    }
+  }
+}

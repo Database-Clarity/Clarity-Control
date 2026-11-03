@@ -11,6 +11,7 @@ export default defineConfig({
       'scripts/weapon-section-inventory/*.test.mjs',
       'scripts/lost-text/*.test.mjs',
       'scripts/publisher/*.test.ts',
+      'scripts/variant-forms/*.test.mjs',
       'scripts/compendium/coverage/compare.test.ts',
     ],
     exclude: ['**/node_modules/**', '**/dist/**', 'legacy/**'],

@@ -18,7 +18,6 @@
     "lint": "eslint .",
     "test": "vitest run --passWithNoTests",
     "test:picker-browser": "node apps/web/test/picker-browser.mjs",
-    "test:review-browser": "node apps/web/test/review-browser.mjs",
     "test:publisher-browser": "node apps/web/test/publisher-browser.mjs",
     "format": "prettier --write ."
   },

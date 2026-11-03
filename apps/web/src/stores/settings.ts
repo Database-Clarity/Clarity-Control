@@ -14,6 +14,7 @@ import {
   type SettingsPutResult,
 } from '../services/api';
 import { errorMessage } from '../services/http';
+import { applyTheme, themePreferences } from '../ui/theme';
 
 /*
  * Settings come in two kinds:
@@ -27,20 +28,65 @@ export const syncedKeys = Object.keys(defaultSyncedSettings) as SyncedKey[];
 /** Editor view toggles whose last click is remembered on this device (never synced). */
 export const rememberedSchema = z.object({
   compendiumDiff: z.enum(['changes', 'before-after']).optional(),
+  /** Compendium cell backgrounds: the sheet's own colours (default) or the editor surface. */
+  compendiumSurface: z.enum(['sheet', 'editor']).optional(),
   markupToolbar: syncedSettingsSchema.shape.markupToolbar.optional(),
   englishSource: syncedSettingsSchema.shape.englishSource.optional(),
 });
 export type Remembered = z.infer<typeof rememberedSchema>;
+export const uiScaleMin = 85;
+export const uiScaleMax = 150;
+export const uiScaleStep = 5;
 export const editorFonts = ['default', 'fira-code', 'jetbrains-mono', 'system'] as const;
+/**
+ * One resizable pane pair on this device, in CSS pixels. `width` is the size the user chose (a
+ * viewport that is too small clamps it for display without overwriting it); `lastExpanded` is what
+ * a collapsed pane restores to.
+ */
+export const paneStateSchema = z.object({
+  width: z.number().finite().min(0).max(100_000),
+  collapsed: z.boolean().catch(false),
+  lastExpanded: z.number().finite().min(0).max(100_000).optional().catch(undefined),
+});
+export type PaneState = z.infer<typeof paneStateSchema>;
+/** Pane keys are `<page type>:<pair>`, for example `editor:left`. */
+export const paneKeyPattern = /^[a-z][a-z0-9-]{0,31}:[a-z][a-z0-9-]{0,31}$/;
+/** Compendium pane zoom, in percent: 70 to 100 in steps of 10; 100 is the pane's natural size. */
+export const compendiumScales = [70, 80, 90, 100] as const;
+export const defaultCompendiumScale = 100;
+/** Snaps a stored value onto the scale (nearest step); anything that is not a number is the default. */
+export function normalizeCompendiumScale(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return defaultCompendiumScale;
+  return compendiumScales.reduce((best, step) =>
+    Math.abs(step - value) <= Math.abs(best - value) ? step : best,
+  );
+}
+/** The key that takes a suggestion chip (`Enter` by default; the other key then keeps its usual job). */
+export const suggestAcceptKeys = ['enter', 'tab'] as const;
+export type SuggestAccept = (typeof suggestAcceptKeys)[number];
+/** How a symbol widget shows its markup: in a popover on hover, or as raw text while the caret is on it. */
+export const symbolRevealModes = ['popover', 'caret'] as const;
+export type SymbolReveal = (typeof symbolRevealModes)[number];
 export const deviceSettingsSchema = z.object({
   editorFont: z.enum(editorFonts),
-  textSize: z.enum(['default', 'large']),
+  /** Whole-interface scale in percent (the root font size); 100 is the design size. */
+  uiScale: z.number().int().min(uiScaleMin).max(uiScaleMax),
+  theme: z.enum(themePreferences),
+  panes: z.record(z.string(), paneStateSchema),
+  compendiumScale: z.number().transform(normalizeCompendiumScale),
+  suggestAccept: z.enum(suggestAcceptKeys),
+  symbolReveal: z.enum(symbolRevealModes),
   remembered: rememberedSchema,
 });
 export type DeviceSettings = z.infer<typeof deviceSettingsSchema>;
 export const defaultDeviceSettings: DeviceSettings = {
-  textSize: 'default',
+  uiScale: 100,
   editorFont: 'default',
+  theme: 'system',
+  panes: {},
+  compendiumScale: defaultCompendiumScale,
+  suggestAccept: 'enter',
+  symbolReveal: 'popover',
   remembered: {},
 };
 
@@ -88,6 +134,8 @@ export interface SettingsState {
   scope: string;
   settings: SyncedSettings;
   device: DeviceSettings;
+  /** Counts pane-width resets, so a mounted pane that keeps its own state can start over. */
+  paneResets: number;
   revision: string | null;
   pending: SyncedKey[];
   pendingSince: string | null;
@@ -102,8 +150,16 @@ export interface SettingsState {
   activate(user: { id: number | string; role: string | null } | null): Promise<void>;
   update(patch: Partial<SyncedSettings>): void;
   updateDevice(patch: Partial<DeviceSettings>): void;
+  /** Saves (or, with null, forgets) one pane pair's size on this device; other panes stay as they are. */
+  setPane(key: string, pane: PaneState | null): void;
   /** Remembers an editor toggle on this device only: no sync, no pending marker, no prompt. */
   remember(patch: Remembered): void;
+  /**
+   * Forgets every saved pane width (and the old single split) and the Compendium zoom on this
+   * device. Mounted panes see
+   * the empty map at once; returns false, with a notice, when the browser refused the write.
+   */
+  resetPaneWidths(): boolean;
   /** Called when leaving the Settings page; no-op unless changes are waiting. */
   sync(options?: { keepalive?: boolean }): Promise<void>;
   /** Best-effort sync when the tab is hidden or closed, only for this visit's own edits. */
@@ -115,7 +171,6 @@ export interface SettingsState {
   keepLocal(): Promise<void>;
   useRemote(): void;
   retry(): Promise<void>;
-  resetLayout(): void;
 }
 
 function browserStorage(): SettingsStorage {
@@ -142,9 +197,40 @@ function browserStorage(): SettingsStorage {
 
 export function applyDeviceSettings(device: DeviceSettings): void {
   if (typeof document === 'undefined') return;
+  applyTheme(device.theme);
   document.documentElement.dataset.editorFont = device.editorFont;
-  if (device.textSize === 'large') document.documentElement.dataset.textSize = 'large';
-  else delete document.documentElement.dataset.textSize;
+  currentScale = device.uiScale;
+  applyScale();
+  if (!resizeBound && typeof window !== 'undefined') {
+    resizeBound = true;
+    window.addEventListener('resize', applyScale);
+  }
+}
+
+let currentScale = 100;
+let resizeBound = false;
+
+/**
+ * The scale the page can actually take at this window width. The layout changes shape at 700px
+ * (phone) and is designed to hold down to 701px, and a scaled interface behaves like a window
+ * `scale` times narrower, so a scale that would squeeze a tablet-width window below 701px is
+ * limited to what fits (a phone window keeps the phone layout and is limited only by 260px).
+ */
+export function appliedUiScale(scale: number, width: number): number {
+  if (scale <= 100) return scale;
+  const floor = width > 700 ? 710 : 260;
+  return Math.max(100, Math.min(scale, Math.floor((width / floor) * 100)));
+}
+
+function applyScale() {
+  const root = document.documentElement;
+  const applied = appliedUiScale(currentScale, window.innerWidth || 1280);
+  // Every size in the interface is rem-based, so the root font size scales all of it at once and
+  // composes with the browser's own zoom and default font size (a percentage of both).
+  if (applied === 100) root.style.removeProperty('font-size');
+  else root.style.fontSize = `${applied}%`;
+  root.dataset.uiScale = String(applied);
+  window.dispatchEvent(new Event('clarity-ui-scale'));
 }
 
 const same = (a: SyncedSettings | null, b: SyncedSettings | null) =>
@@ -159,6 +245,18 @@ function readSynced(raw: unknown): SyncedSettings {
     if (result.success) Object.assign(settings, { [key]: result.data });
   }
   return settings;
+}
+
+/** Entry-wise: a bad key or value drops only that pane, never the others. */
+function readPanes(raw: unknown): Record<string, PaneState> {
+  const panes: Record<string, PaneState> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return panes;
+  for (const [key, value] of Object.entries(raw)) {
+    if (!paneKeyPattern.test(key)) continue;
+    const result = paneStateSchema.safeParse(value);
+    if (result.success) panes[key] = result.data;
+  }
+  return panes;
 }
 
 const storedSchema = z.object({
@@ -281,19 +379,38 @@ export function createSettingsStore({
       /* Defaults below. */
     }
     const editorFont = deviceSettingsSchema.shape.editorFont.safeParse(record.editorFont);
-    const textSize = deviceSettingsSchema.shape.textSize.safeParse(record.textSize);
+    // "Text size: Large" (the old two-step setting) was 112.5 %; the nearest step carries over.
+    const storedScale = record.uiScale ?? (record.textSize === 'large' ? 115 : 100);
+    const uiScale =
+      typeof storedScale === 'number' && Number.isFinite(storedScale)
+        ? Math.min(uiScaleMax, Math.max(uiScaleMin, Math.round(storedScale)))
+        : 100;
     const stored =
       record.remembered && typeof record.remembered === 'object'
         ? (record.remembered as Record<string, unknown>)
         : {};
     const remembered: Remembered = { ...legacy };
-    for (const key of ['markupToolbar', 'englishSource', 'compendiumDiff'] as const) {
+    for (const key of [
+      'markupToolbar',
+      'englishSource',
+      'compendiumDiff',
+      'compendiumSurface',
+    ] as const) {
       const result = rememberedSchema.shape[key].safeParse(stored[key]);
       if (result.success && result.data) Object.assign(remembered, { [key]: result.data });
     }
+    const theme = deviceSettingsSchema.shape.theme.safeParse(record.theme);
     return {
-      textSize: textSize.success ? textSize.data : 'default',
+      uiScale,
       editorFont: editorFont.success ? editorFont.data : 'default',
+      theme: theme.success ? theme.data : 'system',
+      panes: readPanes(record.panes),
+      compendiumScale: normalizeCompendiumScale(record.compendiumScale),
+      suggestAccept:
+        record.suggestAccept === 'tab' || record.suggestAccept === 'enter'
+          ? record.suggestAccept
+          : 'enter',
+      symbolReveal: record.symbolReveal === 'caret' ? 'caret' : 'popover',
       remembered,
     };
   }
@@ -552,6 +669,7 @@ export function createSettingsStore({
       scope: 'anonymous',
       ...initial,
       device,
+      paneResets: 0,
       status: 'device',
       reason: syncEnabled ? 'signed-out' : 'no-api',
       error: '',
@@ -617,6 +735,14 @@ export function createSettingsStore({
         const device = { ...get().device, ...patch };
         set({ device, notice: write(deviceKey, device) });
         applyDeviceSettings(device);
+      },
+
+      setPane(key, pane) {
+        if (!paneKeyPattern.test(key)) return;
+        const panes = { ...get().device.panes };
+        if (pane) panes[key] = paneStateSchema.parse(pane);
+        else delete panes[key];
+        get().updateDevice({ panes });
       },
 
       async sync({ keepalive = false } = {}) {
@@ -689,13 +815,23 @@ export function createSettingsStore({
         return get().sync();
       },
 
-      resetLayout() {
+      resetPaneWidths() {
+        const device = {
+          ...get().device,
+          panes: {},
+          compendiumScale: defaultCompendiumScale,
+        };
+        // Mounted panes read the store, so they snap back even if the browser cannot save.
+        set({ device, paneResets: get().paneResets + 1 });
         try {
           storage.remove(layoutKey);
-          set({ notice: '' });
         } catch (error) {
-          set({ notice: `Cannot reset the layout: ${errorMessage(error)}` });
+          set({ notice: `Cannot reset pane widths and Compendium zoom: ${errorMessage(error)}` });
+          return false;
         }
+        const failed = write(deviceKey, device);
+        set({ notice: failed });
+        return !failed;
       },
     };
   });

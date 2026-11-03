@@ -1,9 +1,13 @@
 import { EnglishDiffContent } from '../translations/EnglishDiff';
 import { useSettingsStore } from '../../stores/settings';
+import { RightPane, RightPaneHeader } from '../../ui/RightPane';
 import styles from './TooltipPage.module.scss';
 
-/** Read-only English markup that a translation is based on. */
-
+/**
+ * The English the translation follows, in the right pane: read-only markup, or, when the English
+ * has changed since the translation, what changed. "Shows" picks which; the last pick is kept on
+ * this device and Settings gives the default until then.
+ */
 export function TranslationSource({
   text,
   diff,
@@ -11,29 +15,36 @@ export function TranslationSource({
   text: string | undefined;
   diff?: { hash: number; sourceUpdatedAt: string; current: string };
 }) {
-  // The last click is remembered on this device; Settings gives the default until then.
   const remembered = useSettingsStore((state) => state.device.remembered.englishSource);
   const fallback = useSettingsStore((state) => state.settings.englishSource);
   const remember = useSettingsStore((state) => state.remember);
   const showChanges = (remembered ?? fallback) === 'changes';
-  const toggle = () => remember({ englishSource: showChanges ? 'current' : 'changes' });
 
   return (
-    <>
-      <h3>English source</h3>
-      {diff && (
-        <>
-          <h3>English changes since this translation</h3>
-          <button
-            type="button"
-            aria-label="Show English changes"
-            aria-pressed={showChanges}
-            onClick={toggle}
-          >
-            {showChanges ? 'Current English' : 'Show changes'}
-          </button>
-        </>
-      )}
+    <RightPane
+      label="English source"
+      header={
+        <RightPaneHeader title="English">
+          {diff && (
+            <label className={styles.showsLabel}>
+              <span>Shows:</span>
+              <select
+                aria-label="English shows"
+                value={showChanges ? 'changes' : 'current'}
+                onChange={(event) =>
+                  remember({
+                    englishSource: event.target.value === 'changes' ? 'changes' : 'current',
+                  })
+                }
+              >
+                <option value="changes">Changes since translation</option>
+                <option value="current">Current English</option>
+              </select>
+            </label>
+          )}
+        </RightPaneHeader>
+      }
+    >
       {diff && showChanges ? (
         <EnglishDiffContent {...diff} />
       ) : text ? (
@@ -43,6 +54,6 @@ export function TranslationSource({
       ) : (
         <p>This tooltip has no English text yet.</p>
       )}
-    </>
+    </RightPane>
   );
 }

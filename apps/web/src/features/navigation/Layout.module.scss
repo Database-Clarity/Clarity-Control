@@ -1,30 +1,151 @@
 @use '../../data/variables' as theme;
 
+// Header on top, then the body: [left column | divider | page]. The editor fills the window and
+// its column and page scroll on their own; other workspaces keep document scrolling and a sticky
+// list column. Notices hang from the header and take no part in this layout.
 .layout {
-  display: grid;
-  grid-template-columns: 17rem minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   min-height: 100vh;
 }
 
-.sidebar {
-  padding: 0.75rem;
-  background: hsl(240, 7%, 14%);
-  border-right: 1px solid theme.$button-border-color;
-  height: 100vh;
-  overflow: auto;
-  position: sticky;
-  top: 0;
-  box-sizing: border-box;
+.body {
+  position: relative;
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, auto);
+  min-width: 0;
 }
 
-.tooltipNavigation {
-  display: grid;
-  gap: 0.6rem;
-  margin-bottom: 1rem;
-  small {
-    color: #aaa;
-    font-size: 0.75rem;
+.mainCol {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+// The left column. Explicit placement keeps the divider and the page in their tracks when the
+// column is hidden (a hidden element takes no grid cell).
+.body[data-column] {
+  grid-template-columns: var(--left-w) 1rem minmax(0, 1fr);
+
+  .left {
+    grid-column: 1;
+    grid-row: 1;
   }
+
+  .dividerCell {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .mainCol {
+    grid-column: 3;
+  }
+}
+
+.left {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: var(--col);
+  outline: none;
+
+  &[hidden] {
+    display: none;
+  }
+
+  // Queue lists (Compendium, Review): stay in view while the page scrolls.
+  &[data-list] {
+    position: sticky;
+    top: var(--header-h, 37px);
+    align-self: start;
+    height: calc(100dvh - var(--header-h, 37px));
+    padding: 0.75rem;
+  }
+}
+
+.leftHost {
+  display: block;
+  padding: 0.5rem 0.75rem 1rem;
+}
+
+.dividerCell {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  background: var(--col);
+
+  // Hidden column: the cell is the re-open tab, and the line closes it off.
+  &[data-collapsed] {
+    border-right: 1px solid var(--line);
+    box-sizing: border-box;
+  }
+}
+
+.divider {
+  flex: 1 1 auto;
+}
+
+// The collapse / re-open button sits at the top of the 16px track. Its touch area is larger than
+// it looks on coarse pointers.
+.toggle {
+  position: absolute;
+  top: 0.375rem;
+  left: 1px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  width: 0.875rem;
+  height: 1.75rem;
+  padding: 0;
+  font: inherit;
+  font-size: 0.875rem;
+  line-height: 1;
+  color: var(--text2);
+  background: var(--col);
+  border: 1px solid var(--line);
+  border-radius: 0.1875rem;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--text);
+    border-color: var(--ctl-hover-edge);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent-ink);
+    outline-offset: 1px;
+  }
+
+  @include theme.mobile-or-coarse {
+    &::after {
+      content: '';
+      position: absolute;
+      inset: -8px -14px;
+    }
+  }
+}
+
+.dividerCell[data-collapsed] .toggle {
+  height: 2.5rem;
+  color: var(--text);
+}
+
+.dot {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 50%;
+  background: var(--warn);
 }
 
 .sidebarNavigation {
@@ -46,12 +167,12 @@
   }
 
   a[aria-current='page'] {
-    color: theme.$orange-color;
+    color: var(--accent-ink);
     font-weight: 700;
   }
 
   small {
-    color: hsl(0, 0%, 72%);
+    color: var(--text2);
     overflow-wrap: anywhere;
   }
 }
@@ -64,78 +185,15 @@
   list-style: none;
 }
 
-.sidebarBody {
-  min-width: 0;
-}
-
-.stepper {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-
-  span {
-    text-align: center;
-    color: hsl(0, 0%, 72%);
-    font-size: 0.8rem;
-  }
-}
-
-.tooltipNavigation label,
-.pageSelection {
-  display: grid;
-  gap: 0.2rem;
-  font-size: 0.8rem;
-  input,
-  select {
-    width: 100%;
-    min-width: 0;
-    box-sizing: border-box;
-    padding: 0.4rem;
-    color: #eee;
-    background: #19191d;
-    border: 1px solid #666;
-    border-radius: 0.2rem;
-  }
-
-  .recoveredText {
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-  }
-}
-
-.pageSelection {
-  margin-bottom: 1rem;
-}
-
-.brand {
-  display: grid;
-  gap: 0.2rem;
-  margin-bottom: 1rem;
-
-  strong {
-    color: theme.$orange-color;
-    font-size: 1.3rem;
-  }
-
-  span {
-    color: hsl(0, 0%, 72%);
-    font-size: 0.85rem;
-  }
-}
-
-.status {
-  margin-top: 2rem;
-  color: hsl(0, 0%, 68%);
-  font-size: 0.75rem;
-  line-height: 1.5;
-}
-
 .main {
   padding: clamp(1.25rem, 4vw, 3rem);
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+// Review and Compendium pages are wide tables and lists; they use a tighter frame than prose pages.
+.reviewMode .main {
+  padding: clamp(1rem, 3vw, 2rem);
 }
 
 .skipLink {
@@ -143,215 +201,62 @@
   top: -5rem;
   left: 1rem;
   padding: 0.8rem;
-  background: hsl(240, 7%, 10%);
-  z-index: 1;
+  background: var(--page);
+  z-index: 70;
 
   &:focus {
     top: 1rem;
   }
 }
 
-.navToggle {
-  display: none;
-}
+// Desktop editor: the window is the frame; the left column and the page scroll separately.
+@media (min-width: 701px) {
+  .layout[data-fixed] {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
 
-// Shift+Scroll and arrow keys cannot be used on touch devices.
-@include theme.coarse-pointer {
-  .pointerHelp {
-    display: none;
-  }
-}
-
-// .saveDock has no desktop rules: the save panel stays in the sidebar flow where AuthStatus put it.
-
-@include theme.mobile {
-  .layout {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto 1fr;
-  }
-
-  .main {
-    padding: 0.75rem;
-    // --save-dock-height is the measured border-box height of the fixed dock (set in Layout.tsx);
-    // the fallback only applies until it is measured or when ResizeObserver is unavailable.
-    padding-bottom: calc(
-      0.75rem + var(--save-dock-height, calc(5rem + env(safe-area-inset-bottom, 0px)))
-    );
-  }
-
-  .sidebar {
-    height: auto;
-    position: static;
-    border-right: 0;
-    border-bottom: 1px solid theme.$button-border-color;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-
-    > .brand {
-      grid-column: 1;
-      margin-bottom: 0;
-    }
-
-    > .navToggle {
-      display: block;
-      grid-column: 2;
-    }
-
-    .sidebarBody {
-      display: contents;
-    }
-
-    &[data-open='false'] .sidebarBody > :not(.stepper, .saveDock) {
-      display: none;
-    }
-
-    &[data-open='true'] {
-      position: fixed;
-      inset: 0;
-      z-index: 10;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      grid-template-rows: auto minmax(0, 1fr);
-      align-items: start;
-      height: 100vh;
-      height: 100dvh;
-      max-height: 100dvh;
-      overflow: hidden;
-      border: 0;
-      padding-bottom: env(safe-area-inset-bottom, 0px);
-    }
-
-    &[data-open='true'] > .brand,
-    &[data-open='true'] > .navToggle {
-      grid-row: 1;
-      margin: 0;
-    }
-
-    &[data-open='true'] .sidebarBody {
-      display: block;
-      grid-column: 1 / -1;
-      grid-row: 2;
-      align-self: stretch;
+    .body {
+      flex: 1 1 0;
       min-height: 0;
-      overflow-x: hidden;
-      overflow-y: auto;
-      overscroll-behavior: contain;
-      padding-top: 0.75rem;
-      overflow-wrap: anywhere;
-    }
-
-    &[data-open='true'] .saveDock {
-      position: static;
-      inset: auto;
-      z-index: auto;
-      margin-inline: -0.75rem;
-      border-top: 1px solid theme.$button-border-color;
-    }
-  }
-
-  .saveDock {
-    position: fixed;
-    inset-inline: 0;
-    bottom: 0;
-    z-index: 2;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem 0.75rem;
-    padding: 0.5rem 0.75rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
-    background: hsl(240, 7%, 14%);
-    border-top: 1px solid theme.$button-border-color;
-    box-sizing: border-box;
-
-    &[data-idle='true'] {
-      display: none;
-    }
-
-    > p {
-      margin: 0;
-    }
-
-    > p[role='status'] {
-      flex-basis: 100%;
-    }
-  }
-}
-
-@include theme.mobile {
-  .editorMode {
-    .sidebar {
-      grid-template-columns: auto minmax(0, 1fr) auto;
-      gap: 0.25rem;
-      padding: 0.25rem 0.5rem;
-    }
-
-    .sidebar > .brand {
-      grid-column: 1;
-      grid-row: 1;
-      margin: 0;
-
-      span {
-        display: none;
-      }
-    }
-
-    .sidebar .sidebarBody > .stepper {
-      grid-column: 2;
-      grid-row: 1;
-      gap: 0.25rem;
-      margin: 0;
-      min-width: 0;
-
-      span {
-        font-size: 0.75rem;
-        white-space: nowrap;
-      }
-    }
-
-    .sidebar > .navToggle {
-      grid-column: 3;
-      grid-row: 1;
+      grid-template-rows: minmax(0, 1fr);
     }
 
     .main {
-      padding-top: 0.25rem;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: auto;
+      overscroll-behavior: contain;
+      // The editor page's workspace fills this scroller's height (the text scrolls inside).
+      display: flex;
+      flex-direction: column;
+      padding: 0.25rem 1rem 0.75rem;
     }
+  }
+}
+
+@include theme.mobile {
+  .main {
+    padding: 0.75rem;
+  }
+
+  .editorMode .main {
+    padding-top: 0.25rem;
   }
 }
 
 @include theme.mobile-or-coarse {
   .sidebarNavigation a {
-    min-height: 44px;
+    min-height: max(44px, 2.75rem);
     box-sizing: border-box;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     column-gap: 0.25rem;
   }
-
-  .sidebar,
-  .saveDock {
-    button,
-    select,
-    input:not([type='checkbox'], [type='radio']),
-    summary {
-      min-height: 44px;
-    }
-  }
 }
 
-@media (max-width: 700px) {
-  .reviewMode .sidebar {
-    .status,
-    .brand span {
-      display: none;
-    }
-    .brand {
-      margin-bottom: 0.4rem;
-    }
-    .pageSelection {
-      margin-bottom: 0.4rem;
-    }
-  }
+// Shell slots are placed by the page that publishes into them; empty, they take no space.
+.slotHost {
+  display: contents;
 }

@@ -1,18 +1,57 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { resolveCompendiumLink, snapshotCompendium, type Tooltip } from '@clarity/core';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
+import { compendiumScales, useSettingsStore } from '../../stores/settings';
 import { apiUrl } from '../../services/api';
 import { reviewSaveChanges, useSaveState } from '../../services/save/state';
 import { itemFor } from '../navigation/catalog';
-import { CompendiumDiff } from './CompendiumDiff';
+import { CompendiumDiff, CompendiumDiffModeToggle, useCompendiumDiffMode } from './CompendiumDiff';
 import { RichCell } from './RichCell';
+import { SheetCell, SheetColoursToggle } from './sheetSurface';
 import { LinkPicker } from './LinkPicker';
 import { useCompendiumStore } from './store';
 import { When } from '../../ui/When';
+import { RightPane, RightPaneHeader } from '../../ui/RightPane';
+import { useElementWidth } from '../../ui/useElementWidth';
+import { phoneQuery, useMedia } from '../../ui/useMedia';
+import { scaledPx } from '../../ui/scale';
 import styles from './Compendium.module.scss';
 import { confirmCompendiumSelection } from './selection';
+
+/**
+ * Below this pane width (design pixels at 100 % interface scale; scaledPx() follows the scale) the
+ * Changes / Before-After switch moves from the header to above the diff. Measured: title + switch +
+ * Relink + sheet colours + zoom need 373px, so the default 384px pane keeps it in the header
+ * with room to spare for font rounding.
+ */
+const HEADER_TOGGLE_MIN = 381;
+
+/** Compendium zoom (70–100 %), kept on this device: − / value / +. */
+function ScaleControl() {
+  const scale = useSettingsStore((state) => state.device.compendiumScale);
+  const updateDevice = useSettingsStore((state) => state.updateDevice);
+  const index = Math.max(0, compendiumScales.indexOf(scale as (typeof compendiumScales)[number]));
+  const step = (by: number) =>
+    updateDevice({ compendiumScale: compendiumScales[index + by] ?? scale });
+  return (
+    <span className={styles.scale} role="group" aria-label="Compendium zoom">
+      <button type="button" aria-label="Smaller" disabled={index === 0} onClick={() => step(-1)}>
+        −
+      </button>
+      <output aria-live="polite">{scale}%</output>
+      <button
+        type="button"
+        aria-label="Larger"
+        disabled={index === compendiumScales.length - 1}
+        onClick={() => step(1)}
+      >
+        +
+      </button>
+    </span>
+  );
+}
 
 export function CompendiumPanel({ base }: { base: Tooltip }) {
   const { data: compendium, loading, error, load } = useCompendiumStore();
@@ -23,6 +62,16 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
   const user = useAuthStore((state) => state.user);
   const saving = useSaveState((state) => state.locked);
   const [picking, setPicking] = useState(false);
+  const scale = useSettingsStore((state) => state.device.compendiumScale);
+  const [diffMode, setDiffMode] = useCompendiumDiffMode();
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const width = useElementWidth(bodyRef);
+  // Unmeasured (no layout) counts as roomy; a narrow pane puts the switch above the diff instead.
+  // Touch-sized controls (phone, coarse pointer) are wider than the measure below allows for.
+  const phone = useMedia(phoneQuery);
+  const coarse = useMedia('(pointer: coarse)');
+  const touch = phone || coarse;
+  const roomy = !touch && (width === undefined || width >= scaledPx(HEADER_TOGGLE_MIN));
   const tooltip = draft?.next ?? base;
   const link = tooltip.compendium;
   const canEdit =
@@ -42,148 +91,181 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
       ? resolution
       : undefined;
   const item = data && itemFor(base.hash, data);
+  const diffToggle = <CompendiumDiffModeToggle mode={diffMode} onChange={setDiffMode} />;
   return (
-    <aside className={styles.panel} aria-label={`Compendium for ${item?.name ?? base.hash}`}>
-      <h3>Compendium</h3>
-      {loading && <p role="status">Loading Compendium...</p>}
-      {error && (
-        <p role="alert">
-          {error}{' '}
-          <button type="button" onClick={() => void load(true)}>
-            Retry
-          </button>
-        </p>
-      )}
-      {compendium && (
-        <small>
-          Source fetched <When value={compendium.fetchedAt} />
-        </small>
-      )}
-      {!link && <p>No Compendium row linked yet.</p>}
-      {link && (
-        <>
-          <p>
-            {link.rowKey} {link.section && `/ ${link.section}`} / tab {link.gid}
+    <RightPane
+      label={`Compendium for ${item?.name ?? base.hash}`}
+      bodyRef={bodyRef}
+      header={
+        <RightPaneHeader title="Compendium">
+          {match && roomy && diffToggle}
+          {canEdit && (
+            <button
+              type="button"
+              className={styles.headerButton}
+              aria-pressed={picking}
+              aria-label={picking ? 'Close picker' : link ? 'Pick other row' : 'Link a row'}
+              onClick={() => setPicking(!picking)}
+            >
+              {picking ? 'Close' : link ? 'Relink' : 'Link row'}
+            </button>
+          )}
+          <SheetColoursToggle />
+          <ScaleControl />
+        </RightPaneHeader>
+      }
+    >
+      <div className={styles.zoom} style={{ zoom: scale / 100 }} data-scale={scale}>
+        {picking && canEdit && (
+          <div className={styles.picker}>
+            <LinkPicker
+              base={base}
+              name={item?.name ?? base.custom?.name ?? ''}
+              category={item?.categoryId ?? 'other'}
+              onLinked={() => setPicking(false)}
+            />
+          </div>
+        )}
+        {loading && <p role="status">Loading Compendium...</p>}
+        {error && (
+          <p role="alert">
+            {error}{' '}
+            <button type="button" onClick={() => void load(true)}>
+              Retry
+            </button>
           </p>
-          <small>
-            Snapshot <When value={link.snapshotAt} />
-          </small>
-          {match && (
-            <>
-              <p className={match.status === 'ok' ? undefined : styles.warning}>
-                {match.status === 'moved'
-                  ? `Moved to ${match.tab.name} / ${match.row.name}; follows automatically and is saved on the next English save or review.`
-                  : match.status === 'changed'
-                    ? 'Compendium text or styling has changed.'
-                    : 'Matches the saved snapshot.'}
-              </p>
-              <a
-                href={`https://docs.google.com/spreadsheets/d/1WaxvbLx7UoSZaBqdFr1u32F2uWVLo-CJunJB4nlGUE4/htmlview#gid=${match.tab.gid}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open source tab
-              </a>
-              <CompendiumDiff before={link.snapshot} after={match.row.cell} />
-              {canReview && (
-                <div className={styles.actions}>
-                  <button
-                    type="button"
-                    disabled={!!draft || match.status === 'ok'}
-                    onClick={() => {
-                      reviewSaveChanges([
-                        {
-                          hash: base.hash,
-                          base,
-                          next: { ...base, compendium: snapshotCompendium(match) },
-                        },
-                      ]);
-                    }}
-                  >
-                    Mark as reviewed
-                  </button>
-                  {draft && (
-                    <small>Save or discard this tooltip's draft before marking reviewed.</small>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-          {(resolution?.status === 'candidates' || resolution?.status === 'relink-suggested') && (
-            <>
-              <p className={styles.warning}>
-                {resolution.status === 'relink-suggested'
-                  ? 'A renamed row has similar content. Confirm the selected suggestion or choose another.'
-                  : 'Needs relink: the old name is ambiguous or missing. Confirm a suggested row or search.'}
-              </p>
-              <ul className={styles.rows}>
-                {(resolution.status === 'relink-suggested'
-                  ? [resolution.candidate]
-                  : resolution.candidates
-                ).map((candidate) => (
-                  <li
-                    key={`${candidate.tab.gid}:${candidate.row.rowIndex}:${candidate.row.anchor?.col ?? 0}`}
-                  >
-                    <p>
-                      {candidate.tab.name} / {candidate.row.name}{' '}
-                      {candidate.row.section && `/ ${candidate.row.section}`} (
-                      {Math.round(candidate.similarity * 100)}% content match)
-                    </p>
-                    <div className={styles.cell}>
-                      <RichCell cell={candidate.row.cell} />
-                    </div>
-                    {canEdit && (
-                      <button
-                        type="button"
-                        disabled={!compendium || !confirmCompendiumSelection(candidate, compendium)}
-                        onClick={() => {
-                          if (!compendium) return;
-                          const confirmed = confirmCompendiumSelection(candidate, compendium);
-                          if (!confirmed) return;
-                          updateDraft(base, (tooltip) => ({
-                            ...tooltip,
-                            compendium: confirmed,
-                          }));
-                        }}
-                      >
-                        {resolution.status === 'relink-suggested' &&
-                        candidate === resolution.candidate
-                          ? 'Confirm suggested relink'
-                          : 'Link this row'}
-                      </button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-              {resolution.status === 'relink-suggested' && canEdit && (
-                <button type="button" onClick={() => setPicking(true)}>
-                  Choose another
-                </button>
-              )}
-            </>
-          )}
-          {resolution?.status === 'missing' && (
-            <p className={styles.warning}>
-              Needs relink: no matching row or similar content found.
-            </p>
-          )}
-          {!match && (
-            <div className={styles.cell}>
-              <RichCell cell={link.snapshot} />
-            </div>
-          )}
-        </>
-      )}
-      {canEdit && (
-        <div className={styles.actions}>
-          <button type="button" onClick={() => setPicking(!picking)}>
-            {picking
-              ? 'Close row picker'
-              : link
-                ? 'Pick description cells / relink'
-                : 'Link a row / pick description cells'}
-          </button>
+        )}
+        {!link && <p>No Compendium row linked yet.</p>}
+        <p className={styles.meta}>
           {link && (
+            <>
+              <span>
+                {link.rowKey} {link.section && `/ ${link.section}`} / tab {link.gid}
+              </span>{' '}
+              <span>
+                Snapshot <When value={link.snapshotAt} />
+              </span>{' '}
+            </>
+          )}
+          {compendium && (
+            <span>
+              Source fetched <When value={compendium.fetchedAt} />
+            </span>
+          )}
+        </p>
+        {link && (
+          <>
+            {match && (
+              <>
+                <p className={match.status === 'ok' ? undefined : styles.warning}>
+                  {match.status === 'moved'
+                    ? `Moved to ${match.tab.name} / ${match.row.name}; follows automatically and is saved on the next English save or review.`
+                    : match.status === 'changed'
+                      ? 'Compendium text or styling has changed.'
+                      : 'Matches the saved snapshot.'}{' '}
+                  <a
+                    href={`https://docs.google.com/spreadsheets/d/1WaxvbLx7UoSZaBqdFr1u32F2uWVLo-CJunJB4nlGUE4/htmlview#gid=${match.tab.gid}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open source tab
+                  </a>
+                </p>
+                {!roomy && <div className={styles.diffModes}>{diffToggle}</div>}
+                <CompendiumDiff before={link.snapshot} after={match.row.cell} mode={diffMode} />
+                {canReview && (
+                  <div className={styles.actions}>
+                    <button
+                      type="button"
+                      disabled={!!draft || match.status === 'ok'}
+                      onClick={() => {
+                        reviewSaveChanges([
+                          {
+                            hash: base.hash,
+                            base,
+                            next: { ...base, compendium: snapshotCompendium(match) },
+                          },
+                        ]);
+                      }}
+                    >
+                      Mark as reviewed
+                    </button>
+                    {draft && (
+                      <small>Save or discard this tooltip's draft before marking reviewed.</small>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+            {(resolution?.status === 'candidates' || resolution?.status === 'relink-suggested') && (
+              <>
+                <p className={styles.warning}>
+                  {resolution.status === 'relink-suggested'
+                    ? 'A renamed row has similar content. Confirm the selected suggestion or choose another.'
+                    : 'Needs relink: the old name is ambiguous or missing. Confirm a suggested row or search.'}
+                </p>
+                <ul className={styles.rows}>
+                  {(resolution.status === 'relink-suggested'
+                    ? [resolution.candidate]
+                    : resolution.candidates
+                  ).map((candidate) => (
+                    <li
+                      key={`${candidate.tab.gid}:${candidate.row.rowIndex}:${candidate.row.anchor?.col ?? 0}`}
+                    >
+                      <p>
+                        {candidate.tab.name} / {candidate.row.name}{' '}
+                        {candidate.row.section && `/ ${candidate.row.section}`} (
+                        {Math.round(candidate.similarity * 100)}% content match)
+                      </p>
+                      <SheetCell background={candidate.row.cell.background}>
+                        <RichCell cell={candidate.row.cell} />
+                      </SheetCell>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          disabled={
+                            !compendium || !confirmCompendiumSelection(candidate, compendium)
+                          }
+                          onClick={() => {
+                            if (!compendium) return;
+                            const confirmed = confirmCompendiumSelection(candidate, compendium);
+                            if (!confirmed) return;
+                            updateDraft(base, (tooltip) => ({
+                              ...tooltip,
+                              compendium: confirmed,
+                            }));
+                          }}
+                        >
+                          {resolution.status === 'relink-suggested' &&
+                          candidate === resolution.candidate
+                            ? 'Confirm suggested relink'
+                            : 'Link this row'}
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                {resolution.status === 'relink-suggested' && canEdit && (
+                  <button type="button" onClick={() => setPicking(true)}>
+                    Choose another
+                  </button>
+                )}
+              </>
+            )}
+            {resolution?.status === 'missing' && (
+              <p className={styles.warning}>
+                Needs relink: no matching row or similar content found.
+              </p>
+            )}
+            {!match && (
+              <SheetCell>
+                <RichCell cell={link.snapshot} />
+              </SheetCell>
+            )}
+          </>
+        )}
+        {canEdit && link && (
+          <div className={styles.actions}>
             <button
               type="button"
               onClick={() =>
@@ -196,17 +278,9 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
             >
               Unlink (local draft)
             </button>
-          )}
-        </div>
-      )}
-      {picking && canEdit && (
-        <LinkPicker
-          base={base}
-          name={item?.name ?? base.custom?.name ?? ''}
-          category={item?.categoryId ?? 'other'}
-          onLinked={() => setPicking(false)}
-        />
-      )}
-    </aside>
+          </div>
+        )}
+      </div>
+    </RightPane>
   );
 }

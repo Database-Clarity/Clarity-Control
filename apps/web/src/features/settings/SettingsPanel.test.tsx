@@ -7,13 +7,13 @@ import { defaultSyncedSettings } from '@clarity/core';
 import { fakeServer } from '../../stores/settings.testSupport';
 import { layoutKey, settingsKey, useSettingsStore } from '../../stores/settings';
 import { CommitAuthor } from '../history/CommitAuthor';
-import { SettingsNotice } from './SettingsChoice';
+import { useSettingsNotices } from './SettingsChoice';
+import { NoticeStrip } from '../navigation/NoticeStrip';
 import { RememberRoute, SettingsRedirect } from './SettingsRedirect';
 import { SettingsPopover } from './SettingsPopover';
 import { useSettingsPanel } from './panel';
 import { SettingsSync } from './SettingsSync';
-import { MarkupToolbar } from '../editor/MarkupToolbar';
-import type { MarkupGlobals } from '@clarity/core';
+import { useMarkupRow } from '../editor/markupRow/useMarkupRow';
 
 const holder = vi.hoisted(() => {
   // Node's own (flag-gated) localStorage shadows jsdom's; install a real one before the
@@ -72,6 +72,11 @@ function Where() {
     </>
   );
 }
+/** What the layout shows outside Settings: the sync notices, as overlay strips. */
+function SettingsNotice() {
+  return <NoticeStrip notices={useSettingsNotices()} />;
+}
+
 /** The layout's settings wiring: sync, route memory, the Settings button, the popover. */
 function Shell({ children }: { children?: ReactNode }) {
   const layout = useRef<HTMLDivElement>(null);
@@ -114,6 +119,21 @@ const field = (label: string) =>
   [...document.querySelectorAll('label')]
     .find((element) => element.textContent?.startsWith(label))!
     .querySelector('select')!;
+const scaleInput = () =>
+  [...document.querySelectorAll('label')]
+    .find((element) => element.textContent?.startsWith('Interface scale'))!
+    .querySelector('input')!;
+async function setScale(value: number) {
+  const input = scaleInput();
+  await act(async () => {
+    // React tracks the value property; the native setter makes the change visible to it.
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+      input,
+      String(value),
+    );
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
 async function choose(label: string, value: string) {
   const select = field(label);
   await act(async () => {
@@ -188,7 +208,7 @@ describe('Settings popover', () => {
     await act(async () => useSettingsStore.getState().activate(editor));
     await render();
     await openSettings();
-    await choose('Markup toolbar', 'open');
+    await choose('Markup row', 'open');
     await choose('English source shows', 'current');
     expect(holder.server.calls.put).toHaveLength(0);
     // Choosing a default here also applies it to this device's remembered toggles.
@@ -226,20 +246,30 @@ describe('Settings popover', () => {
     expect(document.activeElement).toBe(items.at(-1));
   });
 
-  it('keeps device settings local and applies large text immediately', async () => {
+  it('keeps device settings local and applies the interface scale immediately', async () => {
     await act(async () => useSettingsStore.getState().activate(editor));
     localStorage.setItem(layoutKey, '70');
     await render();
     await openSettings();
-    await choose('Text size', 'large');
-    expect(document.documentElement.dataset.textSize).toBe('large');
-    await act(async () => button('Reset editor layout').click());
+    await setScale(125);
+    expect(document.documentElement.style.fontSize).toBe('125%');
+    expect(document.documentElement.dataset.uiScale).toBe('125');
+    expect(useSettingsStore.getState().device.uiScale).toBe(125);
+    useSettingsStore
+      .getState()
+      .updateDevice({ panes: { 'editor:left': { width: 400, collapsed: false } } });
+    await act(async () => button('Reset pane widths and Compendium zoom').click());
     expect(localStorage.getItem(layoutKey)).toBeNull();
+    expect(useSettingsStore.getState().device.panes).toEqual({});
+    expect(popover()!.textContent).toContain(
+      'Pane widths and Compendium zoom reset to their defaults.',
+    );
     await act(async () => closeButton().click());
     expect(holder.server.calls.put).toHaveLength(0);
     await openSettings();
-    await choose('Text size', 'default');
-    expect(document.documentElement.dataset.textSize).toBeUndefined();
+    await act(async () => button('100%').click());
+    expect(document.documentElement.style.fontSize).toBe('');
+    expect(scaleInput().value).toBe('100');
   });
 
   it('applies the editor font immediately and keeps it local on close', async () => {
@@ -303,17 +333,22 @@ describe('Settings popover', () => {
     );
     await act(async () => useSettingsStore.getState().activate(editor));
     await render();
-    expect(host.textContent).toContain('Unsynced settings changes');
+    // Outside Settings only a notice shows; the choice itself is made inside Settings.
+    expect(host.textContent).toContain('Settings changed on this device were not synced');
+    expect(host.querySelector('td')).toBeNull();
+    await act(async () => button('Review in Settings').click());
+    expect(document.body.textContent).toContain('Unsynced settings changes');
+    expect(host.textContent).not.toContain('Review in Settings');
     // Each value cell names its column, so the rows still read when stacked on phones.
-    expect([...host.querySelectorAll('td')].map((cell) => cell.getAttribute('data-label'))).toEqual(
-      ['This device', 'Synced copy'],
-    );
-    expect(host.textContent).toContain('YYYY-MM-DD (2023-02-12)');
-    expect(host.textContent).toContain('MM/DD/YYYY (02/12/2023)');
+    expect(
+      [...document.querySelectorAll('td')].map((cell) => cell.getAttribute('data-label')),
+    ).toEqual(['This device', 'Synced copy']);
+    expect(document.body.textContent).toContain('YYYY-MM-DD (2023-02-12)');
+    expect(document.body.textContent).toContain('MM/DD/YYYY (02/12/2023)');
     expect(holder.server.calls.put).toHaveLength(0);
     await act(async () => button('Use synced settings').click());
     expect(useSettingsStore.getState().settings.dateFormat).toBe('mdy');
-    expect(host.textContent).not.toContain('Unsynced settings changes');
+    expect(document.body.textContent).not.toContain('Unsynced settings changes');
     expect(holder.server.calls.put).toHaveLength(0);
   });
 
@@ -325,8 +360,11 @@ describe('Settings popover', () => {
     holder.server.set({ ...defaultSyncedSettings, timeZone: 'Europe/Berlin' });
     await act(async () => closeButton().click());
     expect(host.textContent).toContain('Settings changed on another device');
-    expect(host.textContent).toContain('Asia/Tokyo');
-    expect(host.textContent).toContain('Europe/Berlin');
+    expect(host.textContent).not.toContain('Europe/Berlin');
+    await act(async () => button('Review in Settings').click());
+    expect(document.body.textContent).toContain('Settings changed on another device');
+    expect(document.body.textContent).toContain('Asia/Tokyo');
+    expect(document.body.textContent).toContain('Europe/Berlin');
     expect(holder.server.remote.settings?.timeZone).toBe('Europe/Berlin');
     await act(async () => button("Keep this device's settings").click());
     expect(holder.server.remote.settings?.timeZone).toBe('Asia/Tokyo');
@@ -348,15 +386,19 @@ describe('Settings popover', () => {
     expect(useSettingsStore.getState()).toMatchObject({ status: 'synced', pending: [] });
   });
 
-  it('remembers the markup toolbar per device without syncing or prompting', async () => {
+  it('remembers the markup row per device without syncing or prompting', async () => {
     await act(async () => useSettingsStore.getState().activate(editor));
     useSettingsStore.getState().update({ markupToolbar: 'open' });
     useSettingsStore.getState().updateDevice({ remembered: {} });
     await act(async () => useSettingsStore.getState().sync());
     const puts = holder.server.calls.put.length;
-    const toolbar = () => (
-      <MarkupToolbar editor={{ current: null }} globals={{} as MarkupGlobals} />
-    );
+    function Row() {
+      const row = useMarkupRow();
+      return (
+        <button onClick={row.toggle}>{row.open ? 'Hide markup tools' : 'Show markup tools'}</button>
+      );
+    }
+    const toolbar = () => <Row />;
     await render(toolbar());
     // No remembered click yet: the synced default applies.
     expect(button('Hide markup tools')).toBeTruthy();

@@ -25,7 +25,7 @@
   details summary {
     cursor: pointer;
     padding: 0.6rem 0;
-    min-height: 44px;
+    min-height: max(44px, 2.75rem);
     box-sizing: border-box;
   }
   p {
@@ -33,7 +33,7 @@
     overflow-wrap: anywhere;
   }
   button {
-    min-height: 44px;
+    min-height: max(44px, 2.75rem);
   }
 }
 .intro {
@@ -243,7 +243,7 @@
     position: fixed;
     left: 0;
     right: 0;
-    bottom: var(--save-dock-height, calc(5rem + env(safe-area-inset-bottom, 0px)));
+    bottom: env(safe-area-inset-bottom, 0px);
     z-index: 4;
     margin-inline: 0;
     padding: 0.5rem 0.75rem;
@@ -267,7 +267,7 @@
   }
   .sample > .actions {
     position: fixed;
-    bottom: var(--save-dock-height, 0px);
+    bottom: 0;
   }
 }
 

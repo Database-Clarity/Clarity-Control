@@ -24,8 +24,14 @@ vi.mock('../../services/api', async (original) => ({
   loginUrl: () => 'https://synthetic.invalid/auth/login',
   apiRequest: (path: string, init: RequestInit) => fetch(`https://synthetic.invalid${path}`, init),
 }));
-vi.mock('../../services/save/SavePanel', () => ({ SavePanel: () => null }));
-vi.mock('../compendium/CompendiumBadge', () => ({ CompendiumBadge: () => null }));
+vi.mock('../../services/save/SavePanel', () => ({
+  SavePanel: () => null,
+  SaveController: () => null,
+}));
+vi.mock('../compendium/CompendiumBadge', () => ({
+  CompendiumBadge: () => null,
+  useCompendiumCount: () => ({ state: 'ready', count: 0 }),
+}));
 
 const tooltip: Tooltip = {
   hash: 10,

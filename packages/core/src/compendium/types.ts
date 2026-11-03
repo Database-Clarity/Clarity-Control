@@ -25,6 +25,12 @@ export const compendiumCellSchema = z
   .object({
     plain: z.string(),
     runs: z.array(compendiumRunSchema),
+    // The cell's own background in the source sheet. Display only: never part of the cell's
+    // identity (sameCell ignores it) and never stored in a link snapshot.
+    background: z
+      .string()
+      .regex(/^#[0-9a-f]{6}$/)
+      .optional(),
   })
   .strict()
   .refine(
@@ -114,6 +120,12 @@ export function normaliseRuns(runs: CompendiumRun[]): CompendiumCell {
     else merged.push({ ...run });
   }
   return { plain: merged.map((run) => run.text).join(''), runs: merged };
+}
+
+/** The cell with the sheet background set (or removed when none). */
+export function withBackground(cell: CompendiumCell, background?: string): CompendiumCell {
+  const rest: CompendiumCell = { plain: cell.plain, runs: cell.runs };
+  return background ? { ...rest, background } : rest;
 }
 
 export function sameCell(a: CompendiumCell, b: CompendiumCell): boolean {

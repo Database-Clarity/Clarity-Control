@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { autoLinkCompendium } from './link.js';
 import { resolveCompendiumLink } from './resolve.js';
+import { setBonusCell } from './setBonus.js';
 import { compendiumDataSchema } from './types.js';
 import { exportLegacy } from '../exportLegacy.js';
 
@@ -79,5 +80,16 @@ describe('set-bonus identity and piece-count matching', () => {
       editor: { en: { main: 'Set bonus text' } },
     });
     expect(exported[900]).not.toHaveProperty('itemHash');
+  });
+});
+
+describe('set bonus sheet background', () => {
+  it('keeps the display-only background on the selected block', () => {
+    const cell = { plain: body, runs: [{ text: body }], background: '#2e3c4e' };
+    expect(setBonusCell(cell, 4)).toEqual({
+      plain: '4 Piece | Doppler Effect\nFour-piece text.',
+      runs: [{ text: '4 Piece | Doppler Effect\nFour-piece text.' }],
+      background: '#2e3c4e',
+    });
   });
 });

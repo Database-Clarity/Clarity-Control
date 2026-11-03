@@ -1,96 +1,96 @@
-// Dense, matches the completion popover and glyph warning: 12px, #252526 surface, #454545 hairlines.
+// Dense, matches the completion popover: 12px on the popover surface, token colours in both themes.
 .popover {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 0.25rem;
   width: max-content;
   min-width: 14rem;
   max-width: min(22rem, 90vw);
-  padding: 6px 8px;
-  font-size: 12px;
+  padding: 0.375rem 0.5rem;
+  font-size: 0.75rem;
   line-height: 1.35;
-  color: #e6e6e6;
+  color: var(--text);
 }
 .head {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: 2px 6px;
+  gap: 2px 0.375rem;
 }
 .kind {
-  color: #858585;
+  color: var(--text3);
   text-transform: uppercase;
-  font-size: 10px;
+  font-size: 0.625rem;
   letter-spacing: 0.04em;
 }
 .name {
-  color: #4ec9b0;
+  color: var(--var);
   font-family: var(--editor-font, Consolas, monospace);
   overflow-wrap: anywhere;
 }
 .origin {
-  color: #bdbdbd;
+  color: var(--text2);
   margin-left: auto;
 }
 .fallback {
-  color: #f2ce7e;
-  border: 1px solid #f2ce7e;
+  color: var(--warn);
+  border: 1px solid var(--warn-edge);
   border-radius: 2px;
-  padding: 0 3px;
-  font-size: 10px;
+  padding: 0 0.1875rem;
+  font-size: 0.625rem;
   text-decoration: none;
   cursor: help;
 }
 .missing {
-  color: #f2ce7e;
+  color: var(--warn);
 }
 .value {
   max-height: 14rem;
   overflow: auto;
-  border: 1px solid #454545;
+  border: 1px solid var(--line);
 }
 .more {
   margin: 0;
-  padding: 2px 8px;
-  color: #bdbdbd;
-  background: hsl(279, 36%, 5%);
+  padding: 2px 0.5rem;
+  color: var(--text2);
+  background: var(--editor);
 }
 .raw {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #9a9a9a;
+  color: var(--text3);
   font-family: var(--editor-font, Consolas, monospace);
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 .note {
   margin: 0;
-  color: #bdbdbd;
+  color: var(--text2);
 }
 .open {
   align-self: flex-start;
   display: inline-flex;
-  gap: 8px;
+  gap: 0.5rem;
   align-items: baseline;
-  padding: 1px 6px;
-  font-size: 12px;
-  color: #b7dcff;
+  padding: 1px 0.375rem;
+  font-size: 0.75rem;
+  color: var(--link);
   background: transparent;
-  border: 1px solid #454545;
+  border: 1px solid var(--line);
   cursor: pointer;
   &:hover,
   &:focus-visible {
-    background: #004972;
-    color: #fff;
+    background: var(--sel);
+    color: var(--text);
   }
   kbd {
     font: inherit;
-    font-size: 10px;
-    color: #9a9a9a;
+    font-size: 0.625rem;
+    color: var(--text3);
   }
   @media (pointer: coarse) {
-    min-height: 36px;
-    font-size: 14px;
+    min-height: 2.25rem;
+    font-size: 0.875rem;
   }
 }
