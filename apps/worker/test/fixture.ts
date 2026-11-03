@@ -44,6 +44,7 @@ export class Fixture {
   sequence = 10;
   snapshots = new Map<string, Record<string, unknown>>();
   commits: Record<string, unknown>[] = [];
+  commitParents = new Map<string, string[]>();
   writes: Record<string, unknown>[] = [];
   live: Record<string, unknown> = {
     perks: { '999': { hash: 999, editor: { en: { main: 'untouched' } } } },
@@ -174,14 +175,21 @@ export class Fixture {
       for (const [name, path] of Object.entries(input.variables)) {
         if (!/^p[0-9]+$/.test(name)) continue;
         const value = files[path];
+        const oidOnly = input.query.includes(
+          `o${name.slice(1)}:file(path:$${name}){object{... on Blob{oid}}}`,
+        );
         target[`o${name.slice(1)}`] =
           value === undefined
             ? null
             : {
                 object: {
                   oid: createHash('sha1').update(JSON.stringify(value)).digest('hex'),
-                  isTruncated: this.truncateGraphql,
-                  text: this.truncateGraphql ? null : JSON.stringify(value),
+                  ...(oidOnly
+                    ? {}
+                    : {
+                        isTruncated: this.truncateGraphql,
+                        text: this.truncateGraphql ? null : JSON.stringify(value),
+                      }),
                 },
               };
       }
@@ -307,6 +315,7 @@ export class Fixture {
       const input = commitSchema.parse(raw);
       const id = sha(this.sequence++);
       this.commits.push(objectSchema.parse(raw));
+      this.commitParents.set(id, input.parents);
       this.snapshots.set(id, this.snapshots.get(input.tree)!);
       return this.response({ sha: id });
     }
@@ -327,11 +336,12 @@ export class Fixture {
       if (this.patchRaces-- > 0) return this.response({}, 422);
       const hook = this.beforePatch;
       this.beforePatch = undefined;
-      if (hook) {
-        hook();
+      if (hook) hook();
+      const next = z.object({ sha: z.string(), force: z.literal(false) }).parse(raw).sha;
+      // GitHub refuses this sole-parent commit once H has moved. Never fake a race rejection.
+      if (next !== this.dataHead && this.commitParents.get(next)?.[0] !== this.dataHead)
         return this.response({}, 422);
-      }
-      this.dataHead = z.object({ sha: z.string(), force: z.literal(false) }).parse(raw).sha;
+      this.dataHead = next;
       return this.response({ object: { sha: this.dataHead } });
     }
     if (path.startsWith('/contents/publish/kicks/') && method === 'PUT') {

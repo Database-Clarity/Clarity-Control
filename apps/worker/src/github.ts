@@ -245,11 +245,14 @@ export class GitHub {
   }
 
   /** One head and its files, all selected through that Commit. No fallback reads: bounded. */
-  async publishSnapshot(paths: readonly string[]) {
+  async publishSnapshot(paths: readonly string[], oidOnly: readonly string[] = []) {
     if (paths.length > 41 || paths.some((p) => !pathPattern.test(p) || p.includes('..')))
       throw new HttpError(400, 'Invalid publish paths');
     const selections = paths
-      .map((_, i) => `o${i}:file(path:$p${i}){object{... on Blob{oid isTruncated text}}}`)
+      .map(
+        (path, i) =>
+          `o${i}:file(path:$p${i}){object{... on Blob{${oidOnly.includes(path) ? 'oid' : 'oid isTruncated text'}}}}`,
+      )
       .join(' ');
     const variables: Record<string, string> = {
       owner: this.env.GITHUB_OWNER,
@@ -276,6 +279,13 @@ export class GitHub {
       );
     const target = repository.ref.target;
     const files = paths.map((path, i): RepoFile | null => {
+      if (oidOnly.includes(path)) {
+        const entry = z
+          .object({ object: z.object({ oid: shaSchema.shape.sha }) })
+          .nullable()
+          .parse(target[`o${i}`]);
+        return entry ? { sha: entry.object.oid, value: undefined } : null;
+      }
       const entry = z.object({ object: blobFields }).nullable().parse(target[`o${i}`]);
       if (!entry) return null;
       if (entry.object.isTruncated || entry.object.text === null)

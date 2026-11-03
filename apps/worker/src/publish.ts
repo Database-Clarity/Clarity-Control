@@ -133,15 +133,17 @@ export async function publishStatus(request: Request, github: GitHub, user: Iden
   const parsed = z
     .array(publishOpIdSchema)
     .min(1)
-    .max(20)
+    .max(1)
     .safeParse(url.searchParams.getAll('opId'));
   if (!parsed.success || [...url.searchParams.keys()].some((k) => k !== 'opId'))
-    throw new HttpError(400, 'Supply 1 to 20 opId query parameters');
+    throw new HttpError(400, 'Supply exactly one opId query parameter');
   const ids = parsed.data;
-  const snapshot = await github.publishSnapshot([
-    'config/permissions.json',
-    ...ids.flatMap(opPaths),
-  ]);
+  // Terminal logs retain per-hash results. A single log per call bounds parse CPU;
+  // pending request bodies are never fetched for status.
+  const snapshot = await github.publishSnapshot(
+    ['config/permissions.json', ...ids.flatMap(opPaths)],
+    ids.map((id) => opPaths(id)[0]),
+  );
   requireAccess(permissionsSchema.parse(snapshot.files[0]?.value), user, ['maintainer', 'editor']);
   // Fixed projection: no signed requests, tooltips, digests, run errors or repository metadata.
   return json({
@@ -166,7 +168,8 @@ export async function publishStatus(request: Request, github: GitHub, user: Iden
 
 export async function publishKick(request: Request, github: GitHub, user: Identity) {
   const { opId } = await body(request, z.object({ opId: publishOpIdSchema }).strict(), 1024);
-  const snapshot = await github.publishSnapshot(['config/permissions.json', ...opPaths(opId)]);
+  const paths = opPaths(opId);
+  const snapshot = await github.publishSnapshot(['config/permissions.json', ...paths], paths);
   requireAccess(permissionsSchema.parse(snapshot.files[0]?.value), user, ['maintainer', 'editor']);
   if (snapshot.files[2] || !snapshot.files[1])
     throw new HttpError(409, 'Publish request is not pending');

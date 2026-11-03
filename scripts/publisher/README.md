@@ -44,7 +44,7 @@ token. This conservative retry bound leaves the mandatory reconciliation inside
 the design's <=13 budget. A 503 must be retried with the **same** opId and body.
 Existing requests/results bypass the ±24-hour creation window.
 
-`GET /publish/status?opId=<id>&opId=<id>` accepts 1–20 IDs and returns only
+`GET /publish/status?opId=<id>` accepts exactly one ID and returns only
 `{operations:[{opId,status}]}`. Status is unknown, pending, done, unchanged, stale,
 rejected or failed. It costs 2 subrequests including authentication to GitHub.
 `POST /publish/kick {opId}` checks the same head for an uncompleted pending
@@ -52,5 +52,12 @@ request, then creates a uniquely named kick file using the Contents API (3
 subrequests). A completion racing a kick makes that kick harmless. Both status
 and kick require a current numeric-ID maintainer/editor permission. Metadata
 that GraphQL cannot return as complete text fails closed without REST fallbacks.
+Request files are queried by object ID only for status/kick; kick queries log
+existence by object ID too. Status deliberately accepts only one ID (within the
+design maximum of 20) because a terminal log embeds the full signed request and
+up to 3,000 per-hash outcomes. Callers must poll IDs separately. The CPU gate must
+include one maximum-size terminal log as well as a pending 3,000-hash request;
+also assert that 20-ID status calls are rejected before upstream I/O. Do not raise
+the status cap without measuring the maximum log size times the proposed cap.
 All endpoints retain the shared 48-subrequest hard cap. CPU measurement and
 workflow registration/enablement belong to subsequent phases.

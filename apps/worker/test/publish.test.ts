@@ -178,8 +178,7 @@ it('delayed create after RECORD loses its stale parent and returns the recorded 
             result: { status: 'done' },
           },
         });
-        f.subrequests++;
-        return new Response('{}', { status: 422 });
+        // Let the fixture enforce the stale-parent rejection, just as GitHub does.
       }
       return fetch(input, init);
     }),
@@ -192,7 +191,11 @@ it('delayed create after RECORD loses its stale parent and returns the recorded 
 });
 
 it('exhausts races with final reconciliation, at most 10 requests (design cap 13, global cap 48)', async () => {
-  f.patchRaces = 20;
+  const advance = () => {
+    f.moveData();
+    f.beforePatch = advance;
+  };
+  f.beforePatch = advance;
   expect((await f.request('/publish', 'POST', value)).status).toBe(503);
   expect(f.subrequests).toBe(10);
   expect(f.subrequests).toBeLessThanOrEqual(13);
@@ -229,14 +232,14 @@ it('fails closed without the enable-time signing key, and bounds truncated metad
   expect(f.subrequests - before).toBe(2);
 });
 
-it('status is fixed, bounded to 20 ids and two subrequests; kick is pending-only and three', async () => {
+it('status is fixed, bounded to one id and two subrequests; kick is pending-only and three', async () => {
   await f.request('/publish', 'POST', value);
   let before = f.subrequests;
-  expect(
-    await (await f.request(`/publish/status?${Array(20).fill(`opId=${A}`).join('&')}`)).json(),
-  ).toEqual({ operations: Array(20).fill({ opId: A, status: 'pending' }) });
+  expect(await (await f.request(`/publish/status?opId=${A}`)).json()).toEqual({
+    operations: [{ opId: A, status: 'pending' }],
+  });
   expect(f.subrequests - before).toBe(2);
-  expect((await f.request(`/publish/status?${Array(21).fill(`opId=${A}`).join('&')}`)).status).toBe(
+  expect((await f.request(`/publish/status?${Array(2).fill(`opId=${A}`).join('&')}`)).status).toBe(
     400,
   );
   before = f.subrequests;
@@ -256,7 +259,7 @@ it('status is fixed, bounded to 20 ids and two subrequests; kick is pending-only
   expect(f.writes).toHaveLength(1);
 });
 it('final create timeout that landed is reconciled before returning', async () => {
-  f.patchRaces = 1;
+  f.beforePatch = () => f.moveData();
   const fetch = f.fetch.bind(f);
   let patches = 0;
   vi.stubGlobal(
@@ -271,4 +274,46 @@ it('final create timeout that landed is reconciled before returning', async () =
   expect((await f.request('/publish', 'POST', value)).status).toBe(202);
   expect(f.subrequests).toBe(10);
   expect(envelope()).toBeDefined();
+});
+it('status/kick query request IDs only; kick also avoids downloading a large terminal log', async () => {
+  f.moveData({ [requestPath]: { payload: 'x'.repeat(300 * 1024), sig: 'test' } });
+  const queries: string[] = [];
+  const fetch = f.fetch.bind(f);
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/graphql')) queries.push(JSON.parse(String(init?.body)).query);
+      return fetch(input, init);
+    }),
+  );
+  expect(await (await f.request(`/publish/status?opId=${A}`)).json()).toEqual({
+    operations: [{ opId: A, status: 'pending' }],
+  });
+  expect((await f.request('/publish/kick', 'POST', { opId: A })).status).toBe(202);
+  expect(queries[0]).toContain('o1:file(path:$p1){object{... on Blob{oid}}}');
+  expect(queries[1]).toContain('o1:file(path:$p1){object{... on Blob{oid}}}');
+  expect(queries[1]).toContain('o2:file(path:$p2){object{... on Blob{oid}}}');
+  f.moveData({
+    [logPath]: {
+      request: { payload: 'x'.repeat(300 * 1024) },
+      intentDigest: 'a'.repeat(64),
+      result: {
+        status: 'done',
+        outcomes: Array.from({ length: 3000 }, (_, hash) => ({
+          hash,
+          status: 'published',
+          digest: 'a'.repeat(64),
+        })),
+      },
+    },
+  });
+  expect((await f.request('/publish/kick', 'POST', { opId: A })).status).toBe(409);
+  expect(await (await f.request(`/publish/status?opId=${A}`)).json()).toEqual({
+    operations: [{ opId: A, status: 'done' }],
+  });
+  const before = f.subrequests;
+  expect((await f.request(`/publish/status?${Array(20).fill(`opId=${A}`).join('&')}`)).status).toBe(
+    400,
+  );
+  expect(f.subrequests).toBe(before);
 });
