@@ -1,13 +1,18 @@
 import { build } from 'esbuild';
+import { execFileSync } from 'node:child_process';
+import { relative, resolve } from 'node:path';
 import { generateKeyPairSync, randomBytes, createHmac } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 const [mode, countArg] = process.argv.slice(2);
 const count = Number(countArg);
-if (!['publish', 'pending', 'terminal', 'kick'].includes(mode) || ![1, 100, 2511].includes(count))
+if (
+  !['publish', 'pending', 'terminal', 'kick'].includes(mode) ||
+  ![1, 50, 100, 2511].includes(count)
+)
   throw new Error(
-    'Usage: node scripts/publisher/cpu/prepare.mjs publish|pending|terminal|kick 1|100|2511',
+    'Usage: node scripts/publisher/cpu/prepare.mjs publish|pending|terminal|kick 1|50|100|2511',
   );
-const out = 'scripts/publisher/cpu/dist';
+const out = process.env.CPU_OUT ?? 'scripts/publisher/cpu/dist';
 mkdirSync(out, { recursive: true });
 const pem = (type) =>
   generateKeyPairSync(type, type === 'rsa' ? { modulusLength: 2048 } : {})
@@ -52,6 +57,18 @@ await build({
     {
       name: 'enable-preview-only',
       setup(b) {
+        b.onResolve({ filter: /^\.\/dist\/fixture\.json$/ }, () => ({
+          path: resolve(out, 'fixture.json'),
+        }));
+        if (process.env.CPU_BASELINE === '1')
+          b.onLoad({ filter: /(?:crypto|publish|publishRequest)\.ts$/ }, (args) => ({
+            contents: execFileSync(
+              'git',
+              ['show', `30c0a5a:${relative(process.cwd(), args.path).replaceAll('\\', '/')}`],
+              { encoding: 'utf8' },
+            ),
+            loader: 'ts',
+          }));
         b.onLoad({ filter: /config[\\/]publisher.json$/ }, () => ({
           contents: '{"enabled":true}',
           loader: 'json',

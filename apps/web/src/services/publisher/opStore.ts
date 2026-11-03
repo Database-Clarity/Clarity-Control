@@ -4,11 +4,14 @@ export type OpStatus = 'created' | 'pending' | RemoteStatus;
 export const isTerminal = (status: OpStatus) => status !== 'created' && status !== 'pending';
 
 /**
- * One confirmed publish. Written BEFORE the first send and never edited in its identity fields, so
+ * One request (a chunk of a confirmed publish). Written BEFORE the first send with immutable identity, so
  * a lost 202, a reload or a second tab always resends the same opId and the same body.
  */
 export interface PublishOp {
   opId: string;
+  /** Shared logical publish; each chunk keeps its own immutable request identity. */
+  groupId?: string;
+  groupSize?: number;
   /** Numeric account id the body was confirmed under; another account never resumes it. */
   userId: string;
   createdAt: number;
@@ -32,6 +35,8 @@ export interface OpStore {
   list(userId: string): Promise<PublishOp[]>;
   /** Insert-only: an existing opId is never replaced. */
   add(op: PublishOp): Promise<void>;
+  /** All chunks commit atomically before any send. */
+  addMany(ops: PublishOp[]): Promise<void>;
   /**
    * Atomic read-modify-write (one IndexedDB transaction, so two tabs cannot both win a claim). The
    * callback returns the changed record or undefined for "leave it". A terminal status is never
@@ -94,6 +99,10 @@ export function createIndexedDbOpStore(): OpStore {
         // add() fails (ConstraintError, aborting the transaction) rather than replacing an opId.
         store.add(op);
       }),
+    addMany: (ops) =>
+      run<void>('readwrite', (store) => {
+        for (const op of ops) store.add(op);
+      }),
     update: (opId, change) =>
       run<PublishOp | undefined>('readwrite', (store, done) => {
         store.get(opId).onsuccess = (event) => {
@@ -117,6 +126,8 @@ export function guardTerminal(current: PublishOp, next: PublishOp): PublishOp {
   const merged: PublishOp = {
     ...next,
     opId: current.opId,
+    groupId: current.groupId,
+    groupSize: current.groupSize,
     userId: current.userId,
     createdAt: current.createdAt,
     hashes: current.hashes,
@@ -143,6 +154,15 @@ export function createMemoryOpStore(): OpStore & { records: Map<string, PublishO
     async add(op) {
       if (records.has(op.opId)) throw new Error('Operation already exists');
       records.set(op.opId, structuredClone(op));
+    },
+    async addMany(ops) {
+      if (
+        new Set(ops.map((op) => op.opId)).size !== ops.length ||
+        ops.some((op) => records.has(op.opId))
+      )
+        throw new Error('Operation already exists');
+      const copies = structuredClone(ops);
+      for (const op of copies) records.set(op.opId, op);
     },
     async update(opId, change) {
       const current = records.get(opId);

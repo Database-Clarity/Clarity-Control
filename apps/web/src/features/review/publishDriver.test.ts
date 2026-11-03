@@ -475,7 +475,7 @@ it('refuses selections over the Worker caps before storing or sending anything',
   expect(h.api.post).not.toHaveBeenCalled();
   // At the cap exactly it is accepted.
   await driver.create(many.slice(0, 3000));
-  expect(h.store.records.size).toBe(1);
+  expect(h.store.records.size).toBe(60);
 });
 
 it('only blames the clock for the creation-window rejection; 413 and 403 say what happened', async () => {
@@ -537,4 +537,32 @@ it('stops polling a pending operation after 24 hours and says so', async () => {
   await vi.advanceTimersByTimeAsync(10 * 60_000);
   expect(h.api.status.mock.calls.length).toBe(polls);
   expect(usePublishState.getState().notes[created.opId]).toMatch(/Still waiting after 24 hours/);
+});
+
+it('persists every chunk before sending and reuses each identity after a lost response and reload', async () => {
+  const h = harness();
+  const first = h.make();
+  await first.start('1');
+  h.api.post.mockRejectedValue(new Error('Lost response'));
+  await first.create(
+    Array.from({ length: 101 }, (_, hash) => ({ hash, digest: digest(1), previous: undefined })),
+  );
+  await settle();
+  const saved = [...h.store.records.values()];
+  expect(saved.map((entry) => entry.hashes.length)).toEqual([50, 50, 1]);
+  expect(new Set(saved.map((entry) => entry.groupId)).size).toBe(1);
+  expect(h.api.post).toHaveBeenCalledTimes(3);
+  first.stop();
+  const second = h.make();
+  h.api.post.mockRejectedValue(new Error('Still offline'));
+  await second.start('1');
+  await vi.advanceTimersByTimeAsync(publishTiming.foreignAttemptMs + 100);
+  for (const entry of saved) {
+    expect(h.api.post).toHaveBeenCalledWith({
+      opId: entry.opId,
+      hashes: entry.hashes,
+      expected: entry.expected,
+    });
+  }
+  expect([...h.store.records.keys()]).toEqual(saved.map((entry) => entry.opId));
 });

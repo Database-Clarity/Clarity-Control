@@ -1,3 +1,4 @@
+import { groupPublishes } from './publishStatus';
 import { expect, it } from 'vitest';
 import type { PublishOp } from '../../services/publisher/opStore';
 import { publishTiming } from './publishDriver';
@@ -58,4 +59,40 @@ it("counts only other people's old, valid queue entries", () => {
   });
   expect(foreignWaiting(undefined, new Set(), now)).toBeUndefined();
   expect(foreignWaiting([queue[1]!], new Set(), now)).toBeUndefined();
+});
+
+it('aggregates partial success as pending, then incomplete when another chunk fails', () => {
+  const base = {
+    opId: 'A',
+    groupId: 'A',
+    userId: '1',
+    createdAt: 1,
+    updatedAt: 1,
+    hashes: [1],
+    expected: {},
+    previous: {},
+    status: 'done' as const,
+  };
+  const pending = { ...base, opId: 'B', hashes: [2], status: 'pending' as const };
+  expect(groupPublishes([base, pending])[0]!.op.status).toBe('pending');
+  const failed = groupPublishes([base, { ...pending, status: 'stale' }])[0]!.op;
+  expect(failed.status).toBe('failed');
+  expect(failed.error).toContain('1 of 2 tooltips confirmed live');
+  expect(groupPublishes([base, { ...pending, status: 'done' }])[0]!.op.status).toBe('done');
+});
+
+it('never labels an incomplete local group as published', () => {
+  const only = {
+    opId: 'A',
+    groupId: 'A',
+    groupSize: 2,
+    userId: '1',
+    createdAt: 1,
+    updatedAt: 1,
+    hashes: [1],
+    expected: {},
+    previous: {},
+    status: 'done' as const,
+  };
+  expect(groupPublishes([only])[0]!.op.status).toBe('failed');
 });
