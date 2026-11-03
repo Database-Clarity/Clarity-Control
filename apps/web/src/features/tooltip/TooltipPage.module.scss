@@ -77,14 +77,14 @@
 }
 .reason {
   margin: 0 0 0.5rem;
-  color: theme.$orange-color;
+  color: var(--warn);
 }
 .phoneMeta {
   display: none;
 }
 .archivedNotice {
   margin: 0.5rem 0;
-  color: theme.$orange-color;
+  color: var(--warn);
 }
 .languageLabel {
   display: inline;

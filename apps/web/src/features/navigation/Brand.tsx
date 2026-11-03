@@ -9,8 +9,8 @@ import styles from './Brand.module.scss';
 export function Brand({ className }: { className?: string }) {
   return (
     <div className={[styles.brand, className].filter(Boolean).join(' ')}>
-      <img className={styles.dark} src={lockup.dark} alt="Clarity Control" height={20} />
-      <img className={styles.light} src={lockup.light} alt="Clarity Control" height={20} />
+      <img className={styles.dark} src={lockup.dark} alt="Clarity Control" height={28} />
+      <img className={styles.light} src={lockup.light} alt="Clarity Control" height={28} />
     </div>
   );
 }
