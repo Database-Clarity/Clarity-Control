@@ -21,12 +21,12 @@
     },
     "generator": {
       "repository": "Database-Clarity/Description-data-generator",
-      "branch": "main",
-      "commit": "d9917f1eb4d1fa8db37b242d283984ffc405625e",
+      "branch": "v2",
+      "commit": "b5f6b580f82556e07007de045898868809cf18bb",
       "path": "templates/descriptions.json",
-      "url": "https://raw.githubusercontent.com/Database-Clarity/Description-data-generator/d9917f1eb4d1fa8db37b242d283984ffc405625e/templates/descriptions.json",
-      "bytes": 397092,
-      "sha256": "15aa02ecd8ca7753f719ae7e800e7c6e73756d479d4d82bca9a2742ac55ed9d7"
+      "url": "https://raw.githubusercontent.com/Database-Clarity/Description-data-generator/b5f6b580f82556e07007de045898868809cf18bb/templates/descriptions.json",
+      "bytes": 397076,
+      "sha256": "e5528a72aa8a4826625ff40f14b75440ee4e533a66812e9657dcbaead14c0541"
     }
   }
 }
