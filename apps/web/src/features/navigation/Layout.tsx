@@ -24,7 +24,7 @@ import { PreviewLeaveGuard } from './PreviewLeaveGuard';
 import { ShellColumnContext, type ShellColumn } from './ShellColumnContext';
 import { ShellSlotHost, ShellSlotsProvider } from './ShellSlots';
 import { TooltipNavigation } from './TooltipNavigation';
-import { canonicalHash, itemFor } from './catalog';
+import { canonicalHash, editorName, itemFor } from './catalog';
 import { documentTitle } from './documentTitle';
 import { links, workspacePath } from './links';
 import { count } from './notices';
@@ -72,11 +72,10 @@ function LayoutContent() {
   const hasColumn = !phone && (isEditor || contextual);
   const previewColumn = hasColumn && isEditor;
   const itemHash = isEditor ? Number(location.pathname.split('/')[2]) : null;
+  const openItem = itemHash !== null && data?.items ? itemFor(itemHash, data) : undefined;
   const pageName =
     itemHash !== null
-      ? data?.items
-        ? itemFor(itemHash, data)?.name
-        : undefined
+      ? openItem && editorName(openItem)
       : links.find(({ to }) => to === workspacePath(location.pathname))?.label;
   useEffect(() => {
     document.title = documentTitle(pageName);

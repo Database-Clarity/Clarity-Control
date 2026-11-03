@@ -21,6 +21,8 @@ export interface PreviewColumnProps {
   hash: number;
   lang: Lang;
   name: string;
+  /** Exotic armour: the piece carrying this perk, shown above the perk's name. */
+  piece?: string;
   icon?: string;
   categoryLabel?: string;
   archiveIcon?: boolean;
@@ -50,6 +52,7 @@ export function PreviewColumn({
   hash,
   lang,
   name,
+  piece,
   icon,
   categoryLabel,
   archiveIcon,
@@ -130,6 +133,7 @@ export function PreviewColumn({
         text={shown ? shown.text : baseText}
         lang={lang}
         name={name}
+        piece={piece}
         icon={icon}
         categoryLabel={[categoryLabel, hash].filter(Boolean).join(' · ')}
         globals={shown ? shown.globals : baseGlobals}

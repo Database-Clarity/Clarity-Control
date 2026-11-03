@@ -16,6 +16,8 @@ import type { CompareData } from '../conflicts/CompareView';
 import { useAuthStore } from '../../stores/auth';
 import {
   canonicalHash,
+  editorName,
+  exoticPiece,
   sharedPerkLabel,
   singleOwnerLabel,
   tooltipFor,
@@ -219,6 +221,7 @@ export function TooltipPage({
     };
   });
   const baseEntry = archivedItemFor(hash, data);
+  const heading = baseEntry ? editorName(baseEntry) : nameOf(hash);
   const baseCategory = data.categories.find((candidate) => candidate.id === baseEntry?.categoryId);
   const pickedVariant = previewPick?.hash === hash ? previewPick.variant : undefined;
   const selectedView =
@@ -237,6 +240,7 @@ export function TooltipPage({
       hash={hash}
       lang={lang}
       name={nameOf(hash)}
+      piece={baseEntry && exoticPiece(baseEntry)}
       icon={baseEntry?.icon || undefined}
       categoryLabel={
         readOnly && baseEntry
@@ -375,7 +379,7 @@ export function TooltipPage({
 
   return (
     <article className={styles.page}>
-      <h1 className={styles.srOnly}>{nameOf(hash)}</h1>
+      <h1 className={styles.srOnly}>{heading}</h1>
       <VariantWorkspace
         header={header}
         initialPanel={readOnly ? 'preview' : undefined}
@@ -398,7 +402,7 @@ export function TooltipPage({
         }
         editor={
           <section
-            aria-label={`${nameOf(hash)} editor (${languageLabel(lang)})`}
+            aria-label={`${heading} editor (${languageLabel(lang)})`}
             className={styles.editorSection}
           >
             {/* The base editor stays mounted while an override is open: caret and undo survive. */}

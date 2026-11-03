@@ -4,7 +4,9 @@ import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { EditorData } from '../../stores/data';
-import { listName, navigationGroups } from './catalog';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { TooltipPreview } from '../preview/TooltipPreview';
+import { editorName, exoticPiece, listName, navigationGroups } from './catalog';
 import { TooltipNavigation } from './TooltipNavigation';
 
 // Shapes follow the generator's items.json: the perk carries its owning pieces, not the pieces.
@@ -93,6 +95,35 @@ describe('exotic armour in the list', () => {
     expect(exotic(data, 'aeon soul')!.items.map((entry) => entry.hash)).toEqual([3, 4]);
     expect(exotic(data, 'sect of insight')!.items.map((entry) => entry.hash)).toEqual([4]);
     expect(exotic(data, 'nothing here')).toBeUndefined();
+  });
+});
+
+describe('exotic armour in the editor headings', () => {
+  it('names the open item "Piece · Perk", and leaves every other item alone', () => {
+    expect(editorName(data.items[1])).toBe('Contraverse Hold · Chaotic Exchanger');
+    expect(editorName(data.items[2])).toBe('Praxic Vestment · Praxic Lift');
+    expect(editorName(data.items[3])).toBe('Aeon Safe/Soul/Swift · Sect of Force');
+    expect(editorName(data.items[5])).toBe('Orphan Perk');
+    expect(editorName(data.items[20])).toBe('Outlaw');
+    expect(exoticPiece(data.items[20])).toBeUndefined();
+    expect(data.items[1].name).toBe('Chaotic Exchanger');
+  });
+
+  it('shows the piece above the perk in the preview header, only when there is one', () => {
+    const markup = (piece?: string) =>
+      renderToStaticMarkup(
+        <TooltipPreview
+          text=""
+          lang="en"
+          name="Chaotic Exchanger"
+          piece={piece}
+          globals={{ variables: '', titles: '' }}
+        />,
+      );
+    expect(markup('Contraverse Hold')).toMatch(
+      /Contraverse Hold<\/div><div[^>]*>Chaotic Exchanger/,
+    );
+    expect(markup()).not.toContain('Contraverse');
   });
 });
 

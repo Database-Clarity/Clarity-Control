@@ -20,6 +20,8 @@ export interface TooltipPreviewProps {
   text: string;
   lang: Lang;
   name: string;
+  /** Exotic armour: the piece carrying this perk, shown above the perk's name. */
+  piece?: string;
   icon?: string;
   categoryLabel?: string;
   globals: MarkupGlobals;
@@ -124,6 +126,7 @@ export function TooltipPreview({
   text,
   lang,
   name,
+  piece,
   icon,
   categoryLabel,
   globals,
@@ -149,6 +152,7 @@ export function TooltipPreview({
             iconUrl && linkUrl(iconUrl) && <img className={styles.icon} src={iconUrl} alt="" />
           )}
           <div>
+            {piece && <div className={styles.piece}>{piece}</div>}
             <div className={styles.name}>{name}</div>
             {categoryLabel && <div className={styles.category}>{categoryLabel}</div>}
           </div>

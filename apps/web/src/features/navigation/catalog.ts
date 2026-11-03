@@ -193,6 +193,19 @@ export function listedItem(item: Item, data: EditorData): ListedItem {
   };
 }
 
+/** The armour piece(s) an exotic armour perk belongs to, written once for the editor's headings. */
+export function exoticPiece(item: Item): string | undefined {
+  if (item.categoryId !== exoticArmourCategory) return undefined;
+  const names = exoticPieceNames(item);
+  return names.length ? joinPieceNames(names) : undefined;
+}
+
+/** How the editor names the open item: "Piece · Perk" for exotic armour, the item's name otherwise. */
+export function editorName(item: Item): string {
+  const piece = exoticPiece(item);
+  return piece ? `${piece} · ${item.name}` : item.name;
+}
+
 export function listName(item: Item, data: EditorData): string {
   return listedItem(item, data).name;
 }

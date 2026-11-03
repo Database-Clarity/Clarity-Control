@@ -112,7 +112,18 @@ try {
       await page.screenshot({ path: `${shots}/${theme}-search-aeon-${width}.png` });
       await field.fill('praxic vest');
       await page.keyboard.press('Enter');
-      await page.waitForFunction(() => window.location.hash.startsWith('#/t/'));
+      // The editor names the open item "Piece · Perk": window title, heading and (desktop) the
+      // preview header, with the piece above the perk.
+      await page.waitForFunction(
+        () => document.title === 'Clarity Control — Praxic Vestment · Praxic Lift',
+      );
+      assert.equal(await page.locator('h1').first().textContent(), 'Praxic Vestment · Praxic Lift');
+      if (!phone) {
+        assert.match(
+          await page.locator('section[aria-label$="preview"] header').first().innerText(),
+          /Praxic Vestment\s+Praxic Lift/i,
+        );
+      }
       assert.deepEqual(errors, []);
       await page.screenshot({ path: `${shots}/${theme}-opened-${width}.png` });
       await context.close();
