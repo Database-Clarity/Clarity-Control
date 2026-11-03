@@ -92,6 +92,7 @@ beforeEach(() => {
     pending: 0,
     error: null,
     hydrate: async () => {},
+    activate: async () => {},
   });
   useSidebarQueueStore.setState({
     compendiumCategories: [

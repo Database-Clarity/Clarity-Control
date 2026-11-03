@@ -124,7 +124,7 @@ beforeEach(async () => {
   });
   useDataStore.setState({ data: null, status: 'idle', error: null });
   useAuthStore.setState({ user, loading: false, load: async () => {} });
-  useDraftStore.setState({ hydrated: true, hydrate: async () => {}, drafts: {} });
+  useDraftStore.setState({ hydrated: true, hydrate: async () => {}, activate: async () => {}, drafts: {} });
   post = vi.fn(async () => {
     // Exercise real async boundaries instead of depending on one timer tick.
     await new Promise((resolve) => setTimeout(resolve, 25));

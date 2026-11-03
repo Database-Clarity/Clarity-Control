@@ -130,3 +130,161 @@ describe('local drafts', () => {
     await first.write({});
   });
 });
+
+/** In-memory buckets mirroring IndexedDB: the storage is the unowned bucket, forUser gives accounts. */
+function buckets() {
+  const values = new Map<string, Drafts>();
+  const make = (key: string): DraftStorage => ({
+    async read() {
+      return structuredClone(values.get(key) ?? {});
+    },
+    async write(drafts) {
+      values.set(key, structuredClone(drafts));
+    },
+    ...(key === 'unowned' ? { forUser: (id: string) => make(`user:${id}`) } : {}),
+  });
+  return { storage: make('unowned'), values };
+}
+const other: Tooltip = {
+  hash: 20,
+  text: { en: { text: 'Other', updatedAt: '2026-10-01T00:00:00Z', updatedBy: 'owner' } },
+  associated: [],
+};
+
+describe('drafts belong to one account', () => {
+  it('hides, keeps and restores drafts per account without ever mixing them', async () => {
+    const { storage, values } = buckets();
+    const store = createDraftStore(storage);
+    await store.getState().activate(1);
+    store.getState().edit(base, 'en', 'alice draft', 'alice');
+    await store.getState().flush();
+
+    await store.getState().activate(2);
+    expect(store.getState().drafts).toEqual({});
+    store.getState().edit(other, 'en', 'bob draft', 'bob');
+    await store.getState().flush();
+    expect(Object.keys(store.getState().drafts)).toEqual(['20']);
+
+    await store.getState().activate(null);
+    expect(store.getState().drafts).toEqual({});
+    expect(store.getState().unowned).toBe(0);
+
+    await store.getState().activate(1);
+    expect(store.getState().drafts[10].next.text.en?.text).toBe('alice draft');
+    expect(store.getState().drafts[20]).toBeUndefined();
+    expect(Object.keys(values.get('user:2') ?? {})).toEqual(['20']);
+    expect(Object.keys(values.get('user:1') ?? {})).toEqual(['10']);
+  });
+
+  it('writes an in-flight edit to the account that made it, even after a switch', async () => {
+    const { storage, values } = buckets();
+    const slow = storage.forUser!('1');
+    const write = slow.write.bind(slow);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const store = createDraftStore({
+      ...storage,
+      forUser: (id) =>
+        id === '1'
+          ? { ...slow, write: async (drafts) => (await gate, write(drafts)) }
+          : storage.forUser!(id),
+    });
+    await store.getState().activate(1);
+    store.getState().edit(base, 'en', 'late write', 'alice');
+    const switched = store.getState().activate(2);
+    release();
+    await switched;
+    await store.getState().flush();
+    expect(store.getState().drafts).toEqual({});
+    expect(Object.keys(values.get('user:1') ?? {})).toEqual(['10']);
+    expect(values.get('user:2')).toBeUndefined();
+  });
+
+  it('never attributes unowned or legacy drafts silently, and adoption keeps every draft', async () => {
+    const { storage, values } = buckets();
+    values.set('unowned', {
+      10: { base, next: { ...base, text: { en: { ...base.text.en!, text: 'legacy' } } } },
+    });
+    const store = createDraftStore(storage);
+    await store.getState().activate(null);
+    expect(Object.keys(store.getState().drafts)).toEqual(['10']); // still the signed-out view
+
+    await store.getState().activate(7);
+    expect(store.getState().drafts).toEqual({});
+    expect(store.getState().unowned).toBe(1);
+    expect(values.get('user:7')).toBeUndefined();
+
+    const result = await store.getState().adopt();
+    expect(result).toEqual({ adopted: 1, left: 0 });
+    expect(store.getState().unowned).toBe(0);
+    expect(store.getState().drafts[10].next.text.en?.text).toBe('legacy');
+    expect(values.get('user:7')?.[10]).toBeDefined();
+    expect(values.get('unowned')).toEqual({});
+    sessionStorage.clear();
+  });
+
+  it('keeps conflicting drafts in both places instead of overwriting the account draft', async () => {
+    const { storage, values } = buckets();
+    values.set('unowned', {
+      10: { base, next: { ...base, text: { en: { ...base.text.en!, text: 'signed out' } } } },
+      20: { base: other, next: { ...other, text: { en: { ...other.text.en!, text: 'also' } } } },
+    });
+    values.set('user:7', {
+      10: { base, next: { ...base, text: { en: { ...base.text.en!, text: 'mine' } } } },
+    });
+    const store = createDraftStore(storage);
+    await store.getState().activate(7);
+    expect(store.getState().unowned).toBe(2);
+    expect(await store.getState().adopt()).toEqual({ adopted: 1, left: 1 });
+    expect(store.getState().drafts[10].next.text.en?.text).toBe('mine');
+    expect(store.getState().drafts[20].next.text.en?.text).toBe('also');
+    expect(Object.keys(values.get('unowned') ?? {})).toEqual(['10']);
+    sessionStorage.clear();
+  });
+
+  it('keeps unowned drafts untouched when the account copy cannot be stored', async () => {
+    const { storage, values } = buckets();
+    values.set('unowned', { 10: { base, next: { ...base, associated: [3] } } });
+    const account = storage.forUser!('7');
+    const store = createDraftStore({
+      ...storage,
+      forUser: () => ({ ...account, write: () => Promise.reject(new Error('quota')) }),
+    });
+    await store.getState().activate(7);
+    await store.getState().adopt();
+    expect(store.getState().error).toContain('NOT safely stored');
+    expect(values.get('unowned')?.[10]).toBeDefined();
+    sessionStorage.clear();
+  });
+
+  it('can keep unowned drafts separate and does not ask again this session', async () => {
+    const { storage, values } = buckets();
+    values.set('unowned', { 10: { base, next: { ...base, associated: [3] } } });
+    const store = createDraftStore(storage);
+    await store.getState().activate(7);
+    expect(store.getState().unowned).toBe(1);
+    store.getState().keepSeparate();
+    expect(store.getState().unowned).toBe(0);
+    await store.getState().activate(null);
+    await store.getState().activate(7);
+    expect(store.getState().unowned).toBe(0);
+    expect(store.getState().drafts).toEqual({});
+    expect(values.get('unowned')?.[10]).toBeDefined();
+    sessionStorage.clear();
+  });
+
+  it('isolates accounts in IndexedDB and leaves the legacy key as the unowned bucket', async () => {
+    const storage = createIndexedDbStorage();
+    await storage.read();
+    await storage.write({ 10: { base, next: { ...base, associated: [1] } } });
+    const alice = storage.forUser!('1');
+    await alice.read();
+    await alice.write({ 20: { base: other, next: { ...other, associated: [2] } } });
+    const fresh = createIndexedDbStorage();
+    expect(Object.keys(await fresh.read())).toEqual(['10']);
+    expect(Object.keys(await fresh.forUser!('1').read())).toEqual(['20']);
+    expect(await fresh.forUser!('2').read()).toEqual({});
+    await fresh.forUser!('1').write({});
+    await fresh.write({});
+  });
+});

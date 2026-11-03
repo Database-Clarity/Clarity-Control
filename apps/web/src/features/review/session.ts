@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { publishableHash } from '@clarity/core';
 import { pushSelected } from '../../services/history';
 import { errorMessage } from '../../services/http';
-import { useAuthStore } from '../../stores/auth';
+import { sameUser, useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { canPush, type PendingTooltip } from './model';
 
@@ -26,7 +26,7 @@ export const useReviewSession = create<ReviewSession>(() => ({
 }));
 let identityVersion = 0;
 useAuthStore.subscribe((state, previous) => {
-  if (state.user === previous.user) return;
+  if (state.user === previous.user || sameUser(state.user, previous.user)) return;
   identityVersion++;
   useReviewSession.setState({ notice: undefined, error: undefined });
 });

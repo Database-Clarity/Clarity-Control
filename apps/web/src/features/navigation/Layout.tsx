@@ -39,15 +39,32 @@ export function Layout() {
   const navOpenRef = useRef(false);
   const restoreBrowseFocus = useRef(false);
   const { data, status, error, load } = useDataStore();
-  const { hydrated, pending, error: draftError, hydrate, retry } = useDraftStore();
+  const authLoading = useAuthStore((state) => state.loading);
+  const userId = user?.id;
+  const {
+    hydrated,
+    pending,
+    error: draftError,
+    hydrate,
+    activate,
+    retry,
+    unowned,
+    adopt,
+    keepSeparate,
+  } = useDraftStore();
+  const [adoptNote, setAdoptNote] = useState<string | null>(null);
   const settingsOpen = useSettingsPanel((state) => state.open);
   const isEditor = location.pathname.startsWith('/t/');
   const isCompendium = location.pathname.startsWith('/compendium');
   const isReview = location.pathname === '/review';
   useEffect(() => {
     void load();
-    void hydrate();
-  }, [load, hydrate]);
+  }, [load]);
+  useEffect(() => {
+    // Drafts belong to one account: switch buckets with the signed-in user, never before auth settles.
+    if (authLoading) return;
+    void activate(userId === undefined ? null : userId);
+  }, [authLoading, userId, activate]);
   useEffect(() => {
     if (!navOpenRef.current) return;
     restoreBrowseFocus.current = true;
@@ -243,6 +260,33 @@ export function Layout() {
             </button>
           </p>
         )}
+        {hydrated && unowned > 0 && (
+          <p role="status">
+            {unowned} local draft(s) on this browser were made while signed out or before drafts
+            were tied to accounts. Add them to your account?{' '}
+            <button
+              type="button"
+              onClick={() =>
+                void adopt().then(
+                  ({ adopted, left }) =>
+                    setAdoptNote(
+                      `Added ${adopted} draft(s) to your account.${left ? ` ${left} conflicting draft(s) stayed separate.` : ''}`,
+                    ),
+                  (error: unknown) =>
+                    setAdoptNote(
+                      `Could not add drafts: ${error instanceof Error ? error.message : String(error)}`,
+                    ),
+                )
+              }
+            >
+              Add to my account
+            </button>{' '}
+            <button type="button" onClick={keepSeparate}>
+              Keep separate
+            </button>
+          </p>
+        )}
+        {adoptNote && <p role="status">{adoptNote}</p>}
         {pending > 0 && <p role="status">Saving local drafts...</p>}
         {status === 'loading' && <p role="status">Loading manifest and tooltip data...</p>}
         {error && location.pathname === '/archive' && <h1>Archive</h1>}

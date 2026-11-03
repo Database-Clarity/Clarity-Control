@@ -10,8 +10,13 @@ interface AuthState {
   logout(): void;
 }
 
+/** Same account, same role and languages: no reason to hand out a new object (identity checks guard saves). */
+export function sameUser(a: User | null, b: User | null): boolean {
+  return a !== null && b !== null && JSON.stringify(a) === JSON.stringify(b);
+}
+
 let requestId = 0;
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   loading: Boolean(apiUrl),
   error: null,
@@ -21,7 +26,8 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ loading: true, error: null });
     try {
       const user = await getMe();
-      if (id === requestId) set({ user, loading: false });
+      if (id === requestId)
+        set({ user: sameUser(get().user, user) ? get().user : user, loading: false });
     } catch (error) {
       if (id === requestId) set({ user: null, loading: false, error: errorMessage(error) });
     }
