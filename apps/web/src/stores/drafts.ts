@@ -31,6 +31,8 @@ interface DraftState {
   updateDraft(base: Tooltip, update: (tooltip: Tooltip) => Tooltip): void;
   updateDrafts(updates: { base: Tooltip; update: (tooltip: Tooltip) => Tooltip }[]): void;
   discard(hash: number): void;
+  /** Calls back after a draft is deliberately discarded (not when it is saved or reverted). */
+  onDiscard(listener: (hash: number) => void): () => void;
   retry(): void;
   flush(): Promise<void>;
 }
@@ -59,6 +61,7 @@ export function createDraftStore(storage: DraftStorage) {
   const bucket = (id: string | null) =>
     id === null ? storage : (storage.forUser?.(id) ?? storage);
   let target = bucket(null);
+  const discardListeners = new Set<(hash: number) => void>();
   return create<DraftState>((set, get) => {
     function persist(drafts: Drafts) {
       // Bind the bucket now: a later account switch must never redirect this write.
@@ -246,6 +249,11 @@ export function createDraftStore(storage: DraftStorage) {
         delete drafts[hash];
         set({ drafts });
         persist(drafts);
+        for (const listener of discardListeners) listener(hash);
+      },
+      onDiscard(listener) {
+        discardListeners.add(listener);
+        return () => void discardListeners.delete(listener);
       },
       retry() {
         if (!get().hydrated) throw new Error('Drafts must finish recovery before retrying storage');

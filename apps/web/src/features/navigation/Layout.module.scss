@@ -355,3 +355,8 @@
     }
   }
 }
+
+// Shell slots are placed by the page that publishes into them; empty, they take no space.
+.slotHost {
+  display: contents;
+}

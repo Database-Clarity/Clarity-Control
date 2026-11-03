@@ -122,6 +122,8 @@ export interface SettingsState {
   activate(user: { id: number | string; role: string | null } | null): Promise<void>;
   update(patch: Partial<SyncedSettings>): void;
   updateDevice(patch: Partial<DeviceSettings>): void;
+  /** Saves (or, with null, forgets) one pane pair's size on this device; other panes stay as they are. */
+  setPane(key: string, pane: PaneState | null): void;
   /** Remembers an editor toggle on this device only: no sync, no pending marker, no prompt. */
   remember(patch: Remembered): void;
   /**
@@ -658,6 +660,14 @@ export function createSettingsStore({
         const device = { ...get().device, ...patch };
         set({ device, notice: write(deviceKey, device) });
         applyDeviceSettings(device);
+      },
+
+      setPane(key, pane) {
+        if (!paneKeyPattern.test(key)) return;
+        const panes = { ...get().device.panes };
+        if (pane) panes[key] = paneStateSchema.parse(pane);
+        else delete panes[key];
+        get().updateDevice({ panes });
       },
 
       async sync({ keepalive = false } = {}) {

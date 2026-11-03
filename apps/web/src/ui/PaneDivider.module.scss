@@ -1,0 +1,45 @@
+// The element is the 16px hit zone; the 1px line and the 3px pill are painted inside it, so
+// resizing, hover and focus never change the size of anything around it.
+.divider {
+  position: relative;
+  box-sizing: border-box;
+  width: 16px;
+  min-width: 0;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  outline: none;
+
+  // The line.
+  &::before {
+    content: '';
+    position: absolute;
+    inset-block: 0;
+    left: 7px;
+    width: 1px;
+    background: var(--line);
+  }
+
+  // The handle pill: quiet at rest, accent while hovered, focused or dragged.
+  &::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 6px;
+    width: 3px;
+    height: 40px;
+    margin-top: -20px;
+    border-radius: 2px;
+    background: var(--ctl-edge);
+  }
+
+  &:hover::after,
+  &:focus-visible::after,
+  &[data-dragging]::after {
+    background: var(--accent-ink);
+  }
+
+  &:focus-visible::after {
+    box-shadow: 0 0 0 2px var(--page);
+  }
+}

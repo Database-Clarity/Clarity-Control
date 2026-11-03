@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EditorData } from '../../stores/data';
-import { canonicalHash, navigationGroups, sharedPerkLabel, singleOwnerLabel, variantHashes } from './catalog';
+import {
+  canonicalHash,
+  navigationGroups,
+  sharedPerkLabel,
+  singleOwnerLabel,
+  variantHashes,
+} from './catalog';
 import {
   categoryPosition,
   createStepping,
@@ -80,11 +86,17 @@ const data: EditorData = {
 
 describe('tooltip catalog', () => {
   it('retains and discovers single owner identity with fallback names', () => {
-    const single: EditorData = { ...data, items: { 10: { ...data.items[10], itemHash: 42, itemName: 'Hidden Exotic' } } };
+    const single: EditorData = {
+      ...data,
+      items: { 10: { ...data.items[10], itemHash: 42, itemName: 'Hidden Exotic' } },
+    };
     expect(singleOwnerLabel(10, single)).toBe('Owner: Hidden Exotic / 42');
     expect(navigationGroups(single, 'hidden exotic')[0].sections[0].items[0].hash).toBe(10);
     expect(navigationGroups(single, '42')[0].sections[0].items[0].hash).toBe(10);
-    const fallback: EditorData = { ...single, items: { 10: { ...single.items[10], itemName: undefined } } };
+    const fallback: EditorData = {
+      ...single,
+      items: { 10: { ...single.items[10], itemName: undefined } },
+    };
     expect(singleOwnerLabel(10, fallback)).toBe('Owner: 42');
   });
 
@@ -449,6 +461,83 @@ describe('stepping history', () => {
     stepping.step('/t/20', '/t/10');
     vi.advanceTimersByTime(1000);
     expect(entries).toEqual(['/t/10']);
+  });
+  describe('with the preview leave guard', () => {
+    function guarded(allowed: boolean) {
+      const entries = ['/t/10'];
+      const navigate = vi.fn((path: string, { replace }: { replace: boolean }) => {
+        if (replace) entries[entries.length - 1] = path;
+        else entries.push(path);
+      });
+      let epoch = 0;
+      const guard = {
+        allow: vi.fn(() => allowed),
+        epoch: () => epoch,
+        authorized: vi.fn((run: () => void) => run()),
+      };
+      return {
+        entries,
+        navigate,
+        guard,
+        stepping: createStepping(navigate, guard),
+        bump: () => void epoch++,
+      };
+    }
+    it('asks before any history or timer state changes, and a refusal leaves nothing pending', () => {
+      vi.useFakeTimers();
+      const { entries, navigate, guard, stepping } = guarded(false);
+      expect(stepping.step('/t/10', '/t/20')).toBe(false);
+      expect(guard.allow).toHaveBeenCalledWith('/t/10', '/t/20');
+      expect(navigate).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(2000);
+      stepping.commit();
+      expect(navigate).not.toHaveBeenCalled();
+      expect(entries).toEqual(['/t/10']);
+    });
+    it('finishes what a gesture already stepped through when it is refused part-way', () => {
+      vi.useFakeTimers();
+      const { entries, guard, stepping } = guarded(true);
+      stepping.step('/t/10', '/t/20');
+      guard.allow.mockReturnValue(false);
+      expect(stepping.step('/t/20', '/t/30')).toBe(false);
+      // The origin entry is kept and the stepped route added, as for any finished gesture.
+      expect(entries).toEqual(['/t/10', '/t/20']);
+      expect(guard.authorized).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(2000);
+      expect(entries).toEqual(['/t/10', '/t/20']);
+    });
+    it('finishes an allowed gesture as the usual two history operations', () => {
+      vi.useFakeTimers();
+      const { entries, stepping } = guarded(true);
+      expect(stepping.step('/t/10', '/t/20')).toBe(true);
+      vi.advanceTimersByTime(1000);
+      expect(entries).toEqual(['/t/10', '/t/20']);
+    });
+    it('runs the history restore inside the authorized pass of the guard, and only that', () => {
+      vi.useFakeTimers();
+      const { navigate, guard, stepping } = guarded(true);
+      const calls: string[] = [];
+      guard.authorized.mockImplementation((run: () => void) => {
+        calls.push('open');
+        run();
+        calls.push('close');
+      });
+      navigate.mockImplementation((path: string) => void calls.push(path));
+      stepping.step('/t/10', '/t/20');
+      expect(calls).toEqual(['/t/20']);
+      vi.advanceTimersByTime(1000);
+      expect(calls).toEqual(['/t/20', 'open', '/t/10', '/t/20', 'close']);
+    });
+    it('spends the allowance when something changed meanwhile: no history is rewritten', () => {
+      vi.useFakeTimers();
+      const { entries, navigate, stepping, bump } = guarded(true);
+      stepping.step('/t/10', '/t/20');
+      navigate.mockClear();
+      bump();
+      vi.advanceTimersByTime(1000);
+      expect(navigate).not.toHaveBeenCalled();
+      expect(entries).toEqual(['/t/20']);
+    });
   });
   describe('language from a worklist link', () => {
     it('keeps a valid ?lang= in targets and drops line/variant highlights and invalid values', () => {

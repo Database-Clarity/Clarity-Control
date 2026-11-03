@@ -7,6 +7,8 @@ import { AuthStatus } from '../auth/AuthStatus';
 import { SavePanel } from '../../services/save/SavePanel';
 import { dockHeightProperty, trackDockHeight } from '../../services/save/dock';
 import { Brand } from './Brand';
+import { PreviewLeaveGuard } from './PreviewLeaveGuard';
+import { ShellSlotHost, ShellSlotsProvider } from './ShellSlots';
 import { TooltipNavigation } from './TooltipNavigation';
 import { itemFor } from './catalog';
 import { documentTitle } from './documentTitle';
@@ -28,6 +30,14 @@ function workspacePath(pathname: string) {
 }
 
 export function Layout() {
+  return (
+    <ShellSlotsProvider>
+      <LayoutContent />
+    </ShellSlotsProvider>
+  );
+}
+
+function LayoutContent() {
   const location = useLocation();
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
@@ -327,6 +337,12 @@ export function Layout() {
         {status === 'ready' && (hydrated || Boolean(draftError)) && <Outlet />}
       </main>
       <SettingsPopover layout={layout} />
+      <PreviewLeaveGuard />
+      {/* Places routes publish into (finder, left column, identity, status); empty until they do. */}
+      <ShellSlotHost name="finder" className={styles.slotHost} />
+      <ShellSlotHost name="left" className={styles.slotHost} />
+      <ShellSlotHost name="identity" className={styles.slotHost} />
+      <ShellSlotHost name="status" className={styles.slotHost} />
     </div>
   );
 }

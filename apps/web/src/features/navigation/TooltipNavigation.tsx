@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { resolveAlias } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
+import { usePreviewReviewStore } from '../../stores/previewReview';
 import { workspaceShortcutsBlocked } from '../../ui/interaction';
 import {
   frameGroupSize,
@@ -21,8 +22,17 @@ import {
   shiftScrollDirection,
   stepTarget,
   tooltipPath,
+  type SteppingGuard,
 } from './stepping';
 import styles from './Layout.module.scss';
+
+// Stepping asks the preview leave guard before it moves anything; see createStepping.
+const pathname = (route: string) => route.split('?')[0];
+const steppingGuard: SteppingGuard = {
+  allow: (from, to) => usePreviewReviewStore.getState().requestLeave(pathname(from), pathname(to)),
+  epoch: () => usePreviewReviewStore.getState().epoch,
+  authorized: (run) => usePreviewReviewStore.getState().authorized(run),
+};
 
 export function TooltipNavigation({ data }: { data: EditorData }) {
   const compendiumSource = useCompendiumStore((state) => state.data);
@@ -48,7 +58,7 @@ export function TooltipNavigation({ data }: { data: EditorData }) {
   current.current = { pathname: location.pathname, search: location.search };
   const select = useRef<HTMLSelectElement>(null);
   const [stepping] = useState(() =>
-    createStepping((target, options) => navigateRef.current(target, options)),
+    createStepping((target, options) => navigateRef.current(target, options), steppingGuard),
   );
   const [wheelStepper] = useState(createWheelStepper);
   const step = useRef<(direction: number) => boolean>(() => false);
@@ -56,7 +66,8 @@ export function TooltipNavigation({ data }: { data: EditorData }) {
   step.current = (direction) => {
     const target = stepTarget(current.current, direction, hashes);
     if (!target) return false;
-    stepping.step(target.from, target.to.path);
+    // Refused before anything moves: the selection, the pending history entry and the timer stay.
+    if (!stepping.step(target.from, target.to.path)) return false;
     current.current = target.to;
     return true;
   };
