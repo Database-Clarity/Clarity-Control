@@ -5,7 +5,7 @@ That repository's default `main` branch holds `runner.mjs`, bundled `parser.mjs`
 this README, `parser-source.txt`, `compendium.json`, and
 `.github/workflows/compendium.yml`. It does not touch the live description database.
 
-The Action runs daily at 05:17 UTC and on demand. GitHub schedules can be delayed.
+The Action runs hourly at 17 minutes past the hour (UTC) and on demand. GitHub schedules can be delayed.
 The runner fetches the Landing htmlview to discover all tabs, then parses each
 tracked tab using the editor core parser. Tab names containing the whole word
 `OLD` in uppercase are excluded; `Old`, `old` and embedded forms such as `GOLD`
