@@ -189,7 +189,8 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
                 {link.rowKey} {link.section && `/ ${link.section}`} / tab {link.gid}
               </span>{' '}
               <span>
-                Snapshot <When value={link.snapshotAt} />
+                {draft && !base.compendium ? 'Draft snapshot' : 'Snapshot'}{' '}
+                <When value={link.snapshotAt} />
               </span>{' '}
             </>
           )}
@@ -208,7 +209,9 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
                     ? `Moved to ${match.tab.name} / ${match.row.name}; follows automatically and is saved on the next English save or review.`
                     : match.status === 'changed'
                       ? 'Compendium text or styling has changed.'
-                      : 'Matches the saved snapshot.'}{' '}
+                      : draft && !base.compendium
+                        ? 'Matches the local draft snapshot.'
+                        : 'Matches the saved snapshot.'}{' '}
                   <a
                     href={`https://docs.google.com/spreadsheets/d/1WaxvbLx7UoSZaBqdFr1u32F2uWVLo-CJunJB4nlGUE4/htmlview#gid=${match.tab.gid}`}
                     target="_blank"
