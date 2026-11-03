@@ -8,8 +8,8 @@
 
 .sidebar {
   padding: 0.75rem;
-  background: hsl(240, 7%, 14%);
-  border-right: 1px solid theme.$button-border-color;
+  background: var(--chrome);
+  border-right: 1px solid var(--line);
   height: 100vh;
   overflow: auto;
   position: sticky;
@@ -22,7 +22,7 @@
   gap: 0.6rem;
   margin-bottom: 1rem;
   small {
-    color: #aaa;
+    color: var(--text2);
     font-size: 0.75rem;
   }
 }
@@ -46,12 +46,12 @@
   }
 
   a[aria-current='page'] {
-    color: theme.$orange-color;
+    color: var(--accent-ink);
     font-weight: 700;
   }
 
   small {
-    color: hsl(0, 0%, 72%);
+    color: var(--text2);
     overflow-wrap: anywhere;
   }
 }
@@ -77,7 +77,7 @@
 
   span {
     text-align: center;
-    color: hsl(0, 0%, 72%);
+    color: var(--text2);
     font-size: 0.8rem;
   }
 }
@@ -93,9 +93,9 @@
     min-width: 0;
     box-sizing: border-box;
     padding: 0.4rem;
-    color: #eee;
-    background: #19191d;
-    border: 1px solid #666;
+    color: var(--text);
+    background: var(--fld);
+    border: 1px solid var(--fld-edge);
     border-radius: 0.2rem;
   }
 
@@ -115,19 +115,19 @@
   margin-bottom: 1rem;
 
   strong {
-    color: theme.$orange-color;
+    color: var(--accent-ink);
     font-size: 1.3rem;
   }
 
   span {
-    color: hsl(0, 0%, 72%);
+    color: var(--text2);
     font-size: 0.85rem;
   }
 }
 
 .status {
   margin-top: 2rem;
-  color: hsl(0, 0%, 68%);
+  color: var(--text2);
   font-size: 0.75rem;
   line-height: 1.5;
 }
@@ -143,7 +143,7 @@
   top: -5rem;
   left: 1rem;
   padding: 0.8rem;
-  background: hsl(240, 7%, 10%);
+  background: var(--page);
   z-index: 1;
 
   &:focus {
@@ -183,7 +183,7 @@
     height: auto;
     position: static;
     border-right: 0;
-    border-bottom: 1px solid theme.$button-border-color;
+    border-bottom: 1px solid var(--line);
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
@@ -246,7 +246,7 @@
       inset: auto;
       z-index: auto;
       margin-inline: -0.75rem;
-      border-top: 1px solid theme.$button-border-color;
+      border-top: 1px solid var(--line);
     }
   }
 
@@ -260,8 +260,8 @@
     align-items: center;
     gap: 0.5rem 0.75rem;
     padding: 0.5rem 0.75rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
-    background: hsl(240, 7%, 14%);
-    border-top: 1px solid theme.$button-border-color;
+    background: var(--chrome);
+    border-top: 1px solid var(--line);
     box-sizing: border-box;
 
     &[data-idle='true'] {

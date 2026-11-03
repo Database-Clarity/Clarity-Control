@@ -1,0 +1,34 @@
+// Lockup viewBox is 5512 x 1020; 20px tall suits the 36px header.
+.brand {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  line-height: 0;
+}
+.dark,
+.light {
+  display: block;
+  height: 20px;
+  width: auto;
+}
+.light {
+  display: none;
+}
+:global(:root[data-theme='light']) {
+  .dark {
+    display: none;
+  }
+  .light {
+    display: block;
+  }
+}
+@media (prefers-color-scheme: light) {
+  :global(:root:not([data-theme])) {
+    .dark {
+      display: none;
+    }
+    .light {
+      display: block;
+    }
+  }
+}

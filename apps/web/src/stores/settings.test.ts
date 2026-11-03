@@ -71,6 +71,8 @@ describe('settings store: local storage', () => {
     expect(JSON.parse(values.get(deviceKey)!)).toEqual({
       textSize: 'large',
       editorFont: 'default',
+      theme: 'system',
+      panes: {},
       remembered: {},
     });
     expect(values.get(settingsKey('7'))).not.toContain('textSize');
