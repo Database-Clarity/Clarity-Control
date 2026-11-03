@@ -13,6 +13,7 @@ const catalogFacts = loadManifestFacts();
 export type ReviewEntry = ReturnType<typeof applyReviewProgress>[number];
 export type ReviewSample = ReviewEntry & {
   sampleEvidence: string;
+  evidenceManifest?: unknown;
   classification?: ItemClassification;
   exoticParentNames?: string[];
   scopeRestored?: boolean;
@@ -103,7 +104,18 @@ export function reviewCategories(
           (!item.inGameDescription.trim() ||
             item.inGameDescription === fact.inventory!.description),
       );
+    const evidenceManifest = (manifest.get(entry.hash) ?? [])
+      .map((item) => ({
+        hash: item.hash,
+        name: item.name,
+        categoryId: item.categoryId,
+        description: item.inGameDescription,
+        baseHash: item.baseHash,
+        owners: item.owners,
+      }))
+      .sort((a, b) => a.hash - b.hash);
     const sample: ReviewSample = {
+      evidenceManifest,
       ...entry,
       classification:
         editor.items[entry.hash] && classifyItem(editor.items[entry.hash], entry.next),
@@ -121,16 +133,7 @@ export function reviewCategories(
         ...(entry.next.custom?.categoryId === 'attachment-effect'
           ? [entry.next.custom.categoryId]
           : []),
-        (manifest.get(entry.hash) ?? [])
-          .map((item) => ({
-            hash: item.hash,
-            name: item.name,
-            categoryId: item.categoryId,
-            description: item.inGameDescription,
-            baseHash: item.baseHash,
-            owners: item.owners,
-          }))
-          .sort((a, b) => a.hash - b.hash),
+        evidenceManifest,
       ]),
     };
     if (source && id === 'catalog:armor-mod-seasonal')

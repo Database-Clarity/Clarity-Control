@@ -29,6 +29,7 @@ export function rebaselineGuidance(
         referenceCurrent(reference, entry, reference.baseline, source)
       ) {
         reference.baseline = baseline;
+        reference.evidence = entry.sampleEvidence;
         renewed.push(reference.hash);
       } else {
         changed.push({

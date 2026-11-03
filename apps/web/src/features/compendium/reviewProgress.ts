@@ -1,3 +1,4 @@
+import { evidenceCell, type CompendiumCell } from '@clarity/core';
 import { z } from 'zod';
 
 const decisionSchema = z.object({
@@ -34,12 +35,18 @@ export function readProgress(storage: Pick<Storage, 'getItem'>, key: string): Re
 }
 // Change detection only, not an identity or security hash. Fetch timestamps are excluded.
 export function sourceFingerprint(value: unknown): string {
+  return rawFingerprint(value, true);
+}
+// Only for validating a previously stored proof before migrating it.
+export function rawFingerprint(value: unknown, normalize = false): string {
   // Schema parsing can reorder run properties without changing their content.
-  const text = JSON.stringify(value, (_key, entry: unknown) =>
-    entry && typeof entry === 'object' && !Array.isArray(entry)
+  const text = JSON.stringify(value, (_key, entry: unknown) => {
+    if (normalize && entry && typeof entry === 'object' && 'plain' in entry && 'runs' in entry)
+      entry = evidenceCell(entry as CompendiumCell);
+    return entry && typeof entry === 'object' && !Array.isArray(entry)
       ? Object.fromEntries(Object.entries(entry).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
-      : entry,
-  );
+      : entry;
+  });
   let hash = 2166136261;
   for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
   return `${text.length}:${hash >>> 0}`;

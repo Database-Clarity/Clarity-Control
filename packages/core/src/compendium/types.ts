@@ -129,13 +129,24 @@ export function withBackground(cell: CompendiumCell, background?: string): Compe
 }
 
 export function sameCell(a: CompendiumCell, b: CompendiumCell): boolean {
-  const left = normaliseRuns(a.runs);
-  const right = normaliseRuns(b.runs);
+  const left = evidenceCell(a);
+  const right = evidenceCell(b);
   return (
     left.plain === right.plain &&
     left.runs.length === right.runs.length &&
     left.runs.every(
       (run, i) => run.text === right.runs[i].text && styleKey(run) === styleKey(right.runs[i]),
     )
+  );
+}
+
+/** Sheet background and paragraph alignment are display-only; all other run styles remain strict. */
+export function evidenceCell(cell: CompendiumCell): CompendiumCell {
+  return normaliseRuns(
+    cell.runs.map((run) => {
+      const copy = { ...run };
+      delete copy.textAlign;
+      return copy;
+    }),
   );
 }
