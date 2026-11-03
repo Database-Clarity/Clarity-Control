@@ -19,6 +19,8 @@ import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { scaledPx } from '../../ui/scale';
 import styles from './Compendium.module.scss';
 import { confirmCompendiumSelection } from './selection';
+import { usePaneMatch } from './usePaneMatch';
+import { openDraftSaveReview } from '../../services/save/openReview';
 
 /**
  * Below this pane width (design pixels at 100 % interface scale; scaledPx() follows the scale) the
@@ -56,7 +58,8 @@ function ScaleControl() {
 export function CompendiumPanel({ base }: { base: Tooltip }) {
   const { data: compendium, loading, error, load } = useCompendiumStore();
   const data = useDataStore((state) => state.data);
-  const draft = useDraftStore((state) => state.drafts[base.hash]);
+  const drafts = useDraftStore((state) => state.drafts);
+  const draft = drafts[base.hash];
   const updateDraft = useDraftStore((state) => state.updateDraft);
   const hydrated = useDraftStore((state) => state.hydrated);
   const user = useAuthStore((state) => state.user);
@@ -74,6 +77,7 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
   const roomy = !touch && (width === undefined || width >= scaledPx(HEADER_TOGGLE_MIN));
   const tooltip = draft?.next ?? base;
   const link = tooltip.compendium;
+  const matched = usePaneMatch(base, data, compendium, drafts, user?.id);
   const canEdit =
     !!apiUrl &&
     hydrated &&
@@ -135,7 +139,49 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
             </button>
           </p>
         )}
-        {!link && <p>No Compendium row linked yet.</p>}
+        {!link && !matched && <p>No Compendium row linked yet.</p>}
+        {!link && matched && (
+          <>
+            <p className={styles.meta}>
+              <span
+                className={styles.matched}
+                title="Matched automatically — not saved"
+                tabIndex={0}
+              >
+                Matched
+              </span>{' '}
+              {matched.tab.name} / {matched.row.name}
+            </p>
+            <p>
+              No saved snapshot to compare.{' '}
+              <a
+                href={`https://docs.google.com/spreadsheets/d/1WaxvbLx7UoSZaBqdFr1u32F2uWVLo-CJunJB4nlGUE4/htmlview#gid=${matched.tab.gid}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open source tab
+              </a>
+            </p>
+            <SheetCell background={matched.row.cell.background}>
+              <RichCell cell={matched.row.cell} />
+            </SheetCell>
+            {canEdit && (
+              <div className={styles.actions}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!compendium) return;
+                    const confirmed = confirmCompendiumSelection(matched, compendium);
+                    if (!confirmed) return;
+                    updateDraft(base, (current) => ({ ...current, compendium: confirmed }));
+                  }}
+                >
+                  Accept match (local draft)
+                </button>
+              </div>
+            )}
+          </>
+        )}
         <p className={styles.meta}>
           {link && (
             <>
@@ -266,6 +312,11 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
         )}
         {canEdit && link && (
           <div className={styles.actions}>
+            {draft && (
+              <button type="button" onClick={openDraftSaveReview}>
+                Review &amp; save draft
+              </button>
+            )}
             <button
               type="button"
               onClick={() =>
