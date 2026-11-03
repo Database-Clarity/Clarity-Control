@@ -1,0 +1,74 @@
+name: Review suite
+
+on:
+  push:
+    branches: ['review/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: review-suite-${{ github.ref }}
+  cancel-in-progress: false # Let earlier runs finish without cancellation emails.
+
+jobs:
+  suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      # Keep real outcomes, but do not turn a broken check into a failure email.
+      - id: install
+        continue-on-error: true
+        run: npm ci
+      - id: typecheck
+        continue-on-error: true
+        run: npm run typecheck
+      - id: lint
+        continue-on-error: true
+        run: npm run lint
+      - id: test
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee test.log
+      - id: build
+        continue-on-error: true
+        run: npm run build
+      - name: Report actual check results
+        if: always()
+        env:
+          HEAD_SHA: ${{ github.sha }}
+          INSTALL: ${{ steps.install.outcome }}
+          TYPECHECK: ${{ steps.typecheck.outcome }}
+          LINT: ${{ steps.lint.outcome }}
+          TEST: ${{ steps.test.outcome }}
+          BUILD: ${{ steps.build.outcome }}
+        shell: python
+        run: |
+          import os, pathlib, re
+          checks = [("npm-ci", "INSTALL"), ("typecheck", "TYPECHECK"),
+                    ("lint", "LINT"), ("test", "TEST"), ("build", "BUILD")]
+          outcomes = [(name, "ok" if os.environ.get(key) == "success" else "fail")
+                      for name, key in checks]
+          passed = all(value == "ok" for _, value in outcomes)
+          result = ("REVIEW-SUITE RESULT: " + ("PASS" if passed else "FAIL")
+                    + " sha=" + os.environ["HEAD_SHA"] + " "
+                    + " ".join(name + "=" + value for name, value in outcomes))
+          lines = [result]
+          # Include Vitest failure names and totals, without terminal colors.
+          log = pathlib.Path("test.log")
+          if not passed and log.exists():
+              clean = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", log.read_text(errors="replace"))
+              lines += [line for line in clean.splitlines()
+                        if re.search(r"FAIL|×|Test Files|^\s*Tests\s", line)]
+          report = "\n".join(lines)
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write("\n```text\n" + report + "\n```\n")
