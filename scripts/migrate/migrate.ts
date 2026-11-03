@@ -61,7 +61,7 @@ export async function prepareMigration(
     Object.assign(pushed, pushedSchema.parse(existing.pushed));
   }
   for (const hash of excluded) if (!preserved.has(hash)) delete pushed[hash];
-  const hashes = await Promise.all(tooltips.map(publishableHash));
+  const hashes = await Promise.all(tooltips.map((tooltip) => publishableHash(tooltip)));
   const pending = tooltips.filter(
     (tooltip, index) => hashes[index] !== pushed[tooltip.hash],
   ).length;
