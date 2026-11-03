@@ -58,7 +58,7 @@ function Content({ part }: { part: MarkupSpan }) {
   );
 }
 
-function Lines({ lines }: { lines: MarkupLine[] }) {
+export function Lines({ lines }: { lines: MarkupLine[] }) {
   return (
     <>
       {lines.map((line, index) => {
@@ -92,6 +92,24 @@ function Lines({ lines }: { lines: MarkupLine[] }) {
         );
       })}
     </>
+  );
+}
+
+/** A bare rendering of markup (no header), for popovers; same renderer and styles as the preview. */
+export function MarkupSnippet({
+  text,
+  lang,
+  globals,
+}: {
+  text: string;
+  lang: Lang;
+  globals: MarkupGlobals;
+}) {
+  const parsed = useMemo(() => parseMarkup(text, globals), [text, globals]);
+  return (
+    <div className={styles.snippet} lang={markupLanguage(lang)}>
+      <Lines lines={parsed.lines} />
+    </div>
   );
 }
 

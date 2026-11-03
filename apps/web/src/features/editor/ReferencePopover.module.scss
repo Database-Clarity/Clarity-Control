@@ -1,0 +1,96 @@
+// Dense, matches the completion popover and glyph warning: 12px, #252526 surface, #454545 hairlines.
+.popover {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: max-content;
+  min-width: 14rem;
+  max-width: min(22rem, 90vw);
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #e6e6e6;
+}
+.head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+}
+.kind {
+  color: #858585;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+.name {
+  color: #4ec9b0;
+  font-family: var(--editor-font, Consolas, monospace);
+  overflow-wrap: anywhere;
+}
+.origin {
+  color: #bdbdbd;
+  margin-left: auto;
+}
+.fallback {
+  color: #f2ce7e;
+  border: 1px solid #f2ce7e;
+  border-radius: 2px;
+  padding: 0 3px;
+  font-size: 10px;
+  text-decoration: none;
+  cursor: help;
+}
+.missing {
+  color: #f2ce7e;
+}
+.value {
+  max-height: 14rem;
+  overflow: auto;
+  border: 1px solid #454545;
+}
+.more {
+  margin: 0;
+  padding: 2px 8px;
+  color: #bdbdbd;
+  background: hsl(279, 36%, 5%);
+}
+.raw {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #9a9a9a;
+  font-family: var(--editor-font, Consolas, monospace);
+  font-size: 11px;
+}
+.note {
+  margin: 0;
+  color: #bdbdbd;
+}
+.open {
+  align-self: flex-start;
+  display: inline-flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 1px 6px;
+  font-size: 12px;
+  color: #b7dcff;
+  background: transparent;
+  border: 1px solid #454545;
+  cursor: pointer;
+  &:hover,
+  &:focus-visible {
+    background: #004972;
+    color: #fff;
+  }
+  kbd {
+    font: inherit;
+    font-size: 10px;
+    color: #9a9a9a;
+  }
+  @media (pointer: coarse) {
+    min-height: 36px;
+    font-size: 14px;
+  }
+}

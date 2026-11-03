@@ -5,7 +5,7 @@ import { classifyItem, categoryLabel } from '../compendium/itemClassification';
 import { useCompendiumStore } from '../compendium/store';
 import { languageLabel } from '../../languageLabels';
 import { useMemo, useState } from 'react';
-import { Navigate, useParams, useSearchParams } from 'react-router-dom';
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   languages,
   langSchema,
@@ -27,6 +27,8 @@ import {
 } from '../navigation/catalog';
 import { tooltipPath } from '../navigation/stepping';
 import { ClarityEditor } from '../editor';
+import { tooltipTextSources } from '../editor/references';
+import type { TooltipTarget } from '../editor/referenceActions';
 import { TooltipPreview } from '../preview';
 import { HistoryPanel } from '../history/HistoryPanel';
 import { useSaveState } from '../../services/save/state';
@@ -67,6 +69,16 @@ export function TooltipPage({
     const imports = tooltipImports(data?.bundle.tooltips ?? {}, drafts, lang, data?.aliases ?? {});
     return { variables: imports[2] ?? '', titles: imports[3] ?? '', imports };
   }, [data, drafts, lang]);
+  const referenceSources = useMemo(
+    () => tooltipTextSources(data?.bundle.tooltips ?? {}, drafts, data?.aliases ?? {}),
+    [data, drafts],
+  );
+  const navigate = useNavigate();
+  function openDefinition(target: TooltipTarget) {
+    // Ordinary navigation (a pushed history entry), the same route a Globals page link takes.
+    const canonical = data ? canonicalHash(target.hash, data) : target.hash;
+    navigate(`/t/${canonical}?lang=${target.lang}&line=${target.line}&variant=${target.hash}`);
+  }
   if (!data) return null;
   if (
     hashOverride === undefined &&
@@ -245,6 +257,9 @@ export function TooltipPage({
                     globals={globals}
                     requireEnglish={variant > 3}
                     readOnly={primaryAccess.reason !== null}
+                    tooltipHash={variant}
+                    referenceSources={referenceSources}
+                    onOpenTooltip={openDefinition}
                     markupToolbar={lang !== 'en'}
                     highlightLine={
                       Number(search.get('variant') ?? hash) === variant ? highlightLine : undefined

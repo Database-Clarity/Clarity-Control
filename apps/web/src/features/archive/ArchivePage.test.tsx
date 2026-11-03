@@ -9,6 +9,7 @@ import { ArchiveIcon } from './ArchiveIcon';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { useAuthStore } from '../../stores/auth';
+import { useSettingsStore } from '../../stores/settings';
 import { useSaveState } from '../../services/save/state';
 import { getHistory } from '../../services/history';
 
@@ -84,6 +85,8 @@ beforeEach(() => {
   );
   Object.defineProperty(window, 'innerWidth', { value: 390, configurable: true });
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+  // 'auto' follows the runner's locale; pin it so the asserted text is stable.
+  useSettingsStore.getState().update({ dateFormat: 'dmy', timeZone: 'UTC', timeDisplay: 'date' });
   useDataStore.setState({ data, status: 'ready', error: null });
   useAuthStore.setState({ user: { id: 1, login: 'person', role: 'maintainer' } });
   useDraftStore.setState({ drafts: {}, hydrated: true });

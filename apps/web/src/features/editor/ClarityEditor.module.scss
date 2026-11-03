@@ -123,3 +123,10 @@
   text-decoration: underline dotted #f2ce7e;
   text-underline-offset: 3px;
 }
+
+// Ctrl/Cmd held over a reference that can be opened: a link affordance that never shifts text.
+.editor :global(.clarity-reference-link) {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
