@@ -29,3 +29,12 @@ if (process.argv.includes('--template')) {
   for (const file of ['publisher.mjs', 'PIN'])
     copyFileSync(`scripts/publisher/dist/${file}`, `${target}/${file}`);
 }
+
+await build({
+  entryPoints: ['scripts/publisher/parity.ts'],
+  outfile: 'scripts/publisher/dist/parity.mjs',
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node24',
+});
