@@ -1,0 +1,210 @@
+/* global document, window, getComputedStyle, Node */
+import assert from 'node:assert/strict';
+import { mkdir } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromium } from 'playwright-core';
+import { createServer } from 'vite';
+
+// The preview column (overhaul P2 step 3) in the real shell on synthetic data, both themes, at 390 /
+// 768 / 1280: ONE perk header above Base | Enhanced | Compare, Compare by default on a desktop and
+// Enhanced on a phone, a thin pale-gold arrow, a light surface in the light theme, no horizontal
+// overflow, no clipped or wrapping controls, and editor text that never moves when the view changes.
+const web = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const shots = process.argv[2] ?? resolve(web, '../../.agents/reports/overhaul-p2s3-shots');
+await mkdir(shots, { recursive: true });
+const port = 5293;
+const url = `http://127.0.0.1:${port}/test/shell.html`;
+
+process.env.VITE_API_URL = 'https://api.fixture.invalid';
+const server = await createServer({
+  root: web,
+  configLoader: 'runner',
+  server: { host: '127.0.0.1', port, strictPort: true },
+});
+await server.listen();
+const browser = await chromium.launch({
+  executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+  headless: true,
+});
+
+const firstLine = (page) =>
+  page.evaluate(() => {
+    const line = [...document.querySelectorAll('.cm-line')].find((el) => el.offsetParent);
+    const rect = line?.getBoundingClientRect();
+    return rect ? { top: Math.round(rect.top), left: Math.round(rect.left) } : null;
+  });
+const noOverflow = async (page, label) => {
+  const overflow = await page.evaluate(() => ({
+    page: document.documentElement.scrollWidth - window.innerWidth,
+    wide: [...document.querySelectorAll('body *')]
+      .filter((el) => {
+        const r = el.getBoundingClientRect();
+        return (
+          r.width > 0 &&
+          r.right > window.innerWidth + 1 &&
+          !el.closest('[hidden]') &&
+          !el.closest('.cm-scroller')
+        );
+      })
+      .slice(0, 5)
+      .map((el) => `${el.tagName}.${String(el.className).slice(0, 40)}`),
+  }));
+  assert.ok(overflow.page <= 0, `${label}: page scrolls horizontally by ${overflow.page}`);
+  assert.deepEqual(overflow.wide, [], `${label}: elements run past the window`);
+};
+/** Everything in the preview column's bar fits on one line and nothing is cut off. */
+const barProblems = (page) =>
+  page.evaluate(() => {
+    const bar = document.querySelector('[aria-label="Preview version"]')?.parentElement;
+    if (!bar) return ['no bar'];
+    const problems = [];
+    const barRect = bar.getBoundingClientRect();
+    for (const el of bar.querySelectorAll('button, select, span')) {
+      const r = el.getBoundingClientRect();
+      if (!r.width) continue;
+      if (r.right > barRect.right + 1) problems.push(`${el.textContent} past the bar`);
+      const style = getComputedStyle(el);
+      const line = parseFloat(style.lineHeight) || 14;
+      if (el.tagName === 'BUTTON' && r.height > 2 * line + 12)
+        problems.push(`${el.textContent} wraps`);
+      if (el.scrollWidth > el.clientWidth + 1) problems.push(`${el.textContent} clipped`);
+    }
+    return problems;
+  });
+const pressed = (page) =>
+  page.locator('[aria-label="Preview version"] button[aria-pressed="true"]').allTextContents();
+
+async function open(theme, viewport, { phone = false } = {}) {
+  const context = await browser.newContext({
+    viewport,
+    colorScheme: theme,
+    hasTouch: phone,
+    isMobile: phone,
+  });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto(url);
+  await page.locator('header').first().waitFor();
+  await page.evaluate(() => {
+    window.shellFixture.role('maintainer');
+    window.shellFixture.variants();
+    window.shellFixture.kinetic();
+  });
+  await page.evaluate(() => {
+    window.location.hash = '#/t/1000?lang=en';
+  });
+  await page.locator('.cm-content').first().waitFor();
+  return { context, page, errors };
+}
+
+/** The column is collapsed by default in compact windows; open it like the user would. */
+async function showColumn(page) {
+  const show = page.getByRole('button', { name: /Show preview column/ });
+  if (await show.count()) await show.first().click();
+  await page.locator('[aria-label="Preview version"]').first().waitFor();
+}
+
+try {
+  for (const theme of ['dark', 'light']) {
+    const out = (name) => `${shots}/${theme}-${name}.png`;
+
+    for (const [width, height, phone] of [
+      [1280, 800, false],
+      [768, 900, false],
+      [390, 844, true],
+    ]) {
+      const label = `${theme} ${width}`;
+      const { context, page, errors } = await open(theme, { width, height }, { phone });
+      if (phone) await page.getByRole('tab', { name: 'Preview' }).click();
+      else await showColumn(page);
+
+      // ONE perk header (name once) above the switch; the default view depends on the device.
+      const preview = page.getByRole('region', { name: 'Hammerhead preview' }).first();
+      assert.equal(await preview.locator('header').count(), 1, `${label}: one perk header`);
+      assert.equal(await page.locator('[aria-label="Preview version"]').count(), 1);
+      const order = await preview.evaluate((el) => {
+        const header = el.querySelector('header');
+        const bar = el.querySelector('[aria-label="Preview version"]');
+        return Boolean(
+          header && bar && header.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING,
+        );
+      });
+      assert.ok(order, `${label}: header comes before the switch`);
+      assert.deepEqual(await pressed(page), [phone ? 'Enhanced' : 'Compare'], `${label}: default`);
+
+      const topBefore = phone ? null : await firstLine(page);
+      for (const mode of ['Base', 'Enhanced', 'Compare']) {
+        await page
+          .locator('[aria-label="Preview version"]')
+          .getByRole('button', { name: mode, exact: true })
+          .click();
+        assert.deepEqual(await pressed(page), [mode], `${label}: ${mode} pressed`);
+        assert.deepEqual(await barProblems(page), [], `${label} ${mode}: bar clips or wraps`);
+        await noOverflow(page, `${label} ${mode}`);
+        const bar = await page
+          .locator('[aria-label="Preview version"]')
+          .evaluate((el) => Math.round(el.parentElement.getBoundingClientRect().height));
+        assert.equal(bar, phone ? 44 : 28, `${label}: bar height ${bar}`);
+        if (mode === 'Compare') {
+          assert.equal(
+            (await preview.locator('[aria-live="polite"]').textContent()).trim(),
+            '9 changes vs Base',
+          );
+          assert.equal(await page.locator('[data-kind="changed"]').count(), 8);
+          assert.equal(await page.locator('[data-kind="added"]').count(), 1);
+          assert.ok(await page.locator('[data-kind="changed"] [role="img"]').count());
+          // The thin arrow is pale gold in dark, deep gold in light.
+          const arrow = await page
+            .locator('[data-kind="changed"] [role="img"]')
+            .first()
+            .evaluate((el) => getComputedStyle(el).backgroundColor);
+          assert.equal(arrow, theme === 'dark' ? 'rgb(234, 222, 139)' : 'rgb(122, 100, 0)');
+          const edge = await page
+            .locator('[data-kind="added"]')
+            .evaluate((el) => getComputedStyle(el).boxShadow);
+          assert.ok(edge.includes('2px'), `${label}: gold edge on the enhanced-only line`);
+        } else {
+          assert.equal(await page.locator('[data-compare]').count(), 0);
+          assert.equal(
+            await page
+              .locator('[aria-label="Preview version"]')
+              .locator('xpath=..//span')
+              .last()
+              .textContent(),
+            '',
+          );
+        }
+        if (mode === 'Enhanced') {
+          assert.ok(
+            (await preview.innerText()).includes('Hit Requirements are decreased by 1.'),
+            `${label}: Enhanced shows the enhanced line`,
+          );
+        } else if (mode === 'Base') {
+          assert.ok(!(await preview.innerText()).includes('Hit Requirements are decreased'));
+        }
+        // The light theme previews on a light surface.
+        const surface = await preview
+          .locator('xpath=.//div[contains(@class,"description")]')
+          .first()
+          .evaluate((el) => getComputedStyle(el.parentElement).backgroundColor);
+        const [r, g, b] = surface.match(/\d+/g).map(Number);
+        const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+        assert.ok(
+          theme === 'light' ? luminance > 0.9 : luminance < 0.1,
+          `${label}: preview surface ${surface}`,
+        );
+        await page.screenshot({ path: out(`${mode.toLowerCase()}-${width}`) });
+      }
+      if (!phone)
+        assert.deepEqual(await firstLine(page), topBefore, `${label}: editor text did not move`);
+      assert.deepEqual(errors, [], `${label}: no page errors`);
+      await context.close();
+    }
+  }
+  console.log('Preview column browser checks passed.');
+} finally {
+  await browser.close();
+  await server.close();
+}

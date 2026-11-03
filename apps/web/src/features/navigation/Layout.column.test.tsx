@@ -27,7 +27,7 @@ vi.mock('../compendium/CompendiumBadge', () => ({
 }));
 vi.mock('../editor', () => ({ ClarityEditor: () => <textarea aria-label="Editor" /> }));
 vi.mock('../preview', () => ({
-  TooltipPreview: ({ text }: { text: string }) => <div data-preview>{text}</div>,
+  PreviewColumn: ({ baseText }: { baseText: string }) => <div data-preview>{baseText}</div>,
 }));
 vi.mock('../compendium/CompendiumPanel', () => ({
   CompendiumPanel: () => <div data-compendium />,

@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Tooltip } from '@clarity/core';
 import { TooltipPage } from './TooltipPage';
 import { ClarityEditor, type ClarityEditorProps } from '../editor';
-import { TooltipPreview, type TooltipPreviewProps } from '../preview';
+import { PreviewColumn, type PreviewColumnProps } from '../preview';
 import { CompendiumPanel } from '../compendium/CompendiumPanel';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
@@ -30,7 +30,7 @@ vi.mock('../editor', () => ({
   ClarityEditor: vi.fn((props: ClarityEditorProps) => createElement('div', null, props.value)),
 }));
 vi.mock('../preview', () => ({
-  TooltipPreview: vi.fn((props: TooltipPreviewProps) => createElement('div', null, props.text)),
+  PreviewColumn: vi.fn((props: PreviewColumnProps) => createElement('div', null, props.baseText)),
 }));
 vi.mock('../compendium/CompendiumPanel', () => ({
   CompendiumPanel: vi.fn(({ base }: { base: Tooltip }) =>
@@ -140,6 +140,28 @@ function render(location = '/t/10') {
   );
 }
 
+/** The column's props as one preview per render it can show: the base, then each enhanced version. */
+function previewsOf() {
+  return vi.mocked(PreviewColumn).mock.calls.flatMap(([props]) => [
+    {
+      text: props.baseText,
+      lang: props.lang,
+      globals: props.baseGlobals,
+      name: props.name,
+      icon: props.icon,
+      categoryLabel: props.categoryLabel,
+    },
+    ...props.enhanced.map((view) => ({
+      text: view.text,
+      lang: props.lang,
+      globals: view.globals,
+      name: view.name,
+      icon: undefined,
+      categoryLabel: undefined,
+    })),
+  ]);
+}
+
 describe('tooltip screen composition', () => {
   const originalDraftState = useDraftStore.getState();
   const originalDataState = useDataStore.getState();
@@ -163,7 +185,7 @@ describe('tooltip screen composition', () => {
   it('wires ONE base editor, draft-aware imports and a preview for the base and its override', () => {
     render();
     const editors = vi.mocked(ClarityEditor).mock.calls.map(([props]) => props);
-    const previews = vi.mocked(TooltipPreview).mock.calls.map(([props]) => props);
+    const previews = previewsOf();
     expect(editors).toHaveLength(1);
     expect(previews).toHaveLength(2);
     expect(editors[0].value).toBe(base.text.en?.text);
@@ -185,11 +207,9 @@ describe('tooltip screen composition', () => {
       'Weapon Frame',
       'Weapon Frame Enhanced',
     ]);
-    expect(previews[1]).toMatchObject({
-      name: 'Enhanced',
-      icon: '/enhanced.png',
-      categoryLabel: 'Enhanced category',
-    });
+    // One column carries the base's header; the enhanced version is a view of it.
+    expect(previews[1]).toMatchObject({ name: 'Enhanced' });
+    expect(previews[0]).toMatchObject({ icon: '/base.png' });
     expect(editors[0].readOnly).toBe(!apiUrl);
   });
   it('keeps the one Compendium panel on the base, in English and translation workspaces', () => {
@@ -318,7 +338,7 @@ describe('tooltip screen composition', () => {
     });
     const markup = render('/t/10?variant=11');
     expect(vi.mocked(ClarityEditor)).toHaveBeenCalledTimes(1);
-    const previews = vi.mocked(TooltipPreview).mock.calls.map(([props]) => props);
+    const previews = previewsOf();
     // The draft base text flows into the enhanced preview, read with the enhanced type.
     expect(previews.map((props) => props.text)).toEqual([
       '<enhanced Edited base />',
@@ -357,7 +377,7 @@ describe('tooltip screen composition', () => {
     });
     render();
     const editors = vi.mocked(ClarityEditor).mock.calls.map(([props]) => props);
-    const previews = vi.mocked(TooltipPreview).mock.calls.map(([props]) => props);
+    const previews = previewsOf();
     expect(editors).toHaveLength(1);
     expect(previews).toHaveLength(1);
     for (const props of [...editors, ...previews]) {

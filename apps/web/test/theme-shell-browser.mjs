@@ -76,10 +76,21 @@ try {
         const visible = [...document.querySelectorAll('header img')].filter(
           (img) => img.getBoundingClientRect().width > 0,
         );
-        return { count: visible.length, src: visible[0]?.src.slice(0, 40), alt: visible[0]?.alt };
+        const button = visible[0]?.closest('button');
+        return {
+          count: visible.length,
+          src: visible[0]?.src.slice(0, 40),
+          alt: visible[0]?.alt,
+          button: button?.getAttribute('aria-label'),
+        };
       });
       assert.equal(brand.count, 1, 'exactly one lockup artwork is visible');
-      assert.equal(brand.alt, 'Clarity Control');
+      // The desktop lockup names itself. The phone header shows the decorative mark (empty alt)
+      // inside the button that is named "Workspaces", so the artwork itself is silent by design.
+      if (name === 'phone') {
+        assert.equal(brand.alt, '');
+        assert.equal(brand.button, 'Workspaces');
+      } else assert.equal(brand.alt, 'Clarity Control');
 
       await openSettings(page);
       await page.getByRole('dialog', { name: /settings/i }).waitFor();

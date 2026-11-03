@@ -1,5 +1,6 @@
 import { languages, parseMarkup, type Lang, type MarkupGlobals } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
+import type { Drafts } from '../../services/draftStorage';
 import { tooltipImports } from '../../services/tooltipImports';
 import { canonicalHash, tooltipFor, variantHashes } from '../navigation/catalog';
 
@@ -96,22 +97,47 @@ export function overrideVariants(base: number, data: EditorData): number[] {
   );
 }
 
+export interface EnhancedRender {
+  text: string;
+  type: string | undefined;
+  form: VariantForm;
+}
+
+const renders = new WeakMap<EditorData, WeakMap<Drafts, Map<string, EnhancedRender>>>();
+const noDrafts: Drafts = {};
+
 /**
  * What the variant shows in `lang`: derived variants are the base text read with the variant's
- * own type; overrides keep their own text and type.
+ * own type; overrides keep their own text and type. Unsaved drafts count (the preview must show
+ * what the editor holds), and the result is cached per data bundle and drafts snapshot, so the
+ * page can ask on every render. Whether a variant is derived stays a property of the stored data:
+ * typing in the base never turns a derived version into an override.
  */
 export function enhancedRender(
   base: number,
   variant: number,
   lang: Lang,
   data: EditorData,
-): { text: string; type: string | undefined; form: VariantForm } {
-  const form = variantForm(base, variant, data);
-  return {
-    text: form === 'derived' ? baseText(base, lang, data) : ownText(variant, lang, data),
-    type: legacyTypeOf(variant, data),
-    form,
-  };
+  drafts: Drafts = noDrafts,
+): EnhancedRender {
+  let byDrafts = renders.get(data);
+  if (!byDrafts) renders.set(data, (byDrafts = new WeakMap()));
+  let cache = byDrafts.get(drafts);
+  if (!cache) byDrafts.set(drafts, (cache = new Map()));
+  const key = `${base}:${variant}:${lang}`;
+  let result = cache.get(key);
+  if (!result) {
+    const form = variantForm(base, variant, data);
+    const textOf = (hash: number) =>
+      (drafts[hash]?.next ?? tooltipFor(hash, data)).text[lang]?.text ?? '';
+    result = {
+      text: form === 'derived' ? textOf(base) : textOf(variant),
+      type: legacyTypeOf(variant, data),
+      form,
+    };
+    cache.set(key, result);
+  }
+  return result;
 }
 
 /**

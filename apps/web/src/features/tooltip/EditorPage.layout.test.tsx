@@ -28,8 +28,20 @@ vi.mock('../editor', () => ({
   ),
 }));
 vi.mock('../preview', () => ({
-  TooltipPreview: ({ text, name }: { text: string; name: string }) =>
-    createElement('div', { 'data-preview': name }, text),
+  PreviewColumn: ({
+    baseText,
+    name,
+    enhanced,
+  }: {
+    baseText: string;
+    name: string;
+    enhanced: { name: string }[];
+  }) =>
+    createElement(
+      'div',
+      { 'data-preview': name, 'data-enhanced': enhanced.map((view) => view.name).join('|') },
+      baseText,
+    ),
 }));
 vi.mock('../compendium/CompendiumPanel', () => ({
   CompendiumPanel: ({ base }: { base: Tooltip }) =>
@@ -156,12 +168,16 @@ afterEach(async () => {
 });
 
 describe('editor page composition', () => {
-  it('mounts one editor per item and previews each enhanced version once', async () => {
+  it('mounts one editor per item and shows one preview column with each enhanced version as a view', async () => {
     await render();
     expect(editors().map((node) => node.dataset.editor)).toEqual(['10']);
+    // One column, one header: the base, with each enhanced version a view of it.
     expect(
       [...host.querySelectorAll('[data-preview]')].map((n) => n.getAttribute('data-preview')),
-    ).toEqual(['Base perk', 'Base perk enhanced', 'Other perk enhanced']);
+    ).toEqual(['Base perk']);
+    expect(host.querySelector('[data-preview]')?.getAttribute('data-enhanced')).toBe(
+      'Base perk enhanced|Other perk enhanced',
+    );
     // The blank copy gets neither an editor nor a preview.
     expect(host.textContent).not.toContain('Base perk copy');
     // The identity header and the archived banner are gone: the page heading is for assistive tech.

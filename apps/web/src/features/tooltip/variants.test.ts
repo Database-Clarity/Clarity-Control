@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseMarkup, type Tooltip } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
+import type { Drafts } from '../../services/draftStorage';
 import {
   editableOverrides,
   enhancedPairs,
@@ -77,6 +78,26 @@ describe('variants', () => {
     expect(enhancedVariants(10, data)).toEqual([11, 12, 13]);
     expect(enhancedVariants(11, data)).toEqual([11, 12, 13].filter((hash) => hash !== 10));
     expect(enhancedVariants(404, data)).toEqual([]);
+  });
+
+  it('renders unsaved drafts and caches per drafts snapshot', () => {
+    const draftsOf = (hash: number, text: string): Drafts => ({
+      [hash]: { base: tip(hash, { en: 'old' }), next: tip(hash, { en: text }) },
+    });
+    const none: Drafts = {};
+    expect(enhancedRender(10, 11, 'en', data, none)).toBe(enhancedRender(10, 11, 'en', data, none));
+    // A draft on the base shows in the derived version; the stored form stays derived.
+    const drafts = draftsOf(10, 'Drafted base');
+    expect(enhancedRender(10, 11, 'en', data, drafts)).toEqual({
+      text: 'Drafted base',
+      type: 'Weapon Trait Enhanced',
+      form: 'derived',
+    });
+    // An override shows its own draft, not the base's.
+    expect(enhancedRender(10, 12, 'en', data, draftsOf(12, 'Own draft')).text).toBe('Own draft');
+    expect(enhancedRender(10, 12, 'en', data, drafts).text).toBe('Adhesive text of its own');
+    // A later snapshot is never served the earlier answer.
+    expect(enhancedRender(10, 11, 'en', data, draftsOf(10, 'Next')).text).toBe('Next');
   });
 
   it('is derived when the stored text imports the base, in every language', () => {

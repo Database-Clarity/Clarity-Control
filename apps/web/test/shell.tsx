@@ -218,6 +218,50 @@ Object.assign(window, {
         },
       });
     },
+    /**
+     * Gives base 1000 (and its derived enhanced 2001) Kinetic Tremors' text: eight values and one
+     * line that only the enhanced version has, for the preview column's Compare view.
+     */
+    kinetic() {
+      const current = useDataStore.getState().data!;
+      const text = [
+        'Scoring multiple Direct Hits against a target within 3 seconds of each emits 3 damaging shockwaves from its location at the time of activation. Hit counter persists through stow.',
+        '',
+        'Each shockwave deals up to <pve 90 /> <pvp [20] /> damage in a 6 meter radius. Shockwaves deal 33.33% more damage when activated on Miniboss or higher tier PvE Combatants.',
+        '',
+        'Hits required for Activation:',
+        '• Submachine Guns: #e${14-#d}',
+        '• Auto Rifles: #e${12-#d}',
+        '• Pulse Rifles: #e${11-#d}',
+        '• Sidearms: #e${8-#d}',
+        '• Hand Cannons or Scout Rifles (Rapid-Fire and Precision-Frame): #e${6-#d}',
+        '• All other Hand Cannons and Scout Rifles: #e${5-#d}',
+        '• Rocket Sidearms: #e${4-#d}',
+        '• Bows, Sniper Rifles: #e${3-#d}',
+        '',
+        'var d = 0',
+        'var e = 🡅',
+        '',
+        'enhanced (',
+        'var d = 1',
+        '#e Hit Requirements are decreased by 1.',
+        ')',
+      ].join('\n');
+      const put = (hash: number): Tooltip => ({
+        hash,
+        text: { en: { text, updatedAt: stamp, updatedBy: 'fixture' } },
+        associated: [],
+      });
+      useDataStore.setState({
+        data: {
+          ...current,
+          bundle: {
+            ...current.bundle,
+            tooltips: { ...current.bundle.tooltips, 1000: put(1000), 2001: put(2001) },
+          },
+        },
+      });
+    },
     dataError() {
       useDataStore.setState({ error: 'Cannot reach the data bundle', status: 'ready' });
     },
