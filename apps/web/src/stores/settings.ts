@@ -72,6 +72,8 @@ export interface SettingsStorage {
   get(key: string): string | null;
   set(key: string, value: string): void;
   remove(key: string): void;
+  /** Changes from other tabs; the writer does not receive its own events. */
+  subscribe?(listener: (key: string | null) => void): void;
 }
 export interface SettingsApi {
   get(): Promise<RemoteSettings>;
@@ -130,6 +132,11 @@ function browserStorage(): SettingsStorage {
     get: (key) => localStorage.getItem(key),
     set: (key, value) => localStorage.setItem(key, value),
     remove: (key) => localStorage.removeItem(key),
+    subscribe(listener) {
+      window.addEventListener('storage', (event) => {
+        if (event.storageArea === localStorage) listener(event.key);
+      });
+    },
   };
 }
 
@@ -317,13 +324,73 @@ export function createSettingsStore({
   const device = loadDevice(legacyRemembered);
   if (Object.keys(legacyRemembered).length) write(deviceKey, device);
   const initial = load('anonymous');
+  let observed = read(settingsKey('anonymous'));
+  let lastRemote: RemoteSettings | null = null;
   const initialNotice = notice;
   applyDeviceSettings(device);
 
   return create<SettingsState>((set, get) => {
+    /** Import newer shared fields before a stale tab can persist or send its snapshot. */
+    function reconcile(): void {
+      const state = get();
+      const raw = read(settingsKey(state.scope));
+      if (raw === observed) return;
+      const previous = parse(observed);
+      const shared = parse(raw);
+      observed = raw;
+      if (!shared) return;
+      const settings = { ...state.settings };
+      const pending = new Set(state.pending);
+      for (const key of syncedKeys) {
+        // Another tab's newest value/acknowledgement wins for fields it changed.
+        if (
+          !previous ||
+          shared.settings[key] !== previous.settings[key] ||
+          shared.pending.includes(key) !== previous.pending.includes(key)
+        ) {
+          Object.assign(settings, { [key]: shared.settings[key] });
+          if (shared.pending.includes(key)) pending.add(key);
+          else pending.delete(key);
+        }
+      }
+      const keys = syncedKeys.filter((key) => pending.has(key));
+      const since = keys.length
+        ? ([state.pendingSince, shared.pendingSince]
+            .filter((v): v is string => v !== null)
+            .sort()[0] ?? now())
+        : null;
+      if (shared.pending.length && canSync) recovered = true;
+      if (!keys.length) {
+        recovered = false;
+        lastRemote = { settings, revision: shared.revision };
+      }
+      set({
+        settings,
+        revision: shared.revision,
+        pending: keys,
+        pendingSince: since,
+        ...(canSync && state.status !== 'loading' && state.status !== 'syncing'
+          ? { status: keys.length ? ('unsynced' as const) : ('synced' as const) }
+          : {}),
+        ...(keys.length && recovered && lastRemote
+          ? {
+              status: 'choice' as const,
+              choice: { local: settings, remote: lastRemote, recovered: true, since },
+            }
+          : !keys.length
+            ? { choice: null }
+            : state.choice
+              ? { choice: { ...state.choice, local: settings } }
+              : {}),
+      });
+    }
+
     function persist(): void {
+      reconcile();
       const { scope, settings, revision, pending, pendingSince } = get();
-      const failed = write(settingsKey(scope), { settings, revision, pending, pendingSince });
+      const copy = { settings, revision, pending, pendingSince };
+      const failed = write(settingsKey(scope), copy);
+      if (!failed) observed = JSON.stringify(copy);
       if (
         failed !== get().notice &&
         (failed || get().notice.startsWith('Settings cannot be saved'))
@@ -331,17 +398,25 @@ export function createSettingsStore({
         set({ notice: failed });
     }
 
+    storage.subscribe?.((key) => {
+      if (key === null || key === settingsKey(get().scope)) reconcile();
+    });
+
     function synced(remote: RemoteSettings, sent: SyncedSettings): void {
+      reconcile();
+      lastRemote = remote;
       const current = get().settings;
       const pending = get().pending.filter((key) => current[key] !== sent[key]);
       uploadNeeded = false;
-      recovered = false;
+      recovered = recovered && pending.length > 0;
       set({
         revision: remote.revision,
         pending,
         pendingSince: pending.length ? get().pendingSince : null,
-        status: pending.length ? 'unsynced' : 'synced',
-        choice: null,
+        status: pending.length ? (recovered ? 'choice' : 'unsynced') : 'synced',
+        choice: recovered
+          ? { local: current, remote, recovered: true, since: get().pendingSince }
+          : null,
         error: '',
         errorDetail: '',
       });
@@ -363,6 +438,7 @@ export function createSettingsStore({
       const result = await api.put(settings, revision, keepalive);
       if (token !== activation) return;
       inFlight = false;
+      reconcile();
       if (result.kind === 'synced') {
         synced(result.remote, settings);
         return flushQueued();
@@ -408,6 +484,8 @@ export function createSettingsStore({
       }
       if (token !== activation) return;
       remoteLoaded = true;
+      lastRemote = remote;
+      reconcile();
       const state = get();
       uploadNeeded = remote.settings === null;
       if (state.pending.length) {
@@ -458,6 +536,8 @@ export function createSettingsStore({
         const token = ++activation;
         const scope = user ? String(user.id) : 'anonymous';
         const copy = load(scope);
+        observed = read(settingsKey(scope));
+        lastRemote = null;
         canSync = Boolean(syncEnabled && user?.role);
         remoteLoaded = false;
         uploadNeeded = false;
@@ -468,7 +548,6 @@ export function createSettingsStore({
         set({
           scope,
           ...copy,
-          ...(canSync ? {} : { pending: [], pendingSince: null }),
           notice,
           choice: null,
           error: '',
@@ -480,6 +559,7 @@ export function createSettingsStore({
       },
 
       update(patch) {
+        reconcile();
         const state = get();
         const settings = readSynced({ ...state.settings, ...patch });
         const changed = syncedKeys.filter((key) => settings[key] !== state.settings[key]);
@@ -514,6 +594,7 @@ export function createSettingsStore({
       },
 
       async sync({ keepalive = false } = {}) {
+        reconcile();
         const state = get();
         if (canSync && !keepalive && (inFlight || state.status === 'loading')) exitQueued = true;
         if (!canSync || inFlight || state.choice || state.status === 'loading') return;
@@ -540,6 +621,7 @@ export function createSettingsStore({
       },
 
       async keepLocal() {
+        reconcile();
         const choice = get().choice;
         if (!choice || inFlight) return;
         recovered = false;
@@ -548,6 +630,7 @@ export function createSettingsStore({
       },
 
       useRemote() {
+        reconcile();
         const choice = get().choice;
         if (!choice) return;
         recovered = false;

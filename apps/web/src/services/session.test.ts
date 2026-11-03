@@ -77,3 +77,29 @@ it('rejects expired or malformed tokens without persisting them', () => {
   expect(() => setSession(btoa(JSON.stringify({ exp: 1 })) + '.sig', true)).toThrow('expired');
   expect(sessionToken()).toBeNull();
 });
+
+it('expires an older per-tab token without deleting or signing out a newer remembered session', () => {
+  vi.useFakeTimers();
+  setSession(token()); // Tab A, without Remember me.
+  vi.advanceTimersByTime(30000);
+  const newer = token();
+  localStorage.setItem(key, newer); // Tab B, with Remember me; A retains its per-tab token.
+  const reload = vi.fn();
+  const stop = subscribeSession(reload);
+  vi.advanceTimersByTime(31000);
+  expect(sessionStorage.getItem(key)).toBeNull();
+  expect(localStorage.getItem(key)).toBe(newer);
+  expect(localStorage.getItem('clarity-editor-signout')).toBeNull();
+  expect(sessionToken()).toBe(newer);
+  expect(reload).toHaveBeenCalledOnce();
+  stop();
+});
+
+it('removes an expired shared entry without broadcasting global logout', () => {
+  vi.useFakeTimers();
+  setSession(token(), true);
+  vi.advanceTimersByTime(61000);
+  expect(sessionToken()).toBeNull();
+  expect(localStorage.getItem(key)).toBeNull();
+  expect(localStorage.getItem('clarity-editor-signout')).toBeNull();
+});

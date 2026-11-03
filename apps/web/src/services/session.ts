@@ -38,13 +38,15 @@ export function clearSession(): void {
 }
 
 export function sessionToken(): string | null {
-  const token = sessionStorage.getItem(sessionKey) ?? localStorage.getItem(sessionKey);
-  if (token && expires(token) <= Date.now()) {
-    clearSession();
+  // Expiry belongs to the entry inspected, not to every tab's session.
+  for (const storage of [sessionStorage, localStorage]) {
+    const token = storage.getItem(sessionKey);
+    if (!token) continue;
+    if (expires(token) > Date.now()) return token;
+    if (storage.getItem(sessionKey) === token) storage.removeItem(sessionKey);
     window.dispatchEvent(new Event(changed));
-    return null;
   }
-  return token;
+  return null;
 }
 
 export function subscribeSession(reload: () => void): () => void {
