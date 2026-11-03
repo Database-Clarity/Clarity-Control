@@ -87,7 +87,7 @@ const stateRank: Record<TranslationState, number> = { outdated: 0, missing: 1, c
  * Every tooltip × selected non-English language with its translation state.
  * `missing` = English exists but there is no saved translation; `outdated` matches
  * `outdatedTranslations`; everything else (including translations without a known source
- * revision) is `current`. Aliases and tooltips without English are never listed.
+ * revision) is `current`. Aliases, archived tooltips and tooltips without English text are never listed.
  * Order: outdated (largest gap first), then missing, then current; ties by hash, language.
  */
 export function translationQueue(
@@ -99,7 +99,12 @@ export function translationQueue(
   const entries: TranslationQueueEntry[] = [];
   for (const tooltip of tooltips) {
     const english = tooltip.text.en;
-    if (resolveAlias(tooltip.hash, aliases) !== tooltip.hash || !english) continue;
+    if (
+      resolveAlias(tooltip.hash, aliases) !== tooltip.hash ||
+      !english?.text.trim() ||
+      tooltip.archive
+    )
+      continue;
     for (const language of languages) {
       if (language === 'en' || !selected.has(language)) continue;
       const translation = tooltip.text[language];

@@ -38,6 +38,25 @@ export function markupInlineRanges(line: string): { from: number; to: number }[]
   });
 }
 
+/**
+ * Text outside a complete `<tag ... />` token that still starts with `<word` is treated as a
+ * wrapper by the converter (and by consumers), which can drop or recolour the text. Report it
+ * instead of changing the output.
+ */
+export function markupStrayTags(text: string): string[] {
+  const stray: string[] = [];
+  for (const line of weaponSectionHeadings(text).split('\n')) {
+    if (line.startsWith('< table ') || line.startsWith('<$>')) continue;
+    for (const segment of line.split(new RegExp(`(${inlineToken.source})`, 'g'))) {
+      const tags = segment.match(/<\w+/g) ?? [];
+      // A complete token holds one tag; a second `<word` inside it means a missing `/>`.
+      const isToken = new RegExp(`^${inlineToken.source}$`).test(segment);
+      if (tags.length > (isToken ? 1 : 0)) stray.push(tags[0]!);
+    }
+  }
+  return stray;
+}
+
 function spans(line: string, titles: Record<string, MarkupLine[]>): MarkupSpan[] {
   return line
     .split(new RegExp(`(${inlineToken.source}|🡅)`, 'g'))

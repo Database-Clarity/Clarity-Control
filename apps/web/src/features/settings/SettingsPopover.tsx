@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
+import { useLocation, useNavigationType } from 'react-router-dom';
 import { useSettingsStore } from '../../stores/settings';
 import { useSettingsPanel } from './panel';
 import { SettingsContent } from './SettingsContent';
@@ -48,6 +49,15 @@ function OpenSettings({ layout }: { layout: React.RefObject<HTMLElement | null> 
     anchor(opener ?? document.querySelector('.settings-link, button.settings-link')),
   );
   const close = () => useSettingsPanel.getState().hide();
+  // Back/Forward (or a hash change) moves the page behind a modal; close it instead of leaving a
+  // stale, click-blocking popover. The /settings redirect itself is a REPLACE and stays open.
+  const location = useLocation();
+  const navigationType = useNavigationType();
+  const openedAt = useRef(location.key);
+  useEffect(() => {
+    if (location.key !== openedAt.current && navigationType === 'POP')
+      useSettingsPanel.getState().hide();
+  }, [location.key, navigationType]);
   useEffect(() => {
     useSettingsStore.getState().enterSettings();
     return () => void useSettingsStore.getState().leaveSettings();

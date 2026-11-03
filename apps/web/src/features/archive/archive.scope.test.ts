@@ -50,7 +50,7 @@ it('keeps the shared itemFor (Compendium missing-link list, review fingerprints)
   expect(archivedItemFor(10, editor)).toBe(editor.items[10]);
 });
 
-it('produces identical review evidence for removed tooltips with or without the archive field', () => {
+it('leaves archived tooltips out of review evidence and treats them as ordinary orphans otherwise', () => {
   const withArchive = reviewEvidence(data([present, removed]), source, {}, 'fp');
   const withoutArchive = reviewEvidence(
     data([present, { ...removed, archive: undefined }]),
@@ -58,12 +58,8 @@ it('produces identical review evidence for removed tooltips with or without the 
     {},
     'fp',
   );
-  expect(withArchive).toEqual(
-    withoutArchive.map((entry) =>
-      entry.hash === removed.hash ? { ...entry, base: removed, next: removed } : entry,
-    ),
-  );
-  const entry = withArchive.find((candidate) => candidate.hash === removed.hash)!;
+  expect(withArchive).toEqual(withoutArchive.filter((entry) => entry.hash !== removed.hash));
+  const entry = withoutArchive.find((candidate) => candidate.hash === removed.hash)!;
   expect(entry.name).toBe(String(removed.hash));
   expect(entry.category).toBe('other');
 });
