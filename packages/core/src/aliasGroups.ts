@@ -159,6 +159,24 @@ export function effectiveAliases(
     }
   }
   for (const key of Object.keys(aliases)) resolveAlias(Number(key), aliases);
+  // Older catalogs can lack a pointer for an enhanced item with several base candidates.
+  // Recover it only when every candidate belongs to one accepted base group.
+  const pairedBase = (item: AliasItem | undefined) => {
+    if (!item || !enhanced(item)) return item?.baseHash;
+    if (item.baseHash !== undefined) return item.baseHash;
+    const candidates = Object.values(items).filter(
+      (base) =>
+        !enhanced(base) &&
+        !exotic(base) &&
+        inScope(base) &&
+        name(base) === name(item) &&
+        item.plugCategoryHash !== undefined &&
+        base.plugCategoryHash === item.plugCategoryHash &&
+        base.categoryId === item.categoryId.replace(/-enhanced$/, ''),
+    );
+    const targets = new Set(candidates.map((base) => resolveAlias(base.hash, aliases)));
+    return candidates.length > 1 && targets.size === 1 ? [...targets][0] : undefined;
+  };
   // Base-group drift can invalidate enhanced members even when their own facts still match.
   // Compare only active members, and repeat because removing an alias can expose another mismatch.
   let changed: boolean;
@@ -168,10 +186,10 @@ export function effectiveAliases(
       const canonical = Number(key),
         item = items[key];
       if (!item || !enhanced(item) || generated[key]) continue;
-      const canonicalBase = item.baseHash;
+      const canonicalBase = pairedBase(item);
       for (const member of group.members) {
         if (aliases[member]?.kind !== 'name' || aliases[member]?.to !== canonical) continue;
-        const memberBase = items[member]?.baseHash;
+        const memberBase = pairedBase(items[member]);
         if (
           canonicalBase === undefined ||
           memberBase === undefined ||

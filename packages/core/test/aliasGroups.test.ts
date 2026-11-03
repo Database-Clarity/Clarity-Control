@@ -338,3 +338,13 @@ test('notification fallback facts route to the base and enhanced wording queue w
   expect(enhancedWordingNeeded(facts, {}, {})).toEqual([{ baseHash: 42, enhancedHashes: [43] }]);
   expect(readPossibleEnhanced({ version: 1, proposals: [], possibleEnhanced: [] })).toEqual([]);
 });
+
+test('accepted duplicate bases preserve enhanced membership in older catalogs without a pointer', () => {
+  const facts = { ...items, 51: { ...items[51]!, baseHash: undefined } };
+  const accepted = effectiveAliases({}, config(), facts);
+  expect(accepted.issues).toEqual([]);
+  expect(accepted.aliases[51]).toEqual({ to: 50, kind: 'name' });
+  const pending = effectiveAliases({}, config({ 50: group([50, 51]) }), facts);
+  expect(pending.aliases[51]).toBeUndefined();
+  expect(pending.issues).toHaveLength(1);
+});

@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 
 const [auditDir, dataRepo, requestedDataRef = 'origin/editor-data'] = process.argv.slice(2);
+const multibase = process.argv.includes('--multibase');
 const enhancedFallback = process.argv.includes('--enhanced-fallback');
 // Pinned notification-style corrections; Osmosis has no unambiguous base and no prior export.
 const fallbackHashes = [270582335, 843406310, 1164602481, 1807646319, 1847323754, 2671305723];
@@ -98,11 +99,13 @@ const manifest = JSON.parse(fs.readFileSync(path.join(auditDir, 'manifest.json')
   .inventoryItem;
 const expectedHashes = Object.keys(exports.before)
   .filter((h) =>
-    enhancedFallback
-      ? fallbackHashes.includes(Number(h))
-      : exports.before[h].type === 'Weapon Perk' &&
-        manifest[h]?.inventory?.tierType !== 6 &&
-        /^Enhanced /.test(manifest[h]?.itemTypeDisplayName ?? ''),
+    multibase
+      ? false
+      : enhancedFallback
+        ? fallbackHashes.includes(Number(h))
+        : exports.before[h].type === 'Weapon Perk' &&
+          manifest[h]?.inventory?.tierType !== 6 &&
+          /^Enhanced /.test(manifest[h]?.itemTypeDisplayName ?? ''),
   )
   .map(Number)
   .sort((a, b) => a - b);
@@ -227,6 +230,7 @@ if (
   )
 )
   throw new Error(JSON.stringify(effective.issues));
+if (multibase && effective.issues.length) throw new Error(JSON.stringify(effective.issues));
 const counts = {};
 for (const p of proposals) {
   const scope = p.basis.categoryId.startsWith('armor-')
