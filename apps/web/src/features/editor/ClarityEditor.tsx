@@ -31,6 +31,8 @@ import { tableFormattingTransaction } from './formatTable';
 import { saveDockScrollMargins } from './scrollMargins';
 import { validationDiagnostics } from './diagnostics';
 import { MarkupToolbar } from './MarkupToolbar';
+import { referenceExtensions, type ReferenceHost, type TooltipTarget } from './referenceActions';
+import type { ReferenceSources } from './references';
 import styles from './ClarityEditor.module.scss';
 
 export interface ClarityEditorProps {
@@ -42,6 +44,12 @@ export interface ClarityEditorProps {
   requireEnglish?: boolean;
   highlightLine?: number;
   markupToolbar?: boolean;
+  /** Hash of the tooltip being edited; definitions inside it are selected, not navigated to. */
+  tooltipHash?: number;
+  /** Where every tooltip's text lives, for hover previews and go-to-definition across tooltips. */
+  referenceSources?: ReferenceSources;
+  /** Go-to-definition in another tooltip. Without it only same-document jumps are offered. */
+  onOpenTooltip?: (target: TooltipTarget) => void;
 }
 
 function configuration(
@@ -49,6 +57,7 @@ function configuration(
   globals: MarkupGlobals,
   readOnly: boolean,
   requireEnglish: boolean,
+  references: Omit<ReferenceHost, 'lang' | 'globals'>,
 ) {
   return [
     EditorState.readOnly.of(readOnly),
@@ -63,6 +72,7 @@ function configuration(
     }),
     autocompletion({ override: [clarityCompletions(globals)] }),
     validationDiagnostics(lang, globals, requireEnglish),
+    referenceExtensions({ ...references, lang, globals }),
   ];
 }
 
@@ -75,10 +85,19 @@ export function ClarityEditor({
   requireEnglish = true,
   highlightLine,
   markupToolbar = false,
+  tooltipHash,
+  referenceSources,
+  onOpenTooltip,
 }: ClarityEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const callback = useRef(onChange);
+  const referenceLive = useRef({ tooltipHash, referenceSources, onOpenTooltip });
+  const references = useRef<Omit<ReferenceHost, 'lang' | 'globals'>>({
+    sources: () => referenceLive.current.referenceSources,
+    selfHash: () => referenceLive.current.tooltipHash,
+    navigate: () => referenceLive.current.onOpenTooltip,
+  });
   const initial = useRef({ value, lang, globals, readOnly, requireEnglish });
   const config = useRef(new Compartment());
   const extensions = useRef<Extension[]>([]);
@@ -119,6 +138,9 @@ export function ClarityEditor({
     callback.current = onChange;
   }, [onChange]);
   useEffect(() => {
+    referenceLive.current = { tooltipHash, referenceSources, onOpenTooltip };
+  }, [tooltipHash, referenceSources, onOpenTooltip]);
+  useEffect(() => {
     if (!host.current) return;
     const format = (editor: EditorView) => {
       if (editor.state.readOnly) return false;
@@ -154,6 +176,7 @@ export function ClarityEditor({
           initial.current.globals,
           initial.current.readOnly,
           initial.current.requireEnglish,
+          references.current,
         ),
       ),
       EditorView.updateListener.of((update) => {
@@ -177,13 +200,17 @@ export function ClarityEditor({
     // A different tooltip/language must never undo into the previous document.
     editor.setState(EditorState.create({ doc: value, extensions: extensions.current }));
     editor.dispatch({
-      effects: config.current.reconfigure(configuration(lang, globals, readOnly, requireEnglish)),
+      effects: config.current.reconfigure(
+        configuration(lang, globals, readOnly, requireEnglish, references.current),
+      ),
     });
   }, [value, lang, globals, readOnly, requireEnglish]);
 
   useEffect(() => {
     view.current?.dispatch({
-      effects: config.current.reconfigure(configuration(lang, globals, readOnly, requireEnglish)),
+      effects: config.current.reconfigure(
+        configuration(lang, globals, readOnly, requireEnglish, references.current),
+      ),
     });
   }, [lang, globals, readOnly, requireEnglish]);
 
@@ -240,6 +267,11 @@ export function ClarityEditor({
           Ctrl/Cmd+F: find and replace. Ctrl/Cmd+Space: complete. Ctrl/Cmd+Z: undo. Ctrl/Cmd+/:
           comment. Scroll Lock or Ctrl/Cmd+Shift+F: align tables. Tab indents; to leave the editor
           with the keyboard, press Esc, then Tab.
+        </p>
+        <p>
+          Hover a #variable, [title] or import to see what it contains (Ctrl/Cmd+K, Ctrl/Cmd+I does
+          the same from the caret). Ctrl/Cmd+Click or F12 jumps to its definition; the browser Back
+          button returns.
         </p>
         <p>
           Native spelling uses your browser&apos;s enabled dictionaries. Right-click a misspelling

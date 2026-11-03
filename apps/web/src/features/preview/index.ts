@@ -1,2 +1,2 @@
-export { TooltipPreview } from './TooltipPreview';
+export { MarkupSnippet, TooltipPreview } from './TooltipPreview';
 export type { TooltipPreviewProps } from './TooltipPreview';

@@ -12,6 +12,19 @@
     sans-serif;
   overflow-wrap: anywhere;
 }
+.snippet {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 8px;
+  color: #fff;
+  background-color: hsl(279, 36%, 5%);
+  font:
+    14px/1.3 Arial,
+    Helvetica,
+    DestinySymbols,
+    sans-serif;
+  overflow-wrap: anywhere;
+}
 .associated {
   border-top: 1px solid #485362;
   padding: 8px;
