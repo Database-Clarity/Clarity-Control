@@ -112,6 +112,16 @@ it('round-trips selected relative cells through normal drafts, preserving other 
   queue = reviewQueue(editor, source, {}, progress, fingerprint);
   expect(queue.find((entry) => entry.hash === 100)?.status).toBe('saved');
 });
+it('keeps archived tooltips out of the unresolved queue', () => {
+  editor = fixture();
+  editor.bundle.tooltips[100].archive = {
+    removedAt: '2026-10-01T00:00:00.000Z',
+    lastSeen: { name: 'Gone', categoryId: 'weapon-frame', manifestVersion: 'v1' },
+  };
+  expect(reviewEvidence(editor, source, {}, fingerprint).map((entry) => entry.hash)).not.toContain(
+    100,
+  );
+});
 it('persists filters, position, skip/no-equivalent and reopen; source changes reveal tentative negatives', () => {
   for (const kind of ['skipped', 'no-equivalent', 'open'] as const) {
     editor = fixture();

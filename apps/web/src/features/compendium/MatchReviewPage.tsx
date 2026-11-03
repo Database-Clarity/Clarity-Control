@@ -9,6 +9,7 @@ import { apiUrl } from '../../services/api';
 import { bundleUrl } from '../../services/bundle';
 import { compendiumDataUrl } from '../../services/compendium';
 import { useSaveState } from '../../services/save/state';
+import { openDraftSaveReview } from '../../services/save/openReview';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
@@ -64,6 +65,8 @@ export function MatchReviewPage() {
   const { data, load, loading, error } = useCompendiumStore();
   const { user, loading: authLoading } = useAuthStore();
   const linkedTab = params.get('tab') === 'linked';
+  const draftCount = useDraftStore((state) => Object.keys(state.drafts).length);
+  const saveLocked = useSaveState((state) => state.locked);
   useEffect(() => {
     void load();
   }, [load]);
@@ -88,7 +91,13 @@ export function MatchReviewPage() {
           {location.pathname !== '/compendium' && <Link to="/compendium">← Compendium</Link>}
           <h1>{linkedTab ? 'Linked sources changed' : 'Review matches'}</h1>
         </div>
-        <Link to="/review">Review & save drafts →</Link>
+        <button
+          type="button"
+          disabled={!apiUrl || !user?.role || !draftCount || saveLocked}
+          onClick={openDraftSaveReview}
+        >
+          Review & save drafts ({draftCount})
+        </button>
         {!linkedTab && (
           <details className={styles.help}>
             <summary aria-label="Review help">?</summary>

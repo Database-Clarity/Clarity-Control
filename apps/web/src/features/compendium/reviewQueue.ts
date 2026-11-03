@@ -20,6 +20,7 @@ export function reviewEvidence(
       // Enhanced tooltips can own distinct text; aliases never own a link.
       if (hash <= 3 || resolveAlias(hash, editor.aliases) !== hash) return [];
       const base = tooltipFor(hash, editor);
+      if (base.archive) return [];
       const item = itemFor(hash, editor);
       const next = drafts[hash]?.next ?? base;
       const resolution = next.compendium && resolveCompendiumLink(next.compendium, source);

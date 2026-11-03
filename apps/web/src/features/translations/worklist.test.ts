@@ -43,6 +43,19 @@ describe('worklist helpers', () => {
   const entries = translationQueue(tooltips, ['de']);
   const name = (t: Tooltip) => entryLabel(t, t.hash === 1 ? 'First Perk' : undefined);
 
+  it('omits archived and blank-English tooltips from the queue', () => {
+    const archived: Tooltip = {
+      ...tooltip(4, 'Retired'),
+      archive: {
+        removedAt: '2026-10-01T00:00:00.000Z',
+        lastSeen: { name: 'Gone', categoryId: 'weapon-frame', manifestVersion: 'v1' },
+      },
+    };
+    expect(translationQueue([archived, tooltip(5, '  '), tooltip(6, 'Live')], ['de'])).toEqual([
+      expect.objectContaining({ language: 'de', tooltip: expect.objectContaining({ hash: 6 }) }),
+    ]);
+  });
+
   it('parses the filter and defaults unknown values to missing', () => {
     expect(['missing', 'outdated', 'all'].map(parseWorklistFilter)).toEqual([
       'missing',

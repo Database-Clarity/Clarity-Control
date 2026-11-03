@@ -9,12 +9,12 @@ import { Dialog } from '../../ui/Dialog';
 import { acceptSaved } from './drafts';
 import { isSaveDockIdle } from './dock';
 import { permissionError, prepareChanges, validateChanges } from './pipeline';
-import { reviewSaveChanges, useSaveState, type SaveReview } from './state';
+import { useSaveState, type SaveReview } from './state';
+import { openDraftSaveReview } from './openReview';
 import { SaveSummary } from './SaveSummary';
 
 export function SavePanel({ className }: { className?: string }) {
   const drafts = useDraftStore((state) => state.drafts);
-  const data = useDataStore((state) => state.data);
   const user = useAuthStore((state) => state.user);
   const review = useSaveState((state) => state.review);
   const [notice, setNotice] = useState<string | null>(null);
@@ -30,17 +30,8 @@ export function SavePanel({ className }: { className?: string }) {
         type="button"
         disabled={!apiUrl || !user?.role || !count || Boolean(review)}
         onClick={() => {
-          if (!data) return;
           setNotice(null);
-          const submitted = useDraftStore.getState().drafts;
-          reviewSaveChanges(
-            Object.values(submitted).map(({ base, next }) => ({
-              hash: next.hash,
-              base: data.bundle.tooltips[next.hash] ? base : null,
-              next,
-            })),
-            submitted,
-          );
+          openDraftSaveReview();
         }}
       >
         Review and save drafts
@@ -116,7 +107,7 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
           acceptSaved(review.submitted, result.tooltips, result.commit, deleted);
         } catch (error) {
           throw new Error(
-            `Remote save ${result.commit} succeeded, but local reconciliation failed: ${errorMessage(error)}. Drafts are retained; close this dialog and reload data before continuing.`,
+            `Remote save ${result.commit} succeeded, but local reconciliation failed: ${errorMessage(error).replace(/\.+$/, '')}. Drafts are retained; close this dialog and reload data before continuing.`,
           );
         }
         onSaved(`Saved ${result.tooltips.length} tooltip(s) in ${result.commit.slice(0, 8)}.`);
