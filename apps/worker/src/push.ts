@@ -56,7 +56,7 @@ export async function pushLive(
       if (tooltip.hash !== hash) throw new HttpError(502, 'Stored tooltip hash mismatch');
       tooltips.push(tooltip);
       snapshots[`live/tooltips/${hash}.json`] = tooltip;
-      exportedHashes[hash] = await publishableHash(tooltip);
+      exportedHashes[hash] = await publishableHash(tooltip, aliases);
       if (expected && expected[hash] !== exportedHashes[hash]) {
         throw new HttpError(409, `Tooltip ${hash} changed since review; refresh saved changes`);
       }

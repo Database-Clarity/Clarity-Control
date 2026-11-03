@@ -19,3 +19,11 @@ export function resolveAlias(hash: number, aliases: Aliases): number {
   }
   return hash;
 }
+
+/** The aliases that resolve to `hash`, sorted by hash: what an export of `hash` also writes as stubs. */
+export function incomingAliases(hash: number, aliases: Aliases): [number, 'sandbox' | 'frame'][] {
+  return Object.entries(aliases)
+    .filter(([alias]) => resolveAlias(Number(alias), aliases) === hash)
+    .map(([alias, { kind }]): [number, 'sandbox' | 'frame'] => [Number(alias), kind])
+    .sort((a, b) => a[0] - b[0]);
+}

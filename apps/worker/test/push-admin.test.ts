@@ -42,7 +42,7 @@ describe('push-live', () => {
     });
     expect(published['789']).toEqual({ hash: 789, aliasOf: 123, aliasKind: 'sandbox' });
     expect(fixture.current()['live/pushed.json']).toEqual({
-      123: await publishableHash(tooltip()),
+      123: await publishableHash(tooltip(), fixture.aliases),
     });
   });
   it('ignores retired weapon facts and never writes owner metadata', async () => {
@@ -123,7 +123,7 @@ describe('push-live', () => {
         aliasKind: 'sandbox',
       });
       expect(fixture.current()['live/pushed.json']).toEqual({
-        '123': await publishableHash(tooltip()),
+        '123': await publishableHash(tooltip(), fixture.aliases),
       });
       expect(result.pushed).toEqual(fixture.current()['live/pushed.json']);
     },
@@ -158,7 +158,9 @@ describe('push-live', () => {
     });
 
     it('keeps the live stamp of an unchanged canonical tooltip and replaces an old alias copy with a stub', async () => {
-      fixture.moveData({ 'live/pushed.json': { '123': await publishableHash(tooltip()) } });
+      fixture.moveData({
+        'live/pushed.json': { '123': await publishableHash(tooltip(), fixture.aliases) },
+      });
       fixture.live = {
         ...fixture.live,
         perks: {
@@ -175,7 +177,7 @@ describe('push-live', () => {
     it('leaves exported values for an unchanged tooltip with no live entry', async () => {
       fixture.moveData({
         'tooltips/123.json': { ...tooltip(), legacy: { uploadedBy: 'migrated', lastUpload: 42 } },
-        'live/pushed.json': { '123': await publishableHash(tooltip()) },
+        'live/pushed.json': { '123': await publishableHash(tooltip(), fixture.aliases) },
       });
       expect((await fixture.request('/push-live', 'POST', { hashes: [123] }, 2)).status).toBe(200);
       expect(perks()['123']).toMatchObject({ lastUpload: 42, uploadedBy: 'migrated' });
@@ -183,7 +185,7 @@ describe('push-live', () => {
     });
 
     it('re-reads pushed and live data when retrying after a live race', async () => {
-      const unchanged = await publishableHash(tooltip());
+      const unchanged = await publishableHash(tooltip(), fixture.aliases);
       fixture.beforeLive = () => {
         // A concurrent push recorded the same content and wrote its own stamp meanwhile.
         fixture.moveData({ 'live/pushed.json': { '123': unchanged } });
@@ -273,7 +275,7 @@ describe('push-live', () => {
     const response = await fixture.request('/push-live', 'POST', { hashes: [123] });
     expect(response.status).toBe(200);
     expect(fixture.current()['live/pushed.json']).toEqual({
-      '123': await publishableHash(tooltip()),
+      '123': await publishableHash(tooltip(), fixture.aliases),
       '999': 'f'.repeat(64),
     });
     expect(fixture.current()['tooltips/123.json']).toEqual(tooltip('changed after export'));
@@ -293,7 +295,7 @@ describe('push-live', () => {
     };
     fixture.moveData({ 'tooltips/123.json': metadataOnly });
     expect((await fixture.request('/push-live', 'POST', { hashes: [123] })).status).toBe(200);
-    const expected = await publishableHash(tooltip());
+    const expected = await publishableHash(tooltip(), fixture.aliases);
     expect(expected).not.toBe(await contentHash(metadataOnly));
     expect(fixture.current()['live/pushed.json']).toEqual({ '123': expected });
   });
@@ -327,7 +329,7 @@ describe('push-live', () => {
       },
     });
     fixture.moveData({ 'tooltips/123.json': current(stamp) });
-    const reviewed = await publishableHash(current(stamp));
+    const reviewed = await publishableHash(current(stamp), fixture.aliases);
     const first = await fixture.request('/push-live', 'POST', {
       hashes: [123],
       expected: { 123: reviewed },
@@ -342,7 +344,7 @@ describe('push-live', () => {
     });
     expect(stale.status).toBe(409);
     expect(german()).toBe('Deutsch');
-    const fresh = await publishableHash(current('2026-01-01T00:00:00Z'));
+    const fresh = await publishableHash(current('2026-01-01T00:00:00Z'), fixture.aliases);
     expect(fresh).not.toBe(reviewed);
     const second = await fixture.request('/push-live', 'POST', {
       hashes: [123],
@@ -350,6 +352,32 @@ describe('push-live', () => {
     });
     expect(second.status).toBe(200);
     expect(german()).toBe('English');
+  });
+  it('invalidates a review digest when an alias is added or retargeted, and publishes its stub', async () => {
+    const reviewed = await publishableHash(tooltip(), fixture.aliases);
+    expect(
+      (await fixture.request('/push-live', 'POST', { hashes: [123], expected: { 123: reviewed } }))
+        .status,
+    ).toBe(200);
+    fixture.aliases = { ...fixture.aliases, 790: { to: 123, kind: 'frame' } };
+    fixture.extraItems = {
+      790: { hash: 790, name: 'New frame', categoryId: 'perk', itemHash: 333 },
+    };
+    const stale = await fixture.request('/push-live', 'POST', {
+      hashes: [123],
+      expected: { 123: reviewed },
+    });
+    expect(stale.status).toBe(409);
+    const fresh = await publishableHash(tooltip(), fixture.aliases);
+    expect(fresh).not.toBe(reviewed);
+    const response = await fixture.request('/push-live', 'POST', {
+      hashes: [123],
+      expected: { 123: fresh },
+    });
+    expect(response.status).toBe(200);
+    const perks = (fixture.live as { perks: Record<string, unknown> }).perks;
+    expect(perks['790']).toMatchObject({ hash: 790, aliasOf: 123, aliasKind: 'frame' });
+    expect(fixture.current()['live/pushed.json']).toEqual({ 123: fresh });
   });
   it('does not export missing tooltips or malformed/duplicate hash selections', async () => {
     expect((await fixture.request('/push-live', 'POST', { hashes: [456] })).status).toBe(404);

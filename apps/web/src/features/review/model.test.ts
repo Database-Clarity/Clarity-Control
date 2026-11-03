@@ -49,6 +49,16 @@ describe('review pending content', () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({ name: 'Demo', category: 'Perks', tooltip: { hash: 123 } });
   });
+  it('lists a canonical again when a new alias must reach live', async () => {
+    const state = data([tooltip], { 123: await publishableHash(tooltip) });
+    expect(await pendingTooltips(state)).toEqual([]);
+    state.aliases = { 456: { to: 123, kind: 'frame' } };
+    expect((await pendingTooltips(state)).map((entry) => entry.tooltip.hash)).toEqual([123]);
+    const pushed = { 123: await publishableHash(tooltip, state.aliases) };
+    expect(await pendingTooltips(state, pushed)).toEqual([]);
+    state.aliases = { 457: { to: 123, kind: 'frame' } };
+    expect(await pendingTooltips(state, pushed)).toHaveLength(1);
+  });
   it('keeps canonical enhanced tooltips even when navigation pairs them with a base', async () => {
     const state = data([tooltip, { ...tooltip, hash: 456 }]);
     state.items[456] = { ...state.items[123], hash: 456, name: 'Enhanced', baseHash: 123 };

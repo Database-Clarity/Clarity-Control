@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { publishableHash, pushedSchema, tooltipSchema } from '@clarity/core';
+import { legacyPublishableHash, publishableHash, pushedSchema, tooltipSchema } from '@clarity/core';
 import type { GitHub } from './github.js';
+import { catalog } from './catalog.js';
 import { HttpError, json } from './http.js';
 
 export const historySchema = z.array(
@@ -21,12 +22,14 @@ export async function pushedVersion(github: GitHub, hash: number, head: string):
   const snapshot = await github.file(`live/tooltips/${hash}.json`, head);
   if (snapshot) {
     const tooltip = tooltipSchema.parse(snapshot.value);
-    if (tooltip.hash === hash && (await publishableHash(tooltip)) === digest) {
-      return json({ pushedHash: digest, tooltip });
-    }
+    // The snapshot is committed together with its marker. The marker also covers the aliases at
+    // push time, which cannot be recomputed after they change, so only the hash is checked.
+    if (tooltip.hash === hash) return json({ pushedHash: digest, tooltip });
     throw new HttpError(502, 'Pushed tooltip snapshot does not match its marker');
   }
   // Older markers predate snapshots. Match content, not the marker commit's newer working text.
+  // The marker may predate the fallback/alias inputs, or may not have covered aliases: try each.
+  const { aliases } = await catalog(github.env);
   for (let page = 1; page <= 10; page++) {
     const query = new URLSearchParams({
       sha: head,
@@ -40,7 +43,11 @@ export async function pushedVersion(github: GitHub, hash: number, head: string):
       if (!file) continue;
       const tooltip = tooltipSchema.parse(file.value);
       if (tooltip.hash !== hash) throw new HttpError(502, 'Stored tooltip hash mismatch');
-      if ((await publishableHash(tooltip)) === digest) {
+      if (
+        (await publishableHash(tooltip, aliases)) === digest ||
+        (await publishableHash(tooltip)) === digest ||
+        (await legacyPublishableHash(tooltip)) === digest
+      ) {
         return json({ pushedHash: digest, tooltip });
       }
     }

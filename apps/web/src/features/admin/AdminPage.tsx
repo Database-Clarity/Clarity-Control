@@ -109,8 +109,8 @@ export function AdminPage() {
       await useAuthStore.getState().load();
     } catch (cause) {
       const message = errorMessage(cause);
-      setError(message);
       if (message === permissionsChangedMessage) setStale(true);
+      else setError(message);
     } finally {
       setBusy(false);
     }
@@ -124,11 +124,19 @@ export function AdminPage() {
       {error && (
         <p role="alert">
           {error}{' '}
-          {(!config || stale) && (
+          {!config && (
             <button type="button" onClick={() => setReload((value) => value + 1)}>
-              {stale ? 'Reload permissions' : 'Retry'}
+              Retry
             </button>
           )}
+        </p>
+      )}
+      {stale && (
+        <p role="alert">
+          {permissionsChangedMessage}{' '}
+          <button type="button" onClick={() => setReload((value) => value + 1)}>
+            Reload permissions
+          </button>
         </p>
       )}
       {notice && <p role="status">{notice}</p>}

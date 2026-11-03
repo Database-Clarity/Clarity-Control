@@ -21,6 +21,7 @@ export function usesEnglishFallback(tooltip: Tooltip, language: keyof Tooltip['t
   return Boolean(
     language !== 'en' &&
     english &&
+    english.text.trim() !== '' &&
     translation &&
     translation.sourceUpdatedAt !== undefined &&
     Date.parse(english.updatedAt) - Date.parse(translation.sourceUpdatedAt) > translationMaxAge,
