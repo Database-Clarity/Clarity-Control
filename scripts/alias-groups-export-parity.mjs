@@ -30,7 +30,7 @@ function compile(dir, target) {
 }
 compile('packages/core/src', core);
 const { exportLegacy } = await import(pathToFileURL(path.join(core, 'exportLegacy.js')));
-const { readAliasProposals, enhancedWordingNeeded } = await import(
+const { readAliasProposals, enhancedWordingNeeded, effectiveAliases } = await import(
   pathToFileURL(path.join(core, 'aliasGroups.js'))
 );
 const dataRef = execFileSync('git', ['-C', dataRepo, 'rev-parse', 'origin/editor-data'], {
@@ -92,6 +92,50 @@ const changedHashes = [...new Set([...Object.keys(exports.before), ...Object.key
   }));
 const items = read('after', 'items');
 const proposals = readAliasProposals(read('after', 'aliasProposals'), tooltips);
+// Check the actual emitted facts, with related base/enhanced groups accepted together.
+const decisions = proposals.filter(
+  (p) =>
+    p.kind === 'S' &&
+    (!p.basis.categoryId.startsWith('subclass-') || p.descriptionDiff === 'identical'),
+);
+const config = {
+  version: 1,
+  rejected: {},
+  groups: Object.fromEntries(
+    decisions.map((p) => [
+      p.canonical,
+      {
+        members: p.members,
+        kind: p.kind,
+        basis: { name: p.basis.name, categoryId: p.basis.categoryId },
+        by: { id: '1', login: 'audit' },
+        at: '2026-11-03T00:00:00Z',
+      },
+    ]),
+  ),
+};
+const effective = effectiveAliases(read('after', 'aliases'), config, items);
+const nonSubclass = decisions.filter((p) => !p.basis.categoryId.startsWith('subclass-'));
+for (const p of nonSubclass)
+  for (const hash of p.members) {
+    if (
+      hash !== p.canonical &&
+      effective.aliases[hash]?.to !== p.canonical &&
+      !effective.issues.some(
+        (i) =>
+          i.canonical === p.canonical &&
+          i.member === hash &&
+          i.reason === 'Enhanced member no longer shares the canonical base group',
+      )
+    )
+      throw new Error(`Emitted proposal member ${hash} failed fact validation for ${p.canonical}`);
+  }
+if (
+  effective.issues.some(
+    (i) => i.reason !== 'Enhanced member no longer shares the canonical base group',
+  )
+)
+  throw new Error(JSON.stringify(effective.issues));
 const counts = {};
 for (const p of proposals) {
   const scope = p.basis.categoryId.startsWith('armor-')
@@ -107,6 +151,8 @@ for (const p of proposals) {
 }
 const report = {
   dataRef,
+  validatedNonSubclassGroups: nonSubclass.length,
+  aliasGroupIssues: effective.issues,
   changedHashes,
   skipped,
   counts,
@@ -116,6 +162,7 @@ fs.writeFileSync(path.join(auditDir, 'export-parity.json'), JSON.stringify(repor
 console.log(
   JSON.stringify({
     dataRef,
+    validatedNonSubclassGroups: nonSubclass.length,
     exportChanges: changedHashes.length,
     counts,
     worklist: report.enhancedWordingNeeded.length,

@@ -72,7 +72,7 @@ test('groups resolve enhanced members across base groups; unaccepted enhanced gr
   value.text.en!.text = 'enhanced (\nLonger\n)';
   expect(enhancedWordingNeeded(items, aliases, { 42: value })).toEqual([]);
 });
-test('generated precedence is flagged, groups reject mixed enhanced/exotic/frame and multiple base owners', () => {
+test('generated precedence is flagged, groups drop and flag mixed enhanced/exotic/frame and multiple base owners', () => {
   const result = effectiveAliases(
     { 43: { to: 42, kind: 'sandbox' } },
     config({ '42': group([42, 43]) }),
@@ -85,16 +85,16 @@ test('generated precedence is flagged, groups reject mixed enhanced/exotic/frame
     { isEnhanced: true },
     { categoryId: 'weapon-frame' },
   ]) {
-    expect(() =>
-      effectiveAliases({}, config({ '42': group([42, 43]) }), {
-        ...items,
-        43: { ...items[43]!, ...patch },
-      }),
-    ).toThrow();
+    const drifted = effectiveAliases({}, config({ '42': group([42, 43]) }), {
+      ...items,
+      43: { ...items[43]!, ...patch },
+    });
+    expect(drifted.aliases).toEqual({});
+    expect(drifted.issues).toEqual([expect.objectContaining({ canonical: 42, member: 43 })]);
   }
-  expect(() => effectiveAliases({}, config({ '50': group([50, 51]) }), items)).toThrow(
-    'multiple base',
-  );
+  const splitBases = effectiveAliases({}, config({ '50': group([50, 51]) }), items);
+  expect(splitBases.aliases).toEqual({});
+  expect(splitBases.issues).toEqual([expect.objectContaining({ canonical: 50, member: 51 })]);
   expect(() =>
     aliasGroupsSchema.parse({
       version: 1,
@@ -163,4 +163,42 @@ test('in-group imports are text references rather than conflicts and choose the 
     textState: 'one text',
     bulkEligible: true,
   });
+});
+
+test('manifest drift removes only affected edges and preserves unrelated groups', () => {
+  for (const patch of [
+    { name: 'Renamed' },
+    { categoryId: 'weapon-mod' },
+    { plugCategoryHash: 21 },
+    { plugCategoryHash: undefined },
+    { isEnhanced: true },
+  ]) {
+    const result = effectiveAliases({}, config(), { ...items, 43: { ...items[43]!, ...patch } });
+    expect(result.aliases).toEqual({});
+    expect(result.issues).toHaveLength(2); // base member and its enhanced counterpart
+    expect(result.issues.map((i) => i.member).sort()).toEqual([43, 51]);
+  }
+  const { 43: removed, ...remaining } = items;
+  void removed;
+  expect(
+    effectiveAliases({}, config(), remaining)
+      .issues.map((i) => i.member)
+      .sort(),
+  ).toEqual([43, 51]);
+  const { 42: missingCanonical, ...others } = items;
+  void missingCanonical;
+  const result = effectiveAliases({}, config(), others);
+  expect(result.aliases).toEqual({});
+  expect(result.issues).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ canonical: 42 }),
+      expect.objectContaining({ canonical: 50, member: 51 }),
+    ]),
+  );
+  const unaffected = effectiveAliases({}, config(), {
+    ...items,
+    51: { ...items[51]!, name: 'Renamed' },
+  });
+  expect(unaffected.aliases).toEqual({ 43: { to: 42, kind: 'name' } });
+  expect(unaffected.issues).toHaveLength(1);
 });

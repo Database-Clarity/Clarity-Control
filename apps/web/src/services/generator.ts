@@ -23,6 +23,7 @@ export const itemSchema = z.object({
   enhancedHash: hashSchema.optional(),
   enhancedHashes: z.array(hashSchema).optional(),
   baseHash: hashSchema.optional(),
+  plugCategoryHash: hashSchema.optional(),
   sandboxPerkHashes: z.array(hashSchema).optional(),
   /** All owning exotic items; present only for perks shared by two or more exotics. */
   owners: z.array(hashSchema).optional(),

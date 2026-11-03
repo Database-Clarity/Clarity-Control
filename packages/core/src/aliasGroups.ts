@@ -114,24 +114,46 @@ export function effectiveAliases(
         (base.categoryId.startsWith('subclass-') &&
           item.inGameDescription !== base.inGameDescription)
       ) {
-        throw new Error(`Invalid alias group member ${hash} for ${canonical}`);
+        issues.push({
+          canonical,
+          member: hash,
+          reason: 'Member no longer satisfies alias group facts',
+        });
+        continue;
       }
       aliases[hash] = { to: canonical, kind: 'name' };
     }
   }
   for (const key of Object.keys(aliases)) resolveAlias(Number(key), aliases);
-  // An enhanced group must have all its bases in one base group.
-  for (const [key, group] of Object.entries(groups.groups)) {
-    if (!items[key] || !enhanced(items[key]!)) continue;
-    const bases = new Set(
-      group.members
-        .filter((h) => !generated[h])
-        .map((h) => items[h]?.baseHash)
-        .filter((h): h is number => h !== undefined)
-        .map((h) => resolveAlias(h, aliases)),
-    );
-    if (bases.size > 1) throw new Error(`Enhanced group ${key} spans multiple base groups`);
-  }
+  // Base-group drift can invalidate enhanced members even when their own facts still match.
+  // Compare only active members, and repeat because removing an alias can expose another mismatch.
+  let changed: boolean;
+  do {
+    changed = false;
+    for (const [key, group] of Object.entries(groups.groups)) {
+      const canonical = Number(key),
+        item = items[key];
+      if (!item || !enhanced(item) || generated[key]) continue;
+      const canonicalBase = item.baseHash;
+      for (const member of group.members) {
+        if (aliases[member]?.kind !== 'name' || aliases[member]?.to !== canonical) continue;
+        const memberBase = items[member]?.baseHash;
+        if (
+          canonicalBase === undefined ||
+          memberBase === undefined ||
+          resolveAlias(memberBase, aliases) !== resolveAlias(canonicalBase, aliases)
+        ) {
+          delete aliases[member];
+          issues.push({
+            canonical,
+            member,
+            reason: 'Enhanced member no longer shares the canonical base group',
+          });
+          changed = true;
+        }
+      }
+    }
+  } while (changed);
   return { aliases, issues };
 }
 
