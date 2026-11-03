@@ -20070,7 +20070,8 @@ var compendiumLinkSchema = external_exports.object({
   snapshot: compendiumCellSchema,
   snapshotAt: external_exports.string().datetime({ offset: true }),
   cells: compendiumCellOffsetsSchema.optional(),
-  parts: external_exports.array(external_exports.string()).optional()
+  parts: external_exports.array(external_exports.string()).optional(),
+  setBonusPieces: external_exports.union([external_exports.literal(2), external_exports.literal(4)]).optional()
 }).strict();
 
 // packages/core/src/schemas.ts
@@ -20136,7 +20137,7 @@ function stableStringify(value) {
 // packages/core/src/aliases.ts
 var aliasesSchema = external_exports.record(
   external_exports.string().regex(/^(0|[1-9]\d*)$/).refine((value) => Number(value) <= 4294967295),
-  external_exports.object({ to: hashSchema, kind: external_exports.enum(["sandbox", "frame"]) }).strict()
+  external_exports.object({ to: hashSchema, kind: external_exports.enum(["sandbox", "frame", "name"]) }).strict()
 );
 function resolveAlias(hash2, aliases) {
   const seen = /* @__PURE__ */ new Set();
@@ -20485,15 +20486,13 @@ var compendiumCategoryTabs = {
   "weapon-trait": ["1662574278"],
   "weapon-trait-enhanced": ["1662574278"],
   "weapon-trait-exotic": ["441434520"],
-  "weapon-trait-enhanced-exotic": ["441434520"],
   "weapon-trait-origin": ["1662574278"],
-  "weapon-trait-origin-exotic": ["1662574278"],
   "weapon-frame": ["1662574278"],
   "weapon-frame-enhanced": ["1662574278"],
   "weapon-frame-exotic": ["441434520"],
-  "weapon-frame-enhanced-exotic": ["441434520"],
   "weapon-catalyst-exotic": ["441434520"],
   "weapon-mod": ["1662574278"],
+  "armor-set-bonus": ["1287885342"],
   "armor-trait-exotic": ["1500097863", "20898389"],
   "armor-mod-general": ["1934379638", "1925335732"],
   "armor-mod-combat": ["1934379638", "1925335732"],
@@ -21614,6 +21613,74 @@ var syncedSettingsSchema = external_exports.object({
   timeZone: timeZoneSchema,
   markupToolbar: external_exports.enum(["open", "closed"]),
   englishSource: external_exports.enum(["changes", "current"])
+}).strict();
+
+// packages/core/src/aliasGroups.ts
+var hashKey2 = external_exports.string().regex(/^(0|[1-9]\d*)$/).refine((v) => Number(v) <= 4294967295);
+var actor = external_exports.object({ id: external_exports.string().min(1), login: external_exports.string().min(1) }).strict();
+var aliasGroupsSchema = external_exports.object({
+  version: external_exports.literal(1),
+  groups: external_exports.record(
+    hashKey2,
+    external_exports.object({
+      members: external_exports.array(hashSchema).min(2).refine((v) => new Set(v).size === v.length),
+      kind: external_exports.enum(["S", "X"]),
+      basis: external_exports.object({
+        name: external_exports.string(),
+        categoryId: external_exports.string(),
+        exoticFrameOwner: hashSchema.optional()
+      }).strict(),
+      by: actor,
+      at: timestampSchema,
+      note: external_exports.string().optional()
+    }).strict()
+  ),
+  rejected: external_exports.record(
+    external_exports.string().regex(/^[0-9a-f]{64}$/),
+    external_exports.object({
+      by: actor,
+      at: timestampSchema,
+      reason: external_exports.string().optional()
+    }).strict()
+  )
+}).strict().superRefine((value, ctx) => {
+  const seen = /* @__PURE__ */ new Set();
+  for (const [key, group] of Object.entries(value.groups)) {
+    if (!group.members.includes(Number(key)))
+      ctx.addIssue({ code: "custom", message: "Canonical must be a member" });
+    for (const member of group.members) {
+      if (seen.has(member)) ctx.addIssue({ code: "custom", message: "Overlapping alias groups" });
+      seen.add(member);
+    }
+  }
+});
+var aliasProposalSchema = external_exports.object({
+  kind: external_exports.enum(["S", "X"]),
+  canonical: hashSchema,
+  members: external_exports.array(hashSchema).min(2).refine((v) => new Set(v).size === v.length),
+  basis: external_exports.object({
+    name: external_exports.string(),
+    categoryId: external_exports.string(),
+    isEnhanced: external_exports.boolean(),
+    exotic: external_exports.boolean(),
+    plugCategoryHash: hashSchema.optional(),
+    exoticFrameOwner: hashSchema.optional()
+  }).strict(),
+  descriptionDiff: external_exports.enum(["identical", "wording", "numbers"]),
+  statsDiff: external_exports.boolean(),
+  enhancedLink: hashSchema.optional(),
+  weapons: external_exports.record(hashKey2, external_exports.array(external_exports.object({ hash: hashSchema, name: external_exports.string() }).strict()))
+}).strict();
+var aliasProposalsSchema = external_exports.object({
+  version: external_exports.literal(1),
+  proposals: external_exports.array(aliasProposalSchema),
+  possibleEnhanced: external_exports.array(
+    external_exports.object({
+      baseHash: hashSchema,
+      variantHash: hashSchema,
+      reason: external_exports.literal("possible enhanced \u2014 maintainer call")
+    }).strict()
+  ).default([])
 }).strict();
 
 // apps/worker/src/stamp.ts

@@ -71,6 +71,11 @@ The plain Node 24 runtime includes packages/core and has no runtime npm dependen
 source HEAD. Commit source first, then build/commit the generated files so the source pin
 identifies the exact implementation. Do not edit generated publisher.mjs by hand.
 
+Current template source: `cac0b1e95824a3ab3b0c93c3bc13c808dcb76277` (v2).
+Runtime SHA-256: `e2fe19cd0c5376167a16b3e83d2eb4fc875931abcf3cca5986425234bb6a3dec`.
+This includes set-bonus pieces, name relinks, armor-set-bonus categories and alias-group schemas.
+Two consecutive builds and a clean checkout build must reproduce that digest.
+
 At enable step E, first wait for or cancel every in-flight bundle.yml run: its old concurrency
 group and force-push could overwrite the first pipeline bundle. Then replace bundle.yml with pipeline.yml
 in the SAME commit and copy .publisher. Fill config.json from config.example.json with the
