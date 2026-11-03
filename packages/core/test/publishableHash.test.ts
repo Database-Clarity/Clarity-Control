@@ -199,3 +199,12 @@ test('incoming aliases are part of the digest, sorted, and absent aliases leave 
   ).toBe(two);
   expect(await publishableHash(value, { 7: { to: 42, kind: 'sandbox' } })).not.toBe(one);
 });
+
+test('digesting thousands of tooltips against thousands of aliases stays fast', async () => {
+  const aliases: Record<string, { to: number; kind: 'frame' | 'sandbox' }> = {};
+  for (let index = 0; index < 3000; index++)
+    aliases[10_000 + index] = { to: index % 2900, kind: 'frame' };
+  const started = performance.now();
+  for (let hash = 0; hash < 2900; hash++) await publishableHash({ ...tooltip(), hash }, aliases);
+  expect(performance.now() - started).toBeLessThan(1500);
+});
