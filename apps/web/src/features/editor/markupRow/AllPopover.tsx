@@ -98,7 +98,7 @@ function AllList({
       <input
         type="search"
         className={styles.filter}
-        placeholder="Filter markup, snippets and variables"
+        placeholder="Filter"
         aria-label="Filter markup"
         autoFocus
         value={query}
@@ -121,18 +121,13 @@ function AllList({
                   type="button"
                   className={styles.chip}
                   data-all-button
-                  title={entry.markup}
+                  title={`${entry.label}: ${entry.markup}`}
                   aria-label={entry.label}
                   onFocus={() => setCurrent(entry)}
                   onMouseEnter={() => setCurrent(entry)}
                   onClick={() => insert(entry)}
                 >
                   <EntryGlyph glyph={entry.glyph} />
-                  {/* A button whose face already reads as its name does not say it twice. */}
-                  {!(
-                    (entry.glyph.kind === 'text' || entry.glyph.kind === 'mono') &&
-                    entry.glyph.text === entry.label
-                  ) && <span className={styles.chipLabel}>{entry.label}</span>}
                 </button>
               ))}
             </div>
@@ -148,12 +143,12 @@ function AllList({
               {current.about}
               {used !== undefined &&
                 (used === 0
-                  ? ' Not used in any tooltip yet.'
-                  : ` Used in ${new Intl.NumberFormat().format(used)} ${used === 1 ? 'tooltip' : 'tooltips'}.`)}
+                  ? ' Unused so far.'
+                  : ` In ${new Intl.NumberFormat().format(used)} ${used === 1 ? 'tooltip' : 'tooltips'}.`)}
             </span>
           </>
         ) : (
-          'Same catalogue as Ctrl+Space, grouped · Enter inserts · Esc closes'
+          <span>Hover for details · Enter inserts the first match</span>
         )}
       </p>
     </div>

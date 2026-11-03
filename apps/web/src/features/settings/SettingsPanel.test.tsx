@@ -217,7 +217,7 @@ describe('Settings popover', () => {
       englishSource: 'current',
     });
     expect(document.body.textContent).toContain(
-      'Starting values for new devices (synced to your account). Toggling the toolbar or source view inside the editor is remembered on this device only. Choosing here also applies on this device.',
+      'The markup row is open until you hide it. Both choices here are remembered on this device; English source is also the starting value for new devices (synced to your account).',
     );
     await close();
     expect(popover()).toBeNull();
@@ -244,6 +244,39 @@ describe('Settings popover', () => {
     expect(document.activeElement).toBe(items[0]);
     await press('Tab', { shiftKey: true });
     expect(document.activeElement).toBe(items.at(-1));
+  });
+
+  it('previews the interface scale while the slider is dragged and applies it on release', async () => {
+    await act(async () => useSettingsStore.getState().activate(editor));
+    await render();
+    await openSettings();
+    const input = scaleInput();
+    await act(async () => {
+      input.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    });
+    await setScale(130);
+    await setScale(140);
+    // Nothing resized under the pointer: the page and the popover are still at 100%.
+    expect(useSettingsStore.getState().device.uiScale).toBe(100);
+    expect(document.documentElement.dataset.uiScale).not.toBe('140');
+    expect(scaleInput().value).toBe('140');
+    expect(scaleInput().parentElement!.querySelector('output')!.textContent).toBe('140%');
+    await act(async () => {
+      window.dispatchEvent(new Event('pointerup'));
+    });
+    expect(useSettingsStore.getState().device.uiScale).toBe(140);
+    expect(document.documentElement.dataset.uiScale).toBe('140');
+    expect(scaleInput().value).toBe('140');
+  });
+
+  it('applies keyboard steps of the interface scale one by one, immediately', async () => {
+    await act(async () => useSettingsStore.getState().activate(editor));
+    await render();
+    await openSettings();
+    await setScale(105);
+    expect(useSettingsStore.getState().device.uiScale).toBe(105);
+    await setScale(110);
+    expect(useSettingsStore.getState().device.uiScale).toBe(110);
   });
 
   it('keeps device settings local and applies the interface scale immediately', async () => {

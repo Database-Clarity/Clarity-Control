@@ -32,7 +32,7 @@ const valueLabels: { [K in SyncedKey]: Record<string, string> } = {
     relative: 'Relative ("3 days ago"), exact on hover',
   },
   timeZone: { UTC: 'UTC' },
-  markupToolbar: { open: 'Open by default', closed: 'Closed by default' },
+  markupToolbar: { open: 'Open', closed: 'Closed' },
   englishSource: { changes: 'Changes since the translation', current: 'Current English' },
 };
 

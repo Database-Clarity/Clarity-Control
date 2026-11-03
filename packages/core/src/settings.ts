@@ -38,7 +38,7 @@ export const defaultSyncedSettings: SyncedSettings = {
   dateFormat: 'auto',
   timeDisplay: 'datetime',
   timeZone: 'auto',
-  markupToolbar: 'closed',
+  markupToolbar: 'open',
   englishSource: 'changes',
 };
 

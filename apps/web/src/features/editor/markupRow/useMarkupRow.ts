@@ -2,15 +2,16 @@ import { useEffect } from 'react';
 import { useSettingsStore } from '../../../stores/settings';
 
 /**
- * Whether the markup row is open, and how to flip it. The last choice is remembered on this
- * device; Settings gives the default until then. Ctrl+. (Cmd+. on a Mac) toggles it from anywhere
+ * Whether the markup row is open, and how to flip it. It is open until the author hides it; that
+ * choice (and a later re-open) is remembered on this device. The synced `markupToolbar` value is
+ * deliberately not consulted: stored copies cannot tell "never chose" from "chose closed" (it was
+ * closed by default), so only this device's own remembered click counts as a choice. Ctrl+. (Cmd+. on a Mac) toggles it from anywhere
  * on the page except a text field, where the key may mean something else.
  */
 export function useMarkupRow(enabled = true): { open: boolean; toggle(): void } {
   const remembered = useSettingsStore((state) => state.device.remembered.markupToolbar);
-  const fallback = useSettingsStore((state) => state.settings.markupToolbar);
   const remember = useSettingsStore((state) => state.remember);
-  const open = (remembered ?? fallback) === 'open';
+  const open = (remembered ?? 'open') === 'open';
   const toggle = () => remember({ markupToolbar: open ? 'closed' : 'open' });
 
   useEffect(() => {

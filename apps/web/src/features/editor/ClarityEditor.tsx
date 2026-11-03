@@ -29,6 +29,7 @@ import {
 import { clarityHighlighting, clarityLanguage } from './language';
 import { tableFormattingTransaction } from './formatTable';
 import { editorScrollMargins } from './scrollMargins';
+import { rememberSearch, restoreSearch } from './searchMemory';
 import { rawMode, setSymbolReveal, symbolExtensions, toggleRawView } from './symbols';
 import { validationDiagnostics } from './diagnostics';
 import { MarkupRow } from './markupRow/MarkupRow';
@@ -259,7 +260,7 @@ export function ClarityEditor({
         conflictHost.of({ compact: false, onCompare: () => undefined, onPanel: () => undefined }),
       ),
       history(),
-      search(),
+      search({ top: true }),
       indentOnInput(),
       bracketMatching(),
       clarityLanguage,
@@ -304,6 +305,7 @@ export function ClarityEditor({
           rawRef.current = raw;
           setRawView(raw);
         }
+        rememberSearch(update);
         if (update.docChanged) callback.current(update.state.doc.toString());
         if (update.docChanged || update.selectionSet) {
           const head = update.state.selection.main.head;
@@ -321,6 +323,8 @@ export function ClarityEditor({
       state: EditorState.create({ doc: initial.current.value, extensions: extensions.current }),
     });
     view.current = editor;
+    // Find and replace carries over from the previous tooltip (or page) in this tab.
+    restoreSearch(editor);
     return () => {
       view.current = null;
       editor.destroy();
@@ -367,6 +371,8 @@ export function ClarityEditor({
         conflictConfig.current.reconfigure(conflictHostExtension()),
       ],
     });
+    // The rebuilt state starts with find closed: bring back what was open.
+    restoreSearch(editor);
   }, [value, lang, globals, readOnly, requireEnglish]);
 
   useEffect(() => {

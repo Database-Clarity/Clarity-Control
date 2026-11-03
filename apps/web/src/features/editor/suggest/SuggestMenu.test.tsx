@@ -228,13 +228,13 @@ describe('the suggestion menu', () => {
     expect(suggestState(view.state)).toBeNull();
   });
 
-  it('applies the toolbar line-style limit: a line cannot take a second <center/>', () => {
-    const view = mount('<center/>Hello ');
+  it('no longer offers the retired line styles', () => {
+    const view = mount('Hello ');
     press(view, ' ', { ctrlKey: true, keyCode: 32 });
-    const center = options().find((option) => option.textContent!.startsWith('<center/>'))!;
-    act(() => center.click());
-    expect(view.state.doc.toString()).toBe('<center/>Hello ');
-    expect(menu()!.querySelector('[role=alert]')!.textContent).toMatch(/cannot display another/);
+    const labels = options().map((option) => option.textContent!);
+    expect(labels.some((label) => /<center\/>|<background\/>|<breakSpaces\/>/.test(label))).toBe(
+      false,
+    );
   });
 
   it('a menu opened on a bare word closes once the caret leaves that word', () => {
