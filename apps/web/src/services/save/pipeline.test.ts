@@ -102,4 +102,52 @@ describe('save preparation', () => {
       ),
     ).toEqual([]);
   });
+  it('blocks saving a tooltip that defines a global name locally, and only that tooltip', async () => {
+    const clashing = {
+      ...next,
+      text: { en: { ...english, text: 'var range = 1\n#range' } },
+    };
+    const other = { ...tooltip, hash: 124, text: { en: { ...english, text: 'Plain' } } };
+    const data = editorData();
+    data.bundle.tooltips[2] = {
+      ...tooltip,
+      hash: 2,
+      text: { en: { ...english, text: 'var range = 5' } },
+    };
+    const issues = validateChanges(
+      [
+        { hash: 123, base: tooltip, next: clashing },
+        { hash: 124, base: null, next: other },
+      ],
+      data,
+    );
+    expect(issues).toEqual([
+      expect.objectContaining({
+        severity: 'error',
+        hash: 123,
+        message: expect.stringContaining('#range is already a global variable'),
+      }),
+    ]);
+    await expect(
+      prepareChanges([{ hash: 123, base: tooltip, next: clashing }], user, data),
+    ).rejects.toThrow('Validation errors');
+    await expect(
+      prepareChanges([{ hash: 124, base: null, next: other }], user, data),
+    ).resolves.toHaveLength(1);
+  });
+  it('blocks adding a global whose name is defined locally in another tooltip', () => {
+    const data = editorData();
+    data.bundle.tooltips[123] = {
+      ...tooltip,
+      text: { en: { ...english, text: 'var range = 1' } },
+    };
+    const base = { ...tooltip, hash: 2, text: { en: { ...english, text: 'var other = 1' } } };
+    const added = { ...base, text: { en: { ...english, text: 'var other = 1\nvar range = 5' } } };
+    const issues = validateChanges([{ hash: 2, base, next: added }], data);
+    expect(issues.filter((issue) => issue.severity === 'error')).toEqual([
+      expect.objectContaining({ hash: 2, message: expect.stringContaining('tooltip 123') }),
+    ]);
+    const renamed = { ...base, text: { en: { ...english, text: 'var free = 1' } } };
+    expect(validateChanges([{ hash: 2, base, next: renamed }], data)).toEqual([]);
+  });
 });

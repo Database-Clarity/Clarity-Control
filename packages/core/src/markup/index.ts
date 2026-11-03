@@ -4,3 +4,4 @@ export { markupInlineRanges } from './lines.js';
 export { markupCommentContext, markupImports, markupVariableReferences } from './prepare.js';
 export { parseMarkup } from './parse.js';
 export { weaponSectionHeadings } from './weaponHeadings.js';
+export * from './clashes.js';

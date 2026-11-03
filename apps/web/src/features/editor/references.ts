@@ -231,7 +231,8 @@ function resolveGlobalDefinition(ref: LineReference, context: ResolveContext): R
   const base = { kind: ref.kind, name: ref.name, label: labelFor(ref) } as const;
   const global = locate(isVariable ? context.globals.variables : context.globals.titles);
   const local = locate(context.doc);
-  // The parser merges `{ ...local, ...globals }`, so a global definition wins over a local one.
+  // The parser merges `{ ...local, ...globals }`, so a global would silently win; validation
+  // reports a local definition of a global name as an error, and the note says the same.
   if (global) {
     return {
       ...base,
@@ -240,7 +241,12 @@ function resolveGlobalDefinition(ref: LineReference, context: ResolveContext): R
       value: global.value,
       lang: context.lang,
       hash,
-      note: local ? 'Also defined in this tooltip; the global value is the one used.' : undefined,
+      note:
+        local && context.selfHash !== hash
+          ? `Error: also defined in this tooltip. The global is the one used; rename the local ${
+              isVariable ? 'variable' : 'title'
+            } before saving.`
+          : undefined,
       target: tooltipTarget(context, hash, context.lang, locate),
     };
   }
