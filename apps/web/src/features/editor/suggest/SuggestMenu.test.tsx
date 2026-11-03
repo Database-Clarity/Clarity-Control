@@ -228,6 +228,27 @@ describe('the suggestion menu', () => {
     expect(suggestState(view.state)).toBeNull();
   });
 
+  it('applies the toolbar line-style limit: a line cannot take a second <center/>', () => {
+    const view = mount('<center/>Hello ');
+    press(view, ' ', { ctrlKey: true, keyCode: 32 });
+    const center = options().find((option) => option.textContent!.startsWith('<center/>'))!;
+    act(() => center.click());
+    expect(view.state.doc.toString()).toBe('<center/>Hello ');
+    expect(menu()!.querySelector('[role=alert]')!.textContent).toMatch(/cannot display another/);
+  });
+
+  it('a menu opened on a bare word closes once the caret leaves that word', () => {
+    const view = mount('Gains ');
+    press(view, ' ', { ctrlKey: true, keyCode: 32 });
+    type(view, 'fo');
+    expect(menu()).not.toBeNull();
+    type(view, 'o ');
+    expect(menu()).toBeNull();
+    type(view, 'x');
+    press(view, 'Enter'); // a plain newline, not a snippet
+    expect(view.state.doc.toString()).toBe('Gains foo x' + String.fromCharCode(10));
+  });
+
   it('closes when the caret leaves the word', () => {
     const view = mount('Gains ');
     type(view, '<');

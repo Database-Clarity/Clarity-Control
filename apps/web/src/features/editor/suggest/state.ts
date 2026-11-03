@@ -59,6 +59,13 @@ function derive(
   if (state.readOnly) return null;
   const context = suggestContext(state, explicit);
   if (!context) return null;
+  // A menu opened on a bare word is about that word: once the caret is in another one it is done.
+  if (
+    previous?.context.kind === 'word' &&
+    context.kind === 'word' &&
+    context.from !== previous.context.from
+  )
+    return null;
   const items = suggestItems(context, state, state.facet(suggestHost).globals, recentSuggestions());
   if (!items.length) return null;
   const kept = previous
@@ -143,7 +150,7 @@ export function acceptSuggestion(view: EditorView, index?: number): AcceptResult
       view.state,
       { from: item.from, to: item.to },
       view.state.facet(suggestHost).globals,
-      { typed, link: item.link },
+      { typed, link: item.link, lineStyle: item.lineStyle },
     );
     if (rejection) {
       view.dispatch({ effects: messageEffect.of(insertionMessages[rejection]) });

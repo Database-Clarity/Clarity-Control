@@ -58,6 +58,8 @@ export interface SuggestItem {
   reference?: boolean;
   /** Link-like text must not land in a legacy table cell. */
   link?: boolean;
+  /** A whole-line style marker: the line may only carry as many as it can show. */
+  lineStyle?: string;
   /** Fuzzy haystack beyond the label. */
   keys: string;
 }
@@ -325,6 +327,7 @@ export function suggestItems(
         id: symbol.id,
         category: 'Symbols',
         label: tag,
+        ...(symbol.id.startsWith('style:') ? { hint: 'whole line', lineStyle: symbol.name } : {}),
         about: symbol.about,
         insert: tag,
         // With a selection the symbol goes in front of it and the selection stays.
