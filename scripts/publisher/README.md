@@ -118,3 +118,7 @@ the two builds. Pipeline publication remains simulation-only even when this swit
 See [E2-RUNBOOK.md](./E2-RUNBOOK.md) for local-only install preparation, preview CPU measurement,
 first-output parity, and rollback. No remote measurements or installation are performed by E1.
 `node scripts/publisher/cpu/smoke.mjs` verifies all 12 synthetic endpoint/size cases without a server.
+`npx vitest run scripts/publisher/startup.test.ts` dry-run bundles the harness and real Worker,
+then imports both without invoking handlers under a shim that rejects startup randomness,
+crypto, network I/O and timers. It also checks lazy per-isolate UUID and invocation metadata.
+The harness creates its isolate ID on the first request, never during Worker startup.
