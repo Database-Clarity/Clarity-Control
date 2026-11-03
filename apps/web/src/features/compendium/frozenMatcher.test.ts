@@ -8,7 +8,7 @@ import { classifyItem, attachmentCategory, effectCategory } from './itemClassifi
 import { approvedExoticStat } from './ownerExceptions';
 import type { EditorData } from '../../stores/data';
 
-it('links all 69 frozen armor disagreements to their audited core destinations', () => {
+it('links frozen armor disagreements while rejecting set-conversion selectors', () => {
   expect(frozen.entries.filter((e) => e.expected)).toHaveLength(69);
   expect(frozen.entries.filter((e) => approvedExoticStat(e, `catalog:${e.category}`))).toHaveLength(
     17,
@@ -46,7 +46,10 @@ it('links all 69 frozen armor disagreements to their audited core destinations',
       f.baseline,
       f.scope,
     )[0].entries[0];
-    if (item.expected) expect(decision.link, item.name).toMatchObject(item.expected);
+    if (/^Set Bonus:/.test(item.name)) {
+      expect(decision.link, item.name).toBeUndefined();
+      expect(proposals.get(item.hash)?.link).toBeUndefined();
+    } else if (item.expected) expect(decision.link, item.name).toMatchObject(item.expected);
     if (approvedExoticStat(item, category.id)) {
       const catalogItem = f.editor.items[item.hash];
       const classification = classifyItem(catalogItem);

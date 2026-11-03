@@ -1,3 +1,4 @@
+import { isSetSelector } from '../compendium/itemClassification';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { bungieDrift, type Tooltip } from '@clarity/core';
@@ -19,7 +20,15 @@ export function DriftPage() {
   const locked = useSaveState((state) => state.locked);
   const [error, setError] = useState<string | null>(null);
   const result = useMemo(
-    () => data && bungieDrift(Object.values(data.bundle.tooltips), data.items, data.aliases),
+    () =>
+      data &&
+      bungieDrift(
+        Object.values(data.bundle.tooltips).filter(
+          (tooltip) => !data.items[tooltip.hash] || !isSetSelector(data.items[tooltip.hash]),
+        ),
+        data.items,
+        data.aliases,
+      ),
     [data],
   );
   const canReview = Boolean(apiUrl && canEditTooltipFields(user));

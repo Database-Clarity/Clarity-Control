@@ -87,7 +87,6 @@ it('never auto-links ambiguous or similarity-only matches and explains global/gh
   ).toBe('no-equivalent');
 });
 it.each([
-  ['armor-mod-general', 'Set Bonus: \nWild Anthem', 'Wild Anthem\n\nLegacy Crucible Vendor'],
   ['armor-mod-general', 'Kinetic Siphon', 'Siphon\n[3 Energy]'],
   ['armor-mod-general', 'Heavy Ammo Finder', 'Ammo Finder\n[3 Energy]'],
   ['armor-mod-general', 'Special Ammo Scout', 'Ammo Scout\n[1 Energy]'],
@@ -191,9 +190,7 @@ it.each(['unchanged', 'changed', 'moved', 'missing', 'ambiguous'])(
       current,
       '2026-10-28T00:00:00Z',
     );
-    expect(result.reason).toBe(
-      status === 'missing' ? 'unmatched' : 'linked',
-    );
+    expect(result.reason).toBe(status === 'missing' ? 'unmatched' : 'linked');
     expect(result.next).toBeUndefined();
     expect(linked.compendium.snapshot).toEqual(cell);
     expect(linked.compendium.snapshotAt).toBe(now);

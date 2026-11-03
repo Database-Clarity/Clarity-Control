@@ -8,6 +8,7 @@ import {
   type CompendiumGridCell,
 } from './types.js';
 import { compendiumTabId, compendiumTabs, isTrackedCompendiumTab } from './config.js';
+import { setBonusCell } from './setBonus.js';
 import { selectCompendiumCells } from './cells.js';
 
 export function normaliseCompendiumName(name: string): string {
@@ -40,6 +41,7 @@ export interface CompendiumMatch {
   row: CompendiumRow;
   parts?: string[];
   cells?: CompendiumLink['cells'];
+  setBonusPieces?: 2 | 4;
 }
 export interface CompendiumCandidate extends CompendiumMatch {
   similarity: number;
@@ -133,6 +135,13 @@ export function resolveCompendiumLink(
       if (!cell) return { status: 'missing' };
       match.row = { ...match.row, cell };
       match.cells = link.cells;
+    }
+    if (link.setBonusPieces) {
+      if (match.tab.gid !== compendiumTabId('Armor Perks')) return { status: 'missing' };
+      const cell = setBonusCell(match.row.cell, link.setBonusPieces);
+      if (!cell) return { status: 'missing' };
+      match.row = { ...match.row, cell };
+      match.setBonusPieces = link.setBonusPieces;
     }
     const changed =
       !sameCell(link.snapshot, match.row.cell) ||
@@ -317,6 +326,7 @@ export function snapshotCompendium(
     ...(match.row.section ? { section: match.row.section } : {}),
     ...(match.cells ? { cells: match.cells } : {}),
     ...(match.parts ? { parts: match.parts } : {}),
+    ...(match.setBonusPieces ? { setBonusPieces: match.setBonusPieces } : {}),
     snapshot: match.row.cell,
     snapshotAt: now,
   };

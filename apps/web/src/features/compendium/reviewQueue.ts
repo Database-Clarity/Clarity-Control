@@ -1,3 +1,4 @@
+import { isSetSelector } from './itemClassification';
 import { resolveAlias, resolveCompendiumLink, type CompendiumData } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import type { Drafts } from '../../services/draftStorage';
@@ -22,6 +23,7 @@ export function reviewEvidence(
       const base = tooltipFor(hash, editor);
       if (base.archive) return [];
       const item = itemFor(hash, editor);
+      if (item && isSetSelector(item)) return [];
       const next = drafts[hash]?.next ?? base;
       const resolution = next.compendium && resolveCompendiumLink(next.compendium, source);
       const valid = resolution && !['missing', 'candidates'].includes(resolution.status);

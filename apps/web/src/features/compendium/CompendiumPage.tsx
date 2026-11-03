@@ -1,3 +1,4 @@
+import { isSetSelector } from './itemClassification';
 import { useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { resolveAlias } from '@clarity/core';
@@ -40,6 +41,7 @@ export function CompendiumPage() {
       )
       .map((hash) => itemFor(hash, editor))
       .filter((item) => !!item)
+      .filter((item) => !isSetSelector(item))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [editor]);
   if (!editor) return null;
