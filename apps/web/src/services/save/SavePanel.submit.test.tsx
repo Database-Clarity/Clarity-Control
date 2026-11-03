@@ -291,6 +291,8 @@ describe('SaveController save submission', () => {
       await review();
       await act(async () => useConflictStore.getState().choose(123, '$exists', 'theirs'));
       expect(JSON.parse(localStorage.getItem(conflictSessionKey('1', 789))!)).toEqual(other);
+      // Its draft write is external until this tab reloads the other tab's drafts.
+      await act(async () => useDraftStore.setState({ external: true }));
       await act(async () => useConflictStore.getState().refresh());
       expect(useConflictStore.getState().open()).toEqual([
         { hash: 789, rows: 1, markers: 0, byLanguage: {}, total: 1 },

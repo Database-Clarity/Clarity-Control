@@ -141,13 +141,14 @@ export function createConflictStore(deps: ConflictDeps) {
     /** Drops sessions whose conflict is over: no marker blocks, no open rows, or no draft left. */
     function prune() {
       const { sessions } = get();
-      const drafts = deps.drafts.getState().drafts;
+      const { drafts, pending, external } = deps.drafts.getState();
       let next = sessions;
       for (const session of Object.values(sessions)) {
         const draft = drafts[session.hash];
         if (draft) observedDrafts.add(session.hash);
-        // A session imported from another tab may not have a draft in this tab yet.
-        if (!draft && !observedDrafts.has(session.hash)) continue;
+        // Imported drafts may still be in flight or awaiting Reload / Keep mine. Once
+        // storage is settled, a missing draft means the session is orphaned.
+        if (!draft && !observedDrafts.has(session.hash) && (pending > 0 || external)) continue;
         const done =
           !draft ||
           (unresolvedRows(session) === 0 && Object.keys(markersIn(draft.next)).length === 0);
@@ -167,6 +168,8 @@ export function createConflictStore(deps: ConflictDeps) {
         const drafts = deps.drafts.getState();
         for (const conflict of conflicts) {
           const { hash, head, base, next } = conflict;
+          // Even an identical rebase counts as observed: replaceDraft may remove its draft.
+          observedDrafts.add(hash);
           const rebased = rebaseConflict(conflict);
           const rows: Record<string, null> = {};
           if (rebased) {
@@ -241,7 +244,8 @@ export function createConflictStore(deps: ConflictDeps) {
         const { scope } = get();
         if (scope === null) return;
         const stored = readSessions(deps.storage(), scope);
-        const sessions: Record<number, ConflictSession> = {};
+        // Keep local-only sessions too: a failed setItem must not lose unresolved rows.
+        const sessions = { ...get().sessions };
         for (const [key, session] of Object.entries(stored)) {
           const mine = get().sessions[Number(key)];
           if (!mine) {

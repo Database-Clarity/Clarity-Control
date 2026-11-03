@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { findConflictBlocks, type Tooltip } from '@clarity/core';
 import type { SaveConflict } from '../services/api';
 import type { Drafts } from '../services/draftStorage';
@@ -63,6 +63,8 @@ function reset(drafts: Drafts = { 123: { base, next: mine } }) {
     error: null,
     owner: '1',
     generation: 1,
+    pending: 0,
+    external: false,
     retry: () => undefined,
     flush: async () => undefined,
   });
@@ -214,6 +216,9 @@ describe('conflict store persistence', () => {
       conflictsKey('1'),
       JSON.stringify({ 123: { ...session, rows: { custom: null } }, 456: other }),
     );
+    useDraftStore.setState(({ drafts }) => ({
+      drafts: { ...drafts, 456: { base: other.head!, next: other.mine } },
+    }));
     const again = make();
     const stop = again.getState().start();
     expect(again.getState().sessions[123]).toEqual(session);
@@ -258,6 +263,45 @@ describe('conflict store persistence', () => {
     stop();
   });
 
+  it('refresh keeps unresolved local rows when storing the session failed', () => {
+    const fail = vi.spyOn(memory, 'setItem').mockImplementation(() => {
+      throw new Error('Storage full');
+    });
+    try {
+      useConflictStore.getState().begin([{ ...textConflict, fields: ['text.en', 'custom'] }]);
+      expect(memory.getItem(conflictSessionKey('1', 123))).toBeNull();
+      useConflictStore.getState().refresh();
+      expect(useConflictStore.getState().sessions[123]?.rows.custom).toBeNull();
+      expect(useConflictStore.getState().open()[0]).toMatchObject({ rows: 1, markers: 1 });
+    } finally {
+      fail.mockRestore();
+    }
+  });
+
+  it.each(['pending', 'external'] as const)(
+    'keeps imported sessions while drafts are %s, then prunes when settled',
+    (waiting) => {
+      useConflictStore.getState().begin([{ ...textConflict, fields: ['text.en', 'custom'] }]);
+      stop();
+      useDraftStore.setState({
+        drafts: {},
+        pending: waiting === 'pending' ? 1 : 0,
+        external: waiting === 'external',
+      });
+      const again = make();
+      const stopAgain = again.getState().start();
+      try {
+        expect(again.getState().sessions[123]).toBeDefined();
+        expect(memory.getItem(conflictSessionKey('1', 123))).not.toBeNull();
+        useDraftStore.setState({ pending: 0, external: false });
+        expect(again.getState().sessions).toEqual({});
+        expect(memory.getItem(conflictSessionKey('1', 123))).toBeNull();
+      } finally {
+        stopAgain();
+      }
+    },
+  );
+
   it('refresh merges the other tab choices without losing mine', () => {
     const custom = (name: string) => ({ name, categoryId: 'perk' });
     useConflictStore.getState().begin([
@@ -286,9 +330,9 @@ describe('conflict store persistence', () => {
 
 describe('independent tabs', () => {
   it('keeps both tabs rows when stale tabs begin and resolve conflicts', () => {
-    const tab = () => {
+    const tab = (loaded: Drafts = {}) => {
       const drafts = createDraftStore({ read: async () => ({}), write: async () => {} });
-      drafts.setState({ hydrated: true, owner: '1' });
+      drafts.setState({ hydrated: true, owner: '1', drafts: loaded });
       const conflicts = createConflictStore({ drafts, storage: () => memory, applyHead: () => {} });
       const stop = conflicts.getState().start();
       return { drafts, conflicts, stop };
@@ -305,6 +349,8 @@ describe('independent tabs', () => {
     try {
       a.conflicts.getState().begin([row(123)]);
       b.conflicts.getState().begin([row(456)]);
+      // The other tab's draft write has not been reloaded here yet.
+      a.drafts.setState({ external: true });
       a.conflicts.getState().refresh();
       expect(
         a.conflicts
@@ -313,7 +359,7 @@ describe('independent tabs', () => {
           .map(({ hash }) => hash),
       ).toEqual([123, 456]);
       a.conflicts.getState().choose(123, '$exists', 'theirs');
-      const reloaded = tab();
+      const reloaded = tab(b.drafts.getState().drafts);
       try {
         expect(
           reloaded.conflicts
@@ -335,5 +381,42 @@ describe('independent tabs', () => {
       a.stop();
       b.stop();
     }
+  });
+});
+
+describe('stale session regressions', () => {
+  it('prunes a session whose rebase equals the server version (no draft left)', () => {
+    reset({ 123: { base, next: head } });
+    useConflictStore.getState().begin([{ hash: 123, base, head, next: head, fields: ['text.en'] }]);
+    expect(draft()).toBeUndefined();
+    expect(useConflictStore.getState().sessions).toEqual({});
+    expect(memory.getItem(conflictSessionKey('1', 123))).toBeNull();
+  });
+  it.each(['pending', 'external'] as const)(
+    'prunes an identical rebase even when drafts are %s',
+    (waiting) => {
+      reset({ 123: { base, next: head } });
+      useDraftStore.setState({
+        pending: waiting === 'pending' ? 1 : 0,
+        external: waiting === 'external',
+      });
+      useConflictStore
+        .getState()
+        .begin([{ hash: 123, base, head, next: head, fields: ['text.en'] }]);
+      expect(draft()).toBeUndefined();
+      expect(useConflictStore.getState().sessions).toEqual({});
+      expect(memory.getItem(conflictSessionKey('1', 123))).toBeNull();
+    },
+  );
+  it('prunes an orphan session at startup when its draft is gone', () => {
+    useConflictStore.getState().begin([{ ...textConflict, fields: ['text.en', 'custom'] }]);
+    stop();
+    useDraftStore.setState({ drafts: {} });
+    const again = make();
+    const s = again.getState().start();
+    const open = again.getState().open();
+    s();
+    expect(open).toEqual([]);
+    expect(memory.getItem(conflictSessionKey('1', 123))).toBeNull();
   });
 });
