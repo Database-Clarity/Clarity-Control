@@ -159,6 +159,39 @@ it('publishes and records exactly the reviewed blobs', async () => {
   await f.pub.run();
   f.assertDone();
 });
+it('malformed request JSON cannot block receipt recovery or later valid requests', async () => {
+  const f = await setup();
+  await f.request();
+  const cas = f.git.cas.bind(f.git);
+  f.git.cas = (ref, old, next) => {
+    if (ref === D) throw new Error('RECORD unavailable');
+    cas(ref, old, next);
+  };
+  await expect(f.pub.run()).rejects.toThrow('RECORD unavailable');
+  const landed = f.git.head(L);
+  f.git.cas = cas;
+  await f.request(B);
+  const h = f.git.head(D)!,
+    tree = f.git.tree(h);
+  tree[paths(B).request] = f.git.writeBlob('{malformed');
+  f.git.cas(D, h, f.git.commit(h, tree, 'Inject malformed envelope'));
+  const c = '01K95H00000000000000000003';
+  await f.request(c);
+  f.pub.bundle();
+  const bundle = f.pub.read<{ publishQueue: unknown[] }>(
+    f.git.tree(f.git.head('refs/heads/editor-data-bundle')!),
+    'bundle.json',
+  )!;
+  expect(bundle.publishQueue).toContainEqual({ opId: B, invalid: true });
+  await f.pub.run();
+  f.assertDone(A);
+  f.assertDone(c);
+  expect(f.git.ancestor(landed!, f.git.head(L)!)).toBe(true);
+  expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(B).log)).toMatchObject({
+    result: { status: 'rejected' },
+  });
+  expect(f.pub.receipt(f.git.head(L)!, B)).toBeUndefined();
+});
 it('records a successful sixth push immediately, with only five backoffs', async () => {
   const f = await setup();
   await f.request();

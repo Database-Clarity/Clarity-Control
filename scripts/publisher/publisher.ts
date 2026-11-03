@@ -445,8 +445,8 @@ export class Publisher {
         .map((p) => [p.slice(9, -5), this.read(t, p)]),
     );
     const publishQueue = this.queue(h).map((id) => {
-      const e = this.read<{ payload: string }>(t, paths(id).request);
       try {
+        const e = this.read<{ payload: string }>(t, paths(id).request);
         const p = publishPayloadSchema.parse(JSON.parse(e!.payload));
         return { opId: id, requester: p.requester, hashes: p.hashes, createdAt: p.createdAt };
       } catch {
