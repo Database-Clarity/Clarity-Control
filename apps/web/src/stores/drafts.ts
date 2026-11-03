@@ -67,7 +67,10 @@ export function createDraftStore(storage: DraftStorage) {
           set({ error: null });
         } catch (error) {
           set({
-            error: `Drafts are NOT safely stored: ${errorMessage(error)}. Keep this tab open and retry.`,
+            error:
+              destination === target
+                ? `Drafts are NOT safely stored: ${errorMessage(error)}. Keep this tab open and retry.`
+                : `The last edit of your previous account was NOT stored: ${errorMessage(error)}. Sign back in to it and check your drafts.`,
           });
         } finally {
           set((state) => ({ pending: state.pending - 1 }));
@@ -126,6 +129,8 @@ export function createDraftStore(storage: DraftStorage) {
         const account = owner;
         if (!get().hydrated || account === null || !storage.forUser)
           throw new Error('Sign in and finish draft recovery before adopting drafts');
+        // Identical drafts are dropped from the unowned copy, so the account copy must be on disk.
+        if (get().error) throw new Error('Fix draft storage (see the alert above) before adopting');
         await queue;
         const stale = { adopted: 0, left: get().unowned };
         if (mine !== generation) return stale;

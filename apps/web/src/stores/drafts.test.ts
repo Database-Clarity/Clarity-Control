@@ -287,4 +287,21 @@ describe('drafts belong to one account', () => {
     await fresh.forUser!('1').write({});
     await fresh.write({});
   });
+
+  it('refuses to adopt while draft storage is failing, so no only-copy is deleted', async () => {
+    const { storage, values } = buckets();
+    values.set('unowned', { 10: { base, next: { ...base, associated: [3] } } });
+    const account = storage.forUser!('7');
+    const store = createDraftStore({
+      ...storage,
+      forUser: () => ({ ...account, write: () => Promise.reject(new Error('quota')) }),
+    });
+    await store.getState().activate(7);
+    store.getState().updateDraft(base, (next) => ({ ...next, associated: [3] }));
+    await store.getState().flush();
+    expect(store.getState().error).toContain('NOT safely stored');
+    await expect(store.getState().adopt()).rejects.toThrow('Fix draft storage');
+    expect(values.get('unowned')?.[10]).toBeDefined();
+    sessionStorage.clear();
+  });
 });

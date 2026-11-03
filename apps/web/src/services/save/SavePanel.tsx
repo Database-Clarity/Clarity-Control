@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { apiUrl, save, type SaveConflict } from '../api';
 import { errorMessage } from '../http';
 import { sameUser, useAuthStore } from '../../stores/auth';
+import { sessionToken } from '../session';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { ConflictDialog } from '../../features/conflicts/ConflictDialog';
@@ -104,14 +105,23 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         return;
       }
       const prepared = await prepareChanges(changes, user, data);
-      if (!sameUser(useAuthStore.getState().user, user) || accountChanged(generation))
+      // The request reads the session token when it is sent: refuse unless it is still the one
+      // this user was loaded with (another tab may have signed in as someone else meanwhile).
+      const auth = useAuthStore.getState();
+      if (
+        auth.loading ||
+        !sameUser(auth.user, user) ||
+        auth.token !== sessionToken() ||
+        accountChanged(generation)
+      )
         throw new Error('Your login changed. Close this review and check your role.');
       const result = await save(prepared, message.trim() || `Update ${changes.length} tooltip(s)`);
       if (accountChanged(generation) && result.kind === 'saved') {
-        setRemoteCommit(result.commit);
-        throw new Error(
-          `Remote save ${result.commit} succeeded, but you switched accounts meanwhile. The drafts stay with the account that made them; sign back in to it and reload data.`,
+        // Switching accounts already closed this review; report through the dock's notice.
+        onSaved(
+          `Remote save ${result.commit.slice(0, 8)} succeeded, but you switched accounts meanwhile. The drafts stay with the account that made them: sign back in to it and reload data.`,
         );
+        return;
       }
       if (result.kind === 'conflicts') {
         setChanges(prepared);
