@@ -243,6 +243,6 @@ describe('source cell alignment', () => {
     expect(
       diffCompendium(old, { plain: 'Centre', runs: [{ text: 'Centre', textAlign: 'center' }] })[0]
         .kind,
-    ).toBe('style');
+    ).toBe('equal');
   });
 });

@@ -1,3 +1,4 @@
+import changedSourceEvidence from './changedSourceEvidence.json';
 import { compendiumTabId } from '@clarity/core';
 import { inferredSiphonDecision } from './safeSourceRules';
 import {
@@ -240,6 +241,38 @@ export function guidedDecisions(
             link: reference.link ? currentReferenceLink(reference, source) : undefined,
             references: [hash],
             reason: 'Current explicit owner reference; applies to this entry only.',
+          };
+        // These four saved baseline selections changed real text in the Nov 3
+        // parser refresh. Only a fresh explicit owner reference above may renew them.
+        const previous = (
+          changedSourceEvidence as Record<
+            string,
+            {
+              name: string;
+              categoryId: string;
+              gid: string;
+              rowKey: string;
+              snapshotEvidence: string;
+            }
+          >
+        )[hash];
+        if (
+          previous &&
+          (previous.name !== entry.name ||
+            previous.categoryId !== record.id ||
+            !source.tabs.some((tab) => {
+              if (tab.gid !== previous.gid) return false;
+              const matches = tab.rows.filter(
+                (row) => row.nameNorm === normaliseCompendiumName(previous.rowKey),
+              );
+              const selected = combineCompendiumMatches(matches.map((row) => ({ tab, row })));
+              return selected && sourceFingerprint(selected.row.cell) === previous.snapshotEvidence;
+            }))
+        )
+          return {
+            ...result,
+            ruleId: 'source-text-changed',
+            reason: 'Previously selected source text changed; explicit owner re-review required.',
           };
         const familyDecision = inferredSiphonDecision(entry, source);
         if (familyDecision) return { ...result, ...familyDecision };
