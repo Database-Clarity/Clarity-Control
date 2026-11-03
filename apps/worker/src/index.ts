@@ -1,3 +1,4 @@
+import publisherConfig from '../../../config/publisher.json';
 import { ZodError } from 'zod';
 import { agentGuidance } from './agentGuidance.js';
 import { callback, identity, login } from './auth.js';
@@ -17,6 +18,9 @@ async function route(request: Request, env: Env): Promise<Response> {
   const path = url.pathname;
   if (request.method === 'GET' && path === '/auth/login') return login(env);
   if (request.method === 'GET' && path === '/auth/callback') return callback(request, env);
+  if (publisherConfig.enabled && path === '/push-live') throw new HttpError(410, 'Use /publish');
+  if (!publisherConfig.enabled && ['/publish', '/publish/kick'].includes(path))
+    throw new HttpError(503, 'Publisher is not enabled');
   if (request.method === 'GET' && path === '/publish/key') return publishKey(env);
   const user = await identity(request, env);
   const github = new GitHub(env);

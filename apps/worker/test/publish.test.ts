@@ -6,6 +6,8 @@ import worker from '../src/index.js';
 import { Publisher } from '../../../scripts/publisher/publisher.js';
 import type { Repository } from '../../../scripts/publisher/git.js';
 
+vi.mock('../../../config/publisher.json', () => ({ default: { enabled: true } }));
+
 const A = '01K95H00000000000000000001';
 const requestPath = `publish/requests/${A}.json`;
 const logPath = `publish/log/${publishMonth(A)}/${A}.json`;

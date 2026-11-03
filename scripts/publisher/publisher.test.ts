@@ -60,12 +60,25 @@ it.each([false, true])(
     expect(f.git.tree(latest)[paths(A).request]).toBeDefined();
     expect(f.git.tree(latest)[paths(A).log]).toBeUndefined();
     expect(f.git.head(paths(A).candidate)).toBeUndefined();
-    const bundle = f.pub.read<{ sourceCommit: string; publishQueue: { opId: string }[] }>(
-      f.git.tree(f.git.head('refs/heads/editor-data-bundle')!),
-      'bundle.json',
-    )!;
+    const bundle = f.pub.read<{
+      sourceCommit: string;
+      publishQueue: {
+        opId: string;
+        requester: { id: number; login: string };
+        hashes: number[];
+        createdAt: string;
+      }[];
+    }>(f.git.tree(f.git.head('refs/heads/editor-data-bundle')!), 'bundle.json')!;
     expect(bundle.sourceCommit).toBe(latest);
     expect(bundle.publishQueue.map((p) => p.opId)).toEqual([A]);
+    expect(Object.keys(bundle.publishQueue[0]).sort()).toEqual([
+      'createdAt',
+      'hashes',
+      'opId',
+      'requester',
+    ]);
+    expect(bundle.publishQueue[0].hashes).toEqual([123]);
+    expect(bundle.publishQueue[0].requester.id).toBeTypeOf('number');
     const report = JSON.parse(readFileSync(join(out, 'result.json'), 'utf8'));
     expect(report.publishWritesEnabled).toBe(false);
     expect(report.reports).toHaveLength(2);

@@ -109,3 +109,12 @@ Dry-run intentionally leaves every remote request pending. Replaced pending Acti
 lose that durable queue; cancel-in-progress:false protects an executing job. Test-only local fixtures
 prove data/live/candidate refs stay untouched, even if a save arrives during the simulation or key
 verification fails. Existing P1-A fixtures cover ambiguous publication/RECORD recovery and golden parity.
+
+## P1-E1 enable-ready release
+
+The shared build switch is `config/publisher.json`, default OFF. It controls both the Worker's
+legacy/new write routes and Vite's VITE_PUBLISHER_ENABLED constant; shell overrides cannot split
+the two builds. Pipeline publication remains simulation-only even when this switch is ON.
+See [E2-RUNBOOK.md](./E2-RUNBOOK.md) for local-only install preparation, preview CPU measurement,
+first-output parity, and rollback. No remote measurements or installation are performed by E1.
+`node scripts/publisher/cpu/smoke.mjs` verifies all 12 synthetic endpoint/size cases without a server.
