@@ -1,5 +1,5 @@
 import { resolveAlias, type Aliases } from '../aliases.js';
-import { translationMaxAge } from '../exportLegacy.js';
+import { usesEnglishFallback } from '../exportLegacy.js';
 import { languages, type Lang } from '../languages.js';
 import type { Tooltip } from '../schemas.js';
 
@@ -56,7 +56,7 @@ export function outdatedTranslations(
           language,
           sourceUpdatedAt,
           ageMs,
-          exportedInEnglish: ageMs > translationMaxAge,
+          exportedInEnglish: usesEnglishFallback(tooltip, language),
         });
       }
     }
@@ -123,7 +123,7 @@ export function translationQueue(
           state: 'outdated',
           ageMs,
           sourceUpdatedAt,
-          exportedInEnglish: ageMs > translationMaxAge,
+          exportedInEnglish: usesEnglishFallback(tooltip, language),
         });
       } else entries.push({ tooltip, language, state: 'current' });
     }

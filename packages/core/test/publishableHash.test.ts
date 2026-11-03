@@ -3,7 +3,8 @@ import { expect, test } from 'vitest';
 import { contentHash, stableStringify } from '../src/contentHash.js';
 import { migrateLegacy } from '../src/migrateLegacy.js';
 import { publishableHash } from '../src/publishableHash.js';
-import { fixture, tooltip } from './helpers.js';
+import { usesEnglishFallback } from '../src/exportLegacy.js';
+import { exportCanonical, fixture, tooltip } from './helpers.js';
 
 test('hashes exactly the canonical publishable projection with SHA-256', async () => {
   const value = {
@@ -102,4 +103,118 @@ test('real legacy sources have only 12 publishable differences, not 2761 metadat
   );
   expect(intermediate).toHaveLength(2761);
   expect(pending.filter(Boolean)).toHaveLength(12);
+});
+
+test('a stale translation hashes as the English text it exports, and flips are visible', async () => {
+  const stamp = '2026-10-01T00:00:00Z';
+  const base = tooltip();
+  const build = (sourceUpdatedAt: string) => ({
+    ...base,
+    text: {
+      en: { text: 'English', updatedAt: stamp, updatedBy: 'a' },
+      de: { text: 'Deutsch', updatedAt: stamp, updatedBy: 'd', sourceUpdatedAt },
+    },
+  });
+  const fresh = await publishableHash(build(stamp));
+  const stale = await publishableHash(build('2026-01-01T00:00:00Z'));
+  expect(stale).not.toBe(fresh);
+  // Under fallback the German words no longer matter to what is exported or hashed.
+  const edited = build('2026-01-01T00:00:00Z');
+  edited.text.de.text = 'Anders';
+  expect(await publishableHash(edited)).toBe(stale);
+  // Unchanged data without any fallback keeps its pre-fallback digest shape.
+  expect(await publishableHash(build(stamp))).toBe(
+    createHash('sha256')
+      .update(
+        stableStringify({
+          text: { en: 'English', de: 'Deutsch' },
+          associated: [],
+          custom: undefined,
+        }),
+      )
+      .digest('hex'),
+  );
+});
+
+test('an English edit followed by a revert changes the digest when it flips a stale translation', async () => {
+  const build = (englishUpdatedAt: string, translationSource: string) => ({
+    ...tooltip(),
+    text: {
+      en: { text: 'English A', updatedAt: englishUpdatedAt, updatedBy: 'a' },
+      de: {
+        text: 'Deutsch A',
+        updatedAt: '2026-01-01T00:00:00Z',
+        updatedBy: 'd',
+        sourceUpdatedAt: translationSource,
+      },
+    },
+  });
+  // Source revision 2026-01-01; English re-stamped on 2026-11-03 by edit B -> revert A (same text).
+  const before = await publishableHash(build('2026-01-02T00:00:00Z', '2026-01-01T00:00:00Z'));
+  const reverted = await publishableHash(build('2026-11-03T00:00:00Z', '2026-01-01T00:00:00Z'));
+  expect(reverted).not.toBe(before);
+  // Within 90 days nothing flips, so the re-stamp alone stays invisible to the digest.
+  const near = await publishableHash(build('2026-02-01T00:00:00Z', '2026-01-01T00:00:00Z'));
+  expect(near).toBe(before);
+});
+
+test('blank English never replaces a translation and is not a fallback', async () => {
+  const value = {
+    ...tooltip(),
+    text: {
+      en: { text: '  ', updatedAt: '2026-11-03T00:00:00Z', updatedBy: 'a' },
+      de: {
+        text: 'Deutsch',
+        updatedAt: '2026-01-01T00:00:00Z',
+        updatedBy: 'd',
+        sourceUpdatedAt: '2026-01-01T00:00:00Z',
+      },
+    },
+  };
+  expect(usesEnglishFallback(value, 'de')).toBe(false);
+  const entry = exportCanonical([value], 0)['42']!;
+  expect(entry.editor.de?.main).toBe('Deutsch');
+  expect(await publishableHash(value)).toBe(
+    await publishableHash({
+      ...value,
+      text: { ...value.text, en: { ...value.text.en, updatedAt: '2026-01-02T00:00:00Z' } },
+    }),
+  );
+});
+
+test('incoming aliases are part of the digest, sorted, and absent aliases leave it unchanged', async () => {
+  const value = tooltip();
+  const plain = await publishableHash(value);
+  expect(await publishableHash(value, {})).toBe(plain);
+  expect(await publishableHash(value, { 7: { to: 99, kind: 'frame' } })).toBe(plain);
+  const one = await publishableHash(value, { 7: { to: 42, kind: 'frame' } });
+  expect(one).not.toBe(plain);
+  const two = await publishableHash(value, {
+    9: { to: 7, kind: 'sandbox' },
+    7: { to: 42, kind: 'frame' },
+  });
+  expect(two).not.toBe(one);
+  expect(
+    await publishableHash(value, { 7: { to: 42, kind: 'frame' }, 9: { to: 7, kind: 'sandbox' } }),
+  ).toBe(two);
+  expect(await publishableHash(value, { 7: { to: 42, kind: 'sandbox' } })).not.toBe(one);
+});
+
+test('digesting thousands of tooltips against thousands of aliases stays linear', async () => {
+  const aliases: Record<string, { to: number; kind: 'frame' | 'sandbox' }> = {};
+  for (let index = 0; index < 3000; index++) {
+    aliases[10_000 + index] = { to: index % 2900, kind: 'frame' };
+  }
+  const run = async (withAliases: boolean) => {
+    const started = performance.now();
+    for (let hash = 0; hash < 2900; hash++) {
+      await publishableHash({ ...tooltip(), hash }, withAliases ? aliases : {});
+    }
+    return performance.now() - started;
+  };
+  await run(false);
+  const plain = await run(false);
+  const indexed = await run(true);
+  // A scan of every alias per tooltip was ~60x the plain cost; the index adds a small constant.
+  expect(indexed).toBeLessThan(plain * 15 + 300);
 });

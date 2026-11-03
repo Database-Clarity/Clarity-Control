@@ -67,7 +67,7 @@ export async function publishReviewed(
   try {
     const expected = Object.fromEntries(
       await Promise.all(
-        entries.map(async ({ tooltip }) => [tooltip.hash, await publishableHash(tooltip)] as const),
+        entries.map(async ({ tooltip }) => [tooltip.hash, await publishableHash(tooltip, data.aliases)] as const),
       ),
     );
     // Hashing is asynchronous: never submit after leaving the page, changing account/role,

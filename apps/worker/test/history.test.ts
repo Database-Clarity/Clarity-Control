@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { publishableHash } from '@clarity/core';
-import { Fixture, makePrivateKey, tooltip } from './fixture.js';
+import { legacyPublishableHash, publishableHash } from '@clarity/core';
+import { Fixture, makePrivateKey, sha, tooltip } from './fixture.js';
 
 let key: string;
 let fixture: Fixture;
@@ -33,7 +33,7 @@ describe('pushed history snapshots', () => {
     expect(fixture.current()['live/tooltips/123.json']).toEqual(tooltip());
     const result = await fixture.request('/history/123?live=1');
     expect(await result.json()).toEqual({
-      pushedHash: await publishableHash(tooltip()),
+      pushedHash: await publishableHash(tooltip(), fixture.aliases),
       tooltip: tooltip(),
     });
     expect(fixture.current()['tooltips/123.json']).toEqual(tooltip('newer save'));
@@ -41,17 +41,44 @@ describe('pushed history snapshots', () => {
   it('recovers old markers by matching publishable content rather than current saved text', async () => {
     fixture.moveData({
       'tooltips/123.json': tooltip('newer'),
-      'live/pushed.json': { 123: await publishableHash(tooltip()) },
+      'live/pushed.json': { 123: await publishableHash(tooltip(), fixture.aliases) },
     });
     expect(await (await fixture.request('/history/123?live=1')).json()).toEqual({
-      pushedHash: await publishableHash(tooltip()),
+      pushedHash: await publishableHash(tooltip(), fixture.aliases),
       tooltip: tooltip(),
     });
   });
-  it('does not present a corrupt or mismatched snapshot as live text', async () => {
+  it('recovers a marker recorded before the fallback digest existed', async () => {
+    const stamp = '2026-10-01T00:00:00Z';
+    const stale = {
+      ...tooltip(),
+      text: {
+        en: { text: 'original', updatedAt: stamp, updatedBy: 'alice' },
+        de: {
+          text: 'Deutsch',
+          updatedAt: '2026-01-01T00:00:00Z',
+          updatedBy: 'dan',
+          sourceUpdatedAt: '2026-01-01T00:00:00Z',
+        },
+      },
+    };
+    const legacy = await legacyPublishableHash(stale);
+    expect(legacy).not.toBe(await publishableHash(stale, fixture.aliases));
+    // The history scan reads the tooltip as committed at the listed commit (sha 1).
+    Object.assign(fixture.snapshots.get(sha(1))!, { 'tooltips/123.json': stale });
     fixture.moveData({
-      'live/pushed.json': { 123: await publishableHash(tooltip()) },
-      'live/tooltips/123.json': tooltip('not what was exported'),
+      'tooltips/123.json': tooltip('newer'),
+      'live/pushed.json': { 123: legacy },
+    });
+    expect(await (await fixture.request('/history/123?live=1')).json()).toEqual({
+      pushedHash: legacy,
+      tooltip: stale,
+    });
+  });
+  it('does not present a snapshot stored for another tooltip as live text', async () => {
+    fixture.moveData({
+      'live/pushed.json': { 123: await publishableHash(tooltip(), fixture.aliases) },
+      'live/tooltips/123.json': { ...tooltip(), hash: 124 },
     });
     expect((await fixture.request('/history/123?live=1')).status).toBe(502);
   });
@@ -72,7 +99,7 @@ describe('pushed history snapshots', () => {
   it('refuses to publish a version that changed since it was reviewed', async () => {
     const response = await fixture.request('/push-live', 'POST', {
       hashes: [123],
-      expected: { 123: await publishableHash(tooltip('reviewed older version')) },
+      expected: { 123: await publishableHash(tooltip('reviewed older version'), fixture.aliases) },
     });
     expect(response.status).toBe(409);
     expect(fixture.writes).toHaveLength(0);
@@ -81,7 +108,7 @@ describe('pushed history snapshots', () => {
   it('accepts a matching review digest while preserving the original hashes-only API', async () => {
     const response = await fixture.request('/push-live', 'POST', {
       hashes: [123],
-      expected: { 123: await publishableHash(tooltip()) },
+      expected: { 123: await publishableHash(tooltip(), fixture.aliases) },
     });
     expect(response.status).toBe(200);
     expect(fixture.current()['live/tooltips/123.json']).toEqual(tooltip());

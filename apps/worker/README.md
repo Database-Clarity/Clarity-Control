@@ -23,8 +23,8 @@ never from a request or token. Permissions are read on every request and retry
 | `POST /push-live`                         | `{ hashes: number[] }`                                                   | `{ commit, liveCommit, pushed: { [hash]: publishableHash }, branch }`  |
 | `POST /compendium/refresh`                | Editor/maintainer token                                                  | 202 `{ requestedAt, runId }`                                           |
 | `GET /compendium/refresh/status`          | Editor/maintainer token                                                  | `{ run: { id, status, conclusion, created_at, html_url } \| null }`    |
-| `GET /permissions`                        | Maintainer token                                                         | `{ users: { [githubId]: { login, role, languages? } } }`               |
-| `PUT /permissions`                        | Same permissions object; maintainer only                                 | `{ commit, permissions }`                                              |
+| `GET /permissions`                        | Maintainer token                                                         | `{ revision, permissions: { users: { [githubId]: { login, role, languages? } } } }` |
+| `PUT /permissions`                        | `{ revision, permissions }`; maintainer only. 409 if `revision` is stale | `{ commit, revision, permissions }`                                    |
 | `GET /history/:hash?page=1`               | Authorized member token                                                  | `{ page, commits: [{ commit, author, date, message }] }`, 30 per page  |
 | `GET /history/:hash?commit=<40-char SHA>` | Authorized member token                                                  | `{ commit, tooltip }`                                                  |
 | `GET /history/:hash?live=1`               | Authorized member token                                                  | `{ pushedHash: string \| null, tooltip: Tooltip \| null }`             |

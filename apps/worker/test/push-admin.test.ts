@@ -42,7 +42,7 @@ describe('push-live', () => {
     });
     expect(published['789']).toEqual({ hash: 789, aliasOf: 123, aliasKind: 'sandbox' });
     expect(fixture.current()['live/pushed.json']).toEqual({
-      123: await publishableHash(tooltip()),
+      123: await publishableHash(tooltip(), fixture.aliases),
     });
   });
   it('ignores retired weapon facts and never writes owner metadata', async () => {
@@ -123,7 +123,7 @@ describe('push-live', () => {
         aliasKind: 'sandbox',
       });
       expect(fixture.current()['live/pushed.json']).toEqual({
-        '123': await publishableHash(tooltip()),
+        '123': await publishableHash(tooltip(), fixture.aliases),
       });
       expect(result.pushed).toEqual(fixture.current()['live/pushed.json']);
     },
@@ -158,7 +158,9 @@ describe('push-live', () => {
     });
 
     it('keeps the live stamp of an unchanged canonical tooltip and replaces an old alias copy with a stub', async () => {
-      fixture.moveData({ 'live/pushed.json': { '123': await publishableHash(tooltip()) } });
+      fixture.moveData({
+        'live/pushed.json': { '123': await publishableHash(tooltip(), fixture.aliases) },
+      });
       fixture.live = {
         ...fixture.live,
         perks: {
@@ -175,7 +177,7 @@ describe('push-live', () => {
     it('leaves exported values for an unchanged tooltip with no live entry', async () => {
       fixture.moveData({
         'tooltips/123.json': { ...tooltip(), legacy: { uploadedBy: 'migrated', lastUpload: 42 } },
-        'live/pushed.json': { '123': await publishableHash(tooltip()) },
+        'live/pushed.json': { '123': await publishableHash(tooltip(), fixture.aliases) },
       });
       expect((await fixture.request('/push-live', 'POST', { hashes: [123] }, 2)).status).toBe(200);
       expect(perks()['123']).toMatchObject({ lastUpload: 42, uploadedBy: 'migrated' });
@@ -183,7 +185,7 @@ describe('push-live', () => {
     });
 
     it('re-reads pushed and live data when retrying after a live race', async () => {
-      const unchanged = await publishableHash(tooltip());
+      const unchanged = await publishableHash(tooltip(), fixture.aliases);
       fixture.beforeLive = () => {
         // A concurrent push recorded the same content and wrote its own stamp meanwhile.
         fixture.moveData({ 'live/pushed.json': { '123': unchanged } });
@@ -273,7 +275,7 @@ describe('push-live', () => {
     const response = await fixture.request('/push-live', 'POST', { hashes: [123] });
     expect(response.status).toBe(200);
     expect(fixture.current()['live/pushed.json']).toEqual({
-      '123': await publishableHash(tooltip()),
+      '123': await publishableHash(tooltip(), fixture.aliases),
       '999': 'f'.repeat(64),
     });
     expect(fixture.current()['tooltips/123.json']).toEqual(tooltip('changed after export'));
@@ -293,7 +295,7 @@ describe('push-live', () => {
     };
     fixture.moveData({ 'tooltips/123.json': metadataOnly });
     expect((await fixture.request('/push-live', 'POST', { hashes: [123] })).status).toBe(200);
-    const expected = await publishableHash(tooltip());
+    const expected = await publishableHash(tooltip(), fixture.aliases);
     expect(expected).not.toBe(await contentHash(metadataOnly));
     expect(fixture.current()['live/pushed.json']).toEqual({ '123': expected });
   });
@@ -314,6 +316,69 @@ describe('push-live', () => {
     expect(fixture.current()['live/pushed.json']).toEqual({});
   });
 
+  it('rejects a review digest taken before a translation-fallback flip', async () => {
+    const stamp = '2026-10-01T00:00:00Z';
+    const german = () =>
+      (fixture.live as { perks: Record<string, { editor: { de: { main: string } } }> }).perks['123']
+        ?.editor.de.main;
+    const current = (sourceUpdatedAt: string) => ({
+      ...tooltip('English'),
+      text: {
+        en: { text: 'English', updatedAt: stamp, updatedBy: 'alice' },
+        de: { text: 'Deutsch', updatedAt: stamp, updatedBy: 'dan', sourceUpdatedAt },
+      },
+    });
+    fixture.moveData({ 'tooltips/123.json': current(stamp) });
+    const reviewed = await publishableHash(current(stamp), fixture.aliases);
+    const first = await fixture.request('/push-live', 'POST', {
+      hashes: [123],
+      expected: { 123: reviewed },
+    });
+    expect(first.status).toBe(200);
+    expect(german()).toBe('Deutsch');
+    // Metadata-only change (no text change) flips the exported German text to English.
+    fixture.moveData({ 'tooltips/123.json': current('2026-01-01T00:00:00Z') });
+    const stale = await fixture.request('/push-live', 'POST', {
+      hashes: [123],
+      expected: { 123: reviewed },
+    });
+    expect(stale.status).toBe(409);
+    expect(german()).toBe('Deutsch');
+    const fresh = await publishableHash(current('2026-01-01T00:00:00Z'), fixture.aliases);
+    expect(fresh).not.toBe(reviewed);
+    const second = await fixture.request('/push-live', 'POST', {
+      hashes: [123],
+      expected: { 123: fresh },
+    });
+    expect(second.status).toBe(200);
+    expect(german()).toBe('English');
+  });
+  it('invalidates a review digest when an alias is added or retargeted, and publishes its stub', async () => {
+    const reviewed = await publishableHash(tooltip(), fixture.aliases);
+    expect(
+      (await fixture.request('/push-live', 'POST', { hashes: [123], expected: { 123: reviewed } }))
+        .status,
+    ).toBe(200);
+    fixture.aliases = { ...fixture.aliases, 790: { to: 123, kind: 'frame' } };
+    fixture.extraItems = {
+      790: { hash: 790, name: 'New frame', categoryId: 'perk', itemHash: 333 },
+    };
+    const stale = await fixture.request('/push-live', 'POST', {
+      hashes: [123],
+      expected: { 123: reviewed },
+    });
+    expect(stale.status).toBe(409);
+    const fresh = await publishableHash(tooltip(), fixture.aliases);
+    expect(fresh).not.toBe(reviewed);
+    const response = await fixture.request('/push-live', 'POST', {
+      hashes: [123],
+      expected: { 123: fresh },
+    });
+    expect(response.status).toBe(200);
+    const perks = (fixture.live as { perks: Record<string, unknown> }).perks;
+    expect(perks['790']).toMatchObject({ hash: 790, aliasOf: 123, aliasKind: 'frame' });
+    expect(fixture.current()['live/pushed.json']).toEqual({ 123: fresh });
+  });
   it('does not export missing tooltips or malformed/duplicate hash selections', async () => {
     expect((await fixture.request('/push-live', 'POST', { hashes: [456] })).status).toBe(404);
     expect((await fixture.request('/push-live', 'POST', { hashes: [123, 123] })).status).toBe(400);
@@ -335,22 +400,114 @@ describe('permissions and history', () => {
   );
   it.each([2, 3, 4, 5])('denies GET and PUT /permissions for role id %s', async (id) => {
     expect((await fixture.request('/permissions', 'GET', undefined, id)).status).toBe(403);
-    expect((await fixture.request('/permissions', 'PUT', config, id)).status).toBe(403);
+    expect(
+      (await fixture.request('/permissions', 'PUT', { revision: sha(4), permissions: config }, id))
+        .status,
+    ).toBe(403);
   });
 
+  async function loadPermissions(): Promise<{ revision: string; permissions: Permissions }> {
+    return (await (await fixture.request('/permissions')).json()) as {
+      revision: string;
+      permissions: Permissions;
+    };
+  }
+  const withCarolEditor = (): Permissions => {
+    const next: Permissions = structuredClone(config);
+    next.users['3'] = { login: 'carol', role: 'editor' };
+    return next;
+  };
+  const withoutBob = (): Permissions => {
+    const next: Permissions = structuredClone(config);
+    delete next.users['2'];
+    return next;
+  };
+
   it('lets maintainers update roles and immediately uses the new configuration', async () => {
-    expect(await (await fixture.request('/permissions')).json()).toEqual(config);
+    const loaded = await loadPermissions();
+    expect(loaded.permissions).toEqual(config);
     const next: Permissions = structuredClone(config);
     next.users['2'] = { login: 'bob', role: 'translator', languages: ['ja'] };
-    const result = await fixture.request('/permissions', 'PUT', next);
+    const result = await fixture.request('/permissions', 'PUT', {
+      revision: loaded.revision,
+      permissions: next,
+    });
     expect(result.status).toBe(200);
+    const saved = (await result.json()) as { revision: string; permissions: Permissions };
+    expect(saved.permissions).toEqual(next);
+    expect(saved.revision).toBe((await loadPermissions()).revision);
+    expect(saved.revision).not.toBe(loaded.revision);
     expect(await (await fixture.request('/me', 'GET', undefined, 2)).json()).toEqual({
       id: 2,
       login: 'bob',
       role: 'translator',
       languages: ['ja'],
     });
-    expect((await fixture.request('/permissions', 'PUT', { users: {} })).status).toBe(400);
+    const empty = await fixture.request('/permissions', 'PUT', {
+      revision: saved.revision,
+      permissions: { users: {} },
+    });
+    expect(empty.status).toBe(400);
+  });
+
+  it('rejects a stale permissions save instead of restoring a revoked editor', async () => {
+    const tabA = await loadPermissions();
+    const tabB = await loadPermissions();
+    const revoke = await fixture.request('/permissions', 'PUT', {
+      revision: tabA.revision,
+      permissions: withoutBob(),
+    });
+    expect(revoke.status).toBe(200);
+    expect((await fixture.request('/push-live', 'POST', { hashes: [123] }, 2)).status).toBe(403);
+    const commits = fixture.commits.length;
+    const response = await fixture.request('/permissions', 'PUT', {
+      revision: tabB.revision,
+      permissions: withCarolEditor(),
+    });
+    expect(response.status).toBe(409);
+    expect(fixture.commits).toHaveLength(commits);
+    expect(await (await fixture.request('/me', 'GET', undefined, 2)).json()).toMatchObject({
+      role: null,
+    });
+    expect(fixture.current()['config/permissions.json']).toEqual(withoutBob());
+  });
+
+  it('rejects a revocation that lands during the ref update instead of retrying a stale body', async () => {
+    const tab = await loadPermissions();
+    fixture.beforePatch = () => fixture.moveData({ 'config/permissions.json': withoutBob() });
+    const response = await fixture.request('/permissions', 'PUT', {
+      revision: tab.revision,
+      permissions: withCarolEditor(),
+    });
+    expect(response.status).toBe(409);
+    expect(fixture.current()['config/permissions.json']).toEqual(withoutBob());
+    expect(await (await fixture.request('/me', 'GET', undefined, 2)).json()).toMatchObject({
+      role: null,
+    });
+  });
+
+  it('retries a ref race when the permissions themselves did not change', async () => {
+    const tab = await loadPermissions();
+    fixture.beforePatch = () => fixture.moveData({ 'tooltips/123.json': tooltip('newer save') });
+    const response = await fixture.request('/permissions', 'PUT', {
+      revision: tab.revision,
+      permissions: withCarolEditor(),
+    });
+    expect(response.status).toBe(200);
+    expect(fixture.current()['config/permissions.json']).toEqual(withCarolEditor());
+    expect(fixture.current()['tooltips/123.json']).toEqual(tooltip('newer save'));
+  });
+
+  it.each([
+    ['a body without a revision', undefined],
+    ['a malformed revision', 'not-a-sha'],
+    ['a forged revision', sha(99)],
+  ])('refuses PUT /permissions with %s', async (_label, revision) => {
+    const next = withCarolEditor();
+    const input = revision === undefined ? next : { revision, permissions: next };
+    const response = await fixture.request('/permissions', 'PUT', input);
+    expect([400, 409]).toContain(response.status);
+    expect(fixture.current()['config/permissions.json']).toEqual(config);
   });
 
   it('loads /me for known and unknown users without trusting caller role values', async () => {

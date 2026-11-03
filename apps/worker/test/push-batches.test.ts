@@ -43,12 +43,12 @@ describe('sequential push-live batches', () => {
         'POST',
         {
           hashes: first.hashes,
-          expected: await reviewed([first.value]),
+          expected: await reviewed([first.value], fixture.aliases),
         },
         2,
       );
       expect(firstResponse.status).toBe(200);
-      const firstDigest = await publishableHash(first.value);
+      const firstDigest = await publishableHash(first.value, fixture.aliases);
       expect(await firstResponse.json()).toMatchObject({
         liveCommit: fixture.liveHead,
         commit: fixture.dataHead,
@@ -71,11 +71,11 @@ describe('sequential push-live batches', () => {
       vi.setSystemTime(nextPushTime);
       const secondResponse = await fixture.request('/push-live', 'POST', {
         hashes: second.hashes,
-        expected: await reviewed([second.value]),
+        expected: await reviewed([second.value], fixture.aliases),
       });
       expect(secondResponse.status).toBe(200);
       expect(await secondResponse.json()).toMatchObject({
-        pushed: await reviewed([second.value]),
+        pushed: await reviewed([second.value], fixture.aliases),
       });
       for (const hash of [first.value.hash, ...first.aliases]) {
         expect(livePerks(fixture)[hash]).toEqual(firstLive[hash]);
@@ -111,7 +111,7 @@ describe('sequential push-live batches', () => {
       expect(danglingReferences(livePerks(fixture))).toEqual([]);
       expect(fixture.current()['live/pushed.json']).toEqual({
         ...values.markers,
-        ...(await reviewed([values.changed, values.unchanged])),
+        ...(await reviewed([values.changed, values.unchanged], fixture.aliases)),
       });
       for (const value of [values.changed, values.unchanged, values.unrelated]) {
         expect(fixture.current()[`live/tooltips/${value.hash}.json`]).toEqual(value);
@@ -136,7 +136,7 @@ describe('sequential push-live batches', () => {
           'POST',
           {
             hashes: [789],
-            expected: await reviewed([changed]),
+            expected: await reviewed([changed], fixture.aliases),
           },
           2,
         )
@@ -146,14 +146,16 @@ describe('sequential push-live batches', () => {
     vi.setSystemTime(nextPushTime);
     const response = await fixture.request('/push-live', 'POST', {
       hashes: [345, 123, 890],
-      expected: await reviewed([changed, unchanged]),
+      expected: await reviewed([changed, unchanged], fixture.aliases),
     });
     expect(response.status).toBe(200);
-    expect((await response.json()).pushed).toEqual(await reviewed([changed, unchanged]));
+    expect((await response.json()).pushed).toEqual(
+      await reviewed([changed, unchanged], fixture.aliases),
+    );
     expect(livePerks(fixture)['123']).toEqual(firstEntry);
     expect(fixture.current()['live/pushed.json']).toEqual({
       ...markers,
-      ...(await reviewed([changed, unchanged])),
+      ...(await reviewed([changed, unchanged], fixture.aliases)),
     });
     expect(danglingReferences(livePerks(fixture))).toEqual([]);
   });
@@ -162,7 +164,7 @@ describe('sequential push-live batches', () => {
     const { changed } = await seedPushGroups(fixture);
     const response = await fixture.request('/push-live', 'POST', {
       hashes: [789],
-      expected: { 789: await publishableHash(changed) },
+      expected: { 789: await publishableHash(changed, fixture.aliases) },
     });
     expect(response.status).toBe(409);
     expect(fixture.writes).toHaveLength(0);
@@ -177,13 +179,15 @@ describe('sequential push-live batches', () => {
     delete fixture.extraItems['234'];
     const response = await fixture.request('/push-live', 'POST', {
       hashes: [890],
-      expected: await reviewed([unchanged]),
+      expected: await reviewed([unchanged], fixture.aliases),
     });
     expect(response.status).toBe(422);
     expect(await response.json()).toEqual({ error: 'Missing generator facts for tooltip 234' });
     expect(fixture.live).toEqual(live);
     expect(fixture.current()).toEqual(data);
-    expect(fixture.current()['live/pushed.json']).toMatchObject(await reviewed([changed]));
+    expect(fixture.current()['live/pushed.json']).toMatchObject(
+      await reviewed([changed], fixture.aliases),
+    );
     expect(fixture.writes).toHaveLength(1);
     expect(fixture.commits).toHaveLength(1);
   });
@@ -236,14 +240,14 @@ describe('push-live selection boundary', () => {
     const first = values.slice(0, 100);
     const response = await fixture.request('/push-live', 'POST', {
       hashes: first.map(({ hash }, index) => (index % 2 ? hash + 10_000 : hash)),
-      expected: await reviewed(first),
+      expected: await reviewed(first, fixture.aliases),
     });
     expect(response.status).toBe(200);
-    expect((await response.json()).pushed).toEqual(await reviewed(first));
+    expect((await response.json()).pushed).toEqual(await reviewed(first, fixture.aliases));
     expect(Object.keys(livePerks(fixture))).toHaveLength(201);
     expect(fixture.current()['live/pushed.json']).toEqual({
       999: 'f'.repeat(64),
-      ...(await reviewed(first)),
+      ...(await reviewed(first, fixture.aliases)),
     });
     expect(livePerks(fixture)['2100']).toBeUndefined();
     expect(fixture.current()['live/tooltips/2100.json']).toBeUndefined();
@@ -256,7 +260,7 @@ describe('push-live selection boundary', () => {
           'POST',
           {
             hashes: [12_100],
-            expected: await reviewed([values[100]]),
+            expected: await reviewed([values[100]], fixture.aliases),
           },
           2,
         )
@@ -281,7 +285,7 @@ describe('push-live selection boundary', () => {
     expect(Object.keys(livePerks(fixture))).toHaveLength(203);
     expect(fixture.current()['live/pushed.json']).toEqual({
       999: 'f'.repeat(64),
-      ...(await reviewed(values)),
+      ...(await reviewed(values, fixture.aliases)),
     });
     expect(fixture.current()['live/tooltips/999.json']).toEqual(
       initialData['live/tooltips/999.json'],
@@ -307,7 +311,9 @@ describe('push-live selection boundary', () => {
     expect(
       (await fixture.request('/push-live', 'POST', { hashes: hashes.slice(0, 100) })).status,
     ).toBe(200);
-    expect(fixture.current()['live/pushed.json']).toEqual(await reviewed([tooltip()]));
+    expect(fixture.current()['live/pushed.json']).toEqual(
+      await reviewed([tooltip()], fixture.aliases),
+    );
     expect(Object.keys(livePerks(fixture))).toHaveLength(102);
   });
 });

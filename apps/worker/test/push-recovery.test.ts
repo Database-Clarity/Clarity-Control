@@ -35,7 +35,7 @@ describe('two-branch recovery across batches', () => {
         (
           await fixture.request('/push-live', 'POST', {
             hashes: [890],
-            expected: await reviewed([unchanged]),
+            expected: await reviewed([unchanged], fixture.aliases),
           })
         ).status,
       ).toBe(200);
@@ -69,7 +69,7 @@ describe('two-branch recovery across batches', () => {
         'POST',
         {
           hashes: [789],
-          expected: await reviewed([changed]),
+          expected: await reviewed([changed], fixture.aliases),
         },
         2,
       );
@@ -101,7 +101,7 @@ describe('two-branch recovery across batches', () => {
       expect(livePerks(fixture)['789']).toEqual({ hash: 789, aliasOf: 123, aliasKind: 'sandbox' });
       expect(danglingReferences(livePerks(fixture))).toEqual([]);
       expect(await (await fixture.request('/history/123?live=1')).json()).toEqual({
-        pushedHash: await publishableHash(previous),
+        pushedHash: await publishableHash(previous, fixture.aliases),
         tooltip: previous,
       });
 
@@ -110,7 +110,7 @@ describe('two-branch recovery across batches', () => {
       const partialData = structuredClone(fixture.current());
       const rejected = await fixture.request('/push-live', 'POST', {
         hashes: [123, 345],
-        expected: await reviewed([changed]),
+        expected: await reviewed([changed], fixture.aliases),
       });
       expect(rejected.status).toBe(409);
       expect(await rejected.json()).toEqual({
@@ -120,23 +120,23 @@ describe('two-branch recovery across batches', () => {
       expect(fixture.current()).toEqual(partialData);
       expect(fixture.writes).toHaveLength(2);
       expect(pushedSchema.parse(fixture.current()['live/pushed.json'])['123']).not.toBe(
-        await publishableHash(newer),
+        await publishableHash(newer, fixture.aliases),
       );
 
       vi.setSystemTime(nextPushTime);
       const retry = await fixture.request('/push-live', 'POST', {
         hashes: [345, 789],
-        expected: await reviewed([newer]),
+        expected: await reviewed([newer], fixture.aliases),
       });
       expect(retry.status).toBe(200);
       expect(await retry.json()).toMatchObject({
         commit: fixture.dataHead,
         liveCommit: fixture.liveHead,
-        pushed: await reviewed([newer]),
+        pushed: await reviewed([newer], fixture.aliases),
       });
       expect(fixture.current()['live/pushed.json']).toEqual({
         ...markers,
-        ...(await reviewed([newer])),
+        ...(await reviewed([newer], fixture.aliases)),
       });
       expect(fixture.current()['live/tooltips/123.json']).toEqual(newer);
       expect(fixture.current()['live/tooltips/234.json']).toEqual(unchanged);
@@ -155,7 +155,7 @@ describe('two-branch recovery across batches', () => {
       expect(fixture.live.rolloutNote).toEqual(initialRoot);
       expect(danglingReferences(livePerks(fixture))).toEqual([]);
       expect(await (await fixture.request('/history/123?live=1')).json()).toEqual({
-        pushedHash: await publishableHash(newer),
+        pushedHash: await publishableHash(newer, fixture.aliases),
         tooltip: newer,
       });
       expect(fixture.writes).toHaveLength(3);
@@ -170,25 +170,25 @@ describe('two-branch recovery across batches', () => {
     fixture.beforePatch = () => fixture.moveData({ 'tooltips/123.json': newer });
     const response = await fixture.request('/push-live', 'POST', {
       hashes: [789],
-      expected: await reviewed([changed]),
+      expected: await reviewed([changed], fixture.aliases),
     });
     expect(response.status).toBe(200);
-    expect((await response.json()).pushed).toEqual(await reviewed([changed]));
+    expect((await response.json()).pushed).toEqual(await reviewed([changed], fixture.aliases));
     expect(fixture.current()['live/pushed.json']).toEqual({
       ...markers,
-      ...(await reviewed([changed, unchanged])),
+      ...(await reviewed([changed, unchanged], fixture.aliases)),
     });
     expect(fixture.current()['tooltips/123.json']).toEqual(newer);
     expect(fixture.current()['live/tooltips/123.json']).toEqual(changed);
     expect(fixture.current()['live/tooltips/234.json']).toEqual(unchanged);
     expect(pushedSchema.parse(fixture.current()['live/pushed.json'])['123']).not.toBe(
-      await publishableHash(newer),
+      await publishableHash(newer, fixture.aliases),
     );
     expect(livePerks(fixture)['123']).toMatchObject({
       editor: { en: { main: changed.text.en!.text } },
     });
     expect(await (await fixture.request('/history/123?live=1')).json()).toEqual({
-      pushedHash: await publishableHash(changed),
+      pushedHash: await publishableHash(changed, fixture.aliases),
       tooltip: changed,
     });
     expect(fixture.writes).toHaveLength(2);
@@ -200,7 +200,7 @@ describe('two-branch recovery across batches', () => {
     const { changed, unchanged, markers } = await seedPushGroups(fixture);
     expect((await fixture.request('/push-live', 'POST', { hashes: [890] })).status).toBe(200);
     const unchangedGroup = livePerks(fixture);
-    const digest = await publishableHash(changed);
+    const digest = await publishableHash(changed, fixture.aliases);
     fixture.beforeLive = () => {
       fixture.moveData({
         'live/pushed.json': { ...markers, 123: digest },
@@ -228,7 +228,7 @@ describe('two-branch recovery across batches', () => {
       'POST',
       {
         hashes: [123, 789],
-        expected: await reviewed([changed]),
+        expected: await reviewed([changed], fixture.aliases),
       },
       2,
     );
@@ -248,7 +248,7 @@ describe('two-branch recovery across batches', () => {
     }
     expect(fixture.current()['live/pushed.json']).toEqual({
       ...markers,
-      ...(await reviewed([changed, unchanged])),
+      ...(await reviewed([changed, unchanged], fixture.aliases)),
     });
     expect(fixture.current()['live/tooltips/123.json']).toEqual(changed);
     expect(fixture.current()['live/tooltips/234.json']).toEqual(unchanged);
@@ -267,7 +267,7 @@ describe('two-branch recovery across batches', () => {
       'POST',
       {
         hashes: [789],
-        expected: await reviewed([changed]),
+        expected: await reviewed([changed], fixture.aliases),
       },
       2,
     );
@@ -291,14 +291,14 @@ describe('two-branch recovery across batches', () => {
           'POST',
           {
             hashes: [789],
-            expected: await reviewed([changed]),
+            expected: await reviewed([changed], fixture.aliases),
           },
           2,
         )
       ).status,
     ).toBe(200);
     expect(fixture.current()['live/pushed.json']).toMatchObject(
-      await reviewed([changed, unchanged]),
+      await reviewed([changed, unchanged], fixture.aliases),
     );
     expect(fixture.current()['live/tooltips/123.json']).toEqual(changed);
     expect(livePerks(fixture)['123']).toMatchObject({
