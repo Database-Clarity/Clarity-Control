@@ -244,21 +244,9 @@
     grid-column: 2;
     grid-row: 2;
   }
+  // The look (hit zone, line, pill) belongs to the shared PaneDivider.
   .divider {
     display: block;
-    cursor: col-resize;
-    touch-action: none;
-    background: linear-gradient(
-      to right,
-      transparent 7px,
-      theme.$button-border-color 7px,
-      theme.$button-border-color 9px,
-      transparent 9px
-    );
-    &:focus-visible {
-      outline: 2px solid theme.$orange-color;
-      outline-offset: -2px;
-    }
   }
 }
 

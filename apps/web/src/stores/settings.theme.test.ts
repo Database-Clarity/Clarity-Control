@@ -135,6 +135,25 @@ describe('device panes', () => {
     expect(store.getState().notice).toBe('');
   });
 
+  it('saves and forgets one pane at a time, ignoring bad keys, and keeps it across a reload', () => {
+    const { storage, values } = memoryStorage();
+    const store = make(storage);
+    store.getState().setPane('editor:left', { width: 352, collapsed: false });
+    store.getState().setPane('editor:right', { width: 400, collapsed: true, lastExpanded: 384 });
+    store.getState().setPane('Not A Key', { width: 1, collapsed: false });
+    expect(Object.keys(store.getState().device.panes).sort()).toEqual([
+      'editor:left',
+      'editor:right',
+    ]);
+    expect(make(storage).getState().device.panes['editor:left']).toEqual({
+      width: 352,
+      collapsed: false,
+    });
+    store.getState().setPane('editor:left', null);
+    expect(Object.keys(stored(values).panes)).toEqual(['editor:right']);
+    expect(store.getState().device.theme).toBe('system');
+  });
+
   it('reports failure, with a notice, when storage refuses the reset', () => {
     const { storage } = memoryStorage({ [layoutKey]: '70' });
     const denied: SettingsStorage = {

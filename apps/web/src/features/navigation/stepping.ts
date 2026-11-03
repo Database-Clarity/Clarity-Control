@@ -134,30 +134,54 @@ export function createWheelStepper() {
   };
 }
 
+/**
+ * What the preview leave guard decides for stepping. Both are asked before any stepping state or
+ * history changes.
+ */
+export interface SteppingGuard {
+  /** May the current item be left for `to`? When not, the guard has shown its prompt. */
+  allow(from: string, to: string): boolean;
+  /** Changes whenever something the guard cares about changed; a gesture older than that is dropped. */
+  epoch(): number;
+}
+
 // Keep the pre-gesture route in history, not every intermediate wheel tick.
-export function createStepping(navigate: NavigateTo) {
+export function createStepping(navigate: NavigateTo, guard?: SteppingGuard) {
   let origin: string | undefined;
   let destination: string | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let permittedAt: number | undefined;
   function cancel() {
     clearTimeout(timer);
     origin = undefined;
     destination = undefined;
+    permittedAt = undefined;
   }
   function commit() {
-    if (origin && destination && origin !== destination) {
+    // The two navigations restore the history shape of one gesture that was already allowed. If an
+    // edit or a navigation happened since, that allowance is spent: leave history as it is.
+    const valid = !guard || permittedAt === guard.epoch();
+    if (valid && origin && destination && origin !== destination) {
       navigate(origin, { replace: true });
       navigate(destination, { replace: false });
     }
     cancel();
   }
   return {
-    step(from: string, to: string) {
+    /** Returns false, having changed nothing, when the guard refuses or there is nothing to step to. */
+    step(from: string, to: string): boolean {
+      if (guard && !guard.allow(from, to)) {
+        // A refused gesture ends here: no pending timer, no selection movement.
+        cancel();
+        return false;
+      }
       origin ??= from;
       destination = to;
+      permittedAt = guard?.epoch();
       navigate(to, { replace: true });
       clearTimeout(timer);
       timer = setTimeout(commit, 1000);
+      return true;
     },
     commit,
     cancel,
