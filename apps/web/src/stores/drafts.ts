@@ -161,8 +161,9 @@ export function createDraftStore(storage: DraftStorage) {
         const merged = Object.keys(moved).length ? { ...current, ...moved } : current;
         if (merged !== current) {
           set({ drafts: merged });
-          persist(merged);
         }
+        // Confirm even identical content through CAS: another tab may have changed the account.
+        persist(merged);
         let result = stale;
         // Include edits queued during the read, and serialize cleanup with later edits/switches.
         // The snapshot must still be current and durably stored before deleting its source.

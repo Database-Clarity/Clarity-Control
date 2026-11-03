@@ -90,10 +90,11 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
     if (!data || !user || pending || blocked || remoteCommit) return;
     setPending(true);
     setError(null);
+    const drafts = useDraftStore.getState();
+    const generation = drafts.generation;
     try {
-      const drafts = useDraftStore.getState();
-      const generation = drafts.generation;
       await drafts.flush();
+      if (accountChanged(generation)) return;
       if (useDraftStore.getState().error)
         throw new Error(
           'Local drafts are not safely stored. Close this review and retry draft storage.',
@@ -105,14 +106,14 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         return;
       }
       const prepared = await prepareChanges(changes, user, data);
+      if (accountChanged(generation)) return;
       // The request reads the session token when it is sent: refuse unless it is still the one
       // this user was loaded with (another tab may have signed in as someone else meanwhile).
       const auth = useAuthStore.getState();
       if (
         auth.loading ||
         !sameUser(auth.user, user) ||
-        auth.token !== sessionToken() ||
-        accountChanged(generation)
+        auth.token !== sessionToken()
       )
         throw new Error('Your login changed. Close this review and check your role.');
       const result = await save(prepared, message.trim() || `Update ${changes.length} tooltip(s)`);
@@ -123,6 +124,7 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         );
         return;
       }
+      if (accountChanged(generation)) return;
       if (result.kind === 'conflicts') {
         setChanges(prepared);
         setConflicts(result.conflicts);
@@ -150,9 +152,9 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         close();
       }
     } catch (error) {
-      setError(errorMessage(error));
+      if (!accountChanged(generation)) setError(errorMessage(error));
     } finally {
-      setPending(false);
+      if (!accountChanged(generation)) setPending(false);
     }
   }
   if (conflicts)

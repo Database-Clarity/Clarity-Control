@@ -152,6 +152,40 @@ const other: Tooltip = {
 };
 
 describe('drafts belong to one account', () => {
+  it.each(['discard', 'change'] as const)(
+    'keeps identical unowned drafts when another tab does %s before adoption',
+    async (action) => {
+      sessionStorage.clear();
+      const storage = createIndexedDbStorage();
+      const identical = { 10: { base, next: { ...base, associated: [3] } } };
+      await storage.read();
+      await storage.write(identical);
+      const account = storage.forUser!('adoption-two-tabs');
+      await account.read();
+      await account.write(identical);
+      const first = createDraftStore(storage);
+      const second = createDraftStore(createIndexedDbStorage());
+      await first.getState().activate('adoption-two-tabs');
+      await second.getState().activate('adoption-two-tabs');
+      if (action === 'discard') second.getState().discard(10);
+      else second.getState().updateDraft(base, (next) => ({ ...next, associated: [4] }));
+      await second.getState().flush();
+
+      expect(await first.getState().adopt()).toEqual({ adopted: 0, left: 1 });
+      expect(first.getState().error).toContain('Another tab');
+      expect(first.getState().unowned).toBe(1);
+      expect(sessionStorage.getItem('clarity-drafts-keep-separate:adoption-two-tabs')).toBeNull();
+      expect(await storage.read()).toEqual(identical);
+      const disk = await account.read();
+      expect(disk).toEqual(
+        action === 'discard' ? {} : { 10: { base, next: { ...base, associated: [4] } } },
+      );
+      await account.write({});
+      await storage.write({});
+      sessionStorage.clear();
+    },
+  );
+
   it('hides, keeps and restores drafts per account without ever mixing them', async () => {
     const { storage, values } = buckets();
     const store = createDraftStore(storage);

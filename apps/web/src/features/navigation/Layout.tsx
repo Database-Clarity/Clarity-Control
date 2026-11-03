@@ -272,7 +272,9 @@ export function Layout() {
                 void adopt().then(
                   ({ adopted, left }) =>
                     setAdoptNote(
-                      `Added ${adopted} draft(s) to your account.${left ? ` ${left} conflicting draft(s) stayed separate.` : ''}`,
+                      adopted === 0
+                        ? 'No drafts were added. Check draft storage and retry, or keep them separate.'
+                        : `Added ${adopted} draft(s) to your account.${left ? ` ${left} conflicting draft(s) stayed separate.` : ''}`,
                     ),
                   (error: unknown) =>
                     setAdoptNote(
