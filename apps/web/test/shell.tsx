@@ -117,6 +117,13 @@ const drafts = createDraftStore({ read: async () => ({}), write: async () => {} 
 drafts.setState({ hydrated: true });
 useDraftStore.setState(drafts.getState());
 drafts.subscribe((state) => useDraftStore.setState(state));
+// Code that writes the shared store directly (the conflict flow rebases drafts that way) reaches the
+// in-memory store too, so a later edit builds on it instead of on a stale copy.
+useDraftStore.subscribe((state) => {
+  const inner = drafts.getState();
+  if (state.drafts !== inner.drafts || state.external !== inner.external)
+    drafts.setState({ drafts: state.drafts, external: state.external });
+});
 
 type Role = 'maintainer' | 'editor' | 'trial' | 'translator' | 'none' | 'out' | 'loading' | 'error';
 const noop = async () => {};
@@ -344,6 +351,103 @@ Object.assign(window, {
     },
     compendiumError() {
       useCompendiumStore.setState({ error: 'Cannot load Compendium: offline' });
+    },
+    /** Base 1000 gets six short, distinct lines, so a conflict has clean and clashing lines. */
+    conflictText() {
+      const current = useDataStore.getState().data!;
+      const base = current.bundle.tooltips[1000];
+      const text = [
+        'Intro line of the tooltip',
+        'Shared line two',
+        'Shared line three',
+        'Shared line four',
+        'Shared line five',
+        'Closing line',
+      ].join('\n');
+      useDataStore.setState({
+        data: {
+          ...current,
+          bundle: {
+            ...current.bundle,
+            tooltips: {
+              ...current.bundle.tooltips,
+              1000: { ...base, text: { ...base.text, en: { ...base.text.en!, text } } },
+            },
+          },
+        },
+      });
+    },
+    /**
+     * A save server: the first POST /save answers 409 with `headText` as the server's version of
+     * base 1000 (someone else edited it), every later one saves what it is given.
+     */
+    conflictServer(headText: string, always409 = false, deleted = false) {
+      let calls = 0;
+      const reply = (body: unknown, status: number) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      window.fetch = async (input, init) => {
+        if (!String(input).endsWith('/save')) throw new Error('Network blocked by fixture');
+        calls++;
+        const { changes } = JSON.parse(String(init?.body));
+        const change = changes[0];
+        if (deleted && calls === 1)
+          return reply(
+            {
+              conflicts: [
+                {
+                  hash: change.hash,
+                  base: change.base,
+                  head: null,
+                  next: change.next,
+                  fields: ['$exists'],
+                },
+              ],
+            },
+            409,
+          );
+        if (always409 || calls === 1) {
+          const head = {
+            ...change.base,
+            text: {
+              ...change.base.text,
+              en: {
+                ...change.base.text.en,
+                text: headText,
+                updatedBy: 'bob',
+                updatedAt: '2026-11-03T09:30:00Z',
+              },
+            },
+          };
+          return reply(
+            {
+              conflicts: [
+                {
+                  hash: change.hash,
+                  base: change.base,
+                  head,
+                  next: change.next,
+                  fields: ['text.en'],
+                },
+              ],
+            },
+            409,
+          );
+        }
+        return reply(
+          {
+            commit: 'c'.repeat(40),
+            tooltips: changes.map((entry: { next: Tooltip }) => entry.next),
+          },
+          200,
+        );
+      };
+    },
+    /** Another tab changes the account's drafts: the store's `external` flag, as the channel sets it. */
+    otherTabWrote() {
+      useDraftStore.setState({ external: true });
     },
   },
 });

@@ -141,4 +141,32 @@ describe('SavePanel drafts summary', () => {
     useDraftStore.setState({ drafts: {} });
     expect(buttonDisabled(render())).toBe(true);
   });
+
+  it('says "Resolve n conflicts" instead of offering the review while blocks remain', () => {
+    const marked =
+      '<<<<<<< mine\nm\n=======\nt\n>>>>>>> theirs\n<<<<<<< mine\nm2\n=======\nt2\n>>>>>>> theirs';
+    useDraftStore.setState({ drafts: { 1: { base: tooltip(1, 'a'), next: tooltip(1, marked) } } });
+    const html = render();
+    expect(html).toContain('Resolve 2 conflicts');
+    expect(html).not.toContain('Review and save');
+    expect(html).toContain('data-drafts-resolve');
+    useDraftStore.setState({
+      drafts: {
+        1: {
+          base: tooltip(1, 'a'),
+          next: tooltip(1, '<<<<<<< mine\nm\n=======\nt\n>>>>>>> theirs'),
+        },
+      },
+    });
+    expect(render()).toContain('Resolve 1 conflict<');
+  });
+
+  it('another tab writing stops nothing until a conflict is open', () => {
+    useDraftStore.setState({ external: true });
+    // No open conflict: another tab writing does not stop an ordinary review.
+    expect(buttonDisabled(render())).toBe(false);
+    const marked = '<<<<<<< mine\nm\n=======\nt\n>>>>>>> theirs';
+    useDraftStore.setState({ drafts: { 1: { base: tooltip(1, 'a'), next: tooltip(1, marked) } } });
+    expect(render()).toContain('Resolve 1 conflict');
+  });
 });

@@ -20,7 +20,7 @@ export function fieldValue(tooltip: Tooltip | null, field: string): unknown {
   return tooltip[field as keyof Tooltip];
 }
 
-function setField(tooltip: Tooltip, field: string, value: unknown): Tooltip {
+export function setField(tooltip: Tooltip, field: string, value: unknown): Tooltip {
   if (field.startsWith('text.')) {
     const lang = langSchema.parse(field.slice(5));
     const text = { ...tooltip.text, [lang]: value };

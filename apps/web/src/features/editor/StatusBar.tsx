@@ -2,7 +2,13 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { canReplaceGlyph, type GlyphWarning, type ValidationIssue } from '@clarity/core';
 import styles from './StatusBar.module.scss';
 
-export type StatusPanel = 'help' | 'glyphs';
+export type StatusPanel = 'help' | 'glyphs' | 'conflicts';
+
+/** Unresolved conflict blocks in the text: the bar counts them and jumps to the next. */
+export interface ConflictStatus {
+  count: number;
+  onNext(): void;
+}
 
 /** What the page tells the bar about the preview column: how many edits it has not shown yet. */
 export interface PreviewStatus {
@@ -34,6 +40,7 @@ export function StatusBar({
   line,
   column,
   preview,
+  conflicts,
   panel,
   onPanel,
   onSuggest,
@@ -44,6 +51,7 @@ export function StatusBar({
   line: number;
   column: number;
   preview?: PreviewStatus;
+  conflicts?: ConflictStatus;
   panel: StatusPanel | null;
   onPanel(panel: StatusPanel | null): void;
   /** Opens the suggestion menu on request (touch has no Ctrl+Space); shown on touch only. */
@@ -101,6 +109,19 @@ export function StatusBar({
           </button>
         )}
       </span>
+      {conflicts && conflicts.count > 0 && (
+        <button
+          type="button"
+          className={styles.item}
+          data-severity="warning"
+          data-status-conflicts
+          title="Unresolved conflicts. F8 jumps to the next, Shift+F8 to the previous."
+          aria-label={`${plural(conflicts.count, 'unresolved conflict')}. Jump to the next`}
+          onClick={conflicts.onNext}
+        >
+          {plural(conflicts.count, 'conflict')}
+        </button>
+      )}
       {onSuggest && (
         <button
           type="button"
@@ -119,6 +140,7 @@ export function StatusBar({
         <span>Ctrl+F find</span>
         <span>F12 go to definition</span>
         <span>Esc then Tab leaves the editor</span>
+        {conflicts && conflicts.count > 0 && <span>F8 next conflict</span>}
       </span>
       {preview && (preview.unpreviewed > 0 || preview.collapsed) && (
         <span className={styles.preview} data-attention={preview.unpreviewed > 0 || undefined}>
@@ -146,7 +168,7 @@ export function StatusBar({
 }
 
 /** An overlay that opens upward over the text, directly above the status bar. */
-function Overlay({
+export function Overlay({
   id,
   label,
   onClose,
@@ -262,6 +284,64 @@ export function HelpPanel({
         Native spelling uses your browser&apos;s enabled dictionaries. Right-click a misspelling for
         suggestions.
       </p>
+    </Overlay>
+  );
+}
+
+/**
+ * Phone / touch version of the conflict actions: the in-text widget is one chip, and this panel
+ * (44px targets) opens upward over the text with the same choices.
+ */
+export function ConflictPanel({
+  index,
+  count,
+  readOnly,
+  onResolve,
+  onCompare,
+  onStep,
+  onClose,
+}: {
+  index: number;
+  count: number;
+  readOnly: boolean;
+  onResolve(choice: 'mine' | 'theirs' | 'both'): void;
+  onCompare(): void;
+  onStep(direction: 1 | -1): void;
+  onClose(): void;
+}) {
+  return (
+    <Overlay id="editor-panel-conflicts" label="Resolve conflict" onClose={onClose}>
+      <p className={styles.lead}>
+        Conflict {index + 1} of {count}: your lines and theirs differ.
+      </p>
+      <div className={styles.conflictActions}>
+        {!readOnly && (
+          <>
+            <button type="button" onClick={() => onResolve('mine')}>
+              Accept mine
+            </button>
+            <button type="button" onClick={() => onResolve('theirs')}>
+              Accept theirs
+            </button>
+            <button type="button" onClick={() => onResolve('both')}>
+              Accept both
+            </button>
+          </>
+        )}
+        <button type="button" onClick={onCompare}>
+          Compare
+        </button>
+        {count > 1 && (
+          <>
+            <button type="button" onClick={() => onStep(-1)}>
+              Previous
+            </button>
+            <button type="button" onClick={() => onStep(1)}>
+              Next
+            </button>
+          </>
+        )}
+      </div>
     </Overlay>
   );
 }
