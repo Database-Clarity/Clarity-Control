@@ -1,0 +1,236 @@
+@use '../../data/variables' as theme;
+@use '../../ui/controls';
+
+// The header form: category, tooltip combobox and position on one line. The sheet form stacks.
+.finder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+
+  // The phone sheet: the field first, the list open and filling the sheet, one row below it.
+  &[data-variant='sheet'] {
+    flex: 1 1 auto;
+    min-height: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+}
+
+.category {
+  @include controls.field;
+  flex: 0 1 11rem;
+  min-width: 0;
+  width: 100%;
+  max-width: 11rem;
+
+  .finder[data-variant='sheet'] & {
+    max-width: none;
+    flex: none;
+  }
+}
+
+.combo {
+  position: relative;
+  flex: 1 1 16rem;
+  min-width: 0;
+  max-width: 28rem;
+
+  .finder[data-variant='sheet'] & {
+    max-width: none;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+.input {
+  @include controls.field;
+  width: 100%;
+  padding-right: 18px;
+  text-overflow: ellipsis;
+
+  &::placeholder {
+    color: var(--text2);
+    opacity: 1;
+  }
+}
+
+.field {
+  position: relative;
+}
+
+.draftDot {
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  width: 7px;
+  height: 7px;
+  margin-top: -3px;
+  background: var(--accent-ink);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.position {
+  flex: none;
+  color: var(--text2);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+// The list floats under the field in the header; in the sheet it flows in place.
+.popup {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 40;
+  min-width: 100%;
+  width: max(100%, 22rem);
+  max-height: min(60dvh, 26rem);
+  display: flex;
+  flex-direction: column;
+  @include controls.overlay-surface;
+  border-radius: 4px;
+  overflow: hidden;
+
+  &[data-variant='sheet'] {
+    position: static;
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    max-height: none;
+    margin-top: 6px;
+    box-shadow: none;
+  }
+}
+
+.listbox {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+
+.option {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px 0 6px;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 28px;
+
+  @include theme.mobile-or-coarse {
+    min-height: 44px;
+  }
+
+  small {
+    color: var(--text2);
+    font-size: 0.75rem;
+    white-space: nowrap;
+  }
+
+  // The highlighted option (keyboard or pointer) and the selected one (the open item) differ.
+  &[data-active] {
+    background: var(--hover);
+  }
+
+  &[data-current] {
+    border-left-color: var(--accent-ink);
+    font-weight: 700;
+    background: var(--sel);
+  }
+
+  &[data-current][data-active] {
+    background: var(--sel);
+    box-shadow: inset 0 0 0 1px var(--accent-ink);
+  }
+}
+
+.mark {
+  color: var(--accent-ink);
+  text-align: center;
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 0.8125rem;
+  color: var(--text2);
+
+  button {
+    @include controls.button;
+    min-height: 24px;
+    margin-left: 2px;
+  }
+}
+
+.widen {
+  @include controls.button;
+  flex: none;
+  justify-content: flex-start;
+  border: 0;
+  border-top: 1px solid var(--hair);
+  border-radius: 0;
+  color: var(--link);
+  background: var(--raised);
+}
+
+.sheetBar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  .category {
+    flex: 1 1 0;
+    width: auto;
+    max-width: none;
+  }
+}
+
+// One compact row: ‹ 4 of 10 ›
+.stepper {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+
+  button {
+    @include controls.button;
+    min-width: 44px;
+    font-size: 1.25rem;
+    padding: 0;
+  }
+
+  .position {
+    min-width: 4.5rem;
+    text-align: center;
+  }
+}
+
+.note,
+.help {
+  color: var(--text2);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}

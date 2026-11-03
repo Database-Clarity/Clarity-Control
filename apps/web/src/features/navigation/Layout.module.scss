@@ -1,30 +1,34 @@
 @use '../../data/variables' as theme;
 
+// Header on top, then the page. The left column and its divider arrive with the real preview
+// column; until then Compendium and Review keep their queue list in a plain side column.
 .layout {
-  display: grid;
-  grid-template-columns: 17rem minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   min-height: 100vh;
 }
 
-.sidebar {
-  padding: 0.75rem;
-  background: var(--chrome);
-  border-right: 1px solid var(--line);
-  height: 100vh;
-  overflow: auto;
-  position: sticky;
-  top: 0;
-  box-sizing: border-box;
+.body {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
 }
 
-.tooltipNavigation {
-  display: grid;
-  gap: 0.6rem;
-  margin-bottom: 1rem;
-  small {
-    color: var(--text2);
-    font-size: 0.75rem;
-  }
+.reviewMode .body {
+  grid-template-columns: 15rem minmax(0, 1fr);
+}
+
+.context {
+  position: sticky;
+  top: 36px;
+  align-self: start;
+  height: calc(100vh - 36px);
+  box-sizing: border-box;
+  padding: 0.75rem;
+  overflow: auto;
+  background: var(--col);
+  border-right: 1px solid var(--line);
 }
 
 .sidebarNavigation {
@@ -64,74 +68,6 @@
   list-style: none;
 }
 
-.sidebarBody {
-  min-width: 0;
-}
-
-.stepper {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-
-  span {
-    text-align: center;
-    color: var(--text2);
-    font-size: 0.8rem;
-  }
-}
-
-.tooltipNavigation label,
-.pageSelection {
-  display: grid;
-  gap: 0.2rem;
-  font-size: 0.8rem;
-  input,
-  select {
-    width: 100%;
-    min-width: 0;
-    box-sizing: border-box;
-    padding: 0.4rem;
-    color: var(--text);
-    background: var(--fld);
-    border: 1px solid var(--fld-edge);
-    border-radius: 0.2rem;
-  }
-
-  .recoveredText {
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-  }
-}
-
-.pageSelection {
-  margin-bottom: 1rem;
-}
-
-.brand {
-  display: grid;
-  gap: 0.2rem;
-  margin-bottom: 1rem;
-
-  strong {
-    color: var(--accent-ink);
-    font-size: 1.3rem;
-  }
-
-  span {
-    color: var(--text2);
-    font-size: 0.85rem;
-  }
-}
-
-.status {
-  margin-top: 2rem;
-  color: var(--text2);
-  font-size: 0.75rem;
-  line-height: 1.5;
-}
-
 .main {
   padding: clamp(1.25rem, 4vw, 3rem);
   min-width: 0;
@@ -144,179 +80,24 @@
   left: 1rem;
   padding: 0.8rem;
   background: var(--page);
-  z-index: 1;
+  z-index: 70;
 
   &:focus {
     top: 1rem;
   }
 }
 
-.navToggle {
-  display: none;
-}
-
-// Shift+Scroll and arrow keys cannot be used on touch devices.
-@include theme.coarse-pointer {
-  .pointerHelp {
-    display: none;
-  }
-}
-
-// .saveDock has no desktop rules: the save panel stays in the sidebar flow where AuthStatus put it.
-
 @include theme.mobile {
-  .layout {
+  .reviewMode .body {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto 1fr;
   }
 
   .main {
     padding: 0.75rem;
-    // --save-dock-height is the measured border-box height of the fixed dock (set in Layout.tsx);
-    // the fallback only applies until it is measured or when ResizeObserver is unavailable.
-    padding-bottom: calc(
-      0.75rem + var(--save-dock-height, calc(5rem + env(safe-area-inset-bottom, 0px)))
-    );
   }
 
-  .sidebar {
-    height: auto;
-    position: static;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-
-    > .brand {
-      grid-column: 1;
-      margin-bottom: 0;
-    }
-
-    > .navToggle {
-      display: block;
-      grid-column: 2;
-    }
-
-    .sidebarBody {
-      display: contents;
-    }
-
-    &[data-open='false'] .sidebarBody > :not(.stepper, .saveDock) {
-      display: none;
-    }
-
-    &[data-open='true'] {
-      position: fixed;
-      inset: 0;
-      z-index: 10;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      grid-template-rows: auto minmax(0, 1fr);
-      align-items: start;
-      height: 100vh;
-      height: 100dvh;
-      max-height: 100dvh;
-      overflow: hidden;
-      border: 0;
-      padding-bottom: env(safe-area-inset-bottom, 0px);
-    }
-
-    &[data-open='true'] > .brand,
-    &[data-open='true'] > .navToggle {
-      grid-row: 1;
-      margin: 0;
-    }
-
-    &[data-open='true'] .sidebarBody {
-      display: block;
-      grid-column: 1 / -1;
-      grid-row: 2;
-      align-self: stretch;
-      min-height: 0;
-      overflow-x: hidden;
-      overflow-y: auto;
-      overscroll-behavior: contain;
-      padding-top: 0.75rem;
-      overflow-wrap: anywhere;
-    }
-
-    &[data-open='true'] .saveDock {
-      position: static;
-      inset: auto;
-      z-index: auto;
-      margin-inline: -0.75rem;
-      border-top: 1px solid var(--line);
-    }
-  }
-
-  .saveDock {
-    position: fixed;
-    inset-inline: 0;
-    bottom: 0;
-    z-index: 2;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem 0.75rem;
-    padding: 0.5rem 0.75rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
-    background: var(--chrome);
-    border-top: 1px solid var(--line);
-    box-sizing: border-box;
-
-    &[data-idle='true'] {
-      display: none;
-    }
-
-    > p {
-      margin: 0;
-    }
-
-    > p[role='status'] {
-      flex-basis: 100%;
-    }
-  }
-}
-
-@include theme.mobile {
-  .editorMode {
-    .sidebar {
-      grid-template-columns: auto minmax(0, 1fr) auto;
-      gap: 0.25rem;
-      padding: 0.25rem 0.5rem;
-    }
-
-    .sidebar > .brand {
-      grid-column: 1;
-      grid-row: 1;
-      margin: 0;
-
-      span {
-        display: none;
-      }
-    }
-
-    .sidebar .sidebarBody > .stepper {
-      grid-column: 2;
-      grid-row: 1;
-      gap: 0.25rem;
-      margin: 0;
-      min-width: 0;
-
-      span {
-        font-size: 0.75rem;
-        white-space: nowrap;
-      }
-    }
-
-    .sidebar > .navToggle {
-      grid-column: 3;
-      grid-row: 1;
-    }
-
-    .main {
-      padding-top: 0.25rem;
-    }
+  .editorMode .main {
+    padding-top: 0.25rem;
   }
 }
 
@@ -328,31 +109,6 @@
     flex-wrap: wrap;
     align-items: center;
     column-gap: 0.25rem;
-  }
-
-  .sidebar,
-  .saveDock {
-    button,
-    select,
-    input:not([type='checkbox'], [type='radio']),
-    summary {
-      min-height: 44px;
-    }
-  }
-}
-
-@media (max-width: 700px) {
-  .reviewMode .sidebar {
-    .status,
-    .brand span {
-      display: none;
-    }
-    .brand {
-      margin-bottom: 0.4rem;
-    }
-    .pageSelection {
-      margin-bottom: 0.4rem;
-    }
   }
 }
 

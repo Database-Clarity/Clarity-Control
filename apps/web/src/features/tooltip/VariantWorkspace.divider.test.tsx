@@ -252,8 +252,8 @@ describe('workspace divider', () => {
     expect(tooltipCss).toMatch(/\.phoneMeta summary\s*\{[\s\S]*?min-height:\s*44px/);
     expect(tooltipCss).toMatch(/\.tabs\s*\{[\s\S]*?position:\s*sticky/);
     expect(tooltipCss).toMatch(/\.primaryMetadata,[\s\S]*?display:\s*none/);
-    expect(layoutCss).toMatch(
-      /\.editorMode[\s\S]*?grid-template-columns:\s*auto minmax\(0, 1fr\) auto/,
-    );
+    // The phone tabs stick below the 48px header, and the editor page gives its text the room.
+    expect(tooltipCss).toMatch(/\.tabs\s*\{[\s\S]*?top:\s*48px/);
+    expect(layoutCss).toMatch(/\.editorMode \.main \{[^}]*padding-top:\s*0\.25rem/);
   });
 });

@@ -29,9 +29,19 @@ vi.mock('./useProposals', () => ({
 vi.mock('../../services/draftStorage', () => ({
   draftStorage: { read: async () => ({}), write: captured.writes },
 }));
-vi.mock('../auth/AuthStatus', () => ({ AuthStatus: () => null }));
-vi.mock('./CompendiumBadge', () => ({ CompendiumBadge: () => null }));
-vi.mock('../../services/save/SavePanel', () => ({ SavePanel: () => null }));
+vi.mock('../auth/AuthStatus', () => ({
+  useAuthSession: () => undefined,
+  IdentityStatus: () => null,
+  identitySummary: () => ({ label: 'Account', detail: 'Account', tone: 'out' }),
+}));
+vi.mock('./CompendiumBadge', () => ({
+  CompendiumBadge: () => null,
+  useCompendiumCount: () => ({ state: 'ready', count: 0 }),
+}));
+vi.mock('../../services/save/SavePanel', () => ({
+  SavePanel: () => null,
+  SaveController: () => null,
+}));
 
 const originals = {
   data: useDataStore.getState(),
@@ -73,6 +83,13 @@ async function click(text: string, parent: ParentNode = host) {
 }
 async function tab(text: string) {
   await act(async () => categoryLink(text).click());
+}
+async function workspace(path: string) {
+  const link = host.querySelector<HTMLAnchorElement>(
+    `nav[aria-label="Workspaces"] a[href^="${path}"]`,
+  );
+  if (!link) throw new Error(`Missing workspace tab ${path}`);
+  await act(async () => link.click());
 }
 async function change(label: string, value: string) {
   const control = [...host.querySelectorAll('label')]
@@ -182,7 +199,11 @@ beforeEach(() => {
     hydrate: async () => {},
     activate: async () => {},
   });
-  useAuthStore.setState({ user: null, loading: false, load: async () => {} });
+  useAuthStore.setState({
+    user: { id: 1, login: 'fixture', role: 'maintainer' },
+    loading: false,
+    load: async () => {},
+  });
   useSaveState.setState({ locked: false, review: null });
   useCompendiumStore.setState({
     data: fixture.source,
@@ -258,8 +279,8 @@ it('retains the active category state across entry review and workspace leave/re
   expect(selectedSample()).toBe('Resolve sample Sample 101');
   expect(categorySearch()?.value).toBe('trait');
 
-  await change('Workspace', '/review');
-  await change('Workspace', '/compendium');
+  await workspace('/review');
+  await workspace('/compendium');
   expect(route().pathname).toBe('/compendium');
   expect(selectedSample()).toBe('Resolve sample Sample 101');
   expect(categorySearch()?.value).toBe('trait');

@@ -21,8 +21,14 @@ vi.mock('../../services/api', async (original) => ({
   loginUrl: () => 'https://synthetic.invalid/auth/login',
   apiRequest: (path: string, init: RequestInit) => fetch(`https://synthetic.invalid${path}`, init),
 }));
-vi.mock('../../services/save/SavePanel', () => ({ SavePanel: () => null }));
-vi.mock('../compendium/CompendiumBadge', () => ({ CompendiumBadge: () => null }));
+vi.mock('../../services/save/SavePanel', () => ({
+  SavePanel: () => null,
+  SaveController: () => null,
+}));
+vi.mock('../compendium/CompendiumBadge', () => ({
+  CompendiumBadge: () => null,
+  useCompendiumCount: () => ({ state: 'ready', count: 0 }),
+}));
 
 const tooltip: Tooltip = {
   hash: 10,
@@ -75,10 +81,11 @@ function ReturnPage() {
 }
 async function chooseWorkspace(path: string) {
   await act(async () => {
-    const select = host.querySelector<HTMLSelectElement>('aside select');
-    if (!select) throw new Error('Workspace selector is missing');
-    select.value = path;
-    select.dispatchEvent(new Event('change', { bubbles: true }));
+    const link = host.querySelector<HTMLAnchorElement>(
+      `nav[aria-label="Workspaces"] a[href^="${path}"]`,
+    );
+    if (!link) throw new Error(`Workspace tab ${path} is missing`);
+    link.click();
   });
 }
 async function mount() {
@@ -134,7 +141,12 @@ beforeEach(async () => {
   });
   useDataStore.setState({ data: null, status: 'idle', error: null });
   useAuthStore.setState({ user, loading: false, load: async () => {} });
-  useDraftStore.setState({ hydrated: true, hydrate: async () => {}, activate: async () => {}, drafts: {} });
+  useDraftStore.setState({
+    hydrated: true,
+    hydrate: async () => {},
+    activate: async () => {},
+    drafts: {},
+  });
   post = vi.fn(async () => {
     // Exercise real async boundaries instead of depending on one timer tick.
     await new Promise((resolve) => setTimeout(resolve, 25));
@@ -217,11 +229,7 @@ it('selects pending changes from the sidebar and restores the selected item afte
     host.querySelector('[aria-label="Pending saved changes"] a[aria-current="page"]')?.textContent,
   ).toContain('Tooltip 20');
 
-  const workspace = host.querySelector<HTMLSelectElement>('aside select')!;
-  await act(async () => {
-    workspace.value = '/compendium';
-    workspace.dispatchEvent(new Event('change', { bubbles: true }));
-  });
+  await chooseWorkspace('/compendium');
   await chooseWorkspace('/review');
   await waitFor(() => expect(host.textContent).toContain('2 pending / 0 selected'));
   expect(host.textContent).toContain('2 of 2');
@@ -314,20 +322,24 @@ it('retires acknowledgment when the bundle reports a superseding marker without 
   expect(useReviewSession.getState().acknowledgments).toEqual({});
 });
 
-it('suspends pending-review window shortcuts during Browse and restores them on close', async () => {
+it('suspends pending-review window shortcuts while the Drafts popover is open and restores them on close', async () => {
   const second = structuredClone(tooltip);
   second.hash = 20;
   bundle.tooltips[20] = second;
   await mount();
   await waitFor(() => expect(host.textContent).toContain('2 pending / 0 selected'));
-  await click('Browse');
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-drafts-button]')!.click());
   await act(async () =>
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })),
   );
   expect(host.textContent).toContain('1 of 2');
   expect(host.textContent).toContain('2 pending / 0 selected');
   expect(post).not.toHaveBeenCalled();
-  await click('Close');
+  await act(async () =>
+    document.activeElement!.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    ),
+  );
   await act(async () =>
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })),
   );

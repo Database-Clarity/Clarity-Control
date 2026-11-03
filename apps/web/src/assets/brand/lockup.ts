@@ -7,5 +7,10 @@
  */
 import dark from './lockup-j75-dark.svg';
 import light from './lockup-j75-light.svg';
+import markDark from './mark-dark.svg';
+import markLight from './mark-light.svg';
 
 export const lockup = { dark, light } as const;
+
+/** The diamond mark alone (the favicon artwork): bare on dark, on its black backdrop on light. */
+export const mark = { dark: markDark, light: markLight } as const;

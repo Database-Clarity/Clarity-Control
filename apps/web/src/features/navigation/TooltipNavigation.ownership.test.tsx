@@ -10,9 +10,19 @@ import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 
-vi.mock('../../services/save/SavePanel', () => ({ SavePanel: () => null }));
-vi.mock('../auth/AuthStatus', () => ({ AuthStatus: () => null }));
-vi.mock('../compendium/CompendiumBadge', () => ({ CompendiumBadge: () => null }));
+vi.mock('../../services/save/SavePanel', () => ({
+  SavePanel: () => null,
+  SaveController: () => null,
+}));
+vi.mock('../auth/AuthStatus', () => ({
+  useAuthSession: () => undefined,
+  IdentityStatus: () => null,
+  identitySummary: () => ({ label: 'Account', detail: 'Account', tone: 'out' }),
+}));
+vi.mock('../compendium/CompendiumBadge', () => ({
+  CompendiumBadge: () => null,
+  useCompendiumCount: () => ({ state: 'ready', count: 0 }),
+}));
 vi.mock('../editor', () => ({ ClarityEditor: () => null }));
 vi.mock('../preview', () => ({ TooltipPreview: () => null }));
 vi.mock('../compendium/CompendiumPanel', () => ({ CompendiumPanel: () => null }));
@@ -111,12 +121,6 @@ async function shiftWheel() {
   return event;
 }
 
-function browseButton() {
-  const button = host.querySelector<HTMLButtonElement>('[aria-controls="sidebar"]');
-  if (!button) throw new Error('Browse toggle is missing');
-  return button;
-}
-
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   useDataStore.setState({ data, status: 'ready', error: null, load: async () => {} });
@@ -149,24 +153,32 @@ afterEach(async () => {
 });
 
 describe('mounted Editor navigation interaction ownership', () => {
-  it('suspends Shift+wheel while Browse owns interaction and resumes after Close', async () => {
+  const draftsButton = () => host.querySelector<HTMLButtonElement>('[data-drafts-button]')!;
+  const overlay = () => document.querySelector('[data-shell-overlay]');
+  const escape = () =>
+    act(async () => {
+      document.activeElement!.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+    });
+
+  it('suspends Shift+wheel while a shell overlay owns interaction and resumes after Escape', async () => {
     await mount();
     expect(route()).toBe('/t/100?lang=de');
     expect(selectedItem()).toBe('Sample 100');
 
-    await click(browseButton());
-    const close = browseButton();
-    expect(close.textContent).toBe('Close');
-    expect(document.activeElement).toBe(close);
+    await click(draftsButton());
+    expect(overlay()).not.toBeNull();
+    expect(draftsButton().getAttribute('aria-expanded')).toBe('true');
 
     const whileOpen = await shiftWheel();
     expect(whileOpen.defaultPrevented).toBe(false);
     expect(route()).toBe('/t/100?lang=de');
     expect(selectedItem()).toBe('Sample 100');
-    expect(host.querySelector('#sidebar')?.getAttribute('data-open')).toBe('true');
 
-    await click(close);
-    expect(document.activeElement).toBe(browseButton());
+    await escape();
+    expect(overlay()).toBeNull();
+    expect(document.activeElement).toBe(draftsButton());
     const afterClose = await shiftWheel();
     expect(afterClose.defaultPrevented).toBe(true);
     expect(route()).toBe('/t/101?lang=de');
@@ -191,60 +203,85 @@ describe('mounted Editor navigation interaction ownership', () => {
     expect(selectedItem()).toBe('Sample 101');
   });
 
-  it.each([
-    { main: false, skip: false, closeWith: 'Close' },
-    { main: false, skip: true, closeWith: 'Escape' },
-    { main: true, skip: false, closeWith: 'Close' },
-    { main: true, skip: true, closeWith: 'Escape' },
-  ])(
-    'restores each prior inert state and body overflow after $closeWith',
-    async ({ main: mainInert, skip: skipInert, closeWith }) => {
-      await mount();
-      const main = host.querySelector<HTMLElement>('#main-content')!;
-      const skip = host.querySelector<HTMLElement>('a[href="#main-content"]')!;
-      if (mainInert) main.setAttribute('inert', 'main-before');
-      if (skipInert) skip.setAttribute('inert', 'skip-before');
-      document.body.style.overflow = 'clip';
+  it('suspends Shift+wheel while the finder list is open, and the wheel scrolls the list', async () => {
+    await mount();
+    const field = host.querySelector<HTMLInputElement>('input[role="combobox"]')!;
+    await click(field);
+    expect(field.getAttribute('aria-expanded')).toBe('true');
+    const whileOpen = await shiftWheel();
+    expect(whileOpen.defaultPrevented).toBe(false);
+    expect(route()).toBe('/t/100?lang=de');
+    // Escape restores the current item and closes the list, keeping focus in the field.
+    field.focus();
+    await escape();
+    expect(field.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(field);
+    expect(field.value).toBe('Sample 100');
+  });
 
-      await click(browseButton());
-      expect(main.hasAttribute('inert')).toBe(true);
-      expect(skip.hasAttribute('inert')).toBe(true);
-      expect(document.body.style.overflow).toBe('hidden');
-
-      if (closeWith === 'Escape') {
-        await act(async () => {
-          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-        });
-      } else {
-        await click(browseButton());
+  describe.each([
+    { shape: 'popover', phone: false },
+    { shape: 'sheet', phone: true },
+  ])('$shape', ({ phone }) => {
+    beforeEach(() => {
+      if (phone) {
+        vi.stubGlobal('matchMedia', (query: string) => ({
+          matches: query.includes('max-width: 700px'),
+          media: query,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+        }));
       }
+    });
+    afterEach(() => vi.unstubAllGlobals());
+    const opener = () =>
+      phone
+        ? host.querySelector<HTMLButtonElement>('header button[aria-label^="Drafts"]')!
+        : draftsButton();
 
-      expect(main.getAttribute('inert')).toBe(mainInert ? 'main-before' : null);
-      expect(skip.getAttribute('inert')).toBe(skipInert ? 'skip-before' : null);
-      expect(document.body.style.overflow).toBe('clip');
-    },
-  );
+    it.each([
+      { shell: false, owner: false },
+      { shell: false, owner: true },
+      { shell: true, owner: false },
+      { shell: true, owner: true },
+    ])(
+      'restores each prior inert state and body overflow (inert before=$shell, overflow before=$owner)',
+      async ({ shell, owner }) => {
+        await mount();
+        const shellRoot = host.querySelector<HTMLElement>('#shell-root')!;
+        if (shell) shellRoot.setAttribute('inert', 'before');
+        document.body.style.overflow = owner ? 'clip' : '';
 
-  it.each(['navigation', 'unmount'])(
-    'restores inert and overflow during %s cleanup',
-    async (cleanup) => {
-      await mount();
-      const main = host.querySelector<HTMLElement>('#main-content')!;
-      const skip = host.querySelector<HTMLElement>('a[href="#main-content"]')!;
-      skip.setAttribute('inert', '');
-      document.body.style.overflow = 'auto';
-      await click(browseButton());
+        await click(opener());
+        expect(shellRoot.hasAttribute('inert')).toBe(true);
+        expect(document.body.style.overflow).toBe(phone ? 'hidden' : owner ? 'clip' : '');
 
-      if (cleanup === 'navigation') {
-        await act(async () => navigate('/t/101?lang=de'));
-      } else {
-        await act(async () => root?.unmount());
-        root = undefined;
-      }
+        await escape();
+        expect(shellRoot.getAttribute('inert')).toBe(shell ? 'before' : null);
+        expect(document.body.style.overflow).toBe(owner ? 'clip' : '');
+      },
+    );
 
-      expect(main.hasAttribute('inert')).toBe(false);
-      expect(skip.getAttribute('inert')).toBe('');
-      expect(document.body.style.overflow).toBe('auto');
-    },
-  );
+    it.each(['navigation', 'unmount'])(
+      'restores inert and overflow during %s cleanup',
+      async (cleanup) => {
+        await mount();
+        const shellRoot = host.querySelector<HTMLElement>('#shell-root')!;
+        document.body.style.overflow = 'auto';
+        await click(opener());
+        expect(shellRoot.hasAttribute('inert')).toBe(true);
+
+        if (cleanup === 'navigation') {
+          await act(async () => navigate('/t/101?lang=de'));
+          expect(overlay()).toBeNull();
+        } else {
+          await act(async () => root?.unmount());
+          root = undefined;
+        }
+
+        expect(shellRoot.hasAttribute('inert')).toBe(false);
+        expect(document.body.style.overflow).toBe('auto');
+      },
+    );
+  });
 });

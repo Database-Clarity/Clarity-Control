@@ -22,7 +22,10 @@ vi.hoisted(() => {
     },
   });
 });
-vi.mock('../../services/save/SavePanel', () => ({ SavePanel: () => null }));
+vi.mock('../../services/save/SavePanel', () => ({
+  SavePanel: () => null,
+  SaveController: () => null,
+}));
 
 let host: HTMLDivElement;
 let root: Root;
@@ -45,7 +48,12 @@ beforeEach(() => {
     load: async () => {},
   });
   useAuthStore.setState({ user: null, loading: false, load: async () => {} });
-  useDraftStore.setState({ hydrated: true, drafts: {}, hydrate: async () => {}, activate: async () => {} });
+  useDraftStore.setState({
+    hydrated: true,
+    drafts: {},
+    hydrate: async () => {},
+    activate: async () => {},
+  });
   useSettingsPanel.setState({ open: false, returnTo: '/' });
   host = document.createElement('div');
   document.body.append(host);
@@ -57,7 +65,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-it('keeps keyboard traversal inside the settings sheet opened from the phone Browse drawer', async () => {
+it('opens Settings from the identity menu, keeps Tab inside it, and gives focus back to the stable header button', async () => {
   await act(async () =>
     root.render(
       <MemoryRouter initialEntries={['/archive']}>
@@ -66,10 +74,16 @@ it('keeps keyboard traversal inside the settings sheet opened from the phone Bro
     ),
   );
   const click = (element: Element) => act(async () => (element as HTMLElement).click());
-  await click(host.querySelector('button[aria-controls="sidebar"]')!);
-  expect(host.querySelector('#sidebar')?.getAttribute('data-open')).toBe('true');
-  await click(host.querySelector('button.settings-link')!);
+  const identity = host.querySelector<HTMLElement>('[data-identity-button]')!;
+  await click(identity);
+  const menu = document.querySelector('[data-shell-overlay="Account"]')!;
+  expect(menu).not.toBeNull();
+  const settings = [...menu.querySelectorAll('button')].find((b) => b.textContent === 'Settings')!;
+  await click(settings);
+  // The menu item that opened Settings is gone; the header button is the anchor and return target.
+  expect(document.querySelector('[data-shell-overlay="Account"]')).toBeNull();
   const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-labelledby]')!;
+  expect(dialog).not.toBeNull();
   const items = [...dialog.querySelectorAll<HTMLElement>('button, select')];
   items.at(-1)!.focus();
   await act(async () => {
@@ -79,14 +93,14 @@ it('keeps keyboard traversal inside the settings sheet opened from the phone Bro
   });
   expect(document.activeElement).toBe(items[0]);
   expect(dialog.contains(document.activeElement)).toBe(true);
-  // Escape closes only the settings sheet, not the Browse drawer behind it.
   await act(async () => {
     document.activeElement!.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
     );
   });
   expect(document.querySelector('[role="dialog"][aria-labelledby]')).toBeNull();
-  expect(host.querySelector('#sidebar')?.getAttribute('data-open')).toBe('true');
+  expect(document.activeElement).toBe(identity);
+  expect(host.querySelector('#shell-root')?.hasAttribute('inert')).toBe(false);
 });
 
 it('closes the settings popover when Back changes the page behind it', async () => {

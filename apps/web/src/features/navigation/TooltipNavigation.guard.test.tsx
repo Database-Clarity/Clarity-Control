@@ -11,9 +11,19 @@ import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { reviewKey, usePreviewReviewStore } from '../../stores/previewReview';
 
-vi.mock('../../services/save/SavePanel', () => ({ SavePanel: () => null }));
-vi.mock('../auth/AuthStatus', () => ({ AuthStatus: () => null }));
-vi.mock('../compendium/CompendiumBadge', () => ({ CompendiumBadge: () => null }));
+vi.mock('../../services/save/SavePanel', () => ({
+  SavePanel: () => null,
+  SaveController: () => null,
+}));
+vi.mock('../auth/AuthStatus', () => ({
+  useAuthSession: () => undefined,
+  IdentityStatus: () => null,
+  identitySummary: () => ({ label: 'Account', detail: 'Account', tone: 'out' }),
+}));
+vi.mock('../compendium/CompendiumBadge', () => ({
+  CompendiumBadge: () => null,
+  useCompendiumCount: () => ({ state: 'ready', count: 0 }),
+}));
 vi.mock('../editor', () => ({ ClarityEditor: () => null }));
 vi.mock('../preview', () => ({ TooltipPreview: () => null }));
 vi.mock('../compendium/CompendiumPanel', () => ({ CompendiumPanel: () => null }));
@@ -70,8 +80,7 @@ let stopHost: () => void;
 
 const route = () => router.state.location.pathname;
 const dialog = () => host.querySelector('dialog[open]');
-const tooltipSelect = () =>
-  host.querySelector<HTMLSelectElement>('select[aria-describedby="tooltip-stepping-help"]')!;
+const tooltipField = () => host.querySelector<HTMLInputElement>('input[role="combobox"]')!;
 
 async function mount(path = '/t/100') {
   router = createMemoryRouter(
@@ -95,7 +104,7 @@ async function shiftWheel() {
 }
 async function press(name: string) {
   await act(async () => {
-    tooltipSelect().dispatchEvent(
+    tooltipField().dispatchEvent(
       new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true }),
     );
   });
@@ -172,7 +181,7 @@ describe('stepping and the preview leave guard', () => {
     const event = await shiftWheel();
     expect(event.defaultPrevented).toBe(true);
     expect(route()).toBe('/t/100');
-    expect(tooltipSelect().value).toBe('100');
+    expect(tooltipField().value).toBe('Sample 100');
     expect(dialog()?.textContent).toContain('Your changes to Sample 100');
     expect(router.state.historyAction).toBe(history);
     // With the prompt open, more wheel input is ignored rather than queued.
@@ -181,14 +190,14 @@ describe('stepping and the preview leave guard', () => {
     expect(route()).toBe('/t/100');
   });
 
-  it('blocks arrow-key stepping and the Next button before anything moves', async () => {
+  it('blocks arrow-key stepping before anything moves', async () => {
     await mount();
     await press('ArrowDown');
     expect(route()).toBe('/t/100');
     expect(dialog()).not.toBeNull();
     await click(named('Stay'));
     expect(dialog()).toBeNull();
-    await click(named('Next'));
+    await press('ArrowDown');
     expect(route()).toBe('/t/100');
     expect(dialog()).not.toBeNull();
     expect(show).not.toHaveBeenCalled();
@@ -196,13 +205,15 @@ describe('stepping and the preview leave guard', () => {
 
   it('blocks choosing another tooltip from the finder', async () => {
     await mount();
-    const select = tooltipSelect();
-    await act(async () => {
-      select.value = '102';
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    await click(tooltipField());
+    const option = [...host.ownerDocument.querySelectorAll('[role="option"]')].find((element) =>
+      element.textContent?.includes('Sample 102'),
+    );
+    await click(option);
     expect(route()).toBe('/t/100');
     expect(dialog()).not.toBeNull();
+    // The field shows the current item again; nothing was changed or replayed.
+    expect(tooltipField().value).toBe('Sample 100');
   });
 
   it('steps again once the preview has rendered the change, and a later edit re-arms it', async () => {
@@ -213,7 +224,7 @@ describe('stepping and the preview leave guard', () => {
     const event = await shiftWheel();
     expect(event.defaultPrevented).toBe(true);
     expect(route()).toBe('/t/101');
-    expect(tooltipSelect().value).toBe('101');
+    expect(tooltipField().value).toBe('Sample 101');
     expect(dialog()).toBeNull();
     // A hidden edit on the new item blocks the next step from it.
     await act(async () =>
