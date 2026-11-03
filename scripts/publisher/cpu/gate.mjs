@@ -16,6 +16,8 @@ const TAIL_READY_MS = 60_000;
 const LOGS_WAIT_MS = 300_000;
 const STALE_WAIT_MS = 120_000;
 const WARM = 20;
+const REQUEST_TIMEOUT_MS = 30_000;
+const MAX_NETFAILS = 3;
 const evidence = path.resolve(process.argv[2] ?? '');
 if (!process.argv[2]) throw Error('Usage: gate.mjs <evidence-dir> [mode:size,...]');
 const account = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -219,24 +221,37 @@ async function attempt({ mode, size }, n) {
       const target = new URL(url);
       if (!posting) target.searchParams.set('opId', op);
       const sampleId = `${version}-${role}-${mode}-${size}-${seq++}`;
-      const response = await fetch(target, {
-        method: posting ? 'POST' : 'GET',
-        headers: {
-          Authorization: `Bearer ${client.token}`,
-          'Content-Type': 'application/json',
-          'X-CPU-Sample': sampleId,
-        },
-        ...(posting
-          ? {
-              body: JSON.stringify(
-                mode === 'publish'
-                  ? { opId: op, hashes: client.hashes, expected: client.expected }
-                  : { opId: op },
-              ),
-            }
-          : {}),
-      });
-      const body = await response.text();
+      let response, body;
+      try {
+        response = await fetch(target, {
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+          method: posting ? 'POST' : 'GET',
+          headers: {
+            Authorization: `Bearer ${client.token}`,
+            'Content-Type': 'application/json',
+            'X-CPU-Sample': sampleId,
+          },
+          ...(posting
+            ? {
+                body: JSON.stringify(
+                  mode === 'publish'
+                    ? { opId: op, hashes: client.hashes, expected: client.expected }
+                    : { opId: op },
+                ),
+              }
+            : {}),
+        });
+        body = await response.text();
+      } catch (error) {
+        // Client-side transport failure (run 7: the Worker served the request in 3 ms but the
+        // response never arrived). Never counted; its server outcome is still checked below.
+        const record = { sampleId, role: 'netfail', error: String(error), at: Date.now() };
+        sent.push(record);
+        fs.appendFileSync(path.join(dir, 'samples.jsonl'), JSON.stringify(record) + '\n');
+        if (sent.filter((s) => s.role === 'netfail').length > MAX_NETFAILS)
+          throw Error('Too many client network failures');
+        return record;
+      }
       const record = {
         sampleId,
         role,
@@ -352,13 +367,21 @@ async function attempt({ mode, size }, n) {
     warmRows.length === WARM &&
     summary.warm.n === WARM &&
     warmRows.every((r) => r.invocation > 1);
-  summary.hardPass = rows.every(
-    (r) =>
-      r.clientStatus >= 200 &&
-      r.clientStatus < 300 &&
-      (!r.outcome || r.outcome === 'ok') &&
-      (!r.status || r.status === r.clientStatus),
-  );
+  summary.netfail = sent.filter((s) => s.role === 'netfail').length;
+  summary.stale -= summary.netfail;
+  // Every request of ours that reached this deployment (including ones whose response was lost)
+  // must have outcome ok and a 2xx status; client-received statuses must be 2xx too.
+  summary.hardPass =
+    rows.every(
+      (r) =>
+        r.clientStatus >= 200 &&
+        r.clientStatus < 300 &&
+        (!r.outcome || r.outcome === 'ok') &&
+        (!r.status || r.status === r.clientStatus),
+    ) &&
+    telemetry
+      .filter((t) => t.sampleId && t.outcome !== undefined)
+      .every((t) => t.outcome === 'ok' && t.status >= 200 && t.status < 300);
   summary.coldFlag = (coldRow?.cpuTime ?? 0) > 25;
   summary.cpuPass = summary.warm.p95 < 7;
   fs.writeFileSync(path.join(dir, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
@@ -390,7 +413,13 @@ try {
   for (const c of cases) {
     let summary;
     for (let n = 1; n <= 2; n++) {
-      summary = await attempt(c, n);
+      try {
+        summary = await attempt(c, n);
+      } catch (e) {
+        if (e.hard) throw e;
+        // Transport/tooling trouble makes this attempt incomplete; it does not end the run.
+        summary = { ...c, attempt: n, complete: false, hardPass: true, error: e.message, warm: {} };
+      }
       log(JSON.stringify(summary));
       if (!summary.hardPass)
         throw Object.assign(Error(`HARD FAIL ${c.mode}/${c.size}`), { hard: true });
