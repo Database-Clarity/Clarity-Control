@@ -250,13 +250,13 @@ describe('tooltip screen composition', () => {
       },
     });
     const markup = render('/t/10?lang=fr');
-    expect(markup).toContain('English changes since this translation');
-    expect(markup).toContain('aria-pressed="true"');
+    expect(markup).toContain('aria-label="English shows"');
+    expect(markup).toContain('Changes since translation');
     expect(markup).not.toContain('data-compendium-hash');
     translated.text.fr.sourceUpdatedAt = '2026-10-27T00:00:00Z';
-    expect(render('/t/10?lang=fr')).not.toContain('English changes since this translation');
+    expect(render('/t/10?lang=fr')).not.toContain('English shows');
     useDataStore.setState({ data });
-    expect(render('/t/10?lang=fr')).not.toContain('English changes since this translation');
+    expect(render('/t/10?lang=fr')).not.toContain('English shows');
   });
   it('shows the shared-perk callout in the header only when 2+ exotics own the perk', () => {
     expect(render()).not.toContain('Shared perk');

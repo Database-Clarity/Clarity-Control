@@ -2,7 +2,39 @@ import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { diffCompendium, type CompendiumCell, type CompendiumDiffPart } from '@clarity/core';
 import { RichCell } from './RichCell';
 import { useSettingsStore } from '../../stores/settings';
+import { Segmented } from '../../ui/RightPane';
 import styles from './Compendium.module.scss';
+
+export type CompendiumDiffMode = 'changes' | 'before-after';
+const diffModeOptions = [
+  { value: 'changes', label: 'Changes' },
+  { value: 'before-after', label: 'Before / After' },
+] as const;
+
+/** The diff view remembered on this device (Changes until the user picks Before / After). */
+export function useCompendiumDiffMode(): [CompendiumDiffMode, (mode: CompendiumDiffMode) => void] {
+  const mode = useSettingsStore((state) => state.device.remembered.compendiumDiff ?? 'changes');
+  const remember = useSettingsStore((state) => state.remember);
+  return [mode, (value) => remember({ compendiumDiff: value })];
+}
+
+/** Changes | Before / After. The Compendium pane puts it in its header; other callers get it inline. */
+export function CompendiumDiffModeToggle({
+  mode,
+  onChange,
+}: {
+  mode: CompendiumDiffMode;
+  onChange(mode: CompendiumDiffMode): void;
+}) {
+  return (
+    <Segmented
+      label="Compendium diff view"
+      value={mode}
+      options={diffModeOptions}
+      onChange={onChange}
+    />
+  );
+}
 
 function changes(before: CompendiumCell, after: CompendiumCell): string[] {
   const values = (
@@ -134,28 +166,24 @@ function StyleChange({ before, after }: { before: CompendiumCell; after: Compend
 export function CompendiumDiff({
   before,
   after,
+  mode: given,
 }: {
   before: CompendiumCell;
   after: CompendiumCell;
+  /** The view, when the caller shows the toggle itself; without it the diff brings its own. */
+  mode?: CompendiumDiffMode;
 }) {
-  const mode = useSettingsStore((state) => state.device.remembered.compendiumDiff ?? 'changes');
-  const remember = useSettingsStore((state) => state.remember);
+  const [remembered, setRemembered] = useCompendiumDiffMode();
+  const mode = given ?? remembered;
   const sideBySide = mode === 'before-after';
   const parts = useMemo(() => diffCompendium(before, after), [before, after]);
   return (
     <section aria-label="Styled Compendium diff">
-      <div className={styles.diffModes} role="group" aria-label="Compendium diff view">
-        {(['changes', 'before-after'] as const).map((value) => (
-          <button
-            key={value}
-            type="button"
-            aria-pressed={mode === value}
-            onClick={() => remember({ compendiumDiff: value })}
-          >
-            {value === 'changes' ? 'Changes' : 'Before / After'}
-          </button>
-        ))}
-      </div>
+      {given === undefined && (
+        <div className={styles.diffModes}>
+          <CompendiumDiffModeToggle mode={mode} onChange={setRemembered} />
+        </div>
+      )}
       {sideBySide ? (
         <div className={styles.comparison}>
           <section>

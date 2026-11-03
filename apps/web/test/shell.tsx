@@ -282,6 +282,60 @@ Object.assign(window, {
         });
       if (kind === 'all') set({ unowned: 2 });
     },
+    /** Compendium rows that match 1001 and 1002: a changed cell (long, to scroll) and an unchanged one. */
+    compendiumRows() {
+      const long = Array.from(
+        { length: 14 },
+        (_, i) => `Line ${i + 1}: the quick brown fox jumps over the lazy dog, again and again.`,
+      ).join('\n');
+      const cell = (plain: string) => ({ plain, runs: [{ text: plain }] });
+      const row = (name: string, plain: string, rowIndex: number) => ({
+        name,
+        nameNorm: name.toLowerCase(),
+        section: '',
+        rowIndex,
+        cell: cell(plain),
+      });
+      useCompendiumStore.setState({
+        data: {
+          tabs: [
+            {
+              gid: 'g',
+              name: 'Weapon Perks',
+              rows: [
+                row('Row 1001', `Previous changed\n${long}`, 1),
+                row('Row 1002', 'Previous', 2),
+              ],
+              grid: [],
+            },
+          ],
+          fetchedAt: stamp,
+        } as unknown as CompendiumData,
+      });
+    },
+    /** Base 1000's German text was written against older English: the English pane offers changes. */
+    outdatedTranslation() {
+      const current = useDataStore.getState().data!;
+      const base = current.bundle.tooltips[1000];
+      useDataStore.setState({
+        data: {
+          ...current,
+          bundle: {
+            ...current.bundle,
+            tooltips: {
+              ...current.bundle.tooltips,
+              1000: {
+                ...base,
+                text: {
+                  ...base.text,
+                  de: { ...base.text.de!, sourceUpdatedAt: '2026-10-01T00:00:00Z' },
+                },
+              },
+            },
+          },
+        },
+      });
+    },
     compendiumError() {
       useCompendiumStore.setState({ error: 'Cannot load Compendium: offline' });
     },

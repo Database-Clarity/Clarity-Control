@@ -46,11 +46,22 @@ export const paneStateSchema = z.object({
 export type PaneState = z.infer<typeof paneStateSchema>;
 /** Pane keys are `<page type>:<pair>`, for example `editor:left`. */
 export const paneKeyPattern = /^[a-z][a-z0-9-]{0,31}:[a-z][a-z0-9-]{0,31}$/;
+/** Compendium pane zoom, in percent: 70 to 100 in steps of 10; 100 is the pane's natural size. */
+export const compendiumScales = [70, 80, 90, 100] as const;
+export const defaultCompendiumScale = 100;
+/** Snaps a stored value onto the scale (nearest step); anything that is not a number is the default. */
+export function normalizeCompendiumScale(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return defaultCompendiumScale;
+  return compendiumScales.reduce((best, step) =>
+    Math.abs(step - value) <= Math.abs(best - value) ? step : best,
+  );
+}
 export const deviceSettingsSchema = z.object({
   editorFont: z.enum(editorFonts),
   textSize: z.enum(['default', 'large']),
   theme: z.enum(themePreferences),
   panes: z.record(z.string(), paneStateSchema),
+  compendiumScale: z.number().transform(normalizeCompendiumScale),
   remembered: rememberedSchema,
 });
 export type DeviceSettings = z.infer<typeof deviceSettingsSchema>;
@@ -59,6 +70,7 @@ export const defaultDeviceSettings: DeviceSettings = {
   editorFont: 'default',
   theme: 'system',
   panes: {},
+  compendiumScale: defaultCompendiumScale,
   remembered: {},
 };
 
@@ -127,7 +139,8 @@ export interface SettingsState {
   /** Remembers an editor toggle on this device only: no sync, no pending marker, no prompt. */
   remember(patch: Remembered): void;
   /**
-   * Forgets every saved pane width (and the old single split) on this device. Mounted panes see
+   * Forgets every saved pane width (and the old single split) and the Compendium zoom on this
+   * device. Mounted panes see
    * the empty map at once; returns false, with a notice, when the browser refused the write.
    */
   resetPaneWidths(): boolean;
@@ -336,6 +349,7 @@ export function createSettingsStore({
       editorFont: editorFont.success ? editorFont.data : 'default',
       theme: theme.success ? theme.data : 'system',
       panes: readPanes(record.panes),
+      compendiumScale: normalizeCompendiumScale(record.compendiumScale),
       remembered,
     };
   }
@@ -741,7 +755,11 @@ export function createSettingsStore({
       },
 
       resetPaneWidths() {
-        const device = { ...get().device, panes: {} };
+        const device = {
+          ...get().device,
+          panes: {},
+          compendiumScale: defaultCompendiumScale,
+        };
         // Mounted panes read the store, so they snap back even if the browser cannot save.
         set({ device, paneResets: get().paneResets + 1 });
         try {

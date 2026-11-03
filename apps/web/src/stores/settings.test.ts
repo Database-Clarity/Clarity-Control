@@ -73,6 +73,7 @@ describe('settings store: local storage', () => {
       editorFont: 'default',
       theme: 'system',
       panes: {},
+      compendiumScale: 100,
       remembered: {},
     });
     expect(values.get(settingsKey('7'))).not.toContain('textSize');
