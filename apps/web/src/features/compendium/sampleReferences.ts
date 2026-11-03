@@ -8,7 +8,7 @@ import {
 } from '@clarity/core';
 import type { GuidanceReference } from './guidanceSchema';
 import { categoryId, type ReviewSample } from './reviewCategories';
-import { sourceFingerprint } from './reviewProgress';
+import { rawFingerprint, sourceFingerprint } from './reviewProgress';
 import { confirmCompendiumSelection } from './selection';
 
 export function sampleReference(
@@ -61,12 +61,49 @@ export function referenceCurrent(
     !reference ||
     reference.hash !== entry.hash ||
     reference.categoryId !== categoryId(entry.category) ||
-    reference.evidence !== entry.sampleEvidence ||
+    !(reference.evidence === entry.sampleEvidence || legacyEntryCurrent(reference, entry)) ||
     reference.baseline !== baseline
   )
     return false;
   if (!reference.link) return true;
   return !!currentReferenceLink(reference, source);
+}
+
+// Reconstruct the old nested evidence from CURRENT editor/catalog data. Only positive
+// selections may ignore unrelated sheet edits, and their saved styled source must replay.
+function legacyEntryCurrent(reference: GuidanceReference, entry: ReviewSample) {
+  if (!reference.link || entry.evidenceManifest === undefined) return false;
+  if (
+    entry.sampleEvidence !==
+    sourceFingerprint([
+      entry.hash,
+      entry.evidence,
+      ...(entry.next.custom?.categoryId === 'attachment-effect'
+        ? [entry.next.custom.categoryId]
+        : []),
+      entry.evidenceManifest,
+    ])
+  )
+    return false;
+  const sheet = reference.baseline.slice(reference.baseline.lastIndexOf('|') + 1);
+  const evidence = rawFingerprint([
+    sheet,
+    entry.name,
+    entry.category,
+    entry.base.text.en,
+    entry.base.compendium,
+  ]);
+  return (
+    reference.evidence ===
+    rawFingerprint([
+      entry.hash,
+      evidence,
+      ...(entry.next.custom?.categoryId === 'attachment-effect'
+        ? [entry.next.custom.categoryId]
+        : []),
+      entry.evidenceManifest,
+    ])
+  );
 }
 
 // A formatter-only change must not invalidate an approval of unchanged source
@@ -79,17 +116,22 @@ export function currentReferenceLink(reference: GuidanceReference, source: Compe
   const confirmed = confirmCompendiumSelection(resolved, source);
   if (!confirmed) return;
   const link = { ...confirmed, snapshotAt: reference.link.snapshotAt };
-  const fingerprint = (candidate: typeof link) =>
-    sourceFingerprint([
+  const fingerprint = (candidate: typeof link, legacy = false) =>
+    (legacy ? rawFingerprint : sourceFingerprint)([
       candidate.gid,
       candidate.rowKey,
       candidate.section,
       candidate.cells,
       candidate.snapshot,
     ]);
-  if (fingerprint(link) === reference.sourceHash) return link;
   const old = reference.link;
-  if (old.cells || !old.parts?.length || fingerprint(old) !== reference.sourceHash) return;
+  if (old.setBonusPieces !== link.setBonusPieces) return;
+  // Validate the saved proof itself, then compare normalized current content and structure.
+  const proven =
+    fingerprint(old) === reference.sourceHash || fingerprint(old, true) === reference.sourceHash;
+  if (!proven) return;
+  if (fingerprint(link) === fingerprint(old)) return link;
+  if (old.cells || !old.parts?.length) return;
   const rows = source.tabs
     .filter((tab) => tab.gid === old.gid)
     .flatMap((tab) => tab.rows)

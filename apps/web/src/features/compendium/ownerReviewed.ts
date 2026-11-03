@@ -66,6 +66,28 @@ export function reviewedOwnerDecision(
   const match = tab && combineCompendiumMatches(rows.map((row) => ({ tab, row })));
   const expected = record.mode === 'armor' ? record.rows.slice(0, 1) : record.rows;
   const actual = record.mode === 'armor' && match && !match.parts ? [match.row] : rows;
+  // Parser suppression may remove repeated row-spanned names. The surviving
+  // physical card must still contain the exact approved styled body; every saved
+  // duplicate proof must describe that same body, never a different card.
+  if (
+    record.mode === 'armor' &&
+    (record.rows.some(
+      (proof) => proof.name !== expected[0].name || proof.cellEvidence !== expected[0].cellEvidence,
+    ) ||
+      (rows.length === 1 &&
+        !tab?.grid?.some(
+          (cell) =>
+            cell.col === (rows[0].anchor?.col ?? -2) + 2 &&
+            cell.row <= rows[0].rowIndex &&
+            record.rows.every(
+              (proof) =>
+                cell.row + (cell.rowSpan ?? 1) >
+                rows[0].rowIndex + proof.rowIndex - record.rows[0].rowIndex,
+            ) &&
+            sameCell(cell.cell, rows[0].cell),
+        )))
+  )
+    return stale;
   const remaining = [...expected];
   if (
     !match ||

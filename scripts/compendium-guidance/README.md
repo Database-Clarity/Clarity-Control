@@ -27,8 +27,17 @@ A reference renews only if its existing sample evidence matches the current cano
 entry and its selected link still resolves to the same source fingerprint. Only the baseline
 commit gate is bypassed during that comparison. Missing entries, changed English, catalog or
 source content stay stale; the matcher cannot infer over an unresolved recorded owner sample.
-New entries never join the frozen guidance membership. Because sample evidence includes the
-whole source-tab fingerprint, unrelated source changes conservatively require re-checking too.
+New entries never join the frozen guidance membership. Background and run textAlign are
+excluded from cell comparisons and fingerprints; normalized adjacent runs merge after alignment
+is removed. Text, color, bold, italic, underline, strike, sizePt, href, coordinates, spans and
+selection structure remain strict. Positive legacy references replay the old nested sheet hash
+against current editor/catalog evidence AND validate the saved source hash and current styled
+selection. Their evidence is then migrated to the current baseline; unrelated sheet edits do
+not revoke those positive selections. Negative/skipped/note-only references retain whole-sheet
+change detection. Exotic Armor duplicate suppression requires identical approved bodies and a
+surviving physical spanning description cell covering the approved duplicate offsets.
+The four Collective base/enhanced entries have pinned prior source-body evidence from the
+2026-11-02 matcher baseline; changed text stays withheld until an explicit current owner reference.
 This is change detection using the app's existing fingerprints, not a security proof.
 
 The hosted Compendium review automatically renews unchanged references on a stale baseline
