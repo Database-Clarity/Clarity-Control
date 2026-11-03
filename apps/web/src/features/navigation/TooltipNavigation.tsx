@@ -67,10 +67,7 @@ export function TooltipNavigation({ data }: { data: EditorData }) {
     const wheel = (event: WheelEvent) => {
       if (!event.deltaY || event.ctrlKey || event.metaKey || event.shiftKey) return;
       event.preventDefault();
-      const direction = wheelStepper.feed(
-        { delta: event.deltaY, deltaMode: event.deltaMode },
-        event.timeStamp,
-      );
+      const direction = wheelStepper.feed(event, event.timeStamp);
       if (direction) step.current(direction);
     };
     const shiftWheel = (event: WheelEvent) => {
@@ -78,10 +75,7 @@ export function TooltipNavigation({ data }: { data: EditorData }) {
       if (!direction || workspaceShortcutsBlocked(event)) return;
       if (!canStep.current(direction)) return;
       event.preventDefault();
-      const stepDirection = wheelStepper.feed(
-        { delta: event.deltaY || event.deltaX, deltaMode: event.deltaMode },
-        event.timeStamp,
-      );
+      const stepDirection = wheelStepper.feed(event, event.timeStamp);
       if (stepDirection) step.current(stepDirection);
     };
     const pop = () => stepping.cancel();

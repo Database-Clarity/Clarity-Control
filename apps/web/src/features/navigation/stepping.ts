@@ -68,42 +68,67 @@ export function shiftScrollDirection(
   return Math.sign(event.deltaY || event.deltaX);
 }
 
-/**
- * Turns raw wheel events into steps. One mouse notch (Chromium and Safari report 100 px;
- * Firefox 3 lines, about 33 px each here) steps once, with a short cooldown so a fast spin stays
- * controllable. A trackpad flick is dozens of small events plus momentum: it steps once and
- * then waits for the stream to go quiet. Events smaller than 50 px are treated as that smooth
- * stream. These limits are reasoned from default browser behaviour, not measured on hardware.
+type WheelInput = Pick<WheelEvent, 'deltaX' | 'deltaY' | 'deltaMode'> & {
+  // Non-standard, but preserves notch information lost to zoom / scroll-line scaling.
+  wheelDeltaX?: number;
+  wheelDeltaY?: number;
+};
+
+/** Discrete wheels bypass all smooth-stream state; there is deliberately no cooldown.
+ * Without legacy notch data, pixel-only devices are necessarily heuristic: browsers
+ * can emit identical events for a mouse and a trackpad. Large isolated deltas favor
+ * immediate mouse navigation; small streams accumulate distance instead.
  */
-export function createWheelStepper(limits = { notch: 100, smooth: 50, quiet: 200, cooldown: 120 }) {
+export function createWheelStepper() {
   let accumulated = 0;
   let direction = 0;
   let last = -Infinity;
-  let lastStep = -Infinity;
-  let locked = false;
+  let previous = 0;
+  let decreases = 0;
+  let momentum = false;
   return {
     /** Returns -1/1 when this event should step, else 0. */
-    feed(event: { delta: number; deltaMode: number }, now: number): number {
-      const sign = Math.sign(event.delta);
-      if (!sign) return 0;
-      const pixels =
-        Math.abs(event.delta) * (event.deltaMode === 1 ? 100 / 3 : event.deltaMode === 2 ? 400 : 1);
-      if (sign !== direction || now - last > limits.quiet) {
+    feed(event: WheelInput, now: number): number {
+      const delta = event.deltaY || event.deltaX;
+      if (!Number.isFinite(delta) || !delta) return 0;
+      const sign = Math.sign(delta);
+      const pixels = Math.abs(delta);
+      // Shift on Windows may move the standard delta to X but leave legacy Y.
+      const legacy = event.deltaY ? event.wheelDeltaY : event.wheelDeltaX || event.wheelDeltaY;
+      const notch = event.deltaMode !== 0 || (!!legacy && legacy % 120 === 0);
+      if (sign !== direction || now - last > 200) {
         accumulated = 0;
-        locked = false;
+        previous = 0;
+        decreases = 0;
+        momentum = false;
       }
       direction = sign;
       last = now;
-      if (locked) return 0;
-      accumulated += pixels;
-      if (accumulated < limits.notch) return 0;
-      accumulated = 0;
-      if (pixels < limits.smooth) {
-        locked = true;
+      if (notch) {
+        accumulated = 0;
+        previous = 0;
+        decreases = 0;
+        momentum = false;
         return sign;
       }
-      if (now - lastStep < limits.cooldown) return 0;
-      lastStep = now;
+      decreases = pixels < previous ? decreases + 1 : 0;
+      // A sustained decay is a momentum tail, not more distance to navigate.
+      if (decreases >= 3) momentum = true;
+      else if (pixels > previous * 1.5) momentum = false;
+      previous = pixels;
+      if (momentum) {
+        accumulated = 0;
+        return 0;
+      }
+      // Firefox pixel-mode wheels have no legacy fields; don't require 100 px.
+      // Non-notch legacy values identify smooth input even at high velocity.
+      if (!legacy && pixels >= 40) {
+        accumulated = 0;
+        return sign;
+      }
+      accumulated += pixels;
+      if (accumulated < 100) return 0;
+      accumulated %= 100;
       return sign;
     },
   };
