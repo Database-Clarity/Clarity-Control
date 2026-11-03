@@ -72,6 +72,12 @@ Core proposals can combine same normalized names only within one tab and one con
 
 Physical cell decomposition and cooldown sharing do **not** establish item identity. Core's general combining utility is used only after category, owner/group or source-identity validation by the guided matcher; it explicitly rejects distinct artifact mechanics. The current-artifact list comes from the actual sheet section headers. Future source layouts are rediscovered by names/sections and cell evidence, not fixed row coordinates. Coordinates in generated tables are observed evidence only.
 
+### Renamed saved links (2026-11-03)
+
+`saved-link-content-relink`: after tab/name and relocated-name lookup fail, search logical descriptions across tracked tabs. Exactly one `sameCell` match with identical ordered multipart labels follows automatically as `moved`; multiple identical matches remain candidates. Run segmentation follows `sameCell`; styling and text must agree (no new whitespace folding).
+A suggestion requires trigram Dice >=0.98 and a best/runner-up gap >=0.15. The suggested row is selected for explicit Confirm / Choose another; until confirmation it remains a repair, cannot mark reviewed, and blocks English saves. Confirmation creates a local draft with the new identity. Auto-link reports and the review queue retain the suggested row first among candidates; queue confirmation is explicit and suggestions never enter bulk acceptance. Ordered manual offsets are evaluated at each possible anchor; incomplete selections are excluded and configured descriptions never substitute for an override.
+Calibration: `relink-calibration.test.ts` evaluates the 2026-10-30 reviewed-source and 2026-10-31 frozen-matcher sheets. No same-identity changed descriptions exist in their overlap; this is rename-simulation evidence, not observed rename precision. For 52 frozen current rows, punctuation, final-word deletion and numeric changes yield 155 rename-like cases plus 155 absent-identity negatives. Threshold sweep 0.85–0.98 / margin 0.05–0.15 had zero false suggestions; choose the strictest tested pair (0.98/0.15). Measured accepted-suggestion precision: 139/139 (100%); all 155 negatives withheld. The limited corpus does not establish live precision. Resolver, panel, queue and save-enricher tests cover identity/style/parts, duplicates, threshold/margin, cross-tab recovery, overrides and explicit confirmation.
+
 <!-- BEGIN GENERATED OWNER DECISIONS -->
 ## Maintainer decisions and exceptions (generated)
 

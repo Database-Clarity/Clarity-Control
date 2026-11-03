@@ -48,6 +48,11 @@ export interface CompendiumCandidate extends CompendiumMatch {
 }
 export type CompendiumResolution =
   | ({ status: 'ok' | 'changed' | 'moved'; changed: boolean } & CompendiumMatch)
+  | {
+      status: 'relink-suggested';
+      candidate: CompendiumCandidate;
+      candidates: CompendiumCandidate[];
+    }
   | { status: 'candidates'; candidates: CompendiumCandidate[] }
   | { status: 'missing' };
 
@@ -60,20 +65,13 @@ export function resolveCompendiumLink(
     .flatMap((tab) => tab.rows.map((row) => ({ tab, row })));
   // An arbitrary human-picked anchor need not be one of the parsed named rows.
   if (link.cells) {
+    const anchors = new Set(
+      all.map(({ tab, row }) => JSON.stringify([tab.gid, row.anchor?.row, row.anchor?.col])),
+    );
     for (const tab of data.tabs.filter((tab) => isTrackedCompendiumTab(tab.name))) {
       for (const entry of tab.grid ?? []) {
-        if (
-          normaliseCompendiumName(entry.cell.plain.trim()) !== normaliseCompendiumName(link.rowKey)
-        )
-          continue;
-        if (
-          !all.some(
-            (match) =>
-              match.tab === tab &&
-              match.row.anchor?.row === entry.row &&
-              match.row.anchor?.col === entry.col,
-          )
-        ) {
+        if (!entry.cell.plain.trim()) continue;
+        if (!anchors.has(JSON.stringify([tab.gid, entry.row, entry.col]))) {
           all.push({
             tab,
             row: {
@@ -152,7 +150,44 @@ export function resolveCompendiumLink(
       status: moved || match.row.name !== link.rowKey ? 'moved' : changed ? 'changed' : 'ok',
     };
   }
-  const candidates = all
+  // Compare logical descriptions, including multipart labels, rather than fragments.
+  // Human overrides always travel with their anchor and must resolve completely.
+  const matches: CompendiumMatch[] = [];
+  const groups = new Map<string, CompendiumMatch[]>();
+  for (const entry of all) {
+    const key = JSON.stringify([entry.tab.gid, entry.row.nameNorm, categoryOf(entry)]);
+    const group = groups.get(key) ?? [];
+    group.push(entry);
+    groups.set(key, group);
+  }
+  const seen = new Set<string>();
+  for (const entry of all) {
+    if (link.cells) {
+      const cell =
+        entry.row.anchor && selectCompendiumCells(entry.tab, entry.row.anchor, link.cells);
+      if (cell) matches.push({ ...entry, row: { ...entry.row, cell }, cells: link.cells });
+    } else {
+      const key = JSON.stringify([entry.tab.gid, entry.row.nameNorm, categoryOf(entry)]);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const group = groups.get(key)!;
+      const combined = combineCompendiumMatches(group);
+      if (combined) matches.push(combined);
+      else matches.push(...group);
+    }
+  }
+  const identical = matches.filter(
+    (match) =>
+      sameCell(link.snapshot, match.row.cell) &&
+      JSON.stringify(link.parts ?? []) === JSON.stringify(match.parts ?? []),
+  );
+  if (identical.length === 1) return { ...identical[0], status: 'moved', changed: false };
+  if (identical.length > 1)
+    return {
+      status: 'candidates',
+      candidates: identical.slice(0, 3).map((match) => ({ ...match, similarity: 1 })),
+    };
+  const candidates = matches
     .map((match) => ({
       ...match,
       similarity: compendiumSimilarity(link.snapshot.plain, match.row.cell.plain),
@@ -165,8 +200,16 @@ export function resolveCompendiumLink(
         a.row.rowIndex - b.row.rowIndex,
     )
     .slice(0, 3);
+  if (
+    candidates[0]?.similarity >= COMPENDIUM_RELINK_THRESHOLD &&
+    candidates[0].similarity - (candidates[1]?.similarity ?? 0) >= COMPENDIUM_RELINK_MARGIN
+  )
+    return { status: 'relink-suggested', candidate: candidates[0], candidates };
   return candidates.length ? { status: 'candidates', candidates } : { status: 'missing' };
 }
+// Calibrated by relink-calibration.test.ts; suggestions still require human confirmation.
+export const COMPENDIUM_RELINK_THRESHOLD = 0.98;
+export const COMPENDIUM_RELINK_MARGIN = 0.15;
 function categoryOf({ tab, row }: CompendiumMatch): string | undefined {
   return compendiumTabs[tab.gid]?.sectionCategories?.[row.section ?? ''];
 }

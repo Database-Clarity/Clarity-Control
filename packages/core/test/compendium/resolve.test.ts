@@ -88,3 +88,71 @@ describe('robust Compendium link resolution', () => {
     expect(resolveCompendiumLink(link, data()).status).toBe('missing');
   });
 });
+
+// Rename fallback must preserve the same safety boundaries as name resolution.
+it('follows a unique identical rename across tabs, preserving styled snapshots', () => {
+  const result = resolveCompendiumLink(link, data([], [row('Renamed')]));
+  expect(result).toMatchObject({ status: 'moved', changed: false, tab: { gid: '2' } });
+  if (result.status !== 'moved') throw new Error('Expected moved');
+  expect(snapshotCompendium(result)).toMatchObject({ rowKey: 'Renamed', gid: '2' });
+  const styled = { ...row('Renamed'), cell: cell(link.snapshot.plain, '#ff0000') };
+  expect(resolveCompendiumLink(link, data([styled])).status).toBe('relink-suggested');
+  expect(
+    resolveCompendiumLink({ ...link, parts: ['Old part'] }, data([row('Renamed')])).status,
+  ).toBe('relink-suggested');
+});
+it('requires both a strict similarity threshold and a clear runner-up margin', () => {
+  const similar = row('Renamed', link.snapshot.plain + '!');
+  expect(resolveCompendiumLink(link, data([similar])).status).toBe('relink-suggested');
+  expect(
+    resolveCompendiumLink(
+      link,
+      data([row('Renamed', 'Grants increased damage for twelve seconds.')]),
+    ).status,
+  ).toBe('candidates');
+  expect(
+    resolveCompendiumLink(
+      link,
+      data([similar, { ...similar, name: 'Rival', nameNorm: 'rival', rowIndex: 7 }]),
+    ).status,
+  ).toBe('candidates');
+  expect(resolveCompendiumLink(link, data([row('Renamed')], [row('Rival')])).status).toBe(
+    'candidates',
+  );
+});
+it('compares override cells at renamed arbitrary anchors without configured-cell fallback', () => {
+  const cells = [{ dRow: 0, dCol: 1 }];
+  const overridden = { ...link, cells };
+  const source: CompendiumData = {
+    ...data(),
+    tabs: [
+      {
+        gid: '2',
+        name: 'Arc',
+        rows: [],
+        grid: [
+          { row: 20, col: 0, cell: cell('Renamed anchor') },
+          { row: 20, col: 1, cell: link.snapshot },
+        ],
+      },
+    ],
+  };
+  expect(resolveCompendiumLink(overridden, source)).toMatchObject({
+    status: 'moved',
+    cells,
+    row: { name: 'Renamed anchor' },
+  });
+  source.tabs[0].grid![1].cell = cell(link.snapshot.plain + '!');
+  expect(resolveCompendiumLink(overridden, source)).toMatchObject({
+    status: 'relink-suggested',
+    candidate: { cells },
+  });
+  source.tabs[0].grid = [];
+  source.tabs[0].rows = [row('Renamed')];
+  expect(resolveCompendiumLink(overridden, source).status).toBe('missing');
+});
+it('does not relink to ignored OLD tabs', () => {
+  const source = data([], [row('Renamed')]);
+  source.tabs[1].name = 'Weapon Perks OLD';
+  expect(resolveCompendiumLink(link, source).status).toBe('missing');
+});

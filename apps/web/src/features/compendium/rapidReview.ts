@@ -12,6 +12,7 @@ import { confirmCompendiumSelection } from './selection';
 
 export interface ReviewProposal {
   match?: CompendiumMatch;
+  suggested?: boolean;
   link?: CompendiumLink;
   candidates: CompendiumMatch[];
 }
@@ -32,7 +33,13 @@ export function proposalFor(
   const resolved = result.next?.compendium && resolveCompendiumLink(result.next.compendium, source);
   const match = resolved && 'row' in resolved ? resolved : undefined;
   const link = match && confirmCompendiumSelection(match, source);
-  return { match, link, candidates: result.candidates };
+  const existing = base.compendium && resolveCompendiumLink(base.compendium, source);
+  return {
+    match,
+    link,
+    candidates: result.candidates,
+    ...(existing && existing.status === 'relink-suggested' ? { suggested: true } : {}),
+  };
 }
 export function advanceHash(hashes: number[], index: number) {
   return hashes[index + 1] ?? hashes[index - 1];

@@ -26,7 +26,7 @@ export function reviewEvidence(
       if (item && isSetSelector(item)) return [];
       const next = drafts[hash]?.next ?? base;
       const resolution = next.compendium && resolveCompendiumLink(next.compendium, source);
-      const valid = resolution && !['missing', 'candidates'].includes(resolution.status);
+      const valid = resolution && ['ok', 'changed', 'moved'].includes(resolution.status);
       const changed = JSON.stringify(base.compendium) !== JSON.stringify(next.compendium);
       const evidence = sourceFingerprint([
         fingerprint,

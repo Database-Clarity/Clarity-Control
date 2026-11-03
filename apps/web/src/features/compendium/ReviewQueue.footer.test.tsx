@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { guidedFixture } from '../../../test/guided-fixture';
+import { proposalFor } from './rapidReview';
 import { ReviewQueue } from './MatchReviewPage';
 import { useCompendiumStore } from './store';
 import { useAuthStore } from '../../stores/auth';
@@ -12,6 +13,11 @@ import { useSaveState } from '../../services/save/state';
 import { useSidebarQueueStore } from '../navigation/sidebarQueue';
 import { bundleUrl } from '../../services/bundle';
 import { compendiumDataUrl } from '../../services/compendium';
+
+vi.mock('../../services/api', async (original) => ({
+  ...(await original<typeof import('../../services/api')>()),
+  apiUrl: 'https://api.example',
+}));
 
 const captured = vi.hoisted(() => ({ proposals: new Map() }));
 vi.mock('./useProposals', () => ({
@@ -238,4 +244,40 @@ it('replaces a direct-entry observer and clears an otherwise unowned reservation
   closed = true;
   observers[1].notify();
   expect(article.style.getPropertyValue(property)).toBe('');
+});
+
+it('confirms a preselected similar rename only after an explicit review action', async () => {
+  vi.stubGlobal('matchMedia', () => ({ matches: false }));
+  const text = 'Grants increased damage for ten seconds.';
+  fixture.source.tabs[0].rows[0].cell = { plain: text, runs: [{ text }] };
+  const base = {
+    hash: 100,
+    associated: [],
+    text: {},
+    compendium: {
+      gid: '1',
+      rowKey: 'Old',
+      snapshotAt: fixture.source.fetchedAt,
+      snapshot: { plain: text + '!', runs: [{ text: text + '!' }] },
+    },
+  };
+  fixture.editor.bundle.tooltips[100] = base;
+  const proposal = proposalFor(base, fixture.editor, fixture.source);
+  captured.proposals.set(100, proposal);
+  useAuthStore.setState({ user: { id: 1, login: 'alice', role: 'editor' } });
+  await mount('/compendium/review?view=entries&hash=100');
+  expect(host.textContent).toContain('Suggested relink · confirmation required');
+  const confirm = [...host.querySelectorAll('button')].find((b) =>
+    b.textContent?.startsWith('Confirm suggested relink'),
+  )!;
+  expect(confirm.disabled).toBe(false);
+  expect(useDraftStore.getState().drafts).toEqual({});
+  expect(proposal.link).toBeUndefined();
+  await act(async () => confirm.click());
+  expect(useDraftStore.getState().drafts[100].next.compendium).toMatchObject({
+    rowKey: 'Sample 100',
+    gid: '1662574278',
+  });
+  expect(useSaveState.getState().review).toBeNull();
+  expect(base.compendium.rowKey).toBe('Old');
 });

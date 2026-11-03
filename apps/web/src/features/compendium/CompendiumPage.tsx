@@ -114,7 +114,9 @@ export function CompendiumPage() {
                   {itemFor(tooltip.hash, editor)?.name ?? tooltip.hash}
                 </Link>{' '}
                 <span className={styles.badge}>
-                  {resolution.status === 'candidates' || resolution.status === 'missing'
+                  {resolution.status === 'candidates' ||
+                  resolution.status === 'missing' ||
+                  resolution.status === 'relink-suggested'
                     ? 'Needs relink'
                     : resolution.status === 'moved'
                       ? 'Moved'
