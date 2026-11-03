@@ -5,6 +5,9 @@ import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 
 const [auditDir, dataRepo, requestedDataRef = 'origin/editor-data'] = process.argv.slice(2);
+const enhancedFallback = process.argv.includes('--enhanced-fallback');
+// Pinned notification-style corrections; Osmosis has no unambiguous base and no prior export.
+const fallbackHashes = [270582335, 843406310, 1164602481, 1807646319, 1847323754, 2671305723];
 if (!auditDir || !dataRepo)
   throw new Error(
     'Usage: node scripts/alias-groups-export-parity.mjs <audit directory> <editor-data repository> [pinned editor-data ref]',
@@ -94,11 +97,12 @@ const changedHashes = [...new Set([...Object.keys(exports.before), ...Object.key
 const manifest = JSON.parse(fs.readFileSync(path.join(auditDir, 'manifest.json'))).manifest
   .inventoryItem;
 const expectedHashes = Object.keys(exports.before)
-  .filter(
-    (h) =>
-      exports.before[h].type === 'Weapon Perk' &&
-      manifest[h]?.inventory?.tierType !== 6 &&
-      /^Enhanced /.test(manifest[h]?.itemTypeDisplayName ?? ''),
+  .filter((h) =>
+    enhancedFallback
+      ? fallbackHashes.includes(Number(h))
+      : exports.before[h].type === 'Weapon Perk' &&
+        manifest[h]?.inventory?.tierType !== 6 &&
+        /^Enhanced /.test(manifest[h]?.itemTypeDisplayName ?? ''),
   )
   .map(Number)
   .sort((a, b) => a - b);
@@ -106,7 +110,14 @@ const actualHashes = changedHashes.map((row) => row.hash).sort((a, b) => a - b);
 if (JSON.stringify(expectedHashes) !== JSON.stringify(actualHashes))
   throw new Error('Unexpected export hash difference');
 for (const row of changedHashes) {
-  if (row.before?.type !== 'Weapon Perk' || row.after?.type !== 'Weapon Trait Enhanced')
+  const expectedType = enhancedFallback
+    ? { 'Weapon Trait': 'Weapon Trait Enhanced', 'Weapon Trait Origin': 'Weapon Trait Enhanced' }[
+        row.before?.type
+      ]
+    : row.before?.type === 'Weapon Perk'
+      ? 'Weapon Trait Enhanced'
+      : undefined;
+  if (!expectedType || row.after?.type !== expectedType)
     throw new Error(`Unexpected export type change ${row.hash}`);
   const { type: beforeType, ...before } = row.before,
     { type: afterType, ...after } = row.after;
