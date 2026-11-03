@@ -51,9 +51,19 @@ it('simulator and real file:// Git implement the same publication CAS contract',
 });
 it('real receive-pack timeout remains unresolved and can reconcile the exact commit', () => {
   const upstream = bare();
-  const repo = new RemoteRepository(bare(), {
+  class PushTimeoutRepository extends RemoteRepository {
+    timeoutPush = true;
+    override remoteGit(args: string[]) {
+      this.commandTimeout = args[0] === 'push' && this.timeoutPush ? 1000 : 120_000;
+      try {
+        return super.remoteGit(args);
+      } finally {
+        this.commandTimeout = 120_000;
+      }
+    }
+  }
+  const repo = new PushTimeoutRepository(bare(), {
     fileUrl: pathToFileURL(upstream).href,
-    timeout: 1000,
   });
   const a = repo.commit(undefined, { file: repo.writeBlob('bytes') }, 'base');
   const hook = join(upstream, 'hooks', 'pre-receive');
@@ -62,6 +72,7 @@ it('real receive-pack timeout remains unresolved and can reconcile the exact com
   expect(() => repo.cas(data, undefined, a)).toThrow(TransportUnresolved);
   // No success inferred from absent ref; retry uses the exact original commit.
   writeFileSync(hook, '#!/bin/sh\nexit 0\n');
+  repo.timeoutPush = false;
   repo.cas(data, undefined, a);
   expect(repo.head(data)).toBe(a);
 });
