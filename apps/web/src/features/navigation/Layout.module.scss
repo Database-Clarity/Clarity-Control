@@ -148,23 +148,6 @@
   background: var(--warn);
 }
 
-// Compact windows: the page keeps its full width and the open column lies over it.
-.body[data-overlay] {
-  .mainCol {
-    grid-column: 1 / -1;
-    margin-left: 16px;
-  }
-
-  .left,
-  .dividerCell {
-    z-index: 5;
-  }
-
-  .left {
-    box-shadow: var(--shadow);
-  }
-}
-
 .sidebarNavigation {
   display: grid;
   gap: 0.5rem;

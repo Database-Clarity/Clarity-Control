@@ -59,6 +59,7 @@ function Blocking() {
         <>
           <button
             type="button"
+            data-primary
             // showModal() focuses the element marked autofocus, not the header's Close button.
             ref={(button) => button?.setAttribute('autofocus', '')}
             onClick={() => {

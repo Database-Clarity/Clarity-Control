@@ -154,6 +154,18 @@ try {
         );
       }
       await page.screenshot({ path: out(`editor-${width}`) });
+      if (hidden) {
+        // Compact: opening the column pushes the page, so the editor is never covered.
+        await page.locator('button[aria-controls="shell-left"]').click();
+        const left = await page.locator('#shell-left').boundingBox();
+        const editor = await page.locator('.cm-content').boundingBox();
+        assert.ok(
+          editor.x >= left.x + left.width - 1,
+          `${width}: the open column does not cover the editor`,
+        );
+        await noOverflow(page, `editor ${width} open`);
+        await page.screenshot({ path: out(`editor-${width}-open`) });
+      }
       assert.deepEqual(errors, [], 'no page errors');
       await context.close();
     }

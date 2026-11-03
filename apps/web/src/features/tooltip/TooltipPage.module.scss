@@ -45,7 +45,7 @@
     flex: 1;
     min-height: 44px;
     &[aria-selected='true'] {
-      border-color: theme.$orange-color;
+      border-color: var(--accent-ink);
     }
   }
 }

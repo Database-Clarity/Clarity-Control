@@ -48,8 +48,6 @@ export function Layout() {
 const COLUMN_MIN = 280;
 const COLUMN_MAX = 480;
 const MAIN_MIN = 480;
-/** Compact windows overlay the column on the page, which then only needs to stay recognisable. */
-const COMPACT_MAIN_MIN = 240;
 
 function LayoutContent() {
   const location = useLocation();
@@ -125,11 +123,11 @@ function LayoutContent() {
     sizes: 'start',
     min: COLUMN_MIN,
     max: COLUMN_MAX,
-    reserve: previewColumn && compact ? COMPACT_MAIN_MIN : MAIN_MIN,
+    reserve: MAIN_MIN,
     defaultWidth: laptop ? 304 : 336,
     collapsible: previewColumn,
-    // Compact windows start with the preview hidden and open it over the page; that is not a
-    // saved choice, so the desktop widths are left as they were.
+    // Compact windows start with the preview hidden; opening it pushes the page (the editor is
+    // never covered). That is not a saved choice, so the desktop widths are left as they were.
     defaultCollapsed: previewColumn && compact,
     persist: !phone && !(previewColumn && compact),
   });
@@ -261,7 +259,6 @@ function LayoutContent() {
           ref={pane.containerRef}
           className={styles.body}
           data-column={hasColumn ? '' : undefined}
-          data-overlay={previewColumn && compact ? '' : undefined}
           style={hasColumn ? ({ '--left-w': `${pane.width}px` } as CSSProperties) : undefined}
         >
           {hasColumn && (

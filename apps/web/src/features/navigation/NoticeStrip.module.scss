@@ -1,18 +1,18 @@
 @use '../../ui/controls';
 @use '../../data/variables' as theme;
 
-// An overlay hanging from the bottom edge of the header: zero space in the page. Only the cards
-// take pointer events, so the page under the gaps stays usable.
+// An overlay hanging from the bottom edge of the header: zero space in the page. Full-width
+// strips, one line unless the text must wrap, text left and actions right. Only the strips take
+// pointer events.
 .strip {
   position: absolute;
-  top: 100%;
-  right: 8px;
+  // Below the header's 1px bottom border, which sits outside its padding box.
+  top: calc(100% + 1px);
+  right: 0;
+  left: 0;
   z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  width: min(36rem, calc(100% - 16px));
-  margin-top: 6px;
   pointer-events: none;
 }
 
@@ -21,38 +21,29 @@
   align-items: center;
   gap: 8px;
   box-sizing: border-box;
-  min-height: 32px;
-  padding: 3px 4px 3px 10px;
+  min-height: 28px;
+  padding: 2px 4px 2px 12px;
   font-size: 0.8125rem;
   line-height: 1.3;
   color: var(--text);
-  background: var(--raised);
-  border: 1px solid var(--pop-edge);
-  border-left-width: 3px;
-  border-radius: 4px;
-  box-shadow: var(--shadow);
+  background: var(--stasis);
+  border-bottom: 1px solid var(--stasis-edge);
   pointer-events: auto;
 
   &[data-level='alert'] {
     background: var(--alert-bg);
-    border-color: var(--alert-edge);
-    border-left-color: var(--danger);
+    border-bottom-color: var(--alert-edge);
   }
 
   &[data-level='warning'] {
     background: var(--warn-bg);
-    border-color: var(--warn-edge);
-    border-left-color: var(--warn);
-  }
-
-  &[data-level='status'] {
-    border-left-color: var(--accent-ink);
+    border-bottom-color: var(--warn-edge);
   }
 
   button {
     @include controls.button;
     flex: none;
-    min-height: 24px;
+    min-height: 22px;
     padding: 0 8px;
     @include theme.mobile-or-coarse {
       min-height: 44px;
@@ -77,12 +68,4 @@
   min-width: 0;
   padding-block: 2px;
   overflow-wrap: anywhere;
-}
-
-@include theme.mobile {
-  .strip {
-    right: 8px;
-    left: 8px;
-    width: auto;
-  }
 }
