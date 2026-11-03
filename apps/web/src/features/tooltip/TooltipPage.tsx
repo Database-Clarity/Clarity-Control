@@ -1,18 +1,9 @@
-import { ArchiveIcon } from '../archive/ArchiveIcon';
 import { archiveCategoryLabel, archivedItemFor } from '../archive/archive';
 import { AttachmentCategoryControl } from './AttachmentCategoryControl';
-import { classifyItem, categoryLabel } from '../compendium/itemClassification';
 import { useCompendiumStore } from '../compendium/store';
-import { languageLabel } from '../../languageLabels';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import {
-  languages,
-  langSchema,
-  translationQueue,
-  type Lang,
-  type MarkupGlobals,
-} from '@clarity/core';
+import { translationQueue, type Lang, type MarkupGlobals, type Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
 import { tooltipImports } from '../../services/tooltipImports';
 import { useDataStore } from '../../stores/data';
@@ -37,14 +28,24 @@ import { TooltipPreview } from '../preview';
 import { HistoryPanel } from '../history/HistoryPanel';
 import { useSaveState } from '../../services/save/state';
 import { AssociationsPanel } from '../associations/AssociationsPanel';
+import { PanelRow } from '../../ui/PanelRow';
+import { languageLabel } from '../../languageLabels';
 import { editorAccess } from './access';
 import { defaultLanguage, withLanguage } from './language';
 import { LanguageSummary } from './LanguageSummary';
+import { EditorPaneHeader } from './EditorPaneHeader';
 import { TranslationSource } from './TranslationSource';
 import { VariantWorkspace } from './VariantWorkspace';
 import { CompendiumPanel } from '../compendium/CompendiumPanel';
+import { editableOverrides, previewedVariants, storedFormVariants, variantForm } from './variants';
 import styles from './TooltipPage.module.scss';
 
+/**
+ * The editor page (variant model D): ONE base editor per item, whatever the role. Enhanced
+ * versions are derived from the base text and shown in the preview; the few that keep text of
+ * their own open in the same editor slot through "Edit override" (the base editor stays mounted
+ * underneath, so its caret and undo history survive the round trip).
+ */
 export function TooltipPage({
   hashOverride,
   readOnly = false,
@@ -57,6 +58,9 @@ export function TooltipPage({
   const [search, setSearch] = useSearchParams();
   const data = useDataStore((state) => state.data);
   const [remembered, setRemembered] = useState<Lang>();
+  // The enhanced version whose own text is open in the editor (null: the base). Keyed by item, so
+  // moving to another tooltip starts on its base.
+  const [picked, setPicked] = useState<{ hash: number; variant: number | null }>();
   const user = useAuthStore((state) => state.user);
   const lang = defaultLanguage(user, search, remembered);
   function changeLanguage(next: Lang) {
@@ -106,244 +110,211 @@ export function TooltipPage({
   if (!item && !data.bundle.tooltips[hash]) return <h1>Tooltip {hash} not found</h1>;
   const primaryBase = tooltipFor(hash, data);
   readOnly ||= hash > 3 && !data.items[hash] && !primaryBase.custom;
-  const primaryTooltip = drafts[hash]?.next ?? primaryBase;
-  const primaryAccess = editorAccess({
+  const access = editorAccess({
     apiConfigured: Boolean(apiUrl),
     hydrated,
     saving,
     user,
     lang,
   });
-  if (readOnly || (!item && hash > 3)) primaryAccess.reason = 'Archived tooltip — read only';
-  const primarySwitchTo = primaryAccess.switchTo;
-  const effectiveCategory =
-    item && (classifyItem(item, primaryTooltip)?.categoryId ?? item.categoryId);
+  if (readOnly || (!item && hash > 3)) access.reason = 'Archived tooltip — read only';
+
   const hosted = column !== null;
-  const leftColumn: ReactNode[] = [];
-  return (
-    <article>
-      <header className={styles.header}>
-        {readOnly ? (
-          <ArchiveIcon icon={item?.icon} />
-        ) : (
-          item?.icon && <img src={`https://www.bungie.net${item.icon}`} alt="" />
+  const nameOf = (variant: number) => archivedItemFor(variant, data)?.name ?? `Tooltip ${variant}`;
+  const legacyOf = (variant: number) =>
+    data.categories.find((category) => category.id === archivedItemFor(variant, data)?.categoryId)
+      ?.legacyType;
+  const globalsFor = (variant: number): MarkupGlobals => ({
+    ...sharedGlobals,
+    type: legacyOf(variant),
+  });
+  const textOf = (variant: number) =>
+    (drafts[variant]?.next ?? tooltipFor(variant, data)).text[lang]?.text ?? '';
+
+  // Enhanced versions: previewed next to the base; the ones with text of their own can be opened.
+  const others = variantHashes(hash, data).filter((variant) => variant !== hash);
+  const previewed = readOnly ? others : previewedVariants(hash, data);
+  const overrides = readOnly ? [] : editableOverrides(hash, data);
+  const storedForms =
+    !readOnly && user?.role === 'maintainer' ? storedFormVariants(hash, data) : [];
+  const requested = Number(search.get('variant'));
+  const activeVariant =
+    picked?.hash === hash ? picked.variant : overrides.includes(requested) ? requested : null;
+  const activeHash = activeVariant ?? hash;
+  const activeBase = tooltipFor(activeHash, data);
+  const activeTooltip = drafts[activeHash]?.next ?? activeBase;
+  const value = textOf(hash);
+
+  const previews = [hash, ...previewed].map((variant) => {
+    const entry = archivedItemFor(variant, data);
+    const entryCategory = data.categories.find((candidate) => candidate.id === entry?.categoryId);
+    const derived = variant !== hash && !readOnly && variantForm(hash, variant, data) === 'derived';
+    return (
+      <section
+        key={variant}
+        className={styles.previewItem}
+        aria-label={`${nameOf(variant)} preview`}
+      >
+        {previewed.length > 0 && variant !== hash && (
+          <h2 className={styles.previewTitle}>{nameOf(variant)} (enhanced version)</h2>
         )}
-        <div className={styles.identityText}>
-          <h1>{item?.name ?? `Tooltip ${hash}`}</h1>
-          <p>
-            {readOnly
-              ? archiveCategoryLabel(effectiveCategory ?? 'unknown', data)
-              : (categoryLabel(effectiveCategory ?? '') ??
-                data.categories.find((category) => category.id === effectiveCategory)?.label ??
-                effectiveCategory)}{' '}
-            / {hash}
-          </p>
-          {!readOnly && item && <AttachmentCategoryControl base={primaryBase} item={item} />}
-          {singleOwnerLabel(hash, data) && (
-            <p role="note" className={styles.identityOwner}>
-              {singleOwnerLabel(hash, data)}
-            </p>
-          )}
-          {sharedPerkLabel(hash, data, compendiumSource) && (
-            <p role="note" className={styles.identityOwner}>
-              {sharedPerkLabel(hash, data, compendiumSource)}
-            </p>
-          )}
-        </div>
-        <label>
-          <span className={styles.languageLabel}>Language</span>{' '}
-          <select
-            aria-label="Language"
-            value={lang}
-            onChange={(event) => changeLanguage(langSchema.parse(event.target.value))}
-          >
-            {languages.map((language) => (
-              <option key={language} value={language}>
-                {languageLabel(language)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className={styles.phoneMeta}>
-          <div>
-            <LanguageSummary
-              base={primaryBase}
-              lang={lang}
-              draft={primaryTooltip.text[lang]?.text !== primaryBase.text[lang]?.text}
-            />
-          </div>
-          {primaryAccess.reason && !readOnly && (
-            <details>
-              <summary>Read-only details</summary>
-              <p role="status" className={styles.reason}>
-                {primaryAccess.reason}
-                {primarySwitchTo && (
-                  <>
-                    {' '}
-                    <button type="button" onClick={() => changeLanguage(primarySwitchTo)}>
-                      Switch to {languageLabel(primarySwitchTo)}
-                    </button>
-                  </>
-                )}
-              </p>
-            </details>
-          )}
-        </div>
-      </header>
-      {readOnly && (
-        <p role="status" className={styles.archivedNotice}>
-          {primaryAccess.reason}
-        </p>
-      )}
-      {variantHashes(hash, data).map((variant) => {
-        const base = tooltipFor(variant, data);
-        const tooltip = drafts[variant]?.next ?? base;
-        const entry = archivedItemFor(variant, data);
-        const category = data.categories.find((category) => category.id === entry?.categoryId);
-        const globals: MarkupGlobals = { ...sharedGlobals, type: category?.legacyType };
-        const value = tooltip.text[lang]?.text ?? '';
-        const translation = translationQueue([base], [lang], data.aliases)[0];
-        const panels = (
-          <>
-            {!readOnly && <AssociationsPanel hash={variant} />}
-            <HistoryPanel hash={variant} readOnly={readOnly} />
-          </>
-        );
-        const sidePanels =
-          user?.role === 'translator' ? (
-            <details className={styles.more}>
-              <summary>Associations and history</summary>
-              {panels}
-            </details>
-          ) : (
-            panels
-          );
-        const previewNode = (
-          <TooltipPreview
-            text={value}
+        <TooltipPreview
+          text={derived ? value : textOf(variant)}
+          lang={lang}
+          name={nameOf(variant)}
+          icon={entry?.icon || undefined}
+          categoryLabel={
+            readOnly && entry
+              ? archiveCategoryLabel(entry.categoryId, data)
+              : (entryCategory?.label ?? entry?.categoryId)
+          }
+          globals={globalsFor(variant)}
+          archiveIcon={readOnly}
+          tooltipHash={variant}
+        />
+        {column && <PreviewAck variant={variant} visible={!column.collapsed} />}
+      </section>
+    );
+  });
+
+  const owner = singleOwnerLabel(hash, data);
+  const shared = sharedPerkLabel(hash, data, compendiumSource);
+  const rows = (
+    <div className={styles.rows}>
+      {!readOnly && item && <AttachmentCategoryControl base={primaryBase} item={item} />}
+      {owner && <NoteRow text={owner} />}
+      {shared && <NoteRow text={shared} />}
+      {!readOnly && <AssociationsPanel hash={activeHash} />}
+      <HistoryPanel hash={activeHash} readOnly={readOnly} />
+    </div>
+  );
+
+  const translation = translationQueue([activeBase], [lang], data.aliases)[0];
+  const overrideTargets = overrides.map((variant) => ({ hash: variant, name: nameOf(variant) }));
+  const editing = (variant: number, base: Tooltip) => (
+    <ClarityEditor
+      key={`${variant}:${lang}`}
+      value={textOf(variant)}
+      lang={lang}
+      globals={globalsFor(variant)}
+      requireEnglish={hash > 3}
+      readOnly={access.reason !== null}
+      tooltipHash={variant}
+      referenceSources={referenceSources}
+      onOpenTooltip={openDefinition}
+      // The translator toolbar stays until the markup row (a later step) replaces it.
+      markupToolbar={lang !== 'en'}
+      highlightLine={variant === activeHash ? highlightLine : undefined}
+      onChange={(text) => edit(base, lang, text, user?.login ?? 'local draft')}
+    />
+  );
+
+  const header = (
+    <EditorPaneHeader
+      lang={lang}
+      onLanguage={changeLanguage}
+      draft={!readOnly && Boolean(drafts[activeHash])}
+      saving={saving}
+      onDiscard={() => discard(activeHash)}
+      reason={access.reason}
+      switchTo={access.switchTo}
+      onSwitch={changeLanguage}
+      details={
+        <LanguageSummary
+          base={activeBase}
+          lang={lang}
+          draft={activeTooltip.text[lang]?.text !== activeBase.text[lang]?.text}
+          plain
+        />
+      }
+      overrides={overrideTargets}
+      activeOverride={
+        activeVariant === null ? undefined : { hash: activeVariant, name: nameOf(activeVariant) }
+      }
+      onEditOverride={(variant) => setPicked({ hash, variant })}
+      onBack={() => setPicked({ hash, variant: null })}
+      storedForms={storedForms.map((variant) => ({
+        target: { hash: variant, name: nameOf(variant) },
+        node: (
+          <ClarityEditor
+            value={tooltipFor(variant, data).text[lang]?.text ?? ''}
             lang={lang}
-            name={entry?.name ?? `Tooltip ${variant}`}
-            icon={entry?.icon || undefined}
-            categoryLabel={
-              readOnly && entry
-                ? archiveCategoryLabel(entry.categoryId, data)
-                : (category?.label ?? entry?.categoryId)
-            }
-            globals={globals}
-            archiveIcon={readOnly}
-            tooltipHash={variant}
+            globals={globalsFor(variant)}
+            requireEnglish={false}
+            readOnly
+            onChange={() => undefined}
           />
-        );
-        const compendiumNode =
-          !readOnly && user?.role !== 'translator' ? <CompendiumPanel base={base} /> : null;
-        if (column)
-          leftColumn.push(
-            <section
-              key={variant}
-              className={styles.previewItem}
-              aria-label={`${entry?.name ?? `Tooltip ${variant}`} preview`}
-            >
-              {variantHashes(hash, data).length > 1 && (
-                <h2 className={styles.previewTitle}>
-                  {entry?.name ?? `Tooltip ${variant}`} {variant !== hash && '(enhanced variant)'}
-                </h2>
-              )}
-              {previewNode}
-              <PreviewAck variant={variant} visible={!column.collapsed} />
-              {sidePanels}
-            </section>,
-          );
-        return (
-          <section key={variant} className={styles.variant}>
-            <header className={variant === hash ? styles.primaryVariant : undefined}>
-              <h2>
-                {entry?.name ?? `Tooltip ${variant}`} {variant !== hash && '(enhanced variant)'}
-              </h2>
-              <small>{variant}</small>
-              {!readOnly && drafts[variant] && (
-                <button type="button" disabled={saving} onClick={() => discard(variant)}>
-                  Discard this tooltip's draft
-                </button>
-              )}
-            </header>
-            <VariantWorkspace
-              initialPanel={readOnly ? 'preview' : undefined}
-              source={
-                lang === 'en' ? undefined : (
-                  <TranslationSource
-                    key={`${variant}:${lang}`}
-                    text={tooltip.text.en?.text}
-                    diff={
-                      translation?.state === 'outdated' && translation.sourceUpdatedAt
-                        ? {
-                            hash: variant,
-                            sourceUpdatedAt: translation.sourceUpdatedAt,
-                            current: base.text.en?.text ?? '',
-                          }
-                        : undefined
+        ),
+      }))}
+    />
+  );
+
+  return (
+    <article className={styles.page}>
+      <h1 className={styles.srOnly}>{nameOf(hash)}</h1>
+      <VariantWorkspace
+        header={header}
+        initialPanel={readOnly ? 'preview' : undefined}
+        source={
+          lang === 'en' ? undefined : (
+            <TranslationSource
+              key={`${activeHash}:${lang}`}
+              text={activeTooltip.text.en?.text}
+              diff={
+                translation?.state === 'outdated' && translation.sourceUpdatedAt
+                  ? {
+                      hash: activeHash,
+                      sourceUpdatedAt: translation.sourceUpdatedAt,
+                      current: activeBase.text.en?.text ?? '',
                     }
-                  />
-                )
-              }
-              editor={
-                <section aria-label={`${entry?.name ?? variant} editor (${languageLabel(lang)})`}>
-                  <h3 className={styles.editorTitle}>Clarity text ({languageLabel(lang)})</h3>
-                  <div className={variant === hash ? styles.primaryMetadata : undefined}>
-                    <LanguageSummary
-                      base={base}
-                      lang={lang}
-                      draft={tooltip.text[lang]?.text !== base.text[lang]?.text}
-                    />
-                    {primaryAccess.reason && !readOnly && (
-                      <p role="status" className={styles.reason}>
-                        {primaryAccess.reason}
-                        {primarySwitchTo && (
-                          <>
-                            {' '}
-                            <button type="button" onClick={() => changeLanguage(primarySwitchTo)}>
-                              Switch to {languageLabel(primarySwitchTo)}
-                            </button>
-                          </>
-                        )}
-                      </p>
-                    )}
-                  </div>
-                  <ClarityEditor
-                    key={`${variant}:${lang}`}
-                    value={value}
-                    lang={lang}
-                    globals={globals}
-                    requireEnglish={variant > 3}
-                    readOnly={primaryAccess.reason !== null}
-                    tooltipHash={variant}
-                    referenceSources={referenceSources}
-                    onOpenTooltip={openDefinition}
-                    markupToolbar={lang !== 'en'}
-                    highlightLine={
-                      Number(search.get('variant') ?? hash) === variant ? highlightLine : undefined
-                    }
-                    onChange={(text) => edit(base, lang, text, user?.login ?? 'local draft')}
-                  />
-                </section>
-              }
-              preview={
-                hosted ? (
-                  compendiumNode
-                ) : (
-                  <div>
-                    {previewNode}
-                    {compendiumNode}
-                  </div>
-                )
+                  : undefined
               }
             />
-            {!hosted && sidePanels}
+          )
+        }
+        editor={
+          <section
+            aria-label={`${nameOf(hash)} editor (${languageLabel(lang)})`}
+            className={styles.editorSection}
+          >
+            {/* The base editor stays mounted while an override is open: caret and undo survive. */}
+            <div className={styles.editorSlot} hidden={activeVariant !== null}>
+              {editing(hash, primaryBase)}
+            </div>
+            {activeVariant !== null && (
+              <div className={styles.editorSlot}>
+                {editing(activeVariant, tooltipFor(activeVariant, data))}
+              </div>
+            )}
           </section>
-        );
-      })}
-      {hosted && <ShellSlot name="left">{leftColumn}</ShellSlot>}
+        }
+        preview={
+          hosted ? null : (
+            <div className={styles.inlinePreview}>
+              {previews}
+              {rows}
+            </div>
+          )
+        }
+        compendium={
+          !readOnly && user?.role !== 'translator' ? <CompendiumPanel base={activeBase} /> : null
+        }
+      />
+      {hosted && (
+        <ShellSlot name="left">
+          <div className={styles.leftStack}>
+            <div className={styles.previewBody}>{previews}</div>
+            {rows}
+          </div>
+        </ShellSlot>
+      )}
     </article>
   );
+}
+
+/** One line of context under the preview; the full text is the tooltip. */
+function NoteRow({ text }: { text: string }) {
+  return <PanelRow label={<span title={text}>{text}</span>} className={styles.noteRow} />;
 }
 
 /** Records that the preview shows this variant's current text, while the preview is visible. */

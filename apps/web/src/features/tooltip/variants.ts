@@ -72,10 +72,28 @@ export function variantMatchesBase(
   return rendered(own, globals) === rendered(inherited, globals);
 }
 
+const forms = new WeakMap<EditorData, Map<string, VariantForm>>();
+
+/** Memoised per data bundle: the page and the preview ask on every render. */
 export function variantForm(base: number, variant: number, data: EditorData): VariantForm {
-  return languages.every((lang) => variantMatchesBase(base, variant, lang, data))
-    ? 'derived'
-    : 'override';
+  let cache = forms.get(data);
+  if (!cache) forms.set(data, (cache = new Map()));
+  const key = `${base}:${variant}`;
+  let form = cache.get(key);
+  if (!form) {
+    form = languages.every((lang) => variantMatchesBase(base, variant, lang, data))
+      ? 'derived'
+      : 'override';
+    cache.set(key, form);
+  }
+  return form;
+}
+
+/** The variants of `base` that keep text of their own ("Edit override"), in catalog order. */
+export function overrideVariants(base: number, data: EditorData): number[] {
+  return enhancedVariants(base, data).filter(
+    (variant) => variantForm(base, variant, data) === 'override',
+  );
 }
 
 /**
@@ -94,4 +112,50 @@ export function enhancedRender(
     type: legacyTypeOf(variant, data),
     form,
   };
+}
+
+/**
+ * A real base -> enhanced pair: the variant's category is its base's category plus " Enhanced"
+ * ("Weapon Trait" -> "Weapon Trait Enhanced"). Weapon-perk copies, exotic frames and origin traits
+ * are variants too, but they are not enhanced versions of anything and carry no enhanced mark.
+ */
+export function isEnhancedPair(base: number, variant: number, data: EditorData): boolean {
+  const type = legacyTypeOf(variant, data);
+  const baseType = legacyTypeOf(base, data);
+  return Boolean(type && baseType && type === `${baseType} Enhanced`);
+}
+
+/** The enhanced versions of a base proper, for the finder's mark and the Base | Enhanced views. */
+export function enhancedPairs(hash: number, data: EditorData): number[] {
+  const base = canonicalHash(hash, data);
+  return enhancedVariants(base, data).filter((variant) => isEnhancedPair(base, variant, data));
+}
+
+/**
+ * A same-name copy with no text in any language while its base has some. These are being turned
+ * into alias groups (separate design), so no override UI is offered for them.
+ */
+export function isBlankCopy(base: number, variant: number, data: EditorData): boolean {
+  const blank = languages.every((lang) => ownText(variant, lang, data).trim() === '');
+  return blank && languages.some((lang) => baseText(base, lang, data).trim() !== '');
+}
+
+/** Variants with text of their own that an "Edit override" can open; blank copies are left out. */
+export function editableOverrides(base: number, data: EditorData): number[] {
+  return overrideVariants(base, data).filter((variant) => !isBlankCopy(base, variant, data));
+}
+
+/** Derived enhanced versions a maintainer can inspect as "Stored form". */
+export function storedFormVariants(base: number, data: EditorData): number[] {
+  return enhancedPairs(base, data).filter(
+    (variant) => variantForm(base, variant, data) === 'derived',
+  );
+}
+
+/** What the page previews next to the base: real enhanced pairs and editable overrides. */
+export function previewedVariants(base: number, data: EditorData): number[] {
+  const overrides = new Set(editableOverrides(base, data));
+  return enhancedVariants(base, data).filter(
+    (variant) => overrides.has(variant) || isEnhancedPair(base, variant, data),
+  );
 }

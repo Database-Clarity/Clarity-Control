@@ -1,0 +1,99 @@
+@use '../data/variables' as theme;
+@use './controls';
+
+.row {
+  min-width: 0;
+  border-top: 1px solid var(--hair);
+  font-size: 0.8125rem;
+  &:first-child {
+    border-top: 0;
+  }
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  > * {
+    flex: none;
+  }
+  @include theme.mobile-or-coarse {
+    min-height: 44px;
+  }
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--text);
+  background: none;
+  border: 0;
+  @include theme.mobile-or-coarse {
+    min-height: 44px;
+  }
+}
+button.toggle {
+  cursor: pointer;
+  &:focus-visible {
+    @include controls.focus-ring;
+  }
+}
+
+.chevron {
+  width: 6px;
+  height: 6px;
+  margin: -2px 2px 0 1px;
+  border-right: 1.5px solid var(--glyph);
+  border-bottom: 1.5px solid var(--glyph);
+  transform: rotate(-45deg);
+  .row[data-open] & {
+    transform: rotate(45deg);
+    margin-top: -4px;
+  }
+}
+
+.label {
+  white-space: nowrap;
+}
+
+.summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text2);
+}
+
+.actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  button {
+    @include controls.button;
+    min-height: 22px;
+    padding: 0 7px;
+    font-size: 0.75rem;
+    @include theme.mobile-or-coarse {
+      min-height: 44px;
+    }
+  }
+}
+
+.body {
+  max-height: min(50dvh, 22rem);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 4px 4px 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

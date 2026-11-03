@@ -77,7 +77,7 @@ function route() {
 }
 
 function selectedItem() {
-  return host.querySelector('article > header h1')?.textContent;
+  return host.querySelector('article > h1')?.textContent;
 }
 
 async function mount() {

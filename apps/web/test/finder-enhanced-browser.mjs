@@ -7,7 +7,7 @@ import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
 
 // The finder list on the shell fixture, both themes, at the three design widths: a base with an
-// enhanced version carries "+E" (and nothing else does), the row does not clip or scroll
+// enhanced version carries the thin gold enhanced arrow (and nothing else does), the row does not clip or scroll
 // sideways. Screenshots go to argv[2].
 const web = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const shots = process.argv[2] ?? resolve(web, '../../.agents/reports/overhaul-p2s1-shots');
@@ -55,15 +55,19 @@ try {
       const options = page.locator('[role="listbox"] [role="option"]');
       await options.first().waitFor();
       const marks = await options.evaluateAll((rows) =>
-        rows.map((row) => [row.textContent, !!row.querySelector('small span')]),
+        rows.map((row) => [row.textContent, !!row.querySelector('small span svg')]),
       );
       const marked = marks.filter(([, mark]) => mark).map(([text]) => text);
-      assert.equal(marked.length, 1, `${theme} ${width}: exactly one +E row (${marked})`);
+      assert.equal(
+        marked.length,
+        1,
+        `${theme} ${width}: exactly one enhanced-arrow row (${marked})`,
+      );
       assert.match(marked[0], /Telesto/);
-      assert.match(marked[0], /\+E/);
+      assert.doesNotMatch(marked[0], /\+E/);
       const geometry = await page.evaluate(() => {
         const row = [...document.querySelectorAll('[role="option"]')].find((el) =>
-          el.querySelector('small span'),
+          el.querySelector('small span svg'),
         );
         const small = row.querySelector('small');
         return {
@@ -82,7 +86,7 @@ try {
         geometry.rowHeight <= 40 || phone,
         `${theme} ${width}: row wraps (${geometry.rowHeight})`,
       );
-      assert.ok(!geometry.smallClipped, `${theme} ${width}: +E label clipped`);
+      assert.ok(!geometry.smallClipped, `${theme} ${width}: enhanced mark clipped`);
       assert.ok(
         geometry.smallRight <= geometry.rowRight + 1,
         `${theme} ${width}: label outside row`,
@@ -92,7 +96,7 @@ try {
       await context.close();
     }
   }
-  console.log('Finder +E rows passed.');
+  console.log('Finder enhanced-arrow rows passed.');
 } finally {
   await browser.close();
   await server.close();

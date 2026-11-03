@@ -232,7 +232,7 @@ export function ClarityEditor({
   return (
     <div className={styles.editor}>
       {markupToolbar && !readOnly && <MarkupToolbar editor={view} globals={globals} />}
-      <div ref={host} />
+      <div ref={host} className={styles.host} />
       <div role="status" aria-live="polite" className={styles.glyphStatus}>
         {glyphs.length > 0 && (
           <details open>

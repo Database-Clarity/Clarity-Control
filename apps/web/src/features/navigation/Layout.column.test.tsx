@@ -37,10 +37,19 @@ vi.mock('../associations/AssociationsPanel', () => ({
   AssociationsPanel: () => <div data-associations />,
 }));
 vi.mock('../tooltip/VariantWorkspace', () => ({
-  VariantWorkspace: ({ editor, preview }: { editor: ReactNode; preview: ReactNode }) => (
+  VariantWorkspace: ({
+    editor,
+    preview,
+    compendium,
+  }: {
+    editor: ReactNode;
+    preview: ReactNode;
+    compendium: ReactNode;
+  }) => (
     <div data-workspace>
       {editor}
       {preview}
+      {compendium}
     </div>
   ),
 }));

@@ -100,25 +100,55 @@ afterEach(async () => {
 });
 
 describe('tooltip finder combobox', () => {
-  it('marks a base with +E when it has enhanced variants, and a search for the variant lands on the base', async () => {
+  it('marks only a real base -> enhanced pair with the gold arrow, and a search for the variant lands on the base', async () => {
     const variants = {
       ...data,
+      categories: [
+        { id: 'armor', label: 'Armor', group: 'Gear', order: 1, legacyType: 'Weapon Trait' },
+        {
+          id: 'armor-e',
+          label: 'Armor E',
+          group: 'Gear',
+          order: 3,
+          legacyType: 'Weapon Trait Enhanced',
+        },
+        { id: 'weapons', label: 'Weapons', group: 'Gear', order: 2, legacyType: 'Weapon Perk' },
+      ],
       items: {
         ...data.items,
-        13: item(13, 'Alpha helm enhanced', 'armor', { baseHash: 10 }),
+        13: item(13, 'Alpha helm enhanced', 'armor-e', { baseHash: 10 }),
+        // A same-type copy (weapon-perk duplicate, exotic frame, origin trait): a variant, not an enhanced version.
+        22: item(22, 'Delta rifle copy', 'weapons', { baseHash: 20 }),
       },
     } as unknown as EditorData;
     await mount('/t/10', variants);
     await open();
-    const marks = options().map((row) => row.querySelector('small span')?.textContent ?? null);
-    // One entry per base: the variant has none of its own; only the base with a variant is marked.
-    expect(marks).toEqual(['+E', null, null]);
+    const marks = options().map((row) => row.querySelector('small span svg') !== null);
+    // One entry per base: only the base with an enhanced version is marked, and nothing says "+E".
+    expect(marks).toEqual([true, false, false]);
+    expect(options()[0].textContent).not.toContain('+E');
+    expect(options()[0].querySelector('small span')?.getAttribute('title')).toBe(
+      'Has an enhanced version',
+    );
     await type('enhanced');
     expect(options()).toHaveLength(1);
     expect(options()[0].textContent).toContain('Alpha helm');
-    expect(options()[0].textContent).toContain('+E');
     await press('Enter');
     expect(route()).toBe('/t/10');
+  });
+
+  it('does not mark a same-type copy (weapon-perk duplicate, exotic frame, origin trait)', async () => {
+    const variants = {
+      ...data,
+      categories: [
+        { id: 'armor', label: 'Armor', group: 'Gear', order: 1, legacyType: 'Weapon Trait' },
+        { id: 'weapons', label: 'Weapons', group: 'Gear', order: 2, legacyType: 'Weapon Perk' },
+      ],
+      items: { ...data.items, 22: item(22, 'Delta rifle copy', 'weapons', { baseHash: 20 }) },
+    } as unknown as EditorData;
+    await mount('/t/20', variants);
+    await open();
+    expect(options().map((row) => row.querySelector('small svg') !== null)).toEqual([false, false]);
   });
 
   it('shows the current item, the category and the position, with the list closed', async () => {

@@ -43,7 +43,13 @@ function press(element: HTMLElement, name: string, init: KeyboardEventInit = {})
   });
 }
 function pointer(element: HTMLElement, type: string, clientX: number, init: MouseEventInit = {}) {
-  const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX, ...init });
+  const event = new MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    button: 0,
+    clientX,
+    ...init,
+  });
   Object.defineProperty(event, 'pointerId', { value: 3 });
   act(() => {
     element.dispatchEvent(event);
