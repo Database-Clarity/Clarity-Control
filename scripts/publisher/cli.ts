@@ -7,15 +7,15 @@ import { LocalRepository } from './git.js';
 import { Publisher, type Options } from './publisher.js';
 import { runPipeline, verifyRuntime } from './pipeline.js';
 
-// P1-A has no remote write mode. Clone a local snapshot to a disposable simulator; emit artifacts only.
+// Publication requires the explicit pipeline-publish flag plus both configuration gates.
 async function main() {
   const [flag, source, config, output] = process.argv.slice(2);
-  if (flag === '--pipeline-dry-run' && source && config && output) {
+  if (['--pipeline-dry-run', '--pipeline-publish'].includes(flag) && source && config && output) {
     const pin = verifyRuntime(dirname(fileURLToPath(import.meta.url)));
     const options = JSON.parse(readFileSync(config, 'utf8'));
     if (options.publisherSha !== pin.sourceSha || !/^[0-9a-f]{40}$/.test(options.generatorSha))
       throw new Error('Config requires the publisher source PIN and full generator commit');
-    await runPipeline(source, options, output);
+    await runPipeline(source, options, output, flag === '--pipeline-publish');
     return;
   }
   if (flag !== '--dry-run' || !source || !config || !output)

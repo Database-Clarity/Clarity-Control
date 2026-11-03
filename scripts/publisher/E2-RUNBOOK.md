@@ -6,8 +6,9 @@ Vite defines VITE_PUBLISHER_ENABLED from that file, overriding shell/.env values
 imports the same file. Rebuild both artifacts from the SAME commit when changing it.
 OFF preserves legacy /push-live and rejects POST /publish and /publish/kick even with a key.
 ON returns 410 for every /push-live request, before authentication/upstream I/O.
-Status/key remain read-only. Do not enable ON until a separately reviewed remote publishing
-transport exists: the installed pipeline still simulates all publication writes.
+Status/key remain read-only. P1-F adds the remote publishing transport, gated OFF. Enablement
+still requires its independent safety/integration reviews and every gate below. Installed
+dry-run workflows continue to simulate publication; changing the shared switch alone cannot publish.
 
 ## Install dry-run pipeline (root operator in E2)
 

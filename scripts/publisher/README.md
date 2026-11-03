@@ -114,7 +114,7 @@ verification fails. Existing P1-A fixtures cover ambiguous publication/RECORD re
 
 The shared build switch is `config/publisher.json`, default OFF. It controls both the Worker's
 legacy/new write routes and Vite's VITE_PUBLISHER_ENABLED constant; shell overrides cannot split
-the two builds. Pipeline publication remains simulation-only even when this switch is ON.
+the two builds. The installed dry-run command continues to simulate even when this switch is ON.
 See [E2-RUNBOOK.md](./E2-RUNBOOK.md) for local-only install preparation, preview CPU measurement,
 first-output parity, and rollback. No remote measurements or installation are performed by E1.
 `node scripts/publisher/cpu/smoke.mjs` verifies all 16 synthetic endpoint/size cases without a server.
@@ -149,3 +149,30 @@ The fixture precomputes upstream JSON and honors OID-only projections. It exclud
 latency but includes synthetic Response construction. Node timings cannot certify Workers CPU;
 real Workers tail measurements on the Free plan remain a release gate, including cold requests.
 The existing preview harness accepts size 50 for that follow-up. No plan change is required.
+
+## P1-F remote transport (disabled)
+
+`RemoteRepository` uses a disposable bare object cache and real Git fetch/push. It implements
+the simulator interface, preserves inherited executable/symlink/gitlink modes, and restricts
+remote refs to editor-data, converter-v2-test, editor-data-bundle and validated candidate IDs.
+The GitHub target is fixed to Database-Clarity/Live-Clarity-Database; credentials come from
+GITHUB_TOKEN via process-local Git configuration, never the URL or command line. Remote
+diagnostics are redacted and subprocesses have a 120-second timeout.
+
+Every push uses an explicit expected-old lease (empty for create-only candidates). Data/live
+and bundle commits must also descend from that old commit; unconditional force is never used.
+Candidate swaps/deletion require their exact old OID. Missing per-ref acknowledgement,
+disconnects and timeouts remain unresolved until fresh ref/receipt reads reconcile them.
+Publisher retries the stored exact candidate, persists rebases by candidate CAS, and stops
+the drain on unresolved publication or RECORD failure. Required data/live no-rewind/no-delete
+rulesets remain an enablement prerequisite.
+
+Future enablement requires all three: the shared build switch ON, installed config
+`publishWritesEnabled: true`, and explicit `--pipeline-publish` invocation. The shipped example
+config is false and workflow still invokes `--pipeline-dry-run`. Its token environment is ready
+for the future command; this change neither installs the template nor enables writes.
+
+The entire publisher fixture suite runs for both the simulator and local bare remotes over
+file:// with real receive-pack. A separate contract compares CAS/tree/history results; faults
+cover dropped responses before/after pushes and a real pre-receive timeout. Tests use no
+GitHub publication calls. Run `npm test -- scripts/publisher --maxWorkers=2`.

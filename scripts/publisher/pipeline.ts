@@ -4,10 +4,13 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { LocalRepository } from './git.js';
+import { RemoteRepository } from './remote.js';
+import publisherConfig from '../../config/publisher.json';
 import { Publisher, type Options } from './publisher.js';
 
 export type PipelineConfig = Omit<Options, 'now' | 'backoff' | 'publicKey'> & {
   keyEndpoint: string;
+  publishWritesEnabled?: boolean;
 };
 const bundleRef = 'refs/heads/editor-data-bundle';
 const gitAt = (cwd: string, args: string[]) =>
@@ -32,14 +35,22 @@ export function simulationArtifact(repo: LocalRepository, out: string, bases: st
   );
 }
 
-/** The ONLY remote write in this transport is the fixed bundle ref. Publishing stays local. */
-export async function runPipeline(checkout: string, config: PipelineConfig, output: string) {
+/** Explicit remote mode is gated by both the built config and the runtime config. */
+export async function runPipeline(
+  checkout: string,
+  config: PipelineConfig,
+  output: string,
+  remoteMode = false,
+) {
   if (
     config.repo !== 'Database-Clarity/Live-Clarity-Database' ||
     config.dataBranch !== 'editor-data' ||
     config.liveBranch !== 'converter-v2-test'
   )
     throw new Error('Pipeline target is not the held test target');
+  const enabled = remoteMode && publisherConfig.enabled && config.publishWritesEnabled === true;
+  if (remoteMode && !enabled) throw new Error('Remote publishing disabled by config');
+  if (enabled && !process.env.GITHUB_TOKEN) throw new Error('GITHUB_TOKEN required');
   const cwd = resolve(checkout),
     out = resolve(output);
   mkdirSync(out, { recursive: true });
@@ -72,14 +83,16 @@ export async function runPipeline(checkout: string, config: PipelineConfig, outp
       .trim()
       .split('\n'))
       if (ref && !remoteNames.has(ref)) command(['update-ref', '-d', ref]);
-    return new LocalRepository(repo);
+    return enabled
+      ? new RemoteRepository(repo, { repo: config.repo, token: process.env.GITHUB_TOKEN })
+      : new LocalRepository(repo);
   }
   function publishBundle(repo: LocalRepository, options: Options) {
     const pub = new Publisher(repo, options),
       old = repo.head(bundleRef);
     pub.bundle();
     const next = repo.head(bundleRef)!;
-    if (next !== old) {
+    if (next !== old && !(repo instanceof RemoteRepository)) {
       gitAt(cwd, ['fetch', '--no-tags', repo.path, `+${bundleRef}:refs/publisher/bundle`]);
       // Explicit lease, including the create-only empty old value. No data/live/candidate pushes.
       gitAt(cwd, [
@@ -134,7 +147,7 @@ export async function runPipeline(checkout: string, config: PipelineConfig, outp
     } catch (e) {
       failure = e;
     }
-    simulationArtifact(initial, out, bases);
+    if (!enabled) simulationArtifact(initial, out, bases);
   } catch (e) {
     failure = e;
   } finally {
@@ -148,8 +161,8 @@ export async function runPipeline(checkout: string, config: PipelineConfig, outp
       join(out, 'result.json'),
       JSON.stringify(
         {
-          dryRun: true,
-          publishWritesEnabled: false,
+          dryRun: !enabled,
+          publishWritesEnabled: enabled,
           reports,
           error: failure ? String(failure) : null,
         },
@@ -159,7 +172,7 @@ export async function runPipeline(checkout: string, config: PipelineConfig, outp
     );
     writeFileSync(
       join(out, 'summary.md'),
-      `Publish writes are disabled. Bundles use real editor-data heads.\n\n` +
+      `Publish writes are ${enabled ? 'enabled' : 'disabled'}. Bundles use real editor-data heads.\n\n` +
         'Catch-up watchdog: this run refreshes the bundle before simulation and again afterwards, even on drain failure.\n\n' +
         'Pending requests stay durable. The client may kick once after 3 minutes; maintainers/editors can use Retry. Any save also starts catch-up. An unattended cron watchdog is held for Phase 3.\n\n' +
         '```json\n' +

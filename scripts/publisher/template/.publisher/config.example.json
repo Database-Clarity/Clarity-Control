@@ -2,6 +2,7 @@
   "repo": "Database-Clarity/Live-Clarity-Database",
   "dataBranch": "editor-data",
   "liveBranch": "converter-v2-test",
+  "publishWritesEnabled": false,
   "keyEndpoint": "https://REPLACE-WITH-TRUSTED-WORKER-ORIGIN/publish/key",
   "keyFingerprint": "REPLACE-WITH-INDEPENDENTLY-VERIFIED-SPKI-SHA256",
   "publisherSha": "REPLACE-WITH-PIN-SOURCE-SHA",

@@ -20,6 +20,8 @@ var RefRace = class extends Error {
 };
 var LocalRepository = class {
   path;
+  commandTimeout = 12e4;
+  preserveModes = false;
   trees = /* @__PURE__ */ new Map();
   blobs = /* @__PURE__ */ new Map();
   constructor(path) {
@@ -33,6 +35,7 @@ var LocalRepository = class {
   git(args, input2, extraEnv = {}) {
     return execFileSync("git", ["--git-dir", this.path, ...args], {
       input: input2,
+      timeout: this.commandTimeout,
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
       env: {
@@ -60,7 +63,7 @@ var LocalRepository = class {
       this.git(["ls-tree", "-rz", "--full-tree", commit]).split("\0").filter(Boolean).map((line) => {
         const [meta3, path] = line.split("	");
         const [mode, type, oid] = meta3.split(" ");
-        if (mode !== "100644" || type !== "blob")
+        if (!this.preserveModes && (mode !== "100644" || type !== "blob"))
           throw new Error("Only plain blob trees supported");
         return [path, oid];
       })
@@ -80,13 +83,19 @@ var LocalRepository = class {
   commit(parent, tree, message) {
     const temp = mkdtempSync(join(tmpdir(), "publisher-index-"));
     try {
+      const modes = /* @__PURE__ */ new Map();
+      if (this.preserveModes && parent)
+        for (const line of this.git(["ls-tree", "-rz", "--full-tree", parent]).split("\0").filter(Boolean)) {
+          const tab = line.indexOf("	");
+          modes.set(line.slice(tab + 1), line.slice(0, 6));
+        }
       const env = { GIT_INDEX_FILE: join(temp, "index") };
       this.git(["read-tree", "--empty"], void 0, env);
       this.git(
         ["update-index", "-z", "--index-info"],
         Object.entries(tree).sort().map(([p, oid]) => {
           if (/[\0\n\t]/.test(p)) throw new Error("Invalid tree path");
-          return `100644 ${oid}	${p}\0`;
+          return `${modes.get(p) ?? "100644"} ${oid}	${p}\0`;
         }).join(""),
         env
       );
@@ -22013,6 +22022,97 @@ import { createHash as createHash2, createPublicKey as createPublicKey2 } from "
 import { mkdtempSync as mkdtempSync2, mkdirSync, readFileSync, rmSync as rmSync2, writeFileSync } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
 import { join as join2, resolve as resolve2 } from "node:path";
+
+// scripts/publisher/remote.ts
+var TransportUnresolved = class extends Error {
+};
+var RemoteRepository = class extends LocalRepository {
+  constructor(cache, options) {
+    super(cache);
+    this.options = options;
+    this.commandTimeout = options.timeout ?? 12e4;
+    if (options.fileUrl) {
+      const url2 = new URL(options.fileUrl);
+      if (url2.protocol !== "file:" || url2.host || url2.search || url2.hash || options.repo)
+        throw new Error("Local file transport required");
+      this.remote = url2.href;
+    } else {
+      if (options.repo !== "Database-Clarity/Live-Clarity-Database" || !options.token)
+        throw new Error("Held GitHub target and GITHUB_TOKEN required");
+      this.remote = `https://github.com/${options.repo}.git`;
+    }
+  }
+  options;
+  preserveModes = true;
+  remote;
+  /** Public seam for subprocess fault injection, never exposes Git's stderr/credential-bearing errors. */
+  remoteGit(args) {
+    const auth = this.options.token ? {
+      GIT_CONFIG_COUNT: "2",
+      GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
+      GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${this.options.token}`).toString("base64")}`,
+      GIT_CONFIG_KEY_1: "credential.helper",
+      GIT_CONFIG_VALUE_1: ""
+    } : {};
+    try {
+      return this.git(args, void 0, { ...auth, GIT_TERMINAL_PROMPT: "0" });
+    } catch {
+      throw new TransportUnresolved("Remote Git outcome unresolved");
+    }
+  }
+  validate(ref) {
+    if (!/^refs\/heads\/(editor-data|converter-v2-test|editor-data-bundle|publish-candidate\/[0-7][0-9A-HJKMNP-TV-Z]{25})$/.test(
+      ref
+    ))
+      throw new Error("Remote ref outside publisher scope");
+  }
+  head(ref) {
+    this.validate(ref);
+    const advertised = this.remoteGit(["ls-remote", "--refs", this.remote, ref]).trim();
+    if (!advertised) {
+      this.git(["update-ref", "-d", ref]);
+      return void 0;
+    }
+    this.remoteGit(["fetch", "--no-tags", this.remote, ref]);
+    const oid = this.git(["rev-parse", "--verify", "FETCH_HEAD"]).trim();
+    this.git(["update-ref", ref, oid]);
+    return oid;
+  }
+  cas(ref, old, next) {
+    this.validate(ref);
+    for (const oid of [old, next])
+      if (oid !== void 0 && !/^[0-9a-f]{40}$/.test(oid)) throw new Error("Invalid object ID");
+    const candidate = ref.startsWith("refs/heads/publish-candidate/");
+    if (!candidate && (!next || old && !this.ancestor(old, next)))
+      throw new Error("Data/live/bundle refs must advance monotonically");
+    if (this.head(ref) !== old) throw new RefRace("Remote ref raced");
+    try {
+      const status = this.remoteGit([
+        "push",
+        "--porcelain",
+        `--force-with-lease=${ref}:${old ?? ""}`,
+        this.remote,
+        `${next ?? ""}:${ref}`
+      ]);
+      const acknowledged = status.split("\n").some((line) => {
+        const [flag, mapping] = line.split("	");
+        return [" ", "*", "+", "-", "="].includes(flag) && mapping?.endsWith(`:${ref}`);
+      });
+      if (!acknowledged) throw new TransportUnresolved("Remote Git acknowledgement missing");
+    } catch (error62) {
+      if (this.head(ref) !== old) throw new RefRace("Remote ref raced or push landed");
+      throw error62;
+    }
+    this.git(next ? ["update-ref", ref, next] : ["update-ref", "-d", ref]);
+  }
+};
+
+// config/publisher.json
+var publisher_default = {
+  enabled: false
+};
+
+// scripts/publisher/pipeline.ts
 var bundleRef = "refs/heads/editor-data-bundle";
 var gitAt = (cwd, args) => execFileSync2("git", ["-C", cwd, ...args], {
   encoding: "utf8",
@@ -22033,9 +22133,12 @@ function simulationArtifact(repo, out, bases) {
     ) + "\n"
   );
 }
-async function runPipeline(checkout, config2, output2) {
+async function runPipeline(checkout, config2, output2, remoteMode = false) {
   if (config2.repo !== "Database-Clarity/Live-Clarity-Database" || config2.dataBranch !== "editor-data" || config2.liveBranch !== "converter-v2-test")
     throw new Error("Pipeline target is not the held test target");
+  const enabled = remoteMode && publisher_default.enabled && config2.publishWritesEnabled === true;
+  if (remoteMode && !enabled) throw new Error("Remote publishing disabled by config");
+  if (enabled && !process.env.GITHUB_TOKEN) throw new Error("GITHUB_TOKEN required");
   const cwd = resolve2(checkout), out = resolve2(output2);
   mkdirSync(out, { recursive: true });
   const temp = mkdtempSync2(join2(tmpdir2(), "publisher-pipeline-"));
@@ -22063,13 +22166,13 @@ async function runPipeline(checkout, config2, output2) {
     );
     for (const ref of command(["for-each-ref", "--format=%(refname)", "refs/heads/"]).trim().split("\n"))
       if (ref && !remoteNames.has(ref)) command(["update-ref", "-d", ref]);
-    return new LocalRepository(repo);
+    return enabled ? new RemoteRepository(repo, { repo: config2.repo, token: process.env.GITHUB_TOKEN }) : new LocalRepository(repo);
   }
   function publishBundle(repo, options2) {
     const pub = new Publisher(repo, options2), old = repo.head(bundleRef);
     pub.bundle();
     const next = repo.head(bundleRef);
-    if (next !== old) {
+    if (next !== old && !(repo instanceof RemoteRepository)) {
       gitAt(cwd, ["fetch", "--no-tags", repo.path, `+${bundleRef}:refs/publisher/bundle`]);
       gitAt(cwd, [
         "push",
@@ -22108,7 +22211,7 @@ async function runPipeline(checkout, config2, output2) {
     } catch (e) {
       failure2 = e;
     }
-    simulationArtifact(initial, out, bases);
+    if (!enabled) simulationArtifact(initial, out, bases);
   } catch (e) {
     failure2 = e;
   } finally {
@@ -22121,8 +22224,8 @@ async function runPipeline(checkout, config2, output2) {
       join2(out, "result.json"),
       JSON.stringify(
         {
-          dryRun: true,
-          publishWritesEnabled: false,
+          dryRun: !enabled,
+          publishWritesEnabled: enabled,
           reports,
           error: failure2 ? String(failure2) : null
         },
@@ -22132,7 +22235,7 @@ async function runPipeline(checkout, config2, output2) {
     );
     writeFileSync(
       join2(out, "summary.md"),
-      `Publish writes are disabled. Bundles use real editor-data heads.
+      `Publish writes are ${enabled ? "enabled" : "disabled"}. Bundles use real editor-data heads.
 
 Catch-up watchdog: this run refreshes the bundle before simulation and again afterwards, even on drain failure.
 
@@ -22155,12 +22258,12 @@ function verifyRuntime(root) {
 // scripts/publisher/cli.ts
 async function main() {
   const [flag, source, config2, output2] = process.argv.slice(2);
-  if (flag === "--pipeline-dry-run" && source && config2 && output2) {
+  if (["--pipeline-dry-run", "--pipeline-publish"].includes(flag) && source && config2 && output2) {
     const pin = verifyRuntime(dirname(fileURLToPath(import.meta.url)));
     const options = JSON.parse(readFileSync2(config2, "utf8"));
     if (options.publisherSha !== pin.sourceSha || !/^[0-9a-f]{40}$/.test(options.generatorSha))
       throw new Error("Config requires the publisher source PIN and full generator commit");
-    await runPipeline(source, options, output2);
+    await runPipeline(source, options, output2, flag === "--pipeline-publish");
     return;
   }
   if (flag !== "--dry-run" || !source || !config2 || !output2)

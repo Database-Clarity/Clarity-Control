@@ -17,9 +17,11 @@ export interface Repository {
   additions(head: string, path: string): { commit: string; path: string }[];
 }
 
-/** Only a disposable local bare repository can be mutated. No network transport exists in P1-A. */
+/** Disposable bare object store; the simulator updates only local refs, RemoteRepository supplies transport. */
 export class LocalRepository implements Repository {
   readonly path: string;
+  protected commandTimeout = 120_000;
+  protected preserveModes = false;
   private trees = new Map<string, Tree>();
   private blobs = new Map<string, string>();
   constructor(path: string) {
@@ -33,6 +35,7 @@ export class LocalRepository implements Repository {
   git(args: string[], input?: string, extraEnv = {}): string {
     return execFileSync('git', ['--git-dir', this.path, ...args], {
       input,
+      timeout: this.commandTimeout,
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
@@ -63,7 +66,7 @@ export class LocalRepository implements Repository {
         .map((line) => {
           const [meta, path] = line.split('\t');
           const [mode, type, oid] = meta.split(' ');
-          if (mode !== '100644' || type !== 'blob')
+          if (!this.preserveModes && (mode !== '100644' || type !== 'blob'))
             throw new Error('Only plain blob trees supported');
           return [path, oid];
         }),
@@ -83,6 +86,14 @@ export class LocalRepository implements Repository {
   commit(parent: string | undefined, tree: Tree, message: string) {
     const temp = mkdtempSync(join(tmpdir(), 'publisher-index-'));
     try {
+      const modes = new Map<string, string>();
+      if (this.preserveModes && parent)
+        for (const line of this.git(['ls-tree', '-rz', '--full-tree', parent])
+          .split('\0')
+          .filter(Boolean)) {
+          const tab = line.indexOf('\t');
+          modes.set(line.slice(tab + 1), line.slice(0, 6));
+        }
       const env = { GIT_INDEX_FILE: join(temp, 'index') };
       this.git(['read-tree', '--empty'], undefined, env);
       this.git(
@@ -91,7 +102,7 @@ export class LocalRepository implements Repository {
           .sort()
           .map(([p, oid]) => {
             if (/[\0\n\t]/.test(p)) throw new Error('Invalid tree path');
-            return `100644 ${oid}\t${p}\0`;
+            return `${modes.get(p) ?? '100644'} ${oid}\t${p}\0`;
           })
           .join(''),
         env,
