@@ -1,0 +1,50 @@
+@use '../../ui/controls';
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  flex: none;
+  background: var(--chrome);
+  border-bottom: 1px solid var(--line);
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 8px;
+}
+
+.brand {
+  margin-right: 4px;
+}
+
+.finder {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  // A closed header slot takes no room; the finder lays its own fields out.
+}
+
+.band {
+  height: 32px;
+  padding: 0 8px;
+  border-top: 1px solid var(--hair);
+  background: var(--col);
+}
+
+.end {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+// Compact bar: tabs keep the room, the finder sits in the band.
+.header[data-compact] .end {
+  margin-left: auto;
+}

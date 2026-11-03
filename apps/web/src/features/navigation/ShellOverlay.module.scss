@@ -1,0 +1,66 @@
+@use '../../ui/controls';
+
+.layer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+  pointer-events: auto;
+}
+
+.panel {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-width: 0;
+  overflow: hidden;
+  pointer-events: auto;
+  outline: none;
+  @include controls.overlay-surface;
+  border-radius: 4px;
+}
+
+.content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font-size: 0.8125rem;
+}
+
+.sheetHeader {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px 0 12px;
+  min-height: 44px;
+  border-bottom: 1px solid var(--line);
+
+  button {
+    @include controls.button;
+    min-width: 44px;
+  }
+}
+
+// The sheet: a bottom sheet that never covers the whole screen, so the page stays in view.
+.layer[data-sheet] .panel {
+  inset: auto 0 0 0;
+  width: 100%;
+  max-height: min(80dvh, 36rem);
+  border-radius: 8px 8px 0 0;
+  border-width: 1px 0 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}

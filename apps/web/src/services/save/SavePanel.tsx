@@ -8,44 +8,57 @@ import { useDraftStore } from '../../stores/drafts';
 import { ConflictDialog } from '../../features/conflicts/ConflictDialog';
 import { Dialog } from '../../ui/Dialog';
 import { acceptSaved } from './drafts';
-import { isSaveDockIdle } from './dock';
+import { useSaveNotice } from './notice';
 import { permissionError, prepareChanges, validateChanges } from './pipeline';
 import { useSaveState, type SaveReview } from './state';
 import { openDraftSaveReview } from './openReview';
 import { SaveSummary } from './SaveSummary';
 
-export function SavePanel({ className }: { className?: string }) {
-  const drafts = useDraftStore((state) => state.drafts);
-  const user = useAuthStore((state) => state.user);
+/**
+ * The save session controller: always mounted by the Layout, independent of any popover, so
+ * closing the drafts popover never loses a conflict, the submitted snapshot, or a result.
+ */
+export function SaveController() {
   const review = useSaveState((state) => state.review);
   const generation = useDraftStore((state) => state.generation);
-  const [notice, setNotice] = useState<string | null>(null);
-  const count = Object.keys(drafts).length;
+  const showNotice = useSaveNotice((state) => state.show);
   useEffect(() => {
     // A review lists one account's drafts: switching accounts closes it, keeping the drafts.
     return () => {
       if (useSaveState.getState().review) useSaveState.getState().close();
     };
   }, [generation]);
+  return review ? <SaveSession review={review} onSaved={showNotice} /> : null;
+}
+
+/**
+ * Count, review action and last result for the drafts popover or sheet. The review itself is the
+ * controller's; `onReview` lets the host close its overlay before the native dialog opens.
+ */
+export function SavePanel({ className, onReview }: { className?: string; onReview?: () => void }) {
+  const drafts = useDraftStore((state) => state.drafts);
+  const user = useAuthStore((state) => state.user);
+  const review = useSaveState((state) => state.review);
+  const notice = useSaveNotice((state) => state.notice);
+  const dismiss = useSaveNotice((state) => state.dismiss);
+  const count = Object.keys(drafts).length;
   return (
-    <section
-      aria-label="Save drafts"
-      className={className}
-      data-idle={isSaveDockIdle({ count, notice, review })}
-    >
+    <section aria-label="Save drafts" className={className}>
       <p>{count} local draft(s)</p>
       <button
         type="button"
+        data-autofocus
+        data-drafts-review
         disabled={!apiUrl || !user?.role || !count || Boolean(review)}
         onClick={() => {
-          setNotice(null);
+          dismiss();
+          onReview?.();
           openDraftSaveReview();
         }}
       >
         Review and save drafts
       </button>
       {notice && <p role="status">{notice}</p>}
-      {review && <SaveSession review={review} onSaved={(message) => setNotice(message)} />}
     </section>
   );
 }
@@ -101,15 +114,11 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
       // The request reads the session token when it is sent: refuse unless it is still the one
       // this user was loaded with (another tab may have signed in as someone else meanwhile).
       const auth = useAuthStore.getState();
-      if (
-        auth.loading ||
-        !sameUser(auth.user, user) ||
-        auth.token !== sessionToken()
-      )
+      if (auth.loading || !sameUser(auth.user, user) || auth.token !== sessionToken())
         throw new Error('Your login changed. Close this review and check your role.');
       const result = await save(prepared, message.trim() || `Update ${changes.length} tooltip(s)`);
       if (accountChanged(generation) && result.kind === 'saved') {
-        // Switching accounts already closed this review; report through the dock's notice.
+        // Switching accounts already closed this review; report through the save notice.
         onSaved(
           `Remote save ${result.commit.slice(0, 8)} succeeded, but you switched accounts meanwhile. The drafts stay with the account that made them: sign back in to it and reload data.`,
         );

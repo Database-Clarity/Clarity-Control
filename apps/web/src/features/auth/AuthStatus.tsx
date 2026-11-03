@@ -4,78 +4,94 @@ import { useLocation } from 'react-router-dom';
 import { apiUrl, loginUrl, rememberSignIn, subscribeSession } from '../../services/api';
 import { rememberReturnPath } from '../../services/returnPath';
 import { useAuthStore } from '../../stores/auth';
-import { useSettingsPanel } from '../settings/panel';
 
-export function AuthStatus() {
-  return <AuthIdentity />;
-}
-
-const settingsLink = (
-  <button
-    type="button"
-    className="settings-link"
-    aria-haspopup="dialog"
-    onClick={() => useSettingsPanel.getState().show()}
-  >
-    Settings
-  </button>
-);
-
-function AuthIdentity() {
-  const { user, loading, error, load, logout } = useAuthStore();
-  const location = useLocation();
-  const [remember, setRemember] = useState(false);
+/**
+ * Loads the login status once and follows session changes from other tabs. Mounted once by the
+ * shell (the identity button), never by the menu that shows the result.
+ */
+export function useAuthSession() {
+  const load = useAuthStore((state) => state.load);
   useEffect(() => {
     void load();
     return subscribeSession(() => {
       void load();
     });
   }, [load]);
+}
+
+/** What the identity button shows: short, one line, never wider than a name. */
+export function identitySummary(state: {
+  user: { login: string; role: string | null } | null;
+  loading: boolean;
+  error: string | null;
+}): { label: string; detail: string; tone: 'ok' | 'wait' | 'error' | 'out' } {
+  if (!apiUrl) return { label: 'Read-only', detail: 'Read-only: no login service', tone: 'out' };
+  if (state.loading) return { label: 'Checking…', detail: 'Checking login', tone: 'wait' };
+  if (state.error) return { label: 'Login problem', detail: 'Login unavailable', tone: 'error' };
+  if (state.user)
+    return {
+      label: state.user.login,
+      detail: `Signed in as ${state.user.login}, ${state.user.role ?? 'no editing role'}`,
+      tone: 'ok',
+    };
+  return { label: 'Sign in', detail: 'Signed out, read-only', tone: 'out' };
+}
+
+/**
+ * The identity states: role, languages, read-only reasons, retry, the GitHub sign-in with its
+ * "keep me signed in" choice, sign-out. Settings and the data revision are the menu's.
+ */
+export function IdentityStatus({ onAction }: { onAction?: () => void }) {
+  const { user, loading, error, load, logout } = useAuthStore();
+  const location = useLocation();
+  const [remember, setRemember] = useState(false);
   if (!apiUrl)
-    return (
-      <p role="status">
-        Read-only: VITE_API_URL is not configured. Local drafts are preserved. {settingsLink}
-      </p>
-    );
-  if (loading) return <p role="status">Checking login... {settingsLink}</p>;
+    return <p role="status">Read-only: VITE_API_URL is not configured. Local drafts are kept.</p>;
+  if (loading) return <p role="status">Checking login…</p>;
   if (error)
     return (
-      <p role="alert">
-        Login unavailable: {error}{' '}
+      <div role="alert">
+        <p>Login unavailable: {error}</p>
         <button type="button" onClick={() => void load()}>
           Retry login status
-        </button>{' '}
-        {settingsLink}
-      </p>
+        </button>
+      </div>
     );
   if (user)
     return (
-      <p>
-        Signed in as {user.login} ({user.role ?? 'no editing role'}){' '}
-        {!user.role && <span>Read-only: ask a maintainer for an editing role. </span>}
+      <div>
+        <p>
+          Signed in as <strong>{user.login}</strong> ({user.role ?? 'no editing role'})
+        </p>
+        {!user.role && <p>Read-only: ask a maintainer for an editing role.</p>}
         {user.role === 'translator' && (
-          <span>
+          <p>
             Editable languages: {user.languages?.map(languageLabel).join(', ') || 'none'}. Other
-            fields are read-only.{' '}
-          </span>
+            fields are read-only.
+          </p>
         )}
-        <button type="button" onClick={logout}>
+        <button
+          type="button"
+          onClick={() => {
+            onAction?.();
+            logout();
+          }}
+        >
           Sign out
-        </button>{' '}
-        {settingsLink}
-      </p>
+        </button>
+      </div>
     );
   return (
-    <p role="status">
-      Read-only: sign in to edit.{' '}
-      <label style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, gap: 6 }}>
+    <div role="status">
+      <p>Read-only: sign in to edit.</p>
+      <label>
         <input
           type="checkbox"
           checked={remember}
           onChange={(event) => setRemember(event.target.checked)}
         />
         Keep me signed in on this device
-      </label>{' '}
+      </label>
       <a
         href={loginUrl()}
         onClick={() => {
@@ -84,8 +100,7 @@ function AuthIdentity() {
         }}
       >
         Sign in with GitHub
-      </a>{' '}
-      {settingsLink}
-    </p>
+      </a>
+    </div>
   );
 }

@@ -41,7 +41,10 @@ export function SettingsPopover({ layout }: { layout: React.RefObject<HTMLElemen
 
 function OpenSettings({ layout }: { layout: React.RefObject<HTMLElement | null> }) {
   const panel = useRef<HTMLDivElement>(null);
+  // The stable header button that opened Settings wins; otherwise whatever had focus.
   const [opener] = useState(() => {
+    const registered = useSettingsPanel.getState().opener;
+    if (registered?.isConnected) return registered;
     const active = document.activeElement;
     return active instanceof HTMLElement && active !== document.body ? active : null;
   });
@@ -74,7 +77,7 @@ function OpenSettings({ layout }: { layout: React.RefObject<HTMLElement | null> 
       const target =
         opener?.isConnected && !opener.closest('[inert]')
           ? opener
-          : document.querySelector<HTMLElement>('.settings-link');
+          : document.querySelector<HTMLElement>('.settings-link, [data-identity-button]');
       (target ?? document.getElementById('main-content'))?.focus();
     };
   }, [layout, opener]);

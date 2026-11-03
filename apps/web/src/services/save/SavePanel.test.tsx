@@ -2,7 +2,8 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
-import { SavePanel } from './SavePanel';
+import { SaveController, SavePanel } from './SavePanel';
+import { useSaveNotice } from './notice';
 import { useSaveState } from './state';
 import { useDraftStore } from '../../stores/drafts';
 import { useAuthStore } from '../../stores/auth';
@@ -25,6 +26,17 @@ vi.mock('./state', async (importOriginal) => {
       (selector: (state: ReturnType<typeof actual.useSaveState.getState>) => unknown) =>
         selector(actual.useSaveState.getState()),
       actual.useSaveState,
+    ),
+  };
+});
+vi.mock('./notice', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./notice')>();
+  return {
+    ...actual,
+    useSaveNotice: Object.assign(
+      (selector: (state: ReturnType<typeof actual.useSaveNotice.getState>) => unknown) =>
+        selector(actual.useSaveNotice.getState()),
+      actual.useSaveNotice,
     ),
   };
 });
@@ -70,7 +82,7 @@ function buttonDisabled(html: string) {
   return /<button[^>]*disabled/.test(html);
 }
 
-describe('SavePanel dock markup', () => {
+describe('SavePanel drafts summary', () => {
   const originalDrafts = useDraftStore.getState();
   const originalAuth = useAuthStore.getState();
   beforeEach(() => {
@@ -78,6 +90,7 @@ describe('SavePanel dock markup', () => {
     useSaveState.setState({ locked: false, review: null });
     useAuthStore.setState({ user: { id: 1, login: 'alice', role: 'editor' } });
     useDraftStore.setState({ drafts: { 1: draft } });
+    useSaveNotice.setState({ notice: null });
   });
   afterEach(() => {
     useDraftStore.setState(originalDrafts);
@@ -85,28 +98,32 @@ describe('SavePanel dock markup', () => {
     useSaveState.setState({ locked: false, review: null });
   });
 
-  it('is idle with zero drafts, no notice and no review', () => {
+  it('shows the count and the review action', () => {
     useDraftStore.setState({ drafts: {} });
+    const empty = render();
+    expect(empty).toContain('0 local draft(s)');
+    expect(empty).toContain('class="dock"');
+    expect(empty).not.toContain('data-dialog');
+    useDraftStore.setState({ drafts: { 1: draft } });
     const html = render();
-    expect(html).toContain('data-idle="true"');
-    expect(html).toContain('class="dock"');
-    expect(html).not.toContain('data-dialog');
-  });
-
-  it('is active and shows the count with at least one draft', () => {
-    const html = render();
-    expect(html).toContain('data-idle="false"');
     expect(html).toContain('1 local draft(s)');
     expect(buttonDisabled(html)).toBe(false);
   });
 
-  it('stays active and mounts the review dialog while a review is open', () => {
+  it('keeps the last save result in the shell store, not in the popover', () => {
+    useSaveNotice.setState({ notice: 'Saved 1 tooltip(s) in abc12345.' });
+    expect(render()).toContain('Saved 1 tooltip(s) in abc12345.');
+  });
+
+  it('disables the review button while a review is open; the controller owns the dialog', () => {
     useDraftStore.setState({ drafts: {} });
     useSaveState.setState({ locked: true, review: { changes: [], submitted: {} } });
-    const html = render();
-    expect(html).toContain('data-idle="false"');
-    expect(html).toContain('data-dialog="Review save"');
-    expect(buttonDisabled(html)).toBe(true);
+    expect(buttonDisabled(render())).toBe(true);
+    // The dialog is the always-mounted controller's, so closing the popover can never drop it.
+    expect(render()).not.toContain('data-dialog');
+    expect(renderToStaticMarkup(createElement(SaveController))).toContain(
+      'data-dialog="Review save"',
+    );
   });
 
   it('disables the button without an API URL', () => {

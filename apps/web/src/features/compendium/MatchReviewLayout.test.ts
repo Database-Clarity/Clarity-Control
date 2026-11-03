@@ -32,13 +32,13 @@ it('budgets desktop panels from remaining viewport space, with phone document sc
     /@media \(max-width: 700px\)[\s\S]*\.entryReview \{\s*display: block;\s*height: auto;/,
   );
 });
-it('keeps the phone review actions and overlay above the measured save dock', () => {
+it('keeps the phone review actions and overlay clear of the home indicator, with no dock to reserve', () => {
   const mobile = css.slice(css.indexOf('@media (max-width: 700px)'));
-  expect(mobile).toMatch(/\.actionBar \{[^}]*bottom: var\(--save-dock-height,/);
+  expect(mobile).toMatch(/\.actionBar \{[^}]*bottom: env\(safe-area-inset-bottom, 0px\);/);
   expect(mobile).toMatch(/\.overlay \{[^}]*--review-action-bar-height/);
   expect(css).toContain('var(--review-action-bar-height, 0px)');
-  expect(mobile).toContain('calc(5rem + env(safe-area-inset-bottom, 0px))');
-  expect(layoutCss).toContain('calc(5rem + env(safe-area-inset-bottom, 0px))');
+  expect(css).not.toContain('--save-dock-height');
+  expect(layoutCss).not.toContain('--save-dock-height');
   expect(css).toMatch(/\.actionBar button \{\s*min-height: 44px;\s*\}/);
   expect(css).toContain('.actionConsequence');
   const reviewMobile = reviewCss.slice(reviewCss.indexOf('@media (max-width: 700px)'));
@@ -47,10 +47,14 @@ it('keeps the phone review actions and overlay above the measured save dock', ()
   expect(categoryCss).toMatch(/@media \(max-width: 700px\)[\s\S]*\.actions \{\s*position: fixed;/);
   expect(categoryCss).toContain('.actionEyebrow');
 });
-it('bounds the mobile context-aware sidebar without hiding the Editor stepper globally', () => {
-  expect(layoutCss).toMatch(/\.sidebar\[data-open=true\] \{[^}]*height: 100dvh;/);
-  expect(layoutCss).toMatch(/\.sidebar\[data-open=true\] \.sidebarBody \{[^}]*overflow-y: auto;/);
-  expect(layoutCss.match(/(?:^|\n)\.stepper \{([^}]+)\}/)?.[1]).not.toContain('display: none');
+it('keeps the desktop context column bounded under the sticky header and drops it on phones', () => {
+  const context = layoutCss.match(/(?:^|\n)\.context \{([^}]+)\}/)?.[1];
+  expect(context).toContain('position: sticky;');
+  expect(context).toContain('height: calc(100vh - 36px);');
+  expect(context).toContain('overflow: auto;');
+  expect(layoutCss).toMatch(
+    /@media \(max-width: 700px\) \{\s*\.reviewMode \.body \{\s*grid-template-columns: minmax\(0, 1fr\);/,
+  );
 });
 it('gives category and pending queue links 44px phone/coarse targets without changing desktop density', () => {
   const desktop = layoutCss.match(/(?:^|\n)\.sidebarNavigation a \{([^}]+)\}/)?.[1];

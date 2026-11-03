@@ -348,7 +348,7 @@
     padding: 1rem;
   }
   .actionBar {
-    bottom: var(--save-dock-height, calc(5rem + env(safe-area-inset-bottom, 0px)));
+    bottom: env(safe-area-inset-bottom, 0px);
     justify-content: stretch;
     left: 0;
     padding: 0.6rem;
@@ -378,10 +378,7 @@
   }
   .overlay {
     inset: 0.5rem 0.5rem
-      calc(
-        var(--review-action-bar-height, 0px) +
-          var(--save-dock-height, calc(5rem + env(safe-area-inset-bottom, 0px))) + 0.5rem
-      );
+      calc(var(--review-action-bar-height, 0px) + env(safe-area-inset-bottom, 0px) + 0.5rem);
     padding: 1rem;
   }
   .progress {

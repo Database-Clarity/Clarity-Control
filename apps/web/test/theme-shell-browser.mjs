@@ -23,11 +23,10 @@ const browser = await chromium.launch({
   headless: true,
 });
 
-// On phones the Settings button sits inside the Browse drawer.
+// Settings lives in the identity menu in the header, on desktop and phone alike.
 async function openSettings(page) {
-  const settings = page.locator('.settings-link');
-  if (!(await settings.isVisible())) await page.getByRole('button', { name: 'Browse' }).click();
-  await settings.click();
+  await page.locator('[data-identity-button]').click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
 }
 
 const luminance = ([r, g, b]) => {

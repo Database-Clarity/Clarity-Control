@@ -2,7 +2,8 @@
 import { act, createElement, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SavePanel } from './SavePanel';
+import { SaveController } from './SavePanel';
+import { useSaveNotice } from './notice';
 import { useSaveState } from './state';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
@@ -75,8 +76,8 @@ afterEach(async () => {
   useSaveState.setState({ locked: false, review: null });
 });
 
-describe('SavePanel save submission', () => {
-  const render = () => act(async () => root.render(createElement(SavePanel)));
+describe('SaveController save submission', () => {
+  const render = () => act(async () => root.render(createElement(SaveController)));
 
   it('sends the save when the login is settled and still the loaded one', async () => {
     await render();
@@ -107,7 +108,7 @@ describe('SavePanel save submission', () => {
     });
     await render();
     await openAndSave();
-    expect(host.textContent).toContain('you switched accounts meanwhile');
+    expect(useSaveNotice.getState().notice).toContain('you switched accounts meanwhile');
     expect(useSaveState.getState().review).toBeNull();
     // The previous account's drafts are not reconciled into the new account.
     expect(useDraftStore.getState().drafts[123]).toBeDefined();

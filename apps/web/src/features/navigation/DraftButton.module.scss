@@ -1,0 +1,138 @@
+@use '../../ui/controls';
+
+.button {
+  @include controls.button;
+  position: relative;
+  padding: 0 8px;
+}
+
+.count {
+  min-width: 18px;
+  padding: 0 5px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  color: var(--on-accent);
+  background: var(--accent);
+  border-radius: 8px;
+}
+
+.alertDot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 8px;
+  height: 8px;
+  background: var(--danger);
+  border-radius: 50%;
+}
+
+// A page with a pen: the phone's drafts icon.
+.icon {
+  width: 14px;
+  height: 16px;
+  border: 2px solid currentColor;
+  border-radius: 2px;
+  background:
+    linear-gradient(currentColor, currentColor) 2px 3px / 6px 2px no-repeat,
+    linear-gradient(currentColor, currentColor) 2px 7px / 6px 2px no-repeat;
+}
+
+.drafts {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+
+  button {
+    @include controls.button;
+  }
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--hair);
+
+  p {
+    margin: 0;
+  }
+
+  p[role='status'] {
+    flex-basis: 100%;
+    color: var(--text2);
+  }
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px;
+    border-bottom: 1px solid var(--hair);
+  }
+}
+
+.what {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+
+  small {
+    color: var(--text2);
+    font-size: 0.75rem;
+  }
+}
+
+.drafts .open {
+  justify-content: flex-start;
+  @include controls.control-size;
+  padding: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--link);
+  background: none;
+  border: 0;
+  text-align: left;
+
+  &:hover:not(:disabled) {
+    background: none;
+    text-decoration: underline;
+  }
+
+  &:disabled {
+    color: var(--text2);
+    opacity: 1;
+  }
+}
+
+.discard {
+  flex: none;
+}
+
+.recovered {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--alert-edge);
+  background: var(--alert-bg);
+
+  summary {
+    color: var(--danger2);
+    cursor: pointer;
+  }
+}
+
+.recoveredText {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 4px 0;
+}

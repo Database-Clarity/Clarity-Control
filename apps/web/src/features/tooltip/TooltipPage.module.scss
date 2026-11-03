@@ -213,7 +213,8 @@
   .tabs {
     display: flex;
     position: sticky;
-    top: 0;
+    // Below the sticky 48px phone header.
+    top: 48px;
     z-index: 2;
     background: #181818;
   }

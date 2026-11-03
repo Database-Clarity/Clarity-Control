@@ -52,11 +52,18 @@ vi.mock('./CategoryReview', async () => {
       ),
   };
 });
-vi.mock('../auth/AuthStatus', () => ({ AuthStatus: () => null }));
-vi.mock('../compendium/CompendiumBadge', () => ({ CompendiumBadge: () => null }));
+vi.mock('../auth/AuthStatus', () => ({
+  useAuthSession: () => undefined,
+  IdentityStatus: () => null,
+  identitySummary: () => ({ label: 'Account', detail: 'Account', tone: 'out' }),
+}));
+vi.mock('../compendium/CompendiumBadge', () => ({
+  CompendiumBadge: () => null,
+  useCompendiumCount: () => ({ state: 'ready', count: 0 }),
+}));
 vi.mock('../../services/save/SavePanel', () => ({
-  SavePanel: ({ className }: { className?: string }) =>
-    createElement('section', { 'data-save-panel': '', className }),
+  SavePanel: () => null,
+  SaveController: () => null,
 }));
 
 const originalData = useDataStore.getState();
