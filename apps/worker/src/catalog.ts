@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { aliasesSchema, hashSchema, type Aliases, type LegacyCatalog } from '@clarity/core';
+import type { GitHub } from './github.js';
 import { HttpError, upstreamJson } from './http.js';
 import type { Env } from './types.js';
 
@@ -26,16 +27,22 @@ function source(env: Env): string {
   );
 }
 
-export async function loadAliases(env: Env): Promise<Aliases> {
+/** `budget` counts the subrequest against the operation's limit (see GitHub.spend). */
+export async function loadAliases(env: Env, budget?: Pick<GitHub, 'spend'>): Promise<Aliases> {
+  budget?.spend();
   return fetch(`${source(env)}/aliases.json`)
     .then(upstreamJson)
     .then((value) => aliasesSchema.parse(value));
 }
 
-export async function catalog(env: Env): Promise<{
+export async function catalog(
+  env: Env,
+  budget?: Pick<GitHub, 'spend'>,
+): Promise<{
   facts: LegacyCatalog;
   aliases: Aliases;
 }> {
+  budget?.spend(2); // items and categories; aliases are counted by loadAliases
   const root = source(env);
   const [items, categories, aliases] = await Promise.all([
     fetch(`${root}/items.json`)
@@ -44,7 +51,7 @@ export async function catalog(env: Env): Promise<{
     fetch(`${root}/categories.json`)
       .then(upstreamJson)
       .then((value) => categoriesSchema.parse(value)),
-    loadAliases(env),
+    loadAliases(env, budget),
   ]);
   const categoriesById = new Map(categories.map((category) => [category.id, category]));
   const facts: LegacyCatalog = {};

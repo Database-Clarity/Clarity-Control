@@ -29,7 +29,7 @@ export async function pushedVersion(github: GitHub, hash: number, head: string):
   }
   // Older markers predate snapshots. Match content, not the marker commit's newer working text.
   // The marker may predate the fallback/alias inputs, or may not have covered aliases: try each.
-  const { aliases } = await catalog(github.env);
+  const { aliases } = await catalog(github.env, github);
   for (let page = 1; page <= 10; page++) {
     const query = new URLSearchParams({
       sha: head,
@@ -38,8 +38,12 @@ export async function pushedVersion(github: GitHub, hash: number, head: string):
       page: String(page),
     });
     const commits = historySchema.parse(await github.result(`/commits?${query}`));
-    for (const entry of commits) {
-      const file = await github.file(`tooltips/${hash}.json`, entry.sha);
+    // One batched read per page of commits (not one request per commit): at most
+    // 10 pages x 2 requests, however deep the history goes.
+    const versions = await github.blobs(
+      commits.map((entry) => ({ ref: entry.sha, path: `tooltips/${hash}.json` })),
+    );
+    for (const file of versions) {
       if (!file) continue;
       const tooltip = tooltipSchema.parse(file.value);
       if (tooltip.hash !== hash) throw new HttpError(502, 'Stored tooltip hash mismatch');

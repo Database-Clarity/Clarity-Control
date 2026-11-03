@@ -1,17 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { CompendiumData } from '@clarity/core';
 import { apiUrl, save, type SaveConflict } from '../api';
+import { loadCompendium } from '../compendium';
 import { errorMessage } from '../http';
 import { sameUser, useAuthStore } from '../../stores/auth';
 import { sessionToken } from '../session';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { ConflictDialog } from '../../features/conflicts/ConflictDialog';
+import { CompendiumDiff } from '../../features/compendium/CompendiumDiff';
+import { useCompendiumStore } from '../../features/compendium/store';
 import { Dialog } from '../../ui/Dialog';
 import { acceptSaved } from './drafts';
 import { isSaveDockIdle } from './dock';
 import { permissionError, prepareChanges, validateChanges } from './pipeline';
 import { useSaveState, type SaveReview } from './state';
 import { openDraftSaveReview } from './openReview';
+import { changedSources, linksCompendium, sourceKey, type ChangedSource } from './compendiumSource';
 import { SaveSummary } from './SaveSummary';
 
 export function SavePanel({ className }: { className?: string }) {
@@ -63,6 +68,11 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
   const [deleted, setDeleted] = useState<number[]>([]);
   const [remoteCommit, setRemoteCommit] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Linked Compendium cells that changed since they were shown, and the ones the reviewer ticked.
+  const [changedSource, setChangedSource] = useState<ChangedSource[]>([]);
+  const [acknowledged, setAcknowledged] = useState<string | null>(null);
+  const needsAcknowledgement =
+    changedSource.length > 0 && acknowledged !== sourceKey(changedSource);
   const validation = useMemo(() => {
     try {
       return { issues: data ? validateChanges(changes, data) : [], error: null };
@@ -96,16 +106,28 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         close();
         return;
       }
-      const prepared = await prepareChanges(changes, user, data);
+      // Saving English text on a linked tooltip records the Compendium cell as reviewed. Fetch
+      // the current source now; if it differs from what the editor was shown, show the new diff
+      // and wait for an explicit tick. What was fetched and ticked is exactly what gets recorded.
+      let source: CompendiumData | undefined;
+      if (linksCompendium(changes)) {
+        source = await loadCompendium(true);
+        if (accountChanged(generation)) return;
+        const found = changedSources(changes, useCompendiumStore.getState().data, source);
+        setChangedSource(found);
+        if (found.length && acknowledged !== sourceKey(found)) {
+          setError(
+            'The Compendium changed since it was last shown. Review the differences below and tick the box to continue; nothing was saved.',
+          );
+          return;
+        }
+      }
+      const prepared = await prepareChanges(changes, user, data, source);
       if (accountChanged(generation)) return;
       // The request reads the session token when it is sent: refuse unless it is still the one
       // this user was loaded with (another tab may have signed in as someone else meanwhile).
       const auth = useAuthStore.getState();
-      if (
-        auth.loading ||
-        !sameUser(auth.user, user) ||
-        auth.token !== sessionToken()
-      )
+      if (auth.loading || !sameUser(auth.user, user) || auth.token !== sessionToken())
         throw new Error('Your login changed. Close this review and check your role.');
       const result = await save(prepared, message.trim() || `Update ${changes.length} tooltip(s)`);
       if (accountChanged(generation) && result.kind === 'saved') {
@@ -123,6 +145,8 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         setError(`${result.error}. Nothing was saved. Retry when ready.`);
       else {
         setRemoteCommit(result.commit);
+        // The panel now compares against what was just recorded, not an older fetch.
+        if (source) useCompendiumStore.setState({ data: source });
         const expected = new Set(prepared.map(({ hash }) => hash));
         if (
           result.tooltips.length !== expected.size ||
@@ -170,7 +194,7 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         <>
           <button
             type="button"
-            disabled={pending || blocked || !data || Boolean(remoteCommit)}
+            disabled={pending || blocked || !data || Boolean(remoteCommit) || needsAcknowledgement}
             onClick={() => void submit()}
           >
             {pending ? 'Saving...' : 'Save changes'}
@@ -182,6 +206,37 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
       }
     >
       {data && <SaveSummary changes={changes} issues={validation.issues} data={data} />}
+      {changedSource.length > 0 && data && (
+        <section aria-label="Compendium source changed">
+          <h3>Compendium source changed</h3>
+          <p>
+            The Compendium changed after it was last shown to you. Saving records the new text as
+            reviewed.
+          </p>
+          {changedSource.map(({ hash, shown, fresh }) => (
+            <section key={hash} aria-label={`Compendium change for ${hash}`}>
+              <h4>
+                {data.items[hash]?.name ??
+                  changes.find((c) => c.hash === hash)?.next.custom?.name ??
+                  hash}{' '}
+                ({hash})
+              </h4>
+              <CompendiumDiff before={shown} after={fresh} />
+            </section>
+          ))}
+          <label>
+            <input
+              type="checkbox"
+              checked={!needsAcknowledgement}
+              disabled={pending}
+              onChange={(event) =>
+                setAcknowledged(event.target.checked ? sourceKey(changedSource) : null)
+              }
+            />{' '}
+            I have reviewed these Compendium changes
+          </label>
+        </section>
+      )}
       {deleted.length > 0 && (
         <p>
           Accept server deletion and discard the submitted local draft(s): {deleted.join(', ')}.

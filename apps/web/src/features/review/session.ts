@@ -56,13 +56,7 @@ export async function publishReviewed(
   const user = useAuthStore.getState().user;
   const version = identityVersion;
   const current = () => version === identityVersion;
-  if (
-    !canPush(user) ||
-    !entries.length ||
-    entries.length > 100 ||
-    useReviewSession.getState().pushing
-  )
-    return false;
+  if (!canPush(user) || !entries.length || useReviewSession.getState().pushing) return false;
   useReviewSession.setState({ pushing: true, notice: undefined, error: undefined });
   try {
     const expected = Object.fromEntries(

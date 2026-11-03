@@ -1,4 +1,4 @@
-import type { Tooltip } from '@clarity/core';
+import type { CompendiumData, Tooltip } from '@clarity/core';
 import type { Me } from '../../api';
 import type { Item } from '../../generator';
 import { metadata } from './metadata';
@@ -10,6 +10,8 @@ export type SaveEnricher = (ctx: {
   next: Tooltip;
   user: Me;
   item?: Item;
+  /** Pinned Compendium source (what the save panel showed); fetched when absent. */
+  compendium?: CompendiumData;
 }) => Promise<Tooltip>;
 
 export const saveEnrichers: SaveEnricher[] = [metadata, bungie, compendiumEnricher];

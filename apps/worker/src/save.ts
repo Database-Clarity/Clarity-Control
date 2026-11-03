@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  type Aliases,
   contentHash,
   hashSchema,
   merge3,
@@ -39,6 +40,7 @@ const saveSchema = z
 
 export async function save(request: Request, github: GitHub, user: Identity): Promise<Response> {
   const input = await body(request, saveSchema);
+  let aliases: Aliases | undefined;
   for (let attempt = 0; attempt < 3; attempt++) {
     const headCommit = await github.head();
     const access = requireAccess(await permissions(github, headCommit), user, [
@@ -55,8 +57,13 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
       fields: string[];
     }[] = [];
     const tooltips: Tooltip[] = [];
-    const aliases = await loadAliases(github.env);
-    for (const change of input.changes) {
+    aliases ??= await loadAliases(github.env, github);
+    // One batched read for all current copies: flat subrequests however many tooltips change.
+    const current = await github.files(
+      input.changes.map(({ hash }) => `tooltips/${hash}.json`),
+      headCommit,
+    );
+    for (const [index, change] of input.changes.entries()) {
       const canonical = resolveAlias(change.hash, aliases);
       if (canonical !== change.hash) {
         throw new HttpError(
@@ -65,7 +72,7 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
         );
       }
       checkEdit(access, change.base, change.next);
-      const file = await github.file(`tooltips/${change.hash}.json`, headCommit);
+      const file = current[index];
       const head = file ? tooltipSchema.parse(file.value) : null;
       if (head && head.hash !== change.hash)
         throw new HttpError(502, 'Stored tooltip hash mismatch');

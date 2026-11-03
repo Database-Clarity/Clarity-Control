@@ -208,8 +208,8 @@ describe('sequential push-live batches', () => {
   });
 });
 
-describe('push-live selection boundary', () => {
-  it('rejects 101 distinct canonicals, then publishes them as 100 plus 1 with all alias groups', async () => {
+describe('push-live selection size', () => {
+  it('publishes 101 distinct canonicals with all alias groups in one live write and one record', async () => {
     const values: Tooltip[] = Array.from({ length: 101 }, (_, index) => ({
       ...tooltip(`Batch text ${index}`),
       hash: index + 2000,
@@ -228,50 +228,21 @@ describe('push-live selection boundary', () => {
     const initialLive = structuredClone(fixture.live);
     const initialPerks = livePerks(fixture);
     const initialData = structuredClone(fixture.current());
-    const rejected = await fixture.request('/push-live', 'POST', {
-      hashes: values.map(({ hash }) => hash),
-    });
-    expect(rejected.status).toBe(400);
-    expect(fixture.live).toEqual(initialLive);
-    expect(fixture.current()).toEqual(initialData);
-    expect(fixture.writes).toHaveLength(0);
-    expect(fixture.commits).toHaveLength(0);
-
-    const first = values.slice(0, 100);
+    const expected = await reviewed(values, fixture.aliases);
     const response = await fixture.request('/push-live', 'POST', {
-      hashes: first.map(({ hash }, index) => (index % 2 ? hash + 10_000 : hash)),
-      expected: await reviewed(first, fixture.aliases),
+      hashes: values.map(({ hash }, index) => (index % 2 ? hash + 10_000 : hash)),
+      expected,
     });
     expect(response.status).toBe(200);
-    expect((await response.json()).pushed).toEqual(await reviewed(first, fixture.aliases));
-    expect(Object.keys(livePerks(fixture))).toHaveLength(201);
-    expect(fixture.current()['live/pushed.json']).toEqual({
-      999: 'f'.repeat(64),
-      ...(await reviewed(first, fixture.aliases)),
-    });
-    expect(livePerks(fixture)['2100']).toBeUndefined();
-    expect(fixture.current()['live/tooltips/2100.json']).toBeUndefined();
-    const firstPerks = livePerks(fixture);
-    vi.setSystemTime(nextPushTime);
-    expect(
-      (
-        await fixture.request(
-          '/push-live',
-          'POST',
-          {
-            hashes: [12_100],
-            expected: await reviewed([values[100]], fixture.aliases),
-          },
-          2,
-        )
-      ).status,
-    ).toBe(200);
+    expect((await response.json()).pushed).toEqual(expected);
+    expect(Object.keys(livePerks(fixture))).toHaveLength(203);
+    expect(fixture.current()['live/pushed.json']).toEqual({ 999: 'f'.repeat(64), ...expected });
     for (const value of values) {
       expect(livePerks(fixture)[value.hash]).toMatchObject({
         hash: value.hash,
         editor: { en: { main: value.text.en!.text } },
-        lastUpload: value.hash === 2100 ? nextPushTime : pushTime,
-        uploadedBy: value.hash === 2100 ? 'bob' : 'alice',
+        lastUpload: pushTime,
+        uploadedBy: 'alice',
       });
       expect(livePerks(fixture)[value.hash + 10_000]).toEqual({
         hash: value.hash + 10_000,
@@ -279,25 +250,18 @@ describe('push-live selection boundary', () => {
         aliasKind: 'sandbox',
       });
       expect(fixture.current()[`live/tooltips/${value.hash}.json`]).toEqual(value);
-      if (value.hash !== 2100)
-        expect(livePerks(fixture)[value.hash]).toEqual(firstPerks[value.hash]);
     }
-    expect(Object.keys(livePerks(fixture))).toHaveLength(203);
-    expect(fixture.current()['live/pushed.json']).toEqual({
-      999: 'f'.repeat(64),
-      ...(await reviewed(values, fixture.aliases)),
-    });
     expect(fixture.current()['live/tooltips/999.json']).toEqual(
       initialData['live/tooltips/999.json'],
     );
     expect(livePerks(fixture)['999']).toEqual(initialPerks['999']);
     expect(fixture.live.databaseSettings).toEqual(initialLive.databaseSettings);
     expect(danglingReferences(livePerks(fixture))).toEqual([]);
-    expect(fixture.writes).toHaveLength(2);
-    expect(fixture.commits).toHaveLength(2);
+    expect(fixture.writes).toHaveLength(1);
+    expect(fixture.commits).toHaveLength(1);
   });
 
-  it('applies the 101 limit before aliases can collapse to one canonical', async () => {
+  it('collapses many alias hashes of one canonical into a single published tooltip', async () => {
     fixture.aliases = Object.fromEntries(
       Array.from({ length: 100 }, (_, index) => [
         index + 2000,
@@ -305,12 +269,9 @@ describe('push-live selection boundary', () => {
       ]),
     );
     const hashes = [123, ...Object.keys(fixture.aliases).map(Number)];
-    expect((await fixture.request('/push-live', 'POST', { hashes })).status).toBe(400);
-    expect(fixture.writes).toHaveLength(0);
-    expect(fixture.commits).toHaveLength(0);
-    expect(
-      (await fixture.request('/push-live', 'POST', { hashes: hashes.slice(0, 100) })).status,
-    ).toBe(200);
+    expect((await fixture.request('/push-live', 'POST', { hashes })).status).toBe(200);
+    expect(fixture.writes).toHaveLength(1);
+    expect(fixture.commits).toHaveLength(1);
     expect(fixture.current()['live/pushed.json']).toEqual(
       await reviewed([tooltip()], fixture.aliases),
     );

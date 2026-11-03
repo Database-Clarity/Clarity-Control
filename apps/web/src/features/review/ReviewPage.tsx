@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { apiUrl } from '../../services/api';
 import { errorMessage } from '../../services/http';
 import { useAuthStore } from '../../stores/auth';
-import { useDataStore } from '../../stores/data';
+import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import {
   canPush,
@@ -14,6 +14,7 @@ import {
   toggleSelection,
   type PendingTooltip,
 } from './model';
+import { PushConfirm } from './PushConfirm';
 import { ReviewDetail } from './ReviewDetail';
 import { ReviewRow } from './ReviewRow';
 import { acknowledgedMarkers, publishReviewed, useReviewSession } from './session';
@@ -32,6 +33,8 @@ export function ReviewPage() {
   const setSidebarChanges = useSidebarQueueStore((state) => state.setPendingChanges);
   const [entries, setEntries] = useState<PendingTooltip[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  // What the confirm dialog lists is exactly what gets pushed, from the snapshot it was opened on.
+  const [confirming, setConfirming] = useState<{ entries: PendingTooltip[]; data: EditorData }>();
   const [loading, setLoading] = useState(true);
   const query = searchParams.get('query') ?? '';
   const categoryFilter = searchParams.get('category') ?? '';
@@ -163,14 +166,16 @@ export function ReviewPage() {
     setSearchParams(params, { replace: true });
   }
 
-  async function publish() {
-    if (!data || loading) return;
+  function askToPublish() {
+    if (!data || loading || pushing) return;
+    const chosen = entries.filter(({ tooltip }) => hashes.includes(tooltip.hash));
+    if (chosen.length) setConfirming({ entries: chosen, data });
+  }
+
+  async function publish({ entries: chosen, data: reviewed }: NonNullable<typeof confirming>) {
+    setConfirming(undefined);
     setError(undefined);
-    const succeeded = await publishReviewed(
-      entries.filter(({ tooltip }) => hashes.includes(tooltip.hash)),
-      data,
-      () => mounted.current,
-    );
+    const succeeded = await publishReviewed(chosen, reviewed, () => mounted.current);
     if (succeeded && mounted.current) setSelected(new Set());
   }
 
@@ -193,6 +198,13 @@ export function ReviewPage() {
             : 'Live comparison and history need a configured API. Saved changes remain local.'}
         </p>
       )}
+      {confirming && (
+        <PushConfirm
+          entries={confirming.entries}
+          onConfirm={() => void publish(confirming)}
+          onCancel={() => setConfirming(undefined)}
+        />
+      )}
       {error && <p role="alert">{error}</p>}
       {pushError && <p role="alert">{pushError}</p>}
       {notice && <p role="status">{notice}</p>}
@@ -206,13 +218,12 @@ export function ReviewPage() {
         {canPush(user) && (
           <button
             type="button"
-            disabled={pushing || loading || !hashes.length || hashes.length > 100}
-            onClick={() => void publish()}
+            disabled={pushing || loading || !hashes.length}
+            onClick={askToPublish}
           >
             {pushing ? 'Pushing...' : 'Push selected'}
           </button>
         )}
-        {hashes.length > 100 && <span role="alert">Select at most 100 tooltips per push.</span>}
       </div>
       {!!entries.length && (
         <div className={styles.filters}>

@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { legacyPublishableHash, publishableHash } from '@clarity/core';
+import { subrequestLimit } from '../src/github.js';
 import { Fixture, makePrivateKey, sha, tooltip } from './fixture.js';
 
 let key: string;
@@ -47,6 +48,24 @@ describe('pushed history snapshots', () => {
       pushedHash: await publishableHash(tooltip(), fixture.aliases),
       tooltip: tooltip(),
     });
+  });
+  it('searches a deep history with a batched read per page, within the subrequest limit', async () => {
+    fixture.history = Array.from({ length: 30 }, (_, index) => ({
+      sha: sha(500 + index),
+      commit: {
+        author: { name: 'alice', date: '2026-10-01T00:00:00Z' },
+        message: `commit ${index}`,
+      },
+      author: { login: 'alice' },
+    }));
+    fixture.moveData({ 'live/pushed.json': { 123: 'f'.repeat(64) } });
+    fixture.subrequests = 0;
+    const response = await fixture.request('/history/123?live=1');
+    expect(response.status).toBe(409);
+    // token, head, permissions, marker, snapshot, catalog 3, then 10 pages x (list + batch)
+    expect(fixture.subrequests).toBe(1 + 1 + 1 + 1 + 1 + 3 + 10 * 2);
+    expect(fixture.graphqlCalls).toBe(10);
+    expect(fixture.subrequests).toBeLessThanOrEqual(subrequestLimit);
   });
   it('recovers a marker recorded before the fallback digest existed', async () => {
     const stamp = '2026-10-01T00:00:00Z';
