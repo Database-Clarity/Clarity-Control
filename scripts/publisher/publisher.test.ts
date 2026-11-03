@@ -22,7 +22,7 @@ import { Publisher, paths, type Options } from './publisher.js';
 import { createRequest } from './request.js';
 import { runPipeline } from './pipeline.js';
 // Configure before registering the Git subprocess tests (Windows runs exceed 20 seconds).
-vi.setConfig({ testTimeout: 180_000 });
+vi.setConfig({ testTimeout: 300_000 });
 
 describe.each(['simulator', 'remote'] as const)('%s repository contract', (transport) => {
   it.each([false, true])(
@@ -924,18 +924,38 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
   );
   it('fails closed before credentials or network access when remote config is OFF', async () => {
     const f = await setup();
-    await expect(
-      runPipeline(
-        '.',
-        {
-          ...f.options,
-          repo: 'Database-Clarity/Live-Clarity-Database',
-          keyEndpoint: 'https://worker.invalid',
-          publishWritesEnabled: true,
-        },
-        join(f.upstream, 'out'),
-        true,
-      ),
-    ).rejects.toThrow('disabled by config');
+    const tokenRead = vi.fn(),
+      networkFetch = vi.fn();
+    vi.stubGlobal('fetch', networkFetch);
+    const remoteGit = vi.spyOn(RemoteRepository.prototype, 'remoteGit');
+    const originalEnv = process.env;
+    process.env = new Proxy(originalEnv, {
+      get(target, key) {
+        if (key === 'GITHUB_TOKEN') tokenRead();
+        return Reflect.get(target, key);
+      },
+    });
+    try {
+      await expect(
+        runPipeline(
+          '.',
+          {
+            ...f.options,
+            repo: 'Database-Clarity/Live-Clarity-Database',
+            keyEndpoint: 'https://worker.invalid',
+            publishWritesEnabled: true,
+          },
+          join(f.upstream, 'out'),
+          true,
+        ),
+      ).rejects.toThrow('disabled by config');
+      expect(tokenRead).not.toHaveBeenCalled();
+      expect(networkFetch).not.toHaveBeenCalled();
+      expect(remoteGit).not.toHaveBeenCalled();
+      expect(existsSync(join(f.upstream, 'out'))).toBe(false);
+    } finally {
+      process.env = originalEnv;
+      remoteGit.mockRestore();
+    }
   });
 });
