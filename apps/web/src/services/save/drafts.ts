@@ -1,6 +1,7 @@
 import { merge3, stableStringify, type Tooltip } from '@clarity/core';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
+import { rememberSaved } from '../../stores/savedOverlay';
 import type { Drafts } from '../draftStorage';
 
 export function replaceDraft(base: Tooltip, next: Tooltip, resetBase = false): void {
@@ -35,6 +36,7 @@ export function acceptSaved(
       if (merged.ok) drafts[hash] = { base: head, next: merged.merged };
     }
   }
+  rememberSaved([...saved.values()], deleted);
   useDataStore.setState(({ data }) => {
     if (!data) throw new Error('Editor data disappeared during save.');
     const tooltips = { ...data.bundle.tooltips, ...Object.fromEntries(saved) };

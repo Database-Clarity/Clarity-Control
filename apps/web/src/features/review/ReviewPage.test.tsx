@@ -117,7 +117,17 @@ beforeEach(async () => {
     pushed: {},
     permissions: { users: {} },
   };
-  vi.mocked(loadGenerator).mockResolvedValue({ categories: [], items: {}, aliases: {} });
+  vi.mocked(loadGenerator).mockResolvedValue({
+    categories: [],
+    items: Object.fromEntries(
+      // Only hash 10 is publishable; other fixture hashes are unlisted orphans.
+      [10].map((hash) => [
+        hash,
+        { hash, name: `Tooltip ${hash}`, categoryId: 'other', icon: '', inGameDescription: '' },
+      ]),
+    ) as never,
+    aliases: {},
+  });
   vi.mocked(loadBundle).mockImplementation(async () => {
     await new Promise((resolve) => setTimeout(resolve, 25));
     return structuredClone(bundle);
@@ -157,21 +167,15 @@ afterEach(async () => {
   vi.clearAllMocks();
 });
 
-it('keeps successful acknowledgment and notice through a real-store lagging refresh', async () => {
+it('keeps the acknowledgment without reloading the bundle, then follows manual refreshes', async () => {
   await mount();
   expect(host.textContent).toContain('1 pending / 0 selected');
-  let resolve!: (bundle: Bundle) => void;
-  vi.mocked(loadBundle).mockReturnValueOnce(
-    new Promise((r) => {
-      resolve = r;
-    }),
-  );
   await click('Select page');
   await click('Push selected');
-  await waitFor(() => expect(host.textContent).toContain('Loading manifest'));
-  await act(async () => resolve(structuredClone(bundle)));
   await waitForPush();
   await waitForReview();
+  // A push never reloads the bundle: CI/CDN lag would resurrect pre-save text.
+  expect(vi.mocked(loadBundle)).toHaveBeenCalledTimes(1);
   expect(post).toHaveBeenCalledTimes(1);
   expect(host.textContent).toContain('0 pending / 0 selected');
   expect(host.textContent).toContain('Pushed 1 tooltip(s) to synthetic-test');
@@ -281,14 +285,18 @@ it('shows one anonymous notice, leads with friendly categories, and filters cano
     )?.textContent,
   ).toContain('#20');
   expect(
-    host.querySelector<HTMLAnchorElement>(
-      '[aria-label="Pending saved changes"] a[aria-current="page"]',
-    )?.getAttribute('href'),
+    host
+      .querySelector<HTMLAnchorElement>(
+        '[aria-label="Pending saved changes"] a[aria-current="page"]',
+      )
+      ?.getAttribute('href'),
   ).toContain('hash=20');
 
   await act(async () => useAuthStore.setState({ user }));
   await waitFor(() => expect(host.querySelectorAll('[role="note"]')).toHaveLength(0));
-  await act(async () => useAuthStore.setState({ user: null, loading: false, load: async () => {} }));
+  await act(async () =>
+    useAuthStore.setState({ user: null, loading: false, load: async () => {} }),
+  );
   await waitFor(() => expect(host.querySelectorAll('[role="note"]')).toHaveLength(1));
 });
 
@@ -329,19 +337,16 @@ it('suspends pending-review window shortcuts during Browse and restores them on 
   ).toContain('Tooltip 20');
 });
 
-it('distinguishes failed refresh from failed push and preserves success on retry', async () => {
+it('does not reload the bundle after a push, so success is never masked by a refresh', async () => {
   await mount();
-  vi.mocked(loadBundle).mockRejectedValueOnce(Error('synthetic bundle unavailable'));
   await click('Select page');
   await click('Push selected');
   await waitForPush();
   expect(post).toHaveBeenCalledTimes(1);
-  expect(host.textContent).toContain('Cannot load editor data: synthetic bundle unavailable');
+  expect(vi.mocked(loadBundle)).toHaveBeenCalledTimes(1);
+  expect(host.textContent).not.toContain('Cannot load editor data');
   expect(useReviewSession.getState().notice).toContain('Pushed 1');
   expect(useReviewSession.getState().error).toBeUndefined();
-  await click('Retry data loading');
-  await waitForReview();
-  expect(host.textContent).toContain('Pushed 1');
   expect(host.textContent).toContain('0 pending / 0 selected');
 });
 
@@ -515,7 +520,11 @@ it.each(['maintainer', 'translator'] as const)(
   'stages a pushed snapshot equal to a stale base for %s and keeps the correct editing base',
   async (role) => {
     const live = structuredClone(tooltip);
-    live.text.de = { text: 'Pushed German', updatedAt: '2026-01-01T00:00:00Z', updatedBy: 'fixture' };
+    live.text.de = {
+      text: 'Pushed German',
+      updatedAt: '2026-01-01T00:00:00Z',
+      updatedBy: 'fixture',
+    };
     const saved = structuredClone(tooltip);
     saved.text.de = { ...live.text.de, text: 'Saved German' };
     bundle.tooltips[10] = saved;
@@ -543,6 +552,8 @@ it.each(['maintainer', 'translator'] as const)(
     if (merged.ok) expect(merged.merged.text.de).toEqual(live.text.de);
     useDraftStore.getState().edit(saved, 'de', 'Further edit', 'fixture');
     expect(useDraftStore.getState().drafts[10].base.text.de).toEqual(saved.text.de);
-    expect(fetchSpy.mock.calls.every((call) => !call[1] || (call[1] as RequestInit).method === 'GET')).toBe(true);
+    expect(
+      fetchSpy.mock.calls.every((call) => !call[1] || (call[1] as RequestInit).method === 'GET'),
+    ).toBe(true);
   },
 );

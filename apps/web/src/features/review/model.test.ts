@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { publishableHash, type Tooltip } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
-import { canPush, pendingTooltips, selectedPending, stepIndex, toggleSelection } from './model';
+import {
+  canPush,
+  pendingTooltips,
+  publishableHashes,
+  selectedPending,
+  stepIndex,
+  toggleSelection,
+} from './model';
 
 const tooltip: Tooltip = {
   hash: 123,
@@ -53,6 +60,25 @@ describe('review pending content', () => {
     const state = data([tooltip, { ...tooltip, hash: 456 }]);
     state.items[456] = { ...state.items[123], hash: 456, name: 'Enhanced', baseHash: 123 };
     expect(await pendingTooltips(state)).toHaveLength(2);
+  });
+});
+
+describe('unpublishable rows', () => {
+  it('flags tooltips with no generator entry unless custom, and never selects them', async () => {
+    const orphan = { ...tooltip, hash: 777 };
+    const custom = {
+      ...tooltip,
+      hash: 888,
+      custom: { name: 'Mine', categoryId: 'perk' },
+    } as Tooltip;
+    const entries = await pendingTooltips(data([tooltip, orphan, custom]));
+    const flagged = Object.fromEntries(
+      entries.map((entry) => [entry.tooltip.hash, Boolean(entry.unpublishable)]),
+    );
+    expect(flagged).toEqual({ 123: false, 777: true, 888: false });
+    const all = new Set([123, 777, 888]);
+    expect(selectedPending(all, entries).sort()).toEqual([123, 888]);
+    expect(publishableHashes(entries).sort()).toEqual([123, 888]);
   });
 });
 

@@ -1,10 +1,34 @@
 const sessionKey = 'clarity-editor-session';
 const logoutKey = 'clarity-editor-signout';
 const preferenceKey = 'clarity-editor-remember-signin';
+const pendingKey = 'clarity-editor-signin-pending';
 const changed = 'clarity-session-changed';
+// Matches the Worker's OAuth state lifetime.
+const pendingWindowMs = 10 * 60 * 1000;
 
+/**
+ * Called when this browser starts sign-in. Besides the remember-me choice it records a random
+ * one-time marker in this tab's sessionStorage (it survives the GitHub round trip), so
+ * #/auth/callback is only honoured when this tab asked for it. A forged link cannot set it.
+ */
 export function rememberSignIn(remember: boolean): void {
   sessionStorage.setItem(preferenceKey, String(remember));
+  sessionStorage.setItem(pendingKey, `${Date.now()}.${crypto.randomUUID()}`);
+}
+
+/** One-time check for a sign-in this tab started. Always clears the marker; touches no session. */
+export function consumePendingSignIn(): boolean {
+  let marker: string | null = null;
+  try {
+    marker = sessionStorage.getItem(pendingKey);
+    sessionStorage.removeItem(pendingKey);
+  } catch {
+    return false;
+  }
+  const started = Number(marker?.split('.')[0]);
+  return (
+    Number.isFinite(started) && started <= Date.now() && Date.now() - started <= pendingWindowMs
+  );
 }
 
 // The Worker signs payload.signature tokens with a fixed 30-day expiry.

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { setSession } from '../../services/api';
+import { consumePendingSignIn, setSession } from '../../services/api';
 import { errorMessage } from '../../services/http';
 import { takeReturnPath } from '../../services/returnPath';
 import { useAuthStore } from '../../stores/auth';
@@ -11,11 +11,19 @@ export type CallbackOutcome =
 /** Store the session from the callback query and choose where to send the user next. */
 export function completeCallback(
   parameters: URLSearchParams,
-  dependencies: { setSession: (token: string) => void; takeReturnPath: () => string } = {
-    setSession,
-    takeReturnPath,
-  },
+  dependencies: {
+    setSession: (token: string) => void;
+    takeReturnPath: () => string;
+    consumePendingSignIn: () => boolean;
+  } = { setSession, takeReturnPath, consumePendingSignIn },
 ): CallbackOutcome {
+  // Login CSRF guard: only a sign-in this tab started may deliver a session. Rejected callbacks
+  // never touch existing sessions or the remembered route.
+  if (!dependencies.consumePendingSignIn())
+    return {
+      kind: 'error',
+      message: 'Sign-in was not started in this tab, so the login link was ignored. Sign in again.',
+    };
   const session = parameters.get('session');
   if (!session)
     return {

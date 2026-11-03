@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   clearSession,
+  consumePendingSignIn,
   rememberSignIn,
   sessionToken,
   setSession,
@@ -76,4 +77,31 @@ it('rejects expired or malformed tokens without persisting them', () => {
   expect(() => setSession('invalid')).toThrow('expired');
   expect(() => setSession(btoa(JSON.stringify({ exp: 1 })) + '.sig', true)).toThrow('expired');
   expect(sessionToken()).toBeNull();
+});
+it('honours a callback only once, only after this tab started sign-in', () => {
+  expect(consumePendingSignIn()).toBe(false); // forged link: nothing pending
+  rememberSignIn(false);
+  expect(consumePendingSignIn()).toBe(true);
+  expect(consumePendingSignIn()).toBe(false); // one-time
+});
+it('expires a pending sign-in and rejects tampered markers', () => {
+  vi.useFakeTimers();
+  rememberSignIn(true);
+  vi.advanceTimersByTime(10 * 60 * 1000 + 1);
+  expect(consumePendingSignIn()).toBe(false);
+  sessionStorage.setItem('clarity-editor-signin-pending', 'garbage');
+  expect(consumePendingSignIn()).toBe(false);
+  sessionStorage.setItem('clarity-editor-signin-pending', `${Date.now() + 60000}.x`);
+  expect(consumePendingSignIn()).toBe(false);
+});
+it('remember-me sign-in still persists after a pending check, and a forged callback keeps sessions', () => {
+  const existing = token();
+  setSession(existing, true);
+  expect(consumePendingSignIn()).toBe(false); // forged callback would stop here, before setSession
+  expect(sessionToken()).toBe(existing);
+  rememberSignIn(true);
+  expect(consumePendingSignIn()).toBe(true);
+  const fresh = token() + 'x';
+  setSession(fresh);
+  expect(localStorage.getItem(key)).toBe(fresh);
 });

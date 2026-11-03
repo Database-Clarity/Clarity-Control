@@ -51,7 +51,8 @@ export function ReviewRow({
           type="checkbox"
           checked={checked}
           onChange={onToggle}
-          disabled={disabled}
+          disabled={disabled || Boolean(entry.unpublishable)}
+          title={entry.unpublishable}
           aria-label={`Select ${entry.name}, ${entry.category}, ${entry.tooltip.hash}`}
         />{' '}
         <button
@@ -62,6 +63,7 @@ export function ReviewRow({
         >
           <span className={styles.rowIdentity}>
             {entry.name} <small>#{entry.tooltip.hash}</small>
+            {entry.unpublishable && <small> · unpublishable: no generator entry</small>}
           </span>
         </button>
       </label>

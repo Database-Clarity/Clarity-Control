@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { completeCallback } from './AuthCallback';
 
-function dependencies(overrides: { setSession?: (token: string) => void } = {}) {
+function dependencies(overrides: { setSession?: (token: string) => void; pending?: boolean } = {}) {
   return {
+    consumePendingSignIn: vi.fn(() => overrides.pending ?? true),
     setSession: vi.fn(overrides.setSession ?? (() => undefined)),
     takeReturnPath: vi.fn(() => '/t/12345?lang=de'),
   };
@@ -34,6 +35,13 @@ describe('completeCallback', () => {
     });
     const outcome = completeCallback(new URLSearchParams('session=token'), deps);
     expect(outcome).toMatchObject({ kind: 'error' });
+    expect(deps.takeReturnPath).not.toHaveBeenCalled();
+  });
+  it('ignores a forged callback link that this browser did not start', () => {
+    const deps = dependencies({ pending: false });
+    const outcome = completeCallback(new URLSearchParams('session=attacker-token'), deps);
+    expect(outcome).toMatchObject({ kind: 'error' });
+    expect(deps.setSession).not.toHaveBeenCalled();
     expect(deps.takeReturnPath).not.toHaveBeenCalled();
   });
 });

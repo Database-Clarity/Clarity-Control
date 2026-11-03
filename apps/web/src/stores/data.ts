@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { loadGenerator } from '../services/generator';
 import { loadBundle, type Bundle } from '../services/bundle';
 import { errorMessage } from '../services/http';
+import { applySavedOverlay } from './savedOverlay';
 
 export type Catalog = Awaited<ReturnType<typeof loadGenerator>>;
 export interface EditorData extends Catalog {
@@ -23,7 +24,7 @@ export const useDataStore = create<DataState>((set, get) => ({
     set({ status: 'loading', error: null });
     try {
       const [catalog, bundle] = await Promise.all([loadGenerator(), loadBundle()]);
-      set({ status: 'ready', data: { ...catalog, bundle } });
+      set({ status: 'ready', data: { ...catalog, bundle: applySavedOverlay(bundle) } });
     } catch (error) {
       set({ status: 'error', error: errorMessage(error) });
     }

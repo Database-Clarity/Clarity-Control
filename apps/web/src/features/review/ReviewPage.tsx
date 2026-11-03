@@ -8,6 +8,7 @@ import { useDraftStore } from '../../stores/drafts';
 import {
   canPush,
   pendingTooltips,
+  publishableHashes,
   selectedPending,
   stepIndex,
   toggleSelection,
@@ -128,8 +129,8 @@ export function ReviewPage() {
         return;
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
       event.preventDefault();
-      selectIndex(
-        (value) => stepIndex(value, event.key === 'ArrowDown' ? 1 : -1, visibleEntries.length),
+      selectIndex((value) =>
+        stepIndex(value, event.key === 'ArrowDown' ? 1 : -1, visibleEntries.length),
       );
     }
     window.addEventListener('keydown', keydown);
@@ -286,10 +287,7 @@ export function ReviewPage() {
                     type="button"
                     disabled={pushing}
                     onClick={() =>
-                      setSelected(
-                        (previous) =>
-                          new Set([...previous, ...page.map(({ tooltip }) => tooltip.hash)]),
-                      )
+                      setSelected((previous) => new Set([...previous, ...publishableHashes(page)]))
                     }
                   >
                     Select page
