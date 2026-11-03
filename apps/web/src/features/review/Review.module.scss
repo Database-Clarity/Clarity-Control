@@ -151,17 +151,17 @@
   .empty button,
   .toolbar button,
   .list button {
-    min-height: 44px;
+    min-height: max(44px, 2.75rem);
   }
 
   .filters input,
   .filters select {
-    min-height: 44px;
+    min-height: max(44px, 2.75rem);
   }
 
   .list input[type='checkbox'] {
-    width: 44px;
-    height: 44px;
+    width: 2.75rem;
+    height: 2.75rem;
     flex: 0 0 44px;
     margin: 0;
   }

@@ -3,35 +3,35 @@
 .button {
   @include controls.button;
   position: relative;
-  padding: 0 8px;
+  padding: 0 0.5rem;
 }
 
 .count {
-  min-width: 18px;
-  padding: 0 5px;
+  min-width: 1.125rem;
+  padding: 0 0.3125rem;
   font-size: 0.6875rem;
   font-weight: 700;
-  line-height: 16px;
+  line-height: 1rem;
   text-align: center;
   color: var(--on-accent);
   background: var(--accent);
-  border-radius: 8px;
+  border-radius: 0.5rem;
 }
 
 .alertDot {
   position: absolute;
-  top: 3px;
-  right: 3px;
-  width: 8px;
-  height: 8px;
+  top: 0.1875rem;
+  right: 0.1875rem;
+  width: 0.5rem;
+  height: 0.5rem;
   background: var(--danger);
   border-radius: 50%;
 }
 
 // A page with a pen: the phone's drafts icon.
 .icon {
-  width: 14px;
-  height: 16px;
+  width: 0.875rem;
+  height: 1rem;
   border: 2px solid currentColor;
   border-radius: 2px;
   background:
@@ -56,7 +56,7 @@
 
   > p {
     margin: 0;
-    padding: 8px 12px 6px;
+    padding: 0.5rem 0.75rem 0.375rem;
   }
 
   > p[role='status'] {
@@ -67,7 +67,7 @@
 
   // Review and save: the primary action, under the list.
   > button {
-    margin: 8px 12px;
+    margin: 0.5rem 0.75rem;
     justify-content: center;
     font-weight: 700;
     color: var(--pri-text);
@@ -90,9 +90,9 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
     align-items: center;
-    gap: 8px;
-    min-height: 28px;
-    padding: 0 8px 0 12px;
+    gap: 0.5rem;
+    min-height: 1.75rem;
+    padding: 0 0.5rem 0 0.75rem;
     border-bottom: 1px solid var(--hair);
   }
 
@@ -109,7 +109,7 @@
 .drafts .open {
   @include controls.control-size;
   justify-content: flex-start;
-  gap: 6px;
+  gap: 0.375rem;
   min-width: 0;
   padding: 0;
   overflow: hidden;
@@ -132,7 +132,7 @@
 }
 
 .drafts .discard {
-  padding: 0 6px;
+  padding: 0 0.375rem;
   color: var(--text2);
   background: none;
   border: 0;
@@ -145,7 +145,7 @@
 }
 
 .recovered {
-  padding: 8px 12px;
+  padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--alert-edge);
   background: var(--alert-bg);
 
@@ -158,5 +158,5 @@
 .recoveredText {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  margin: 4px 0;
+  margin: 0.25rem 0;
 }

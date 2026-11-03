@@ -28,7 +28,7 @@
   pointer-events: auto;
   outline: none;
   @include controls.overlay-surface;
-  border-radius: 4px;
+  border-radius: 0.25rem;
 }
 
 .content {
@@ -44,14 +44,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 0 4px 0 12px;
-  min-height: 44px;
+  gap: 0.5rem;
+  padding: 0 0.25rem 0 0.75rem;
+  min-height: max(44px, 2.75rem);
   border-bottom: 1px solid var(--line);
 
   button {
     @include controls.button;
-    min-width: 44px;
+    min-width: max(44px, 2.75rem);
   }
 }
 
@@ -71,7 +71,7 @@
   inset: auto 0 0 0;
   width: 100%;
   max-height: min(80dvh, 36rem);
-  border-radius: 8px 8px 0 0;
+  border-radius: 0.5rem 0.5rem 0 0;
   border-width: 1px 0 0;
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }

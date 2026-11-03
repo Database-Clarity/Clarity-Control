@@ -1,0 +1,238 @@
+@use '../../ui/controls';
+@use '../../data/variables' as theme;
+
+// The editor's status line: fixed height, one line. Only .reason and .hints are flexible text and
+// may ellipsise; every other item keeps its size. Panels open upward over the text (never resize it).
+.bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-sizing: border-box;
+  height: 1.5rem;
+  padding: 0 0.5rem;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  color: var(--editor-text2);
+  background: var(--chrome);
+  border-top: 1px solid var(--editor-edge);
+  container-type: inline-size;
+
+  // Narrow editors give up, in this order: key hint on the preview button, the position, then
+  // long labels for short ones. Nothing wraps or ellipsises except the flexible texts.
+  @container (max-width: 28rem) {
+    .position {
+      display: none;
+    }
+  }
+  @container (max-width: 24rem) {
+    .long {
+      display: none;
+    }
+    .short {
+      display: inline;
+    }
+    .previewText {
+      display: none;
+    }
+  }
+
+  > * {
+    flex: none;
+  }
+
+  @include theme.mobile-or-coarse {
+    height: 3.25rem;
+    padding: 0 0.25rem 0 0.5rem;
+    font-size: 0.8125rem;
+  }
+}
+
+.reason {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--warn);
+}
+
+.hints {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+  color: var(--text3);
+
+  @include theme.mobile-or-coarse {
+    display: none;
+  }
+}
+
+.short {
+  display: none;
+}
+
+.live {
+  display: contents;
+}
+
+// A bar button reads as text: no box until hover, so the line stays quiet.
+.item {
+  @include controls.button;
+  min-height: 1.25rem;
+  padding: 0 0.375rem;
+  font-size: inherit;
+  color: inherit;
+  background: transparent;
+  border-color: transparent;
+
+  &:hover {
+    color: var(--text);
+    background: var(--hover);
+    border-color: var(--ghost-edge);
+  }
+
+  &[data-severity='warning'] {
+    color: var(--warn);
+  }
+
+  &[data-severity='error'] {
+    color: var(--danger);
+  }
+
+  &[aria-expanded='true'] {
+    color: var(--text);
+    background: var(--sel);
+  }
+
+  // Narrow editors drop the key hint before anything else.
+  @container (max-width: 34rem) {
+    kbd {
+      display: none;
+    }
+  }
+
+  kbd {
+    margin-left: 0.375rem;
+    padding: 0 0.25rem;
+    font: inherit;
+    font-size: 0.6875rem;
+    color: var(--text3);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+  }
+
+  @include theme.mobile-or-coarse {
+    min-height: max(44px, 2.75rem);
+    min-width: max(44px, 2.75rem);
+    padding: 0 0.5rem;
+    font-size: inherit;
+
+    kbd {
+      display: none;
+    }
+  }
+}
+
+.preview {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+
+  &[data-attention] {
+    color: var(--warn);
+  }
+}
+
+.previewText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  @include theme.mobile {
+    display: none;
+  }
+}
+
+.position {
+  font-variant-numeric: tabular-nums;
+
+  @include theme.mobile-or-coarse {
+    display: none;
+  }
+}
+
+// ---- panels: drawn over the bottom of the text, directly above the bar ----
+.overlay {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 3;
+  box-sizing: border-box;
+  max-height: min(70%, 20rem);
+  overflow: auto;
+  padding: 0.5rem 2.25rem 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  color: var(--text);
+  background: var(--raised);
+  border-top: 1px solid var(--pop-edge);
+  box-shadow: var(--shadow);
+
+  ul {
+    margin: 0.25rem 0;
+    padding-left: 1.125rem;
+  }
+
+  li {
+    margin: 0.1875rem 0;
+    overflow-wrap: anywhere;
+  }
+
+  li[data-severity='error'] {
+    color: var(--danger);
+  }
+
+  li[data-severity='warning'] {
+    color: var(--warn);
+  }
+
+  p {
+    margin: 0.375rem 0;
+  }
+
+  button {
+    font-size: inherit;
+  }
+}
+
+.overlayBody {
+  min-width: 0;
+}
+
+.lead {
+  color: var(--warn);
+}
+
+.close {
+  @include controls.button;
+  position: absolute;
+  top: 0.125rem;
+  right: 0.25rem;
+  min-height: 1.5rem;
+  min-width: 1.5rem;
+  padding: 0;
+  line-height: 1;
+  font-size: 1rem;
+  background: transparent;
+  border-color: transparent;
+
+  @include theme.mobile-or-coarse {
+    min-height: max(44px, 2.75rem);
+    min-width: max(44px, 2.75rem);
+  }
+}

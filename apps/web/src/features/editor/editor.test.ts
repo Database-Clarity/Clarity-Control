@@ -4,7 +4,7 @@ import { CompletionContext } from '@codemirror/autocomplete';
 import { markupLanguage, type MarkupGlobals } from '@clarity/core';
 import { clarityCompletions } from './completion';
 import { formatMarkupTables, tableFormattingTransaction } from './formatTable';
-import { dockScrollMargin, saveDockScrollMargins } from './scrollMargins';
+import { coverMargins, editorScrollMargins } from './scrollMargins';
 
 const globals: MarkupGlobals = {
   variables: 'var damage = 25\nvar duration = 10',
@@ -76,16 +76,29 @@ test('table formatting keeps the caret on its line and column and is one undoabl
   expect(state.doc.toString()).toBe(text);
 });
 
-describe('save dock scroll margin', () => {
-  test('reserves the dock height plus a gap only while the dock is fixed and visible', () => {
-    expect(dockScrollMargin(64, 'fixed')).toBe(72);
-    expect(dockScrollMargin(64, 'fixed', 0)).toBe(64);
-    expect(dockScrollMargin(0, 'fixed')).toBe(0);
-    expect(dockScrollMargin(64, 'static')).toBe(0);
-    expect(dockScrollMargin(64, 'sticky')).toBe(0);
+describe('editor scroll margins', () => {
+  const scroller = { top: 100, bottom: 500, left: 0, right: 600 };
+  test('keeps the caret clear of an overlay over the lower half, plus a gap', () => {
+    const overlay = { top: 400, bottom: 500, left: 0, right: 600 };
+    expect(coverMargins(scroller, [overlay])).toEqual({ top: 0, bottom: 108 });
+    expect(coverMargins(scroller, [overlay], 0)).toEqual({ top: 0, bottom: 100 });
+  });
+  test('keeps the caret clear of a notice hanging over the top', () => {
+    const notice = { top: 0, bottom: 130, left: 0, right: 600 };
+    expect(coverMargins(scroller, [notice])).toEqual({ top: 38, bottom: 0 });
+  });
+  test('ignores anything that does not overlap the scroller', () => {
+    expect(coverMargins(scroller, [{ top: 500, bottom: 524, left: 0, right: 600 }])).toEqual({
+      top: 0,
+      bottom: 0,
+    });
+    expect(coverMargins(scroller, [{ top: 400, bottom: 500, left: 700, right: 900 }])).toEqual({
+      top: 0,
+      bottom: 0,
+    });
   });
   test('is a CodeMirror extension that can be added to a state', () => {
-    const state = EditorState.create({ doc: 'x', extensions: saveDockScrollMargins() });
+    const state = EditorState.create({ doc: 'x', extensions: editorScrollMargins() });
     expect(state.doc.toString()).toBe('x');
   });
 });

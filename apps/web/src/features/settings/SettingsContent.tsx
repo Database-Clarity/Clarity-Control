@@ -1,6 +1,12 @@
 import { useMemo, useState } from 'react';
 import { dateFormats, timeDisplays, type SyncedSettings } from '@clarity/core';
-import { useSettingsStore, editorFonts } from '../../stores/settings';
+import {
+  useSettingsStore,
+  editorFonts,
+  uiScaleMax,
+  uiScaleMin,
+  uiScaleStep,
+} from '../../stores/settings';
 import { themePreferences, type ThemePreference } from '../../ui/theme';
 import { exactDate, formatDate } from '../../services/format/date';
 import { browserTimeZone, syncStatusText, themeLabels, valueLabel } from './labels';
@@ -143,17 +149,32 @@ export function SettingsContent() {
         </label>
         <p className={styles.hint}>Ligatures are off so typed symbols stay distinct.</p>
         <label>
-          Text size
-          <select
-            value={device.textSize}
-            onChange={(event) =>
-              updateDevice({ textSize: event.target.value === 'large' ? 'large' : 'default' })
-            }
-          >
-            <option value="default">Default</option>
-            <option value="large">Large</option>
-          </select>
+          Interface scale
+          <span className={styles.scale}>
+            <input
+              type="range"
+              min={uiScaleMin}
+              max={uiScaleMax}
+              step={uiScaleStep}
+              value={device.uiScale}
+              aria-valuetext={`${device.uiScale} percent`}
+              onChange={(event) => updateDevice({ uiScale: Number(event.target.value) })}
+            />
+            <output>{device.uiScale}%</output>
+            <button
+              type="button"
+              disabled={device.uiScale === 100}
+              onClick={() => updateDevice({ uiScale: 100 })}
+            >
+              100%
+            </button>
+          </span>
         </label>
+        <p className={styles.hint}>
+          Scales the whole interface on this device ({uiScaleMin}–{uiScaleMax}%), on top of the
+          browser&apos;s own zoom. In a narrow window a large scale is limited so the layout keeps
+          fitting.
+        </p>
         <div className={styles.actions}>
           <button
             type="button"

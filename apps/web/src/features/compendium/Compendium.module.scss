@@ -113,7 +113,7 @@
   .rows a {
     display: inline-flex;
     align-items: center;
-    min-height: 44px;
+    min-height: max(44px, 2.75rem);
   }
 }
 .rows button {
@@ -230,7 +230,7 @@
     min-width: 0;
   }
   .phoneCells button {
-    min-height: 44px;
+    min-height: max(44px, 2.75rem);
     width: 100%;
     white-space: normal;
     overflow-wrap: anywhere;

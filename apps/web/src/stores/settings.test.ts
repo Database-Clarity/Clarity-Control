@@ -67,21 +67,21 @@ describe('settings store: local storage', () => {
     const server = fakeServer();
     const store = make(storage, server);
     await store.getState().activate(editor);
-    store.getState().updateDevice({ textSize: 'large' });
+    store.getState().updateDevice({ uiScale: 125 });
     expect(JSON.parse(values.get(deviceKey)!)).toEqual({
-      textSize: 'large',
+      uiScale: 125,
       editorFont: 'default',
       theme: 'system',
       panes: {},
       remembered: {},
     });
-    expect(values.get(settingsKey('7'))).not.toContain('textSize');
+    expect(values.get(settingsKey('7'))).not.toContain('uiScale');
     expect(store.getState().pending).toEqual([]);
     await store.getState().sync();
     expect(server.calls.put).toHaveLength(0);
     // Device settings survive a user switch and a reload.
     await store.getState().activate(null);
-    expect(make(storage, fakeServer()).getState().device.textSize).toBe('large');
+    expect(make(storage, fakeServer()).getState().device.uiScale).toBe(125);
   });
 
   it('adopts the signed-out copy once on sign-in and never shares between users', async () => {
@@ -685,5 +685,24 @@ describe('settings store: two tabs', () => {
     await a.getState().sync();
     expect(a.getState().status).toBe('synced');
     expect(server.remote.settings).toMatchObject({ dateFormat: 'iso', timeZone: 'UTC' });
+  });
+});
+
+describe('interface scale device preference', () => {
+  const scaleOf = (device: Record<string, unknown>) =>
+    make(memoryStorage({ [deviceKey]: JSON.stringify(device) }).storage, fakeServer()).getState()
+      .device.uiScale;
+  it('defaults to the design size and carries the old Large text setting over', () => {
+    expect(scaleOf({})).toBe(100);
+    expect(scaleOf({ textSize: 'default' })).toBe(100);
+    expect(scaleOf({ textSize: 'large' })).toBe(115);
+    expect(scaleOf({ uiScale: 90, textSize: 'large' })).toBe(90);
+  });
+  it('clamps a stored value to 85-150 % and recovers from junk', () => {
+    expect(scaleOf({ uiScale: 20 })).toBe(85);
+    expect(scaleOf({ uiScale: 900 })).toBe(150);
+    expect(scaleOf({ uiScale: 112.4 })).toBe(112);
+    expect(scaleOf({ uiScale: 'big' })).toBe(100);
+    expect(scaleOf({ uiScale: null })).toBe(100);
   });
 });

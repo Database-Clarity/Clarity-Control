@@ -44,11 +44,11 @@ it('keeps the phone review actions and overlay clear of the home indicator, with
   expect(css).toContain('var(--review-action-bar-height, 0px)');
   expect(css).not.toContain('--save-dock-height');
   expect(layoutCss).not.toContain('--save-dock-height');
-  expect(css).toMatch(/\.actionBar button \{\s*min-height: 44px;\s*\}/);
+  expect(css).toMatch(/\.actionBar button \{\s*min-height: max\(44px, 2\.75rem\);\s*\}/);
   expect(css).toContain('.actionConsequence');
   const reviewMobile = reviewCss.slice(reviewCss.indexOf('@media (max-width: 700px)'));
   const emptyActionRule = reviewMobile.match(/([^{}]*\.empty button[^{}]*)\{([^{}]*)\}/);
-  expect(emptyActionRule?.[2]).toContain('min-height: 44px;');
+  expect(emptyActionRule?.[2]).toContain('min-height: max(44px, 2.75rem);');
   expect(categoryCss).toMatch(/@media \(max-width: 700px\)[\s\S]*\.actions \{\s*position: fixed;/);
   expect(categoryCss).toContain('.actionEyebrow');
 });
@@ -72,7 +72,7 @@ it('gives category and pending queue links 44px phone/coarse targets without cha
         `@media ${media.replace(/[()]/g, '\\$&')} \\{\\s*\\.sidebarNavigation a \\{([^}]+)\\}`,
       ),
     )?.[1];
-    expect(targets).toContain('min-height: 44px;');
+    expect(targets).toContain('min-height: max(44px, 2.75rem);');
     expect(targets).toContain('box-sizing: border-box;');
     expect(targets).toContain('align-items: center;');
   }

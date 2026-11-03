@@ -23,7 +23,6 @@ import { PhoneHeader } from './PhoneHeader';
 import { PreviewLeaveGuard } from './PreviewLeaveGuard';
 import { ShellColumnContext, type ShellColumn } from './ShellColumnContext';
 import { ShellSlotHost, ShellSlotsProvider } from './ShellSlots';
-import { ShellStatus } from './ShellStatus';
 import { TooltipNavigation } from './TooltipNavigation';
 import { canonicalHash, itemFor } from './catalog';
 import { documentTitle } from './documentTitle';
@@ -322,7 +321,6 @@ function LayoutContent() {
               {/* A failed draft recovery must not hide read-only browsing; edit actions stay gated on `hydrated`. */}
               {status === 'ready' && (hydrated || Boolean(draftError)) && <Outlet />}
             </main>
-            <ShellStatus />
           </div>
         </div>
         {/* Places routes publish into (identity, status); empty until they do. */}

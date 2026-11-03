@@ -34,9 +34,9 @@
   }
   button {
     @include controls.button;
-    min-width: 28px;
+    min-width: 1.75rem;
     @include theme.mobile-or-coarse {
-      min-width: 44px;
+      min-width: max(44px, 2.75rem);
     }
   }
 }

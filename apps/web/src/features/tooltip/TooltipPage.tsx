@@ -112,6 +112,7 @@ export function TooltipPage({
   // shown there; without one (a phone, or the page on its own) they stay inline in the page.
   const column = useShellColumn();
   const showPreview = column?.show;
+  const reviewEntries = usePreviewReviewStore((state) => state.entries);
   // "Show preview" from the leave guard opens the column on a render that counts as seen: Base, or
   // Enhanced for an override with unseen edits. Compare never does, so it is left.
   const reveal = useRef<() => void>(undefined);
@@ -237,6 +238,20 @@ export function TooltipPage({
     </div>
   );
 
+  // The editor's status bar tells how many edits the preview has not shown yet, and offers it.
+  const previewStatus = column
+    ? {
+        unpreviewed: Object.values(reviewEntries).filter(
+          (entry) => entry.canonical === canonical && entry.dirty > entry.reviewed,
+        ).length,
+        collapsed: column.collapsed,
+        onShow: () => {
+          const host = usePreviewReviewStore.getState().host;
+          if (host) host.show();
+          else column.show();
+        },
+      }
+    : undefined;
   const translation = translationQueue([activeBase], [lang], data.aliases)[0];
   const overrideTargets = overrides.map((variant) => ({ hash: variant, name: nameOf(variant) }));
   const editing = (variant: number, base: Tooltip) => (
@@ -247,6 +262,8 @@ export function TooltipPage({
       globals={globalsFor(variant)}
       requireEnglish={hash > 3}
       readOnly={access.reason !== null}
+      readOnlyReason={access.reason}
+      preview={previewStatus}
       tooltipHash={variant}
       referenceSources={referenceSources}
       onOpenTooltip={openDefinition}
@@ -290,6 +307,7 @@ export function TooltipPage({
             globals={globalsFor(variant)}
             requireEnglish={false}
             readOnly
+            readOnlyReason="Stored form: read only"
             onChange={() => undefined}
           />
         ),

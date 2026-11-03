@@ -202,7 +202,7 @@ describe('the preview column', () => {
     expect(aside()?.hasAttribute('hidden')).toBe(false);
   });
 
-  it('records a change as unreviewed only while collapsed, and counts it in the status line', async () => {
+  it('records a change as unreviewed only while collapsed, and counts it on the column toggle (the editor status bar says it too)', async () => {
     await mount();
     // Expanded: the preview renders each edit, so nothing stays unreviewed.
     await act(async () => useDraftStore.setState({ drafts: draftOf('a') }));
@@ -210,14 +210,10 @@ describe('the preview column', () => {
     await act(async () => toggle().click());
     await act(async () => useDraftStore.setState({ drafts: draftOf('ab') }));
     expect(usePreviewReviewStore.getState().unreviewed(100)).toEqual([100]);
-    expect(host.querySelector('[data-shell-status]')?.textContent).toContain(
-      '1 change not reviewed',
-    );
     expect(toggle().getAttribute('aria-label')).toContain('1 change not reviewed');
     // Showing the preview clears it.
     await act(async () => usePreviewReviewStore.getState().host?.show());
     expect(usePreviewReviewStore.getState().unreviewed(100)).toEqual([]);
-    expect(host.querySelector('[data-shell-status]')?.textContent).toContain('Preview shown');
   });
 
   it('starts collapsed in compact windows without saving that as a choice', async () => {

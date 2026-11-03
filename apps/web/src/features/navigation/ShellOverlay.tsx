@@ -10,6 +10,7 @@ import {
   type RefObject,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { scaledPx } from '../../ui/scale';
 import { create } from 'zustand';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import styles from './ShellOverlay.module.scss';
@@ -26,7 +27,7 @@ const gap = 4;
 function place(anchor: Element | null, width: number, align: 'start' | 'end'): CSSProperties {
   if (!anchor) return { top: 40, left: margin, width };
   const rect = anchor.getBoundingClientRect();
-  const fit = Math.min(width, window.innerWidth - margin * 2);
+  const fit = Math.min(scaledPx(width), window.innerWidth - margin * 2);
   const left =
     align === 'end'
       ? Math.max(margin, Math.min(rect.right - fit, window.innerWidth - fit - margin))

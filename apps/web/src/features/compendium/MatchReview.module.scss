@@ -252,7 +252,7 @@
   text-align: center;
 }
 .actionBar button {
-  min-height: 44px;
+  min-height: max(44px, 2.75rem);
 }
 .review .primary {
   background: #b6e3cd;
@@ -310,7 +310,7 @@
     select,
     textarea,
     summary {
-      min-height: 44px;
+      min-height: max(44px, 2.75rem);
       box-sizing: border-box;
     }
   }
@@ -324,14 +324,14 @@
   .heading > a {
     display: inline-flex;
     align-items: center;
-    min-height: 44px;
+    min-height: max(44px, 2.75rem);
     font-size: 0.8rem;
   }
   .help summary {
-    min-width: 44px;
+    min-width: max(44px, 2.75rem);
   }
   .tabs a {
-    min-height: 44px;
+    min-height: max(44px, 2.75rem);
     flex: 1 1 10rem;
     justify-content: center;
   }
@@ -385,6 +385,6 @@
     flex-wrap: wrap;
   }
   .progress progress {
-    min-width: 80px;
+    min-width: 5rem;
   }
 }
