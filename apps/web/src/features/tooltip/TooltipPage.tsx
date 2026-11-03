@@ -21,6 +21,7 @@ import { ShellSlot } from '../navigation/ShellSlots';
 import { useShellColumn } from '../navigation/ShellColumnContext';
 import { usePreviewReviewStore } from '../../stores/previewReview';
 import { ClarityEditor } from '../editor';
+import { useMarkupRow } from '../editor/markupRow/useMarkupRow';
 import { tooltipTextSources } from '../editor/references';
 import { corpusUsage } from '../editor/suggest/usage';
 import type { TooltipTarget } from '../editor/referenceActions';
@@ -74,6 +75,7 @@ export function TooltipPage({
   const [previewMode, setPreviewMode] = useState<PreviewMode | null>(null);
   const [previewPick, setPreviewPick] = useState<{ hash: number; variant: number }>();
   const phone = useMedia(phoneQuery);
+  const markupRow = useMarkupRow();
   const user = useAuthStore((state) => state.user);
   const lang = defaultLanguage(user, search, remembered);
   function changeLanguage(next: Lang) {
@@ -271,8 +273,7 @@ export function TooltipPage({
       referenceSources={referenceSources}
       usage={usage}
       onOpenTooltip={openDefinition}
-      // The translator toolbar stays until the markup row (a later step) replaces it.
-      markupToolbar={lang !== 'en'}
+      markupRow={markupRow.open}
       highlightLine={variant === activeHash ? highlightLine : undefined}
       onChange={(text) => edit(base, lang, text, user?.login ?? 'local draft')}
     />
@@ -299,6 +300,20 @@ export function TooltipPage({
       overrides={overrideTargets}
       activeOverride={
         activeVariant === null ? undefined : { hash: activeVariant, name: nameOf(activeVariant) }
+      }
+      markupTools={
+        access.reason === null && (
+          <button
+            type="button"
+            className={styles.ghost}
+            aria-pressed={markupRow.open}
+            aria-keyshortcuts="Control+."
+            title="Show or hide the markup row at the top of the editor"
+            onClick={markupRow.toggle}
+          >
+            Markup tools <kbd className={styles.key}>Ctrl+.</kbd>
+          </button>
+        )
       }
       onEditOverride={(variant) => setPicked({ hash, variant })}
       onBack={() => setPicked({ hash, variant: null })}

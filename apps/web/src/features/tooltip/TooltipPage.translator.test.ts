@@ -148,7 +148,8 @@ describe('translator tooltip page', () => {
     expect(props.lang).toBe('de');
     expect(props.value).toBe('Deutscher Text');
     expect(props.readOnly).toBe(false);
-    expect(props.markupToolbar).toBe(true);
+    // The markup row is for every role and starts closed (Settings or Ctrl+. opens it).
+    expect(props.markupRow).toBe(false);
     expect(html).not.toContain('Read-only');
     expect(html).not.toContain('Switch to');
   });
@@ -236,7 +237,7 @@ describe('translator tooltip page', () => {
   it('shows English editor and panel tabs without a translation source', () => {
     useAuthStore.setState({ user: editor });
     const html = render('/t/10');
-    expect(vi.mocked(ClarityEditor).mock.calls[0][0].markupToolbar).toBe(false);
+    expect(vi.mocked(ClarityEditor).mock.calls[0][0].markupRow).toBe(false);
     expect(html).not.toContain('Read-only');
     expect(html).not.toContain('English source');
     expect(html).toContain('role="tablist"');

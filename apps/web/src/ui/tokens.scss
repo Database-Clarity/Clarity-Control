@@ -42,6 +42,13 @@
   --accent: #24ec54;
   --accent-ink: #24ec54;
   --enhanced: #eade8b;
+  // Tag colours as the game draws them (the preview's palette), for buttons that show a tag
+  --tag-pve: hsl(220, 100%, 75%);
+  --tag-pvp: hsl(0, 100%, 80%);
+  --tag-yellow: hsl(51, 100%, 45%);
+  --tag-blue: hsl(180, 100%, 45%);
+  --tag-green: hsl(116, 58%, 65%);
+  --tag-purple: hsl(300, 100%, 81%);
   --on-accent: #0b1a0f;
   --pri-text: #bff7cd;
   --pri-hover: #16301c;
@@ -135,6 +142,12 @@
   --accent: #24ec54;
   --accent-ink: #0c6e2c;
   --enhanced: #7a6400;
+  --tag-pve: #1f4fd1;
+  --tag-pvp: #b0211c;
+  --tag-yellow: #7d5d00;
+  --tag-blue: #00677a;
+  --tag-green: #1a7429;
+  --tag-purple: #8a2a9a;
   --on-accent: #0b1a0f;
   --pri-text: #0c6e2c;
   --pri-hover: #d9f3e1;

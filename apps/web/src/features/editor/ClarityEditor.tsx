@@ -28,7 +28,10 @@ import { clarityHighlighting, clarityLanguage } from './language';
 import { tableFormattingTransaction } from './formatTable';
 import { editorScrollMargins } from './scrollMargins';
 import { validationDiagnostics } from './diagnostics';
-import { MarkupToolbar } from './MarkupToolbar';
+import { MarkupRow } from './markupRow/MarkupRow';
+import { SuggestChip } from './markupRow/SuggestChip';
+import { chipHost, chipsExtension, type Chip } from './markupRow/chips';
+import { useSettingsStore, type SuggestAccept } from '../../stores/settings';
 import {
   GlyphPanel,
   HelpPanel,
@@ -60,7 +63,8 @@ export interface ClarityEditorProps {
   readOnlyReason?: string | null;
   /** The preview column's state, for the status bar (desktop page only). */
   preview?: PreviewStatus;
-  markupToolbar?: boolean;
+  /** Shows the markup row at the top of the editor (the page decides; Ctrl+. flips it). */
+  markupRow?: boolean;
   /** Hash of the tooltip being edited; definitions inside it are selected, not navigated to. */
   tooltipHash?: number;
   /** Where every tooltip's text lives, for hover previews and go-to-definition across tooltips. */
@@ -78,6 +82,7 @@ function configuration(
   requireEnglish: boolean,
   references: Omit<ReferenceHost, 'lang' | 'globals'>,
   onSuggest: (snapshot: SuggestSnapshot | null) => void,
+  chips: { acceptKey(): SuggestAccept; onChange(chip: Chip | null): void },
 ) {
   return [
     EditorState.readOnly.of(readOnly),
@@ -91,6 +96,7 @@ function configuration(
       'aria-multiline': 'true',
     }),
     suggestConfiguration({ globals, onChange: onSuggest }),
+    chipHost.of({ globals, ...chips }),
     validationDiagnostics(lang, globals, requireEnglish, references.selfHash),
     referenceExtensions({ ...references, lang, globals }),
   ];
@@ -106,7 +112,7 @@ export function ClarityEditor({
   highlightLine,
   readOnlyReason = null,
   preview,
-  markupToolbar = false,
+  markupRow = false,
   tooltipHash,
   referenceSources,
   onOpenTooltip,
@@ -121,6 +127,14 @@ export function ClarityEditor({
   const closePanel = useRef(() => setPanel(null));
   const [suggestion, setSuggestion] = useState<SuggestSnapshot | null>(null);
   const onSuggest = useRef((snapshot: SuggestSnapshot | null) => setSuggestion(snapshot));
+  const [chip, setChip] = useState<Chip | null>(null);
+  const acceptKey = useSettingsStore((state) => state.device.suggestAccept);
+  const acceptKeyRef = useRef(acceptKey);
+  acceptKeyRef.current = acceptKey;
+  const chipHooks = useRef({
+    acceptKey: () => acceptKeyRef.current,
+    onChange: (next: Chip | null) => setChip(next),
+  });
   const [cursor, setCursor] = useState({ line: 1, column: 1 });
   const referenceLive = useRef({ tooltipHash, referenceSources, onOpenTooltip });
   const references = useRef<Omit<ReferenceHost, 'lang' | 'globals'>>({
@@ -191,6 +205,7 @@ export function ClarityEditor({
       clarityLanguage,
       clarityHighlighting,
       suggestExtension(),
+      chipsExtension(),
       keymap.of([
         {
           key: 'Escape',
@@ -217,6 +232,7 @@ export function ClarityEditor({
           initial.current.requireEnglish,
           references.current,
           onSuggest.current,
+          chipHooks.current,
         ),
       ),
       EditorView.updateListener.of((update) => {
@@ -250,7 +266,15 @@ export function ClarityEditor({
     editor.setState(EditorState.create({ doc: value, extensions: extensions.current }));
     editor.dispatch({
       effects: config.current.reconfigure(
-        configuration(lang, globals, readOnly, requireEnglish, references.current, onSuggest.current),
+        configuration(
+          lang,
+          globals,
+          readOnly,
+          requireEnglish,
+          references.current,
+          onSuggest.current,
+          chipHooks.current,
+        ),
       ),
     });
   }, [value, lang, globals, readOnly, requireEnglish]);
@@ -258,7 +282,15 @@ export function ClarityEditor({
   useEffect(() => {
     view.current?.dispatch({
       effects: config.current.reconfigure(
-        configuration(lang, globals, readOnly, requireEnglish, references.current, onSuggest.current),
+        configuration(
+          lang,
+          globals,
+          readOnly,
+          requireEnglish,
+          references.current,
+          onSuggest.current,
+          chipHooks.current,
+        ),
       ),
     });
   }, [lang, globals, readOnly, requireEnglish]);
@@ -283,7 +315,7 @@ export function ClarityEditor({
   const open = panel === 'glyphs' && glyphCount === 0 ? null : panel;
   return (
     <div className={styles.editor} data-editor-root>
-      {markupToolbar && !readOnly && <MarkupToolbar editor={view} globals={globals} />}
+      {markupRow && !readOnly && <MarkupRow view={view} globals={globals} usage={usage} />}
       <div className={styles.textArea}>
         <div ref={host} className={styles.host} />
         {open === 'glyphs' && (
@@ -305,6 +337,9 @@ export function ClarityEditor({
           lang={lang}
           usage={usage}
         />
+      )}
+      {chip && view.current && !suggestion && (
+        <SuggestChip chip={chip} view={view.current} acceptKey={acceptKey} />
       )}
       <StatusBar
         readOnlyReason={readOnlyReason}

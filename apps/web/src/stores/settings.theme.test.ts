@@ -91,6 +91,7 @@ describe('device theme', () => {
       theme: 'system',
       panes: {},
       compendiumScale: 100,
+      suggestAccept: 'enter',
       remembered: { markupToolbar: 'open' },
     });
   });
