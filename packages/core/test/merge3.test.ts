@@ -90,3 +90,23 @@ test('deletion merges with unchanged but conflicts with editing the deleted fiel
 test('rejects cross-tooltip merges', () => {
   expect(() => merge3(tooltip(), tooltip(), { ...tooltip(), hash: 99 })).toThrow('different tooltip');
 });
+
+test('a retried save that re-stamped identical text is not a conflict and keeps the first stamps', () => {
+  const base = tooltip();
+  const first = structuredClone(base);
+  first.text.en = { text: 'Edited', updatedAt: '2026-11-01T00:00:00Z', updatedBy: 'alice' };
+  first.bungieSnapshot = { description: 'Game text', snapshotAt: '2026-11-01T00:00:00Z' };
+  const retry = structuredClone(first);
+  retry.text.en = { text: 'Edited', updatedAt: '2026-11-01T00:05:00Z', updatedBy: 'alice' };
+  retry.bungieSnapshot = { description: 'Game text', snapshotAt: '2026-11-01T00:05:00Z' };
+  expect(merge3(base, first, retry)).toEqual({ ok: true, merged: first });
+  // Different text is still a conflict.
+  retry.text.en!.text = 'Edited differently';
+  expect(merge3(base, first, retry)).toMatchObject({ ok: false });
+});
+test('a metadata-only change on an unchanged text is still applied', () => {
+  const base = tooltip();
+  const next = structuredClone(base);
+  next.text.en!.updatedBy = 'bob';
+  expect(merge3(base, base, next)).toEqual({ ok: true, merged: next });
+});

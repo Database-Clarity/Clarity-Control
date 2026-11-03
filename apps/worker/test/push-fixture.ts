@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { publishableHash, type Tooltip } from '@clarity/core';
+import { publishableHash, type Aliases, type Tooltip } from '@clarity/core';
 import { Fixture, tooltip } from './fixture.js';
 
 export const pushTime = 1_900_000_000_000;
@@ -20,9 +20,14 @@ export function danglingReferences(perks: Record<string, unknown>): string[] {
   });
 }
 
-export async function reviewed(tooltips: readonly Tooltip[]): Promise<Record<string, string>> {
+export async function reviewed(
+  tooltips: readonly Tooltip[],
+  aliases: Aliases = {},
+): Promise<Record<string, string>> {
   return Object.fromEntries(
-    await Promise.all(tooltips.map(async (value) => [value.hash, await publishableHash(value)])),
+    await Promise.all(
+      tooltips.map(async (value) => [value.hash, await publishableHash(value, aliases)]),
+    ),
   );
 }
 
@@ -41,7 +46,6 @@ export async function seedPushGroups(fixture: Fixture) {
   };
   const oldUnchanged: Tooltip = { ...tooltip('unchanged text'), hash: 234 };
   const unrelated: Tooltip = { ...tooltip('untouched'), hash: 999 };
-  const markers = await reviewed([previous, oldUnchanged, unrelated]);
   fixture.aliases = {
     345: { to: 123, kind: 'frame' },
     789: { to: 345, kind: 'sandbox' },
@@ -49,6 +53,7 @@ export async function seedPushGroups(fixture: Fixture) {
     890: { to: 456, kind: 'sandbox' },
     1001: { to: 999, kind: 'sandbox' },
   };
+  const markers = await reviewed([previous, oldUnchanged, unrelated], fixture.aliases);
   fixture.extraItems = Object.fromEntries(
     [234, 345, 456].map((hash) => [
       hash,

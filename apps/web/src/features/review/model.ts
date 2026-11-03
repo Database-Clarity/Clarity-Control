@@ -19,7 +19,7 @@ export async function pendingTooltips(
   const entries = await Promise.all(
     Object.values(data.bundle.tooltips).map(async (tooltip) => {
       if (resolveAlias(tooltip.hash, data.aliases) !== tooltip.hash) return null;
-      if ((await publishableHash(tooltip)) === pushed[tooltip.hash]) return null;
+      if ((await publishableHash(tooltip, data.aliases)) === pushed[tooltip.hash]) return null;
       const item = data.items[tooltip.hash];
       const categoryId = item?.categoryId ?? tooltip.custom?.categoryId ?? 'other';
       const category = data.categories.find((entry) => entry.id === categoryId);

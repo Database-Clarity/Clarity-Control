@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { permissionsSchema, tooltipSchema } from '@clarity/core';
 import { RefRace, type GitHub } from './github.js';
 import { body, hashParam, HttpError, json } from './http.js';
@@ -5,30 +6,45 @@ import { permissions, requireAccess } from './permissions.js';
 import type { Identity } from './types.js';
 import { historySchema, pushedVersion } from './history.js';
 
+const permissionsUpdateSchema = z
+  .object({ revision: z.string().regex(/^[0-9a-f]{40}$/), permissions: permissionsSchema })
+  .strict();
+
+/**
+ * GET returns the permissions with the blob SHA they were read at (`revision`). PUT must send that
+ * revision back; if the stored permissions have since changed - checked again on every ref-race
+ * retry - the update is refused with 409 rather than overwriting (and so un-revoking) newer access.
+ */
 export async function managePermissions(
   request: Request,
   github: GitHub,
   user: Identity,
 ): Promise<Response> {
-  const input = request.method === 'PUT' ? await body(request, permissionsSchema) : null;
+  const input = request.method === 'PUT' ? await body(request, permissionsUpdateSchema) : null;
   for (let attempt = 0; attempt < 3; attempt++) {
     const head = await github.head();
-    const current = await permissions(github, head);
+    const file = await github.requiredFile('config/permissions.json', head);
+    const current = permissionsSchema.parse(file.value);
     requireAccess(current, user, ['maintainer']);
-    if (!input) return json(current);
-    if (!Object.values(input.users).some((access) => access.role === 'maintainer')) {
+    if (!input) return json({ revision: file.sha, permissions: current });
+    if (input.revision !== file.sha) {
+      throw new HttpError(409, 'Permissions changed since they were loaded; reload and retry');
+    }
+    const next = input.permissions;
+    if (!Object.values(next.users).some((access) => access.role === 'maintainer')) {
       throw new HttpError(400, 'At least one maintainer must remain');
     }
     try {
       const commit = await github.commit(
         head,
         {
-          'config/permissions.json': input,
+          'config/permissions.json': next,
         },
         `Update editor permissions by ${user.login}`,
         user,
       );
-      return json({ commit, permissions: input });
+      const saved = await github.requiredFile('config/permissions.json', commit);
+      return json({ commit, revision: saved.sha, permissions: next });
     } catch (error) {
       if (!(error instanceof RefRace)) throw error;
     }

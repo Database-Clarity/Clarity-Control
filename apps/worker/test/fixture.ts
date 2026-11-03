@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { vi } from 'vitest';
 import { type Aliases, type Permissions, type Tooltip } from '@clarity/core';
@@ -216,7 +217,10 @@ export class Fixture {
       const value = name === 'liveDescriptions.json' ? this.live : this.snapshots.get(ref)?.[name];
       if (value === undefined) return this.response({ message: 'Not Found' }, 404);
       return this.response({
-        sha: name === 'liveDescriptions.json' ? this.liveFileSha : sha(4),
+        sha:
+          name === 'liveDescriptions.json'
+            ? this.liveFileSha
+            : createHash('sha1').update(JSON.stringify(value)).digest('hex'),
         encoding: this.largeFile && name === 'liveDescriptions.json' ? 'none' : 'base64',
         content:
           this.largeFile && name === 'liveDescriptions.json'
