@@ -325,7 +325,6 @@ export function createSettingsStore({
   if (Object.keys(legacyRemembered).length) write(deviceKey, device);
   const initial = load('anonymous');
   let observed = read(settingsKey('anonymous'));
-  let lastRemote: RemoteSettings | null = null;
   const initialNotice = notice;
   applyDeviceSettings(device);
 
@@ -359,10 +358,8 @@ export function createSettingsStore({
             .filter((v): v is string => v !== null)
             .sort()[0] ?? now())
         : null;
-      if (shared.pending.length && canSync) recovered = true;
       if (!keys.length) {
         recovered = false;
-        lastRemote = { settings, revision: shared.revision };
       }
       set({
         settings,
@@ -372,16 +369,13 @@ export function createSettingsStore({
         ...(canSync && state.status !== 'loading' && state.status !== 'syncing'
           ? { status: keys.length ? ('unsynced' as const) : ('synced' as const) }
           : {}),
-        ...(keys.length && recovered && lastRemote
-          ? {
-              status: 'choice' as const,
-              choice: { local: settings, remote: lastRemote, recovered: true, since },
-            }
-          : !keys.length
-            ? { choice: null }
-            : state.choice
-              ? { choice: { ...state.choice, local: settings } }
-              : {}),
+        // A choice is only ever built from a server response (refresh/send), never from a
+        // possibly stale copy; here it just follows the shared state.
+        ...(!keys.length
+          ? { choice: null }
+          : state.choice
+            ? { choice: { ...state.choice, local: settings } }
+            : {}),
       });
     }
 
@@ -404,7 +398,6 @@ export function createSettingsStore({
 
     function synced(remote: RemoteSettings, sent: SyncedSettings): void {
       reconcile();
-      lastRemote = remote;
       const current = get().settings;
       const pending = get().pending.filter((key) => current[key] !== sent[key]);
       uploadNeeded = false;
@@ -468,24 +461,41 @@ export function createSettingsStore({
 
     async function refresh(token: number): Promise<void> {
       set({ status: 'loading', error: '' });
-      let remote: RemoteSettings;
-      try {
-        remote = await api.get();
-      } catch (error) {
-        if (token === activation) {
-          exitQueued = false;
-          set({
-            status: 'error',
-            error: 'your synced settings could not be loaded',
-            errorDetail: errorMessage(error),
-          });
+      let remote: RemoteSettings | null = null;
+      // Another tab may sync while this GET is in flight; its response is then older than the
+      // shared copy and must not replace it, so ask again (a few times at most).
+      for (let attempt = 0; attempt < 3 && !remote; attempt++) {
+        reconcile();
+        const started = get().revision;
+        let received: RemoteSettings;
+        try {
+          received = await api.get();
+        } catch (error) {
+          if (token === activation) {
+            exitQueued = false;
+            set({
+              status: 'error',
+              error: 'your synced settings could not be loaded',
+              errorDetail: errorMessage(error),
+            });
+          }
+          return;
         }
+        if (token !== activation) return;
+        reconcile();
+        const current = get().revision;
+        if (current === started || current === received.revision) remote = received;
+      }
+      if (!remote) {
+        exitQueued = false;
+        set({
+          status: 'error',
+          error: 'your synced settings changed in another tab while loading',
+          errorDetail: '',
+        });
         return;
       }
-      if (token !== activation) return;
       remoteLoaded = true;
-      lastRemote = remote;
-      reconcile();
       const state = get();
       uploadNeeded = remote.settings === null;
       if (state.pending.length) {
@@ -537,7 +547,6 @@ export function createSettingsStore({
         const scope = user ? String(user.id) : 'anonymous';
         const copy = load(scope);
         observed = read(settingsKey(scope));
-        lastRemote = null;
         canSync = Boolean(syncEnabled && user?.role);
         remoteLoaded = false;
         uploadNeeded = false;

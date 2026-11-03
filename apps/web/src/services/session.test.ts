@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   clearSession,
+  dropRejectedSession,
   rememberSignIn,
   sessionToken,
   setSession,
@@ -101,5 +102,16 @@ it('removes an expired shared entry without broadcasting global logout', () => {
   vi.advanceTimersByTime(61000);
   expect(sessionToken()).toBeNull();
   expect(localStorage.getItem(key)).toBeNull();
+  expect(localStorage.getItem('clarity-editor-signout')).toBeNull();
+});
+
+it('a server-rejected per-tab token leaves a different remembered token and does not sign out other tabs', () => {
+  const rejected = token();
+  setSession(rejected); // This tab, without Remember me.
+  const remembered = token() + 'x';
+  localStorage.setItem(key, remembered);
+  dropRejectedSession(rejected);
+  expect(sessionStorage.getItem(key)).toBeNull();
+  expect(localStorage.getItem(key)).toBe(remembered);
   expect(localStorage.getItem('clarity-editor-signout')).toBeNull();
 });

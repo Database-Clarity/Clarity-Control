@@ -37,6 +37,13 @@ export function clearSession(): void {
   localStorage.setItem(logoutKey, crypto.randomUUID());
 }
 
+/** The server rejected this token: drop only entries holding it; no global sign-out signal. */
+export function dropRejectedSession(token: string): void {
+  for (const storage of [sessionStorage, localStorage])
+    if (storage.getItem(sessionKey) === token) storage.removeItem(sessionKey);
+  window.dispatchEvent(new Event(changed));
+}
+
 export function sessionToken(): string | null {
   // Expiry belongs to the entry inspected, not to every tab's session.
   for (const storage of [sessionStorage, localStorage]) {
