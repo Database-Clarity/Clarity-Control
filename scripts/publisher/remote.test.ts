@@ -68,18 +68,24 @@ it('real receive-pack timeout remains unresolved and can reconcile the exact com
   const a = repo.commit(undefined, { file: repo.writeBlob('bytes') }, 'base');
   const hook = join(upstream, 'hooks', 'pre-receive');
   const finished = hook + '.finished';
-  writeFileSync(hook, '#!/bin/sh\nsleep 3\ntouch "$0.finished"\nexit 1\n');
+  const accept = hook + '.accept';
+  // Keep this script immutable: a shell can read it incrementally after the client is killed.
+  // Each invocation chooses its outcome before sleeping, so the first always rejects even
+  // if the retry is enabled before that shell actually exits.
+  writeFileSync(
+    hook,
+    '#!/bin/sh\nif [ -f "$0.accept" ]; then\n  exit 0\nfi\nsleep 3\ntouch "$0.finished"\nexit 1\n',
+  );
   chmodSync(hook, 0o755);
   expect(() => repo.cas(data, undefined, a)).toThrow(TransportUnresolved);
-  // Killing the client may leave receive-pack running. Do not replace the hook until its
-  // original invocation has irrevocably selected rejection, or that timed-out push can land.
+  // The marker establishes that the old invocation selected rejection; it need not have exited.
   const deadline = Date.now() + 20_000;
   while (!existsSync(finished)) {
     if (Date.now() > deadline) throw new Error('Timed-out receive hook did not finish');
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   // No success inferred from absent ref; retry uses the exact original commit.
-  writeFileSync(hook, '#!/bin/sh\nexit 0\n');
+  writeFileSync(accept, '');
   repo.timeoutPush = false;
   repo.cas(data, undefined, a);
   expect(repo.head(data)).toBe(a);
