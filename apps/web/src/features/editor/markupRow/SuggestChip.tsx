@@ -32,7 +32,9 @@ export function placeChip(
   if (!last || !first) return null;
   // Both ends of the text are out of the editor's window: the chip goes with them.
   if (last.bottom <= scroller.top || first.top >= scroller.bottom) return null;
-  const limit = Math.min(bottom, scroller.bottom + 24);
+  // The page itself can scroll (a phone): text outside the visible window takes the chip with it.
+  if (last.bottom <= top || first.top >= bottom) return null;
+  const limit = Math.min(bottom, scroller.bottom);
   const left = Math.min(
     Math.max(edge, scroller.left + 4, last.left),
     Math.max(edge, window.innerWidth - size.width - edge),
@@ -40,7 +42,7 @@ export function placeChip(
   const below = last.bottom + gap;
   if (below + size.height <= limit) return { left, top: below };
   const above = first.top - gap - size.height;
-  if (above >= Math.max(top, scroller.top - 24)) return { left, top: above };
+  if (above >= Math.max(top, scroller.top)) return { left, top: above };
   return null;
 }
 
@@ -64,10 +66,13 @@ export function SuggestChip({
     measure();
     const scroller = view.scrollDOM;
     scroller.addEventListener('scroll', measure, { passive: true });
+    // Capture: a scrolling page or pane does not bubble its scroll event to the window.
+    window.addEventListener('scroll', measure, { capture: true, passive: true });
     window.addEventListener('resize', measure);
     window.visualViewport?.addEventListener('resize', measure);
     return () => {
       scroller.removeEventListener('scroll', measure);
+      window.removeEventListener('scroll', measure, { capture: true });
       window.removeEventListener('resize', measure);
       window.visualViewport?.removeEventListener('resize', measure);
     };

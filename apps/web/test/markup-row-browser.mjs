@@ -285,6 +285,32 @@ try {
       });
       assert.ok(selection.selected > 0, `${label}: the selection is drawn`);
       assert.equal(selection.overlaps, 0, `${label}: the chip covers selected text`);
+      const chipBar = await page.evaluate(() => {
+        const box = document.querySelector('[data-suggest-chip]').getBoundingClientRect();
+        const bar = document.querySelector('[data-editor-status]').getBoundingClientRect();
+        return (
+          box.left < bar.right &&
+          box.right > bar.left &&
+          box.top < bar.bottom &&
+          box.bottom > bar.top
+        );
+      });
+      assert.equal(chipBar, false, `${label}: the chip sits on the status bar`);
+      // Scrolling the page (a phone) never leaves the chip over the selection.
+      await page.mouse.wheel(0, 120);
+      await page.waitForTimeout(150);
+      const afterScroll = await page.evaluate(() => {
+        const chip = document.querySelector('[data-suggest-chip]');
+        if (!chip || chip.style.visibility === 'hidden') return 0;
+        const box = chip.getBoundingClientRect();
+        return [...document.querySelectorAll('.cm-selectionBackground')].filter((el) => {
+          const r = el.getBoundingClientRect();
+          return (
+            box.left < r.right && box.right > r.left && box.top < r.bottom && box.bottom > r.top
+          );
+        }).length;
+      });
+      assert.equal(afterScroll, 0, `${label}: scrolling put the chip over the selection`);
       await noOverflow(page, `${label} selection chip`);
       await page.screenshot({ path: `${shots}/${theme}-${width}-chip-selection.png` });
       await page.keyboard.press('Enter');
