@@ -21958,8 +21958,15 @@ var Publisher = class {
     if (prior?.sourceCommit === h) return;
     if (prior && !this.git.ancestor(prior.sourceCommit, h))
       throw new Error("Bundle source would move backwards");
+    const tooltipPaths = Object.keys(t).filter((p) => p.startsWith("tooltips/")).sort();
+    if (!tooltipPaths.length) throw new Error("No tooltips found");
     const tooltips = Object.fromEntries(
-      Object.keys(t).filter((p) => /^tooltips\/\d+\.json$/.test(p)).sort().map((p) => [p.slice(9, -5), this.read(t, p)])
+      tooltipPaths.map((p) => {
+        if (!/^tooltips\/(0|[1-9]\d*)\.json$/.test(p)) throw new Error("Unexpected tooltip entry");
+        const hash2 = p.slice(9, -5), tooltip = tooltipSchema.parse(this.read(t, p));
+        if (String(tooltip.hash) !== hash2) throw new Error("Tooltip hash does not match filename");
+        return [hash2, tooltip];
+      })
     );
     const publishQueue = this.queue(h).map((id) => {
       try {
@@ -21974,8 +21981,8 @@ var Publisher = class {
       sourceCommit: h,
       generatedAt: new Date(this.options.now()).toISOString(),
       tooltips,
-      permissions: this.read(t, "config/permissions.json"),
-      pushed: this.read(t, "live/pushed.json"),
+      permissions: permissionsSchema.parse(this.read(t, "config/permissions.json")),
+      pushed: pushedSchema.parse(this.read(t, "live/pushed.json")),
       publishQueue
     };
     const c = this.git.commit(
@@ -22012,6 +22019,20 @@ var gitAt = (cwd, args) => execFileSync2("git", ["-C", cwd, ...args], {
   stdio: ["pipe", "pipe", "pipe"],
   timeout: 12e4
 });
+function simulationArtifact(repo, out, bases) {
+  const revisions = ["--branches", "--not", ...bases];
+  const count = Number(gitAt(repo.path, ["rev-list", "--count", ...revisions]).trim());
+  if (count)
+    gitAt(repo.path, ["bundle", "create", join2(out, "would-be-commits.bundle"), ...revisions]);
+  writeFileSync(
+    join2(out, "would-be-commits.json"),
+    JSON.stringify(
+      { commits: count, bundle: count ? "would-be-commits.bundle" : null, prerequisites: bases },
+      null,
+      2
+    ) + "\n"
+  );
+}
 async function runPipeline(checkout, config2, output2) {
   if (config2.repo !== "Database-Clarity/Live-Clarity-Database" || config2.dataBranch !== "editor-data" || config2.liveBranch !== "converter-v2-test")
     throw new Error("Pipeline target is not the held test target");
@@ -22069,6 +22090,7 @@ async function runPipeline(checkout, config2, output2) {
   try {
     const initial = snapshot("initial");
     publishBundle(initial, options);
+    const bases = gitAt(initial.path, ["for-each-ref", "--format=%(objectname)", "refs/heads/"]).trim().split("\n");
     try {
       const endpoint = new URL(config2.keyEndpoint);
       if (endpoint.protocol !== "https:") throw new Error("HTTPS Worker key endpoint required");
@@ -22086,7 +22108,7 @@ async function runPipeline(checkout, config2, output2) {
     } catch (e) {
       failure2 = e;
     }
-    gitAt(initial.path, ["bundle", "create", join2(out, "would-be-commits.bundle"), "--all"]);
+    simulationArtifact(initial, out, bases);
   } catch (e) {
     failure2 = e;
   } finally {
