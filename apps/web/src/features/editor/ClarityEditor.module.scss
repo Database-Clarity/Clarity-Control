@@ -66,9 +66,10 @@
     color: var(--text);
     border: 1px solid var(--pop-edge);
   }
-  // ---- symbol widgets (features/editor/symbols.ts): every one is the same 16px box, like the markup
-  // row and the preview (12px symbol + 2px margins). Colour swatches are filled shapes with a dark
-  // outline in the light theme (no rounded dark boxes); popovers float over the text and move nothing.
+  // ---- symbol view (features/editor/symbols.ts): an icon is one 1rem box, like the markup row and the
+  // preview (12px symbol + 2px margins). A colour tag is hidden and the text it encloses is drawn in
+  // the preview's own tag colour (--tag-*, AA on the editor surface in both themes). Popovers float
+  // over the text and move nothing.
   :global(.cm-symbol) {
     display: inline-block;
     box-sizing: border-box;
@@ -77,48 +78,31 @@
     vertical-align: baseline;
     cursor: default;
   }
-  :global(.cm-symbol-open)::before,
-  :global(.cm-symbol-close)::before {
-    content: '';
-    display: inline-block;
-    box-sizing: border-box;
-    height: 0.625rem;
-    vertical-align: -0.0625rem;
-    background: var(--symbol-colour, var(--editor-text));
-    outline: 1px solid var(--symbol-edge, transparent);
-    outline-offset: -1px;
+  // The tint wins over the syntax colours inside it (numbers, [values], #variables); an inner tag wins
+  // over an outer one because every non-tint piece inherits from its nearest tint.
+  :global(.cm-tint :not(.cm-tint)) {
+    color: inherit;
   }
-  :global(.cm-symbol-open)::before {
-    width: 0.625rem;
+  :global(.cm-tint-yellow) {
+    color: var(--tag-yellow);
   }
-  :global(.cm-symbol-close)::before {
-    width: 0.25rem;
+  :global(.cm-tint-blue) {
+    color: var(--tag-blue);
   }
-  :global(.cm-symbol[data-colour='yellow']) {
-    --symbol-colour: var(--tag-yellow);
+  :global(.cm-tint-green) {
+    color: var(--tag-green);
   }
-  :global(.cm-symbol[data-colour='blue']) {
-    --symbol-colour: var(--tag-blue);
+  :global(.cm-tint-purple) {
+    color: var(--tag-purple);
   }
-  :global(.cm-symbol[data-colour='green']) {
-    --symbol-colour: var(--tag-green);
+  :global(.cm-tint-pve) {
+    color: var(--tag-pve);
   }
-  :global(.cm-symbol[data-colour='purple']) {
-    --symbol-colour: var(--tag-purple);
+  :global(.cm-tint-pvp) {
+    color: var(--tag-pvp);
   }
-  :global(.cm-symbol[data-colour='pve']) {
-    --symbol-colour: var(--tag-pve);
-  }
-  :global(.cm-symbol[data-colour='pvp']) {
-    --symbol-colour: var(--tag-pvp);
-  }
-  :global(:root[data-theme='light']) & :global(.cm-symbol) {
-    --symbol-edge: var(--editor-text);
-  }
-  @media (prefers-color-scheme: light) {
-    :global(:root:not([data-theme])) & :global(.cm-symbol) {
-      --symbol-edge: var(--editor-text);
-    }
+  :global(.cm-tint-bold) {
+    font-weight: 700;
   }
   :global(.cm-symbol-popover) {
     display: flex;

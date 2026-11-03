@@ -73,3 +73,14 @@ it('says so when the English has no text yet', async () => {
   await act(async () => root.unmount());
   host.remove();
 });
+
+it('keeps the English source as raw markup: the editor tints and symbols never reach it', async () => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const text = 'Deal <yellow 5 <arc/> /> <pve 3 />';
+  await act(async () => root.render(createElement(TranslationSource, { text })));
+  expect(host.querySelector('pre')?.textContent).toBe(text);
+  expect(host.querySelector('.cm-tint, .cm-symbol')).toBeNull();
+  await act(async () => root.unmount());
+});

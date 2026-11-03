@@ -11,6 +11,9 @@ import { useDraftStore } from '../../stores/drafts';
 import { useSettingsStore } from '../../stores/settings';
 import { useCompendiumStore } from './store';
 import { CompendiumPanel } from './CompendiumPanel';
+import { usePaneMatch } from './usePaneMatch';
+
+vi.mock('./usePaneMatch', () => ({ usePaneMatch: vi.fn() }));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 vi.mock('../../services/api', () => ({ apiUrl: 'https://api.test' }));
@@ -37,6 +40,7 @@ const roots: Root[] = [];
 let width: number | undefined;
 
 beforeEach(() => {
+  vi.mocked(usePaneMatch).mockReturnValue(undefined);
   const values = new Map<string, string>();
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => values.get(key) ?? null,
@@ -93,6 +97,42 @@ const diffViews = (host: ParentNode) =>
   host.querySelectorAll('[aria-label="Compendium diff view"]');
 
 describe('Compendium pane', () => {
+  it('labels an unsaved match honestly, then accepts only its link into the existing draft', async () => {
+    const base = { hash: 6, text: {}, associated: [] } as unknown as Tooltip;
+    const next = { ...base, text: { en: { text: 'Keep my text edit' } } } as Tooltip;
+    const updateDraft = vi.fn();
+    const original = useDraftStore.getState().updateDraft;
+    useCompendiumStore.setState({ data: { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] } });
+    useDraftStore.setState({ drafts: { 6: { base, next } }, updateDraft });
+    vi.mocked(usePaneMatch).mockReturnValue({ status: 'ok', changed: false, tab, row });
+    try {
+      const host = await mount(base);
+      expect(host.querySelector('[title="Matched automatically — not saved"]')?.textContent).toBe(
+        'Matched',
+      );
+      expect(host.textContent).toContain('No saved snapshot to compare.');
+      expect(host.textContent).not.toContain('Matches the saved snapshot.');
+      expect(diffViews(host)).toHaveLength(0);
+      await act(async () => button(host, 'Accept match (local draft)')!.click());
+      const accepted = updateDraft.mock.calls[0][1](next);
+      expect(accepted.text).toEqual(next.text);
+      expect(accepted.compendium.rowKey).toBe('Name');
+      expect(base.compendium).toBeUndefined();
+    } finally {
+      act(() => useDraftStore.setState({ updateDraft: original }));
+    }
+  });
+
+  it('saved and draft links hide matcher provenance and expose draft review', async () => {
+    vi.mocked(usePaneMatch).mockReturnValue({ status: 'ok', changed: false, tab, row });
+    const host = await mount();
+    expect(host.textContent).not.toContain('Accept match');
+    expect(host.querySelector('[title="Matched automatically — not saved"]')).toBeNull();
+    await act(async () =>
+      useDraftStore.setState({ drafts: { 5: { base: linked, next: linked } } }),
+    );
+    expect(button(host, 'Review & save draft')).toBeTruthy();
+  });
   it('has one header with the title, pick other row and zoom; the body keeps the snapshot', async () => {
     const host = await mount();
     expect(header(host).querySelector('h3')?.textContent).toBe('Compendium');
@@ -223,7 +263,8 @@ describe('Compendium pane', () => {
         runs: [{ text: 'New text', color: '#783f04' }],
       });
       const host = await mount();
-      const colour = () => surfaces(host)[0].querySelector<HTMLElement>('span[style*="color"]')!.style.color;
+      const colour = () =>
+        surfaces(host)[0].querySelector<HTMLElement>('span[style*="color"]')!.style.color;
       expect(colour()).toBe('rgb(120, 63, 4)');
       // On the editor surface that dark brown would be unreadable, so it is lifted to AA.
       await act(async () => button(header(host), 'Sheet colours')!.click());

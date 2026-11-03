@@ -6,12 +6,13 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
 
-// Overhaul P2 step 9 in the real shell on synthetic data: icon and colour tags drawn as fixed-width
-// symbols, the hover/selection popover, the raw toggle (Ctrl+Shift+.) and the caret-reveal setting.
+// Overhaul P2 step 9 (+ tinted colour tags) in the real shell on synthetic data: icon tags drawn as
+// fixed-width symbols, colour tags hidden with their text tinted in the preview's tag colour, the
+// hover/selection popover, the raw toggle (Ctrl+Shift+.) and the caret-reveal setting.
 // Both themes at 390 / 768 / 1280 (+ the smallest and largest interface scale once): zero horizontal
-// overflow, one width for every symbol, and hover/popover never move a line of text.
+// overflow, one width for every symbol, AA contrast for every tint, and hover/popover never move text.
 const web = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const shots = process.argv[2] ?? resolve(web, '../../.agents/reports/overhaul-p2s9-shots');
+const shots = process.argv[2] ?? resolve(web, '../../.agents/reports/tint-tags-shots');
 await mkdir(shots, { recursive: true });
 const port = 5299;
 const url = `http://127.0.0.1:${port}/test/shell.html`;
@@ -57,7 +58,31 @@ const noOverflow = async (page, label) => {
 };
 
 const sample =
-  '<kinetic/><arc/><solar/><void/><stasis/><strand/><heavy/><primary/><special/><barrier/><overload/><unstoppable/> icons\n<yellow 10% /> <blue reload /> <green damage /> <purple void <arc/> /> <pve 5 /> <pvp [3] /> <bold b />\n';
+  '<yellow 10% <arc/> /> <pve 5 /> <pvp [3] /> <blue reload <bold nested /> done /> <green lone\n<kinetic/><arc/><solar/><void/><stasis/><strand/><heavy/><primary/><special/><barrier/><overload/><unstoppable/> icons\n<purple void <arc/> /> <bold b /> <yellow y /> <green g /> <pve 7 /> <pvp [9] />\n';
+const tinted = ['yellow', 'blue', 'green', 'purple', 'pve', 'pvp'];
+// WCAG contrast between a tint colour and the editor surface.
+const contrastOf = (page) =>
+  page.evaluate((names) => {
+    const channels = (css) =>
+      css
+        .match(/[\d.]+/g)
+        .slice(0, 3)
+        .map(Number);
+    const luminance = ([r, g, b]) =>
+      [r, g, b]
+        .map((v) => v / 255)
+        .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4))
+        .reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
+    const surface = luminance(
+      channels(getComputedStyle(document.querySelector('.cm-editor')).backgroundColor),
+    );
+    return names.map((name) => {
+      const el = document.querySelector(`.cm-tint-${name}`);
+      const fg = luminance(channels(getComputedStyle(el).color));
+      const [hi, lo] = fg > surface ? [fg, surface] : [surface, fg];
+      return [name, Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100];
+    });
+  }, tinted);
 async function open(theme, viewport, phone, scale) {
   const context = await browser.newContext({
     viewport,
@@ -87,6 +112,7 @@ async function open(theme, viewport, phone, scale) {
   await page.keyboard.press('Control+Home');
   await page.keyboard.insertText(sample);
   await page.locator('.cm-symbol-icon').first().waitFor();
+  await page.locator('.cm-tint').first().waitFor();
   return { context, page, errors };
 }
 
@@ -100,7 +126,7 @@ async function check(theme, width, height, phone, scale, name) {
       markup: el.dataset.symbol,
     })),
   );
-  assert.ok(widgets.length >= 25, `${label}: symbols drawn (${widgets.length})`);
+  assert.ok(widgets.length >= 13, `${label}: symbols drawn (${widgets.length})`);
   assert.ok(
     widgets.every((widget) => Math.abs(widget.width - widgets[0].width) <= 0.5),
     `${label}: one width for every symbol ${JSON.stringify([...new Set(widgets.map((w) => w.width))])}`,
@@ -123,6 +149,42 @@ async function check(theme, width, height, phone, scale, name) {
     false,
     `${label}: raw tag text is not shown`,
   );
+  // Colour tags: the markup is hidden, the enclosed text is tinted in the preview's own colour, AA on
+  // the editor surface; an unpaired tag stays raw.
+  const shown = await page.evaluate(() => document.querySelector('.cm-content').textContent);
+  for (const raw of ['<yellow', '<pve', '<pvp', '<blue', '<bold', '<purple', ' />'])
+    assert.ok(!shown.includes(raw), `${label}: ${raw} is hidden`);
+  assert.ok(shown.includes('<green lone'), `${label}: an unpaired tag stays raw`);
+  const tints = await page.evaluate((names) => {
+    const probe = document.createElement('i');
+    document.body.append(probe);
+    const out = names.map((tintName) => {
+      probe.style.color = `var(--tag-${tintName})`;
+      return [
+        tintName,
+        getComputedStyle(document.querySelector(`.cm-tint-${tintName}`)).color,
+        getComputedStyle(probe).color,
+      ];
+    });
+    probe.remove();
+    return out;
+  }, tinted);
+  for (const [tintName, drawnColour, tokenColour] of tints)
+    assert.equal(drawnColour, tokenColour, `${label}: ${tintName} tint is the preview colour`);
+  for (const [tintName, ratio] of await contrastOf(page))
+    assert.ok(ratio >= 4.5, `${label}: ${tintName} tint contrast ${ratio} on the editor surface`);
+  assert.equal(
+    await page.evaluate(() => getComputedStyle(document.querySelector('.cm-tint-bold')).fontWeight),
+    '700',
+    `${label}: bold is bold`,
+  );
+  const nested = await page.evaluate(() => {
+    const inner = document.querySelector('.cm-tint-blue .cm-tint-bold');
+    return inner
+      ? [getComputedStyle(inner).color, getComputedStyle(inner.parentElement).color]
+      : null;
+  });
+  assert.ok(nested && nested[0] === nested[1], `${label}: bold inside blue keeps blue`);
   await noOverflow(page, `${label} widgets`);
   await page.screenshot({ path: `${shots}/${name}-widgets.png` });
 
@@ -146,6 +208,35 @@ async function check(theme, width, height, phone, scale, name) {
     await page.screenshot({ path: `${shots}/${name}-hover.png` });
     await page.mouse.move(2, 2);
     await page.locator('.cm-symbol-popover').waitFor({ state: 'detached' });
+  }
+
+  if (!phone) {
+    // Tinted text on line 1: hover shows `<pve … />`, Alt+click pins it (Enter edits, Esc cancels).
+    await page.locator('.cm-tint-pve').first().hover();
+    await page.locator('.cm-symbol-popover').waitFor();
+    assert.equal(
+      (await page.locator('.cm-symbol-popover code').textContent()).trim(),
+      '<pve … />',
+      `${label}: tint hover popover`,
+    );
+    assert.ok(await insideScroller(page), `${label}: line-1 tint popover stays inside the editor`);
+    assert.deepEqual(await lineTops(page), before, `${label}: tint hover moved text`);
+    await page.screenshot({ path: `${shots}/${name}-tint-hover.png` });
+    await page.mouse.move(2, 2);
+    await page.locator('.cm-symbol-popover').waitFor({ state: 'detached' });
+    await page
+      .locator('.cm-tint-pve')
+      .first()
+      .click({ modifiers: ['Alt'] });
+    await page.locator('.cm-symbol-hint').waitFor();
+    assert.ok(await insideScroller(page), `${label}: pinned tint popover stays inside the editor`);
+    await page.keyboard.press('Enter');
+    await page.locator('.cm-symbol-input').waitFor();
+    assert.deepEqual(await lineTops(page), before, `${label}: the tint edit popover moved text`);
+    await page.screenshot({ path: `${shots}/${name}-tint-edit.png` });
+    await page.keyboard.press('Escape');
+    await page.locator('.cm-symbol-input').waitFor({ state: 'detached' });
+    await page.locator('.cm-content').click({ position: { x: 4, y: 4 } });
   }
 
   // Click selects the symbol: popover with the hint, Enter edits, Esc cancels. Nothing moves.
@@ -196,6 +287,7 @@ async function check(theme, width, height, phone, scale, name) {
     assert.equal(await rawButton.isVisible(), true, `${label}: raw state is visible`);
   }
   assert.equal(await page.locator('.cm-symbol').count(), 0, `${label}: raw view has no widgets`);
+  assert.equal(await page.locator('.cm-tint').count(), 0, `${label}: raw view has no tints`);
   assert.ok(
     await page.evaluate(() => document.querySelector('.cm-content').textContent.includes('<arc/>')),
     `${label}: raw view shows the markup`,
@@ -249,6 +341,10 @@ try {
       window.shellFixture.kinetic();
       window.location.hash = '#/t/1000?lang=en';
     });
+    await page.locator('.cm-content').first().waitFor();
+    await page.locator('.cm-content').click();
+    await page.keyboard.press('Control+Home');
+    await page.keyboard.insertText('<arc/> <solar/> text\n');
     await page.locator('.cm-symbol').first().waitFor();
     const total = await page.locator('.cm-symbol').count();
     await page.locator('.cm-symbol').first().click();
@@ -258,6 +354,22 @@ try {
     );
     assert.equal(await page.locator('.cm-symbol-popover').count(), 0, 'caret mode has no popover');
     await page.screenshot({ path: `${shots}/caret-reveal.png` });
+    // A caret inside a colour tag reveals that tag's markup (its text stays tinted); others stay hidden.
+    await page.keyboard.press('Control+Home');
+    await page.keyboard.insertText('<pve 5 /> and <pvp [3] />\n');
+    await page.locator('.cm-tint-pve').first().waitFor();
+    await page.keyboard.press('Control+Home');
+    await page.keyboard.press('End');
+    await page.keyboard.press('Control+Home');
+    await page.locator('.cm-tint-pvp').first().click();
+    const revealed = await page.locator('.cm-content').textContent();
+    assert.ok(revealed.includes('<pvp [3]'), 'caret in a tag reveals its markup');
+    assert.ok(!revealed.includes('<pve'), 'other tags stay hidden');
+    assert.ok(
+      (await page.locator('.cm-tint-pvp').count()) >= 1,
+      'the tag stays tinted while its markup is revealed',
+    );
+    await page.screenshot({ path: `${shots}/caret-reveal-tint.png` });
     await context.close();
   }
   console.log('symbols browser checks passed');

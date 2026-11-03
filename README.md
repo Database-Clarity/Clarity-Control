@@ -46,6 +46,8 @@ old dependencies; do not install or develop there.
 | `npm run build`     | Builds every workspace that provides a build script; web output goes to `apps/web/dist/`. |
 | `npm run format`    | Formats active source and documentation with Prettier; skips legacy.                      |
 
+Review branches (`review/**`) run the full suite silently in the Review suite workflow. The run stays green even when a check fails; read the `REVIEW-SUITE RESULT: PASS/FAIL` line in its job summary or log for the actual result and failing test names. Locally, `python -I D:\GitHub\Description-editor\.agents\t3\suite-lock\ci_suite.py <branch> [<sha>]` waits for that exact revision and exits 0 for PASS, 1 for FAIL, or 2 for an unavailable run or infrastructure problem.
+
 To check your work, run typecheck, lint, test, and build before opening a pull request.
 All four also run in CI after `npm ci`. New workspaces should expose `typecheck` and
 `build` scripts as needed; name tests `*.test.ts`, `*.spec.ts`, or their TSX equivalents.
@@ -73,3 +75,4 @@ the tooltip identity. Finder entries show the set and piece count in 2pc/4pc ord
 set-conversion selector records are hidden from finder and worklists. Compendium links match
 Armor Perks cards by set name and explicit piece count and preserve that count when refreshed.
 The existing Worker save permissions and hash-keyed export apply to these tooltips unchanged.
+
