@@ -67,6 +67,19 @@ it('keeps Matched visible across text edits and focus refreshes without rematchi
     expect(host.textContent).toBe('Matched');
     await settle();
     expect(host.textContent).toBe('No match');
+    const customBase = { ...base, custom: { name: 'Custom', categoryId: 'attachment-effect' } };
+    await act(async () =>
+      root.render(
+        createElement(Witness, {
+          drafts: { [base.hash]: { base: customBase, next: base } },
+        }),
+      ),
+    );
+    await settle();
+    expect(paneMatch).toHaveBeenCalledTimes(4);
+    const projectedDrafts = vi.mocked(paneMatch).mock.calls[3][3];
+    expect(projectedDrafts[base.hash].base.custom).toEqual(customBase.custom);
+    expect(projectedDrafts[base.hash].next.custom).toBeUndefined();
   } finally {
     await act(async () => root.unmount());
     host.remove();

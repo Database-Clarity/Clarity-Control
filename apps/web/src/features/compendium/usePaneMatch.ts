@@ -27,7 +27,13 @@ export function usePaneMatch(
   const draftEvidence = JSON.stringify(
     Object.fromEntries(
       Object.entries(drafts)
-        .filter(([, draft]) => draft.base.compendium || draft.next.compendium || draft.next.custom)
+        .filter(
+          ([, draft]) =>
+            draft.base.compendium ||
+            draft.next.compendium ||
+            draft.base.custom ||
+            draft.next.custom,
+        )
         .map(([hash, draft]) => [
           hash,
           {
