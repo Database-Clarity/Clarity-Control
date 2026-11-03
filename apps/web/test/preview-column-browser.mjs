@@ -1,4 +1,4 @@
-/* global document, window, getComputedStyle, Node */
+/* global document, window, getComputedStyle, Node, requestAnimationFrame */
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
@@ -202,6 +202,37 @@ try {
       assert.deepEqual(errors, [], `${label}: no page errors`);
       await context.close();
     }
+  }
+  // A long text scrolls under the pinned header and strip; the strip spans the column.
+  for (const theme of ['dark', 'light']) {
+    const { context, page } = await open(theme, { width: 1280, height: 420 });
+    await showColumn(page);
+    const result = await page.evaluate(async () => {
+      const header = document.querySelector('[aria-label="Hammerhead preview"] header');
+      let scroller = header.parentElement;
+      while (scroller && scroller.scrollHeight <= scroller.clientHeight + 1)
+        scroller = scroller.parentElement;
+      if (!scroller) return { scrolled: false };
+      scroller.scrollTop = 120;
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const bar = document.querySelector('[aria-label="Preview version"]').parentElement;
+      const column = header.closest('section').getBoundingClientRect();
+      return {
+        scrolled: scroller.scrollTop > 0,
+        headerTop: Math.round(
+          header.getBoundingClientRect().top - scroller.getBoundingClientRect().top,
+        ),
+        barTop: Math.round(bar.getBoundingClientRect().top - header.getBoundingClientRect().bottom),
+        barWidth: Math.round(bar.getBoundingClientRect().width),
+        columnWidth: Math.round(column.width),
+      };
+    });
+    assert.ok(result.scrolled, `${theme}: the column scrolls at 420px`);
+    assert.ok(Math.abs(result.headerTop) <= 1, `${theme}: header pinned (${result.headerTop})`);
+    assert.ok(Math.abs(result.barTop) <= 1, `${theme}: strip pinned under it (${result.barTop})`);
+    assert.equal(result.barWidth, result.columnWidth, `${theme}: strip spans the column`);
+    await page.screenshot({ path: `${shots}/${theme}-pinned-1280x420.png` });
+    await context.close();
   }
   console.log('Preview column browser checks passed.');
 } finally {

@@ -27,6 +27,8 @@ export interface TooltipPreviewProps {
   archiveIcon?: boolean;
   /** Content between the perk header and the description (the column's version switch). */
   bar?: ReactNode;
+  /** The column variant: header and bar span the whole column and stay put while the body scrolls. */
+  fill?: boolean;
   /** Replaces the rendered description (the column's Compare view); markup issues are hidden. */
   children?: ReactNode;
 }
@@ -128,24 +130,31 @@ export function TooltipPreview({
   tooltipHash,
   archiveIcon = false,
   bar,
+  fill = false,
   children,
 }: TooltipPreviewProps) {
   const parsed = useMemo(() => parseMarkup(text, globals), [text, globals]);
   const iconUrl = icon?.startsWith('/common/') ? `https://www.bungie.net${icon}` : icon;
   return (
-    <section className={styles.preview} lang={markupLanguage(lang)} aria-label={`${name} preview`}>
-      <header className={styles.header}>
-        {archiveIcon ? (
-          <ArchiveIcon icon={icon} />
-        ) : (
-          iconUrl && linkUrl(iconUrl) && <img className={styles.icon} src={iconUrl} alt="" />
-        )}
-        <div>
-          <div className={styles.name}>{name}</div>
-          {categoryLabel && <div className={styles.category}>{categoryLabel}</div>}
-        </div>
-      </header>
-      {bar}
+    <section
+      className={[styles.preview, fill ? styles.fill : ''].filter(Boolean).join(' ')}
+      lang={markupLanguage(lang)}
+      aria-label={`${name} preview`}
+    >
+      <div className={styles.top}>
+        <header className={styles.header}>
+          {archiveIcon ? (
+            <ArchiveIcon icon={icon} />
+          ) : (
+            iconUrl && linkUrl(iconUrl) && <img className={styles.icon} src={iconUrl} alt="" />
+          )}
+          <div>
+            <div className={styles.name}>{name}</div>
+            {categoryLabel && <div className={styles.category}>{categoryLabel}</div>}
+          </div>
+        </header>
+        {bar}
+      </div>
       <div className={styles.description}>{children ?? <Lines lines={parsed.lines} />}</div>
       {!children && parsed.diagnostics.length > 0 && (
         <details className={styles.diagnostics}>

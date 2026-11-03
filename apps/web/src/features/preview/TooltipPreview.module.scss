@@ -105,6 +105,24 @@
     sans-serif;
   overflow-wrap: anywhere;
 }
+// In the preview column the perk header and the version strip stay at the top of the scrolling
+// column; only the description scrolls under them. The strip spans the column while the game
+// render of the text keeps its own 320px measure.
+.top {
+  display: contents;
+}
+.fill {
+  max-width: none;
+  .top {
+    display: block;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
+  .description {
+    max-width: 320px;
+  }
+}
 .snippet {
   display: flex;
   flex-direction: column;

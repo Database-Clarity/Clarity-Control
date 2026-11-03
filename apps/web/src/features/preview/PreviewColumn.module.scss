@@ -89,7 +89,7 @@
 }
 
 // A narrow strip keeps the count and drops " vs Base".
-@container (max-width: 289px) {
+@container (max-width: 279px) {
   .vsBase {
     display: none;
   }

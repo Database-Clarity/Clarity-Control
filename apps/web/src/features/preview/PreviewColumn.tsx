@@ -136,6 +136,7 @@ export function PreviewColumn({
         archiveIcon={archiveIcon}
         tooltipHash={shown ? shown.hash : hash}
         bar={bar}
+        fill
       >
         {comparison && (
           <div className={styles.compare} data-compare="">
