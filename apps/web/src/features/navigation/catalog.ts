@@ -47,23 +47,32 @@ export function sharedPerkLabel(
     return names.length > 1 ? `Shared perk — used on: ${names.join(', ')}` : undefined;
   }
   const owners = item?.owners;
-  if (!owners || owners.length < 2) return undefined;
-  const names = owners.map(
-    (owner) =>
-      data.items[owner]?.name.trim() ||
-      data.bundle.tooltips[owner]?.custom?.name.trim() ||
-      item.ownerNames?.[owner]?.trim() ||
-      String(owner),
-  );
+  if (!item || !owners || owners.length < 2) return undefined;
   // Two definitions of one item (same name) are not a shared perk.
-  const distinct = [...new Set(names)];
+  const distinct = [...new Set(owners.map((owner) => ownerName(owner, item, data)))];
   return distinct.length > 1 ? `Shared perk — used on: ${distinct.join(', ')}` : undefined;
+}
+
+function ownerName(owner: number, item: Item, data: EditorData): string {
+  return (
+    data.items[owner]?.name.trim() ||
+    data.bundle.tooltips[owner]?.custom?.name.trim() ||
+    item.ownerNames?.[owner]?.trim() ||
+    String(owner)
+  );
 }
 
 /** Single owning item identity, with catalog and embedded metadata fallbacks. */
 export function singleOwnerLabel(hash: number, data: EditorData): string | undefined {
   const item = itemFor(hash, data);
-  if (!item || (item.owners?.length ?? 0) > 1) return undefined;
+  if (!item) return undefined;
+  const owners = item.owners ?? [];
+  if (owners.length > 1) {
+    // Several definitions of one item (same name): name it once, list every hash.
+    const names = new Set(owners.map((owner) => ownerName(owner, item, data)));
+    if (names.size > 1) return undefined;
+    return `Owner: ${[...names][0]} / ${owners.join(', ')}`;
+  }
   const owner = item.itemHash ?? item.owners?.[0];
   if (owner === undefined) return undefined;
   const name =
