@@ -109,15 +109,21 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
               )}
             </>
           )}
-          {resolution?.status === 'candidates' && (
+          {(resolution?.status === 'candidates' || resolution?.status === 'relink-suggested') && (
             <>
               <p className={styles.warning}>
-                Needs relink: the old name is ambiguous or missing. Confirm a suggested row or
-                search.
+                {resolution.status === 'relink-suggested'
+                  ? 'A renamed row has similar content. Confirm the selected suggestion or choose another.'
+                  : 'Needs relink: the old name is ambiguous or missing. Confirm a suggested row or search.'}
               </p>
               <ul className={styles.rows}>
-                {resolution.candidates.map((candidate) => (
-                  <li key={`${candidate.tab.gid}:${candidate.row.rowIndex}`}>
+                {(resolution.status === 'relink-suggested'
+                  ? [resolution.candidate]
+                  : resolution.candidates
+                ).map((candidate) => (
+                  <li
+                    key={`${candidate.tab.gid}:${candidate.row.rowIndex}:${candidate.row.anchor?.col ?? 0}`}
+                  >
                     <p>
                       {candidate.tab.name} / {candidate.row.name}{' '}
                       {candidate.row.section && `/ ${candidate.row.section}`} (
@@ -140,12 +146,20 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
                           }));
                         }}
                       >
-                        Link this row
+                        {resolution.status === 'relink-suggested' &&
+                        candidate === resolution.candidate
+                          ? 'Confirm suggested relink'
+                          : 'Link this row'}
                       </button>
                     )}
                   </li>
                 ))}
               </ul>
+              {resolution.status === 'relink-suggested' && canEdit && (
+                <button type="button" onClick={() => setPicking(true)}>
+                  Choose another
+                </button>
+              )}
             </>
           )}
           {resolution?.status === 'missing' && (

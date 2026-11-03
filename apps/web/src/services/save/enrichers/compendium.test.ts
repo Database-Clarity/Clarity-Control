@@ -93,3 +93,35 @@ it('records the pinned source the save panel showed instead of fetching another'
   expect(result.compendium).toMatchObject({ gid: '2', snapshot: cell });
   expect(loadCompendium).not.toHaveBeenCalled();
 });
+
+it('blocks similar renamed links on English save until the row is explicitly confirmed', async () => {
+  const text = 'Grants increased damage for ten seconds.';
+  const linked = {
+    ...base,
+    compendium: { ...base.compendium!, snapshot: { plain: text, runs: [{ text }] } },
+  };
+  const renamed = {
+    ...data,
+    tabs: [
+      {
+        ...data.tabs[0],
+        rows: [
+          {
+            ...data.tabs[0].rows[0],
+            name: 'Renamed',
+            nameNorm: 'renamed',
+            cell: { plain: text + '!', runs: [{ text: text + '!' }] },
+          },
+        ],
+      },
+    ],
+  };
+  const next = { ...linked, text: { en: { ...linked.text.en!, text: 'Edited' } } };
+  await expect(compendiumEnricher({ before: linked, next, compendium: renamed })).rejects.toThrow(
+    'relinking',
+  );
+  const confirmed = { ...next, compendium: { ...next.compendium, gid: '2', rowKey: 'Renamed' } };
+  await expect(
+    compendiumEnricher({ before: linked, next: confirmed, compendium: renamed }),
+  ).resolves.toMatchObject({ compendium: { rowKey: 'Renamed' } });
+});

@@ -23,7 +23,11 @@ export async function compendiumEnricher({
 }): Promise<Tooltip> {
   if (!next.compendium || !recordsCompendiumSnapshot(before, next)) return next;
   const resolved = resolveCompendiumLink(next.compendium, compendium ?? (await loadCompendium()));
-  if (resolved.status === 'missing' || resolved.status === 'candidates') {
+  if (
+    resolved.status === 'missing' ||
+    resolved.status === 'candidates' ||
+    resolved.status === 'relink-suggested'
+  ) {
     throw new Error(
       `Compendium link for tooltip ${next.hash} needs relinking before saving English text`,
     );

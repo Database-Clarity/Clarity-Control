@@ -77,7 +77,7 @@ beforeEach(() => {
 });
 it('includes canonical unlinked, missing and candidate repairs, but excludes aliases and healthy links', () => {
   const queue = reviewQueue(editor, source, {}, emptyProgress(), fingerprint);
-  expect(queue.map((entry) => entry.hash).sort()).toEqual([100, 102, 103, 105]);
+  expect(queue.map((entry) => entry.hash).sort()).toEqual([100, 102, 103]);
   expect(queue.find((entry) => entry.hash === 103)?.reason).toBe('Needs repair');
 });
 it('round-trips selected relative cells through normal drafts, preserving other edits; discard reopens, save is authoritative', async () => {
@@ -257,4 +257,25 @@ it('hides selectors from review worklists without deleting their tooltip records
     false,
   );
   expect(JSON.stringify(editor)).toBe(before);
+});
+
+it('keeps a similar rename in the repair queue until explicitly confirmed', () => {
+  const base = editor.bundle.tooltips[104];
+  base.compendium = {
+    ...base.compendium!,
+    rowKey: 'Gone',
+    snapshot: {
+      plain: 'Description!',
+      runs: [{ text: 'Description!', bold: true }],
+    },
+  };
+  const pending = reviewQueue(editor, source, {}, emptyProgress(), fingerprint);
+  expect(pending.find((entry) => entry.hash === 104)).toMatchObject({
+    status: 'open',
+    reason: 'Needs repair',
+  });
+  const confirmed = confirmCompendiumSelection({ tab, row }, source)!;
+  const drafts = { 104: { base, next: { ...base, compendium: confirmed } } };
+  const queue = reviewQueue(editor, source, drafts, emptyProgress(), fingerprint);
+  expect(queue.find((entry) => entry.hash === 104)).toMatchObject({ status: 'drafted' });
 });

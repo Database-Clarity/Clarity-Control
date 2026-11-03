@@ -32,7 +32,12 @@ export function changedSources(
     const link = next.compendium;
     if (!link || !recordsCompendiumSnapshot(base ?? undefined, next)) continue;
     const now = resolveCompendiumLink(link, fresh);
-    if (now.status === 'missing' || now.status === 'candidates') continue;
+    if (
+      now.status === 'missing' ||
+      now.status === 'candidates' ||
+      now.status === 'relink-suggested'
+    )
+      continue;
     const before = shown ? resolveCompendiumLink(link, shown) : undefined;
     const seen = before && 'row' in before ? before.row.cell : link.snapshot;
     if (!sameCell(seen, now.row.cell)) found.push({ hash, shown: seen, fresh: now.row.cell });
