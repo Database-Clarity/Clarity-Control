@@ -45,6 +45,7 @@ export function ArchivePage() {
     setTargetHash(undefined);
     setTargetQuery('');
     setReplaceFor(undefined);
+    setNotice('');
   }, [selectedHash]);
   useLayoutEffect(() => {
     if (!selectedHash && listRef.current) window.scrollTo(0, scroll.current);

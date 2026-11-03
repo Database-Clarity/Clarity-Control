@@ -79,6 +79,12 @@ describe('shrink guard', () => {
     await expect(
       buildCompendium({ parser, load, previous: missingTab, now: '2026-10-28T00:00:00Z' }),
     ).rejects.toThrow(/Gone Tab/);
+    // Retired tab recreated under a new gid keeps its rows: not a shrink.
+    const moved = { gid: '2', name: 'Armor Mods', rows: Array.from({ length: 12 }) };
+    expect(shrunkTabs({ tabs: [moved] }, [{ ...moved, gid: '3' }])).toEqual([]);
+    expect(shrunkTabs({ tabs: [moved] }, [{ ...moved, gid: '3', rows: [] }])).toEqual([
+      'Armor Mods 12→0',
+    ]);
     const tab = (rows) => ({ gid: '1', name: 'T', rows: Array.from({ length: rows }) });
     expect(shrunkTabs({ tabs: [tab(10)] }, [tab(8)])).toEqual([]);
     expect(shrunkTabs({ tabs: [tab(10)] }, [tab(7)])).toEqual(['T 10→7']);

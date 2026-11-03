@@ -12,7 +12,8 @@ tracked tab using the editor core parser. Tab names containing the whole word
 remain eligible. A failed fetch, invalid schema, unknown layout, empty non-Landing
 tab or sharp shrink fails the entire run without replacing the old data. A tab with
 at least 10 rows in the previous snapshot that loses more than 20% of them (or
-disappears) is a sharp shrink; set `COMPENDIUM_ALLOW_SHRINK=1` for a deliberate one.
+disappears) is a sharp shrink; a tab recreated under a new gid is compared by name. Re-run the
+workflow manually with `allow_shrink` (sets `COMPENDIUM_ALLOW_SHRINK=1`) for a deliberate one.
 Landing is a navigation-only tab. Other tabs support ordinary/parallel tables,
 row-spanned names/descriptions, and artifact cards with their descriptions on
 the following row. Config overrides are in the editor core's Compendium config.
