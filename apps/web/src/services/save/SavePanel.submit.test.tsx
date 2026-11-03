@@ -5,9 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import { SaveController } from './SavePanel';
 import { useSaveNotice } from './notice';
-import { useSaveState } from './state';
+import { useSaveState, reviewSaveChanges } from './state';
+import { openDraftSaveReview } from './openReview';
 import { useAuthStore } from '../../stores/auth';
-import { useConflictStore } from '../../stores/conflicts';
+import { conflictSessionKey, useConflictStore } from '../../stores/conflicts';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { editorData, english, tooltip } from './fixtures.testSupport';
@@ -65,6 +66,8 @@ beforeEach(() => {
     hydrated: true,
     error: null,
     generation: 3,
+    owner: '1',
+    external: false,
     flush: async () => {},
   });
   useSaveState.setState({ locked: false, review: null });
@@ -75,6 +78,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
+  vi.unstubAllGlobals();
   useSaveState.setState({ locked: false, review: null });
 });
 
@@ -220,6 +224,78 @@ describe('SaveController save submission', () => {
       );
       await act(async () => button!.click());
     }
+
+    it('retains a new one-shot tooltip through a 409, resolution and resave', async () => {
+      const created = { ...withText('brand new'), hash: 789 };
+      useDraftStore.setState({ drafts: {} });
+      mocks.save.mockResolvedValueOnce({
+        kind: 'conflicts',
+        conflicts: [{ hash: 123, base, head, next: mine, fields: ['text.en'] }],
+      });
+      await render();
+      await act(async () =>
+        reviewSaveChanges([
+          { hash: 123, base, next: mine },
+          { hash: 789, base: null, next: created },
+        ]),
+      );
+      const submit = () =>
+        [...host.querySelectorAll('button')]
+          .find((button) => button.textContent === 'Save changes')!
+          .click();
+      await act(async () => submit());
+      expect(useDraftStore.getState().drafts[789]?.next).toEqual(created);
+      await act(async () =>
+        useDraftStore.setState(({ drafts }) => ({
+          drafts: { ...drafts, 123: { base: head, next: withText('resolved') } },
+        })),
+      );
+      mocks.save.mockResolvedValueOnce({
+        kind: 'saved',
+        commit: 'd'.repeat(40),
+        tooltips: [useDraftStore.getState().drafts[123]!.next, created],
+      });
+      await act(async () => openDraftSaveReview());
+      await act(async () => submit());
+      expect(mocks.save.mock.calls[1]![0]).toEqual(
+        expect.arrayContaining([expect.objectContaining({ hash: 789, base: null, next: created })]),
+      );
+      expect(useDraftStore.getState().drafts).toEqual({});
+    });
+
+    it('resolving this save keeps another tabs unresolved rows in storage', async () => {
+      const storage = new Map<string, string>();
+      vi.stubGlobal('localStorage', {
+        get length() {
+          return storage.size;
+        },
+        key: (index: number) => [...storage.keys()][index] ?? null,
+        getItem: (key: string) => storage.get(key) ?? null,
+        setItem: (key: string, value: string) => storage.set(key, value),
+        removeItem: (key: string) => storage.delete(key),
+      });
+      mocks.save.mockResolvedValueOnce({
+        kind: 'conflicts',
+        conflicts: [{ hash: 123, base, head: null, next: mine, fields: ['$exists'] }],
+      });
+      await render();
+      // Another tab writes after this tab loaded its sessions, before this save returns 409.
+      const other = {
+        hash: 789,
+        base: null,
+        head: { ...head, hash: 789 },
+        mine: { ...mine, hash: 789 },
+        rows: { $exists: null },
+      };
+      localStorage.setItem(conflictSessionKey('1', 789), JSON.stringify(other));
+      await review();
+      await act(async () => useConflictStore.getState().choose(123, '$exists', 'theirs'));
+      expect(JSON.parse(localStorage.getItem(conflictSessionKey('1', 789))!)).toEqual(other);
+      await act(async () => useConflictStore.getState().refresh());
+      expect(useConflictStore.getState().open()).toEqual([
+        { hash: 789, rows: 1, markers: 0, byLanguage: {}, total: 1 },
+      ]);
+    });
 
     it('keeps a deleted-on-server tooltip as a row and blocks saving until answered', async () => {
       mocks.save.mockResolvedValueOnce({

@@ -30,6 +30,8 @@ export type ConflictSession = z.infer<typeof sessionSchema>;
 export type RowChoice = 'mine' | 'theirs';
 
 export const conflictsKey = (scope: string) => `clarity-conflicts:v1:${scope}`;
+export const conflictSessionKey = (scope: string, hash: number) =>
+  `clarity-conflicts:v2:${scope}:${hash}`;
 
 export interface BeginResult {
   /** Marker blocks written, tooltips rebased, texts that merged without a conflict, open rows. */
@@ -41,7 +43,7 @@ export interface BeginResult {
 
 export interface ConflictDeps {
   drafts: typeof useDraftStore;
-  storage(): Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | undefined;
+  storage(): Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'> | undefined;
   /** Makes the server's version (null: none) the one the editor shows as saved. */
   applyHead(hash: number, head: Tooltip | null): void;
 }
@@ -65,12 +67,35 @@ function readSessions(
 ): Record<number, ConflictSession> {
   const sessions: Record<number, ConflictSession> = {};
   try {
-    const raw = storage?.getItem(conflictsKey(scope));
-    const parsed: unknown = raw ? JSON.parse(raw) : {};
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return sessions;
-    for (const value of Object.values(parsed)) {
-      const result = sessionSchema.safeParse(value);
-      if (result.success) sessions[result.data.hash] = result.data;
+    if (!storage) return sessions;
+    // Migrate the old account snapshot once. New writes are isolated by tooltip, so two tabs
+    // cannot replace each other's session sets, even when their writes overlap.
+    try {
+      const raw = storage.getItem(conflictsKey(scope));
+      const parsed: unknown = raw ? JSON.parse(raw) : {};
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        for (const value of Object.values(parsed)) {
+          const result = sessionSchema.safeParse(value);
+          if (!result.success) continue;
+          const key = conflictSessionKey(scope, result.data.hash);
+          if (!storage.getItem(key)) storage.setItem(key, JSON.stringify(result.data));
+        }
+      }
+      storage.removeItem(conflictsKey(scope));
+    } catch {
+      // A damaged legacy snapshot or failed migration must not hide newer sessions.
+    }
+    const prefix = `clarity-conflicts:v2:${scope}:`;
+    for (let index = 0; index < storage.length; index++) {
+      const key = storage.key(index);
+      if (!key?.startsWith(prefix)) continue;
+      try {
+        const result = sessionSchema.safeParse(JSON.parse(storage.getItem(key) ?? 'null'));
+        if (result.success && key === conflictSessionKey(scope, result.data.hash))
+          sessions[result.data.hash] = result.data;
+      } catch {
+        // An unreadable session must not hide other tooltips' conflicts.
+      }
     }
   } catch {
     // An unreadable copy starts empty; the marker blocks in the drafts are untouched.
@@ -92,20 +117,24 @@ export function rowCounts(
 
 export function createConflictStore(deps: ConflictDeps) {
   return create<ConflictState>((set, get) => {
-    function write(scope: string | null, sessions: Record<number, ConflictSession>) {
+    const observedDrafts = new Set<number>();
+    function commit(sessions: Record<number, ConflictSession>) {
+      const previous = get().sessions;
+      const scope = get().scope;
+      set({ sessions });
       if (scope === null) return;
       try {
         const storage = deps.storage();
-        if (Object.keys(sessions).length)
-          storage?.setItem(conflictsKey(scope), JSON.stringify(sessions));
-        else storage?.removeItem(conflictsKey(scope));
+        for (const hash of new Set([...Object.keys(previous), ...Object.keys(sessions)])) {
+          if (previous[Number(hash)] === sessions[Number(hash)]) continue;
+          const key = conflictSessionKey(scope, Number(hash));
+          const session = sessions[Number(hash)];
+          if (session) storage?.setItem(key, JSON.stringify(session));
+          else storage?.removeItem(key);
+        }
       } catch {
         // Best effort: without storage the open rows last until the tab closes.
       }
-    }
-    function commit(sessions: Record<number, ConflictSession>) {
-      set({ sessions });
-      write(get().scope, sessions);
     }
     const unresolvedRows = (session: ConflictSession) =>
       Object.values(session.rows).filter((choice) => choice === null).length;
@@ -116,6 +145,9 @@ export function createConflictStore(deps: ConflictDeps) {
       let next = sessions;
       for (const session of Object.values(sessions)) {
         const draft = drafts[session.hash];
+        if (draft) observedDrafts.add(session.hash);
+        // A session imported from another tab may not have a draft in this tab yet.
+        if (!draft && !observedDrafts.has(session.hash)) continue;
         const done =
           !draft ||
           (unresolvedRows(session) === 0 && Object.keys(markersIn(draft.next)).length === 0);
@@ -156,8 +188,20 @@ export function createConflictStore(deps: ConflictDeps) {
         // Changes made through a one-shot review (Compendium link, drift) were never drafts:
         // keep the ones that did not conflict, so closing the review loses nothing.
         for (const change of kept) {
-          if (!change.base || deps.drafts.getState().drafts[change.hash]) continue;
-          deps.drafts.getState().updateDraft(change.base, () => change.next);
+          const current = deps.drafts.getState();
+          if (current.drafts[change.hash]) continue;
+          // A new tooltip has no server ancestor. Keep its complete snapshot as a draft;
+          // openDraftSaveReview restores the null API base from its absence in saved data.
+          deps.drafts.setState({
+            drafts: {
+              ...current.drafts,
+              [change.hash]: {
+                base: change.base ?? { hash: change.hash, text: {}, associated: [] },
+                next: change.next,
+              },
+            },
+          });
+          current.retry();
         }
         commit(sessions);
         prune();
@@ -197,9 +241,9 @@ export function createConflictStore(deps: ConflictDeps) {
         const { scope } = get();
         if (scope === null) return;
         const stored = readSessions(deps.storage(), scope);
-        const sessions = { ...get().sessions };
+        const sessions: Record<number, ConflictSession> = {};
         for (const [key, session] of Object.entries(stored)) {
-          const mine = sessions[Number(key)];
+          const mine = get().sessions[Number(key)];
           if (!mine) {
             sessions[Number(key)] = session;
             continue;
@@ -209,7 +253,8 @@ export function createConflictStore(deps: ConflictDeps) {
             if (choice !== null || !(field in rows)) rows[field] = choice;
           sessions[Number(key)] = { ...mine, rows };
         }
-        commit(sessions);
+        // Reading another tab's sessions is not a local edit and must not write them back.
+        set({ sessions });
         prune();
       },
       open() {
@@ -220,12 +265,14 @@ export function createConflictStore(deps: ConflictDeps) {
         const observe = (state: ReturnType<typeof deps.drafts.getState>) => {
           if (!state.hydrated) {
             scope = null;
+            observedDrafts.clear();
             set({ scope: null, sessions: {} });
             return;
           }
           const owner = state.owner ?? 'signed-out';
           if (owner !== scope) {
             scope = owner;
+            observedDrafts.clear();
             set({ scope: owner, sessions: readSessions(deps.storage(), owner) });
           }
           prune();

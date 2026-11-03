@@ -5,9 +5,14 @@ import type { SaveConflict } from '../services/api';
 import type { Drafts } from '../services/draftStorage';
 import { editorData } from '../services/save/fixtures.testSupport';
 import { clearSavedOverlay } from './savedOverlay';
-import { applyHeadToData, conflictsKey, createConflictStore } from './conflicts';
+import {
+  applyHeadToData,
+  conflictsKey,
+  conflictSessionKey,
+  createConflictStore,
+} from './conflicts';
 import { useDataStore } from './data';
-import { useDraftStore } from './drafts';
+import { createDraftStore, useDraftStore } from './drafts';
 
 const entry = (text: string, by = 'author') => ({
   text,
@@ -27,6 +32,10 @@ const textConflict: SaveConflict = { hash: 123, base, head, next: mine, fields: 
 
 const saved = new Map<string, string>();
 const memory = {
+  get length() {
+    return saved.size;
+  },
+  key: (index: number) => [...saved.keys()][index] ?? null,
   getItem: (key: string) => saved.get(key) ?? null,
   setItem: (key: string, value: string) => void saved.set(key, value),
   removeItem: (key: string) => void saved.delete(key),
@@ -158,6 +167,13 @@ describe('conflict store', () => {
     expect(bundle()).toEqual(head);
   });
 
+  it('keeps a new tooltip from a one-shot review with no server base', () => {
+    reset({});
+    const next = { ...tooltip('new'), hash: 456 };
+    useConflictStore.getState().begin([textConflict], [{ hash: 456, base: null, next }]);
+    expect(useDraftStore.getState().drafts[456]?.next).toEqual(next);
+  });
+
   it('keeps the changes of a one-shot review that did not conflict as drafts', () => {
     reset({});
     const other = { ...tooltip('other'), hash: 456 };
@@ -183,10 +199,37 @@ describe('conflict store persistence', () => {
         fields: ['custom'],
       },
     ]);
-    expect(memory.getItem(conflictsKey('1'))).toContain('"custom":null');
+    expect(memory.getItem(conflictSessionKey('1', 123))).toContain('"custom":null');
     const again = make();
     const stop = again.getState().start();
     expect(again.getState().open()[0]).toMatchObject({ hash: 123, rows: 1 });
+    stop();
+  });
+
+  it('migrates the existing account snapshot without replacing newer sessions', () => {
+    useConflictStore.getState().begin([textConflict]);
+    const session = useConflictStore.getState().sessions[123]!;
+    const other = { ...session, hash: 456, mine: { ...mine, hash: 456 }, rows: { $exists: null } };
+    memory.setItem(
+      conflictsKey('1'),
+      JSON.stringify({ 123: { ...session, rows: { custom: null } }, 456: other }),
+    );
+    const again = make();
+    const stop = again.getState().start();
+    expect(again.getState().sessions[123]).toEqual(session);
+    expect(again.getState().sessions[456]).toEqual(other);
+    expect(memory.getItem(conflictsKey('1'))).toBeNull();
+    expect(memory.getItem(conflictSessionKey('1', 456))).not.toBeNull();
+    stop();
+  });
+
+  it('reads other sessions despite a damaged legacy snapshot or session', () => {
+    useConflictStore.getState().begin([textConflict]);
+    memory.setItem(conflictsKey('1'), '{not json');
+    memory.setItem(conflictSessionKey('1', 456), '{not json');
+    const again = make();
+    const stop = again.getState().start();
+    expect(again.getState().sessions[123]).toBeDefined();
     stop();
   });
 
@@ -194,7 +237,7 @@ describe('conflict store persistence', () => {
     useConflictStore.getState().begin([textConflict]);
     useDraftStore.getState().discard(123);
     expect(useConflictStore.getState().sessions).toEqual({});
-    expect(memory.getItem(conflictsKey('1'))).toBeNull();
+    expect(memory.getItem(conflictSessionKey('1', 123))).toBeNull();
     memory.setItem(conflictsKey('1'), '{not json');
     const again = make();
     const stop = again.getState().start();
@@ -211,7 +254,7 @@ describe('conflict store persistence', () => {
     expect(again.getState().scope).toBe('2');
     expect(again.getState().sessions).toEqual({});
     // The first account's session is still saved for it.
-    expect(memory.getItem(conflictsKey('1'))).not.toBeNull();
+    expect(memory.getItem(conflictSessionKey('1', 123))).not.toBeNull();
     stop();
   });
 
@@ -226,17 +269,71 @@ describe('conflict store persistence', () => {
         fields: ['text.en', 'custom'],
       },
     ]);
-    const stored = JSON.parse(memory.getItem(conflictsKey('1'))!);
-    stored['123'].rows.custom = 'theirs';
-    memory.setItem(conflictsKey('1'), JSON.stringify(stored));
+    const stored = JSON.parse(memory.getItem(conflictSessionKey('1', 123))!);
+    stored.rows.custom = 'theirs';
+    memory.setItem(conflictSessionKey('1', 123), JSON.stringify(stored));
     useConflictStore.getState().refresh();
     // The text block keeps the session alive; the other tab's answer for the row is adopted.
     expect(useConflictStore.getState().sessions[123]!.rows.custom).toBe('theirs');
     // An answer given here is never overwritten by the other tab's open row.
     useConflictStore.getState().choose(123, 'custom', 'mine');
-    stored['123'].rows.custom = null;
-    memory.setItem(conflictsKey('1'), JSON.stringify(stored));
+    stored.rows.custom = null;
+    memory.setItem(conflictSessionKey('1', 123), JSON.stringify(stored));
     useConflictStore.getState().refresh();
     expect(useConflictStore.getState().sessions[123]!.rows.custom).toBe('mine');
+  });
+});
+
+describe('independent tabs', () => {
+  it('keeps both tabs rows when stale tabs begin and resolve conflicts', () => {
+    const tab = () => {
+      const drafts = createDraftStore({ read: async () => ({}), write: async () => {} });
+      drafts.setState({ hydrated: true, owner: '1' });
+      const conflicts = createConflictStore({ drafts, storage: () => memory, applyHead: () => {} });
+      const stop = conflicts.getState().start();
+      return { drafts, conflicts, stop };
+    };
+    const a = tab();
+    const b = tab();
+    const row = (hash: number): SaveConflict => ({
+      hash,
+      base: null,
+      head: { ...head, hash },
+      next: { ...mine, hash },
+      fields: ['$exists'],
+    });
+    try {
+      a.conflicts.getState().begin([row(123)]);
+      b.conflicts.getState().begin([row(456)]);
+      a.conflicts.getState().refresh();
+      expect(
+        a.conflicts
+          .getState()
+          .open()
+          .map(({ hash }) => hash),
+      ).toEqual([123, 456]);
+      a.conflicts.getState().choose(123, '$exists', 'theirs');
+      const reloaded = tab();
+      try {
+        expect(
+          reloaded.conflicts
+            .getState()
+            .open()
+            .map(({ hash }) => hash),
+        ).toEqual([456]);
+      } finally {
+        reloaded.stop();
+      }
+      b.conflicts.getState().refresh();
+      expect(
+        b.conflicts
+          .getState()
+          .open()
+          .map(({ hash }) => hash),
+      ).toEqual([456]);
+    } finally {
+      a.stop();
+      b.stop();
+    }
   });
 });
