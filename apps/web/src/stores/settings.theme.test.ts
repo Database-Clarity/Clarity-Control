@@ -82,6 +82,7 @@ describe('device theme', () => {
       editorFont: 'fira-code',
       theme: 'system',
       panes: {},
+      compendiumScale: 100,
       remembered: { markupToolbar: 'open' },
     });
   });
@@ -120,6 +121,7 @@ describe('device panes', () => {
       theme: 'light',
       editorFont: 'fira-code',
       panes: { 'editor:left': pane, 'review:list': pane },
+      compendiumScale: 70,
     });
     const before = store.getState().paneResets;
     expect(store.getState().resetPaneWidths()).toBe(true);
@@ -127,6 +129,7 @@ describe('device panes', () => {
       theme: 'light',
       editorFont: 'fira-code',
       panes: {},
+      compendiumScale: 100,
     });
     expect(stored(values).panes).toEqual({});
     expect(values.has(layoutKey)).toBe(false);

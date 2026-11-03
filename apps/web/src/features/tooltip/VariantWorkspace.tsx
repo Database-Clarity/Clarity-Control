@@ -29,7 +29,8 @@ const present = (node: ReactNode) => node !== null && node !== undefined && node
 
 /**
  * Lays out the editor with its pane header and what sits beside it. Three modes, by room:
- * - split (the editor keeps 480px beside a 320px+ pane): editor | divider | Compendium, as before;
+ * - split (the editor keeps 480px beside a 320px+ pane): editor | divider | right pane (the
+ *   Compendium, or the English a translation follows), each with its own 28px header;
  * - toggle (a desktop window too narrow for that): the pane header gets "Compendium" / "English"
  *   buttons that swap the main slot instead of stacking the pane under the editor;
  * - phone (<= 700px): a 44px tablist (Editor / Preview / English / Compendium), one view at a time.
@@ -44,7 +45,7 @@ export function VariantWorkspace({
   initialPanel = 'translation',
 }: VariantWorkspaceProps) {
   const phone = useMedia(phoneQuery);
-  const hasSide = present(preview) || present(compendium);
+  const hasSide = present(preview) || present(compendium) || present(source);
   const { container, separator, style, split } = useWorkspaceDivider(hasSide);
   const mode = phone ? 'phone' : split ? 'split' : 'toggle';
   const prefix = useId();
@@ -144,9 +145,9 @@ export function VariantWorkspace({
           </span>
         )}
       </div>
-      {panel('source')}
       {panel('translation')}
       <div className={styles.side}>
+        {panel('source')}
         {panel('preview')}
         {panel('compendium')}
       </div>

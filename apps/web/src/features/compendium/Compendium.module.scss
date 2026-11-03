@@ -1,20 +1,62 @@
-.panel {
-  border: 1px solid #536071;
-  border-radius: 0.4rem;
-  padding: 1rem;
-  margin-block: 1rem;
+@use '../../data/variables' as theme;
+@use '../../ui/controls';
+
+// ---- the editor page's Compendium pane (header and scroll live in ui/RightPane) ----
+// CSS zoom on the pane body is the device's Compendium scale; the header never scales.
+.zoom {
   min-width: 0;
-  h2,
-  h3 {
-    margin-top: 0;
+  padding-bottom: 8px;
+  font-size: 0.8125rem;
+  p {
+    margin: 0 0 6px;
   }
-  label {
-    display: block;
-    margin-block: 0.6rem;
+}
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 10px;
+  color: var(--text2);
+  font-size: 0.75rem;
+  &:empty {
+    display: none;
   }
-  select,
-  input {
-    max-width: 100%;
+}
+.headerButton {
+  @include controls.button;
+  min-height: 24px;
+  padding: 0 8px;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  &[aria-pressed='true'] {
+    border-color: var(--accent-ink);
+    background: var(--ctl-pressed);
+  }
+  @include theme.mobile-or-coarse {
+    min-height: 44px;
+  }
+}
+.scale {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  button {
+    @include controls.button;
+    min-width: 24px;
+    min-height: 24px;
+    padding: 0;
+    font-size: 0.875rem;
+    line-height: 1;
+    @include theme.mobile-or-coarse {
+      min-width: 44px;
+      min-height: 44px;
+    }
+  }
+  output {
+    min-width: 3.2ch;
+    text-align: center;
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--text2);
   }
 }
 .cell {
@@ -93,8 +135,8 @@
   margin-right: 0.25rem;
 }
 .legend {
-  color: #b6becb;
-  font-size: 0.85rem;
+  color: var(--text2);
+  font-size: 0.75rem;
 }
 .rows {
   list-style: none;
@@ -133,7 +175,7 @@
   color: #fff;
 }
 .warning {
-  color: #ffd98b;
+  color: var(--warn);
 }
 .spinner {
   display: inline-block;
@@ -240,12 +282,7 @@
 
 .diffModes {
   display: flex;
-  gap: 0.25rem;
-  margin-block-end: 0.35rem;
-  button[aria-pressed='true'] {
-    font-weight: 700;
-    text-decoration: underline;
-  }
+  margin-block-end: 6px;
 }
 .diffLine {
   display: block;
