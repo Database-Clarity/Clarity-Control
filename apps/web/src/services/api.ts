@@ -35,7 +35,13 @@ export type SaveResult =
   | { kind: 'conflicts'; conflicts: z.infer<typeof conflictSchema>[] }
   | { kind: 'retry'; error: string };
 
-export { setSession, clearSession, subscribeSession, rememberSignIn } from './session';
+export {
+  setSession,
+  clearSession,
+  subscribeSession,
+  rememberSignIn,
+  consumePendingSignIn,
+} from './session';
 import { sessionToken, clearSession } from './session';
 function authorization(): Record<string, string> {
   const token = sessionToken();

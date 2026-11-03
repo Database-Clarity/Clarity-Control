@@ -10,7 +10,10 @@ Selection survives navigation, but only still-pending hashes are submitted.
 Editors and maintainers may push at most 100 at once. The request includes the
 reviewed content digests; a newer saved version causes a 409 rather than silently
 publishing unreviewed content. Successful responses update the local marker view
-and refresh the bundle; bundle generation can lag behind a push.
+only; the bundle is deliberately not reloaded after a push, because bundle generation
+and CDN caching lag and a reload would resurrect pre-save text. Refresh is manual.
+Tooltips with no generator entry that are not custom are listed as unpublishable
+(the Worker would 422) and cannot be selected.
 
 Acknowledgments and the submission lock live in review-specific tab memory, outside
 the route's loading/unmount lifecycle. There is at most one acknowledged digest per
@@ -23,8 +26,8 @@ change. Server acknowledgments remain valid across account changes, but notices
 and selections are cleared; an outstanding request keeps its lock until settlement.
 Selection also clears when the saved snapshot changes. Hashing aborts submission
 if the page unmounts, identity changes, or saved data is replaced before the request.
-A bundle refresh error is reported by the data-loading shell, separately from a
-publish failure; retrying data loading restores the acknowledged review view.
+A bundle refresh error (manual refresh) is reported by the data-loading shell, separately
+from a publish failure; retrying data loading restores the acknowledged review view.
 
 `GET /history/:hash?live=1` supplies the exact last pushed authored snapshot.
 The worker commits `live/tooltips/<hash>.json` with `live/pushed.json`, using the

@@ -89,12 +89,13 @@ export async function publishReviewed(
       },
       ...(current()
         ? {
-            notice: `Pushed ${entries.length} tooltip(s) to ${result.branch}. Refreshing saved data.`,
+            notice: `Pushed ${entries.length} tooltip(s) to ${result.branch}.`,
           }
         : {}),
     }));
-    // load() reports refresh failures in the data store; they are not failed publishes.
-    await useDataStore.getState().load();
+    // Deliberately no bundle reload here: bundle.json is rebuilt by CI and cached by the CDN, so it
+    // usually predates this tab's saves. Reloading would resurrect pre-save text and re-list the
+    // just-pushed tooltips. The acknowledgment overlay above already marks them as pushed.
     return true;
   } catch (reason) {
     if (current())

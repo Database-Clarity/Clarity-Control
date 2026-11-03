@@ -8,6 +8,8 @@ export interface PendingTooltip {
   category: string;
   categoryId: string;
   categoryOrder: number;
+  /** Set when the Worker would reject it (422): no generator entry and not a custom tooltip. */
+  unpublishable?: string;
 }
 
 export async function pendingTooltips(
@@ -27,6 +29,9 @@ export async function pendingTooltips(
         category: category?.label ?? categoryId,
         categoryId,
         categoryOrder: category?.order ?? 9999,
+        ...(!item && !tooltip.custom
+          ? { unpublishable: 'No generator entry for this tooltip, so it cannot be pushed.' }
+          : {}),
       };
     }),
   );
@@ -52,8 +57,12 @@ export function selectedPending(
   pending: PendingTooltip[],
 ): number[] {
   return pending
-    .filter(({ tooltip }) => selected.has(tooltip.hash))
+    .filter(({ tooltip, unpublishable }) => !unpublishable && selected.has(tooltip.hash))
     .map(({ tooltip }) => tooltip.hash);
+}
+
+export function publishableHashes(page: PendingTooltip[]): number[] {
+  return page.filter(({ unpublishable }) => !unpublishable).map(({ tooltip }) => tooltip.hash);
 }
 
 export function stepIndex(index: number, delta: number, length: number): number {
