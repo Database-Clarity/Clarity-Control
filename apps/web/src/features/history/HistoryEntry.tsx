@@ -22,6 +22,7 @@ import styles from './History.module.scss';
 const HOVER_DELAY = 200;
 const LEAVE_DELAY = 160;
 const LONG_PRESS = 500;
+const OPENED = 'clarity-history-entry-open';
 
 export interface HistoryEntryProps {
   entry: HistoryCommit;
@@ -55,6 +56,7 @@ export function HistoryEntry(props: HistoryEntryProps) {
   const trigger = useRef<HTMLButtonElement>(null);
   const timers = useRef<{ enter?: number; leave?: number; press?: number }>({});
   const longPressed = useRef(false);
+  const dismissed = useRef(false);
   const id = useId();
   const open = pinned || hover || focus;
   const clearTimers = () => {
@@ -65,11 +67,22 @@ export function HistoryEntry(props: HistoryEntryProps) {
   useEffect(() => clearTimers, []);
   const close = useCallback((restoreFocus: boolean) => {
     window.clearTimeout(timers.current.enter);
+    if (restoreFocus) dismissed.current = true;
     setHover(false);
     setFocus(false);
     setPinned(false);
     if (restoreFocus) trigger.current?.focus();
   }, []);
+  useEffect(() => {
+    const others = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== id) close(false);
+    };
+    document.addEventListener(OPENED, others);
+    return () => document.removeEventListener(OPENED, others);
+  }, [id, close]);
+  useEffect(() => {
+    if (open) document.dispatchEvent(new CustomEvent(OPENED, { detail: id }));
+  }, [open, id]);
   useEffect(() => {
     if (!open) return;
     const outside = (event: PointerEvent) => {
@@ -102,10 +115,15 @@ export function HistoryEntry(props: HistoryEntryProps) {
         window.clearTimeout(timers.current.enter);
         window.clearTimeout(timers.current.leave);
         timers.current.leave = window.setTimeout(() => setHover(false), LEAVE_DELAY);
+        dismissed.current = false;
       }}
-      onFocus={() => setFocus(true)}
+      onFocus={() => {
+        if (!dismissed.current) setFocus(true);
+      }}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setFocus(false);
+        if (event.currentTarget.contains(event.relatedTarget)) return;
+        dismissed.current = false;
+        setFocus(false);
       }}
     >
       <button
@@ -139,7 +157,7 @@ export function HistoryEntry(props: HistoryEntryProps) {
           else setPinned(true);
         }}
       >
-        <CommitAuthor entry={entry} />
+        <CommitAuthor entry={entry} link={false} />
         <span className={styles.message}>
           {entry.message} <code>{entry.commit.slice(0, 8)}</code>
         </span>
@@ -181,6 +199,7 @@ function RevisionPopover({
   onClose(restoreFocus: boolean): void;
 }) {
   const [style, setStyle] = useState<CSSProperties>();
+  const surface = useRef<HTMLDivElement>(null);
   const [source, setSource] = useState<RevisionDiffSource>();
   const [error, setError] = useState<string>();
   const [attempt, setAttempt] = useState(0);
@@ -194,21 +213,27 @@ function RevisionPopover({
       const edge = 8;
       const width = Math.min(scaledPx(480), window.innerWidth - edge * 2);
       const beside = rect.right + 6 + width <= window.innerWidth - edge;
-      const room = Math.min(scaledPx(240), window.innerHeight - edge * 2);
+      const height = Math.min(surface.current?.offsetHeight ?? 0, window.innerHeight - edge * 2);
       const wanted = beside ? Math.max(edge, rect.top) : rect.bottom + 4;
       // Slide up rather than squash when the entry sits near the bottom of the window.
-      const top = Math.min(wanted, window.innerHeight - room - edge);
+      const top = Math.min(wanted, window.innerHeight - height - edge);
       setStyle({
         left: beside ? rect.right + 6 : Math.max(edge, window.innerWidth - width - edge),
         top,
         width,
-        maxHeight: window.innerHeight - top - edge,
+        maxHeight: window.innerHeight - edge * 2,
       });
     };
     place();
+    const observer =
+      typeof ResizeObserver === 'undefined' || !surface.current
+        ? undefined
+        : new ResizeObserver(place);
+    if (surface.current) observer?.observe(surface.current);
     window.addEventListener('resize', place);
     window.addEventListener('scroll', place, true);
     return () => {
+      observer?.disconnect();
       window.removeEventListener('resize', place);
       window.removeEventListener('scroll', place, true);
     };
@@ -238,6 +263,7 @@ function RevisionPopover({
 
   return (
     <div
+      ref={surface}
       id={id}
       role="dialog"
       aria-label={`Revision ${entry.commit.slice(0, 8)}`}
@@ -247,9 +273,14 @@ function RevisionPopover({
     >
       <div className={`${popover.body} ${styles.revisionBody}`}>
         <div className={styles.revisionHead}>
-          <strong>
-            {mode === 'previous' ? 'Changed in this revision' : 'Compared with current'}
-          </strong>
+          <span className={styles.revisionTitle}>
+            <strong>
+              {mode === 'previous' ? 'Changed in this revision' : 'Compared with current'}
+            </strong>
+            <span>
+              <CommitAuthor entry={entry} /> <code>{entry.commit.slice(0, 8)}</code>
+            </span>
+          </span>
           <button
             type="button"
             aria-pressed={mode === 'current'}
@@ -301,12 +332,14 @@ function RevisionPopover({
             ) : (
               <>
                 <p>Replaces the local draft for this tooltip. It does not save or push.</p>
-                <button type="button" onClick={restore}>
-                  Load as draft
-                </button>{' '}
-                <button type="button" onClick={() => setConfirm(false)}>
-                  Cancel
-                </button>
+                <span className={styles.confirmRow}>
+                  <button type="button" onClick={restore}>
+                    Load as draft
+                  </button>
+                  <button type="button" onClick={() => setConfirm(false)}>
+                    Cancel
+                  </button>
+                </span>
               </>
             )}
           </div>

@@ -188,3 +188,28 @@ it('keeps the translator rule: a note, and only assigned languages are restored'
   expect(next?.text.fr?.text).toBe('un');
   expect(next?.text.en?.text).toBe('current text');
 });
+
+it('Esc from inside the popover closes it for good, not reopened by the returning focus', async () => {
+  await act(async () => entries()[0].focus());
+  await wait(0);
+  const inside = dialog()!.querySelector<HTMLButtonElement>('button')!;
+  await act(async () => inside.focus());
+  await act(async () => {
+    inside.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  });
+  await wait(0);
+  expect(dialog()).toBeNull();
+  expect(document.activeElement).toBe(entries()[0]);
+});
+
+it('shows one popover at a time and keeps links out of the trigger button', async () => {
+  await act(async () => entries()[0].click());
+  await act(async () => entries()[1].click());
+  expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+  expect(host.querySelector('ol button a')).toBeNull();
+  await wait(0);
+  const compare = [...dialog()!.querySelectorAll('button')].find((b) =>
+    b.textContent?.includes('vs current draft'),
+  )!;
+  expect(compare.getAttribute('aria-pressed')).toBe('false');
+});
