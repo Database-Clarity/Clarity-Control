@@ -74,6 +74,7 @@ describe('settings store: local storage', () => {
       theme: 'system',
       panes: {},
       compendiumScale: 100,
+      suggestAccept: 'enter',
       remembered: {},
     });
     expect(values.get(settingsKey('7'))).not.toContain('uiScale');

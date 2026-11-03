@@ -52,7 +52,7 @@ export function EditorPaneHeader({
   onBack(): void;
   /** Maintainers only: derived enhanced versions and their stored text. */
   storedForms: { target: OverrideTarget; node: React.ReactNode }[];
-  /** Wired by the markup row (step 8); not rendered until then. */
+  /** The button that shows and hides the markup row. */
   markupTools?: React.ReactNode;
 }) {
   return (

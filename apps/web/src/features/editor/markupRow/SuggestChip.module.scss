@@ -1,0 +1,108 @@
+@use '../../../data/variables' as theme;
+@use '../../../ui/controls';
+
+// The suggestion chip: one 26px line (40px on touch), fixed to the window beside the text. It is
+// drawn outside the editor, so it can neither push nor cover the text it is about.
+.chip {
+  position: fixed;
+  z-index: 70;
+  left: var(--chip-left);
+  top: var(--chip-top);
+  display: inline-flex;
+  align-items: stretch;
+  box-sizing: border-box;
+  height: 1.625rem;
+  max-width: calc(100vw - 16px);
+  font-size: 0.75rem;
+  color: var(--text);
+  white-space: nowrap;
+  background: var(--raised);
+  border: 1px solid var(--accent-ink);
+  border-radius: 0.25rem;
+  box-shadow: var(--shadow);
+
+  @include theme.mobile-or-coarse {
+    height: 2.5rem;
+    font-size: max(14px, 0.875rem);
+  }
+}
+
+.accept,
+.dismiss {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4375rem;
+  min-width: 0;
+  padding: 0 0.4375rem 0 0.375rem;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  &:hover {
+    background: var(--hover);
+  }
+  &:focus-visible {
+    @include controls.focus-ring;
+    outline-offset: -2px;
+  }
+}
+
+.accept {
+  flex: 0 1 auto;
+  overflow: hidden;
+  border-radius: 0.1875rem 0 0 0.1875rem;
+}
+
+.dismiss {
+  flex: none;
+  gap: 0;
+  padding: 0 0.4375rem;
+  color: var(--text2);
+  border-left: 1px solid var(--hair);
+  border-radius: 0 0.1875rem 0.1875rem 0;
+}
+
+.markup {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--editor-font, Consolas, monospace);
+  font-size: inherit;
+  font-variant-ligatures: none;
+}
+
+.text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text2);
+}
+
+kbd {
+  flex: none;
+  padding: 0 0.1875rem;
+  font: 0.6875rem/0.875rem var(--editor-font, Consolas, monospace);
+  border: 1px solid currentcolor;
+  border-radius: 0.125rem;
+  opacity: 0.7;
+  // A touch screen has no Enter or Tab to press: the whole chip is the button.
+  @include theme.mobile-or-coarse {
+    display: none;
+  }
+}
+
+// Touch has no Esc key: a close button stands in for it.
+.cross {
+  display: none;
+  font-size: 1.25rem;
+  line-height: 1;
+  @include theme.mobile-or-coarse {
+    display: inline;
+  }
+}
+.esc {
+  @include theme.mobile-or-coarse {
+    display: none;
+  }
+}

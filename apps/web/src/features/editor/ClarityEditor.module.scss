@@ -100,37 +100,6 @@
   flex-direction: column;
   min-height: 0;
 }
-.toolbar {
-  padding: 6px;
-  border-bottom: 1px solid var(--editor-edge);
-  button,
-  select {
-    max-width: 100%;
-  }
-  p {
-    margin: 6px 0 0;
-  }
-  @include theme.mobile-or-coarse {
-    button,
-    select {
-      min-width: max(44px, 2.75rem);
-      min-height: max(44px, 2.75rem);
-      font-size: max(16px, 1rem);
-    }
-  }
-}
-.toolbarControls {
-  display: flex;
-  align-items: end;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 6px;
-  label {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-  }
-}
 .editor :global(.clarity-validation-error) {
   text-decoration: underline wavy var(--diag-error);
   text-underline-offset: 3px;

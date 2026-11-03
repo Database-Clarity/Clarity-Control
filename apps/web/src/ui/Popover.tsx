@@ -27,7 +27,8 @@ export function Popover({
   label: string;
   /** The trigger button's content. */
   trigger: ReactNode;
-  children: ReactNode;
+  /** Content, or a function of `close` when the content needs to close the surface itself. */
+  children: ReactNode | ((close: (restoreFocus?: boolean) => void) => ReactNode);
   className?: string;
   triggerTitle?: string;
 }) {
@@ -95,7 +96,11 @@ export function Popover({
           className={styles.surface}
           style={style}
         >
-          <div className={styles.body}>{children}</div>
+          <div className={styles.body}>
+            {typeof children === 'function'
+              ? children((restore = true) => close(restore))
+              : children}
+          </div>
         </div>
       )}
     </>

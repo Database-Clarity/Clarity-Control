@@ -6,6 +6,7 @@ import {
   uiScaleMax,
   uiScaleMin,
   uiScaleStep,
+  type SuggestAccept,
 } from '../../stores/settings';
 import { themePreferences, type ThemePreference } from '../../ui/theme';
 import { exactDate, formatDate } from '../../services/format/date';
@@ -101,7 +102,7 @@ export function SettingsContent() {
           this device.
         </p>
         <label>
-          Markup toolbar
+          Markup row
           {select('markupToolbar', ['closed', 'open'] as const)}
         </label>
         <label>
@@ -148,6 +149,18 @@ export function SettingsContent() {
           </select>
         </label>
         <p className={styles.hint}>Ligatures are off so typed symbols stay distinct.</p>
+        <label>
+          Accept suggestion chips with
+          <select
+            value={device.suggestAccept}
+            onChange={(event) =>
+              updateDevice({ suggestAccept: event.target.value as SuggestAccept })
+            }
+          >
+            <option value="enter">Enter (Shift+Enter makes a new line)</option>
+            <option value="tab">Tab (Enter always makes a new line)</option>
+          </select>
+        </label>
         <label>
           Interface scale
           <span className={styles.scale}>

@@ -7,7 +7,6 @@ import {
   markupColors,
   markupIcons,
   markupLineClasses,
-  markupTableClasses,
   parseMarkup,
   type MarkupGlobals,
 } from '@clarity/core';
@@ -40,7 +39,8 @@ describe('markup insertion', () => {
       expect(option(`inline:${name}`)).toBeTruthy();
     for (const name of markupIcons) expect(option(`icon:${name}`)).toBeTruthy();
     for (const name of markupLineClasses) expect(option(`line:${name}`)).toBeTruthy();
-    for (const name of markupTableClasses) expect(option(`table:${name}`)).toBeTruthy();
+    // Tables are retired from the insertion UI: no option writes a table.
+    expect(markupOptions.some((item) => item.id.startsWith('table:'))).toBe(false);
     expect(new Set(markupOptions.map((item) => item.id)).size).toBe(markupOptions.length);
   });
 
@@ -81,18 +81,6 @@ describe('markup insertion', () => {
   ])('%s inserts at the active end without deleting selected text', (id, token) => {
     const state = EditorState.create({ doc: 'abcd', selection: { anchor: 1, head: 3 } });
     expect(insert(state, option(id)).doc.toString()).toBe(`abc${token}d`);
-  });
-
-  test('inserts a table as a separate block with selected lines as rows', () => {
-    const state = EditorState.create({
-      doc: 'Start one\ntwo End',
-      selection: { anchor: 6, head: 13 },
-    });
-    const next = insert(state, option('table:wide'));
-    expect(next.doc.toString()).toBe('Start \n< table wide >\n| one\n| two\n<$>\n End');
-    expect(parseMarkup(next.doc.toString()).lines.find((line) => line.table)?.table).toHaveLength(
-      2,
-    );
   });
 
   test('handles multiple selections and leaves insertion separately undoable and redoable', () => {
@@ -173,7 +161,7 @@ describe('markup insertion', () => {
       [start + token.length - 1, start + token.length - 1],
     ];
     for (const [anchor, head] of selections) {
-      for (const id of ['inline:blue', 'link', 'title', 'table:wide']) {
+      for (const id of ['inline:blue', 'link', 'title']) {
         const state = EditorState.create({ doc, selection: { anchor, head } });
         expect(markupTransaction(state, option(id)), `${id}: ${anchor}-${head}`).toBeNull();
         expect(state.doc.toString()).toBe(doc);
@@ -352,7 +340,7 @@ describe('markup insertion', () => {
     }
   });
 
-  test.each(['inline:blue', 'link', 'title', 'table:wide', 'icon:solar', 'line:blue'])(
+  test.each(['inline:blue', 'link', 'title', 'icon:solar', 'line:blue'])(
     'rejects %s throughout a multiline-comment-joined renderer token',
     (id) => {
       const doc = '<bold Damage > /*\nignored\n*/10 />';
@@ -427,7 +415,7 @@ describe('markup insertion', () => {
     ]) {
       const start = doc.lastIndexOf('\n') + 1;
       const state = EditorState.create({ doc, selection: { anchor: doc.length } });
-      for (const id of ['inline:blue', 'link', 'title', 'table:wide', 'icon:solar', 'line:blue']) {
+      for (const id of ['inline:blue', 'link', 'title', 'icon:solar', 'line:blue']) {
         expect(markupTransaction(state, option(id)), `${id}: ${doc}`).toBeNull();
       }
       const selection = state.update({ selection: { anchor: start, head: doc.length } }).state;
@@ -436,7 +424,7 @@ describe('markup insertion', () => {
     }
   });
 
-  test.each(['inline:blue', 'link', 'title', 'table:wide', 'icon:solar', 'line:blue'])(
+  test.each(['inline:blue', 'link', 'title', 'icon:solar', 'line:blue'])(
     'rejects %s when a global variable creates a multiline comment',
     (id) => {
       const doc = '<bold Damage > #join\nignored\n*/10 />';
@@ -464,7 +452,7 @@ describe('markup insertion', () => {
     expect(markupTransaction(imported, option('inline:bold'))).toBeNull();
   });
 
-  test.each(['inline:blue', 'link', 'title', 'table:wide', 'icon:solar', 'line:blue'])(
+  test.each(['inline:blue', 'link', 'title', 'icon:solar', 'line:blue'])(
     'allows %s on independent plain text with harmless expansions and standalone comments',
     (id) => {
       const cases: { doc: string; globals: MarkupGlobals; expected?: string }[] = [
@@ -505,7 +493,7 @@ describe('markup insertion', () => {
     },
   );
 
-  test.each(['inline:blue', 'link', 'title', 'table:wide', 'icon:solar', 'line:blue'])(
+  test.each(['inline:blue', 'link', 'title', 'icon:solar', 'line:blue'])(
     'rejects %s when an expansion creates a comment or is unresolved',
     (id) => {
       const cases: { doc: string; globals: MarkupGlobals }[] = [
@@ -542,7 +530,7 @@ describe('markup insertion', () => {
     },
   );
 
-  test.each(['inline:blue', 'link', 'title', 'table:wide', 'icon:solar', 'line:blue'])(
+  test.each(['inline:blue', 'link', 'title', 'icon:solar', 'line:blue'])(
     'protects title definition boundaries from %s but allows supported body formatting',
     (id) => {
       const doc = 'title Name (\nDescription\n)\n<title label [Name] />';
@@ -652,7 +640,7 @@ describe('markup insertion', () => {
       expect(undoDepth(multi)).toBe(0);
       expect(multi.selection.ranges).toHaveLength(2);
       const nested = EditorState.create({ doc, selection: { anchor: point, head: point + 5 } });
-      expect(markupTransaction(nested, option('table:wide'))).toBeNull();
+      expect(markupTransaction(nested, option('link'))).toBeNull();
       const delimiter = EditorState.create({
         doc,
         selection: { anchor: doc.indexOf('|'), head: point + 5 },
@@ -743,7 +731,7 @@ describe('markup insertion', () => {
     expect(multi.doc.toString()).toBe('one two');
   });
 
-  test.each(['inline:blue', 'link', 'title', 'table:wide', 'icon:solar', 'line:blue'])(
+  test.each(['inline:blue', 'link', 'title', 'icon:solar', 'line:blue'])(
     'protects table delimiter edges from %s',
     (id) => {
       const doc = '< table wide >\n| one\n<$>';
@@ -784,7 +772,7 @@ describe('markup insertion', () => {
   test('rejects table nesting, table cell delimiters and unsafe mixed multi-selections atomically', () => {
     const doc = '< table wide >\n| one | two\n<$>';
     for (const [anchor, head, id] of [
-      [doc.indexOf('one'), doc.indexOf('one') + 3, 'table:wide'],
+      [doc.indexOf('one'), doc.indexOf('one') + 3, 'link'],
       [doc.indexOf('one'), doc.indexOf('two') + 3, 'inline:bold'],
       [doc.indexOf('|'), doc.indexOf('|'), 'icon:solar'],
       [0, 0, 'inline:bold'],

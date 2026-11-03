@@ -13,8 +13,7 @@ import { RememberRoute, SettingsRedirect } from './SettingsRedirect';
 import { SettingsPopover } from './SettingsPopover';
 import { useSettingsPanel } from './panel';
 import { SettingsSync } from './SettingsSync';
-import { MarkupToolbar } from '../editor/MarkupToolbar';
-import type { MarkupGlobals } from '@clarity/core';
+import { useMarkupRow } from '../editor/markupRow/useMarkupRow';
 
 const holder = vi.hoisted(() => {
   // Node's own (flag-gated) localStorage shadows jsdom's; install a real one before the
@@ -209,7 +208,7 @@ describe('Settings popover', () => {
     await act(async () => useSettingsStore.getState().activate(editor));
     await render();
     await openSettings();
-    await choose('Markup toolbar', 'open');
+    await choose('Markup row', 'open');
     await choose('English source shows', 'current');
     expect(holder.server.calls.put).toHaveLength(0);
     // Choosing a default here also applies it to this device's remembered toggles.
@@ -262,7 +261,9 @@ describe('Settings popover', () => {
     await act(async () => button('Reset pane widths and Compendium zoom').click());
     expect(localStorage.getItem(layoutKey)).toBeNull();
     expect(useSettingsStore.getState().device.panes).toEqual({});
-    expect(popover()!.textContent).toContain('Pane widths and Compendium zoom reset to their defaults.');
+    expect(popover()!.textContent).toContain(
+      'Pane widths and Compendium zoom reset to their defaults.',
+    );
     await act(async () => closeButton().click());
     expect(holder.server.calls.put).toHaveLength(0);
     await openSettings();
@@ -385,15 +386,19 @@ describe('Settings popover', () => {
     expect(useSettingsStore.getState()).toMatchObject({ status: 'synced', pending: [] });
   });
 
-  it('remembers the markup toolbar per device without syncing or prompting', async () => {
+  it('remembers the markup row per device without syncing or prompting', async () => {
     await act(async () => useSettingsStore.getState().activate(editor));
     useSettingsStore.getState().update({ markupToolbar: 'open' });
     useSettingsStore.getState().updateDevice({ remembered: {} });
     await act(async () => useSettingsStore.getState().sync());
     const puts = holder.server.calls.put.length;
-    const toolbar = () => (
-      <MarkupToolbar editor={{ current: null }} globals={{} as MarkupGlobals} />
-    );
+    function Row() {
+      const row = useMarkupRow();
+      return (
+        <button onClick={row.toggle}>{row.open ? 'Hide markup tools' : 'Show markup tools'}</button>
+      );
+    }
+    const toolbar = () => <Row />;
     await render(toolbar());
     // No remembered click yet: the synced default applies.
     expect(button('Hide markup tools')).toBeTruthy();

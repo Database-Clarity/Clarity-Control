@@ -15,7 +15,7 @@ export const settingLabels: Record<SyncedKey, string> = {
   dateFormat: 'Date format',
   timeDisplay: 'Time display',
   timeZone: 'Time zone',
-  markupToolbar: 'Markup toolbar',
+  markupToolbar: 'Markup row',
   englishSource: 'English source shows',
 };
 

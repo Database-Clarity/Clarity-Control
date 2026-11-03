@@ -61,6 +61,9 @@ export function normalizeCompendiumScale(value: unknown): number {
     Math.abs(step - value) <= Math.abs(best - value) ? step : best,
   );
 }
+/** The key that takes a suggestion chip (`Enter` by default; the other key then keeps its usual job). */
+export const suggestAcceptKeys = ['enter', 'tab'] as const;
+export type SuggestAccept = (typeof suggestAcceptKeys)[number];
 export const deviceSettingsSchema = z.object({
   editorFont: z.enum(editorFonts),
   /** Whole-interface scale in percent (the root font size); 100 is the design size. */
@@ -68,6 +71,7 @@ export const deviceSettingsSchema = z.object({
   theme: z.enum(themePreferences),
   panes: z.record(z.string(), paneStateSchema),
   compendiumScale: z.number().transform(normalizeCompendiumScale),
+  suggestAccept: z.enum(suggestAcceptKeys),
   remembered: rememberedSchema,
 });
 export type DeviceSettings = z.infer<typeof deviceSettingsSchema>;
@@ -77,6 +81,7 @@ export const defaultDeviceSettings: DeviceSettings = {
   theme: 'system',
   panes: {},
   compendiumScale: defaultCompendiumScale,
+  suggestAccept: 'enter',
   remembered: {},
 };
 
@@ -380,7 +385,12 @@ export function createSettingsStore({
         ? (record.remembered as Record<string, unknown>)
         : {};
     const remembered: Remembered = { ...legacy };
-    for (const key of ['markupToolbar', 'englishSource', 'compendiumDiff', 'compendiumSurface'] as const) {
+    for (const key of [
+      'markupToolbar',
+      'englishSource',
+      'compendiumDiff',
+      'compendiumSurface',
+    ] as const) {
       const result = rememberedSchema.shape[key].safeParse(stored[key]);
       if (result.success && result.data) Object.assign(remembered, { [key]: result.data });
     }
@@ -391,6 +401,10 @@ export function createSettingsStore({
       theme: theme.success ? theme.data : 'system',
       panes: readPanes(record.panes),
       compendiumScale: normalizeCompendiumScale(record.compendiumScale),
+      suggestAccept:
+        record.suggestAccept === 'tab' || record.suggestAccept === 'enter'
+          ? record.suggestAccept
+          : 'enter',
       remembered,
     };
   }

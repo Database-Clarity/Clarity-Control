@@ -139,47 +139,71 @@ export function moveSuggest(view: EditorView, delta: number, absolute = false): 
 
 export type AcceptResult = 'inserted' | 'none' | Rejection;
 
-/** Inserts an option (the highlighted one by default). The only way the menu changes the text. */
-export function acceptSuggestion(view: EditorView, index?: number): AcceptResult {
-  const snapshot = suggestState(view.state);
-  const item = snapshot?.items[index ?? snapshot.index];
-  if (!snapshot || !item) return 'none';
+/** What an insertion needs to know about the selection it happens beside. */
+export interface InsertionTarget {
+  /** The text was typed as a trigger (`<so`, a word): judged as the point it leaves behind. */
+  typed: boolean;
+  /** The selection the option sits in front of and leaves selected (its positions before the insert). */
+  keepSelection?: { from: number; to: number };
+}
+
+/**
+ * Applies an option to the document under the markup-safety rules, or says why it cannot. The one
+ * place the suggestion menu, the markup row and the chips change the text.
+ */
+export function insertItem(
+  view: EditorView,
+  item: SuggestItem,
+  target: InsertionTarget,
+): Rejection | null {
   if (!item.reference) {
-    const typed = snapshot.context.kind !== 'selection' || item.from === item.to;
     const rejection = insertionRejection(
       view.state,
       { from: item.from, to: item.to },
       view.state.facet(suggestHost).globals,
-      { typed, link: item.link, lineStyle: item.lineStyle },
+      { typed: target.typed, link: item.link, lineStyle: item.lineStyle },
     );
-    if (rejection) {
-      view.dispatch({ effects: messageEffect.of(insertionMessages[rejection]) });
-      return rejection;
-    }
+    if (rejection) return rejection;
   }
   const stops = item.stops.map((stop) => ({
     from: item.from + stop.from,
     to: item.from + stop.to,
   }));
   const end = item.from + item.insert.length;
-  const keepsSelection = snapshot.context.kind === 'selection' && item.from === item.to;
+  const keep = target.keepSelection;
   const first = stops[0];
   view.dispatch({
     changes: { from: item.from, to: item.to, insert: item.insert },
-    selection: keepsSelection
-      ? EditorSelection.range(
-          snapshot.context.from + item.insert.length,
-          snapshot.context.to + item.insert.length,
-        )
+    selection: keep
+      ? EditorSelection.range(keep.from + item.insert.length, keep.to + item.insert.length)
       : first
         ? EditorSelection.range(first.from, first.to)
         : EditorSelection.cursor(end),
-    effects: [closeEffect.of(null), setStops.of(keepsSelection ? [] : stops)],
+    effects: [closeEffect.of(null), setStops.of(keep ? [] : stops)],
     annotations: [Transaction.userEvent.of('input.complete'), isolateHistory.of('full')],
     scrollIntoView: true,
   });
   rememberSuggestion(item.id);
   view.focus();
+  return null;
+}
+
+/** Inserts an option (the highlighted one by default). */
+export function acceptSuggestion(view: EditorView, index?: number): AcceptResult {
+  const snapshot = suggestState(view.state);
+  const item = snapshot?.items[index ?? snapshot.index];
+  if (!snapshot || !item) return 'none';
+  const keepsSelection = snapshot.context.kind === 'selection' && item.from === item.to;
+  const rejection = insertItem(view, item, {
+    typed: snapshot.context.kind !== 'selection' || item.from === item.to,
+    keepSelection: keepsSelection
+      ? { from: snapshot.context.from, to: snapshot.context.to }
+      : undefined,
+  });
+  if (rejection) {
+    view.dispatch({ effects: messageEffect.of(insertionMessages[rejection]) });
+    return rejection;
+  }
   return 'inserted';
 }
 

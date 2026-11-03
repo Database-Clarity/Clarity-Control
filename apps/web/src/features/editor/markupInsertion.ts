@@ -11,12 +11,11 @@ import {
   markupImports,
   markupInlineRanges,
   markupLineClasses,
-  markupTableClasses,
   markupVariableReferences,
   type MarkupGlobals,
 } from '@clarity/core';
 
-type MarkupKind = 'inline' | 'icon' | 'line' | 'link' | 'title' | 'table';
+type MarkupKind = 'inline' | 'icon' | 'line' | 'link' | 'title';
 export interface MarkupOption {
   id: string;
   label: string;
@@ -45,13 +44,6 @@ export const markupOptions: MarkupOption[] = [
     label: name,
     group: 'Line style',
     kind: 'line' as const,
-    name,
-  })),
-  ...markupTableClasses.map((name) => ({
-    id: `table:${name}`,
-    label: name,
-    group: 'Table',
-    kind: 'table' as const,
     name,
   })),
   { id: 'link', label: 'link', group: 'Reference', kind: 'link', name: 'link' },
@@ -314,7 +306,8 @@ export function insertionRejection(
 
 export const insertionMessages: Record<Rejection, string> = {
   'table-link': 'Links are not supported in table cells. Insert the link outside the table.',
-  expansion: 'Imports or variable expansions may change the surrounding markup. Edit the markup directly.',
+  expansion:
+    'Imports or variable expansions may change the surrounding markup. Edit the markup directly.',
   'line-style': 'This line cannot display another of that line style. Edit the markup directly.',
   context: 'Cannot insert markup in this syntax or selection. Edit the markup directly.',
 };
@@ -326,7 +319,7 @@ function createMarkupTransaction(
 ): { transaction: Transaction; rejection?: never } | { transaction?: never; rejection: Rejection } {
   const analysis = analyse(state, globals);
   if (!analysis) return { rejection: 'expansion' };
-  const { tokens, tables, preparedTables } = analysis;
+  const { tokens, preparedTables } = analysis;
   if (
     option.kind === 'link' &&
     state.selection.ranges.some((range) =>
@@ -342,10 +335,7 @@ function createMarkupTransaction(
     return (
       tokens.some((token) => intersects(from, to, token)) ||
       (!insertAtHead && selected.includes('/>')) ||
-      ((option.kind === 'link' || option.kind === 'title') && selected.includes('[')) ||
-      (option.kind === 'table' &&
-        (selected.includes('|') ||
-          [...tables, ...preparedTables].some((table) => intersects(from, to, table))))
+      ((option.kind === 'link' || option.kind === 'title') && selected.includes('['))
     );
   });
   if (unsafe) return { rejection: 'context' };
@@ -370,23 +360,6 @@ function createMarkupTransaction(
           range.anchor + (range.anchor >= position ? insert.length : 0),
           position + insert.length,
         ),
-      };
-    }
-
-    if (option.kind === 'table') {
-      const before = range.from > 0 && state.sliceDoc(range.from - 1, range.from) !== '\n';
-      const after = range.to < state.doc.length && state.sliceDoc(range.to, range.to + 1) !== '\n';
-      const prefix = `${before ? '\n' : ''}< table ${option.name} >\n| `;
-      const content = (selected || 'Text').split('\n').join('\n| ');
-      const insert = `${prefix}${content}\n<$>${after ? '\n' : ''}`;
-      const start = range.from + prefix.length;
-      const end = start + content.length;
-      return {
-        changes: { from: range.from, to: range.to, insert },
-        range:
-          range.anchor > range.head
-            ? EditorSelection.range(end, start)
-            : EditorSelection.range(start, end),
       };
     }
 

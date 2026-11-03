@@ -1,0 +1,159 @@
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import type { EditorView } from '@codemirror/view';
+import type { MarkupGlobals } from '@clarity/core';
+import { EntryGlyph } from './EntryGlyph';
+import { AllPopover } from './AllPopover';
+import { entryMessage, markupEntries, rowEntries, rowSeparator, type MarkupEntry } from './entries';
+import type { UsageCorpus } from '../suggest/usage';
+import styles from './MarkupRow.module.scss';
+
+/** Buttons with a number key: the first nine on the row. */
+const numbered = 9;
+
+/**
+ * The markup row: a 30px strip at the top of the editor (52px on touch) with the options an
+ * author reaches for most, and "All" pinned at its end for every other one. The buttons never take
+ * focus from the text, so the selection they act on stays put; keyboard users move along the row
+ * with the arrow keys, insert with Enter or a number, and land back in the text.
+ */
+export function MarkupRow({
+  view,
+  globals,
+  usage,
+}: {
+  view: RefObject<EditorView | null>;
+  globals: MarkupGlobals;
+  usage?: UsageCorpus;
+}) {
+  const entries = useMemo(() => markupEntries(globals), [globals]);
+  const items = useMemo(() => rowEntries(entries), [entries]);
+  const buttons = items.filter((item): item is MarkupEntry => item !== rowSeparator);
+  const scroller = useRef<HTMLDivElement>(null);
+  const [active, setActive] = useState(0);
+  const [edges, setEdges] = useState({ start: false, end: false });
+  const [message, setMessage] = useState('');
+
+  function run(entry: MarkupEntry) {
+    const editor = view.current;
+    if (!editor) return;
+    const result = entry.run(editor, globals);
+    setMessage(entryMessage(result));
+    if (result !== 'inserted') editor.focus();
+  }
+
+  useEffect(() => {
+    if (!message) return;
+    const timer = window.setTimeout(() => setMessage(''), 6000);
+    return () => window.clearTimeout(timer);
+  }, [message]);
+
+  useEffect(() => {
+    const element = scroller.current;
+    if (!element) return;
+    const measure = () =>
+      setEdges({
+        start: element.scrollLeft > 1,
+        end: element.scrollLeft + element.clientWidth < element.scrollWidth - 1,
+      });
+    measure();
+    element.addEventListener('scroll', measure, { passive: true });
+    const observer =
+      typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure);
+    observer?.observe(element);
+    // The wheel scrolls the row sideways (a vertical wheel has nothing else to do over it).
+    const wheel = (event: WheelEvent) => {
+      if (element.scrollWidth <= element.clientWidth) return;
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      if (!delta) return;
+      element.scrollLeft += delta;
+      event.preventDefault();
+    };
+    element.addEventListener('wheel', wheel, { passive: false });
+    return () => {
+      element.removeEventListener('scroll', measure);
+      element.removeEventListener('wheel', wheel);
+      observer?.disconnect();
+    };
+  }, []);
+
+  function focusButton(index: number) {
+    const all = scroller.current?.querySelectorAll<HTMLButtonElement>('[data-row-button]');
+    const target = all?.[Math.max(0, Math.min(index, (all?.length ?? 1) - 1))];
+    if (!target) return;
+    target.focus();
+    target.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }
+
+  function keyDown(event: React.KeyboardEvent) {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.key === 'ArrowRight') focusButton(active + 1);
+    else if (event.key === 'ArrowLeft') focusButton(active - 1);
+    else if (event.key === 'Home') focusButton(0);
+    else if (event.key === 'End') focusButton(buttons.length - 1);
+    else if (event.key === 'Escape') view.current?.focus();
+    else if (/^[1-9]$/.test(event.key) && !event.shiftKey) {
+      const entry = buttons[Number(event.key) - 1];
+      if (entry) run(entry);
+    } else return;
+    event.preventDefault();
+  }
+
+  let index = -1;
+  return (
+    <div className={styles.row} data-markup-row>
+      <div
+        className={styles.scrollWrap}
+        data-more-start={edges.start || undefined}
+        data-more-end={edges.end || undefined}
+      >
+        <div
+          ref={scroller}
+          className={styles.scroller}
+          role="toolbar"
+          aria-label="Markup tools"
+          aria-orientation="horizontal"
+          onKeyDown={keyDown}
+        >
+          {items.map((item, position) => {
+            if (item === rowSeparator)
+              return (
+                <span
+                  key={`separator-${position}`}
+                  className={styles.separator}
+                  aria-hidden="true"
+                />
+              );
+            index++;
+            const own = index;
+            const key = own < numbered ? own + 1 : undefined;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={styles.button}
+                data-row-button
+                data-entry={item.id}
+                tabIndex={own === active ? 0 : -1}
+                aria-label={item.label}
+                aria-keyshortcuts={key ? String(key) : undefined}
+                title={`${item.markup}${key ? `  ·  key ${key} while here` : ''}`}
+                // Pressing never moves focus out of the text, so the selection stays put.
+                onMouseDown={(event) => event.preventDefault()}
+                onFocus={() => setActive(own)}
+                onClick={() => run(item)}
+              >
+                <EntryGlyph glyph={item.glyph} />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <AllPopover view={view} globals={globals} usage={usage} onResult={setMessage} />
+      {message && (
+        <div className={styles.note} role="status">
+          {message}
+        </div>
+      )}
+    </div>
+  );
+}
