@@ -33,10 +33,19 @@ export function ArchivePage() {
   const [targetHash, setTargetHash] = useState<number>();
   const [selected, setSelected] = useState<Lang[]>([]);
   const [notice, setNotice] = useState('');
-  const [replaceDraft, setReplaceDraft] = useState(false);
+  // Consent to overwrite a draft is tied to the destination it was given for.
+  const [replaceFor, setReplaceFor] = useState<number>();
   const scroll = useRef(0);
   const selectedHash = params.get('item');
   const listRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    // Any navigation to another archived item (or back to the list) discards the picker state,
+    // including a destination and replace-draft consent left over from browser Back.
+    setPicking(false);
+    setTargetHash(undefined);
+    setTargetQuery('');
+    setReplaceFor(undefined);
+  }, [selectedHash]);
   useLayoutEffect(() => {
     if (!selectedHash && listRef.current) window.scrollTo(0, scroll.current);
     else if (selectedHash) window.scrollTo(0, 0);
@@ -88,13 +97,14 @@ export function ArchivePage() {
   const targetDraft = targetBase && drafts[targetBase.hash];
   const target = targetBase && (targetDraft?.next ?? targetBase);
   const staged = current?.archive?.successor !== undefined;
+  const replaceDraft = targetHash !== undefined && replaceFor === targetHash;
   function back() {
     const next = new URLSearchParams(params);
     next.delete('item');
     setParams(next);
     setPicking(false);
     setTargetHash(undefined);
-    setReplaceDraft(false);
+    setReplaceFor(undefined);
     setNotice('');
   }
   function confirmArchive() {
@@ -124,6 +134,8 @@ export function ArchivePage() {
       { base: targetBase, update: () => change.target },
     ]);
     setPicking(false);
+    setTargetHash(undefined);
+    setReplaceFor(undefined);
     setNotice('Association staged → Review changes and save both drafts.');
   }
   return (
@@ -294,6 +306,8 @@ export function ArchivePage() {
                         disabled={!canAct || !current.archive}
                         onClick={() => {
                           setPicking(true);
+                          setTargetHash(undefined);
+                          setReplaceFor(undefined);
                           setSelected(
                             languages.filter((lang) => Boolean(current.text[lang]?.text.trim())),
                           );
@@ -337,7 +351,13 @@ export function ArchivePage() {
                         .slice(0, 100)
                         .map((item) => (
                           <li key={item.hash}>
-                            <button type="button" onClick={() => setTargetHash(item.hash)}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTargetHash(item.hash);
+                                setReplaceFor(undefined);
+                              }}
+                            >
                               {item.name} ({item.hash})
                             </button>
                           </li>
@@ -392,10 +412,12 @@ export function ArchivePage() {
                           <input
                             type="checkbox"
                             checked={replaceDraft}
-                            onChange={(event) => setReplaceDraft(event.target.checked)}
+                            onChange={(event) =>
+                              setReplaceFor(event.target.checked ? target.hash : undefined)
+                            }
                           />
-                          This item already has a local draft. Replace the selected languages in
-                          that draft.
+                          {data.items[target.hash].name} ({target.hash}) already has a local draft.
+                          Replace the selected languages in that draft.
                         </label>
                       )}
                       <button
@@ -409,7 +431,14 @@ export function ArchivePage() {
                       </button>
                     </>
                   )}
-                  <button type="button" onClick={() => setPicking(false)}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPicking(false);
+                      setTargetHash(undefined);
+                      setReplaceFor(undefined);
+                    }}
+                  >
                     Cancel association
                   </button>
                 </section>

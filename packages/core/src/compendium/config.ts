@@ -17,7 +17,8 @@ export interface CompendiumColumns {
   section?: string;
 }
 export function isTrackedCompendiumTab(name: string): boolean {
-  return !name.includes('OLD');
+  // Whole-word, case-sensitive marker: "OLD Perks" or "Perks (OLD)", never "GOLD", "Old" or "old".
+  return !/(^|[^A-Za-z0-9])OLD($|[^A-Za-z0-9])/.test(name);
 }
 const glossary = {
   nameColumns: [1],

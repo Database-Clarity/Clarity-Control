@@ -5,6 +5,7 @@ import {
   parseCompendiumSheet,
   parseCompendiumTabs,
 } from '../../src/compendium/parser.js';
+import { isTrackedCompendiumTab } from '../../src/compendium/config.js';
 import { compendiumCellSchema, sameCell } from '../../src/compendium/types.js';
 import { diffCompendium } from '../../src/compendium/diff.js';
 import { tooltipSchema } from '../../src/schemas.js';
@@ -23,6 +24,11 @@ describe('real htmlview golden fixtures', () => {
       '<a href="?gid=1">OLD Perks</a><a href="?gid=2">old perks</a><a href="?gid=3">Old perks</a><a href="?gid=4">Perks</a>',
     );
     expect(tabs.map((tab) => tab.name)).toEqual(['old perks', 'Old perks', 'Perks']);
+    expect(
+      ['GOLD Perks', 'BOLD', 'HOLD_ON', 'Perks (OLD)', 'OLD', 'OLD_Perks', 'Perks-OLD'].filter(
+        isTrackedCompendiumTab,
+      ),
+    ).toEqual(['GOLD Perks', 'BOLD', 'HOLD_ON']);
     expect(() => parseCompendiumSheet('<html>must not be parsed</html>', '1', 'OLD Perks')).toThrow(
       'Ignored',
     );

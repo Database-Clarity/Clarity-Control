@@ -30,6 +30,34 @@ describe('removedFromManifest', () => {
       ).removed.map((entry) => entry.hash),
     ).toEqual([100]);
   });
+  it('still lists a manifest attachment switched to a custom category once it leaves the manifest', () => {
+    const switched = {
+      ...tooltip(150),
+      custom: { name: 'Sight', categoryId: 'attachment-effect' },
+    };
+    const records = tracked.map((entry) => (entry.hash === 150 ? switched : entry));
+    const gone = { ...items };
+    delete gone[150];
+    const result = removedFromManifest(records, gone);
+    expect(result.removed.map((entry) => entry.hash)).toEqual([100, 150]);
+    const confirmed = records.map((entry) =>
+      entry.hash === 150
+        ? {
+            ...entry,
+            archive: {
+              removedAt: 'x',
+              lastSeen: { name: 'Sight', categoryId: 'attachment-effect', manifestVersion: 'v1' },
+            },
+          }
+        : entry,
+    );
+    expect(
+      removedFromManifest(confirmed, {
+        ...gone,
+        150: { categoryId: 'attachment-effect' },
+      }).returned.map((entry) => entry.hash),
+    ).toEqual([150]);
+  });
   it('pauses missing/empty/incomplete manifests, at strictly more than five percent', () => {
     const manifests: Parameters<typeof removedFromManifest>[1][] = [
       null,

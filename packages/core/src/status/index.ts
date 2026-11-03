@@ -132,6 +132,16 @@ export function translationQueue(
   );
 }
 
+/**
+ * Real custom tooltips use the reserved hashes 1-3, which are never tracked. A custom override on a
+ * manifest hash comes from switching an attachment between categories, so its authored text still
+ * has to surface in Archive when the item leaves the manifest.
+ */
+const attachmentSwitchCategories: ReadonlySet<string> = new Set([
+  'weapon-attachment',
+  'attachment-effect',
+]);
+
 export interface ArchiveItem {
   categoryId: string;
   baseHash?: number;
@@ -157,7 +167,7 @@ export function removedFromManifest(
   const tracked = tooltips.filter(
     (tooltip) =>
       tooltip.hash > 3 &&
-      !tooltip.custom &&
+      (!tooltip.custom || attachmentSwitchCategories.has(tooltip.custom.categoryId)) &&
       !inactiveHashes.has(tooltip.hash) &&
       items[tooltip.hash]?.categoryId !== 'inactive-placeholder' &&
       tooltip.archive?.lastSeen.categoryId !== 'inactive-placeholder',

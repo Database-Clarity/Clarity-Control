@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import * as parser from './parser-entry.ts';
-import { buildCompendium } from './runner.mjs';
+import { buildCompendium, shrunkTabs } from './runner.mjs';
 const fixture = (name) =>
   readFileSync(
     new URL(`../../packages/core/test/compendium/fixtures/${name}.html`, import.meta.url),
@@ -51,5 +51,38 @@ describe('dependency-free Compendium publisher', () => {
       }),
     ).rejects.toThrow('HTTP 503');
     await expect(buildCompendium({ parser, load, previous: { tabs: [] } })).rejects.toThrow();
+  });
+});
+describe('shrink guard', () => {
+  it('rejects a refresh that drops a tracked tab sharply, but allows deliberate or small changes', async () => {
+    const first = await buildCompendium({ parser, load, now: '2026-10-27T00:00:00Z' });
+    const big = structuredClone(first.data);
+    const template = big.tabs[0].rows[0];
+    big.tabs[0].rows = Array.from({ length: 20 }, (_, index) => ({
+      ...template,
+      name: `Row ${index}`,
+    }));
+    // Fixtures hold fewer than 16 rows, so the refreshed tab is "sharply" smaller than 20.
+    await expect(
+      buildCompendium({ parser, load, previous: big, now: '2026-10-28T00:00:00Z' }),
+    ).rejects.toThrow(/shrank sharply.*Weapon Perks/);
+    const allowed = await buildCompendium({
+      parser,
+      load,
+      previous: big,
+      now: '2026-10-28T00:00:00Z',
+      allowShrink: true,
+    });
+    expect(allowed.changed).toBe(true);
+    const missingTab = structuredClone(big);
+    missingTab.tabs.push({ ...big.tabs[0], gid: '999', name: 'Gone Tab' });
+    await expect(
+      buildCompendium({ parser, load, previous: missingTab, now: '2026-10-28T00:00:00Z' }),
+    ).rejects.toThrow(/Gone Tab/);
+    const tab = (rows) => ({ gid: '1', name: 'T', rows: Array.from({ length: rows }) });
+    expect(shrunkTabs({ tabs: [tab(10)] }, [tab(8)])).toEqual([]);
+    expect(shrunkTabs({ tabs: [tab(10)] }, [tab(7)])).toEqual(['T 10→7']);
+    expect(shrunkTabs({ tabs: [tab(9)] }, [tab(1)])).toEqual([]);
+    expect(shrunkTabs({ tabs: [tab(10)] }, [tab(30)])).toEqual([]);
   });
 });
