@@ -1423,7 +1423,7 @@
     },
     "2206869417": {
       "name": "Häkke Heavy Burst Fire",
-      "category": "weapon-trait-origin-exotic",
+      "category": "weapon-perk-exotic",
       "places": [23, 14]
     },
     "2209280306": {
@@ -2578,7 +2578,7 @@
     },
     "4152458172": {
       "name": "Häkke Light Burst Fire",
-      "category": "weapon-trait-origin-exotic",
+      "category": "weapon-perk-exotic",
       "places": [23, 14]
     },
     "4154539168": {
