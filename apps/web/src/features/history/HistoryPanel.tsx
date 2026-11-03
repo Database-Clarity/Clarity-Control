@@ -1,18 +1,18 @@
 import { useEffect, useState } from 'react';
 import type { Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
-import { getHistory, getVersion, type HistoryCommit } from '../../services/history';
+import { getHistory, type HistoryCommit } from '../../services/history';
 import { errorMessage } from '../../services/http';
 import { replaceDraft } from '../../services/save/drafts';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
-import { CommitAuthor } from './CommitAuthor';
+import { HistoryEntry } from './HistoryEntry';
 import { PanelRow } from '../../ui/PanelRow';
 import { When } from '../../ui/When';
 import { lastEdit } from './lastEdit';
 import { itemFor } from '../navigation/catalog';
-import { TooltipDiff } from './TooltipDiff';
+import { useRevisionCache } from './revisions';
 import { revertDraft } from './revert';
 import styles from './History.module.scss';
 
@@ -78,12 +78,8 @@ function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: b
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(true);
-  const [version, setVersion] = useState<{ commit: string; tooltip: Tooltip }>();
-  const [selectedCommit, setSelectedCommit] = useState<string>();
-  const [versionLoading, setVersionLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
-  const [confirm, setConfirm] = useState(false);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
@@ -114,42 +110,16 @@ function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: b
     );
     return () => controller.abort();
   }, [hash, page, attempt]);
-  useEffect(() => {
-    if (!selectedCommit) return;
-    const controller = new AbortController();
-    setVersion(undefined);
-    setConfirm(false);
-    setVersionLoading(true);
-    setError(undefined);
-    void getVersion(hash, selectedCommit, controller.signal).then(
-      (result) => {
-        if (!controller.signal.aborted) {
-          setVersion(result);
-          setVersionLoading(false);
-        }
-      },
-      (reason: unknown) => {
-        if (!controller.signal.aborted) {
-          setError(errorMessage(reason));
-          setVersionLoading(false);
-        }
-      },
-    );
-    return () => controller.abort();
-  }, [hash, selectedCommit, attempt]);
   const current = draft?.next ?? base;
+  const cache = useRevisionCache(hash);
+  const canRestore = !readOnly && hydrated && Boolean(base);
 
-  function restore() {
-    if (!base || !current || !version || !user || !hydrated) return;
-    try {
-      replaceDraft(base, revertDraft(current, version.tooltip, user));
-      setConfirm(false);
-      setNotice(
-        'Historical version loaded as a local draft. Review it in the editor and use the normal save flow to commit it; nothing was saved or pushed automatically.',
-      );
-    } catch (reason) {
-      setError(errorMessage(reason));
-    }
+  function restore(version: Tooltip) {
+    if (!base || !current || !user || !hydrated) return;
+    replaceDraft(base, revertDraft(current, version, user));
+    setNotice(
+      'Historical version loaded as a local draft. Review it in the editor and use the normal save flow to commit it; nothing was saved or pushed automatically.',
+    );
   }
 
   return (
@@ -164,22 +134,24 @@ function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: b
       )}
       {notice && <p role="status">{notice}</p>}
       <ol className={styles.commits}>
-        {commits.map((entry) => (
-          <li key={entry.commit}>
-            <CommitAuthor entry={entry} />
-            <div>
-              <button
-                type="button"
-                aria-pressed={selectedCommit === entry.commit}
-                onClick={() => {
-                  setSelectedCommit(entry.commit);
-                  setNotice(undefined);
-                }}
-              >
-                {entry.message} ({entry.commit.slice(0, 8)})
-              </button>
-            </div>
-          </li>
+        {commits.map((entry, index) => (
+          <HistoryEntry
+            key={entry.commit}
+            entry={entry}
+            index={index}
+            commits={commits}
+            page={page}
+            hasMore={hasMore}
+            cache={cache}
+            current={current}
+            item={item}
+            translator={user?.role === 'translator'}
+            canRestore={canRestore}
+            onRestore={(version) => {
+              setNotice(undefined);
+              restore(version);
+            }}
+          />
         ))}
       </ol>
       {loading && <p role="status">Loading commits...</p>}
@@ -188,43 +160,6 @@ function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: b
         <button type="button" disabled={loading} onClick={() => setPage((value) => value + 1)}>
           Load more commits
         </button>
-      )}
-      {versionLoading && <p role="status">Loading historical version...</p>}
-      {version && current && (
-        <>
-          <h3>Version {version.commit.slice(0, 8)} compared with current draft</h3>
-          <TooltipDiff before={version.tooltip} current={current} item={item} />
-          <details>
-            <summary>View complete historical version</summary>
-            <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-              {JSON.stringify(version.tooltip, null, 2)}
-            </pre>
-          </details>
-          {user?.role === 'translator' && (
-            <p>
-              Revert restores only your assigned translation languages; other fields stay unchanged.
-            </p>
-          )}
-          {!readOnly &&
-            (!confirm ? (
-              <button type="button" disabled={!hydrated || !base} onClick={() => setConfirm(true)}>
-                Revert to this
-              </button>
-            ) : (
-              <div>
-                <p>
-                  This replaces {draft ? 'the existing local draft' : 'the editor content'} for this
-                  tooltip. It does not save or push.
-                </p>
-                <button type="button" onClick={restore}>
-                  Load this version as draft
-                </button>{' '}
-                <button type="button" onClick={() => setConfirm(false)}>
-                  Cancel revert
-                </button>
-              </div>
-            ))}
-        </>
       )}
     </section>
   );

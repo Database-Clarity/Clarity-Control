@@ -1,0 +1,215 @@
+// @vitest-environment jsdom
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import type { Tooltip } from '@clarity/core';
+import { HistoryPanel } from './HistoryPanel';
+import { useAuthStore } from '../../stores/auth';
+import { useDataStore, type EditorData } from '../../stores/data';
+import { useDraftStore } from '../../stores/drafts';
+
+const getHistory = vi.fn();
+const getVersion = vi.fn();
+vi.mock('../../services/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/api')>()),
+  apiUrl: 'https://api.test',
+}));
+vi.mock('../../services/history', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/history')>()),
+  getHistory: (...args: unknown[]) => getHistory(...args),
+  getVersion: (...args: unknown[]) => getVersion(...args),
+}));
+
+const id = (n: number) => n.toString(16).padStart(40, '0');
+const commit = (n: number) => ({
+  commit: id(n),
+  author: 'Ann',
+  date: '2026-10-27T00:00:00Z',
+  message: `Edit ${n}`,
+});
+const stamp = { updatedAt: '2026-10-27T10:00:00Z', updatedBy: 'ann' };
+const revision = (en: string, fr?: string): Tooltip => ({
+  hash: 10,
+  associated: [],
+  text: {
+    en: { text: en, ...stamp },
+    ...(fr === undefined ? {} : { fr: { text: fr, ...stamp } }),
+  },
+});
+const versions: Record<string, Tooltip> = {
+  [id(1)]: revision('one'),
+  [id(2)]: revision('one two', 'un'),
+  [id(3)]: revision('one two three', 'un deux'),
+};
+const base = revision('current text', 'courant');
+let host: HTMLDivElement;
+let root: Root;
+const originals = {
+  data: useDataStore.getState(),
+  auth: useAuthStore.getState(),
+  drafts: useDraftStore.getState(),
+};
+const wait = (ms: number) => act(async () => void (await new Promise((r) => setTimeout(r, ms))));
+const entries = () => [...host.querySelectorAll<HTMLButtonElement>('ol li > button')];
+const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
+
+beforeEach(async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  getHistory.mockReset();
+  getVersion.mockReset();
+  getHistory.mockResolvedValue({ page: 1, commits: [commit(3), commit(2), commit(1)] });
+  getVersion.mockImplementation((_hash: number, sha: string) =>
+    Promise.resolve({ commit: sha, tooltip: versions[sha] }),
+  );
+  useDataStore.setState({
+    data: {
+      bundle: { tooltips: { 10: base } },
+      items: {},
+      aliases: {},
+      categories: [],
+    } as unknown as EditorData,
+  });
+  useDraftStore.setState({ drafts: {}, hydrated: true });
+  useAuthStore.setState({ user: { id: 1, login: 'ann', role: 'editor' } });
+  host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => root.render(<HistoryPanel hash={10} />));
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+});
+afterEach(async () => {
+  await act(async () => root.unmount());
+  host.remove();
+  useDataStore.setState(originals.data);
+  useAuthStore.setState(originals.auth);
+  useDraftStore.setState(originals.drafts);
+});
+
+it('opens on hover with that revision diffed against its predecessor, per language', async () => {
+  expect(dialog()).toBeNull();
+  await act(async () => {
+    entries()[0].parentElement!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    entries()[0].parentElement!.dispatchEvent(new MouseEvent('mouseenter'));
+  });
+  await wait(260);
+  expect(dialog()).not.toBeNull();
+  // Revision 3 against revision 2: only " three" is new in English, " deux" in French.
+  expect(dialog()!.querySelector('ins')!.textContent).toBe(' three');
+  expect(dialog()!.textContent).toContain('French');
+  expect(dialog()!.querySelectorAll('ins')).toHaveLength(2);
+  expect(dialog()!.querySelector('pre')).toBeNull();
+  // The popover floats: it is not inside the list's flow.
+  expect(dialog()!.style.left).not.toBe('');
+  expect(dialog()!.style.top).not.toBe('');
+});
+
+it('is keyboard reachable: focus opens it and Esc closes it and keeps focus on the entry', async () => {
+  await act(async () => entries()[1].focus());
+  await wait(0);
+  expect(dialog()).not.toBeNull();
+  expect(entries()[1].getAttribute('aria-expanded')).toBe('true');
+  await act(async () => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  });
+  expect(dialog()).toBeNull();
+  expect(document.activeElement).toBe(entries()[1]);
+});
+
+it('click pins it past mouse leave; a press outside closes it', async () => {
+  await act(async () => entries()[0].click());
+  expect(dialog()).not.toBeNull();
+  await act(async () => {
+    entries()[0].parentElement!.dispatchEvent(new MouseEvent('mouseleave'));
+  });
+  await wait(260);
+  expect(dialog()).not.toBeNull();
+  await act(async () => {
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+  });
+  expect(dialog()).toBeNull();
+});
+
+it('the first revision is shown as all new, and the cache means one request per commit', async () => {
+  await act(async () => entries()[2].click());
+  await wait(0);
+  expect(dialog()!.textContent).toContain('First revision');
+  await act(async () => entries()[2].click());
+  expect(dialog()).toBeNull();
+  await act(async () => entries()[2].click());
+  await act(async () => entries()[1].click());
+  await wait(0);
+  // Revisions 1 and 2 were each fetched once however often they were opened.
+  expect(getVersion.mock.calls.filter(([, sha]) => sha === id(1))).toHaveLength(1);
+  expect(getVersion.mock.calls.filter(([, sha]) => sha === id(2))).toHaveLength(1);
+});
+
+it('compares with the current draft from inside the popover', async () => {
+  await act(async () => entries()[0].click());
+  await wait(0);
+  const compare = [...dialog()!.querySelectorAll('button')].find((b) =>
+    b.textContent?.includes('vs current draft'),
+  )!;
+  await act(async () => compare.click());
+  expect(compare.getAttribute('aria-pressed')).toBe('true');
+  expect(dialog()!.textContent).toContain('courant');
+});
+
+it('restores inside the popover after confirming, and never offers it on a read-only page', async () => {
+  await act(async () => entries()[1].click());
+  await wait(0);
+  const button = (label: string) =>
+    [...dialog()!.querySelectorAll('button')].find((b) => b.textContent === label);
+  await act(async () => button('Restore this revision')!.click());
+  expect(useDraftStore.getState().drafts[10]).toBeUndefined();
+  await act(async () => button('Load as draft')!.click());
+  expect(useDraftStore.getState().drafts[10]?.next.text.en?.text).toBe('one two');
+  expect(dialog()).toBeNull();
+  expect(host.textContent).toContain('loaded as a local draft');
+  await act(async () => root.render(<HistoryPanel hash={10} readOnly />));
+  await act(async () => entries()[1].click());
+  await wait(0);
+  expect(button('Restore this revision')).toBeUndefined();
+});
+
+it('keeps the translator rule: a note, and only assigned languages are restored', async () => {
+  useAuthStore.setState({
+    user: { id: 2, login: 'tess', role: 'translator', languages: ['fr'] },
+  });
+  await act(async () => root.render(<HistoryPanel hash={10} />));
+  await wait(0);
+  await act(async () => entries()[1].click());
+  await wait(0);
+  expect(dialog()!.textContent).toContain('only your assigned translation languages');
+  const button = (label: string) =>
+    [...dialog()!.querySelectorAll('button')].find((b) => b.textContent === label)!;
+  await act(async () => button('Restore this revision').click());
+  await act(async () => button('Load as draft').click());
+  const next = useDraftStore.getState().drafts[10]?.next;
+  expect(next?.text.fr?.text).toBe('un');
+  expect(next?.text.en?.text).toBe('current text');
+});
+
+it('Esc from inside the popover closes it for good, not reopened by the returning focus', async () => {
+  await act(async () => entries()[0].focus());
+  await wait(0);
+  const inside = dialog()!.querySelector<HTMLButtonElement>('button')!;
+  await act(async () => inside.focus());
+  await act(async () => {
+    inside.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  });
+  await wait(0);
+  expect(dialog()).toBeNull();
+  expect(document.activeElement).toBe(entries()[0]);
+});
+
+it('shows one popover at a time and keeps links out of the trigger button', async () => {
+  await act(async () => entries()[0].click());
+  await act(async () => entries()[1].click());
+  expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+  expect(host.querySelector('ol button a')).toBeNull();
+  await wait(0);
+  const compare = [...dialog()!.querySelectorAll('button')].find((b) =>
+    b.textContent?.includes('vs current draft'),
+  )!;
+  expect(compare.getAttribute('aria-pressed')).toBe('false');
+});

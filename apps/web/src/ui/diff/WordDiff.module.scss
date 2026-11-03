@@ -3,15 +3,15 @@
   overflow-wrap: anywhere;
   line-height: 1.6;
   padding: 0.75rem;
-  background: #17171b;
+  background: var(--diff-bg, #17171b);
 
   del {
-    color: #ffb4b4;
-    background: #652929;
+    color: var(--del-text, #ffb4b4);
+    background: var(--del-bg, #652929);
   }
 
   ins {
-    color: #b8efc6;
-    background: #1d5030;
+    color: var(--ins, #b8efc6);
+    background: var(--ins-bg, #1d5030);
   }
 }
