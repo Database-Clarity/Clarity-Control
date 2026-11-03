@@ -127,9 +127,15 @@ function matchesOwner(item: Item, data: EditorData, search: string): boolean {
 export const exoticArmourCategory = 'armor-trait-exotic';
 const exoticArmourLabel = 'Exotic Armor';
 
-/** A finder entry. Exotic armour entries are named after the piece; `perkName` is the perk they open. */
+/**
+ * A finder entry. Exotic armour entries are named after the piece; `perkName` is the perk they
+ * open, `piece` the piece label alone (the name also carries the perk when pieces repeat) and
+ * `pieces` how many differently named pieces the label joins.
+ */
 export interface ListedItem extends Item {
   perkName?: string;
+  piece?: string;
+  pieces?: number;
 }
 
 /** Armour pieces that carry this perk, sorted; empty when the data names none. */
@@ -178,7 +184,13 @@ export function listedItem(item: Item, data: EditorData): ListedItem {
   if (!names.length) return item;
   const piece = joinPieceNames(names);
   const crowded = siblingCount(piece, data) > 1;
-  return { ...item, name: crowded ? `${piece} · ${item.name}` : piece, perkName: item.name };
+  return {
+    ...item,
+    name: crowded ? `${piece} · ${item.name}` : piece,
+    perkName: item.name,
+    piece,
+    pieces: names.length,
+  };
 }
 
 export function listName(item: Item, data: EditorData): string {

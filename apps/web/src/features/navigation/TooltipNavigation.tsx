@@ -42,6 +42,8 @@ interface Row {
   name: string;
   /** The perk an exotic armour entry opens, shown beside its hash. */
   perk?: string;
+  /** The name already lists several pieces, so the row needs no shared-perk mark. */
+  listsPieces?: boolean;
   category: string;
 }
 
@@ -119,8 +121,14 @@ export function TooltipNavigation({
       scoped.flatMap((section) =>
         section.items.map((item) => ({
           hash: item.hash,
-          name: item.name,
-          perk: item.perkName && !item.name.endsWith(item.perkName) ? item.perkName : undefined,
+          // The row names the piece and keeps the perk on the right, so a set's rows stay
+          // tellable apart even where the name column truncates.
+          name: item.piece ?? item.name,
+          perk:
+            item.perkName && item.perkName !== (item.piece ?? item.name)
+              ? item.perkName
+              : undefined,
+          listsPieces: (item.pieces ?? 1) > 1,
           category: section.label,
         })),
       ),
@@ -306,7 +314,7 @@ export function TooltipNavigation({
           )}
           {row.perk && `${row.perk} · `}
           {row.hash}
-          {shared && ' · shared perk'}
+          {shared && !row.listsPieces && ' · shared perk'}
           {frames > 1 && ` ×${frames}`}
           {item && allCategories && ` · ${row.category}`}
         </small>

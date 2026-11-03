@@ -150,6 +150,18 @@ describe('exotic armour in the finder', () => {
     await act(async () => field().click());
     const row = options().find((option) => option.textContent?.includes('Contraverse Hold'))!;
     expect(row.querySelector('small')!.textContent).toBe('Chaotic Exchanger · 1');
+    // A set's rows name the pieces once and keep each perk on the right; the slash list is the
+    // shared mark, so the small text does not repeat it.
+    const aeon = options().filter((option) => option.textContent?.startsWith('Aeon'));
+    expect(aeon.map((option) => option.querySelector('span:nth-child(2)')!.textContent)).toEqual([
+      'Aeon Safe/Soul/Swift',
+      'Aeon Safe/Soul/Swift',
+    ]);
+    expect(aeon.map((option) => option.querySelector('small')!.textContent)).toEqual([
+      'Sect of Force · 3',
+      'Sect of Insight · 4',
+    ]);
+    expect(aeon[0].title).toMatch(/^Shared perk — used on: Aeon Safe, Aeon Soul, Aeon Swift/);
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
         field(),

@@ -75,10 +75,23 @@ try {
         'perk name is not the label',
       );
       assert.ok(texts.some((t) => t.includes('Chaotic Exchanger · 8507332')));
-      // Only the Aeon set's three perks, carried by three different pieces, are shared.
-      const shared = texts.filter((t) => t.includes('shared perk'));
+      // Only the Aeon set's three perks, carried by three different pieces, are shared: the row
+      // names the pieces (no extra mark) and keeps the perk legible on the right.
+      const shared = await page
+        .locator('[role="listbox"] [role="option"][title^="Shared perk"]')
+        .evaluateAll((rows) => rows.map((row) => row.textContent));
       assert.equal(shared.length, 3, `${theme} ${width}: shared rows ${shared}`);
       assert.ok(shared.every((t) => t.startsWith('Aeon Safe/Soul/Swift')));
+      assert.ok(shared.some((t) => t.includes('Sect of Force · 3268255645')));
+      assert.ok(!texts.some((t) => t.includes('shared perk')));
+      const names = await page.locator('[role="listbox"] [role="option"]').evaluateAll((rows) =>
+        rows
+          .map((row) => row.children[1])
+          .filter((el) => el.textContent.startsWith('Aeon'))
+          .map((el) => el.scrollWidth > el.clientWidth + 1),
+      );
+      assert.equal(names.length, 3);
+      assert.ok(!names.some(Boolean), `${theme} ${width}: Aeon piece names truncate`);
       const geometry = await page.evaluate(() => ({
         overflowX: document.documentElement.scrollWidth - window.innerWidth,
         clipped: [...document.querySelectorAll('[role="option"] small')].filter(
