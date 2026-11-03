@@ -65,6 +65,7 @@ function reset(drafts: Drafts = { 123: { base, next: mine } }) {
     generation: 1,
     pending: 0,
     external: false,
+    readStartedAt: 0,
     retry: () => undefined,
     flush: async () => undefined,
   });
@@ -293,7 +294,12 @@ describe('conflict store persistence', () => {
       try {
         expect(again.getState().sessions[123]).toBeDefined();
         expect(memory.getItem(conflictSessionKey('1', 123))).not.toBeNull();
-        useDraftStore.setState({ pending: 0, external: false });
+        useDraftStore.setState({
+          pending: 0,
+          external: false,
+          // Model the fresh storage read on Reload, rather than just clearing local flags.
+          readStartedAt: again.getState().sessions[123]!.storedAt! + 1,
+        });
         expect(again.getState().sessions).toEqual({});
         expect(memory.getItem(conflictSessionKey('1', 123))).toBeNull();
       } finally {
@@ -329,7 +335,7 @@ describe('conflict store persistence', () => {
 });
 
 describe('independent tabs', () => {
-  it('keeps both tabs rows when stale tabs begin and resolve conflicts', () => {
+  it('keeps both tabs rows when stale tabs begin and resolve conflicts', async () => {
     const tab = (loaded: Drafts = {}) => {
       const drafts = createDraftStore({ read: async () => ({}), write: async () => {} });
       drafts.setState({ hydrated: true, owner: '1', drafts: loaded });
@@ -349,8 +355,8 @@ describe('independent tabs', () => {
     try {
       a.conflicts.getState().begin([row(123)]);
       b.conflicts.getState().begin([row(456)]);
+      await Promise.all([a.drafts.getState().flush(), b.drafts.getState().flush()]);
       // The other tab's draft write has not been reloaded here yet.
-      a.drafts.setState({ external: true });
       a.conflicts.getState().refresh();
       expect(
         a.conflicts
@@ -411,7 +417,11 @@ describe('stale session regressions', () => {
   it('prunes an orphan session at startup when its draft is gone', () => {
     useConflictStore.getState().begin([{ ...textConflict, fields: ['text.en', 'custom'] }]);
     stop();
-    useDraftStore.setState({ drafts: {} });
+    // The startup snapshot must have been read after the session was published.
+    useDraftStore.setState({
+      drafts: {},
+      readStartedAt: useConflictStore.getState().sessions[123]!.storedAt! + 1,
+    });
     const again = make();
     const s = again.getState().start();
     const open = again.getState().open();

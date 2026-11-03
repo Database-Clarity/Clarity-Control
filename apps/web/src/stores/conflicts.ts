@@ -25,6 +25,8 @@ export const sessionSchema = z.object({
   mine: tooltipSchema,
   /** Non-text fields: the choice once made, null while open. */
   rows: z.record(z.string(), z.enum(['mine', 'theirs']).nullable()),
+  /** Published only once the draft write settles. Absent on legacy sessions. */
+  storedAt: z.number().finite().optional(),
 });
 export type ConflictSession = z.infer<typeof sessionSchema>;
 export type RowChoice = 'mine' | 'theirs';
@@ -118,37 +120,56 @@ export function rowCounts(
 export function createConflictStore(deps: ConflictDeps) {
   return create<ConflictState>((set, get) => {
     const observedDrafts = new Set<number>();
+    // Only unpersisted local edits survive a refresh when their key is absent from storage.
+    const dirtySessions = new Set<number>();
+    function persist() {
+      const { scope } = get();
+      if (scope === null) return;
+      const { pending, error } = deps.drafts.getState();
+      for (const hash of dirtySessions) {
+        const session = get().sessions[hash];
+        // Do not expose a session before another tab can read its draft from IndexedDB.
+        if (session && (pending > 0 || error)) continue;
+        try {
+          const storage = deps.storage();
+          if (!storage) continue;
+          if (session) {
+            const published = { ...session, storedAt: Date.now() };
+            storage.setItem(conflictSessionKey(scope, hash), JSON.stringify(published));
+            set({ sessions: { ...get().sessions, [hash]: published } });
+          } else storage.removeItem(conflictSessionKey(scope, hash));
+          dirtySessions.delete(hash);
+        } catch {
+          // Keep failed local edits in memory, including through a refresh.
+        }
+      }
+    }
     function commit(sessions: Record<number, ConflictSession>) {
       const previous = get().sessions;
-      const scope = get().scope;
       set({ sessions });
-      if (scope === null) return;
-      try {
-        const storage = deps.storage();
-        for (const hash of new Set([...Object.keys(previous), ...Object.keys(sessions)])) {
-          if (previous[Number(hash)] === sessions[Number(hash)]) continue;
-          const key = conflictSessionKey(scope, Number(hash));
-          const session = sessions[Number(hash)];
-          if (session) storage?.setItem(key, JSON.stringify(session));
-          else storage?.removeItem(key);
-        }
-      } catch {
-        // Best effort: without storage the open rows last until the tab closes.
+      for (const hash of new Set([...Object.keys(previous), ...Object.keys(sessions)])) {
+        if (previous[Number(hash)] !== sessions[Number(hash)]) dirtySessions.add(Number(hash));
       }
+      persist();
     }
     const unresolvedRows = (session: ConflictSession) =>
       Object.values(session.rows).filter((choice) => choice === null).length;
     /** Drops sessions whose conflict is over: no marker blocks, no open rows, or no draft left. */
     function prune() {
       const { sessions } = get();
-      const { drafts, pending, external } = deps.drafts.getState();
+      const { drafts, pending, external, readStartedAt } = deps.drafts.getState();
       let next = sessions;
       for (const session of Object.values(sessions)) {
         const draft = drafts[session.hash];
-        if (draft) observedDrafts.add(session.hash);
-        // Imported drafts may still be in flight or awaiting Reload / Keep mine. Once
-        // storage is settled, a missing draft means the session is orphaned.
-        if (!draft && !observedDrafts.has(session.hash) && (pending > 0 || external)) continue;
+        // Our pending/external flags cannot describe another tab's writes. A snapshot
+        // read before publication cannot prove that an imported session is finished.
+        if (
+          !observedDrafts.has(session.hash) &&
+          (pending > 0 ||
+            external ||
+            (session.storedAt !== undefined && readStartedAt <= session.storedAt))
+        )
+          continue;
         const done =
           !draft ||
           (unresolvedRows(session) === 0 && Object.keys(markersIn(draft.next)).length === 0);
@@ -213,6 +234,7 @@ export function createConflictStore(deps: ConflictDeps) {
       choose(hash, field, choice) {
         const session = get().sessions[hash];
         if (!session || !(field in session.rows)) return;
+        observedDrafts.add(hash);
         const draftStore = deps.drafts.getState();
         const draft = draftStore.drafts[hash];
         if (field === '$exists') {
@@ -244,8 +266,13 @@ export function createConflictStore(deps: ConflictDeps) {
         const { scope } = get();
         if (scope === null) return;
         const stored = readSessions(deps.storage(), scope);
-        // Keep local-only sessions too: a failed setItem must not lose unresolved rows.
-        const sessions = { ...get().sessions };
+        // Storage is authoritative for deletions. Only local edits not yet stored are kept.
+        const sessions: Record<number, ConflictSession> = {};
+        for (const [key, session] of Object.entries(get().sessions)) {
+          if (dirtySessions.has(Number(key))) sessions[Number(key)] = session;
+          else if (stored[Number(key)]?.storedAt !== session.storedAt)
+            observedDrafts.delete(Number(key));
+        }
         for (const [key, session] of Object.entries(stored)) {
           const mine = get().sessions[Number(key)];
           if (!mine) {
@@ -255,7 +282,7 @@ export function createConflictStore(deps: ConflictDeps) {
           const rows = { ...session.rows };
           for (const [field, choice] of Object.entries(mine.rows))
             if (choice !== null || !(field in rows)) rows[field] = choice;
-          sessions[Number(key)] = { ...mine, rows };
+          sessions[Number(key)] = { ...mine, rows, storedAt: session.storedAt };
         }
         // Reading another tab's sessions is not a local edit and must not write them back.
         set({ sessions });
@@ -266,10 +293,14 @@ export function createConflictStore(deps: ConflictDeps) {
       },
       start() {
         let scope: string | null = null;
-        const observe = (state: ReturnType<typeof deps.drafts.getState>) => {
+        const observe = (
+          state: ReturnType<typeof deps.drafts.getState>,
+          previous?: ReturnType<typeof deps.drafts.getState>,
+        ) => {
           if (!state.hydrated) {
             scope = null;
             observedDrafts.clear();
+            dirtySessions.clear();
             set({ scope: null, sessions: {} });
             return;
           }
@@ -277,9 +308,20 @@ export function createConflictStore(deps: ConflictDeps) {
           if (owner !== scope) {
             scope = owner;
             observedDrafts.clear();
+            dirtySessions.clear();
             set({ scope: owner, sessions: readSessions(deps.storage(), owner) });
+          } else if (
+            previous &&
+            state.readStartedAt === previous.readStartedAt &&
+            state.stored === previous.stored
+          ) {
+            // A local edit/discard can finish even an imported session. A storage reload
+            // must instead prove freshness through its read start time above.
+            for (const hash of Object.keys(get().sessions))
+              if (state.drafts[hash] !== previous.drafts[hash]) observedDrafts.add(Number(hash));
           }
           prune();
+          persist();
         };
         observe(deps.drafts.getState());
         return deps.drafts.subscribe(observe);

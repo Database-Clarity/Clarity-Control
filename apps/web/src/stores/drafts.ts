@@ -24,6 +24,8 @@ interface DraftState {
   external: boolean;
   /** The drafts as this tab last read or wrote them in storage: the common ancestor for a merge. */
   stored: Drafts;
+  /** Start of the latest successful storage read, for cross-tab conflict orphan checks. */
+  readStartedAt: number;
   hydrate(): Promise<void>;
   /** Switches to the drafts of this account (null = signed out). Same account: no-op. */
   activate(userId: string | number | null): Promise<void>;
@@ -119,17 +121,29 @@ export function createDraftStore(storage: DraftStorage) {
       unowned: 0,
       external: false,
       stored: {},
+      readStartedAt: 0,
       hydrate() {
         if (hydration) return hydration;
         const mine = generation;
         const source = target;
+        let readStartedAt = 0;
         // Reading waits for earlier writes, so re-entering an account never sees stale drafts.
         hydration = queue
-          .then(() => source.read())
+          .then(() => {
+            readStartedAt = Date.now();
+            return source.read();
+          })
           .then(
             async (drafts) => {
               if (mine !== generation) return;
-              set({ drafts, hydrated: true, error: null, external: false, stored: drafts });
+              set({
+                drafts,
+                hydrated: true,
+                error: null,
+                external: false,
+                stored: drafts,
+                readStartedAt,
+              });
               unwatch?.();
               unwatch = source.subscribe?.(() => {
                 if (mine === generation) set({ external: true });
@@ -170,6 +184,7 @@ export function createDraftStore(storage: DraftStorage) {
           unowned: 0,
           external: false,
           stored: {},
+          readStartedAt: 0,
         });
         return get().hydrate();
       },
@@ -294,10 +309,11 @@ export function createDraftStore(storage: DraftStorage) {
         queue = queue.then(async () => {
           if (mine !== generation) return;
           try {
+            const readStartedAt = Date.now();
             const theirs = await target.read();
             if (mine !== generation) return;
             const merged = merge(get().stored, get().drafts, theirs);
-            set({ drafts: merged, external: false, stored: theirs });
+            set({ drafts: merged, external: false, stored: theirs, readStartedAt });
             persist(merged);
           } catch (error) {
             if (mine === generation)
