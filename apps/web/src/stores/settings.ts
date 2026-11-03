@@ -329,6 +329,19 @@ export function createSettingsStore({
   applyDeviceSettings(device);
 
   return create<SettingsState>((set, get) => {
+    // Keep the shared revision and local fields the user was actually offered. The visible
+    // local preview can change, but choosing the account copy must retain later edits.
+    let choiceBasis: ScopeCopy | null = null;
+    function makeChoice(
+      remote: RemoteSettings,
+      recovered: boolean,
+      revision = get().revision,
+    ): SettingsChoice {
+      const { settings, pending, pendingSince } = get();
+      choiceBasis = { settings, revision, pending, pendingSince };
+      return { local: settings, remote, recovered, since: pendingSince };
+    }
+
     /** Import newer shared fields before a stale tab can persist or send its snapshot. */
     function reconcile(): void {
       const state = get();
@@ -354,11 +367,14 @@ export function createSettingsStore({
       }
       const keys = syncedKeys.filter((key) => pending.has(key));
       const since = keys.length
-        ? ([state.pendingSince, shared.pendingSince]
+        ? ((shared.revision !== state.revision ? shared.pendingSince : null) ??
+          [state.pendingSince, shared.pendingSince]
             .filter((v): v is string => v !== null)
-            .sort()[0] ?? now())
+            .sort()[0] ??
+          now())
         : null;
-      if (!keys.length) {
+      const staleChoice = state.choice && choiceBasis?.revision !== shared.revision;
+      if (!keys.length || staleChoice) {
         recovered = false;
       }
       set({
@@ -369,9 +385,9 @@ export function createSettingsStore({
         ...(canSync && state.status !== 'loading' && state.status !== 'syncing'
           ? { status: keys.length ? ('unsynced' as const) : ('synced' as const) }
           : {}),
-        // A choice is only ever built from a server response (refresh/send), never from a
-        // possibly stale copy; here it just follows the shared state.
-        ...(!keys.length
+        // A server snapshot offered against an older shared revision is no longer a valid
+        // choice. Keep the reconciled fields and their pending markers instead.
+        ...(!keys.length || staleChoice
           ? { choice: null }
           : state.choice
             ? { choice: { ...state.choice, local: settings } }
@@ -407,9 +423,7 @@ export function createSettingsStore({
         pending,
         pendingSince: pending.length ? get().pendingSince : null,
         status: pending.length ? (recovered ? 'choice' : 'unsynced') : 'synced',
-        choice: recovered
-          ? { local: current, remote, recovered: true, since: get().pendingSince }
-          : null,
+        choice: recovered ? makeChoice(remote, true, remote.revision) : null,
         error: '',
         errorDetail: '',
       });
@@ -432,6 +446,14 @@ export function createSettingsStore({
       if (token !== activation) return;
       inFlight = false;
       reconcile();
+      if (
+        get().revision !== revision &&
+        (result.kind === 'failed' || get().revision !== result.remote.revision)
+      ) {
+        // A later tab acknowledgement can arrive before this response is handled. Fetch a
+        // current server copy rather than persisting the response's obsolete revision.
+        return refresh(token);
+      }
       if (result.kind === 'synced') {
         synced(result.remote, settings);
         return flushQueued();
@@ -444,12 +466,7 @@ export function createSettingsStore({
         exitQueued = false;
         set({
           status: 'choice',
-          choice: {
-            local: get().settings,
-            remote: result.remote,
-            recovered: false,
-            since: get().pendingSince,
-          },
+          choice: makeChoice(result.remote, false),
         });
         return;
       }
@@ -507,7 +524,7 @@ export function createSettingsStore({
           exitQueued = false;
           set({
             status: 'choice',
-            choice: { local: state.settings, remote, recovered: true, since: state.pendingSince },
+            choice: makeChoice(remote, true),
           });
           return;
         }
@@ -644,13 +661,22 @@ export function createSettingsStore({
         if (!choice) return;
         recovered = false;
         uploadNeeded = false;
+        const state = get();
+        const settings = { ...(choice.remote.settings ?? defaultSyncedSettings) };
+        const pending = state.pending.filter(
+          (key) =>
+            !choiceBasis ||
+            !choiceBasis.pending.includes(key) ||
+            state.settings[key] !== choiceBasis.settings[key],
+        );
+        for (const key of pending) Object.assign(settings, { [key]: state.settings[key] });
         set({
-          settings: choice.remote.settings ?? { ...defaultSyncedSettings },
+          settings,
           revision: choice.remote.revision,
-          pending: [],
-          pendingSince: null,
+          pending,
+          pendingSince: pending.length ? state.pendingSince : null,
           choice: null,
-          status: 'synced',
+          status: pending.length ? 'unsynced' : 'synced',
           error: '',
           errorDetail: '',
         });
