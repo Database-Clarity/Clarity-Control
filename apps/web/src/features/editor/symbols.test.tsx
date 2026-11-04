@@ -2,11 +2,12 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { EditorView, runScopeHandlers } from '@codemirror/view';
+import { EditorState } from '@codemirror/state';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MarkupGlobals } from '@clarity/core';
 import { ClarityEditor } from './ClarityEditor';
 import { useSettingsStore } from '../../stores/settings';
-import { findSymbols, findTags } from './symbols';
+import { findSymbols, findTags, symbolExtensions } from './symbols';
 
 const globals: MarkupGlobals = { variables: '', titles: '' };
 const doc = 'Deal <arc/> damage <yellow 5 <solar/> /> and <pve 3 /> done.\n<void/>';
@@ -91,6 +92,107 @@ describe('findSymbols / findTags', () => {
     // A non-colour tag inside does not steal the closing of the colour tag.
     expect(findTags('<yellow a <link b /> c />').map((t) => t.name)).toEqual(['yellow']);
   });
+});
+
+describe('incremental symbol rendering', () => {
+  const create = (
+    text: string,
+    mode: 'popover' | 'caret',
+    selection: { anchor: number; head?: number } = { anchor: 0 },
+  ) =>
+    EditorState.create({
+      doc: text,
+      selection,
+      extensions: symbolExtensions({ mode: () => mode, raw: () => false }),
+    });
+  const renderedRanges = (state: EditorState) => {
+    const ranges: { from: number; to: number; tint?: string; icon?: string }[] = [];
+    for (const decorations of state.facet(EditorView.decorations)) {
+      if (typeof decorations === 'function') continue;
+      decorations.between(0, state.doc.length, (from, to, value) => {
+        ranges.push({ from, to, tint: value.spec.class, icon: value.spec.widget?.name });
+      });
+    }
+    return ranges.sort(
+      (a, b) =>
+        a.from - b.from || a.to - b.to || JSON.stringify(a).localeCompare(JSON.stringify(b)),
+    );
+  };
+  it('keeps document offsets when a custom line separator is configured', () => {
+    let state = EditorState.create({
+      doc: 'first\r\n<arc/> <yellow second />\r\n<void/>',
+      extensions: [
+        EditorState.lineSeparator.of('\r\n'),
+        ...symbolExtensions({ mode: () => 'popover', raw: () => false }),
+      ],
+    });
+    expect(renderedRanges(state)).toEqual(renderedRanges(create(state.doc.toString(), 'popover')));
+    state = state.update({ changes: { from: 0, insert: 'new' } }).state;
+    expect(renderedRanges(state)).toEqual(renderedRanges(create(state.doc.toString(), 'popover')));
+  });
+  it.each(['popover', 'caret'] as const)(
+    'keeps fresh-render parity through edits, line joins and caret moves in %s mode',
+    (mode) => {
+      let state = create(`${doc}\n<blue nested <bold text /> tail />\nlast <pvp end />`, mode);
+      const compare = () => {
+        const current = state.selection.main;
+        const fresh = create(state.doc.toString(), mode, {
+          anchor: current.anchor,
+          head: current.head,
+        });
+        expect(renderedRanges(state)).toEqual(renderedRanges(fresh));
+      };
+      compare();
+      // Replacing newline boundaries must rebuild both sides, while ordinary
+      // typing and selections leave all unrelated line decorations intact.
+      const edits = [
+        { from: 2, insert: 'plain' },
+        { from: 14, insert: '\n' },
+        { from: 14, to: 15, insert: '' },
+        { from: 0, to: 6, insert: '<void/>' },
+        { from: 11, to: 28, insert: '<green joined />\n' },
+      ];
+      for (const changes of edits) {
+        state = state.update({ changes, selection: { anchor: changes.from } }).state;
+        compare();
+        state = state.update({ selection: { anchor: state.doc.length } }).state;
+        compare();
+      }
+      state = state.update({
+        changes: [
+          { from: 0, insert: '<arc/>' },
+          { from: state.doc.length, insert: '\n<solar/>' },
+        ],
+      }).state;
+      compare();
+      state = state.update({ changes: { from: 0, to: state.doc.length, insert: '' } }).state;
+      compare();
+    },
+  );
+  it.each(['popover', 'caret'] as const)(
+    'preserves decorations across varied malformed-markup edits in %s mode',
+    (mode) => {
+      let seed = 0x7814ab;
+      const random = () => {
+        seed ^= seed << 13;
+        seed ^= seed >>> 17;
+        seed ^= seed << 5;
+        return (seed >>> 0) / 0x100000000;
+      };
+      let state = create(Array.from({ length: 40 }, () => doc).join('\n'), mode);
+      const inserts = ['', 'word', '\n', '<arc/>', ' />', '<yellow ', '<blue x />'];
+      for (let i = 0; i < 150; i++) {
+        const from = Math.floor(random() * (state.doc.length + 1));
+        const to = Math.min(state.doc.length, from + Math.floor(random() * 18));
+        const insert = inserts[Math.floor(random() * inserts.length)];
+        const anchor = Math.floor(random() * (state.doc.length - to + from + insert.length + 1));
+        state = state.update({ changes: { from, to, insert }, selection: { anchor } }).state;
+        expect(renderedRanges(state)).toEqual(
+          renderedRanges(create(state.doc.toString(), mode, { anchor })),
+        );
+      }
+    },
+  );
 });
 
 describe('symbol view', () => {
