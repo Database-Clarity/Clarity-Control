@@ -103,6 +103,8 @@ afterEach(async () => {
 describe('tooltip finder combobox', () => {
   it('opens and sizes from observer entries without forcing list geometry', async () => {
     let resize: ResizeObserverCallback | undefined;
+    let observed = false;
+    let scrollPosition = 0;
     vi.stubGlobal(
       'ResizeObserver',
       class {
@@ -119,10 +121,23 @@ describe('tooltip finder combobox', () => {
         if (this.getAttribute('role') === 'listbox') throw Error('Forced finder layout');
         return 0;
       });
+    const scrollRead = vi.spyOn(Element.prototype, 'scrollTop', 'get').mockImplementation(function (
+      this: Element,
+    ) {
+      if (this.getAttribute('role') === 'listbox' && !observed)
+        throw Error('Premature scroll geometry');
+      return scrollPosition;
+    });
+    const scrollWrite = vi
+      .spyOn(Element.prototype, 'scrollTop', 'set')
+      .mockImplementation((value) => {
+        scrollPosition = value;
+      });
     try {
       await mount();
       await open();
       const list = host.querySelector<HTMLElement>('[role="listbox"]')!;
+      observed = true;
       await act(async () => {
         resize!(
           [
@@ -142,6 +157,8 @@ describe('tooltip finder combobox', () => {
       expect(field().getAttribute('aria-activedescendant')).toBe(options().at(-1)!.id);
     } finally {
       height.mockRestore();
+      scrollRead.mockRestore();
+      scrollWrite.mockRestore();
       vi.unstubAllGlobals();
     }
   });

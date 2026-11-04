@@ -232,6 +232,10 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   current.current = { pathname: location.pathname, search: location.search };
   const field = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLUListElement>(null);
+  const listLayout = useRef<{ element: HTMLUListElement; top: number; height: number } | null>(
+    null,
+  );
+  const revealActive = useRef<() => void>(() => undefined);
   const scale = useScaleFactor();
   const touchRows = useMedia(`${phoneQuery}, (pointer: coarse)`);
   // Matches the fixed CSS row geometry at every interface scale. Scroll handlers
@@ -321,12 +325,24 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   const currentItem = itemFor(hash, data);
   const currentLabel = currentItem ? listName(currentItem, data) : '';
   const sharedLabel = sharedPerkLabel(hash, data, compendiumSource);
+  revealActive.current = () => {
+    const layout = listLayout.current;
+    if (!layout || pointerHighlight.current || !rows[active]) return;
+    const top = active * rowHeight;
+    const next = top < layout.top ? top : Math.max(layout.top, top + rowHeight - layout.height);
+    if (next !== layout.top) {
+      layout.element.scrollTop = next;
+      layout.top = next;
+    }
+  };
   useLayoutEffect(() => {
     const element = list.current;
+    listLayout.current = null;
     if (!open || !element) return;
     let height = 416;
     let lastTop = -1;
     const scroll = () => {
+      if (listLayout.current) listLayout.current.top = element.scrollTop;
       if (rows.length <= retainedRowLimit) return;
       // Bucket scroll updates inside the overscan. Scrolling reads no row geometry and
       // does no React work until the visible window approaches the next bucket.
@@ -339,16 +355,25 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       // The observer already has the laid-out content box. Reading clientHeight
       // here (or on mount) flushes the newly opened finder before it can paint.
       height = entry.contentRect.height;
+      listLayout.current = { element, top: element.scrollTop, height };
+      if (rows.length <= retainedRowLimit) {
+        // The browser has laid out the eager rows. Land the highlight before
+        // paint without forcing their layout inside the React mount commit.
+        revealActive.current();
+        return;
+      }
       lastTop = Math.floor(element.scrollTop / (rowHeight * 8)) * rowHeight * 8;
       setViewport({ top: lastTop, height });
     };
     const observer =
       typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure);
     observer?.observe(element);
+    if (!observer) listLayout.current = { element, top: 0, height };
     element.addEventListener('scroll', scroll, { passive: true });
     return () => {
       observer?.disconnect();
       element.removeEventListener('scroll', scroll);
+      if (listLayout.current?.element === element) listLayout.current = null;
     };
   }, [open, rows, rowHeight, setViewport]);
 
@@ -399,7 +424,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       setAllCategories(false);
     }
   }, [variant, sheetOpen]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return;
     pointerHighlight.current = false;
     const index = rows.findIndex((row) => row.hash === hash);
@@ -411,6 +436,10 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     if (!open || pointerHighlight.current) return;
     const element = list.current;
     if (!element || !rows[active]) return;
+    if (rows.length <= retainedRowLimit) {
+      revealActive.current();
+      return;
+    }
     const top = active * rowHeight;
     const bottom = top + rowHeight;
     const scrollTop = element.scrollTop;
