@@ -96,6 +96,8 @@
   overflow-wrap: anywhere;
 
   li {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 110px;
     display: grid;
     gap: 0.45rem;
     padding: 0.65rem;
