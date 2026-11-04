@@ -1,33 +1,93 @@
-import { useRef } from 'react';
+import { useMemo } from 'react';
 import type { Tooltip } from '@clarity/core';
 import { getHistory, getVersion, type HistoryCommit } from '../../services/history';
+import { useAuthStore } from '../../stores/auth';
+import { useDataStore } from '../../stores/data';
 
 export interface RevisionDiffSource {
-  revision: Tooltip;
-  /** The previous revision; null when this one created the tooltip. */
+  revision: Tooltip | null;
   previous: Tooltip | null;
+  hasPredecessor: boolean;
 }
 
-/**
- * Lazily fetched, cached revision bodies for one tooltip. Promises are cached (so two opens of the
- * same entry share one request) and dropped when they fail, so a retry asks again.
- */
+const PAGE_TTL = 60_000;
+const MAX_PAGES = 6;
+const MAX_VERSIONS = 24;
+let cacheIdentity = 0;
+
+/** Bounded LRU; failed requests are evicted and concurrent consumers share one request. */
+function remember<K, V>(map: Map<K, Promise<V>>, key: K, limit: number, make: () => Promise<V>) {
+  const cached = map.get(key);
+  if (cached) {
+    map.delete(key);
+    map.set(key, cached);
+    return cached;
+  }
+  const promise = make();
+  map.set(key, promise);
+  while (map.size > limit) map.delete(map.keys().next().value!);
+  void promise.catch(() => {
+    if (map.get(key) === promise) map.delete(key);
+  });
+  return promise;
+}
+
 export function createRevisionCache(hash: number) {
-  const versions = new Map<string, Promise<Tooltip>>();
+  const versions = new Map<string, Promise<Tooltip | null>>();
   const pages = new Map<number, Promise<HistoryCommit[]>>();
-  const remember = <K, V>(map: Map<K, Promise<V>>, key: K, make: () => Promise<V>) => {
-    const cached = map.get(key);
-    if (cached) return cached;
-    const promise = make();
-    map.set(key, promise);
-    promise.catch(() => map.delete(key));
-    return promise;
-  };
+  const snapshots = new Map<
+    number,
+    { commits: HistoryCommit[]; at: number; request: Promise<HistoryCommit[]> }
+  >();
   const version = (commit: string) =>
-    remember(versions, commit, async () => (await getVersion(hash, commit)).tooltip);
-  const page = (number: number) =>
-    remember(pages, number, async () => (await getHistory(hash, number)).commits);
-  /** The commit before `commits[index]`; the next page is asked for only at a page's last entry. */
+    remember(versions, commit, MAX_VERSIONS, async () => {
+      try {
+        return (await getVersion(hash, commit)).tooltip;
+      } catch (error) {
+        // Only the Worker's explicit immutable file-absence response means a deletion.
+        // Auth, routing, upstream and network failures must remain retryable errors.
+        const prefix = 'API HTTP 404: ';
+        if (error instanceof Error && error.message.startsWith(prefix)) {
+          try {
+            const body: unknown = JSON.parse(error.message.slice(prefix.length));
+            if (
+              typeof body === 'object' &&
+              body !== null &&
+              'error' in body &&
+              body.error === 'Tooltip did not exist at that commit'
+            )
+              return null;
+          } catch {
+            /* A malformed error body is not a recorded deletion. */
+          }
+        }
+        throw error;
+      }
+    });
+  const page = (number: number) => {
+    const snapshot = snapshots.get(number);
+    if (
+      snapshot &&
+      Date.now() - snapshot.at >= PAGE_TTL &&
+      pages.get(number) === snapshot.request
+    ) {
+      // Keep stale rows visible while replacing the expired request.
+      pages.delete(number);
+    }
+    const request = remember(pages, number, MAX_PAGES, async () => {
+      const commits = (await getHistory(hash, number)).commits;
+      if (number === 1 && snapshots.get(1)?.commits[0]?.commit !== commits[0]?.commit) {
+        // A new list head shifts every page boundary; bodies remain immutable.
+        for (const oldPage of pages.keys()) if (oldPage !== 1) pages.delete(oldPage);
+        for (const oldPage of snapshots.keys()) if (oldPage !== 1) snapshots.delete(oldPage);
+      }
+      if (pages.get(number) !== request) return commits;
+      snapshots.set(number, { commits, at: Date.now(), request });
+      while (snapshots.size > MAX_PAGES) snapshots.delete(snapshots.keys().next().value!);
+      return commits;
+    });
+    return request;
+  };
   const predecessor = async (
     commits: HistoryCommit[],
     index: number,
@@ -40,7 +100,10 @@ export function createRevisionCache(hash: number) {
     return (await page(loadedPage + 1))[0]?.commit ?? null;
   };
   return {
+    identity: ++cacheIdentity,
     version,
+    page,
+    peekPage: (number: number) => snapshots.get(number)?.commits,
     async load(
       commits: HistoryCommit[],
       index: number,
@@ -50,18 +113,33 @@ export function createRevisionCache(hash: number) {
       const [revision, before] = await Promise.all([
         version(commits[index].commit),
         predecessor(commits, index, loadedPage, more).then((commit) =>
-          commit ? version(commit) : null,
+          commit
+            ? version(commit).then((tooltip) => ({ tooltip, hasPredecessor: true }))
+            : { tooltip: null, hasPredecessor: false },
         ),
       ]);
-      return { revision, previous: before };
+      return { revision, previous: before.tooltip, hasPredecessor: before.hasPredecessor };
     },
   };
 }
 
 export type RevisionCache = ReturnType<typeof createRevisionCache>;
+const caches = new Map<string, RevisionCache>();
+// Never reuse authenticated responses across sign-in or permission changes.
+useAuthStore.subscribe((state, previous) => {
+  if (state.user !== previous.user) caches.clear();
+});
 
 export function useRevisionCache(hash: number): RevisionCache {
-  const holder = useRef<{ hash: number; cache: RevisionCache } | undefined>(undefined);
-  if (holder.current?.hash !== hash) holder.current = { hash, cache: createRevisionCache(hash) };
-  return holder.current.cache;
+  const user = useAuthStore((state) => state.user);
+  const head = useDataStore((state) => state.data?.bundle.sourceCommit);
+  return useMemo(() => {
+    const key = `${user?.id}:${head}:${hash}`;
+    let cache = caches.get(key);
+    caches.delete(key);
+    if (!cache) cache = createRevisionCache(hash);
+    caches.set(key, cache);
+    while (caches.size > 12) caches.delete(caches.keys().next().value!);
+    return cache;
+  }, [hash, user, head]);
 }
