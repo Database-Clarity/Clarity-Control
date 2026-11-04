@@ -162,7 +162,10 @@ export function autoLinkCompendium(
     };
   const english = tooltip.text.en?.text ?? '';
   const candidates = (found.length ? found : all)
-    .map((match) => ({ ...match, similarity: compendiumSimilarity(english, match.row.cell.plain) }))
+    .map((match) => ({
+      ...match,
+      similarity: compendiumSimilarity(english, match.row.cell.plain, found.length ? 0 : 0.6),
+    }))
     .filter((candidate) => found.length || candidate.similarity >= 0.6)
     .sort(
       (a, b) =>

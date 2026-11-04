@@ -12,8 +12,19 @@ import { compendiumTabId, compendiumTabs, isTrackedCompendiumTab } from './confi
 import { setBonusCell } from './setBonus.js';
 import { selectCompendiumCells } from './cells.js';
 
+// Matching compares the same source descriptions with many tooltips. Cache only
+// pure text transforms, keyed by the complete text, so refreshed or edited inputs
+// cannot reuse an earlier source's meaning. Both memory and entry count are bounded.
+const normalized = new Map<string, string>();
+let normalizedCharacters = 0;
+const gramSets = new Map<string, Set<string>>();
+let cachedGrams = 0;
+let gramCharacters = 0;
+
 export function normaliseCompendiumName(name: string): string {
-  return name
+  const cached = normalized.get(name);
+  if (cached !== undefined) return cached;
+  const value = name
     .replace(/(?:\s*[(\u005b][^()[\]]*[)\u005d])+\s*$/gu, '')
     .normalize('NFKD')
     .replace(/\p{M}/gu, '')
@@ -21,20 +32,54 @@ export function normaliseCompendiumName(name: string): string {
     .replace(/&/g, ' and ')
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
+  const characters = name.length + value.length;
+  if (characters <= 4_000_000) {
+    while (normalized.size >= 8192 || normalizedCharacters + characters > 4_000_000) {
+      const [key, old] = normalized.entries().next().value!;
+      normalized.delete(key);
+      normalizedCharacters -= key.length + old.length;
+    }
+    normalized.set(name, value);
+    normalizedCharacters += characters;
+  }
+  return value;
 }
 function grams(text: string): Set<string> {
+  const cached = gramSets.get(text);
+  if (cached) return cached;
   const value = normaliseCompendiumName(text);
-  return new Set(
+  const result = new Set(
     value.length < 3
       ? [value]
       : Array.from({ length: value.length - 2 }, (_, index) => value.slice(index, index + 3)),
   );
+  if (result.size <= 500_000 && text.length <= 4_000_000) {
+    while (
+      gramSets.size >= 4096 ||
+      cachedGrams + result.size > 500_000 ||
+      gramCharacters + text.length > 4_000_000
+    ) {
+      const [key, old] = gramSets.entries().next().value!;
+      gramSets.delete(key);
+      cachedGrams -= old.size;
+      gramCharacters -= key.length;
+    }
+    gramSets.set(text, result);
+    cachedGrams += result.size;
+    gramCharacters += text.length;
+  }
+  return result;
 }
-export function compendiumSimilarity(left: string, right: string): number {
+/** A positive minimum may return zero only for scores that cannot reach that minimum. */
+export function compendiumSimilarity(left: string, right: string, minimum = 0): number {
   if (!left.trim() || !right.trim()) return left === right ? 1 : 0;
   const a = grams(left);
   const b = grams(right);
-  const common = [...a].filter((gram) => b.has(gram)).length;
+  const smaller = a.size <= b.size ? a : b;
+  const larger = a.size <= b.size ? b : a;
+  if ((2 * smaller.size) / (a.size + b.size) < minimum) return 0;
+  let common = 0;
+  for (const gram of smaller) if (larger.has(gram)) common++;
   return (2 * common) / (a.size + b.size);
 }
 export interface CompendiumMatch {
@@ -191,7 +236,7 @@ export function resolveCompendiumLink(
   const candidates = matches
     .map((match) => ({
       ...match,
-      similarity: compendiumSimilarity(link.snapshot.plain, match.row.cell.plain),
+      similarity: compendiumSimilarity(link.snapshot.plain, match.row.cell.plain, 0.6),
     }))
     .filter((candidate) => candidate.similarity >= 0.6)
     .sort(
