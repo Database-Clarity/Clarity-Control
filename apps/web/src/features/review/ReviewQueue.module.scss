@@ -1,8 +1,17 @@
 .viewport {
+  position: relative;
   max-height: calc(100dvh - var(--header-h, 37px) - 7rem);
   overflow: auto;
   min-height: 0;
   contain: layout paint;
+}
+
+.rowSizer {
+  position: absolute;
+  height: 4rem;
+  width: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .list {

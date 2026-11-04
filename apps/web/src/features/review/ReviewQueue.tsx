@@ -3,7 +3,7 @@ import { useHref, useLinkClickHandler } from 'react-router-dom';
 import type { SidebarPendingChange } from '../navigation/sidebarQueue';
 import styles from './ReviewQueue.module.scss';
 
-const rowHeight = 64;
+const defaultRowHeight = 64;
 const overscan = 6;
 const QueueLink = memo(function QueueLink({
   change,
@@ -38,6 +38,8 @@ export function ReviewQueue({
   selectedHash: string | null;
 }) {
   const host = useRef<HTMLDivElement>(null);
+  const sizer = useRef<HTMLSpanElement>(null);
+  const [rowHeight, setRowHeight] = useState(defaultRowHeight);
   // Resolve the router/base href once per window, rather than querying <base> per row.
   const href = useHref('/review');
   const [focusIndex, setFocusIndex] = useState<number>();
@@ -45,10 +47,15 @@ export function ReviewQueue({
   useEffect(() => {
     const element = host.current!;
     if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(([entry]) => {
-      setViewport((previous) => ({ ...previous, height: entry.contentRect.height }));
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.target === sizer.current)
+          setRowHeight(entry.contentRect.height || defaultRowHeight);
+        else setViewport((previous) => ({ ...previous, height: entry.contentRect.height }));
+      }
     });
     observer.observe(element);
+    observer.observe(sizer.current!);
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
@@ -60,7 +67,7 @@ export function ReviewQueue({
       element.scrollTop = top;
       setViewport((previous) => ({ ...previous, top }));
     }
-  }, [changes, selectedHash]);
+  }, [changes, selectedHash, rowHeight]);
   useEffect(() => {
     if (focusIndex !== undefined)
       host.current
@@ -120,6 +127,7 @@ export function ReviewQueue({
         setViewport((previous) => ({ ...previous, top }));
       }}
     >
+      <span ref={sizer} className={styles.rowSizer} aria-hidden="true" data-review-row-size="" />
       <ul className={styles.list} style={{ height: changes.length * rowHeight }}>
         {indices.map((index) => {
           const change = changes[index]!;

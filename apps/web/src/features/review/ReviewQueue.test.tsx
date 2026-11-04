@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { ReviewQueue } from './ReviewQueue';
 
 it('bounds a long queue, reveals deep URL selections, and keeps keyboard access across windows', async () => {
@@ -15,6 +15,17 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
     name: `Tooltip ${hash}`,
     category: 'Perk',
   }));
+  let resize!: ResizeObserverCallback;
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(callback: ResizeObserverCallback) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+  );
   try {
     await act(async () =>
       root.render(
@@ -26,6 +37,21 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
     expect(host.querySelectorAll('li').length).toBeLessThan(30);
     const selected = host.querySelector<HTMLAnchorElement>('[aria-current="page"]')!;
     expect(selected.getAttribute('href')).toBe('/review?hash=1800');
+    await act(async () => {
+      resize(
+        [
+          {
+            target: host.querySelector('[data-review-row-size]')!,
+            contentRect: { height: 96 },
+          } as unknown as ResizeObserverEntry,
+        ],
+        {} as ResizeObserver,
+      );
+    });
+    expect(selected.closest('li')?.style.height).toBe('96px');
+    expect(
+      host.querySelector<HTMLElement>('[aria-label="Scroll pending saved changes"]')?.scrollTop,
+    ).toBe(1800 * 96);
     await act(async () => selected.focus());
     await act(async () =>
       selected.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })),
@@ -55,5 +81,6 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
   } finally {
     await act(async () => root.unmount());
     host.remove();
+    vi.unstubAllGlobals();
   }
 });
