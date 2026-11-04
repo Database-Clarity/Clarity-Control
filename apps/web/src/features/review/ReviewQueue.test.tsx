@@ -11,6 +11,11 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
   document.body.append(host);
   const root = createRoot(host);
   const heightRead = vi.spyOn(Element.prototype, 'clientHeight', 'get');
+  heightRead.mockImplementation(function (this: Element) {
+    if (this.hasAttribute('data-review-row-size')) return 64;
+    if (this.getAttribute('aria-label') === 'Scroll pending saved changes') return 1600;
+    return 0;
+  });
   const changes = Array.from({ length: 2500 }, (_, hash) => ({
     hash,
     name: `Tooltip ${hash}`,
@@ -35,6 +40,16 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
         </MemoryRouter>,
       ),
     );
+    const initialHeightReads = heightRead.mock.calls.length;
+    const scroller = host.querySelector<HTMLElement>(
+      '[aria-label="Scroll pending saved changes"]',
+    )!;
+    const renderedBottom = Math.max(
+      ...[...host.querySelectorAll<HTMLElement>('li')].map(
+        (row) => Number.parseFloat(row.style.top) + Number.parseFloat(row.style.height),
+      ),
+    );
+    expect(renderedBottom).toBeGreaterThanOrEqual(scroller.scrollTop + 1600);
     expect(host.querySelectorAll('li').length).toBeLessThan(30);
     let selected = host.querySelector<HTMLAnchorElement>('[aria-current="page"]')!;
     expect(selected.getAttribute('href')).toBe('/review?hash=1800');
@@ -80,9 +95,9 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
       ),
     );
     expect(document.activeElement?.getAttribute('href')).toBe('/review?hash=1');
-    // Selection must use observed bounds rather than synchronously laying out
-    // the newly mounted workspace (a 75 ms layout flush at 4x in the replay).
-    expect(heightRead).not.toHaveBeenCalled();
+    // Only initial window sizing may measure; selection and key/scroll updates
+    // must use observed bounds, without forcing the workspace layout again.
+    expect(heightRead).toHaveBeenCalledTimes(initialHeightReads);
   } finally {
     await act(async () => root.unmount());
     host.remove();

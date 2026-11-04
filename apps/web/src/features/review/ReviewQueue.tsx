@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useHref, useLinkClickHandler } from 'react-router-dom';
 import type { SidebarPendingChange } from '../navigation/sidebarQueue';
@@ -47,6 +47,14 @@ export function ReviewQueue({
   const [viewport, setViewport] = useState({ top: 0, height: 800 });
   const observedViewport = useRef(viewport);
   observedViewport.current = viewport;
+  useLayoutEffect(() => {
+    // Bootstrap the exact window before its first paint. Observer notifications
+    // handle later resizes; selection and scrolling use the cached bounds.
+    const height = host.current!.clientHeight;
+    const row = sizer.current!.clientHeight;
+    if (height) setViewport((previous) => ({ ...previous, height }));
+    if (row) setRowHeight(row);
+  }, []);
   useEffect(() => {
     const element = host.current!;
     if (typeof ResizeObserver === 'undefined') return;
