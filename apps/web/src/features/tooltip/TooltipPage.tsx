@@ -1,13 +1,14 @@
 import { archiveCategoryLabel, archivedItemFor } from '../archive/archive';
 import { AttachmentCategoryControl } from './AttachmentCategoryControl';
 import { useCompendiumStore } from '../compendium/store';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { translationQueue, type Lang, type MarkupGlobals, type Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
 import { tooltipImports } from '../../services/tooltipImports';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
+import type { Drafts } from '../../services/draftStorage';
 import { usePausedForOtherTab, useConflictStore } from '../../stores/conflicts';
 import { ConflictRows } from '../conflicts/ConflictRows';
 import { previewDrafts } from '../conflicts/previewDrafts';
@@ -116,17 +117,36 @@ export function TooltipPage({
   );
 }
 
-function TooltipWorkspace({
-  hashOverride,
-  readOnly = false,
-  route,
-  suspended,
-}: {
+interface WorkspaceProps {
   hashOverride?: number;
   readOnly?: boolean;
   route: WorkspaceRoute;
   suspended: boolean;
-}) {
+}
+const DeferredWorkspace = memo(TooltipWorkspaceContent);
+
+function TooltipWorkspace(props: WorkspaceProps) {
+  const drafts = useDraftStore((state) => state.drafts);
+  const identity = `${props.hashOverride ?? props.route.parameter}?${props.route.search}`;
+  const snapshot = useMemo(() => ({ drafts, identity }), [drafts, identity]);
+  const deferred = useDeferredValue(snapshot);
+  // Persist every edit immediately, but let derived workspace UI yield to native
+  // typing. A route/language change always opens its current draft, without lag.
+  return (
+    <DeferredWorkspace
+      {...props}
+      drafts={deferred.identity === identity ? deferred.drafts : drafts}
+    />
+  );
+}
+
+function TooltipWorkspaceContent({
+  hashOverride,
+  readOnly = false,
+  route,
+  suspended,
+  drafts,
+}: WorkspaceProps & { drafts: Drafts }) {
   const compendiumSource = useCompendiumStore((state) => state.data);
   const { parameter, search, setSearch, navigate } = route;
   const data = useDataStore((state) => state.data);
@@ -151,7 +171,6 @@ function TooltipWorkspace({
     setSearch(withLanguage(search, next));
   }
   const highlightLine = Number(search.get('line'));
-  const drafts = useDraftStore((state) => state.drafts);
   // Previews, shared globals and references see "mine" where conflict blocks remain in a draft.
   const shown = useMemo(() => previewDrafts(drafts), [drafts]);
   const sessions = useConflictStore((state) => state.sessions);
