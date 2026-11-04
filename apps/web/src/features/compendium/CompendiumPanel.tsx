@@ -1,5 +1,6 @@
 import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { resolveCompendiumLink, snapshotCompendium, type Tooltip } from '@clarity/core';
+import { resolveCompendiumLink, snapshotCompendium, sameCell, type Tooltip } from '@clarity/core';
+import { approvalEvidence } from './approvalEvidence';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
@@ -158,6 +159,14 @@ const PaneContents = memo(function PaneContents({
       ? resolution
       : undefined;
   const item = data && itemFor(base.hash, data);
+  const approved = useMemo(
+    () =>
+      !link && matched && item
+        ? approvalEvidence(base.hash, item.name, item.categoryId, matched)
+        : undefined,
+    [link, matched, item, base.hash],
+  );
+  const approvalChanged = approved && matched && !sameCell(approved, matched.row.cell);
   const diffToggle = <CompendiumDiffModeToggle mode={diffMode} onChange={setDiffMode} />;
   return (
     <RightPane
@@ -165,7 +174,7 @@ const PaneContents = memo(function PaneContents({
       bodyRef={bodyRef}
       header={
         <RightPaneHeader title="Compendium">
-          {match && roomy && diffToggle}
+          {(match || approved) && roomy && diffToggle}
           {canEdit && (
             <button
               type="button"
@@ -219,8 +228,12 @@ const PaneContents = memo(function PaneContents({
               </span>{' '}
               {matched.tab.name} / {matched.row.name}
             </p>
-            <p>
-              No saved snapshot to compare.{' '}
+            <p className={approvalChanged ? styles.warning : undefined}>
+              {approved
+                ? approvalChanged
+                  ? 'Compendium sheet changed since approval.'
+                  : 'Matches the approval evidence.'
+                : 'No saved snapshot to compare.'}{' '}
               <a
                 href={`https://docs.google.com/spreadsheets/d/1WaxvbLx7UoSZaBqdFr1u32F2uWVLo-CJunJB4nlGUE4/htmlview#gid=${matched.tab.gid}`}
                 target="_blank"
@@ -229,9 +242,16 @@ const PaneContents = memo(function PaneContents({
                 Open source tab
               </a>
             </p>
-            <SheetCell background={matched.row.cell.background}>
-              <RichCell cell={matched.row.cell} />
-            </SheetCell>
+            {approved ? (
+              <>
+                {!roomy && <div className={styles.diffModes}>{diffToggle}</div>}
+                <CompendiumDiff before={approved} after={matched.row.cell} mode={diffMode} />
+              </>
+            ) : (
+              <SheetCell background={matched.row.cell.background}>
+                <RichCell cell={matched.row.cell} />
+              </SheetCell>
+            )}
             {canEdit && (
               <div className={styles.actions}>
                 <button

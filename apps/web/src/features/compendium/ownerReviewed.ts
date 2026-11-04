@@ -53,8 +53,7 @@ export function reviewedOwnerDecision(
       tab?.rows.filter(
         (row) => row.name === renewed.name && sourceFingerprint(row.cell) === renewed.cellEvidence,
       ) ?? [];
-    // Anchor the explicitly picked description itself. Pugilism's duplicate name
-    // must never combine the rewritten card with the obsolete body at row 54.
+    // Keep the named card identity, and pin the explicit duplicate-card selection.
     const bodies =
       tab?.grid?.filter((cell) => sourceFingerprint(cell.cell) === renewed.cellEvidence) ?? [];
     const body = bodies[0];
@@ -69,13 +68,11 @@ export function reviewedOwnerDecision(
         {
           tab,
           row: {
-            name: body.cell.plain.trim(),
-            nameNorm: normaliseCompendiumName(body.cell.plain),
-            rowIndex: body.row,
-            anchor: { row: body.row, col: body.col },
+            ...rows[0],
             cell: body.cell,
           },
-          cells: [{ dRow: 0, dCol: 0 }],
+          sourceAnchor: rows[0].anchor,
+          cells: [{ dRow: body.row - rows[0].anchor!.row, dCol: body.col - rows[0].anchor!.col }],
         },
         source,
       );
