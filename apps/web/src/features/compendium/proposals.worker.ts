@@ -112,23 +112,9 @@ async function process(data: Request) {
               ...precomputed.display,
               matches: new Map(precomputed.display.matches),
             };
-            const restore = (match: ReviewProposal['match']) =>
-              match && {
-                ...match,
-                tab: source.tabs.find((tab) => tab.gid === match.tab.gid) ?? match.tab,
-              };
             return {
               display,
-              proposals: new Map(
-                precomputed.proposals.map(([hash, p]) => [
-                  hash,
-                  {
-                    ...p,
-                    match: restore(p.match),
-                    candidates: p.candidates.map((m) => restore(m)!),
-                  },
-                ]),
-              ),
+              proposals: new Map(precomputed.proposals),
             };
           }
         }
@@ -140,13 +126,33 @@ async function process(data: Request) {
           proposals: new Map(
             reviewEvidence(editor, source, {}, '')
               .filter((entry) => !entry.valid)
-              .map((entry) => [entry.hash, proposalFor(entry.base, editor, source)]),
+              .map((entry) => [
+                entry.hash,
+                compactProposal(proposalFor(entry.base, editor, source)),
+              ]),
           ),
         };
       });
       // Cache the two halves together. A proposals-only cache hit used to lose
       // its pristine display model and rerun all guidance on an immediate reload.
-      proposals = prepared.proposals;
+      const tabs = new Map(source.tabs.map((tab) => [tab.gid, tab]));
+      const restore = (match: ReviewProposal['match']) =>
+        match && {
+          ...match,
+          tab: tabs.get(match.tab.gid) ?? match.tab,
+        };
+      // Persist locations rather than a second copy of the entire source grid.
+      // Matching still receives the complete, current source tabs after a hit.
+      proposals = new Map(
+        [...prepared.proposals].map(([hash, proposal]) => [
+          hash,
+          {
+            ...proposal,
+            match: restore(proposal.match),
+            candidates: proposal.candidates.map((match) => restore(match)!),
+          },
+        ]),
+      );
       precomputedDisplay = prepared.display;
       sendWorkerResult(
         emit,
