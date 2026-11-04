@@ -133,7 +133,7 @@ describe('tooltip finder combobox', () => {
     const many = {
       ...data,
       items: Object.fromEntries(
-        Array.from({ length: 400 }, (_, i) => [
+        Array.from({ length: 800 }, (_, i) => [
           1000 + i,
           item(1000 + i, `Armor ${String(i).padStart(3, '0')}`, 'armor'),
         ]),
@@ -144,18 +144,18 @@ describe('tooltip finder combobox', () => {
     expect(options().length).toBeLessThan(220);
     await press('End');
     const active = host.querySelector(`[id="${field().getAttribute('aria-activedescendant')}"]`);
-    expect(active?.textContent).toContain('Armor 399');
-    expect(active?.getAttribute('aria-posinset')).toBe('400');
-    expect(active?.getAttribute('aria-setsize')).toBe('400');
+    expect(active?.textContent).toContain('Armor 799');
+    expect(active?.getAttribute('aria-posinset')).toBe('800');
+    expect(active?.getAttribute('aria-setsize')).toBe('800');
     // Fill the destination viewport before paint, not only the active row
     // isolated after a spacer while waiting for the next scroll event.
-    expect(options().some((row) => row.textContent?.includes('Armor 398'))).toBe(true);
+    expect(options().some((row) => row.textContent?.includes('Armor 798'))).toBe(true);
     expect(host.querySelector<HTMLElement>('[role="listbox"]')!.scrollTop).toBeGreaterThan(0);
     await press('Home');
     expect(host.querySelector<HTMLElement>('[role="listbox"]')!.scrollTop).toBe(0);
     await press('End');
     await press('Enter');
-    expect(route()).toBe('/t/1399');
+    expect(route()).toBe('/t/1799');
   });
   it.each(['pointerup', 'pointercancel'])(
     'covers a whole-category thumb jump until %s restores the landed window',
@@ -176,7 +176,8 @@ describe('tooltip finder combobox', () => {
         clientWidth: { value: 200 },
         clientHeight: { value: 416 },
       });
-      expect(options().some((row) => row.textContent?.includes('Armor 399'))).toBe(false);
+      const lastRow = options().find((row) => row.textContent?.includes('Armor 399'));
+      expect(lastRow).toBeDefined();
       const down = new MouseEvent('pointerdown', { button: 0, bubbles: true });
       Object.defineProperty(down, 'offsetX', { value: 207 });
       await act(async () => void list.dispatchEvent(down));
@@ -187,8 +188,8 @@ describe('tooltip finder combobox', () => {
       await act(async () => void list.dispatchEvent(new Event('scroll')));
       expect(options()).toHaveLength(400);
       await act(async () => void window.dispatchEvent(new Event(release)));
-      expect(options().length).toBeLessThan(220);
-      expect(options().some((row) => row.textContent?.includes('Armor 399'))).toBe(true);
+      expect(options()).toHaveLength(400);
+      expect(options().find((row) => row.textContent?.includes('Armor 399'))).toBe(lastRow);
       expect(list.hasAttribute('data-scrollbar-drag')).toBe(false);
       expect(route()).toBe('/t/1000');
     },

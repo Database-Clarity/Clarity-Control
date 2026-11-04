@@ -64,6 +64,9 @@ interface Row {
 
 const noItems: never[] = [];
 const noDrafts: ReturnType<typeof useDraftStore.getState>['drafts'] = {};
+// Bounded lists keep a stable DOM: expanding/collapsing their row set during
+// native thumb dragging costs more than retaining these cheap contained rows.
+const retainedRowLimit = 512;
 
 // Moving the highlight changes two rows, not every catalogue lookup and DOM subtree.
 const FinderOption = memo(function FinderOption({
@@ -283,7 +286,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     let height = 416;
     let lastTop = -1;
     const scroll = () => {
-      if (draggingScrollbarRef.current) return;
+      if (rows.length <= retainedRowLimit || draggingScrollbarRef.current) return;
       // Bucket scroll updates inside the overscan. Scrolling reads no row geometry and
       // does no React work until the visible window approaches the next bucket.
       const top = Math.floor(element.scrollTop / (rowHeight * 8)) * rowHeight * 8;
@@ -535,7 +538,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   );
   let options;
   if (!open) options = null;
-  else if (rows.length <= 80 || draggingScrollbar) options = rows.map(option);
+  else if (rows.length <= retainedRowLimit || draggingScrollbar) options = rows.map(option);
   else {
     const start = Math.max(0, Math.floor(viewport.top / rowHeight) - 96);
     const end = Math.min(rows.length, Math.ceil((viewport.top + viewport.height) / rowHeight) + 96);
