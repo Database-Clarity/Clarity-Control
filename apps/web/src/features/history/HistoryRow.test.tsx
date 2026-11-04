@@ -94,6 +94,47 @@ it('says 30+ when a full page of commits came back', async () => {
   expect(host.textContent).toContain('30+ revisions');
 });
 
+it('loads published text into a local draft while preserving current associations', async () => {
+  getHistory.mockResolvedValue({ page: 1, commits: [] });
+  const base = { ...tooltip, associated: [99] };
+  useDataStore.setState({
+    data: {
+      ...useDataStore.getState().data!,
+      bundle: { ...useDataStore.getState().data!.bundle, tooltips: { 10: base } },
+    },
+  });
+  getLegacyHistory.mockResolvedValue({
+    hash: 10,
+    lanes: [
+      {
+        hash: 10,
+        sourceHash: 10,
+        verified: true,
+        revisions: [{ ...commit(1), text: { en: 'Published old text' } }],
+      },
+    ],
+  });
+  await act(async () => root.render(<HistoryPanel hash={10} />));
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  const section = host.querySelector('section[aria-label="Published before migration"]')!;
+  await act(async () => section.querySelector<HTMLButtonElement>('ol button')!.click());
+  const click = async (label: string) =>
+    act(async () => {
+      const button = [...host.querySelectorAll('button')].find(
+        (button) => button.textContent === label,
+      );
+      expect(button).toBeDefined();
+      button!.click();
+    });
+  await click('Restore this revision');
+  expect(useDraftStore.getState().drafts[10]).toBeUndefined();
+  await click('Load as draft');
+  expect(useDraftStore.getState().drafts[10].next.text.en?.text).toBe('Published old text');
+  expect(useDraftStore.getState().drafts[10].next.associated).toEqual([99]);
+  expect(useDataStore.getState().data!.bundle.tooltips[10]).toEqual(base);
+  expect(host.textContent).toContain('nothing was saved automatically');
+});
+
 it('does not ask the server when signed out, and says so when expanded', async () => {
   useAuthStore.setState({ user: null });
   await act(async () => root.render(<HistoryPanel hash={10} />));
