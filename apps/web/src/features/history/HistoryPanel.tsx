@@ -14,12 +14,12 @@ import { lastEdit } from './lastEdit';
 import { itemFor } from '../navigation/catalog';
 import { useRevisionCache, type RevisionCache } from './revisions';
 import { revertDraft } from './revert';
+import { LegacyHistorySection } from './LegacyHistory';
 import styles from './History.module.scss';
 
 /**
  * One collapsed row: "Edited <date> by <author>, n revisions". Expanding it shows the commit list
- * with compare and Revert. The first page of commits loads with the row (it is the count), so
- * opening it is instant.
+ * with compare and Revert. The v2 list supplies the collapsed count; legacy history loads on open.
  */
 export function HistoryPanel({ hash, readOnly = false }: { hash: number; readOnly?: boolean }) {
   const [open, setOpen] = useState(false);
@@ -71,8 +71,9 @@ export function HistoryPanel({ hash, readOnly = false }: { hash: number; readOnl
         )
       }
     >
-      {!signedIn ? <p>Sign in as a configured member to view this tooltip's history.</p> : null}
-      {signedIn && <HistoryContent key={cache.identity} hash={hash} readOnly={readOnly} />}
+      {!signedIn ? <p>Sign in as a configured member to view v2 history.</p> : null}
+      {signedIn && <HistoryContent key={`v2-${cache.identity}`} hash={hash} readOnly={readOnly} />}
+      <LegacyHistorySection key="legacy" hash={hash} readOnly={readOnly} />
     </PanelRow>
   );
 }
@@ -161,7 +162,7 @@ function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: b
   );
 
   return (
-    <section aria-label={`History for ${hash}`}>
+    <section aria-label={`History for ${hash}`} className={styles.historySection}>
       {error && (
         <p role="alert">
           {error}{' '}
