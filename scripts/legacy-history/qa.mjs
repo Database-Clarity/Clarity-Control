@@ -96,18 +96,15 @@ try {
                         (b) => b.textContent === 'vs current draft',
                       );
               if (!button || button.disabled) throw new Error(`Action ${action} is not ready`);
-              let start;
               const down = (event) => {
                 if (!button.contains(event.target)) return;
                 if (!event.isTrusted) throw new Error('QA requires trusted input');
-                start = performance.now();
+                const start = performance.now();
                 performance.mark(`legacy-${action}-start`);
                 document.removeEventListener('pointerdown', down, true);
-              };
-              const clicked = (event) => {
-                if (!button.contains(event.target)) return;
-                document.removeEventListener('click', clicked, true);
-                performance.mark(`legacy-${action}-click`);
+                // Focusing a revision can open its fixed popover before mouseup;
+                // on narrow screens the click may then land on the shared li.
+                // Measure the delivered pointer intent that actually opens it.
                 requestAnimationFrame(() =>
                   requestAnimationFrame(() => {
                     performance.mark(`legacy-${action}-double-raf`);
@@ -116,7 +113,6 @@ try {
                 );
               };
               document.addEventListener('pointerdown', down, true);
-              document.addEventListener('click', clicked, true);
             }, action);
             const control =
               action === 'open'
