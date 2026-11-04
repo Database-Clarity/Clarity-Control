@@ -51,6 +51,12 @@
   contain-intrinsic-size: auto 12rem;
 }
 
+// Only during the initial, aria-busy render: activation advances every frame,
+// rather than permanently hiding offscreen languages from assistive technology.
+.revision .diff > section[data-pending-render] {
+  content-visibility: hidden;
+}
+
 .commits {
   list-style: none;
   margin: 0;
