@@ -25,6 +25,11 @@ idle prefetch is limited to the newest two revision bodies, never another page.
 Large language word diffs run in a worker; an exact before/after text fallback is
 shown until the result arrives. Worker results retain at most 24 comparisons.
 
+Revision popovers defer layout of offscreen language comparisons until they enter
+the scroll viewport, retaining their complete diff text in the DOM. Explicit local
+symbol/Korean/Chinese font fallbacks avoid expensive cold fallback searches; the
+language faces cover only their Unicode ranges so Latin markup keeps its metrics.
+
 
 An explicit Worker 404 saying the tooltip did not exist at an immutable commit is
 cached as an absent revision. Deletions show the previous text removed; restorations

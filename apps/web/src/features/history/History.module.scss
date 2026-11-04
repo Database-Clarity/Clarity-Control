@@ -1,4 +1,18 @@
 @use '../../ui/controls';
+
+// Local faces with limited coverage avoid a generic fallback scan per character,
+// while Latin text and markup retain the interface's existing font and metrics.
+@font-face {
+  font-family: HistoryKorean;
+  src: local('Malgun Gothic');
+  unicode-range: U+1100-11FF, U+3130-318F, U+AC00-D7AF;
+}
+
+@font-face {
+  font-family: HistoryChinese;
+  src: local('Microsoft YaHei');
+  unicode-range: U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+FF00-FFEF;
+}
 // The history lives in the shell's left column (about 300px), where two diff columns do not fit.
 .columns {
   display: grid;
@@ -13,6 +27,28 @@
   background: var(--diff-bg, #17171c);
   padding: 0.75rem;
   border: 1px solid #444;
+}
+
+.diff {
+  // Resolve legacy arrows through the symbol face directly. The generic Windows
+  // fallback search otherwise stalls layout on the first revision using them.
+  font-family: Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', sans-serif;
+
+  section:lang(ko) {
+    font-family: HistoryKorean, Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', sans-serif;
+  }
+
+  section:lang(zh) {
+    font-family: HistoryChinese, Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', sans-serif;
+  }
+}
+
+// Preserve every language's diff in the DOM, but only shape/layout comparisons
+// near the popover's scroll viewport. Legacy multi-language revisions otherwise
+// perform expensive cold font fallback even for text the user cannot see.
+.revision .diff > section[data-deferred] {
+  content-visibility: hidden;
+  contain-intrinsic-size: auto 12rem;
 }
 
 .commits {
@@ -68,6 +104,10 @@
 
 .revision {
   box-sizing: border-box;
+  // The placement effect measures this surface before setting its inline width.
+  // Give that first layout the final width and keep its paint out of the list.
+  width: min(30rem, calc(100vw - 16px));
+  contain: layout paint;
 
   button {
     @include controls.button;
