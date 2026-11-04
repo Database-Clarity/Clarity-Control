@@ -2,7 +2,6 @@ import { compendiumDataSchema, isTrackedCompendiumTab, type CompendiumData } fro
 import { z } from 'zod';
 import { fetchJson } from './http';
 import { apiRequest } from './api';
-import { prepareCompendiumFonts } from '../features/compendium/prepareFonts';
 import {
   bindSourceWorker,
   createWorkerBridge,
@@ -54,7 +53,6 @@ export function loadCompendium(force = false): Promise<CompendiumData> {
         ...value,
         tabs: value.tabs.filter((tab) => isTrackedCompendiumTab(tab.name)),
       };
-      prepareCompendiumFonts(tracked);
       const bridge = sourceWorkerFor(value);
       if (bridge) bindSourceWorker(tracked, bridge);
       // A slower, older request must not overwrite newer data.
