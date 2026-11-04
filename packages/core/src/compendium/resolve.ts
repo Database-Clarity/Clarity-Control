@@ -12,8 +12,19 @@ import { compendiumTabId, compendiumTabs, isTrackedCompendiumTab } from './confi
 import { setBonusCell } from './setBonus.js';
 import { selectCompendiumCells } from './cells.js';
 
+// Matching compares the same source descriptions with many tooltips. Cache only
+// pure text transforms, keyed by the complete text, so refreshed or edited inputs
+// cannot reuse an earlier source's meaning. Both memory and entry count are bounded.
+const normalized = new Map<string, string>();
+let normalizedCharacters = 0;
+const gramSets = new Map<string, Set<string>>();
+let cachedGrams = 0;
+let gramCharacters = 0;
+
 export function normaliseCompendiumName(name: string): string {
-  return name
+  const cached = normalized.get(name);
+  if (cached !== undefined) return cached;
+  const value = name
     .replace(/(?:\s*[(\u005b][^()[\]]*[)\u005d])+\s*$/gu, '')
     .normalize('NFKD')
     .replace(/\p{M}/gu, '')
@@ -21,20 +32,54 @@ export function normaliseCompendiumName(name: string): string {
     .replace(/&/g, ' and ')
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
+  const characters = name.length + value.length;
+  if (characters <= 4_000_000) {
+    while (normalized.size >= 8192 || normalizedCharacters + characters > 4_000_000) {
+      const [key, old] = normalized.entries().next().value!;
+      normalized.delete(key);
+      normalizedCharacters -= key.length + old.length;
+    }
+    normalized.set(name, value);
+    normalizedCharacters += characters;
+  }
+  return value;
 }
 function grams(text: string): Set<string> {
+  const cached = gramSets.get(text);
+  if (cached) return cached;
   const value = normaliseCompendiumName(text);
-  return new Set(
+  const result = new Set(
     value.length < 3
       ? [value]
       : Array.from({ length: value.length - 2 }, (_, index) => value.slice(index, index + 3)),
   );
+  if (result.size <= 500_000 && text.length <= 4_000_000) {
+    while (
+      gramSets.size >= 4096 ||
+      cachedGrams + result.size > 500_000 ||
+      gramCharacters + text.length > 4_000_000
+    ) {
+      const [key, old] = gramSets.entries().next().value!;
+      gramSets.delete(key);
+      cachedGrams -= old.size;
+      gramCharacters -= key.length;
+    }
+    gramSets.set(text, result);
+    cachedGrams += result.size;
+    gramCharacters += text.length;
+  }
+  return result;
 }
-export function compendiumSimilarity(left: string, right: string): number {
+/** A positive minimum may return zero only for scores that cannot reach that minimum. */
+export function compendiumSimilarity(left: string, right: string, minimum = 0): number {
   if (!left.trim() || !right.trim()) return left === right ? 1 : 0;
   const a = grams(left);
   const b = grams(right);
-  const common = [...a].filter((gram) => b.has(gram)).length;
+  const smaller = a.size <= b.size ? a : b;
+  const larger = a.size <= b.size ? b : a;
+  if ((2 * smaller.size) / (a.size + b.size) < minimum) return 0;
+  let common = 0;
+  for (const gram of smaller) if (larger.has(gram)) common++;
   return (2 * common) / (a.size + b.size);
 }
 export interface CompendiumMatch {
@@ -57,23 +102,53 @@ export type CompendiumResolution =
   | { status: 'candidates'; candidates: CompendiumCandidate[] }
   | { status: 'missing' };
 
-export function resolveCompendiumLink(
-  link: CompendiumLink,
+type RowLookup = {
+  rawTab: Map<string, CompendiumMatch[]>;
+  normalizedTab: Map<string, CompendiumMatch[]>;
+  normalized: Map<string, CompendiumMatch[]>;
+};
+type MatchingContext = {
+  data: CompendiumData;
+  rows?: CompendiumMatch[];
+  cellRows?: CompendiumMatch[];
+  lookups: WeakMap<readonly CompendiumMatch[], RowLookup>;
+};
+let matchingContext: MatchingContext | undefined;
+
+/** Share lookups during one synchronous, read-only computation over this source. */
+export function withCompendiumMatchingIndex<T>(data: CompendiumData, compute: () => T): T {
+  if (matchingContext?.data === data) return compute();
+  const previous = matchingContext;
+  matchingContext = { data, lookups: new WeakMap() };
+  try {
+    return compute();
+  } finally {
+    matchingContext = previous;
+  }
+}
+
+/** Ordered rows; ordinary callers retain a fresh view of their mutable inputs. */
+export function compendiumMatches(
   data: CompendiumData,
-): CompendiumResolution {
-  const all: CompendiumMatch[] = data.tabs
-    .filter((tab) => isTrackedCompendiumTab(tab.name))
-    .flatMap((tab) => tab.rows.map((row) => ({ tab, row })));
-  // An arbitrary human-picked anchor need not be one of the parsed named rows.
-  if (link.cells) {
+  includeGridAnchors = false,
+): readonly CompendiumMatch[] {
+  const context = matchingContext?.data === data ? matchingContext : undefined;
+  const cached = includeGridAnchors ? context?.cellRows : context?.rows;
+  if (cached) return cached;
+  const rows: CompendiumMatch[] = includeGridAnchors
+    ? [...compendiumMatches(data)]
+    : data.tabs
+        .filter((tab) => isTrackedCompendiumTab(tab.name))
+        .flatMap((tab) => tab.rows.map((row) => ({ tab, row })));
+  if (includeGridAnchors) {
     const anchors = new Set(
-      all.map(({ tab, row }) => JSON.stringify([tab.gid, row.anchor?.row, row.anchor?.col])),
+      rows.map(({ tab, row }) => JSON.stringify([tab.gid, row.anchor?.row, row.anchor?.col])),
     );
     for (const tab of data.tabs.filter((tab) => isTrackedCompendiumTab(tab.name))) {
       for (const entry of tab.grid ?? []) {
         if (!entry.cell.plain.trim()) continue;
-        if (!anchors.has(JSON.stringify([tab.gid, entry.row, entry.col]))) {
-          all.push({
+        if (!anchors.has(JSON.stringify([tab.gid, entry.row, entry.col])))
+          rows.push({
             tab,
             row: {
               name: entry.cell.plain.trim(),
@@ -83,19 +158,59 @@ export function resolveCompendiumLink(
               cell: entry.cell,
             },
           });
-        }
       }
     }
   }
-  let found = all.filter(({ tab, row }) => tab.gid === link.gid && row.name === link.rowKey);
+  if (context) {
+    if (includeGridAnchors) context.cellRows = rows;
+    else context.rows = rows;
+  }
+  return rows;
+}
+
+function matchingLookup(data: CompendiumData, rows: readonly CompendiumMatch[]) {
+  if (matchingContext?.data !== data) return;
+  const cached = matchingContext.lookups.get(rows);
+  if (cached) return cached;
+  const index: RowLookup = {
+    rawTab: new Map(),
+    normalizedTab: new Map(),
+    normalized: new Map(),
+  };
+  const add = (map: Map<string, CompendiumMatch[]>, key: string, match: CompendiumMatch) => {
+    const bucket = map.get(key);
+    if (bucket) bucket.push(match);
+    else map.set(key, [match]);
+  };
+  for (const match of rows) {
+    add(index.rawTab, JSON.stringify([match.tab.gid, match.row.name]), match);
+    add(index.normalizedTab, JSON.stringify([match.tab.gid, match.row.nameNorm]), match);
+    add(index.normalized, match.row.nameNorm, match);
+  }
+  matchingContext.lookups.set(rows, index);
+  return index;
+}
+
+export function resolveCompendiumLink(
+  link: CompendiumLink,
+  data: CompendiumData,
+): CompendiumResolution {
+  // An arbitrary human-picked anchor need not be one of the parsed named rows.
+  const all = compendiumMatches(data, !!link.cells);
+  const index = matchingLookup(data, all);
+  const normalizedKey = normaliseCompendiumName(link.rowKey);
+  let found = index
+    ? (index.rawTab.get(JSON.stringify([link.gid, link.rowKey])) ?? [])
+    : all.filter(({ tab, row }) => tab.gid === link.gid && row.name === link.rowKey);
   if (found.length && !link.cells)
-    found = all.filter(
-      ({ tab, row }) =>
-        tab.gid === link.gid && row.nameNorm === normaliseCompendiumName(link.rowKey),
-    );
+    found = index
+      ? (index.normalizedTab.get(JSON.stringify([link.gid, normalizedKey])) ?? [])
+      : all.filter(({ tab, row }) => tab.gid === link.gid && row.nameNorm === normalizedKey);
   let moved = false;
   if (!found.length) {
-    found = all.filter(({ row }) => row.nameNorm === normaliseCompendiumName(link.rowKey));
+    found = index
+      ? (index.normalized.get(normalizedKey) ?? [])
+      : all.filter(({ row }) => row.nameNorm === normalizedKey);
     moved = true;
   }
   if (found.length) {
@@ -114,11 +229,13 @@ export function resolveCompendiumLink(
       const section = found.filter(({ row }) => row.section === link.section);
       if (section.length) found = section;
     }
-    const match = link.cells
+    const combined = link.cells
       ? found.length === 1
         ? found[0]
         : undefined
       : combineCompendiumMatches(found);
+    // Cell/set projections must not mutate a shared lookup row.
+    const match = combined && { ...combined };
     if (!match)
       return {
         status: 'candidates',
@@ -191,7 +308,7 @@ export function resolveCompendiumLink(
   const candidates = matches
     .map((match) => ({
       ...match,
-      similarity: compendiumSimilarity(link.snapshot.plain, match.row.cell.plain),
+      similarity: compendiumSimilarity(link.snapshot.plain, match.row.cell.plain, 0.6),
     }))
     .filter((candidate) => candidate.similarity >= 0.6)
     .sort(

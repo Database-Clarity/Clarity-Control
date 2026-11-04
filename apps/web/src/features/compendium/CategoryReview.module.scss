@@ -1,6 +1,6 @@
 .categories {
   display: flex;
-  flex: 1;
+  flex: 1 1 0;
   flex-direction: column;
   gap: 0.65rem;
   min-width: 0;
@@ -46,7 +46,7 @@
   }
   p {
     font-size: 0.85rem;
-    color: #aab8cc;
+    color: var(--text2);
   }
 }
 .persistence {
@@ -69,8 +69,9 @@
 .workspace {
   display: grid;
   grid-template-columns: 15rem minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 0.8rem;
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
 }
 .categoryList {
@@ -79,28 +80,49 @@
   gap: 0.7rem;
   min-height: 0;
   min-width: 0;
+  input {
+    // This is a plain category-name search. Keep symbol-font fallback metrics
+    // out of the native input's preferred character-width calculation.
+    font-family: Arial, Helvetica, sans-serif;
+  }
 }
 .categoryButtons {
-  display: grid;
-  grid-auto-rows: max-content;
-  align-content: start;
+  contain: content;
+  display: flex;
+  flex-direction: column;
   gap: 0.4rem;
   overflow: auto;
   button {
-    display: grid;
-    gap: 0.3rem;
+    flex: none;
     text-align: left;
     overflow-wrap: anywhere;
   }
+  strong,
   small {
+    display: block;
+  }
+  small {
+    margin-top: 0.3rem;
     color: #aab8cc;
   }
   [aria-current='true'] {
+    color: #e2e5ee;
     border-color: #87beff;
     background: #2d3c52;
   }
 }
+@media (min-width: 701px) {
+  .categoryButtons {
+    contain: strict;
+    flex: 1 1 0;
+  }
+  .workspace > .category {
+    contain: strict;
+  }
+}
 .category {
+  contain: content;
+  color: #e2e5ee;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -158,6 +180,7 @@
   flex: 1 0 auto;
   min-height: 18rem;
   section {
+    contain: inline-size layout style paint;
     min-width: 0;
     overflow: visible;
     overflow-wrap: anywhere;
@@ -222,6 +245,12 @@
   .comparison {
     grid-template-columns: minmax(0, 1fr);
   }
+  .workspace {
+    // There is no viewport height budget on phones. A zero flex basis plus
+    // min-height:0 collapsed the first auto-sized grid row (the category nav).
+    flex: none;
+    grid-template-rows: max-content max-content;
+  }
   .categoryButtons {
     max-height: 12rem;
   }
@@ -237,16 +266,12 @@
     overflow: visible;
   }
   .actions button {
-    flex: 1 1 40%;
+    flex: 1 1 auto;
+    white-space: nowrap;
   }
   .actions {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: env(safe-area-inset-bottom, 0px);
-    z-index: 4;
     margin-inline: 0;
-    padding: 0.5rem 0.75rem;
+    padding: 0.5rem 0.75rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
     background: #131923f5;
     border-block: 1px solid #58667d;
     box-shadow: 0 -8px 30px #0003;
@@ -254,20 +279,17 @@
 }
 
 .sample > .actions {
-  position: sticky;
-  bottom: 0;
-  z-index: 4;
+  position: static;
   background: #131923;
   padding: 0.5rem;
   flex-shrink: 0;
 }
 @media (max-width: 700px) {
   .categories {
-    padding-bottom: calc(var(--sample-action-height, 12rem) + 1rem);
+    flex: none;
   }
   .sample > .actions {
-    position: fixed;
-    bottom: 0;
+    padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
   }
 }
 

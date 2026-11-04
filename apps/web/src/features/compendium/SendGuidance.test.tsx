@@ -27,12 +27,15 @@ it('sends current guidance after status and shows commit receipt', async () => {
   const element = document.createElement('div');
   document.body.append(element);
   const root = createRoot(element);
+  const onSend = vi.fn();
   await act(async () => {
-    root.render(<SendGuidance document={documentValue} ready />);
+    root.render(<SendGuidance document={documentValue} ready onSend={onSend} />);
   });
+  expect(onSend).not.toHaveBeenCalled();
   await act(async () => {
     element.querySelector('button')!.click();
   });
+  expect(onSend).toHaveBeenCalledTimes(1);
   expect(JSON.parse(String(mocked.mock.calls[1][1]?.body))).toEqual({
     document: documentValue,
     revision: null,

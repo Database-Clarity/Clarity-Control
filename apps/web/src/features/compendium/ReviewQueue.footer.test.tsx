@@ -38,7 +38,6 @@ const originals = {
 let host: HTMLDivElement;
 let root: Root;
 let fixture: ReturnType<typeof guidedFixture>;
-let height: number;
 let closed: boolean;
 const observers: {
   notify: () => void;
@@ -87,17 +86,17 @@ beforeEach(() => {
             observe: this.observe,
             disconnect: this.disconnect,
           });
+        this.notify();
       });
       disconnect = vi.fn();
     },
   );
-  height = 197;
   const originalRect = HTMLElement.prototype.getBoundingClientRect;
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
     this: HTMLElement,
   ) {
     if (this.matches('footer[aria-label="Review actions"]'))
-      return DOMRect.fromRect({ height: this.isConnected ? height : 0 });
+      throw new Error('The in-flow action bar must not synchronously measure its geometry');
     return originalRect.call(this);
   });
   useAuthStore.setState({ user: null, loading: false });
@@ -113,6 +112,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   if (!closed) await act(async () => root.unmount());
+  window.dispatchEvent(new Event('pagehide'));
   host.remove();
   useAuthStore.setState(originals.auth);
   useDraftStore.setState(originals.drafts);
@@ -154,11 +154,10 @@ async function click(text: string) {
 const page = () => host.querySelector('article')!;
 const footer = () => host.querySelector('footer[aria-label="Review actions"]')!;
 
-describe.each([true, false])('conditional footer with ResizeObserver=%s', (observed) => {
-  it('tracks category -> entries -> category -> entries, both overlays and full cleanup', async () => {
+describe.each([true, false])('in-flow footer with ResizeObserver=%s', (observed) => {
+  it('keeps actions in document flow across routes and overlays without layout reads', async () => {
     if (!observed) vi.stubGlobal('ResizeObserver', undefined);
     const add = vi.spyOn(window, 'addEventListener');
-    const remove = vi.spyOn(window, 'removeEventListener');
     await mount();
     page().style.setProperty(property, '17px', 'important');
     const priority = page().style.getPropertyPriority(property);
@@ -166,8 +165,8 @@ describe.each([true, false])('conditional footer with ResizeObserver=%s', (obser
     expect(observers).toHaveLength(0);
     await click('Review all one by one');
     const first = footer();
-    expect(page().style.getPropertyValue(property)).toBe('197px');
-    if (observed) expect(observers[0].observe).toHaveBeenCalledWith(first, { box: 'border-box' });
+    expect(page().style.getPropertyValue(property)).toBe('17px');
+    expect(observers).toHaveLength(0);
     await click('Pick other');
     expect(
       document.querySelector('dialog[open][aria-label="Choose Compendium source"]'),
@@ -184,23 +183,11 @@ describe.each([true, false])('conditional footer with ResizeObserver=%s', (obser
     expect(first.isConnected).toBe(false);
     expect(page().style.getPropertyValue(property)).toBe('17px');
     expect(page().style.getPropertyPriority(property)).toBe(priority);
-    if (observed) {
-      expect(observers[0].disconnect).toHaveBeenCalledOnce();
-      observers[0].notify();
-      expect(page().style.getPropertyValue(property)).toBe('17px');
-    }
     await click('Review all one by one');
     expect(footer()).not.toBe(first);
-    expect(page().style.getPropertyValue(property)).toBe('197px');
-    if (observed) {
-      expect(observers[1].observe).toHaveBeenCalledWith(footer(), { box: 'border-box' });
-      observers[0].notify();
-      expect(page().style.getPropertyValue(property)).toBe('197px');
-    }
-    height = 101;
-    if (observed) observers[1].notify();
-    else window.dispatchEvent(new Event('resize'));
-    expect(page().style.getPropertyValue(property)).toBe('101px');
+    expect(page().style.getPropertyValue(property)).toBe('17px');
+    window.dispatchEvent(new Event('resize'));
+    expect(page().style.getPropertyValue(property)).toBe('17px');
     await click('Pick other');
     await act(async () =>
       [...document.querySelectorAll<HTMLButtonElement>('dialog[open] button')]
@@ -213,36 +200,26 @@ describe.each([true, false])('conditional footer with ResizeObserver=%s', (obser
     closed = true;
     expect(article.style.getPropertyValue(property)).toBe('17px');
     expect(article.style.getPropertyPriority(property)).toBe(priority);
-    if (observed) {
-      expect(observers[1].disconnect).toHaveBeenCalledOnce();
-      observers.forEach((observer) => observer.notify());
-      expect(article.style.getPropertyValue(property)).toBe('17px');
-    } else {
-      const listeners = add.mock.calls.filter(([event]) => event === 'resize');
-      expect(listeners).toHaveLength(4);
-      for (const [, listener] of listeners) expect(remove).toHaveBeenCalledWith('resize', listener);
-      window.dispatchEvent(new Event('resize'));
-      expect(article.style.getPropertyValue(property)).toBe('17px');
-    }
+    expect(observers).toHaveLength(0);
+    expect(add.mock.calls.filter(([event]) => event === 'resize')).toHaveLength(0);
     expect(useDraftStore.getState().drafts).toEqual({});
   });
 });
 
-it('replaces a direct-entry observer and clears an otherwise unowned reservation', async () => {
+it('replaces a direct-entry footer without adding a height reservation or observer', async () => {
   await mount('/compendium/review?view=entries&hash=100');
-  expect(page().style.getPropertyValue(property)).toBe('197px');
+  expect(page().style.getPropertyValue(property)).toBe('');
   const old = footer();
   await click('Back to category guidance');
   expect(page().style.getPropertyValue(property)).toBe('');
   await click('Review all one by one');
   expect(footer()).not.toBe(old);
-  expect(observers[0].disconnect).toHaveBeenCalledOnce();
-  observers[0].notify();
-  expect(page().style.getPropertyValue(property)).toBe('197px');
+  expect(observers).toHaveLength(0);
+  expect(page().style.getPropertyValue(property)).toBe('');
   const article = page();
   await act(async () => root.unmount());
   closed = true;
-  observers[1].notify();
+  expect(observers).toHaveLength(0);
   expect(article.style.getPropertyValue(property)).toBe('');
 });
 

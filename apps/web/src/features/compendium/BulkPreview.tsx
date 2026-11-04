@@ -51,7 +51,8 @@ export function bulkPreviewCurrent(
       next.next === entry.next &&
       (drafts[entry.hash]?.next ?? editor.bundle.tooltips[entry.hash] ?? entry.base) ===
         entry.next &&
-      JSON.stringify(proposals.get(entry.hash)?.link) === JSON.stringify(link)
+      (proposals.get(entry.hash)?.link === link ||
+        JSON.stringify(proposals.get(entry.hash)?.link) === JSON.stringify(link))
     );
   });
 }

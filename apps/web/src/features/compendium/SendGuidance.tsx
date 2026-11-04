@@ -25,10 +25,12 @@ export function SendGuidance({
   document,
   ready,
   onStatus,
+  onSend,
 }: {
   document: GuidanceDocument;
   ready: boolean;
   onStatus?(status: string | null): void;
+  onSend?(): void;
 }) {
   const user = useAuthStore((state) => state.user);
   const [revision, setRevision] = useState<string | null | undefined>();
@@ -87,6 +89,7 @@ export function SendGuidance({
     setFailed(false);
     setCommit(undefined);
     try {
+      onSend?.();
       const response = await apiRequest(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -220,6 +220,7 @@ beforeEach(() => {
 afterEach(async () => {
   const drafts = useDraftStore.getState().drafts;
   await act(async () => root.unmount());
+  window.dispatchEvent(new Event('pagehide'));
   host.remove();
   useDataStore.setState(originals.data);
   useDraftStore.setState(originals.drafts);
@@ -232,6 +233,36 @@ afterEach(async () => {
   expect(drafts).toEqual({});
   expect(captured.writes.mock.calls.every(([value]) => JSON.stringify(value) === '{}')).toBe(true);
 });
+
+it.each([false, true])(
+  'leaves guidance bytes unchanged while opening and navigating (existing backup: %s)',
+  async (existing) => {
+    const key = `clarity-review-guidance:v1:${encodeURIComponent(`${bundleUrl}|${compendiumDataUrl}`)}`;
+    const original = existing
+      ? JSON.stringify(
+          { document: fixture.document, revision: 'fixture-only', pending: true },
+          null,
+          2,
+        )
+      : null;
+    if (original) localStorage.setItem(key, original);
+    storageWrites.length = 0;
+    await mount('/compendium');
+    await click('2. Sample 101', host.querySelector('[aria-label="Representative samples"]')!);
+    await change('Find category', 'trait');
+    await click('Review all one by one');
+    await change('Show', 'all');
+    await click('Back to category guidance');
+    await tab('Linked sources changed');
+    await tab('Review matches');
+    await workspace('/review');
+    await workspace('/compendium');
+    await act(async () => window.dispatchEvent(new Event('pagehide')));
+    expect(localStorage.getItem(key)).toBe(original);
+    expect(storageWrites.filter((key) => key.startsWith('clarity-review-guidance:'))).toEqual([]);
+    expect(requests.filter(({ method }) => method !== 'GET')).toEqual([]);
+  },
+);
 
 it('preserves the real selected sample and category search through a linked-tab return', async () => {
   await mount('/compendium');
@@ -303,7 +334,11 @@ it('keeps linked filters active and does not retain an interactive review queue'
   expect(route().searchParams.get('linkedCategory')).toBe('weapon-trait');
   expect(host.querySelector('[aria-label="Category guidance"]')).toBeNull();
   expect(host.querySelector('[aria-label="Entry to review"]')).toBeNull();
-  expect(host.querySelectorAll('nav[aria-label="Compendium views"] a')).toHaveLength(2);
+  expect(
+    [...host.querySelectorAll('nav[aria-label="Compendium views"] a')].map(
+      (link) => link.textContent,
+    ),
+  ).toEqual(['Matched sources', 'Review matches', 'Linked sources changed']);
 
   const before = {
     drafts: useDraftStore.getState().drafts,

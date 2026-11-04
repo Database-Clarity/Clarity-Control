@@ -1,4 +1,6 @@
 .stage {
+  // The native dialog is portalled outside the review article's font fallback.
+  font-family: Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', sans-serif;
   box-sizing: border-box;
   width: min(76rem, calc(100vw - 2rem));
   max-width: 100%;
