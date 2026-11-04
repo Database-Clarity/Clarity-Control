@@ -13,7 +13,13 @@ import { associationCandidates, moveAssociation } from './associations';
 import { PanelRow } from '../../ui/PanelRow';
 import styles from './AssociationsPanel.module.scss';
 
-export function AssociationsPanel({ hash }: { hash: number }) {
+export function AssociationsPanel({
+  hash,
+  suspended = false,
+}: {
+  hash: number;
+  suspended?: boolean;
+}) {
   const data = useDataStore((state) => state.data);
   const draft = useDraftStore((state) => state.drafts[hash]);
   const hydrated = useDraftStore((state) => state.hydrated);
@@ -29,10 +35,10 @@ export function AssociationsPanel({ hash }: { hash: number }) {
     // PanelRow does not mount its body while collapsed. Do not scan and sort the entire
     // catalogue on every item switch or keystroke for a picker that is not being shown.
     () =>
-      open && adding && editable && data && tooltip
+      !suspended && open && adding && editable && data && tooltip
         ? associationCandidates(data, query, hash, tooltip.associated)
         : [],
-    [open, adding, editable, data, tooltip, query, hash],
+    [suspended, open, adding, editable, data, tooltip, query, hash],
   );
   if (!data || !tooltip) return null;
   function change(associated: number[]) {

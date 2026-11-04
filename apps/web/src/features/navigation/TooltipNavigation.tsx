@@ -16,7 +16,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import type { EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { usePreviewReviewStore } from '../../stores/previewReview';
-import { workspaceShortcutsBlocked } from '../../ui/interaction';
+import { workspaceShortcutOwners, workspaceShortcutsBlocked } from '../../ui/interaction';
 import {
   frameGroupSize,
   itemFor,
@@ -195,7 +195,20 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       (target, options) => navigateRef.current(target, options),
       steppingGuard,
       typeof requestAnimationFrame === 'function'
-        ? { request: (run) => requestAnimationFrame(run), cancel: (id) => cancelAnimationFrame(id) }
+        ? {
+            request: (run) => requestAnimationFrame(run),
+            cancel: (id) => cancelAnimationFrame(id),
+            allow: () => {
+              if (!workspaceShortcutsBlocked(new Event('stepping'))) return true;
+              // Phone Previous/Next deliberately belong to the finder sheet itself.
+              const sheet =
+                variant === 'sheet' ? root.current?.closest('[data-shell-overlay]') : null;
+              return (
+                Boolean(sheet) &&
+                [...workspaceShortcutOwners()].every((owner) => sheet!.contains(owner))
+              );
+            },
+          }
         : undefined,
     ),
   );
@@ -214,7 +227,6 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     // Refused before anything moves: the selection, the pending history entry and the timer stay.
     if (!stepping.step(target.from, target.to.path)) return false;
     pulseStepping();
-    current.current = target.to;
     return true;
   };
   canStep.current = (direction) => Boolean(stepTarget(stepLocation(), direction, hashes));

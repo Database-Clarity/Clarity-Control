@@ -337,8 +337,8 @@ function TooltipWorkspace({
       {!readOnly && item && <AttachmentCategoryControl base={primaryBase} item={item} />}
       {owner && <NoteRow text={owner} />}
       {shared && <NoteRow text={shared} />}
-      {!suspended && !readOnly && <AssociationsPanel hash={activeHash} />}
-      {!suspended && <HistoryPanel hash={activeHash} readOnly={readOnly} />}
+      {!readOnly && <AssociationsPanel hash={activeHash} suspended={suspended} />}
+      <HistoryPanel hash={activeHash} readOnly={readOnly} suspended={suspended} />
     </div>
   );
 
@@ -437,6 +437,7 @@ function TooltipWorkspace({
     <article className={styles.page}>
       <h1 className={styles.srOnly}>{heading}</h1>
       <VariantWorkspace
+        suspended={suspended}
         header={header}
         initialPanel={readOnly ? 'preview' : undefined}
         source={
@@ -481,8 +482,12 @@ function TooltipWorkspace({
           )
         }
         compendium={
-          !suspended && !readOnly && user?.role !== 'translator' ? (
-            <CompendiumPanel base={activeBase} />
+          !readOnly && user?.role !== 'translator' ? (
+            suspended ? (
+              <div aria-busy="true" />
+            ) : (
+              <CompendiumPanel base={activeBase} />
+            )
           ) : null
         }
       />

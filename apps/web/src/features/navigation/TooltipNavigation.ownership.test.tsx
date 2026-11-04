@@ -158,6 +158,19 @@ afterEach(async () => {
 });
 
 describe('mounted Editor navigation interaction ownership', () => {
+  it('does not land a queued wheel step behind a newly opened sheet', async () => {
+    await mount();
+    await act(async () => {
+      host.dispatchEvent(
+        new WheelEvent('wheel', { bubbles: true, cancelable: true, shiftKey: true, deltaY: 100 }),
+      );
+      draftsButton().click();
+    });
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(overlay()).not.toBeNull();
+    expect(route()).toBe('/t/100?lang=de');
+    expect(selectedItem()).toBe('Sample 100');
+  });
   it('restores the settled preview into the same shell slot after stepping', async () => {
     await mount();
     expect(host.querySelector('[data-shell-slot="left"] [data-preview]')?.textContent).toBe(

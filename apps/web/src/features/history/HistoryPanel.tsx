@@ -21,7 +21,15 @@ import styles from './History.module.scss';
  * with compare and Revert. The first page of commits loads with the row (it is the count), so
  * opening it is instant.
  */
-export function HistoryPanel({ hash, readOnly = false }: { hash: number; readOnly?: boolean }) {
+export function HistoryPanel({
+  hash,
+  readOnly = false,
+  suspended = false,
+}: {
+  hash: number;
+  readOnly?: boolean;
+  suspended?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [revisions, setRevisions] = useState<{ count: number; more: boolean }>();
   const user = useAuthStore((state) => state.user);
@@ -31,6 +39,7 @@ export function HistoryPanel({ hash, readOnly = false }: { hash: number; readOnl
   const signedIn = Boolean(apiUrl && user?.role);
   const userId = user?.id;
   useEffect(() => {
+    if (suspended) return;
     setRevisions(undefined);
     if (!signedIn) return;
     const controller = new AbortController();
@@ -41,7 +50,7 @@ export function HistoryPanel({ hash, readOnly = false }: { hash: number; readOnl
       () => undefined,
     );
     return () => controller.abort();
-  }, [hash, signedIn, userId]);
+  }, [hash, signedIn, userId, suspended]);
   const count = revisions
     ? `${revisions.count}${revisions.more ? '+' : ''} revision${revisions.count === 1 && !revisions.more ? '' : 's'}`
     : undefined;
@@ -62,12 +71,27 @@ export function HistoryPanel({ hash, readOnly = false }: { hash: number; readOnl
       }
     >
       {!signedIn ? <p>Sign in as a configured member to view this tooltip's history.</p> : null}
-      {signedIn && <HistoryContent key={`${hash}:${user?.id}`} hash={hash} readOnly={readOnly} />}
+      {signedIn && (
+        <HistoryContent
+          key={`${hash}:${user?.id}`}
+          hash={hash}
+          readOnly={readOnly}
+          suspended={suspended}
+        />
+      )}
     </PanelRow>
   );
 }
 
-function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: boolean }) {
+function HistoryContent({
+  hash,
+  readOnly = false,
+  suspended = false,
+}: {
+  hash: number;
+  readOnly?: boolean;
+  suspended?: boolean;
+}) {
   const user = useAuthStore((state) => state.user);
   const base = useDataStore((state) => state.data?.bundle.tooltips[hash]);
   const data = useDataStore((state) => state.data);
@@ -82,6 +106,7 @@ function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: b
   const [notice, setNotice] = useState<string>();
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
+    if (suspended) return;
     const controller = new AbortController();
     setLoading(true);
     setError(undefined);
@@ -109,7 +134,7 @@ function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: b
       },
     );
     return () => controller.abort();
-  }, [hash, page, attempt]);
+  }, [hash, page, attempt, suspended]);
   const current = draft?.next ?? base;
   const cache = useRevisionCache(hash);
   const canRestore = !readOnly && hydrated && Boolean(base);

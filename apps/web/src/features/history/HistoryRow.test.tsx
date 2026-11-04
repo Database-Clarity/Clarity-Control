@@ -89,3 +89,18 @@ it('does not ask the server when signed out, and says so when expanded', async (
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
   expect(host.textContent).toContain('Sign in as a configured member');
 });
+
+it('keeps an expanded history row open while cancelling suspended requests', async () => {
+  getHistory.mockResolvedValue({ page: 1, commits: [commit(1)] });
+  await act(async () => root.render(<HistoryPanel hash={10} />));
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  const signals = getHistory.mock.calls.map((call) => call[2] as AbortSignal);
+  getHistory.mockClear();
+  await act(async () => root.render(<HistoryPanel hash={10} suspended />));
+  expect(host.querySelector('button[aria-expanded=true]')).not.toBeNull();
+  expect(signals.every((signal) => signal.aborted)).toBe(true);
+  expect(getHistory).not.toHaveBeenCalled();
+  await act(async () => root.render(<HistoryPanel hash={10} />));
+  expect(host.querySelector('button[aria-expanded=true]')).not.toBeNull();
+  expect(host.querySelectorAll('ol li')).toHaveLength(1);
+});

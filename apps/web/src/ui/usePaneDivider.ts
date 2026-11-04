@@ -34,6 +34,8 @@ export interface PaneDividerOptions {
   defaultCollapsed?: boolean;
   /** false (phone): the size lives in memory only and nothing is read from or written to the device. */
   persist?: boolean;
+  /** Retain the last measurement while the containing workspace is temporarily hidden. */
+  paused?: boolean;
 }
 
 export interface PaneDividerHandle {
@@ -99,6 +101,7 @@ export function usePaneDivider(options: PaneDividerOptions): PaneDividerHandle {
   const reserve = (options.reserve ?? 0) * k;
   const track = DIVIDER_TRACK * k;
   const persist = options.persist ?? true;
+  const paused = options.paused ?? false;
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const savedPane = useSettingsStore((state) => state.device.panes[storeKey]);
@@ -114,6 +117,7 @@ export function usePaneDivider(options: PaneDividerOptions): PaneDividerHandle {
 
   // Measured before the first paint, so a saved size never shows unclamped for a frame.
   useLayoutEffect(() => {
+    if (paused) return;
     const element = containerRef.current;
     if (!element) return;
     const measure = () => setContainerWidth(element.getBoundingClientRect().width);
@@ -122,7 +126,7 @@ export function usePaneDivider(options: PaneDividerOptions): PaneDividerHandle {
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [paused]);
 
   const fallback =
     (typeof defaultWidth === 'function' ? defaultWidth(containerWidth) : defaultWidth) * k;

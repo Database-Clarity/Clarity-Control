@@ -101,6 +101,34 @@ afterEach(async () => {
 });
 
 describe('tooltip finder combobox', () => {
+  it('lets the phone sheet step itself but blocks an unrelated modal before landing', async () => {
+    await act(async () =>
+      root.render(
+        <MemoryRouter initialEntries={['/t/10']}>
+          <div data-shell-overlay="Find" role="dialog" aria-modal="true">
+            <FinderSheetContext.Provider value={true}>
+              <TooltipNavigation data={data} variant="sheet" />
+            </FinderSheetContext.Provider>
+          </div>
+          <Echo />
+        </MemoryRouter>,
+      ),
+    );
+    const next = () => host.querySelector<HTMLButtonElement>('[aria-label="Next tooltip"]')!;
+    await act(async () => next().click());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(route()).toBe('/t/11');
+    const modal = document.createElement('dialog');
+    modal.setAttribute('open', '');
+    document.body.append(modal);
+    try {
+      await act(async () => next().click());
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+      expect(route()).toBe('/t/11');
+    } finally {
+      modal.remove();
+    }
+  });
   it('windows a large category while keeping End and its active descendant usable', async () => {
     const many = {
       ...data,

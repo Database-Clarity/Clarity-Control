@@ -145,7 +145,13 @@ export function TooltipPreview({
   fill = false,
   children,
 }: TooltipPreviewProps) {
-  const parsed = useMemo(() => parseMarkup(text, globals), [text, globals]);
+  const replaced = Boolean(children);
+  // Compare supplies its already-rendered body and hides these diagnostics. Do not
+  // parse the base a third time only to discard that result on every keystroke.
+  const parsed = useMemo(
+    () => (replaced ? null : parseMarkup(text, globals)),
+    [text, globals, replaced],
+  );
   const iconUrl = icon?.startsWith('/common/') ? `https://www.bungie.net${icon}` : icon;
   return (
     <section
@@ -168,8 +174,8 @@ export function TooltipPreview({
         </header>
         {bar}
       </div>
-      <div className={styles.description}>{children ?? <Lines lines={parsed.lines} />}</div>
-      {!children && parsed.diagnostics.length > 0 && (
+      <div className={styles.description}>{children ?? <Lines lines={parsed?.lines ?? []} />}</div>
+      {!children && parsed && parsed.diagnostics.length > 0 && (
         <details className={styles.diagnostics}>
           <summary>{parsed.diagnostics.length} markup issue(s)</summary>
           <ul>

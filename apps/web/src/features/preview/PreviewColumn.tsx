@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import { parseMarkup, type Lang, type MarkupGlobals, type MarkupSpan } from '@clarity/core';
 import { compareRenders, type CompareLine, type Comparison } from './compare';
 import { classNames, Lines, PreviewSpan, TooltipPreview } from './TooltipPreview';
@@ -186,36 +186,39 @@ function ChangeRun({ was, now }: { was: MarkupSpan[]; now: MarkupSpan[] }) {
   );
 }
 
-function CompareRow({ entry }: { entry: CompareLine }) {
-  // Tables are retired from the markup row but still render in older text.
-  if (entry.line.table) return <Lines lines={[entry.line]} />;
-  if (entry.kind === 'changed' && entry.segments) {
+const CompareRow = memo(
+  function CompareRow({ entry }: { entry: CompareLine }) {
+    // Tables are retired from the markup row but still render in older text.
+    if (entry.line.table) return <Lines lines={[entry.line]} />;
+    if (entry.kind === 'changed' && entry.segments) {
+      return (
+        <div className={classNames(entry.line.classNames)} data-kind="changed">
+          {entry.segments.map((segment, index) =>
+            segment.kind === 'same' ? (
+              segment.spans.map((part, partIndex) => (
+                <PreviewSpan key={`${index}.${partIndex}`} part={part} />
+              ))
+            ) : (
+              <ChangeRun key={index} was={segment.was} now={segment.now} />
+            ),
+          )}
+        </div>
+      );
+    }
+    const className = [
+      classNames(entry.line.classNames),
+      entry.kind === 'added' ? previewStyles.added : '',
+      entry.kind === 'removed' ? previewStyles.removed : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
     return (
-      <div className={classNames(entry.line.classNames)} data-kind="changed">
-        {entry.segments.map((segment, index) =>
-          segment.kind === 'same' ? (
-            segment.spans.map((part, partIndex) => (
-              <PreviewSpan key={`${index}.${partIndex}`} part={part} />
-            ))
-          ) : (
-            <ChangeRun key={index} was={segment.was} now={segment.now} />
-          ),
-        )}
+      <div className={className || undefined} data-kind={entry.kind}>
+        {entry.line.linesContent?.map((part, index) => (
+          <PreviewSpan key={index} part={part} />
+        ))}
       </div>
     );
-  }
-  const className = [
-    classNames(entry.line.classNames),
-    entry.kind === 'added' ? previewStyles.added : '',
-    entry.kind === 'removed' ? previewStyles.removed : '',
-  ]
-    .filter(Boolean)
-    .join(' ');
-  return (
-    <div className={className || undefined} data-kind={entry.kind}>
-      {entry.line.linesContent?.map((part, index) => (
-        <PreviewSpan key={index} part={part} />
-      ))}
-    </div>
-  );
-}
+  },
+  (previous, next) => JSON.stringify(previous.entry) === JSON.stringify(next.entry),
+);

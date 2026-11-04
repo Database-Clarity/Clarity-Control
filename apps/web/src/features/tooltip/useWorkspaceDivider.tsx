@@ -17,7 +17,7 @@ const RIGHT_DEFAULT = 384;
  * editor is never squeezed: the pane follows below it. A phone has no divider at all (its panels
  * are tabs). A pane that is not there (`hasPane` false) leaves the editor the whole width.
  */
-export function useWorkspaceDivider(hasPane = true) {
+export function useWorkspaceDivider(hasPane = true, suspended = false) {
   const pane = usePaneDivider({
     storeKey: 'editor:right',
     sizes: 'end',
@@ -25,6 +25,7 @@ export function useWorkspaceDivider(hasPane = true) {
     max: RIGHT_MAX,
     reserve: EDITOR_MIN,
     defaultWidth: RIGHT_DEFAULT,
+    paused: suspended,
   });
   // The limits are design pixels; the window is measured in CSS pixels at the current scale.
   const split = hasPane && pane.containerWidth >= scaledPx(EDITOR_MIN + DIVIDER_TRACK + RIGHT_MIN);

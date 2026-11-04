@@ -77,6 +77,30 @@ afterEach(() => {
 });
 
 describe('workspace divider', () => {
+  it('retains split measurements and the selected pane while a navigation burst suspends work', () => {
+    const show = (suspended: boolean) =>
+      act(() =>
+        root.render(
+          <VariantWorkspace
+            suspended={suspended}
+            initialPanel="compendium"
+            editor={<div>Editor</div>}
+            compendium={suspended ? <div aria-busy="true" /> : <div>Compendium</div>}
+          />,
+        ),
+      );
+    show(false);
+    const editor = host.querySelector('[data-panel="translation"]');
+    expect(host.querySelector('[data-mode]')?.getAttribute('data-mode')).toBe('split');
+    width = 0;
+    show(true);
+    expect(host.querySelector('[data-mode]')?.getAttribute('data-mode')).toBe('split');
+    expect(host.querySelector('[data-view]')?.getAttribute('data-view')).toBe('compendium');
+    width = 1016;
+    show(false);
+    expect(host.querySelector('[data-panel="translation"]')).toBe(editor);
+    expect(host.querySelector('[data-view]')?.getAttribute('data-view')).toBe('compendium');
+  });
   it('switches English panels with keyboard while retaining the editor', () => {
     render();
     const tabs = host.querySelectorAll<HTMLButtonElement>('[role="tab"]');

@@ -49,7 +49,8 @@ vi.mock('../compendium/CompendiumPanel', () => ({
     createElement('aside', { 'data-compendium': base.hash }, 'Compendium panel'),
 }));
 vi.mock('../history/HistoryPanel', () => ({
-  HistoryPanel: ({ hash }: { hash: number }) => createElement('div', { 'data-history': hash }),
+  HistoryPanel: ({ hash, suspended }: { hash: number; suspended?: boolean }) =>
+    createElement('div', { 'data-history': hash, 'data-suspended': suspended || undefined }),
 }));
 vi.mock('../associations/AssociationsPanel', () => ({
   AssociationsPanel: ({ hash }: { hash: number }) =>
@@ -187,12 +188,12 @@ it('freezes skipped workspace work, cancels side panels and reuses the editor af
   const editor = editors()[0];
   await act(async () => useSteppingActivity.setState({ active: true }));
   expect(host.querySelector('[data-compendium]')).toBeNull();
-  expect(host.querySelector('[data-history]')).toBeNull();
+  expect(host.querySelector('[data-history]')?.getAttribute('data-suspended')).toBe('true');
   vi.mocked(ClarityEditor).mockClear();
   await act(async () => navigateRoute('/t/20'));
   expect(ClarityEditor).not.toHaveBeenCalled();
   expect(editors()[0]).toBe(editor);
-  expect(host.querySelector('[aria-busy=true]')?.textContent).toContain('Next perk');
+  expect(host.querySelector('article[aria-busy=true]')?.textContent).toContain('Next perk');
   await act(async () => useSteppingActivity.setState({ active: false }));
   expect(editors()[0]).toBe(editor);
   expect(editors()[0].textContent).toBe('Next text');
