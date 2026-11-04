@@ -2,6 +2,9 @@ import { redirect, type LoaderFunctionArgs } from 'react-router-dom';
 import { useDataStore } from '../../stores/data';
 import { preparedPending, type PendingTooltip } from './model';
 import { acknowledgedMarkers } from './session';
+import { startReviewLiveRequest } from './liveRequest';
+import { useAuthStore } from '../../stores/auth';
+import { apiUrl } from '../../services/api';
 
 export function initialReviewParams(
   params: URLSearchParams,
@@ -25,7 +28,7 @@ export function initialReviewParams(
   return next;
 }
 
-/** Normalize an already prepared selection before mounting; never wait for or load data. */
+/** Normalize prepared selection, then start the selected live comparison on open. */
 export function reviewRoute({ request }: LoaderFunctionArgs) {
   const data = useDataStore.getState().data;
   if (!data) return null;
@@ -33,7 +36,10 @@ export function reviewRoute({ request }: LoaderFunctionArgs) {
   if (!entries) return null;
   const params = new URL(request.url).searchParams;
   const next = initialReviewParams(params, entries);
-  return next.toString() === params.toString()
-    ? null
-    : redirect(`/review${next.size ? `?${next}` : ''}`);
+  if (next.toString() !== params.toString())
+    return redirect(`/review${next.size ? `?${next}` : ''}`);
+  const hash = next.get('hash');
+  if (hash && apiUrl && useAuthStore.getState().user?.role)
+    startReviewLiveRequest(Number(hash), request.signal);
+  return null;
 }

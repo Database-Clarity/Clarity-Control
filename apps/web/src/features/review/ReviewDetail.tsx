@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Tooltip } from '@clarity/core';
-import { getPushedVersion } from '../../services/history';
+import { takeReviewLiveRequest } from './liveRequest';
 import { errorMessage } from '../../services/http';
 import { useAuthStore } from '../../stores/auth';
 import { useDraftStore } from '../../stores/drafts';
@@ -62,10 +62,10 @@ export function ReviewDetail({ entry }: { entry: PendingTooltip }) {
     }
   }
   useEffect(() => {
-    const controller = new AbortController();
+    const { controller, pending } = takeReviewLiveRequest(entry.tooltip.hash);
     setLive(undefined);
     setError(undefined);
-    void getPushedVersion(entry.tooltip.hash, controller.signal).then(
+    void pending.then(
       (result) => {
         if (!controller.signal.aborted) setLive(result);
       },
