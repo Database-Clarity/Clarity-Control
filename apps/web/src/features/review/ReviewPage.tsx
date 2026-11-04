@@ -200,7 +200,7 @@ export function ReviewPage() {
   }
 
   return (
-    <article>
+    <article aria-busy={loading}>
       <header className={styles.heading}>
         <h1>Review changes</h1>
         <p>
