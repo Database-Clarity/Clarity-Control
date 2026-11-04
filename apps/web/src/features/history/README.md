@@ -25,3 +25,9 @@ idle prefetch is limited to the newest two revision bodies, never another page.
 Large language word diffs run in a worker; an exact before/after text fallback is
 shown until the result arrives. Worker results retain at most 24 comparisons.
 
+
+An explicit Worker 404 saying the tooltip did not exist at an immutable commit is
+cached as an absent revision. Deletions show the previous text removed; restorations
+show the restored text added. Deleted versions cannot be restored as drafts.
+Other HTTP/network failures remain retryable. Rows show the commit subject only;
+full pages mount eight rows per animation frame to keep cached opens responsive.

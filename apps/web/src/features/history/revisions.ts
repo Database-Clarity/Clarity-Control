@@ -5,8 +5,9 @@ import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 
 export interface RevisionDiffSource {
-  revision: Tooltip;
+  revision: Tooltip | null;
   previous: Tooltip | null;
+  hasPredecessor: boolean;
 }
 
 const PAGE_TTL = 60_000;
@@ -31,14 +32,37 @@ function remember<K, V>(map: Map<K, Promise<V>>, key: K, limit: number, make: ()
 }
 
 export function createRevisionCache(hash: number) {
-  const versions = new Map<string, Promise<Tooltip>>();
+  const versions = new Map<string, Promise<Tooltip | null>>();
   const pages = new Map<number, Promise<HistoryCommit[]>>();
   const snapshots = new Map<
     number,
     { commits: HistoryCommit[]; at: number; request: Promise<HistoryCommit[]> }
   >();
   const version = (commit: string) =>
-    remember(versions, commit, MAX_VERSIONS, async () => (await getVersion(hash, commit)).tooltip);
+    remember(versions, commit, MAX_VERSIONS, async () => {
+      try {
+        return (await getVersion(hash, commit)).tooltip;
+      } catch (error) {
+        // Only the Worker's explicit immutable file-absence response means a deletion.
+        // Auth, routing, upstream and network failures must remain retryable errors.
+        const prefix = 'API HTTP 404: ';
+        if (error instanceof Error && error.message.startsWith(prefix)) {
+          try {
+            const body: unknown = JSON.parse(error.message.slice(prefix.length));
+            if (
+              typeof body === 'object' &&
+              body !== null &&
+              'error' in body &&
+              body.error === 'Tooltip did not exist at that commit'
+            )
+              return null;
+          } catch {
+            /* A malformed error body is not a recorded deletion. */
+          }
+        }
+        throw error;
+      }
+    });
   const page = (number: number) => {
     const snapshot = snapshots.get(number);
     if (
@@ -87,10 +111,12 @@ export function createRevisionCache(hash: number) {
       const [revision, before] = await Promise.all([
         version(commits[index].commit),
         predecessor(commits, index, loadedPage, more).then((commit) =>
-          commit ? version(commit) : null,
+          commit
+            ? version(commit).then((tooltip) => ({ tooltip, hasPredecessor: true }))
+            : { tooltip: null, hasPredecessor: false },
         ),
       ]);
-      return { revision, previous: before };
+      return { revision, previous: before.tooltip, hasPredecessor: before.hasPredecessor };
     },
   };
 }

@@ -105,3 +105,27 @@ it('uses one list request across expansion and refreshes stale rows on reopening
   expect(getHistory).toHaveBeenCalledTimes(2);
   vi.useRealTimers();
 });
+
+it('shows subjects and spreads mounting a full cached page across frames', async () => {
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => frames.push(callback));
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  getHistory.mockResolvedValue({
+    page: 1,
+    commits: Array.from({ length: 30 }, (_, i) => ({
+      ...commit(i + 1),
+      message: `Subject ${i}\n\nA long commit body that belongs outside the row`,
+    })),
+  });
+  try {
+    await act(async () => root.render(<HistoryPanel hash={10} />));
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+    expect(host.querySelectorAll('ol li > button')).toHaveLength(8);
+    expect(host.textContent).not.toContain('A long commit body');
+    while (frames.length) await act(async () => frames.shift()!(0));
+    expect(host.querySelectorAll('ol li > button')).toHaveLength(30);
+    expect(host.textContent).not.toContain('Preparing remaining revisions');
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

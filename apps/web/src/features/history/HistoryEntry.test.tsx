@@ -213,3 +213,23 @@ it('shows one popover at a time and keeps links out of the trigger button', asyn
   )!;
   expect(compare.getAttribute('aria-pressed')).toBe('false');
 });
+
+it('shows restored and deleted revisions without retrying immutable file absence', async () => {
+  getVersion.mockImplementation((_hash: number, sha: string) =>
+    sha === id(2)
+      ? Promise.reject(new Error('API HTTP 404: {"error":"Tooltip did not exist at that commit"}'))
+      : Promise.resolve({ commit: sha, tooltip: versions[sha] }),
+  );
+  await act(async () => entries()[0].click());
+  await wait(0);
+  expect(dialog()!.textContent).toContain('Restored in this revision.');
+  expect(dialog()!.textContent).not.toContain('Retry');
+  await act(async () => entries()[1].click());
+  await wait(0);
+  expect(dialog()!.textContent).toContain('Deleted in this revision.');
+  expect(dialog()!.textContent).not.toContain('Restore this revision');
+  expect(dialog()!.querySelector('del')!.textContent).toContain('one');
+  await act(async () => entries()[0].click());
+  await wait(0);
+  expect(getVersion.mock.calls.filter(([, sha]) => sha === id(2))).toHaveLength(1);
+});

@@ -85,3 +85,24 @@ it('invalidates shifted later pages when a refreshed list has a new head', async
   await cache.page(2);
   expect(getHistory).toHaveBeenCalledTimes(4);
 });
+
+it('caches explicit missing revisions while preserving other errors for retry', async () => {
+  const cache = createRevisionCache(10);
+  getVersion.mockRejectedValueOnce(
+    new Error('API HTTP 404: {"error":"Tooltip did not exist at that commit"}'),
+  );
+  await expect(cache.version('deleted')).resolves.toBeNull();
+  await expect(cache.version('deleted')).resolves.toBeNull();
+  expect(getVersion).toHaveBeenCalledTimes(1);
+  for (const message of [
+    'API HTTP 404: {"error":"Endpoint not found"}',
+    'API HTTP 403: Forbidden',
+    'API HTTP 502: Upstream failed',
+    'API HTTP 404: invalid JSON',
+  ]) {
+    const retryCache = createRevisionCache(10);
+    getVersion.mockRejectedValueOnce(new Error(message));
+    await expect(retryCache.version('retry')).rejects.toThrow(message);
+    await expect(retryCache.version('retry')).resolves.toEqual({ commit: 'retry' });
+  }
+});

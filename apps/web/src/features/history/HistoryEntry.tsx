@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useId,
@@ -47,7 +48,7 @@ export interface HistoryEntryProps {
  * revision's diff against its predecessor; a click (or long press) pins it until Esc or a press
  * outside. The popover is fixed-positioned, so it never moves the list.
  */
-export function HistoryEntry(props: HistoryEntryProps) {
+export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps) {
   const { entry, translator } = props;
   const [hover, setHover] = useState(false);
   const [focus, setFocus] = useState(false);
@@ -168,7 +169,7 @@ export function HistoryEntry(props: HistoryEntryProps) {
       >
         <CommitAuthor entry={entry} link={false} />
         <span className={styles.message}>
-          {entry.message} <code>{entry.commit.slice(0, 8)}</code>
+          {entry.message.split(/\r?\n/, 1)[0]} <code>{entry.commit.slice(0, 8)}</code>
         </span>
       </button>
       {open && (
@@ -183,7 +184,7 @@ export function HistoryEntry(props: HistoryEntryProps) {
       )}
     </li>
   );
-}
+});
 
 function RevisionPopover({
   id,
@@ -261,7 +262,7 @@ function RevisionPopover({
   }, [cache, entry.commit, attempt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function restore() {
-    if (!source) return;
+    if (!source?.revision) return;
     try {
       onRestore(source.revision);
       onClose(false);
@@ -312,10 +313,22 @@ function RevisionPopover({
         {source &&
           (mode === 'previous' ? (
             <>
-              {!source.previous && <p>First revision: everything is new.</p>}
+              {!source.revision ? (
+                <p>Deleted in this revision.</p>
+              ) : (
+                !source.previous && (
+                  <p>
+                    {source.hasPredecessor
+                      ? 'Restored in this revision.'
+                      : 'First revision: everything is new.'}
+                  </p>
+                )
+              )}
               <TooltipDiff
                 before={source.previous}
-                current={source.revision}
+                current={
+                  source.revision ?? { hash: source.previous?.hash ?? 0, text: {}, associated: [] }
+                }
                 item={item}
                 raw={false}
               />
@@ -325,7 +338,7 @@ function RevisionPopover({
               <TooltipDiff before={source.revision} current={current} item={item} raw={false} />
             )
           ))}
-        {source && canRestore && (
+        {source?.revision && canRestore && (
           <div className={styles.revisionActions}>
             {translator && (
               <p>
