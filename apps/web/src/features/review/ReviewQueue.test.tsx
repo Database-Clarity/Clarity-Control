@@ -33,7 +33,21 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
       constructor(callback: ResizeObserverCallback) {
         resize = callback;
       }
-      observe() {}
+      observe(target: Element) {
+        queueMicrotask(() =>
+          resize(
+            [
+              {
+                target,
+                contentRect: {
+                  height: target.hasAttribute('data-review-row-size') ? 69.12 : 1600,
+                },
+              } as unknown as ResizeObserverEntry,
+            ],
+            {} as ResizeObserver,
+          ),
+        );
+      }
       disconnect() {}
     },
   );
@@ -46,6 +60,8 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
       ),
     );
     const initialHeightReads = heightRead.mock.calls.length;
+    expect(initialHeightReads).toBe(0);
+    expect(rowBounds).not.toHaveBeenCalled();
     const scroller = host.querySelector<HTMLElement>(
       '[aria-label="Scroll pending saved changes"]',
     )!;
@@ -101,8 +117,8 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
       ),
     );
     expect(document.activeElement?.getAttribute('href')).toBe('/review?hash=1');
-    // Only initial window sizing may measure; selection and key/scroll updates
-    // must use observed bounds, without forcing the workspace layout again.
+    // Native observation, selection, and key/scroll updates must not force the
+    // workspace layout through synchronous geometry reads.
     expect(heightRead).toHaveBeenCalledTimes(initialHeightReads);
   } finally {
     await act(async () => root.unmount());

@@ -44,12 +44,14 @@ export function ReviewQueue({
   // Resolve the router/base href once per window, rather than querying <base> per row.
   const href = useHref('/review');
   const [focusIndex, setFocusIndex] = useState<number>();
-  const [viewport, setViewport] = useState({ top: 0, height: 800 });
+  // Cover even tall viewports until the first native resize notification. Reading
+  // innerHeight does not force layout of the workspace being mounted.
+  const [viewport, setViewport] = useState({ top: 0, height: window.innerHeight });
   const observedViewport = useRef(viewport);
   observedViewport.current = viewport;
   useLayoutEffect(() => {
-    // Bootstrap the exact window before its first paint. Observer notifications
-    // handle later resizes; selection and scrolling use the cached bounds.
+    if (typeof ResizeObserver !== 'undefined') return;
+    // Older browsers without an observer still need exact scaled row bounds.
     const height = host.current!.clientHeight;
     const row = sizer.current!.getBoundingClientRect().height;
     if (height) setViewport((previous) => ({ ...previous, height }));
@@ -59,11 +61,20 @@ export function ReviewQueue({
     const element = host.current!;
     if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.target === sizer.current)
-          setRowHeight(entry.contentRect.height || defaultRowHeight);
-        else setViewport((previous) => ({ ...previous, height: entry.contentRect.height }));
-      }
+      // Native notifications arrive after layout and before paint. Commit the
+      // correctly scaled window now without a synchronous geometry read.
+      flushSync(() => {
+        for (const entry of entries) {
+          if (entry.target === sizer.current)
+            setRowHeight(entry.contentRect.height || defaultRowHeight);
+          else
+            setViewport((previous) =>
+              previous.height === entry.contentRect.height
+                ? previous
+                : { ...previous, height: entry.contentRect.height },
+            );
+        }
+      });
     });
     observer.observe(element);
     observer.observe(sizer.current!);
