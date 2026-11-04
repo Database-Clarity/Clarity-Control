@@ -8,7 +8,7 @@ import { markupEmpty, markupIcons } from './syntax.js';
  */
 
 export type SnippetGroup =
-  'Values' | 'Stacks' | 'Enhanced' | 'Icons' | 'References' | 'Format' | 'Blocks';
+  'Values' | 'Enhanced' | 'Icons' | 'References' | 'Format' | 'Blocks';
 
 export interface Snippet {
   /** Stable; used for the recently-used list and the usage-count cache. */
@@ -135,15 +135,6 @@ export const markupSnippets: readonly Snippet[] = [
     about: 'A plain value followed by the PvP number; the unit stays outside the tag.',
   },
   {
-    id: 'stack-list',
-    label: 'Stack list a|b|c',
-    group: 'Stacks',
-    template: '{{1:a}}|{{2:b}}|{{3:c}} at 1|2|3 Stacks',
-    keywords: 'stacks pipe list scale levels',
-    usage: /\d\|[^\n]*Stacks/,
-    about: 'One value per Stack, separated by pipes.',
-  },
-  {
     id: 'enhanced-block',
     label: 'Enhanced section',
     group: 'Enhanced',
@@ -193,9 +184,6 @@ export const markupSnippets: readonly Snippet[] = [
   },
   wrap('yellow', 'Yellow text.'),
   wrap('bold', 'Bold text.'),
-  wrap('blue', 'Blue text.'),
-  wrap('green', 'Green text.'),
-  wrap('purple', 'Purple text.'),
   {
     id: 'decl-var',
     label: 'var name = value',
@@ -246,26 +234,6 @@ export const markupSnippets: readonly Snippet[] = [
     block: true,
     about: 'Brings in text another tooltip or the globals export.',
   },
-  {
-    id: 'decl-catalyst',
-    label: 'catalyst ( … )',
-    group: 'Blocks',
-    template: 'catalyst (\n{{1:text}}\n)',
-    keywords: 'catalyst exotic',
-    usage: /^catalyst \(/m,
-    block: true,
-    about: 'Text shown only on the exotic catalyst version.',
-  },
-  {
-    id: 'decl-exotic-perk',
-    label: 'exotic perk ( … )',
-    group: 'Blocks',
-    template: 'exotic perk (\n{{1:text}}\n)',
-    keywords: 'exotic perk',
-    usage: /^exotic perk \(/m,
-    block: true,
-    about: 'Text shown only on the exotic perk version.',
-  },
 ];
 
 /** The tags that wrap text, as the menu's Tags category lists them. */
@@ -295,13 +263,13 @@ export const markupTags: readonly TagEntry[] = [
     usage: /<pvp /,
     about: 'A PvP-only value, shown in brackets.',
   },
-  ...['yellow', 'blue', 'green', 'purple', 'center', 'background'].map((name) => ({
+  ...['yellow'].map((name) => ({
     id: `tag:${name}`,
     label: `<${name} />`,
     template: `<${name} {{1:text}} />`,
     keywords: name,
     usage: new RegExp(`<${name} `),
-    about: name === 'center' ? 'Centred text.' : `${name[0]!.toUpperCase()}${name.slice(1)} text.`,
+    about: `${name[0]!.toUpperCase()}${name.slice(1)} text.`,
   })),
   {
     id: 'tag:bold',
@@ -363,6 +331,12 @@ const styleAbout: Record<string, string> = {
   bold: 'Makes the whole line bold.',
 };
 
+/**
+ * Line styles the parser and renderer still read (so existing tooltips keep working) but the
+ * editor no longer offers: nobody reaches for them.
+ */
+const retiredLineStyles = ['center', 'background', 'breakSpaces'];
+
 export const markupSymbols: readonly SymbolEntry[] = [
   ...markupIcons.map((name) => ({
     id: `icon:${name}`,
@@ -371,7 +345,7 @@ export const markupSymbols: readonly SymbolEntry[] = [
     usage: new RegExp(`<${name}/>`),
     about: iconAbout[name] ?? 'Icon.',
   })),
-  ...['center', ...markupEmpty].map((name) => ({
+  ...markupEmpty.filter((name) => !retiredLineStyles.includes(name)).map((name) => ({
     id: `style:${name}`,
     name,
     keywords: `${name} line style`,

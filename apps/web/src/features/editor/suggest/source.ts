@@ -14,7 +14,7 @@ import {
 } from '@clarity/core';
 import { locateBlocks, locateVariables } from '../references';
 
-export type SuggestCategory = 'Transforms' | 'Snippets' | 'Tags' | 'Symbols' | 'Globals';
+export type SuggestCategory = 'Transforms' | 'Snippets' | 'Tags' | 'Symbols' | 'Variables' | 'Globals';
 
 export type ContextKind =
   'selection' | 'tag' | 'variable' | 'title-name' | 'import-source' | 'import-name' | 'word';
@@ -207,7 +207,24 @@ export function suggestItems(
   };
   const query = context.query;
 
-  const variables = { ...extractVariables(text), ...extractVariables(globals.variables) };
+  const documentVariables = extractVariables(text);
+  const variables = { ...documentVariables, ...extractVariables(globals.variables) };
+  /** A variable defined in this tooltip is a document variable; the rest come from the globals. */
+  const variableItem = (name: string, value: string) =>
+    push({
+      id: `var:${name}`,
+      category: name in documentVariables ? 'Variables' : 'Globals',
+      label: `#${name}`,
+      hint: shorten(value || 'empty'),
+      about:
+        name in documentVariables
+          ? 'A variable defined in this tooltip.'
+          : 'A global variable, shared by every tooltip.',
+      insert: `#${name}`,
+      usage: new RegExp(`#${name}(?![a-zA-Z0-9])`),
+      reference: true,
+      keys: value,
+    });
   const titles = { ...extractBlocks(text, 'title'), ...extractBlocks(globals.titles, 'title') };
   const titleNames = Object.keys(titles);
 
@@ -247,17 +264,7 @@ export function suggestItems(
 
   if (context.kind === 'variable') {
     for (const [name, value] of Object.entries(variables)) {
-      push({
-        id: `var:${name}`,
-        category: 'Globals',
-        label: `#${name}`,
-        hint: shorten(value || 'empty'),
-        about: 'A variable defined in this tooltip or the globals.',
-        insert: `#${name}`,
-        usage: new RegExp(`#${name}(?![a-zA-Z0-9])`),
-        reference: true,
-        keys: value,
-      });
+      variableItem(name, value);
     }
     addSnippet(
       markupSnippets.find((snippet) => snippet.id === 'enhanced-formula')!,
@@ -362,17 +369,7 @@ export function suggestItems(
       }
       for (const [name, value] of Object.entries(variables)) {
         if (!query) break;
-        push({
-          id: `var:${name}`,
-          category: 'Globals',
-          label: `#${name}`,
-          hint: shorten(value || 'empty'),
-          about: 'A variable defined in this tooltip or the globals.',
-          insert: `#${name}`,
-          usage: new RegExp(`#${name}(?![a-zA-Z0-9])`),
-          reference: true,
-          keys: value,
-        });
+        variableItem(name, value);
       }
     }
   }
@@ -383,11 +380,11 @@ export function suggestItems(
 const defaultOrder: Record<ContextKind, SuggestCategory[]> = {
   selection: ['Transforms', 'Snippets', 'Tags', 'Symbols'],
   tag: ['Tags', 'Symbols', 'Snippets', 'Globals'],
-  variable: ['Globals', 'Snippets'],
+  variable: ['Variables', 'Globals', 'Snippets'],
   'title-name': ['Globals'],
   'import-source': ['Globals'],
   'import-name': ['Globals'],
-  word: ['Snippets', 'Tags', 'Symbols', 'Globals'],
+  word: ['Snippets', 'Tags', 'Symbols', 'Variables', 'Globals'],
 };
 
 const perCategory = 24;

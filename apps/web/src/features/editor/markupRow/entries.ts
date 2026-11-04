@@ -240,7 +240,7 @@ const arrowSnippet: Snippet = {
 };
 
 const sentence = (text: string) => text[0]!.toUpperCase() + text.slice(1);
-const colours = ['yellow', 'blue', 'green', 'purple'] as const;
+const colours = ['yellow'] as const;
 
 /** Every markup option the editor offers, grouped as the "All" popover shows them. */
 export function markupEntries(globals: MarkupGlobals, documentText = ''): MarkupEntry[] {
@@ -315,7 +315,7 @@ export function markupEntries(globals: MarkupGlobals, documentText = ''): Markup
       label: 'Element icon and word',
       markup: '<solar/>Solar',
       keys: snippetById('icon-word').keywords,
-      glyph: { kind: 'icon', name: 'solar' },
+      glyph: { kind: 'mono', text: '<icon/>Word' },
       usage: snippetById('icon-word').usage,
       about: snippetById('icon-word').about,
     }),
@@ -349,16 +349,6 @@ export function markupEntries(globals: MarkupGlobals, documentText = ''): Markup
       glyph: { kind: 'mono', text: 'enhanced ( … )' },
       usage: snippetById('enhanced-block').usage,
       about: snippetById('enhanced-block').about,
-    }),
-    viaTemplate(snippetById('stack-list'), {
-      id: 'stack-list',
-      group: 'Enhanced',
-      label: 'Stack list',
-      markup: 'a|b|c at 1|2|3 Stacks',
-      keys: snippetById('stack-list').keywords,
-      glyph: { kind: 'mono', text: 'a|b|c' },
-      usage: snippetById('stack-list').usage,
-      about: snippetById('stack-list').about,
     }),
     viaOption('link', {
       group: 'References',
@@ -398,24 +388,6 @@ export function markupEntries(globals: MarkupGlobals, documentText = ''): Markup
         about: tagById(`tag:${colour}`).about,
       }),
     ),
-    viaOption('inline:center', {
-      group: 'Format',
-      label: 'Centre text',
-      markup: '<center text />',
-      keys: tagById('tag:center').keywords,
-      glyph: { kind: 'text', text: '≡' },
-      usage: tagById('tag:center').usage,
-      about: tagById('tag:center').about,
-    }),
-    viaOption('inline:background', {
-      group: 'Format',
-      label: 'Background text',
-      markup: '<background text />',
-      keys: tagById('tag:background').keywords,
-      glyph: { kind: 'text', text: 'Bg' },
-      usage: tagById('tag:background').usage,
-      about: tagById('tag:background').about,
-    }),
     ...styleSymbols.map((symbol) =>
       viaOption(`line:${symbol.name}`, {
         group: 'Line styles',
@@ -434,8 +406,6 @@ export function markupEntries(globals: MarkupGlobals, documentText = ''): Markup
         'decl-export',
         'decl-export-hidden',
         'decl-import',
-        'decl-catalyst',
-        'decl-exotic-perk',
       ] as const
     ).map((id) => {
       const snippet = snippetById(id);
@@ -451,11 +421,13 @@ export function markupEntries(globals: MarkupGlobals, documentText = ''): Markup
       });
     }),
   ];
-  const variables = { ...extractVariables(documentText), ...extractVariables(globals.variables) };
+  const documentVariables = extractVariables(documentText);
+  const variables = { ...documentVariables, ...extractVariables(globals.variables) };
   for (const [name, value] of Object.entries(variables)) {
+    const own = name in documentVariables;
     entries.push({
       id: `var:${name}`,
-      group: 'Variables',
+      group: own ? 'Variables' : 'Global variables',
       label: `#${name}`,
       markup: `#${name}`,
       keys: value,
@@ -470,7 +442,7 @@ export function markupEntries(globals: MarkupGlobals, documentText = ''): Markup
         const main = view.state.selection.main;
         const item: SuggestItem = {
           id: `var:${name}`,
-          category: 'Globals',
+          category: own ? 'Variables' : 'Globals',
           label: `#${name}`,
           about: '',
           from: main.from,
@@ -500,6 +472,7 @@ export const entryGroups = [
   'Line styles',
   'Declarations',
   'Variables',
+  'Global variables',
 ] as const;
 
 /**
@@ -522,12 +495,6 @@ export const rowOrder: readonly string[] = [
   '|',
   'inline:bold',
   'inline:yellow',
-  'inline:blue',
-  'inline:green',
-  'inline:purple',
-  '|',
-  'inline:center',
-  'inline:background',
 ];
 
 export const rowSeparator = '|';

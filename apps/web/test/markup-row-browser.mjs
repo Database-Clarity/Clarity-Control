@@ -93,8 +93,13 @@ try {
       const row = page.locator('[data-markup-row]');
       const content = page.locator('.cm-content');
 
-      // Closed by default; Ctrl+. (or the header button) opens it, and that is the only reflow.
-      assert.equal(await row.count(), 0, `${label}: the row starts closed`);
+      // Open by default; Ctrl+. (or the header button) hides it and opens it again, and that is
+      // the only reflow.
+      await row.waitFor();
+      const openLine = await firstLine(page);
+      if (phone) await page.getByRole('button', { name: /Markup tools/ }).click();
+      else await page.keyboard.press('Control+.');
+      await row.waitFor({ state: 'detached' });
       const closedLine = await firstLine(page);
       if (phone) await page.getByRole('button', { name: /Markup tools/ }).click();
       else await page.keyboard.press('Control+.');
@@ -105,7 +110,6 @@ try {
         Math.abs(rowBox.height - expectedHeight) <= 1,
         `${label}: row is ${expectedHeight}px (${rowBox.height})`,
       );
-      const openLine = await firstLine(page);
       assert.ok(
         Math.abs(openLine - closedLine - expectedHeight - 1) <= 2,
         `${label}: opening the row shifted the text by ${openLine - closedLine}, not its own height`,

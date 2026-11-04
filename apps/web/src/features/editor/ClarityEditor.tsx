@@ -29,6 +29,7 @@ import {
 import { clarityHighlighting, clarityLanguage } from './language';
 import { tableFormattingTransaction } from './formatTable';
 import { editorScrollMargins } from './scrollMargins';
+import { rememberSearch, restoreSearch } from './searchMemory';
 import { rawMode, setSymbolReveal, symbolExtensions, toggleRawView } from './symbols';
 import { validationDiagnostics } from './diagnostics';
 import { MarkupRow } from './markupRow/MarkupRow';
@@ -93,6 +94,8 @@ export interface ClarityEditorProps {
   usage?: UsageCorpus;
   /** Draws icon and colour tags as symbols (Ctrl+Shift+. shows the raw markup). Off for stored forms. */
   symbols?: boolean;
+  /** Carries find and replace across tooltips in this tab. Off for stored forms (a second editor). */
+  findMemory?: boolean;
 }
 
 function configuration(
@@ -139,9 +142,12 @@ export function ClarityEditor({
   onOpenTooltip,
   usage,
   symbols = true,
+  findMemory = true,
 }: ClarityEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
+  /** Fixed for the editor's lifetime: a stored form never joins the tab's find memory. */
+  const remembersFind = useRef(findMemory);
   const callback = useRef(onChange);
   const [panel, setPanel] = useState<StatusPanel | null>(null);
   const panelOpen = useRef(false);
@@ -259,7 +265,7 @@ export function ClarityEditor({
         conflictHost.of({ compact: false, onCompare: () => undefined, onPanel: () => undefined }),
       ),
       history(),
-      search(),
+      search({ top: true }),
       indentOnInput(),
       bracketMatching(),
       clarityLanguage,
@@ -304,6 +310,7 @@ export function ClarityEditor({
           rawRef.current = raw;
           setRawView(raw);
         }
+        if (remembersFind.current) rememberSearch(update);
         if (update.docChanged) callback.current(update.state.doc.toString());
         if (update.docChanged || update.selectionSet) {
           const head = update.state.selection.main.head;
@@ -321,6 +328,8 @@ export function ClarityEditor({
       state: EditorState.create({ doc: initial.current.value, extensions: extensions.current }),
     });
     view.current = editor;
+    // Find and replace carries over from the previous tooltip (or page) in this tab.
+    if (remembersFind.current) restoreSearch(editor);
     return () => {
       view.current = null;
       editor.destroy();
@@ -367,6 +376,8 @@ export function ClarityEditor({
         conflictConfig.current.reconfigure(conflictHostExtension()),
       ],
     });
+    // The rebuilt state starts with find closed: bring back what was open.
+    if (remembersFind.current) restoreSearch(editor);
   }, [value, lang, globals, readOnly, requireEnglish]);
 
   useEffect(() => {

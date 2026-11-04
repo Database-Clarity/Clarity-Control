@@ -8,6 +8,7 @@ import {
   markupSnippets,
   markupSymbols,
   markupTags,
+  parseMarkup,
   type MarkupGlobals,
 } from '@clarity/core';
 import { ClarityEditor } from '../ClarityEditor';
@@ -20,6 +21,7 @@ const globals: MarkupGlobals = {
   titles: 'title G_refill (\nRefills the magazine.\n)',
 };
 
+const NL = String.fromCharCode(10);
 let host: HTMLDivElement;
 let root: Root;
 
@@ -77,8 +79,38 @@ const entryButton = (id: string) => host.querySelector<HTMLButtonElement>(`[data
 const click = (node: HTMLElement) =>
   act(() => node.dispatchEvent(new MouseEvent('click', { bubbles: true })));
 
+describe('the retired markup options', () => {
+  const retired = [
+    'inline:center',
+    'inline:background',
+    'inline:blue',
+    'inline:green',
+    'inline:purple',
+    'line:center',
+    'line:background',
+    'line:breakSpaces',
+    'stack-list',
+    'decl-catalyst',
+    'decl-exotic-perk',
+  ];
+
+  it('are gone from the catalogue, the row and the All popover (the parser still reads them)', () => {
+    const ids = markupEntries(globals).map((entry) => entry.id);
+    for (const id of retired) expect(ids, id).not.toContain(id);
+    expect(ids).toEqual(expect.arrayContaining(['inline:bold', 'inline:yellow', 'line:bold']));
+    for (const id of retired) expect(rowOrder, id).not.toContain(id);
+    mount('x');
+    for (const id of retired) expect(host.querySelector(`[data-entry="${id}"]`), id).toBeNull();
+  });
+
+  it('keep parsing: existing content with them still renders', () => {
+    const parsed = parseMarkup('<center/>Hello <blue world />' + NL + '<breakSpaces/>x  ', globals);
+    expect(parsed.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+  });
+});
+
 describe('the markup row catalogue', () => {
-  it('is ordered: bullet, pair, PvE, PvP, 15 icons, enhanced arrow, link, title, bold + 4 colours, line styles', () => {
+  it('is ordered: bullet, pair, PvE, PvP, 15 icons, enhanced arrow, link, title, bold + yellow', () => {
     const ids = rowEntries(markupEntries(globals)).map((item) =>
       item === rowSeparator ? '|' : item.id,
     );
@@ -97,12 +129,6 @@ describe('the markup row catalogue', () => {
       '|',
       'inline:bold',
       'inline:yellow',
-      'inline:blue',
-      'inline:green',
-      'inline:purple',
-      '|',
-      'inline:center',
-      'inline:background',
     ]);
     expect(markupIcons).toHaveLength(15);
     expect(rowOrder.filter((id) => id.startsWith('icon:'))).toHaveLength(15);
@@ -134,7 +160,6 @@ describe('the markup row catalogue', () => {
       'pve',
       'pvp',
       'pvp-override',
-      'stack-list',
       'enhanced-block',
       'enhanced-formula',
       'icon-word',
@@ -291,6 +316,38 @@ describe('the All popover', () => {
     expect(left.length).toBeLessThan(all.length);
   });
 
+  it('is compact: icon chips carry no label text, the name sits in the tooltip', () => {
+    mount('x');
+    const popover = openAll();
+    const chips = [...popover.querySelectorAll<HTMLButtonElement>('[data-all-button]')];
+    const stasis = chips.find((chip) => chip.getAttribute('aria-label') === 'stasis')!;
+    expect(stasis.textContent).toBe('');
+    expect(stasis.title).toContain('stasis');
+    const pvp = chips.find((chip) => chip.getAttribute('aria-label') === 'PvP only')!;
+    expect(pvp.textContent).toBe('PvP');
+    expect(pvp.title).toBe('PvP only: <pvp [value] />');
+    // No chip repeats its own name beside its face.
+    expect(popover.querySelector('[class*=chipLabel]')).toBeNull();
+    for (const group of ['Format', 'Line styles'])
+      expect(
+        popover.querySelector(`[role=group][aria-label="${group}"]`)!.textContent!.length,
+      ).toBeLessThan(60);
+    // The footer is one short line until something is hovered.
+    expect(popover.querySelector('p')!.textContent!.length).toBeLessThan(60);
+  });
+
+  it('keeps global variables in their own group, apart from the tooltip variables', () => {
+    mount('var local = 3' + NL + 'Hit for ');
+    const popover = openAll();
+    const group = (title: string) =>
+      [...popover.querySelectorAll(`[role=group][aria-label="${title}"] [data-all-button]`)].map(
+        (chip) => chip.getAttribute('aria-label'),
+      );
+    expect(group('Variables')).toEqual(['#local']);
+    expect(group('Global variables')).toEqual(expect.arrayContaining(['#e', '#damage']));
+    expect(group('Global variables')).not.toContain('#local');
+  });
+
   it('lists the document and global variables, and inserts a choice then closes', () => {
     const view = mount('Hit for ');
     const popover = openAll();
@@ -303,8 +360,6 @@ describe('the All popover', () => {
     expect(document.body.querySelector('[data-all-popover]')).toBeNull();
   });
 });
-
-const NL = String.fromCharCode(10);
 
 describe('inserting an enhanced section from the popover', () => {
   it('writes the section with its #e arrow line already filled in, on a line of its own', () => {
@@ -330,26 +385,43 @@ describe('Ctrl+. and the remembered row state', () => {
     const row = useMarkupRow();
     return <output>{row.open ? 'open' : 'closed'}</output>;
   }
-  it('toggles on Ctrl+. (not Ctrl+Shift+.) and persists the last choice on this device', () => {
+  const press = (init: KeyboardEventInit) =>
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: '.', bubbles: true, cancelable: true, ...init }),
+      );
+    });
+  const read = () => host.querySelector('output')!.textContent;
+
+  it('is open by default for someone who never chose', () => {
+    useSettingsStore.getState().updateDevice({ remembered: {} });
+    act(() => root.render(<Probe />));
+    expect(read()).toBe('open');
+    expect(useSettingsStore.getState().device.remembered.markupToolbar).toBeUndefined();
+  });
+
+  it('ignores a stored synced "closed": it cannot tell "never chose" from "chose closed"', () => {
     useSettingsStore.getState().updateDevice({ remembered: {} });
     useSettingsStore.getState().update({ markupToolbar: 'closed' });
     act(() => root.render(<Probe />));
-    const read = () => host.querySelector('output')!.textContent;
-    expect(read()).toBe('closed');
-    const press = (init: KeyboardEventInit) =>
-      act(() => {
-        document.dispatchEvent(
-          new KeyboardEvent('keydown', { key: '.', bubbles: true, cancelable: true, ...init }),
-        );
-      });
-    press({ ctrlKey: true });
     expect(read()).toBe('open');
-    expect(useSettingsStore.getState().device.remembered.markupToolbar).toBe('open');
+  });
+
+  it('toggles on Ctrl+. (not Ctrl+Shift+.) and remembers an explicit hide on this device', () => {
+    useSettingsStore.getState().updateDevice({ remembered: {} });
+    act(() => root.render(<Probe />));
+    expect(read()).toBe('open');
     press({ ctrlKey: true, shiftKey: true });
     expect(read()).toBe('open');
     press({ ctrlKey: true });
     expect(read()).toBe('closed');
-    // The synced default is untouched: the remembered choice is per device.
-    expect(useSettingsStore.getState().settings.markupToolbar).toBe('closed');
+    expect(useSettingsStore.getState().device.remembered.markupToolbar).toBe('closed');
+    // A later mount (another page) still honours the explicit choice.
+    act(() => root.render(null));
+    act(() => root.render(<Probe />));
+    expect(read()).toBe('closed');
+    press({ ctrlKey: true });
+    expect(read()).toBe('open');
+    expect(useSettingsStore.getState().device.remembered.markupToolbar).toBe('open');
   });
 });

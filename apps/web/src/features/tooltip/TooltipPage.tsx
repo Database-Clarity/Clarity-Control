@@ -370,6 +370,7 @@ export function TooltipPage({
             readOnly
             readOnlyReason="Stored form: read only"
             symbols={false}
+            findMemory={false}
             onChange={() => undefined}
           />
         ),

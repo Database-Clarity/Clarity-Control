@@ -138,13 +138,47 @@ describe('ranking', () => {
     expect(fuzzyScore('anything', '')).toBe(0);
   });
 
+  test('document variables and global variables are separate categories', () => {
+    const doc = 'var local = 5' + String.fromCharCode(10) + 'Gains #';
+    const state = at(doc, doc.length);
+    const context = suggestContext(state, true)!;
+    const items = suggestItems(context, state, globals);
+    const variables = items.filter((item) => item.category === 'Variables').map((item) => item.label);
+    const global = items.filter((item) => item.category === 'Globals').map((item) => item.label);
+    expect(variables).toEqual(['#local']);
+    expect(global).toContain('#damage');
+    expect(global).not.toContain('#local');
+    expect(items.findIndex((item) => item.category === 'Variables')).toBeLessThan(
+      items.findIndex((item) => item.category === 'Globals'),
+    );
+  });
+
+  test('the retired markup options are not suggested, but still parse', () => {
+    const ids = menu('', true)!.items.map((item) => item.id);
+    for (const id of [
+      'snippet:stack-list',
+      'snippet:decl-catalyst',
+      'snippet:decl-exotic-perk',
+      'style:center',
+      'style:background',
+      'style:breakSpaces',
+      'tag:center',
+      'tag:background',
+      'tag:blue',
+      'tag:green',
+      'tag:purple',
+    ])
+      expect(ids, id).not.toContain(id);
+    expect(ids).toEqual(expect.arrayContaining(['style:bold', 'tag:yellow', 'tag:bold']));
+  });
+
   test('recently used options come first when nothing is typed', () => {
     const fresh = menu('', true)!.items.filter((item) => item.category === 'Snippets');
-    const pinned = menu('', true, undefined, undefined, ['snippet:stack-list'])!.items.filter(
+    const pinned = menu('', true, undefined, undefined, ['snippet:pvp-override'])!.items.filter(
       (item) => item.category === 'Snippets',
     );
-    expect(fresh[0]!.id).not.toBe('snippet:stack-list');
-    expect(pinned[0]!.id).toBe('snippet:stack-list');
+    expect(fresh[0]!.id).not.toBe('snippet:pvp-override');
+    expect(pinned[0]!.id).toBe('snippet:pvp-override');
   });
 
   test('the category holding the best match leads when something is typed', () => {

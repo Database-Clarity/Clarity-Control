@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { dateFormats, timeDisplays, type SyncedSettings } from '@clarity/core';
 import {
   useSettingsStore,
@@ -25,6 +25,67 @@ function timeZones(): string[] {
   }
 }
 
+/**
+ * Interface scale slider. Scaling resizes the popover (and this very control), so applying every
+ * step while the thumb is held would move it away from the pointer and feed back into the drag.
+ * A pointer drag therefore only previews the number and applies once on release; keyboard steps
+ * (and anything else that is not a drag) apply immediately.
+ */
+export function ScaleControl({
+  value,
+  onCommit,
+}: {
+  value: number;
+  onCommit: (value: number) => void;
+}) {
+  const [draft, setDraft] = useState<number | null>(null);
+  const dragging = useRef(false);
+  const latest = useRef(value);
+  useEffect(() => {
+    const release = () => {
+      if (!dragging.current) return;
+      dragging.current = false;
+      const next = latest.current;
+      setDraft(null);
+      onCommit(next);
+    };
+    window.addEventListener('pointerup', release);
+    window.addEventListener('pointercancel', release);
+    return () => {
+      window.removeEventListener('pointerup', release);
+      window.removeEventListener('pointercancel', release);
+    };
+  });
+  const shown = draft ?? value;
+  return (
+    <span className={styles.scale}>
+      <input
+        type="range"
+        min={uiScaleMin}
+        max={uiScaleMax}
+        step={uiScaleStep}
+        value={shown}
+        aria-valuetext={`${shown} percent`}
+        onPointerDown={() => {
+          dragging.current = true;
+          latest.current = value;
+        }}
+        onChange={(event) => {
+          const next = Number(event.target.value);
+          if (dragging.current) {
+            latest.current = next;
+            setDraft(next);
+          } else onCommit(next);
+        }}
+      />
+      <output>{shown}%</output>
+      <button type="button" disabled={shown === 100} onClick={() => onCommit(100)}>
+        100%
+      </button>
+    </span>
+  );
+}
+
 export function SettingsContent() {
   const state = useSettingsStore();
   const { settings, device, update, updateDevice, remember, retry, resetPaneWidths } = state;
@@ -41,7 +102,7 @@ export function SettingsContent() {
         const patch = { [key]: event.target.value } as Partial<SyncedSettings>;
         update(patch);
         // A default chosen on this device also replaces this device's remembered toggle.
-        if (key === 'markupToolbar' || key === 'englishSource') remember(patch);
+        if (key === 'englishSource') remember(patch);
       }}
     >
       {values.map((value) => (
@@ -98,13 +159,20 @@ export function SettingsContent() {
       <fieldset>
         <legend>Editor</legend>
         <p className={styles.hint}>
-          Starting values for new devices (synced to your account). Toggling the toolbar or source
-          view inside the editor is remembered on this device only. Choosing here also applies on
-          this device.
+          The markup row is open until you hide it. Both choices here are remembered on this device;
+          English source is also the starting value for new devices (synced to your account).
         </p>
         <label>
           Markup row
-          {select('markupToolbar', ['closed', 'open'] as const)}
+          <select
+            value={device.remembered.markupToolbar ?? 'open'}
+            onChange={(event) =>
+              remember({ markupToolbar: event.target.value as 'open' | 'closed' })
+            }
+          >
+            <option value="open">{valueLabel('markupToolbar', 'open')}</option>
+            <option value="closed">{valueLabel('markupToolbar', 'closed')}</option>
+          </select>
         </label>
         <label>
           English source shows
@@ -176,25 +244,7 @@ export function SettingsContent() {
         </label>
         <label>
           Interface scale
-          <span className={styles.scale}>
-            <input
-              type="range"
-              min={uiScaleMin}
-              max={uiScaleMax}
-              step={uiScaleStep}
-              value={device.uiScale}
-              aria-valuetext={`${device.uiScale} percent`}
-              onChange={(event) => updateDevice({ uiScale: Number(event.target.value) })}
-            />
-            <output>{device.uiScale}%</output>
-            <button
-              type="button"
-              disabled={device.uiScale === 100}
-              onClick={() => updateDevice({ uiScale: 100 })}
-            >
-              100%
-            </button>
-          </span>
+          <ScaleControl value={device.uiScale} onCommit={(uiScale) => updateDevice({ uiScale })} />
         </label>
         <p className={styles.hint}>
           Scales the whole interface on this device ({uiScaleMin}–{uiScaleMax}%), on top of the

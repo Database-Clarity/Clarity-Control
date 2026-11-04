@@ -62,6 +62,7 @@
   white-space: nowrap;
   [data-category='Tags'] > &,
   [data-category='Symbols'] > &,
+  [data-category='Variables'] > &,
   [data-category='Globals'] > & {
     font-family: var(--editor-font, Consolas, monospace);
   }
