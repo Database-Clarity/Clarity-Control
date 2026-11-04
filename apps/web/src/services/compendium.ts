@@ -2,32 +2,65 @@ import { compendiumDataSchema, isTrackedCompendiumTab, type CompendiumData } fro
 import { z } from 'zod';
 import { fetchJson } from './http';
 import { apiRequest } from './api';
+import {
+  bindSourceWorker,
+  createWorkerBridge,
+  retireSourceWorker,
+  sourceWorkerFor,
+} from '../features/compendium/workerBridge';
 
 export const compendiumDataUrl =
   'https://raw.githubusercontent.com/Database-Clarity/Compendium-data/main/compendium.json';
 let cached: { value: CompendiumData; at: number } | undefined;
 let pending: Promise<CompendiumData> | undefined;
+let pendingBridge: ReturnType<typeof createWorkerBridge> | undefined;
+export function pendingCompendiumWorker() {
+  return pendingBridge && !pendingBridge.disposed ? pendingBridge : undefined;
+}
 let started = 0;
 let applied = 0;
+function fetchSource() {
+  if (typeof Worker === 'undefined')
+    return fetchJson(compendiumDataUrl, compendiumDataSchema, { cache: 'no-cache' });
+  const bridge = createWorkerBridge(
+    new Worker(new URL('../features/compendium/proposals.worker.ts', import.meta.url), {
+      type: 'module',
+    }),
+  );
+  pendingBridge = bridge;
+  return bridge.request<CompendiumData>({ load: { url: compendiumDataUrl } }).then(
+    (value) => {
+      if (pendingBridge === bridge) pendingBridge = undefined;
+      bindSourceWorker(value, bridge);
+      return value;
+    },
+    (error: unknown) => {
+      if (pendingBridge === bridge) pendingBridge = undefined;
+      bridge.dispose();
+      throw error;
+    },
+  );
+}
 export function loadCompendium(force = false): Promise<CompendiumData> {
   if (!force && cached && Date.now() - cached.at < 60_000) return Promise.resolve(cached.value);
   // Only a non-forced call may join a request in flight: a forced reload must be a fetch
   // that starts now, or it could return data from before the refresh it follows.
   if (!force && pending) return pending;
   const id = ++started;
-  const request: Promise<CompendiumData> = fetchJson(compendiumDataUrl, compendiumDataSchema, {
-    cache: 'no-cache',
-  })
+  const request: Promise<CompendiumData> = fetchSource()
     .then((value) => {
       const tracked = {
         ...value,
         tabs: value.tabs.filter((tab) => isTrackedCompendiumTab(tab.name)),
       };
+      const bridge = sourceWorkerFor(value);
+      if (bridge) bindSourceWorker(tracked, bridge);
       // A slower, older request must not overwrite newer data.
       if (id > applied) {
+        if (cached) retireSourceWorker(cached.value);
         applied = id;
         cached = { value: tracked, at: Date.now() };
-      }
+      } else retireSourceWorker(tracked);
       return tracked;
     })
     .finally(() => {

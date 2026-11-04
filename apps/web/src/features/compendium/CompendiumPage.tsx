@@ -1,5 +1,5 @@
 import { isSetSelector } from './itemClassification';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { resolveAlias } from '@clarity/core';
 import { useDataStore } from '../../stores/data';
@@ -16,7 +16,9 @@ export function CompendiumPage() {
   const query = params.get('linkedQuery') ?? '';
   const category = params.get('linkedCategory') ?? '';
   const unlinked = params.get('linkedList') === 'unlinked';
+  const [limit, setLimit] = useState(100);
   const setFilter = (key: string, value: string) => {
+    setLimit(100);
     const next = new URLSearchParams(params);
     if (value) next.set(key, value);
     else next.delete(key);
@@ -102,13 +104,13 @@ export function CompendiumPage() {
       </label>
       <ul className={styles.rows}>
         {unlinked
-          ? listedMissing.map((item) => (
+          ? listedMissing.slice(0, limit).map((item) => (
               <li key={item.hash}>
                 <Link to={`/t/${canonicalHash(item.hash, editor)}`}>{item.name}</Link>{' '}
                 <small>{item.hash}</small>
               </li>
             ))
-          : listedChanges.map(({ tooltip, resolution }) => (
+          : listedChanges.slice(0, limit).map(({ tooltip, resolution }) => (
               <li key={tooltip.hash}>
                 <Link to={`/t/${canonicalHash(tooltip.hash, editor)}`}>
                   {itemFor(tooltip.hash, editor)?.name ?? tooltip.hash}
@@ -126,6 +128,11 @@ export function CompendiumPage() {
               </li>
             ))}
       </ul>
+      {(unlinked ? listedMissing.length : listedChanges.length) > limit && (
+        <button type="button" onClick={() => setLimit(limit + 100)}>
+          Show 100 more
+        </button>
+      )}
       {unlinked && !listedMissing.length && <p>No unlinked tooltips match these filters.</p>}
       {!unlinked && data && !listedChanges.length && (
         <p>No linked Compendium changes match these filters.</p>

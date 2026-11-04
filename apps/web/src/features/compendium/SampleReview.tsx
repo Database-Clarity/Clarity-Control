@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { CompendiumData, CompendiumMatch } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import { errorMessage } from '../../services/http';
@@ -34,26 +34,6 @@ export function SampleReview({
   proposal?: ReviewProposal;
   guidance: ReturnType<typeof useGuidance>;
 }) {
-  const actions = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const node = actions.current;
-    const region = node?.closest<HTMLElement>('[aria-label="Category guidance"]');
-    if (!node || !region) return;
-    const update = () =>
-      region.style.setProperty(
-        '--sample-action-height',
-        `${node.getBoundingClientRect().height}px`,
-      );
-    update();
-    window.addEventListener('resize', update);
-    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(update);
-    observer?.observe(node);
-    return () => {
-      window.removeEventListener('resize', update);
-      observer?.disconnect();
-      region.style.removeProperty('--sample-action-height');
-    };
-  }, []);
   const [picker, setPicker] = useState(false);
   const [error, setError] = useState('');
   const reference = guidance.document.categories[category.id]?.references?.[entry.hash];
@@ -170,7 +150,7 @@ export function SampleReview({
           />
         </label>
       </details>
-      <div ref={actions} className={styles.actions}>
+      <div className={styles.actions}>
         <p className={styles.actionEyebrow}>Saves as example · no tooltip change</p>
         <button
           disabled={paused || guidance.conflict || !proposal?.link || !proposal.match}

@@ -1,6 +1,10 @@
 .review {
+  // Windows' implicit fallback search for Supplemental Arrows-C can take an
+  // entire frame per glyph. Name the same symbol fallback explicitly, after
+  // the existing text and Destiny fonts; other platforms ignore it if absent.
+  font-family: Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', sans-serif;
   min-width: 0;
-  color: #e2e5ee;
+  color: var(--text);
   padding-bottom: 6rem;
   h1 {
     font-size: 1.65rem;
@@ -20,8 +24,8 @@
     padding: 0.55rem 0.7rem;
     border: 1px solid #596478;
     border-radius: 0.4rem;
-    background: #242a38;
-    color: inherit;
+    background: var(--ctl);
+    color: var(--text);
     max-width: 100%;
     box-sizing: border-box;
   }
@@ -46,6 +50,7 @@
   }
   label {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 0.3rem;
     font-size: 0.8rem;
     min-width: 0;
@@ -66,9 +71,13 @@
   }
 }
 .entryReview {
+  padding-bottom: 0;
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - 2 * clamp(1.25rem, 4vw, 3rem));
+  // Fill the normal viewport, and grow naturally when scaled controls need
+  // more space. Both the cards and footer must contribute to document scrolling.
+  height: auto;
+  min-height: calc(100dvh - var(--header-h, 37px) - 2 * clamp(1rem, 3vw, 2rem));
   box-sizing: border-box;
   > * {
     flex-shrink: 0;
@@ -77,7 +86,7 @@
 .categoryReview {
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - 2 * clamp(1.25rem, 4vw, 3rem));
+  height: calc(100dvh - var(--header-h, 37px) - 2 * clamp(1rem, 3vw, 2rem));
   padding-bottom: 0;
   box-sizing: border-box;
   > .heading {
@@ -92,6 +101,7 @@
   justify-content: space-between;
 }
 .tabs {
+  color: var(--text);
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
@@ -105,11 +115,11 @@
     border: 1px solid #596478;
     border-bottom: 0;
     border-radius: 0.4rem 0.4rem 0 0;
-    color: inherit;
+    color: var(--text);
     text-decoration: none;
   }
   a[aria-current='page'] {
-    background: #242a38;
+    background: var(--ctl);
     font-weight: 650;
   }
   a:focus-visible {
@@ -129,7 +139,7 @@
     position: absolute;
     right: 0;
     width: min(25rem, 75vw);
-    background: #202737;
+    background: var(--raised);
     padding: 1rem;
     z-index: 8;
     border: 1px solid #66758b;
@@ -153,7 +163,7 @@
   gap: 0.6rem;
   flex-wrap: wrap;
   label {
-    flex: 1;
+    flex: 1 1 12rem;
   }
 }
 .notice {
@@ -172,11 +182,14 @@
 .workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 1rem;
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
 }
 .card {
+  contain: content;
+  color: #e2e5ee;
   min-width: 0;
   border: 1px solid #424e62;
   border-radius: 0.6rem;
@@ -193,6 +206,8 @@
   color: #a9b9d0;
 }
 .manifestItem {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 5rem;
   font-size: 0.9rem;
   small {
     color: #a9b9d0;
@@ -202,7 +217,31 @@
     line-height: 1.4;
   }
 }
+.workspace .manifestItem {
+  // These scrollable cards end in navigation controls. Expanding a skipped
+  // description after scrolling must not push a control out of the card again.
+  content-visibility: visible;
+}
+// Desktop cards already receive their size from the viewport budget. Keep their
+// rich text out of the outer flex/grid intrinsic sizing passes on each selection.
+@media (min-width: 701px) {
+  .entryReview {
+    contain: layout style;
+  }
+  .categoryReview {
+    contain: size style;
+  }
+  .workspace > .card {
+    contain: strict;
+  }
+  .workspace {
+    // At compact widths or large interface scales, headers and actions can
+    // exceed the viewport budget. Keep the cards usable and let the page scroll.
+    min-height: 12rem;
+  }
+}
 .sourceText {
+  contain: inline-size layout style paint;
   white-space: pre-wrap;
   font-size: 0.95rem;
   line-height: 1.6;
@@ -219,6 +258,8 @@
     margin-bottom: 0.5rem;
   }
   > div {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 5rem;
     border-top: 1px solid #424e62;
     padding: 0.45rem;
     white-space: pre-wrap;
@@ -229,11 +270,11 @@
   }
 }
 .actionBar {
-  position: fixed;
-  bottom: 0;
-  left: 17rem;
-  right: 0;
-  z-index: 10;
+  color: #e2e5ee;
+  // Reserve a real flex row instead of covering the review cards. In particular,
+  // an Inspect link must never share a pointer target with an approval button.
+  position: static;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -261,8 +302,9 @@
   font-weight: 650;
 }
 .overlay {
+  color: #e2e5ee;
   position: fixed;
-  inset: 2rem 2rem calc(var(--review-action-bar-height, 0px) + 0.5rem) calc(17rem + 2rem);
+  inset: 2rem 2rem 2rem calc(17rem + 2rem);
   z-index: 9;
   padding: 1.4rem;
   background: #1c2130;
@@ -282,6 +324,9 @@
   overflow: auto;
   margin-bottom: 1rem;
   > section {
+    contain: content;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 30rem;
     border-top: 1px solid #58667d;
     padding: 1rem 0;
   }
@@ -297,6 +342,7 @@
 }
 @media (max-width: 1100px) {
   .actionBar {
+    color: #e2e5ee;
     justify-content: flex-start;
   }
   .review kbd {
@@ -319,7 +365,7 @@
     gap: 0.5rem;
   }
   .heading > div {
-    flex: 1;
+    flex: 1 1 100%;
   }
   .heading > a {
     display: inline-flex;
@@ -342,31 +388,36 @@
   .bulkCompare {
     grid-template-columns: minmax(0, 1fr);
   }
+  .workspace {
+    grid-template-rows: auto;
+  }
   .card {
+    color: #e2e5ee;
     height: auto;
     max-height: none;
     padding: 1rem;
   }
   .actionBar {
-    bottom: env(safe-area-inset-bottom, 0px);
+    color: #e2e5ee;
     justify-content: stretch;
-    left: 0;
-    padding: 0.6rem;
+    padding: 0.6rem 0.6rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
     gap: 0.35rem;
   }
   .actionConsequence {
     text-align: left;
   }
   .actionBar button {
-    flex: 1 1 calc(50% - 0.35rem);
+    flex: 1 1 auto;
+    white-space: nowrap;
     font-size: 0.8rem;
   }
   .review {
-    padding-bottom: 13rem;
+    padding-bottom: 0;
   }
   .entryReview {
     display: block;
     height: auto;
+    min-height: 0;
   }
   .categoryReview {
     height: auto;
@@ -377,8 +428,8 @@
     flex-wrap: wrap;
   }
   .overlay {
-    inset: 0.5rem 0.5rem
-      calc(var(--review-action-bar-height, 0px) + env(safe-area-inset-bottom, 0px) + 0.5rem);
+    color: #e2e5ee;
+    inset: 0.5rem 0.5rem calc(env(safe-area-inset-bottom, 0px) + 0.5rem);
     padding: 1rem;
   }
   .progress {

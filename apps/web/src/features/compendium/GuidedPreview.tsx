@@ -23,7 +23,9 @@ export function GuidedPreview({
   canEdit = false,
   onAccept,
   onRestore,
+  computedGroups,
 }: {
+  computedGroups?: GuidedCategory[];
   onRestore?: (hash: number) => void;
   document: GuidanceDocument;
   planningRevision?: number;
@@ -44,10 +46,11 @@ export function GuidedPreview({
   const [limit, setLimit] = useState(20);
   const group = useMemo(
     () =>
-      guidedDecisions(document, categories ?? [category], proposals, source, baseline, scope).find(
-        (group) => group.id === category.id,
-      ),
-    [document, category, categories, proposals, source, baseline, scope],
+      (
+        computedGroups ??
+        guidedDecisions(document, categories ?? [category], proposals, source, baseline, scope)
+      ).find((group) => group.id === category.id),
+    [document, category, categories, proposals, source, baseline, scope, computedGroups],
   );
   if (!group) return null;
   const current =
