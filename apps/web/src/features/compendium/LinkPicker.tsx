@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  compendiumIdentifiers,
   compendiumNameVariants,
   compendiumPreferredTabs,
   normaliseCompendiumName,
@@ -19,6 +18,7 @@ import { mayDraftLink } from './reviewQueue';
 import { useAuthStore } from '../../stores/auth';
 import { useSaveState } from '../../services/save/state';
 import { apiUrl } from '../../services/api';
+import { pickerRowIndex, pickerRows } from './pickerRows';
 
 export function LinkPicker({
   base,
@@ -65,9 +65,9 @@ export function LinkPicker({
       })
       .find((tab) =>
         tab.rows.some((row) =>
-          compendiumIdentifiers(row.name).some((identifier) =>
-            names.includes(normaliseCompendiumName(identifier)),
-          ),
+          pickerRowIndex(tab)
+            .details.get(row)!
+            .identifiers.some((identifier) => names.includes(identifier)),
         ),
       );
     const initialGid =
@@ -81,7 +81,7 @@ export function LinkPicker({
       (hint) => hint.gid === initialGid,
     )?.section;
     const exactRow = initialTab?.rows.find((row) =>
-      names.includes(normaliseCompendiumName(row.name)),
+      names.includes(pickerRowIndex(initialTab!).details.get(row)!.name),
     );
     return {
       gid: initialGid,
@@ -121,31 +121,16 @@ export function LinkPicker({
     if (gid)
       setVisited((old) => (old[cellKey] ? old : { ...old, [cellKey]: { gid, row: anchorRow } }));
   }, [gid, anchorRow, cellKey]);
-  const rows = useMemo(() => {
-    const searches = compendiumNameVariants(category, query).map(normaliseCompendiumName);
-    const exact = (name: string) =>
-      compendiumIdentifiers(name).some((identifier) =>
-        searches.includes(normaliseCompendiumName(identifier)),
-      );
-    return (
-      data?.tabs
-        .find((tab) => tab.gid === gid)
-        ?.rows.filter((row) => !section || row.section === section)
-        .filter(
-          (row) =>
-            !query.trim() ||
-            searches.some((search) =>
-              normaliseCompendiumName(`${row.name} ${row.section ?? ''}`).includes(search),
-            ),
-        )
-        .sort(
-          (a, b) =>
-            Number(exact(b.name)) - Number(exact(a.name)) ||
-            a.name.localeCompare(b.name) ||
-            a.rowIndex - b.rowIndex,
-        ) ?? []
-    );
-  }, [data, gid, query, category, section]);
+  const { rows, exact } = useMemo(
+    () =>
+      pickerRows(
+        data?.tabs.find((tab) => tab.gid === gid),
+        category,
+        query,
+        section,
+      ),
+    [data, gid, category, query, section],
+  );
   function choose(match: CompendiumMatch) {
     if (!canEdit) return;
     const link = data && confirmCompendiumSelection(match, data);
@@ -265,11 +250,7 @@ export function LinkPicker({
           rows.slice(0, 100).map((row) => (
             <li key={`${row.rowIndex}:${row.name}`}>
               <button type="button" disabled={!canEdit} onClick={() => choose({ tab, row })}>
-                {compendiumIdentifiers(row.name).some((identifier) =>
-                  compendiumNameVariants(category, query)
-                    .map(normaliseCompendiumName)
-                    .includes(normaliseCompendiumName(identifier)),
-                ) && 'Exact match: '}
+                {exact.has(row) && 'Exact match: '}
                 {row.name} {row.section && ` / ${row.section}`} <small>(row {row.rowIndex})</small>
               </button>
               <button type="button" onClick={() => setAnchorRow(row)}>

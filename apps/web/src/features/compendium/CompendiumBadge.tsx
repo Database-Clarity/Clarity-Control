@@ -12,6 +12,7 @@ import { readProgress, reviewStorageKey } from './reviewProgress';
 import { bundleUrl } from '../../services/bundle';
 import { compendiumDataUrl } from '../../services/compendium';
 import { apiUrl } from '../../services/api';
+import { pickerRowIndex } from './pickerRows';
 
 export type CompendiumCount =
   { state: 'loading' } | { state: 'error' } | { state: 'ready'; count: number };
@@ -31,6 +32,9 @@ export function useCompendiumCount(): CompendiumCount {
     const evidence = () =>
       preparedEvidence(prepared, useDraftStore.getState().drafts, editor, data);
     const jobs = [
+      ...data.tabs.map((tab) => () => {
+        pickerRowIndex(tab);
+      }),
       () => groupManifestItems(editor.items, editor.aliases),
       () => {
         try {
