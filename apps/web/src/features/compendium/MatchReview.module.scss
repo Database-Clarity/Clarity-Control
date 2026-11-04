@@ -66,6 +66,7 @@
   }
 }
 .entryReview {
+  padding-bottom: max(6rem, var(--review-action-bar-height, 6rem));
   display: flex;
   flex-direction: column;
   height: calc(100dvh - 2 * clamp(1.25rem, 4vw, 3rem));
@@ -154,7 +155,7 @@
   gap: 0.6rem;
   flex-wrap: wrap;
   label {
-    flex: 1;
+    flex: 1 1 12rem;
   }
 }
 .notice {
@@ -287,6 +288,9 @@
   overflow: auto;
   margin-bottom: 1rem;
   > section {
+    contain: content;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 30rem;
     border-top: 1px solid #58667d;
     padding: 1rem 0;
   }

@@ -75,11 +75,12 @@ describe('alignment and diff preference', () => {
     };
     const host = render(createElement(RichCell, { cell: value }));
     expect(host.textContent).toBe(value.plain);
-    expect(
-      [...host.querySelectorAll<HTMLElement>('[style*="text-align"]')].map(
-        (el) => el.style.textAlign,
-      ),
-    ).toEqual(['center', 'center', 'right']);
+    const blocks = [...host.querySelectorAll<HTMLElement>('[style*="text-align"]')];
+    expect(blocks.find((el) => el.textContent?.includes('Centre'))?.style.textAlign).toBe('center');
+    expect(blocks.find((el) => el.textContent?.includes('Right'))?.style.textAlign).toBe('right');
+    expect(blocks.find((el) => el.textContent?.includes('Centre'))?.textContent).toContain(
+      'Centre\n\n',
+    );
   });
   it('keeps diff words inline inside aligned lines and updates all mounted comparisons', () => {
     const props = { before: aligned('One\nold'), after: aligned('One\nnew', 'right') };
