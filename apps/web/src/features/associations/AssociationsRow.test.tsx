@@ -119,3 +119,23 @@ it('scans candidates only while the add picker is visible, including after draft
   expect(host.textContent).toContain('Add Beta');
   expect(associationCandidates).toHaveBeenCalledTimes(1);
 });
+
+it('keeps open picker results through text edits and refreshes changed membership', async () => {
+  await render();
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[aria-label="Add associated tooltip"]')!.click(),
+  );
+  vi.mocked(associationCandidates).mockClear();
+  const base = tip(10, [20, 21]);
+  const next = {
+    ...tip(10, [20, 21]),
+    text: { en: { text: 'Typed text', updatedAt: '2026-11-04T00:00:00Z', updatedBy: 'ann' } },
+  };
+  await act(async () => useDraftStore.setState({ drafts: { 10: { base, next } } }));
+  expect(associationCandidates).not.toHaveBeenCalled();
+  await act(async () =>
+    useDraftStore.setState({ drafts: { 10: { base, next: { ...next, associated: [20] } } } }),
+  );
+  expect(associationCandidates).toHaveBeenCalledTimes(1);
+  expect(host.textContent).toContain('Add Gamma');
+});

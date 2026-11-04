@@ -5,8 +5,22 @@ import type { Drafts } from './draftStorage';
 // rather than resolving every saved hash again whenever one draft gains a character.
 const savedImports = new WeakMap<
   Record<string, Tooltip>,
-  WeakMap<Aliases, Map<Lang, { text: Record<string, string>; aliases: [string, number][] }>>
+  WeakMap<
+    Aliases,
+    Map<Lang, { text: Record<string, string>; aliases: ReadonlyMap<string, number> }>
+  >
 >();
+const aliasIndexes = new WeakMap<Aliases, ReadonlyMap<string, number>>();
+function aliasIndex(aliases: Aliases) {
+  let index = aliasIndexes.get(aliases);
+  if (!index) {
+    index = new Map(
+      Object.keys(aliases).map((hash) => [hash, resolveAlias(Number(hash), aliases)]),
+    );
+    aliasIndexes.set(aliases, index);
+  }
+  return index;
+}
 
 export function tooltipImports(
   tooltips: Record<string, Tooltip>,
@@ -20,15 +34,16 @@ export function tooltipImports(
   if (!byLanguage) byAliases.set(aliases, (byLanguage = new Map()));
   let saved = byLanguage.get(lang);
   if (!saved) {
+    const index = aliasIndex(aliases);
     const text: Record<string, string> = {};
     for (const [hash, tooltip] of Object.entries(tooltips)) {
-      if (resolveAlias(Number(hash), aliases) === Number(hash)) {
+      if ((index.get(hash) ?? Number(hash)) === Number(hash)) {
         text[hash] = tooltip.text[lang]?.text ?? '';
       }
     }
     saved = {
       text,
-      aliases: Object.keys(aliases).map((hash) => [hash, resolveAlias(Number(hash), aliases)]),
+      aliases: index,
     };
     byLanguage.set(lang, saved);
   }
@@ -39,7 +54,7 @@ export function tooltipImports(
   const read = (key: string) => {
     const hash = Number(key);
     if (!Number.isInteger(hash) || String(hash) !== key) return undefined;
-    const canonical = resolveAlias(hash, aliases);
+    const canonical = saved.aliases.get(key) ?? hash;
     return drafts[canonical]?.next.text[lang]?.text ?? (drafts[canonical] ? '' : text[canonical]);
   };
   return new Proxy<Record<string, string>>(
@@ -51,7 +66,7 @@ export function tooltipImports(
       ownKeys() {
         const keys = { ...text };
         for (const hash of Object.keys(drafts)) {
-          if (resolveAlias(Number(hash), aliases) === Number(hash)) keys[hash] = '';
+          if ((saved.aliases.get(hash) ?? Number(hash)) === Number(hash)) keys[hash] = '';
         }
         for (const [hash, canonical] of saved.aliases) {
           if (read(String(canonical)) !== undefined) keys[hash] = '';

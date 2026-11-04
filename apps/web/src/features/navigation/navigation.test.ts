@@ -270,6 +270,12 @@ describe('tooltip catalog', () => {
     expect(canonicalHash(555, data)).toBe(555);
     expect(variantHashes(10, data)).toEqual([10, 11, 12]);
   });
+  it('refreshes canonical destinations when the loaded catalogue changes', () => {
+    expect(canonicalHash(99, data)).toBe(10);
+    const changed = { ...data, aliases: { 99: { to: 20, kind: 'sandbox' as const } } };
+    expect(canonicalHash(99, changed)).toBe(20);
+    expect(canonicalHash(99, data)).toBe(10);
+  });
   it('groups categories in order and lists variants only with their base', () => {
     const groups = navigationGroups(data, '');
     expect(groups.map((group) => group.name)).toEqual(['Armor', 'Weapons', 'Other']);
