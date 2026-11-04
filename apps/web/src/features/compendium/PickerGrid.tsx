@@ -25,16 +25,18 @@ const GridBand = memo(function GridBand({
     [tab, band, columns, firstRow, lastRow],
   );
   return (
-    <table
-      className={`${styles.sheet} ${gridStyles.band}`}
-      style={{ tableLayout: 'fixed', width: `${5 + columns * 14}rem` }}
-    >
-      <colgroup>
-        <col style={{ width: '5rem' }} />
-        <col span={columns} style={{ width: '14rem' }} />
-      </colgroup>
-      <tbody dangerouslySetInnerHTML={markup} />
-    </table>
+    <div className={gridStyles.band}>
+      <table
+        className={styles.sheet}
+        style={{ tableLayout: 'fixed', width: `${5 + columns * 14}rem` }}
+      >
+        <colgroup>
+          <col style={{ width: '5rem' }} />
+          <col span={columns} style={{ width: '14rem' }} />
+        </colgroup>
+        <tbody dangerouslySetInnerHTML={markup} />
+      </table>
+    </div>
   );
 });
 
@@ -68,15 +70,19 @@ export const PickerGrid = memo(function PickerGrid({
       return;
     }
     let cancelled = false,
-      frame = 0;
+      frame = 0,
+      mounted = 1;
     const channel = new MessageChannel();
+    const schedule = () => {
+      if (cancelled || mounted >= bands.length) return;
+      frame = requestAnimationFrame(() => {
+        frame = requestAnimationFrame(() => channel.port2.postMessage(null));
+      });
+    };
     channel.port1.onmessage = () => {
-      if (!cancelled)
-        setState((current) =>
-          current.bands === bands
-            ? { bands, count: Math.min(bands.length, current.count + 1) }
-            : current,
-        );
+      if (cancelled || mounted >= bands.length) return;
+      setState({ bands, count: ++mounted });
+      schedule();
     };
     let contentHeight = 0,
       viewportHeight = 0,
@@ -89,15 +95,15 @@ export const PickerGrid = memo(function PickerGrid({
       if (!first || !contentHeight || !viewportHeight) return;
       first = false;
       observer.disconnect();
-      // No guessed heights or empty visible bands: when the first band does not
-      // overflow the pane, finish before its first paint. A small sheet simply
-      // stays complete; a large rowspan remains one indivisible layout.
-      if (contentHeight <= viewportHeight + 1)
-        flushSync(() => setState({ bands, count: bands.length }));
-      else
-        frame = requestAnimationFrame(() => {
-          frame = requestAnimationFrame(() => channel.port2.postMessage(null));
-        });
+      // Fill the pane before its first paint, using real band heights. Mounting
+      // the entire window here would turn a short first band into a full-grid
+      // layout. Only the minimum complete bands needed for overflow are urgent.
+      while (mounted < bands.length && contentHeight <= viewportHeight + 1) {
+        flushSync(() => setState({ bands, count: ++mounted }));
+        contentHeight = body.current!.getBoundingClientRect().height;
+        viewportHeight = viewport.current!.clientHeight;
+      }
+      schedule();
     });
     observer.observe(body.current!);
     observer.observe(viewport.current!);
@@ -109,25 +115,8 @@ export const PickerGrid = memo(function PickerGrid({
       channel.port2.close();
     };
   }, [bands]);
-  useEffect(() => {
-    if (count <= 1 || count >= bands.length) return;
-    let frame = 0;
-    const channel = new MessageChannel();
-    channel.port1.onmessage = () =>
-      setState((current) =>
-        current.bands === bands
-          ? { bands, count: Math.min(bands.length, current.count + 1) }
-          : current,
-      );
-    frame = requestAnimationFrame(() => {
-      frame = requestAnimationFrame(() => channel.port2.postMessage(null));
-    });
-    return () => {
-      cancelAnimationFrame(frame);
-      channel.port1.close();
-      channel.port2.close();
-    };
-  }, [bands, count]);
+  const previousSelection = useRef<{ row: number; col: number }[]>([]);
+  const previousLimit = useRef(false);
   useLayoutEffect(() => {
     const anchorCell = compendiumCellAt(tab, anchor);
     for (const previous of body.current!.querySelectorAll('[data-anchor="true"]'))
@@ -136,7 +125,23 @@ export const PickerGrid = memo(function PickerGrid({
       body
         .current!.querySelectorAll(`[data-cell="${anchorCell.row}:${anchorCell.col}"]`)
         .forEach((piece) => piece.setAttribute('data-anchor', 'true'));
-    for (const button of body.current!.querySelectorAll('button')) {
+    const selectedCells = offsets.map((offset) => ({
+      row: anchor.row + offset.dRow,
+      col: anchor.col + offset.dCol,
+    }));
+    const atLimit = offsets.length >= 256;
+    // New markup is already unselected. Touch only the old/new selection unless
+    // crossing the selection limit requires disabling every other cell.
+    const buttons = new Set<HTMLButtonElement>();
+    if (atLimit || previousLimit.current)
+      for (const button of body.current!.querySelectorAll('button')) buttons.add(button);
+    else
+      for (const cell of [...previousSelection.current, ...selectedCells])
+        for (const button of body.current!.querySelectorAll<HTMLButtonElement>(
+          `button[data-row="${cell.row}"][data-col="${cell.col}"]`,
+        ))
+          buttons.add(button);
+    for (const button of buttons) {
       const row = Number(button.dataset.row),
         col = Number(button.dataset.col);
       const selected = offsets.findIndex(
@@ -158,6 +163,8 @@ export const PickerGrid = memo(function PickerGrid({
         if (order.textContent !== text) order.textContent = text;
       }
     }
+    previousSelection.current = selectedCells;
+    previousLimit.current = atLimit;
   }, [count, bands, tab, anchor, offsets]);
   return (
     <div

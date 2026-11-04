@@ -4,8 +4,13 @@
   contain: layout style paint;
 }
 
-.band + .band {
-  margin-top: -1px;
+.band {
+  // Appending a band must not invalidate the previous tables' rich layout.
+  // A block wrapper supports layout containment; a native table does not.
+  contain: layout style;
+  & + & {
+    margin-top: -1px;
+  }
 }
 
 // Each piece keeps the source width and identity, with only the merged cell's
