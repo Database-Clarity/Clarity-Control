@@ -62,9 +62,18 @@ beforeEach(() => {
   } as never);
   width = undefined;
   class FakeObserver {
-    constructor(private notify: () => void) {}
-    observe() {
-      this.notify();
+    constructor(private notify: ResizeObserverCallback) {}
+    observe(target: Element) {
+      this.notify(
+        [
+          {
+            target,
+            borderBoxSize: [{ inlineSize: width ?? 0, blockSize: 0 }],
+            contentRect: { width: width ?? 0, height: 0 },
+          } as unknown as ResizeObserverEntry,
+        ],
+        this as unknown as ResizeObserver,
+      );
     }
     disconnect() {}
   }

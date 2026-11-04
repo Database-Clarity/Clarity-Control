@@ -9,9 +9,23 @@ function* tokens(value: unknown, inArray = false): Generator<string> {
     }
     yield ']';
   } else if (value && typeof value === 'object') {
+    const entries = Object.entries(value);
+    // Catalog items and translation records are flat JSON objects. Let the
+    // native serializer handle each record instead of yielding every punctuation
+    // token; keep the surrounding model incremental and interruptible.
+    if (
+      (Object.getPrototypeOf(value) === Object.prototype ||
+        Object.getPrototypeOf(value) === null) &&
+      entries.every(
+        ([key, entry]) => (entry === null || typeof entry !== 'object') && key !== 'toJSON',
+      )
+    ) {
+      yield JSON.stringify(value);
+      return;
+    }
     yield '{';
     let comma = false;
-    for (const [key, entry] of Object.entries(value)) {
+    for (const [key, entry] of entries) {
       if (entry === undefined || typeof entry === 'function' || typeof entry === 'symbol') continue;
       if (comma) yield ',';
       comma = true;
@@ -49,7 +63,13 @@ export async function streamInputs(
   let deadline = performance.now() + 2;
   const flush = () => {
     if (cancelled()) throw new Error('Compendium inputs changed.');
-    if (parts.length) send(encoder.encode(parts.join('')).buffer as ArrayBuffer);
+    if (parts.length) {
+      const bytes = encoder.encode(parts.join(''));
+      for (let at = 0; at < bytes.length; at += 32_768) {
+        if (cancelled()) throw new Error('Compendium inputs changed.');
+        send(bytes.slice(at, at + 32_768).buffer as ArrayBuffer);
+      }
+    }
     parts = [];
     length = 0;
   };

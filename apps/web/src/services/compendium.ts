@@ -13,6 +13,10 @@ export const compendiumDataUrl =
   'https://raw.githubusercontent.com/Database-Clarity/Compendium-data/main/compendium.json';
 let cached: { value: CompendiumData; at: number } | undefined;
 let pending: Promise<CompendiumData> | undefined;
+let pendingBridge: ReturnType<typeof createWorkerBridge> | undefined;
+export function pendingCompendiumWorker() {
+  return pendingBridge && !pendingBridge.disposed ? pendingBridge : undefined;
+}
 let started = 0;
 let applied = 0;
 function fetchSource() {
@@ -23,12 +27,15 @@ function fetchSource() {
       type: 'module',
     }),
   );
+  pendingBridge = bridge;
   return bridge.request<CompendiumData>({ load: { url: compendiumDataUrl } }).then(
     (value) => {
+      if (pendingBridge === bridge) pendingBridge = undefined;
       bindSourceWorker(value, bridge);
       return value;
     },
     (error: unknown) => {
+      if (pendingBridge === bridge) pendingBridge = undefined;
       bridge.dispose();
       throw error;
     },

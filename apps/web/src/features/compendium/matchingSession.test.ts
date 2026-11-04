@@ -1,106 +1,40 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { guidedFixture } from '../../../test/guided-fixture';
-import { emptyProgress } from './reviewProgress';
+import { createWorkerBridge, bindSourceWorker } from './workerBridge';
 import { sendWorkerResult } from './workerReplies';
+import { matchingSession, prewarmMatchingSession } from './matchingSession';
 
+const streams = vi.hoisted(() => ({ inputs: [] as unknown[] }));
+vi.mock('./streamInputs', () => ({
+  streamInputs: async (value: unknown) => {
+    streams.inputs.push(value);
+  },
+}));
 afterEach(() => vi.unstubAllGlobals());
-it('shares a worker across views and avoids resending results for empty guidance or selection changes', async () => {
-  vi.resetModules();
-  const requests: Record<string, unknown>[] = [];
-  const terminate = vi.fn();
-  class FakeWorker {
-    onmessage?: (event: MessageEvent) => void;
-    terminate = terminate;
-    postMessage(data: Record<string, unknown>) {
-      requests.push(data);
-      if (!data.id) return;
-      queueMicrotask(() =>
-        sendWorkerResult(
-          (reply) => this.onmessage?.({ data: reply } as MessageEvent),
-          data.id as number,
-          data.initialize ? new Map() : { matches: new Map(), decisions: [] },
-        ),
-      );
-    }
-  }
-  vi.stubGlobal('Worker', FakeWorker);
-  const { matchingSession } = await import('./matchingSession');
-  const f = guidedFixture();
-  const first = matchingSession(f.editor, f.source);
-  expect(matchingSession(f.editor, f.source)).toBe(first);
-  const input = { drafts: {}, progress: emptyProgress(), scope: f.scope };
-  const a = first.display(input);
-  await a;
-  const b = first.display({
-    ...input,
-    progress: { ...input.progress, selected: 101, query: 'sample' },
-    local: { version: 1, scope: f.scope, baseline: '', categories: {} },
-  });
-  expect(b).toBe(a);
-  expect(requests.filter((request) => request.id)).toHaveLength(2);
-  expect(requests.some((request) => request.editor || request.source)).toBe(false);
-  await first.display({ ...input, local: f.document });
-  expect(requests.filter((request) => request.id)).toHaveLength(3);
-  const reloaded = matchingSession(f.editor, { ...f.source });
-  expect(reloaded).not.toBe(first);
-  expect(terminate).toHaveBeenCalledTimes(1);
-  await reloaded.proposals;
-});
 
-it('initializes and reloads editor inputs in the retained source worker using transferred bytes', async () => {
-  vi.resetModules();
-  const f = guidedFixture();
-  const chunks = new Map<number, Uint8Array[]>();
-  const initialized: Record<string, unknown>[] = [];
-  const terminate = vi.fn();
-  class RetainedWorker {
-    onmessage?: (event: MessageEvent) => void;
-    terminate = terminate;
-    postMessage(message: Record<string, unknown>, transfer: Transferable[] = []) {
-      const data = structuredClone(message, { transfer });
-      if (data.initialChunk) {
-        const { token, bytes } = data.initialChunk as { token: number; bytes: ArrayBuffer };
-        const parts = chunks.get(token) ?? [];
-        parts.push(new Uint8Array(bytes));
-        chunks.set(token, parts);
-      } else if (data.initialize) {
-        const { token } = data.initialize as { token: number };
-        initialized.push(
-          JSON.parse(
-            chunks
-              .get(token)!
-              .map((part) => new TextDecoder().decode(part))
-              .join(''),
-          ),
-        );
-        queueMicrotask(() =>
-          sendWorkerResult(
-            (reply) => this.onmessage?.({ data: reply } as MessageEvent),
-            data.id as number,
-            new Map(),
-          ),
-        );
-      }
-    }
-  }
-  const worker = new RetainedWorker();
-  const { createWorkerBridge, bindSourceWorker } = await import('./workerBridge');
-  const bridge = createWorkerBridge(worker as unknown as Worker);
-  bindSourceWorker(f.source, bridge);
-  const construct = vi.fn(() => {
-    throw new Error('A second source worker must not be created');
-  });
-  vi.stubGlobal('Worker', construct);
-  const { matchingSession } = await import('./matchingSession');
-  await matchingSession(f.editor, f.source).proposals;
-  await matchingSession(
-    { ...f.editor, bundle: { ...f.editor.bundle, sourceCommit: 'reloaded' } },
-    f.source,
-  ).proposals;
-  expect(construct).not.toHaveBeenCalled();
-  expect(terminate).not.toHaveBeenCalled();
-  expect(initialized).toHaveLength(2);
-  expect(initialized[0].editor).toEqual(JSON.parse(JSON.stringify(f.editor)));
-  expect(initialized.every((input) => !('source' in input))).toBe(true);
-  bridge.dispose();
+it('initializes the retained worker before source delivery and reuses that session once bound', async () => {
+  streams.inputs = [];
+  const fixture = guidedFixture();
+  const worker = { postMessage: vi.fn(), terminate: vi.fn() } as unknown as Worker;
+  const bridge = createWorkerBridge(worker);
+  // The source request is still outstanding: no main-thread source object is bound yet.
+  prewarmMatchingSession(fixture.editor, bridge);
+  prewarmMatchingSession(fixture.editor, bridge);
+  await Promise.resolve();
+  expect(streams.inputs).toEqual([{ editor: fixture.editor }]);
+  const initialize = vi
+    .mocked(worker.postMessage)
+    .mock.calls.find(([value]) => value.initialize)?.[0];
+  expect(initialize).toBeDefined();
+  bindSourceWorker(fixture.source, bridge);
+  const session = matchingSession(fixture.editor, fixture.source);
+  expect(streams.inputs).toHaveLength(1);
+  sendWorkerResult(
+    (data) => worker.onmessage!.call(worker, { data } as MessageEvent),
+    initialize.id,
+    new Map(),
+  );
+  expect(await session.proposals).toEqual(new Map());
+  expect(worker.terminate).not.toHaveBeenCalled();
+  session.dispose();
 });

@@ -4,6 +4,7 @@
 // ---- the editor page's Compendium pane (header and scroll live in ui/RightPane) ----
 // CSS zoom on the pane body is the device's Compendium scale; the header never scales.
 .zoom {
+  font-family: Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', sans-serif;
   contain: content;
   min-width: 0;
   padding-bottom: 0.5rem;

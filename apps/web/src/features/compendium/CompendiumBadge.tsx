@@ -7,10 +7,10 @@ import { useDraftStore } from '../../stores/drafts';
 import { useAuthStore } from '../../stores/auth';
 import { groupManifestItems } from './manifestItems';
 import { preparedEvidence, preparedProposals, reviewedEntries } from './reviewViewCache';
-import { peekMatchingSession } from './matchingSession';
+import { peekMatchingSession, prewarmMatchingSession } from './matchingSession';
 import { readProgress, reviewStorageKey } from './reviewProgress';
 import { bundleUrl } from '../../services/bundle';
-import { compendiumDataUrl } from '../../services/compendium';
+import { compendiumDataUrl, pendingCompendiumWorker } from '../../services/compendium';
 import { apiUrl } from '../../services/api';
 import { pickerRowIndex } from './pickerRows';
 
@@ -25,6 +25,12 @@ export function useCompendiumCount(): CompendiumCount {
   const userId = useAuthStore((state) => state.user?.id);
   const { data, error, load } = useCompendiumStore();
   const { prepared } = useDisplayMatches(editor, data, drafts, userId);
+  useEffect(() => {
+    if (!editor || data) return;
+    void load();
+    const bridge = pendingCompendiumWorker();
+    if (bridge) prewarmMatchingSession(editor, bridge);
+  }, [editor, data, load]);
   useEffect(() => {
     if (!editor || !data || !prepared) return;
     // Prepare the entire review model fairly, regardless of viewport, selection or route.

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { startTransition, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { CompendiumData } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import type { Drafts } from '../../services/draftStorage';
@@ -81,6 +81,15 @@ export function useDisplayMatches(
     remembered.userId === userId &&
     remembered.inputs.key === inputs.key;
   const [revision, refresh] = useState(0);
+  const [earlyMatches, setEarlyMatches] = useState<{
+    editor: EditorData;
+    source: CompendiumData;
+    evidence: string;
+    userId: typeof userId;
+    inputs: StoredInputs;
+    revision: number;
+    matches: Value['matches'];
+  }>();
   const [result, setResult] = useState<{
     editor: EditorData;
     source: CompendiumData;
@@ -103,7 +112,14 @@ export function useDisplayMatches(
   }, []);
   useEffect(() => {
     if (!editor || !source) return;
-    if (!import.meta.env.DEV && cacheValid) return;
+    const previous = memory.get(editor)?.get(source);
+    if (
+      !import.meta.env.DEV &&
+      previous?.evidence === evidence &&
+      previous.userId === userId &&
+      previous.inputs.key === inputs.key
+    )
+      return;
     let cancelled = false;
     void (async () => {
       if (inputs.error) throw new Error(inputs.error);
@@ -119,14 +135,25 @@ export function useDisplayMatches(
           throw new Error('Local Compendium guidance conflicts with disk.');
         local = cached?.pending ? local : (disk.document ?? local);
       }
-      const value = await matchingSession(editor, source).display({
-        drafts: matchingDrafts,
-        progress: inputs.progress,
-        local,
-        scope,
-      });
+      const value = await matchingSession(editor, source).display(
+        {
+          drafts: matchingDrafts,
+          progress: inputs.progress,
+          local,
+          scope,
+        },
+        (matches) => {
+          if (!cancelled)
+            startTransition(() =>
+              setEarlyMatches({ editor, source, evidence, userId, inputs, revision, matches }),
+            );
+        },
+      );
       remember(editor, source, { evidence, userId, inputs, value });
-      if (!cancelled) setResult({ editor, source, evidence, userId, inputs, revision, value });
+      if (!cancelled)
+        startTransition(() =>
+          setResult({ editor, source, evidence, userId, inputs, revision, value }),
+        );
     })().catch((error: unknown) => {
       if (!cancelled)
         setResult({
@@ -142,7 +169,7 @@ export function useDisplayMatches(
     return () => {
       cancelled = true;
     };
-  }, [editor, source, matchingDrafts, evidence, userId, revision, inputs, scope, cacheValid]);
+  }, [editor, source, matchingDrafts, evidence, userId, revision, inputs, scope]);
   const current =
     result?.editor === editor &&
     result?.source === source &&
@@ -168,10 +195,19 @@ export function useDisplayMatches(
   return {
     prepared: value,
     reviewPrepared,
-    matches: value?.matches,
+    matches:
+      value?.matches ??
+      (!current?.error &&
+      earlyMatches?.editor === editor &&
+      earlyMatches.source === source &&
+      earlyMatches.evidence === evidence &&
+      earlyMatches.userId === userId &&
+      earlyMatches.inputs.key === inputs.key &&
+      earlyMatches.revision === revision
+        ? earlyMatches.matches
+        : undefined),
     decisions: value?.decisions,
     loading: !!editor && !!source && !current && !value,
     error: current?.error,
   };
 }
-

@@ -11,8 +11,9 @@ it('batches rich results while preserving maps, undefined values and shared cell
   };
   const replies: WorkerReply[] = [];
   sendWorkerResult((reply) => replies.push(structuredClone(reply)), 7, original);
-  expect(replies.length).toBeGreaterThan(3);
-  expect(replies.every((reply) => !reply.nodes || reply.nodes.length <= 512)).toBe(true);
+  expect(replies).toHaveLength(1);
+  expect(replies[0].buffer).toBeInstanceOf(ArrayBuffer);
+  expect(replies[0].sizes!.length).toBeGreaterThan(3);
   const receive = receiveWorkerResult();
   let decoded: typeof original | undefined;
   for (const reply of replies) {
@@ -38,4 +39,63 @@ it('preserves a JSON __proto__ key as data without changing object prototypes', 
   );
   expect(Object.getPrototypeOf(value)).toBe(Object.prototype);
   expect(Object.hasOwn(value as object, '__proto__')).toBe(true);
+});
+
+it('delivers validated matches before the review model without breaking shared identities', () => {
+  const matches = new Map([
+    [12, { cell: { plain: 'Styled', runs: [{ text: 'Styled', bold: true }] } }],
+  ]);
+  const model = {
+    matches,
+    entries: Array.from({ length: 4000 }, (_, hash) => ({ hash, text: `Review ${hash}` })),
+  };
+  const receive = receiveWorkerResult();
+  let early: unknown;
+  let full: typeof model | undefined;
+  let chunksAfterEarly = 0;
+  sendWorkerResult(
+    (reply) => {
+      if (early && reply.buffer) chunksAfterEarly++;
+      const decoded = receive(structuredClone(reply));
+      if (decoded.done) full = decoded.value as typeof model;
+      else if ('partial' in decoded) early = decoded.partial;
+    },
+    8,
+    model,
+    matches,
+  );
+  expect(early).toEqual(matches);
+  expect(chunksAfterEarly).toBeGreaterThan(0);
+  expect(full).toEqual(model);
+  expect(full!.matches).toBe(early);
+});
+
+it('yields within large containers and preserves prototype-like keys as ordinary data', () => {
+  const object = JSON.parse('{"__proto__":{"safe":true}}');
+  for (let i = 0; i < 500; i++) object[`field${i}`] = i;
+  const value = {
+    object,
+    list: Array.from({ length: 15000 }, (_, i) => i),
+    map: new Map(Array.from({ length: 1000 }, (_, i) => [i, `Value ${i}`])),
+  };
+  const receiver = receiveWorkerResult();
+  let decoded: typeof value | undefined;
+  let yields = 0;
+  sendWorkerResult(
+    (reply) => {
+      const steps = receiver.steps(reply);
+      let next = steps.next();
+      while (!next.done) {
+        yields++;
+        next = steps.next();
+      }
+      if (next.value.done) decoded = next.value.value as typeof value;
+    },
+    9,
+    value,
+  );
+  expect(yields).toBeGreaterThan(15000);
+  expect(decoded).toEqual(value);
+  expect(Object.getPrototypeOf(decoded!.object)).toBe(Object.prototype);
+  expect(Object.hasOwn(decoded!.object, '__proto__')).toBe(true);
 });

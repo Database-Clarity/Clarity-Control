@@ -827,9 +827,19 @@ Reload published data creates a new source identity. View navigation shares the 
 session, so it neither parses the sheet nor restarts matching. Rich-cell interning/memoization
 and sheet paint containment preserve text, spans, merged-cell selections, styling and colours.
 
-Worker replies use the same value-table representation in batches of 512 nodes. This preserves
+Worker replies use the same value-table representation in one transferred UTF-8 buffer per
+result stage, with independently readable packets of 128 nodes inside. This preserves
 Map/undefined values, physical coordinates, full rich cells and structural sharing without a
-single large clone on the UI thread. Main-thread receivers publish only the complete result.
+burst of structured-clone messages. Decoding runs in background-priority slices (idle callbacks
+where the scheduler API is unavailable) with a 2 ms budget, checks
+pending discrete and continuous input, and yields inside large array/map/object nodes. The complete,
+validated match map may publish before review metadata; partial review models never publish.
+Callbacks are scoped to the editor, source, account, draft/link evidence, local guidance/progress
+and request revision, so an older result cannot supply another context's automatic links.
+Worker review replies carry English evidence only; the UI restores original tooltip/draft
+identities and all translations from its authoritative editor store before any draft operation.
+Optional IndexedDB writes do not delay delivery. Memory serves pending writes, and persistent
+proposal caches retain their pristine display model as a pair, including on an immediate reload.
 Draft matching projects only link/classification metadata, caches unchanged draft entries and
 ignores live text; the review view overlays current draft English separately. Nearby sheet context
 is built only after its existing disclosure is opened; the approved description stays immediate.

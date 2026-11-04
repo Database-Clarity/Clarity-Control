@@ -1,10 +1,18 @@
 // A JSON value table preserves structural sharing (especially rich cells/snapshots) on the wire.
-export function encodePrecomputed(value: unknown) {
+export function encodePrecomputed(
+  value: unknown,
+  observe?: (value: unknown, id: number, nodes: unknown[]) => void,
+) {
   const nodes: unknown[] = [];
   const ids = new Map<string, number>();
   const objects = new WeakMap<object, number>();
+  function complete(value: unknown, id: number) {
+    observe?.(value, id, nodes);
+    return id;
+  }
   function write(value: unknown): number {
-    if (value && typeof value === 'object' && objects.has(value)) return objects.get(value)!;
+    if (value && typeof value === 'object' && objects.has(value))
+      return complete(value, objects.get(value)!);
     let node = value === undefined ? [3] : value;
     if (value && typeof value === 'object') {
       node =
@@ -18,13 +26,13 @@ export function encodePrecomputed(value: unknown) {
     const prior = ids.get(key);
     if (prior !== undefined) {
       if (value && typeof value === 'object') objects.set(value, prior);
-      return prior;
+      return complete(value, prior);
     }
     const id = nodes.length;
     nodes.push(node);
     ids.set(key, id);
     if (value && typeof value === 'object') objects.set(value, id);
-    return id;
+    return complete(value, id);
   }
   const root = write(value);
   return { nodes, root };

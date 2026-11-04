@@ -10,7 +10,15 @@ async function database() {
     request.onerror = () => reject(request.error);
   });
 }
+const memory = new Map<string, unknown>();
+function remember<T>(key: string, value: T): T {
+  memory.delete(key);
+  memory.set(key, value);
+  if (memory.size > 6) memory.delete(memory.keys().next().value!);
+  return value;
+}
 export async function cachedComputation<T>(key: string, compute: () => Promise<T>): Promise<T> {
+  if (memory.has(key)) return memory.get(key) as T;
   let db: IDBDatabase | undefined;
   try {
     db = await database();
@@ -19,13 +27,22 @@ export async function cachedComputation<T>(key: string, compute: () => Promise<T
       request.onsuccess = () => resolve(request.result as T | undefined);
       request.onerror = () => reject(request.error);
     });
-    if (value !== undefined) return value;
+    if (value !== undefined) return remember(key, value);
   } catch {
     /* Private browsing/storage policy: compute the same answer in memory. */
   } finally {
     db?.close();
   }
   const value = await compute();
+  remember(key, value);
+  // Persist an optional copy after publishing the result. Waiting for IndexedDB's
+  // graph clone and transaction delayed source delivery, then proposals, then
+  // display in series. The worker retains the same value while a write is pending.
+  void persist(key, value);
+  return value;
+}
+async function persist(key: string, value: unknown) {
+  let db: IDBDatabase | undefined;
   try {
     db = await database();
     await new Promise<void>((resolve, reject) => {
@@ -57,7 +74,6 @@ export async function cachedComputation<T>(key: string, compute: () => Promise<T
   } finally {
     db?.close();
   }
-  return value;
 }
 export async function contentHash(value: unknown) {
   const bytes = new TextEncoder().encode(JSON.stringify(value));

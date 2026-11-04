@@ -21,8 +21,15 @@ const sessions = new WeakMap<
   WeakMap<CompendiumData, ReturnType<typeof createSession>>
 >();
 let inputToken = 0;
-function createSession(editor: EditorData, source: CompendiumData) {
-  const retained = sourceWorkerFor(source);
+type Bridge = ReturnType<typeof createWorkerBridge>;
+const warming = new WeakMap<EditorData, WeakMap<Bridge, ReturnType<typeof createSession>>>();
+function createSession(
+  editor: EditorData,
+  source?: CompendiumData,
+  earlyBridge?: Bridge,
+  onDispose?: () => void,
+) {
+  const retained = earlyBridge ?? (source && sourceWorkerFor(source));
   const bridge =
     retained ??
     createWorkerBridge(
@@ -31,9 +38,9 @@ function createSession(editor: EditorData, source: CompendiumData) {
   const owner = {};
   const token = ++inputToken;
   let disposed = false;
-  function request<T>(payload: object): Promise<T> {
+  function request<T>(payload: object, progress?: (value: unknown) => void): Promise<T> {
     if (disposed) return Promise.reject(new Error('Compendium inputs changed.'));
-    return bridge.request<T>(payload, owner);
+    return bridge.request<T>(payload, owner, progress);
   }
   let currentProposals: Map<number, ReviewProposal> | undefined;
   const proposals = streamInputs(
@@ -46,7 +53,15 @@ function createSession(editor: EditorData, source: CompendiumData) {
       currentProposals = value;
       return value;
     });
-  let display: { key: string; promise: Promise<Display> } | undefined;
+  type Matches = Display['matches'];
+  let display:
+    | {
+        key: string;
+        promise: Promise<Display>;
+        matches?: Matches;
+        listeners: Set<(matches: Matches) => void>;
+      }
+    | undefined;
   return {
     proposals,
     get currentProposals() {
@@ -54,6 +69,7 @@ function createSession(editor: EditorData, source: CompendiumData) {
     },
     dispose() {
       disposed = true;
+      onDispose?.();
       if (!bridge.disposed) bridge.post({ cancelInit: { token } });
       bridge.cancel(owner);
       if (!retained) bridge.dispose();
@@ -80,12 +96,29 @@ function createSession(editor: EditorData, source: CompendiumData) {
         }),
       );
     },
-    display(input: DisplayInput) {
+    display(input: DisplayInput, onMatches?: (matches: Matches) => void) {
       const key = displayInputKey(input);
-      if (display?.key === key) return display.promise;
-      const promise = proposals.then(() => request<Display>({ input }));
-      display = { key, promise };
-      return promise;
+      if (display?.key === key) {
+        if (onMatches) {
+          if (display.matches) onMatches(display.matches);
+          else display.listeners.add(onMatches);
+        }
+        return display.promise;
+      }
+      const pending: NonNullable<typeof display> = {
+        key,
+        listeners: new Set(onMatches ? [onMatches] : []),
+        matches: undefined as Matches | undefined,
+        promise: proposals.then(() =>
+          request<Display>({ input }, (value) => {
+            pending.matches = value as Matches;
+            for (const listener of pending.listeners) listener(pending.matches);
+            pending.listeners.clear();
+          }),
+        ),
+      };
+      display = pending;
+      return pending.promise;
     },
   };
 }
@@ -115,9 +148,25 @@ export function matchingSession(editor: EditorData, source: CompendiumData) {
   let sources = sessions.get(editor);
   if (!sources) sessions.set(editor, (sources = new WeakMap()));
   let session = sources.get(source);
-  if (!session) sources.set(source, (session = createSession(editor, source)));
+  if (!session) {
+    const bridge = sourceWorkerFor(source);
+    session = (bridge && warming.get(editor)?.get(bridge)) ?? createSession(editor, source);
+    sources.set(source, session);
+  }
   active = { editor, source, session };
   return session;
+}
+
+/** Stream editor inputs while the source is fetching/decoding, rather than after it. */
+export function prewarmMatchingSession(editor: EditorData, bridge: Bridge) {
+  if (bridge.disposed) return;
+  let byBridge = warming.get(editor);
+  if (!byBridge) warming.set(editor, (byBridge = new WeakMap()));
+  if (byBridge.has(bridge)) return;
+  const cache = byBridge;
+  const session = createSession(editor, undefined, bridge, () => cache.delete(bridge));
+  cache.set(bridge, session);
+  void session.proposals.catch(() => cache.delete(bridge));
 }
 
 export function peekMatchingSession(editor: EditorData, source: CompendiumData) {

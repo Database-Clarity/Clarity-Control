@@ -4,6 +4,7 @@ import { displayMatches } from './displayMatches';
 import { emptyProgress } from './reviewProgress';
 import { preparedEvidence, reviewedEntries } from './reviewViewCache';
 import { bulkPreviewCurrent, createBulkPreview } from './BulkPreview';
+import { compactDisplay } from './compactMatches';
 import type { Drafts } from '../../services/draftStorage';
 
 it('keeps bulk acceptance current after a worker clone and preserves real draft text', () => {
@@ -29,8 +30,11 @@ it('keeps bulk acceptance current after a worker clone and preserves real draft 
     };
   }
   const prepared = structuredClone(
-    displayMatches(editor, source, {}, progress, undefined, scope, proposals, document),
+    compactDisplay(
+      displayMatches(editor, source, {}, progress, undefined, scope, proposals, document),
+    ),
   );
+  expect(prepared.evidence.every((entry) => entry.base.text.de === undefined)).toBe(true);
   const drafts: Drafts = {};
   const clonedEntries = reviewedEntries(prepared.evidence, progress);
   const stalePreview = createBulkPreview(editor, source, clonedEntries, proposals);

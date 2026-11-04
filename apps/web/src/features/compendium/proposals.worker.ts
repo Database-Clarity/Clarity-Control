@@ -7,12 +7,13 @@ import { cachedComputation, contentHash } from './workerCache';
 import precomputedUrl from './precomputed.v1.json?url';
 import compressedUrl from './precomputed.v1.json.gz?url';
 import { compressedJson } from './compressedJson';
-import { compactMatch, compactProposal } from './compactMatches';
+import { compactDisplay, compactProposal } from './compactMatches';
 import { decodePrecomputed } from './precomputedCodec';
 import type { GuidanceDocument } from './guidanceSchema';
 import { matchingInputs } from './matchingInputs';
 import { sendWorkerResult, type WorkerReply } from './workerReplies';
-const emit = (reply: WorkerReply) => self.postMessage(reply);
+const emit = (reply: WorkerReply) =>
+  self.postMessage(reply, { transfer: reply.buffer ? [reply.buffer] : [] });
 let editor: EditorData;
 let source: CompendiumData;
 let proposals: Map<number, ReviewProposal>;
@@ -85,7 +86,10 @@ async function process(data: Request) {
       precomputedDisplay = undefined;
       lastDisplay = undefined;
       dataKey = await contentHash(matchingInputs(editor, source));
-      proposals = await cachedComputation(`${import.meta.url}:proposals:${dataKey}`, async () => {
+      const prepared = await cachedComputation<{
+        proposals: Map<number, ReviewProposal>;
+        display?: ReturnType<typeof displayMatches>;
+      }>(`${import.meta.url}:prepared:${dataKey}`, async () => {
         const compressed = typeof DecompressionStream !== 'undefined';
         const response = await fetch(compressed ? compressedUrl : precomputedUrl);
         if (response.ok) {
@@ -104,7 +108,7 @@ async function process(data: Request) {
             };
           };
           if (precomputed.key === dataKey) {
-            precomputedDisplay = {
+            const display = {
               ...precomputed.display,
               matches: new Map(precomputed.display.matches),
             };
@@ -113,24 +117,37 @@ async function process(data: Request) {
                 ...match,
                 tab: source.tabs.find((tab) => tab.gid === match.tab.gid) ?? match.tab,
               };
-            return new Map(
-              precomputed.proposals.map(([hash, p]) => [
-                hash,
-                { ...p, match: restore(p.match), candidates: p.candidates.map((m) => restore(m)!) },
-              ]),
-            );
+            return {
+              display,
+              proposals: new Map(
+                precomputed.proposals.map(([hash, p]) => [
+                  hash,
+                  {
+                    ...p,
+                    match: restore(p.match),
+                    candidates: p.candidates.map((m) => restore(m)!),
+                  },
+                ]),
+              ),
+            };
           }
         }
         const [{ reviewEvidence }, { proposalFor }] = await Promise.all([
           import('./reviewQueue'),
           import('./rapidReview'),
         ]);
-        return new Map(
-          reviewEvidence(editor, source, {}, '')
-            .filter((entry) => !entry.valid)
-            .map((entry) => [entry.hash, proposalFor(entry.base, editor, source)]),
-        );
+        return {
+          proposals: new Map(
+            reviewEvidence(editor, source, {}, '')
+              .filter((entry) => !entry.valid)
+              .map((entry) => [entry.hash, proposalFor(entry.base, editor, source)]),
+          ),
+        };
       });
+      // Cache the two halves together. A proposals-only cache hit used to lose
+      // its pristine display model and rerun all guidance on an immediate reload.
+      proposals = prepared.proposals;
+      precomputedDisplay = prepared.display;
       sendWorkerResult(
         emit,
         id,
@@ -183,10 +200,10 @@ async function process(data: Request) {
             ),
       );
       lastDisplay = result;
-      sendWorkerResult(emit, id, {
-        ...result,
-        matches: new Map([...result.matches].map(([hash, match]) => [hash, compactMatch(match)])),
-      });
+      const compact = compactDisplay(result);
+      // The current pane can use the validated match map before review metadata
+      // finishes transferring. Every entry in this map has passed the same gates.
+      sendWorkerResult(emit, id, compact, compact.matches);
     }
   } catch (error) {
     self.postMessage({
