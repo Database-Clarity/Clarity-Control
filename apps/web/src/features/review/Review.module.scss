@@ -54,6 +54,7 @@
 }
 
 .workspace {
+  contain: layout;
   display: grid;
   grid-template-columns: minmax(15rem, 1fr) minmax(0, 2fr);
   gap: 1.5rem;

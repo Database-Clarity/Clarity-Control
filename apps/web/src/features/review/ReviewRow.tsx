@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getHistory, type HistoryCommit } from '../../services/history';
 import { errorMessage } from '../../services/http';
 import { CommitAuthor } from '../history/CommitAuthor';
@@ -28,8 +28,23 @@ export function ReviewRow({
   const [latest, setLatest] = useState<HistoryCommit>();
   const [error, setError] = useState<string>();
   const [loaded, setLoaded] = useState(false);
+  const row = useRef<HTMLLIElement>(null);
+  const [near, setNear] = useState(() => typeof IntersectionObserver === 'undefined');
   useEffect(() => {
-    if (!historyAvailable) return;
+    if (near || !historyAvailable) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setNear(true);
+        observer.disconnect();
+      },
+      { rootMargin: '200px' },
+    );
+    observer.observe(row.current!);
+    return () => observer.disconnect();
+  }, [near, historyAvailable]);
+  useEffect(() => {
+    if (!historyAvailable || !near) return;
     const controller = new AbortController();
     setLatest(undefined);
     setError(undefined);
@@ -46,9 +61,9 @@ export function ReviewRow({
       },
     );
     return () => controller.abort();
-  }, [entry.tooltip, historyAvailable]);
+  }, [entry.tooltip, historyAvailable, near]);
   return (
-    <li>
+    <li ref={row}>
       <label>
         <input
           type="checkbox"
