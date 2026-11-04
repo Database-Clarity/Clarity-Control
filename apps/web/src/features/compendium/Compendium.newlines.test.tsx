@@ -29,6 +29,7 @@ const roots: Root[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) act(() => root.unmount());
   document.body.replaceChildren();
+  vi.unstubAllGlobals();
 });
 async function mount(node: React.ReactElement) {
   const host = document.createElement('div');
@@ -88,36 +89,49 @@ describe('compendium newline preservation per surface', () => {
     expect(multiline(host)).toHaveLength(1);
   });
 
-  it('CellPicker keeps breaks in the phone list, detail and sheet cells', async () => {
-    const tab = {
-      gid: 'g1',
-      name: 'Tab',
-      rows: [],
-      grid: [
-        { row: 1, col: 0, cell: cellOf('Anchor') },
-        { row: 1, col: 1, cell: cellOf(TEXT) },
-      ],
-    } as unknown as CompendiumSheet;
-    const data: CompendiumData = { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] };
-    const host = await mount(
-      createElement(CellPicker, {
-        tab,
-        data,
-        initial: {
-          name: 'Anchor',
-          nameNorm: 'anchor',
-          rowIndex: 1,
-          anchor: { row: 1, col: 0 },
-          cell: cellOf('Anchor'),
-        },
-        onChoose: vi.fn(),
-      }),
-    );
-    expect(multiline(host, '[aria-label="Description cell list"]').length).toBeGreaterThan(0);
-    expect(multiline(host, 'table').length).toBeGreaterThan(0);
-    await click(host, 'Row 1, column 2');
-    expect(multiline(host, '[aria-label="Cell detail"]')).toHaveLength(1);
-  });
+  it.each([false, true])(
+    'CellPicker keeps breaks in the active responsive view (phone=%s)',
+    async (phone) => {
+      vi.stubGlobal('matchMedia', () => ({
+        matches: phone,
+        addEventListener() {},
+        removeEventListener() {},
+      }));
+      const tab = {
+        gid: 'g1',
+        name: 'Tab',
+        rows: [],
+        grid: [
+          { row: 1, col: 0, cell: cellOf('Anchor') },
+          { row: 1, col: 1, cell: cellOf(TEXT) },
+        ],
+      } as unknown as CompendiumSheet;
+      const data: CompendiumData = { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] };
+      const host = await mount(
+        createElement(CellPicker, {
+          tab,
+          data,
+          initial: {
+            name: 'Anchor',
+            nameNorm: 'anchor',
+            rowIndex: 1,
+            anchor: { row: 1, col: 0 },
+            cell: cellOf('Anchor'),
+          },
+          onChoose: vi.fn(),
+        }),
+      );
+      if (phone) {
+        expect(multiline(host, '[aria-label="Description cell list"]').length).toBeGreaterThan(0);
+        expect(host.querySelector('table')).toBeNull();
+        await click(host, 'Row 1, column 2');
+        expect(multiline(host, '[aria-label="Cell detail"]')).toHaveLength(1);
+      } else {
+        expect(multiline(host, 'table').length).toBeGreaterThan(0);
+        expect(multiline(host, '[aria-label="Description cell list"]')).toHaveLength(0);
+      }
+    },
+  );
 
   it('CellPicker anchor search hits (plain snippets in buttons) keep breaks', async () => {
     const tab = {

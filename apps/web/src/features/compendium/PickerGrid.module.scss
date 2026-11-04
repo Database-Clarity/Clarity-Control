@@ -1,0 +1,5 @@
+.contents {
+  // Fixed table columns already bound inline size. Keep each cell's rich text
+  // layout and paint local, without size containment or estimated row heights.
+  contain: layout style paint;
+}
