@@ -2,7 +2,12 @@ import { compendiumDataSchema, isTrackedCompendiumTab, type CompendiumData } fro
 import { z } from 'zod';
 import { fetchJson } from './http';
 import { apiRequest } from './api';
-import { receiveWorkerResult, type WorkerReply } from '../features/compendium/workerReplies';
+import {
+  bindSourceWorker,
+  createWorkerBridge,
+  retireSourceWorker,
+  sourceWorkerFor,
+} from '../features/compendium/workerBridge';
 
 export const compendiumDataUrl =
   'https://raw.githubusercontent.com/Database-Clarity/Compendium-data/main/compendium.json';
@@ -13,34 +18,21 @@ let applied = 0;
 function fetchSource() {
   if (typeof Worker === 'undefined')
     return fetchJson(compendiumDataUrl, compendiumDataSchema, { cache: 'no-cache' });
-  return new Promise<CompendiumData>((resolve, reject) => {
-    const worker = new Worker(new URL('./compendium.worker.ts', import.meta.url), {
+  const bridge = createWorkerBridge(
+    new Worker(new URL('../features/compendium/proposals.worker.ts', import.meta.url), {
       type: 'module',
-    });
-    const receive = receiveWorkerResult();
-    worker.onmessage = ({ data }: MessageEvent<WorkerReply>) => {
-      if (data.error) {
-        worker.terminate();
-        reject(new Error(data.error));
-        return;
-      }
-      try {
-        const result = receive(data);
-        if (result.done) {
-          worker.terminate();
-          resolve(result.value as CompendiumData);
-        }
-      } catch (error) {
-        worker.terminate();
-        reject(error);
-      }
-    };
-    worker.onerror = () => {
-      worker.terminate();
-      reject(new Error('Compendium download failed. Reload published data to retry.'));
-    };
-    worker.postMessage({ url: compendiumDataUrl });
-  });
+    }),
+  );
+  return bridge.request<CompendiumData>({ load: { url: compendiumDataUrl } }).then(
+    (value) => {
+      bindSourceWorker(value, bridge);
+      return value;
+    },
+    (error: unknown) => {
+      bridge.dispose();
+      throw error;
+    },
+  );
 }
 export function loadCompendium(force = false): Promise<CompendiumData> {
   if (!force && cached && Date.now() - cached.at < 60_000) return Promise.resolve(cached.value);
@@ -54,11 +46,14 @@ export function loadCompendium(force = false): Promise<CompendiumData> {
         ...value,
         tabs: value.tabs.filter((tab) => isTrackedCompendiumTab(tab.name)),
       };
+      const bridge = sourceWorkerFor(value);
+      if (bridge) bindSourceWorker(tracked, bridge);
       // A slower, older request must not overwrite newer data.
       if (id > applied) {
+        if (cached) retireSourceWorker(cached.value);
         applied = id;
         cached = { value: tracked, at: Date.now() };
-      }
+      } else retireSourceWorker(tracked);
       return tracked;
     })
     .finally(() => {

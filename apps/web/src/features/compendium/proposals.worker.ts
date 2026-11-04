@@ -18,14 +18,15 @@ let source: CompendiumData;
 let proposals: Map<number, ReviewProposal>;
 let dataKey: string;
 let latestGuide = 0;
+let latestDisplay = 0;
 let lastDisplay: ReturnType<typeof displayMatches> | undefined;
 let precomputedDisplay: ReturnType<typeof displayMatches> | undefined;
-self.onmessage = async ({
-  data,
-}: MessageEvent<{
-  id: number;
-  editor?: EditorData;
-  source?: CompendiumData;
+type Request = {
+  id?: number;
+  load?: { url: string };
+  initialChunk?: { token: number; bytes: ArrayBuffer };
+  cancelInit?: { token: number };
+  initialize?: { token: number };
   input?: DisplayInput;
   guide?: {
     document: GuidanceDocument;
@@ -35,11 +36,54 @@ self.onmessage = async ({
     statuses: [number, import('./reviewCategories').ReviewSample['status']][];
     restored: number[];
   };
-}>) => {
+};
+const initialChunks = new Map<number, Uint8Array[]>();
+let queue = Promise.resolve();
+self.onmessage = ({ data }: MessageEvent<Request>) => {
+  if (data.guide) latestGuide = data.id ?? 0;
+  if (data.input) latestDisplay = data.id ?? 0;
+  // A source's worker survives editor reloads. Keep each initialized editor consistent
+  // through async cache reads; a later generation never mutates an in-flight model.
+  queue = queue.then(() => process(data));
+};
+async function process(data: Request) {
   try {
-    if (data.editor && data.source) {
-      editor = data.editor;
-      source = data.source;
+    if (data.initialChunk) {
+      const { token, bytes } = data.initialChunk;
+      const chunks = initialChunks.get(token) ?? [];
+      chunks.push(new Uint8Array(bytes));
+      initialChunks.set(token, chunks);
+      return;
+    }
+    if (data.cancelInit) {
+      initialChunks.delete(data.cancelInit.token);
+      return;
+    }
+    const id = data.id ?? 0;
+    if (data.load) {
+      source = await (
+        await import('../../services/compendiumSource')
+      ).fetchCompendiumSource(data.load.url);
+      sendWorkerResult(emit, id, source);
+    } else if (data.initialize) {
+      const chunks = initialChunks.get(data.initialize.token);
+      initialChunks.delete(data.initialize.token);
+      if (!chunks) throw new Error('Compendium inputs were superseded.');
+      const bytes = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
+      let at = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, at);
+        at += chunk.length;
+      }
+      const input = JSON.parse(new TextDecoder().decode(bytes)) as {
+        editor: EditorData;
+        source?: CompendiumData;
+      };
+      editor = input.editor;
+      if (input.source) source = input.source;
+      if (!source) throw new Error('Compendium source is not loaded.');
+      precomputedDisplay = undefined;
+      lastDisplay = undefined;
       dataKey = await contentHash(matchingInputs(editor, source));
       proposals = await cachedComputation(`${import.meta.url}:proposals:${dataKey}`, async () => {
         const compressed = typeof DecompressionStream !== 'undefined';
@@ -89,14 +133,13 @@ self.onmessage = async ({
       });
       sendWorkerResult(
         emit,
-        data.id,
+        id,
         new Map([...proposals].map(([hash, proposal]) => [hash, compactProposal(proposal)])),
       );
     } else if (data.guide) {
-      latestGuide = data.id;
       // Coalesce queued navigation/search requests before any expensive planning work.
       await new Promise((resolve) => setTimeout(resolve, 0));
-      if (data.id !== latestGuide) throw new Error('Superseded Compendium planning request.');
+      if (id !== latestGuide) throw new Error('Superseded Compendium planning request.');
       const { document, baseline, scope, categoryId, restored, statuses } = data.guide;
       const currentStatuses = new Map(statuses);
       if (!lastDisplay) throw new Error('Compendium evidence is still loading.');
@@ -114,8 +157,9 @@ self.onmessage = async ({
             .guidedDecisions(document, categories, proposals, source, baseline, scope)
             .filter((g) => g.id === categoryId)
         : [];
-      sendWorkerResult(emit, data.id, groups);
+      sendWorkerResult(emit, id, groups);
     } else if (data.input) {
+      if (id !== latestDisplay) throw new Error('Superseded Compendium display request.');
       const { drafts, progress, local, scope } = data.input;
       const pristine =
         !Object.keys(drafts).length &&
@@ -139,7 +183,7 @@ self.onmessage = async ({
             ),
       );
       lastDisplay = result;
-      sendWorkerResult(emit, data.id, {
+      sendWorkerResult(emit, id, {
         ...result,
         matches: new Map([...result.matches].map(([hash, match]) => [hash, compactMatch(match)])),
       });
@@ -150,4 +194,4 @@ self.onmessage = async ({
       error: error instanceof Error ? error.message : String(error),
     });
   }
-};
+}

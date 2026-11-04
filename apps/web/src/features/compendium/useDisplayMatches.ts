@@ -1,21 +1,27 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { CompendiumData } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import type { Drafts } from '../../services/draftStorage';
 import { apiUrl } from '../../services/api';
 import { bundleUrl } from '../../services/bundle';
 import { compendiumDataUrl } from '../../services/compendium';
-import { readProgress, reviewStorageKey } from './reviewProgress';
-import { guidanceCacheSchema, guidanceResponseSchema } from './guidanceSchema';
+import { guidanceResponseSchema } from './guidanceSchema';
 import { matchingSession } from './matchingSession';
 import type { displayMatches } from './displayMatches';
+import { storedInputs, type StoredInputs } from './storedInputs';
 
 type Value = ReturnType<typeof displayMatches>;
-const memory = new WeakMap<EditorData, WeakMap<CompendiumData, { key: string; value: Value }>>();
-function remember(editor: EditorData, source: CompendiumData, key: string, value: Value) {
+type Remembered = {
+  evidence: string;
+  userId?: string | number;
+  inputs: StoredInputs;
+  value: Value;
+};
+const memory = new WeakMap<EditorData, WeakMap<CompendiumData, Remembered>>();
+function remember(editor: EditorData, source: CompendiumData, entry: Remembered) {
   let sources = memory.get(editor);
   if (!sources) memory.set(editor, (sources = new WeakMap()));
-  sources.set(source, { key, value });
+  sources.set(source, entry);
 }
 
 const evidenceByDrafts = new WeakMap<Drafts, string>();
@@ -59,34 +65,50 @@ export function useDisplayMatches(
     () => Object.fromEntries(JSON.parse(evidence)) as Drafts,
     [evidence],
   );
-  const memoryKey = `${userId ?? 'anonymous'}|${evidence}`;
+  const scope = `${bundleUrl}|${compendiumDataUrl}`;
+  const inputsStore = useMemo(
+    () => storedInputs(scope, apiUrl ?? 'read-only', userId),
+    [scope, userId],
+  );
+  const inputs = useSyncExternalStore(
+    inputsStore.subscribe,
+    inputsStore.getSnapshot,
+    inputsStore.getSnapshot,
+  );
   const remembered = editor && source ? memory.get(editor)?.get(source) : undefined;
+  const cacheValid =
+    remembered?.evidence === evidence &&
+    remembered.userId === userId &&
+    remembered.inputs === inputs;
   const [revision, refresh] = useState(0);
   const [result, setResult] = useState<{
     editor: EditorData;
     source: CompendiumData;
     evidence: string;
     userId: typeof userId;
+    inputs: StoredInputs;
+    revision: number;
     value?: ReturnType<typeof displayMatches>;
     error?: string;
   }>();
   useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    // Dev disk guidance may be changed by an external tool. Production browser inputs
+    // use the shared content store and never reparse/rematch unchanged focus events.
     const invalidate = () => refresh((value) => value + 1);
-    window.addEventListener('storage', invalidate);
     window.addEventListener('focus', invalidate);
     return () => {
-      window.removeEventListener('storage', invalidate);
       window.removeEventListener('focus', invalidate);
     };
   }, []);
   useEffect(() => {
     if (!editor || !source) return;
+    if (!import.meta.env.DEV && cacheValid) return;
     let cancelled = false;
     void (async () => {
-      const scope = `${bundleUrl}|${compendiumDataUrl}`;
-      const raw = localStorage.getItem(`clarity-review-guidance:v1:${encodeURIComponent(scope)}`);
-      const cached = raw ? guidanceCacheSchema.parse(JSON.parse(raw)) : undefined;
-      let local = cached?.document;
+      if (inputs.error) throw new Error(inputs.error);
+      const cached = inputs.cached;
+      let local = inputs.local;
       if (import.meta.env.DEV) {
         const response = await fetch(
           new URL(`${import.meta.env.BASE_URL}__review-guidance`, window.location.href),
@@ -97,18 +119,14 @@ export function useDisplayMatches(
           throw new Error('Local Compendium guidance conflicts with disk.');
         local = cached?.pending ? local : (disk.document ?? local);
       }
-      const progress = readProgress(
-        localStorage,
-        reviewStorageKey(`${scope}|${apiUrl ?? 'read-only'}`, userId),
-      );
       const value = await matchingSession(editor, source).display({
         drafts: matchingDrafts,
-        progress,
+        progress: inputs.progress,
         local,
         scope,
       });
-      remember(editor, source, memoryKey, value);
-      if (!cancelled) setResult({ editor, source, evidence, userId, value });
+      remember(editor, source, { evidence, userId, inputs, value });
+      if (!cancelled) setResult({ editor, source, evidence, userId, inputs, revision, value });
     })().catch((error: unknown) => {
       if (!cancelled)
         setResult({
@@ -116,25 +134,42 @@ export function useDisplayMatches(
           source,
           evidence,
           userId,
+          inputs,
+          revision,
           error: `Cannot match Compendium: ${error instanceof Error ? error.message : String(error)}`,
         });
     });
     return () => {
       cancelled = true;
     };
-  }, [editor, source, matchingDrafts, evidence, userId, revision, memoryKey]);
+  }, [editor, source, matchingDrafts, evidence, userId, revision, inputs, scope, cacheValid]);
   const current =
     result?.editor === editor &&
     result?.source === source &&
     result?.evidence === evidence &&
-    result?.userId === userId
+    result?.userId === userId &&
+    result.inputs === inputs &&
+    result.revision === revision
       ? result
       : undefined;
   const value = current?.error
     ? undefined
-    : (current?.value ?? (remembered?.key === memoryKey ? remembered.value : undefined));
+    : (current?.value ?? (cacheValid ? remembered?.value : undefined));
+  // Unchanged factual review evidence remains usable while local decisions are recomputed.
+  // The authoritative matches/decisions above are withheld until the new inputs validate.
+  const reviewPrepared =
+    value ??
+    (result?.editor === editor &&
+    result.source === source &&
+    result.evidence === evidence &&
+    result.userId === userId
+      ? result.value
+      : remembered?.evidence === evidence && remembered.userId === userId
+        ? remembered.value
+        : undefined);
   return {
     prepared: value,
+    reviewPrepared,
     matches: value?.matches,
     decisions: value?.decisions,
     loading: !!editor && !!source && !current && !value,

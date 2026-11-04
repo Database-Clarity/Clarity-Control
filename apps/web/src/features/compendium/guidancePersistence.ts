@@ -1,4 +1,5 @@
 import type { CompendiumData } from '@clarity/core';
+import { notifyCompendiumInputs } from './inputEvents';
 import type { ReviewCategory } from './reviewCategories';
 import { rebaselineGuidance } from './rebaselineGuidance';
 import { guidanceDiagnostic as errorMessage } from './guidanceDiagnostic';
@@ -88,6 +89,7 @@ export class GuidancePersistence {
           pending: this.pending,
         }),
       );
+      notifyCompendiumInputs(this.key);
       this.set({ browserSaved: true, localError: this.recoveryError });
     } catch (error) {
       this.set({

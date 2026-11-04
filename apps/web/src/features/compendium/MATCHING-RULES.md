@@ -843,3 +843,11 @@ an explicit continuation, rather than laying out thousands of invisible rows on 
 The worker retains complete grids for matching and validation. Proposal/display replies carry
 compact tab metadata because the UI already owns the grid; confirmation still resolves every
 selected cell against that original source before creating a draft.
+
+The source loader and matcher now share one retained worker. It fetches, parses and validates
+the source once; that source is never cloned back into another matching worker. Editor input
+is serialized in bounded, yielding UTF-8 chunks and its ArrayBuffers are transferred. An
+editor reload replaces the initialized editor while retaining the worker's source. Unchanged
+focus/storage events compare stored content before parsing, and selection-only/empty guidance
+metadata changes do not invalidate matching. Same-window guidance/decision writes notify the
+shared input store; actual changes still withhold old matches until validation completes.

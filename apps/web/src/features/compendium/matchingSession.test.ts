@@ -13,11 +13,12 @@ it('shares a worker across views and avoids resending results for empty guidance
     terminate = terminate;
     postMessage(data: Record<string, unknown>) {
       requests.push(data);
+      if (!data.id) return;
       queueMicrotask(() =>
         sendWorkerResult(
           (reply) => this.onmessage?.({ data: reply } as MessageEvent),
           data.id as number,
-          data.editor ? new Map() : { matches: new Map(), decisions: [] },
+          data.initialize ? new Map() : { matches: new Map(), decisions: [] },
         ),
       );
     }
@@ -36,11 +37,70 @@ it('shares a worker across views and avoids resending results for empty guidance
     local: { version: 1, scope: f.scope, baseline: '', categories: {} },
   });
   expect(b).toBe(a);
-  expect(requests).toHaveLength(2); // Initial proposals plus one display result.
+  expect(requests.filter((request) => request.id)).toHaveLength(2);
+  expect(requests.some((request) => request.editor || request.source)).toBe(false);
   await first.display({ ...input, local: f.document });
-  expect(requests).toHaveLength(3);
+  expect(requests.filter((request) => request.id)).toHaveLength(3);
   const reloaded = matchingSession(f.editor, { ...f.source });
   expect(reloaded).not.toBe(first);
   expect(terminate).toHaveBeenCalledTimes(1);
   await reloaded.proposals;
+});
+
+it('initializes and reloads editor inputs in the retained source worker using transferred bytes', async () => {
+  vi.resetModules();
+  const f = guidedFixture();
+  const chunks = new Map<number, Uint8Array[]>();
+  const initialized: Record<string, unknown>[] = [];
+  const terminate = vi.fn();
+  class RetainedWorker {
+    onmessage?: (event: MessageEvent) => void;
+    terminate = terminate;
+    postMessage(message: Record<string, unknown>, transfer: Transferable[] = []) {
+      const data = structuredClone(message, { transfer });
+      if (data.initialChunk) {
+        const { token, bytes } = data.initialChunk as { token: number; bytes: ArrayBuffer };
+        const parts = chunks.get(token) ?? [];
+        parts.push(new Uint8Array(bytes));
+        chunks.set(token, parts);
+      } else if (data.initialize) {
+        const { token } = data.initialize as { token: number };
+        initialized.push(
+          JSON.parse(
+            chunks
+              .get(token)!
+              .map((part) => new TextDecoder().decode(part))
+              .join(''),
+          ),
+        );
+        queueMicrotask(() =>
+          sendWorkerResult(
+            (reply) => this.onmessage?.({ data: reply } as MessageEvent),
+            data.id as number,
+            new Map(),
+          ),
+        );
+      }
+    }
+  }
+  const worker = new RetainedWorker();
+  const { createWorkerBridge, bindSourceWorker } = await import('./workerBridge');
+  const bridge = createWorkerBridge(worker as unknown as Worker);
+  bindSourceWorker(f.source, bridge);
+  const construct = vi.fn(() => {
+    throw new Error('A second source worker must not be created');
+  });
+  vi.stubGlobal('Worker', construct);
+  const { matchingSession } = await import('./matchingSession');
+  await matchingSession(f.editor, f.source).proposals;
+  await matchingSession(
+    { ...f.editor, bundle: { ...f.editor.bundle, sourceCommit: 'reloaded' } },
+    f.source,
+  ).proposals;
+  expect(construct).not.toHaveBeenCalled();
+  expect(terminate).not.toHaveBeenCalled();
+  expect(initialized).toHaveLength(2);
+  expect(initialized[0].editor).toEqual(JSON.parse(JSON.stringify(f.editor)));
+  expect(initialized.every((input) => !('source' in input))).toBe(true);
+  bridge.dispose();
 });

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { errorMessage } from '../../services/http';
 import { emptyProgress, readProgress, type ReviewProgress } from './reviewProgress';
+import { notifyCompendiumInputs } from './inputEvents';
 
 // Mount the queue with key=storageKey so identity changes cannot copy another user's state.
 export function useReviewProgress(storageKey: string) {
@@ -18,6 +19,7 @@ export function useReviewProgress(storageKey: string) {
     setProgress(next);
     try {
       localStorage.setItem(storageKey, JSON.stringify(next));
+      if (next.decisions !== progress.decisions) notifyCompendiumInputs(storageKey);
       setError('');
     } catch (error) {
       setError(`Review progress is only in memory: ${errorMessage(error)}`);

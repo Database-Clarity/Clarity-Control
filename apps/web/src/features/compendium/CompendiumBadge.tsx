@@ -70,6 +70,9 @@ export function useCompendiumCount(): CompendiumCount {
     const start = () => {
       void load();
       void import('./MatchReviewPage');
+      // Any source can contain sheet glyphs. Load their shared face during idle prefetch,
+      // rather than fetching it on the first entry that happens to use one.
+      void document.fonts?.load('16px DestinySymbols').catch(() => undefined);
     };
     if ('requestIdleCallback' in window) {
       const id = window.requestIdleCallback(start, { timeout: 1500 });

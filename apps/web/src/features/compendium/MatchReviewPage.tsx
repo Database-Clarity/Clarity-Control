@@ -74,6 +74,7 @@ export function MatchReviewPage() {
   const drafts = useDraftStore((state) => state.drafts);
   const draftCount = Object.keys(drafts).length;
   const display = useDisplayMatches(editor, data, drafts, user?.id);
+  const reviewPrepared = display.reviewPrepared;
   const saveLocked = useSaveState((state) => state.locked);
   useEffect(() => {
     void load();
@@ -155,19 +156,18 @@ export function MatchReviewPage() {
         editor && data && <CompendiumPage />
       ) : (
         <>
-          {(loading || authLoading || display.loading) && <p role="status">Loading review data…</p>}
-          {editor &&
-            data &&
-            !authLoading &&
-            (display.prepared || typeof Worker === 'undefined') && (
-              <ReviewQueue
-                key={storageKey}
-                storageKey={storageKey}
-                editor={editor}
-                source={data}
-                prepared={display.prepared}
-              />
-            )}
+          {(loading || authLoading || (!reviewPrepared && display.loading)) && (
+            <p role="status">Loading review data…</p>
+          )}
+          {editor && data && !authLoading && (reviewPrepared || typeof Worker === 'undefined') && (
+            <ReviewQueue
+              key={storageKey}
+              storageKey={storageKey}
+              editor={editor}
+              source={data}
+              prepared={reviewPrepared}
+            />
+          )}
         </>
       )}
     </article>
@@ -427,18 +427,30 @@ export function ReviewQueue({
     filtered[0];
   const index = selected ? filtered.indexOf(selected) : -1;
   const proposal = selected && proposals.get(selected.hash);
-  const hints = selected
-    ? researchSuggestions(selected.hash, source, selected.category, selected.name)
-    : [];
+  const needHints =
+    params.get('view') === 'entries' && (picker || !proposal?.link || !proposal?.match);
+  const selectedHash = selected?.hash;
+  const selectedCategory = selected?.category;
+  const selectedName = selected?.name;
+  const hints = useMemo(
+    () =>
+      needHints &&
+      selectedHash !== undefined &&
+      selectedCategory !== undefined &&
+      selectedName !== undefined
+        ? researchSuggestions(selectedHash, source, selectedCategory, selectedName)
+        : [],
+    [needHints, selectedHash, selectedCategory, selectedName, source],
+  );
   const [candidate, setCandidate] = useState(0);
   const matches = proposal?.match ? [proposal.match] : (proposal?.candidates ?? []);
   const hint = hints[0];
-  const hintTab = hint && source.tabs.find((tab) => tab.gid === hint.gid);
-  const hintRow = hintTab && suggestionAnchor(hintTab, hint);
-  const match =
-    matches[candidate] ??
-    matches[0] ??
-    (hintTab && hintRow ? { tab: hintTab, row: hintRow } : undefined);
+  const hintMatch = useMemo(() => {
+    const tab = hint && source.tabs.find((tab) => tab.gid === hint.gid);
+    const row = tab && suggestionAnchor(tab, hint);
+    return tab && row ? { tab, row } : undefined;
+  }, [hint, source]);
+  const match = matches[candidate] ?? matches[0] ?? hintMatch;
   const acceptedLink =
     proposal?.link ??
     (proposal?.suggested && match ? confirmCompendiumSelection(match, source) : undefined);

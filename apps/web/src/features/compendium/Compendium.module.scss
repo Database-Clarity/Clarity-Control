@@ -4,6 +4,7 @@
 // ---- the editor page's Compendium pane (header and scroll live in ui/RightPane) ----
 // CSS zoom on the pane body is the device's Compendium scale; the header never scales.
 .zoom {
+  contain: content;
   min-width: 0;
   padding-bottom: 0.5rem;
   font-size: 0.8125rem;
