@@ -10,6 +10,8 @@ it('moves large diffs to a worker, preserves text immediately and ignores obsole
   const instances: FakeWorker[] = [];
   class FakeWorker {
     onmessage?: (event: { data: unknown }) => void;
+    onerror?: () => void;
+    terminate() {}
     postMessage(data: (typeof messages)[number]) {
       messages.push(data);
     }
@@ -25,6 +27,7 @@ it('moves large diffs to a worker, preserves text immediately and ignores obsole
   try {
     await act(async () => root.render(<HistoryWordDiff before={before} after={after} />));
     expect(messages).toHaveLength(1);
+    expect(host.querySelector('[aria-busy="true"]')).not.toBeNull();
     expect(host.querySelector('del')?.textContent).toBe(before);
     expect(host.querySelector('ins')?.textContent).toBe(after);
     await act(async () => root.render(<HistoryWordDiff before="same" after="same" />));
@@ -41,6 +44,14 @@ it('moves large diffs to a worker, preserves text immediately and ignores obsole
       }),
     );
     expect(host.textContent).toBe('computed');
+    expect(host.querySelector('[aria-busy="true"]')).toBeNull();
+    const other = 'another '.repeat(600);
+    await act(async () => root.render(<HistoryWordDiff before={other} after={after} />));
+    expect(host.querySelector('[aria-busy="true"]')).not.toBeNull();
+    await act(async () => instances[0].onerror?.());
+    expect(host.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(host.querySelector('del')?.textContent).toBe(other);
+    expect(host.querySelector('ins')?.textContent).toBe(after);
   } finally {
     await act(async () => root.unmount());
     vi.unstubAllGlobals();

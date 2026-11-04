@@ -65,7 +65,14 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
   const container = useRef<HTMLLIElement>(null);
   const geometry = useRef<AnchorGeometry | undefined>(undefined);
   const trigger = useRef<HTMLButtonElement>(null);
-  const timers = useRef<{ intent?: number; enter?: number; leave?: number; press?: number }>({});
+  const timers = useRef<{
+    intent?: number;
+    enter?: number;
+    leave?: number;
+    press?: number;
+    pointerFocus?: number;
+  }>({});
+  const pointerFocusing = useRef(false);
   const longPressed = useRef(false);
   const dismissed = useRef(false);
   const id = useId();
@@ -78,6 +85,7 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
     window.clearTimeout(timers.current.enter);
     window.clearTimeout(timers.current.leave);
     window.clearTimeout(timers.current.press);
+    window.clearTimeout(timers.current.pointerFocus);
   };
   useEffect(() => clearTimers, []);
   const close = useCallback((restoreFocus: boolean) => {
@@ -151,7 +159,7 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
         dismissed.current = false;
       }}
       onFocus={() => {
-        if (!dismissed.current) {
+        if (!dismissed.current && !pointerFocusing.current) {
           captureAnchor();
           setFocus(true);
         }
@@ -171,6 +179,13 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
         aria-controls={open ? id : undefined}
         title="Show what this revision changed"
         onPointerDown={(event) => {
+          // Pointer focus precedes click in the same input task. Opening at both
+          // stages renders and lays out the popover twice; keyboard focus still opens it.
+          pointerFocusing.current = true;
+          window.clearTimeout(timers.current.pointerFocus);
+          timers.current.pointerFocus = window.setTimeout(() => {
+            pointerFocusing.current = false;
+          }, 0);
           longPressed.current = false;
           if (event.pointerType !== 'touch') return;
           window.clearTimeout(timers.current.press);
@@ -381,7 +396,7 @@ function RevisionPopover({
                 before={source.revision}
                 current={source.previous ?? { hash: current?.hash ?? 0, text: {}, associated: [] }}
                 raw={false}
-                deferLanguages
+                eagerLanguages
               />
             ) : (
               <p>
@@ -420,7 +435,7 @@ function RevisionPopover({
                 }
                 item={item}
                 raw={false}
-                deferLanguages={legacy}
+                eagerLanguages={legacy}
               />
             )
           ))}

@@ -2,8 +2,18 @@
 import { createServer } from 'node:http';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, extname } from 'node:path';
+import { cpus as machineCpus } from 'node:os';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
+
+const cpuSnapshot = () =>
+  machineCpus().reduce(
+    (sum, cpu) => ({
+      idle: sum.idle + cpu.times.idle,
+      total: sum.total + Object.values(cpu.times).reduce((total, value) => total + value, 0),
+    }),
+    { idle: 0, total: 0 },
+  );
 
 const root = resolve('.agents/legacy-history/qa-dist');
 const generated = resolve('.agents/legacy-history/generated');
@@ -100,10 +110,13 @@ try {
             ).observe({ type: 'longtask' });
           });
           const times = [];
+          const completeTimes = [];
+          const machineBefore = cpuSnapshot();
           for (const action of ['open', 'revision', 'compare']) {
             await page.evaluate(
               ({ action, revisionRow }) => {
                 window.__action = undefined;
+                window.__complete = undefined;
                 const button =
                   action === 'open'
                     ? [...document.querySelectorAll('button')].find(
@@ -120,6 +133,25 @@ try {
                   if (!event.isTrusted) throw new Error('QA requires trusted input');
                   const start = performance.now();
                   performance.mark(`legacy-${action}-start`);
+                  const checkComplete = () => {
+                    const dialog = document.querySelector('[role="dialog"]');
+                    const contentReady =
+                      action === 'open'
+                        ? document.querySelector(
+                            'section[aria-label="Published before migration"] ol li',
+                          )
+                        : dialog?.querySelector('[aria-label^="Word diff:"]') &&
+                          !dialog.querySelector('[aria-busy="true"], [data-pending-render]') &&
+                          (action !== 'compare' ||
+                            dialog.querySelector('button[aria-pressed="true"]'));
+                    if (contentReady && (action === 'open' || document.fonts.status === 'loaded'))
+                      requestAnimationFrame(() => {
+                        performance.mark(`legacy-${action}-complete`);
+                        window.__complete = performance.now() - start;
+                      });
+                    else requestAnimationFrame(checkComplete);
+                  };
+                  requestAnimationFrame(checkComplete);
                   document.removeEventListener('pointerdown', down, true);
                   // Focusing a revision can open its fixed popover before mouseup;
                   // on narrow screens the click may then land on the shared li.
@@ -146,6 +178,8 @@ try {
             await control.click();
             await page.waitForFunction(() => typeof window.__action === 'number');
             times.push(await page.evaluate(() => window.__action));
+            await page.waitForFunction(() => typeof window.__complete === 'number');
+            completeTimes.push(await page.evaluate(() => window.__complete));
             if (action === 'open')
               await page.locator(`ol li:nth-child(${revisionRow}) > button`).waitFor();
             else {
@@ -192,10 +226,15 @@ try {
               assert.deepEqual(
                 actual,
                 expected,
-                'Every deferred language preserves both complete texts',
+                'Every published language preserves both complete texts',
               );
             }
           }
+          const machineAfter = cpuSnapshot();
+          const machineBusy =
+            1 -
+            (machineAfter.idle - machineBefore.idle) /
+              Math.max(1, machineAfter.total - machineBefore.total);
           const geometry = await page.evaluate(() => {
             const d = document.querySelector('[role="dialog"]');
             const rect = d.getBoundingClientRect();
@@ -222,11 +261,30 @@ try {
           }
           await cdp.send('IO.close', { handle: stream });
           writeFileSync(`${evidence}/${cpu}x-${theme}-${width}-${scale}.trace.json`, trace);
-          results.push({ cpu, theme, width, scale, times, tasks, geometry });
+          results.push({
+            cpu,
+            theme,
+            width,
+            scale,
+            times,
+            completeTimes,
+            tasks,
+            geometry,
+            machineBusy,
+          });
           await page.close();
         }
   writeFileSync(`${evidence}/results.json`, JSON.stringify(results, null, 2));
   console.log(JSON.stringify(results));
+  const misses = results.filter(
+    (result) =>
+      result.tasks.some((duration) => duration > (result.cpu === 1 ? 50 : 100)) ||
+      (result.cpu === 1 && result.completeTimes.some((duration) => duration > 50)) ||
+      result.geometry.overflow > 0 ||
+      result.geometry.inner > 1 ||
+      result.geometry.clipped.length,
+  );
+  assert.deepEqual(misses, [], 'Completed history interactions must satisfy the locked gates');
 } finally {
   await browser.close();
   server.close();

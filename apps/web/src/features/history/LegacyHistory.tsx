@@ -14,6 +14,23 @@ import { replaceDraft } from '../../services/save/drafts';
 import { restoreLegacyText } from './revert';
 import styles from './History.module.scss';
 
+/** Prepare every script present in the opened artifact, independent of revision order. */
+function prepareFonts(history: History | null) {
+  if (!history || !document.fonts) return;
+  const text = history.lanes
+    .flatMap((lane) => lane.revisions.flatMap((revision) => Object.values(revision.text ?? {})))
+    .join('\n');
+  const faces: [string, RegExp][] = [
+    ['HistoryChinese', /[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uff00-\uffef]/u],
+    ['HistoryKorean', /[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]/u],
+    ['HistorySymbols', /[\u2060\u2190-\u21ff\u2900-\u297f\u{1f800}-\u{1f8ff}]/u],
+  ];
+  for (const [face, pattern] of faces) {
+    const sample = text.match(pattern)?.[0];
+    if (sample) void document.fonts.load(`13px "${face}"`, sample).catch(() => undefined);
+  }
+}
+
 export function LegacyHistorySection({
   hash,
   readOnly = false,
@@ -51,7 +68,11 @@ export function LegacyHistorySection({
     // that the user dwells on; skipped items do not need public history.
     const load = () => {
       void getLegacyHistory(hash, controller.signal).then(
-        (value) => active && setResult({ hash, value }),
+        (value) => {
+          if (!active) return;
+          prepareFonts(value);
+          setResult({ hash, value });
+        },
         () => active && setError(true),
       );
     };

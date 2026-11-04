@@ -47,20 +47,20 @@ export function TooltipDiff({
   current,
   item,
   raw = true,
-  deferLanguages = false,
+  eagerLanguages = false,
 }: {
   before: Tooltip | null;
   current: Tooltip;
   item?: Item;
   /** Show both full texts above the word diff; popovers show the word diff alone. */
   raw?: boolean;
-  /** Legacy snapshots can have twelve languages; build their text nodes between paints. */
-  deferLanguages?: boolean;
+  /** Bounded published snapshots render together; offscreen layout remains contained. */
+  eagerLanguages?: boolean;
 }) {
   const changed = languages.filter((lang) => before?.text[lang]?.text !== current.text[lang]?.text);
   const dateSettings = useSyncedSettings();
   const [rendered, setRendered] = useState(1);
-  const busy = !raw && rendered < changed.length;
+  const busy = !raw && !eagerLanguages && rendered < changed.length;
   useEffect(() => {
     if (!busy) return;
     let timer: number | undefined;
@@ -83,7 +83,7 @@ export function TooltipDiff({
           key={lang}
           lang={lang}
           aria-label={`${languageLabel(lang)} comparison`}
-          data-pending-render={(!raw && index >= rendered) || undefined}
+          data-pending-render={(busy && index >= rendered) || undefined}
         >
           <h4>{languageLabel(lang)}</h4>
           {raw && (
@@ -98,12 +98,10 @@ export function TooltipDiff({
               </div>
             </div>
           )}
-          {(!deferLanguages || raw || index < rendered) && (
-            <HistoryWordDiff
-              before={before?.text[lang]?.text ?? ''}
-              after={current.text[lang]?.text ?? ''}
-            />
-          )}
+          <HistoryWordDiff
+            before={before?.text[lang]?.text ?? ''}
+            after={current.text[lang]?.text ?? ''}
+          />
         </section>
       ))}
       {(before?.compendium || current.compendium) &&
