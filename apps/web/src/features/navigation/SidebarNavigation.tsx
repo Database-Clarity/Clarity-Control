@@ -1,20 +1,24 @@
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { useSidebarQueueStore } from './sidebarQueue';
 import styles from './Layout.module.scss';
+import compendiumStyles from './CompendiumSidebarNavigation.module.scss';
 
 export function CompendiumSidebarNavigation() {
   const categories = useSidebarQueueStore((state) => state.compendiumCategories);
   const [params] = useSearchParams();
   const group = params.get('group');
   return (
-    <nav aria-label="Compendium category queue" className={styles.sidebarNavigation}>
+    <nav
+      aria-label="Compendium category queue"
+      className={`${styles.sidebarNavigation} ${compendiumStyles.navigation}`}
+    >
       <h2>Review categories</h2>
       {categories === null ? (
         <p>Open Review matches to load the category queue.</p>
       ) : categories.length ? (
-        <ul className={styles.sidebarList}>
+        <ul className={compendiumStyles.list}>
           {categories.map((category) => (
-            <li key={category.id}>
+            <li key={category.id} className={compendiumStyles.row}>
               <Link
                 to={`/compendium/review?view=entries&group=${encodeURIComponent(category.id)}`}
                 aria-current={group === category.id ? 'page' : undefined}

@@ -1,0 +1,23 @@
+@use '../../data/variables' as theme;
+
+.navigation {
+  contain: inline-size layout style;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 2rem;
+
+  @include theme.mobile-or-coarse {
+    contain-intrinsic-block-size: auto max(44px, 2.75rem);
+  }
+}
