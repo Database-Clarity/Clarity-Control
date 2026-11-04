@@ -22,7 +22,9 @@ import {
   preparedCategories,
   preparedEvidence,
   preparedProposals,
+  reviewEntryProjection,
   reviewedEntries,
+  reviewScopeHashes,
 } from './reviewViewCache';
 import {
   progressSchema,
@@ -39,7 +41,6 @@ import { useProposals } from './useProposals';
 import { CategoryReview, type CategoryReviewRouteState } from './CategoryReview';
 import { categoryId, reviewCategories, type ReviewCategory } from './reviewCategories';
 import { useGuidance } from './useGuidance';
-import { classifyScope } from './reviewScope';
 import {
   BulkPreview,
   bulkPreviewCurrent,
@@ -331,24 +332,20 @@ export function ReviewQueue({
     }
     if (changed) setParams(next, { replace: true });
   }, [categories, params, setParams]);
-  const inScope = useMemo(() => {
-    if (prepared?.scopeHashes && !scopeState.hashes.size) {
-      const hashes = new Set(prepared.scopeHashes);
-      for (const entry of entries) if (entry.status !== 'open') hashes.add(entry.hash);
-      return hashes;
-    }
-    return new Set(
-      categories.flatMap((category) =>
-        category.entries
-          .filter((entry) => !classifyScope(entry, category.id))
-          .map((entry) => entry.hash),
+  const inScope = useMemo(
+    () =>
+      reviewScopeHashes(
+        categories,
+        entries,
+        !scopeState.hashes.size ? prepared?.scopeHashes : undefined,
       ),
-    );
-  }, [categories, prepared, scopeState.hashes, entries]);
-  const scopedEntries = useMemo(
-    () => (categoryView ? [] : entries.filter((entry) => inScope.has(entry.hash))),
-    [entries, inScope, categoryView],
+    [categories, prepared, scopeState.hashes, entries],
   );
+  const entryProjection = useMemo(
+    () => (categoryView ? undefined : reviewEntryProjection(entries, inScope, proposals)),
+    [entries, inScope, proposals, categoryView],
+  );
+  const scopedEntries = useMemo(() => entryProjection?.entries ?? [], [entryProjection]);
   const routeFilter = progressSchema.shape.filter.safeParse(params.get('status'));
   // New category links reset stale filters; normalized URLs retain each history entry's filters.
   const queueProgress: ReviewProgress = {
@@ -358,31 +355,7 @@ export function ReviewQueue({
     filter: routeFilter.success ? routeFilter.data : groupId ? 'open' : progress.filter,
   };
   const proposalFilter = params.get('proposal') ?? 'all';
-  const filterIndex = useMemo(() => {
-    if (categoryView) return;
-    const byCategory = new Map<string, typeof scopedEntries>();
-    const byGroup = new Map<string, typeof scopedEntries>();
-    const byStatus = new Map<string, typeof scopedEntries>();
-    const byProposal = new Map<boolean, typeof scopedEntries>();
-    const search = new Map<number, string>();
-    function add<K>(
-      map: Map<K, typeof scopedEntries>,
-      key: K,
-      entry: (typeof scopedEntries)[number],
-    ) {
-      const bucket = map.get(key);
-      if (bucket) bucket.push(entry);
-      else map.set(key, [entry]);
-    }
-    for (const entry of scopedEntries) {
-      add(byCategory, entry.category, entry);
-      add(byGroup, categoryId(entry.category), entry);
-      add(byStatus, entry.status, entry);
-      add(byProposal, !!proposals.get(entry.hash)?.link, entry);
-      search.set(entry.hash, `${entry.name} ${entry.hash}`.toLowerCase());
-    }
-    return { byCategory, byGroup, byStatus, byProposal, search };
-  }, [categoryView, scopedEntries, proposals]);
+  const filterIndex = entryProjection?.index;
   const filtered = useMemo(() => {
     if (!filterIndex) return [];
     let candidates = scopedEntries;

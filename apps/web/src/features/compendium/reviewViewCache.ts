@@ -5,9 +5,21 @@ import type { displayMatches } from './displayMatches';
 import { applyReviewProgress, type reviewEvidence } from './reviewQueue';
 import type { ReviewProgress } from './reviewProgress';
 import type { ReviewProposal } from './rapidReview';
+import { categoryId } from './reviewCategories';
+import { classifyScope } from './reviewScope';
 
 type Prepared = ReturnType<typeof displayMatches>;
 type Evidence = ReturnType<typeof reviewEvidence>;
+type Entries = ReturnType<typeof applyReviewProgress>;
+type EntryProjection = ReturnType<typeof buildEntryProjection>;
+const scopeProjections = new WeakMap<
+  Prepared['categories'],
+  WeakMap<Entries, { scopeHashes: Prepared['scopeHashes'] | undefined; hashes: Set<number> }>
+>();
+const entryProjections = new WeakMap<
+  Entries,
+  WeakMap<ReadonlySet<number>, WeakMap<Map<number, ReviewProposal>, EntryProjection>>
+>();
 const projections = new WeakMap<
   Prepared,
   WeakMap<EditorData, { source: CompendiumData; drafts: WeakMap<Drafts, Evidence> }>
@@ -28,6 +40,73 @@ const categoryProjections = new WeakMap<
     WeakMap<ReadonlySet<number>, Prepared['categories']>
   >
 >();
+
+export function reviewScopeHashes(
+  categories: Prepared['categories'],
+  entries: Entries,
+  scopeHashes?: Prepared['scopeHashes'],
+) {
+  let byEntries = scopeProjections.get(categories);
+  if (!byEntries) scopeProjections.set(categories, (byEntries = new WeakMap()));
+  const previous = byEntries.get(entries);
+  if (previous && previous.scopeHashes === scopeHashes) return previous.hashes;
+  const hashes = scopeHashes
+    ? new Set(scopeHashes)
+    : new Set(
+        categories.flatMap((category) =>
+          category.entries
+            .filter((entry) => !classifyScope(entry, category.id))
+            .map((entry) => entry.hash),
+        ),
+      );
+  if (scopeHashes) for (const entry of entries) if (entry.status !== 'open') hashes.add(entry.hash);
+  byEntries.set(entries, { scopeHashes, hashes });
+  return hashes;
+}
+
+function buildEntryProjection(
+  entries: Entries,
+  inScope: ReadonlySet<number>,
+  proposals: Map<number, ReviewProposal>,
+) {
+  const scoped = entries.filter((entry) => inScope.has(entry.hash));
+  const byCategory = new Map<string, Entries>();
+  const byGroup = new Map<string, Entries>();
+  const byStatus = new Map<string, Entries>();
+  const byProposal = new Map<boolean, Entries>();
+  const search = new Map<number, string>();
+  function add<K>(map: Map<K, Entries>, key: K, entry: Entries[number]) {
+    const bucket = map.get(key);
+    if (bucket) bucket.push(entry);
+    else map.set(key, [entry]);
+  }
+  for (const entry of scoped) {
+    add(byCategory, entry.category, entry);
+    add(byGroup, categoryId(entry.category), entry);
+    add(byStatus, entry.status, entry);
+    add(byProposal, !!proposals.get(entry.hash)?.link, entry);
+    search.set(entry.hash, `${entry.name} ${entry.hash}`.toLowerCase());
+  }
+  return { entries: scoped, index: { byCategory, byGroup, byStatus, byProposal, search } };
+}
+
+export function reviewEntryProjection(
+  entries: Entries,
+  inScope: ReadonlySet<number>,
+  proposals: Map<number, ReviewProposal>,
+) {
+  // Selection, filters, and workspace remounts do not change these immutable
+  // inputs. Keep the index until evidence, scope, or proposal identity changes.
+  let byScope = entryProjections.get(entries);
+  if (!byScope) entryProjections.set(entries, (byScope = new WeakMap()));
+  let byProposals = byScope.get(inScope);
+  if (!byProposals) byScope.set(inScope, (byProposals = new WeakMap()));
+  const previous = byProposals.get(proposals);
+  if (previous) return previous;
+  const projection = buildEntryProjection(entries, inScope, proposals);
+  byProposals.set(proposals, projection);
+  return projection;
+}
 
 export function preparedCategories(
   prepared: Prepared,

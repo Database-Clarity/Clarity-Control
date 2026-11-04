@@ -2,7 +2,13 @@ import { expect, it } from 'vitest';
 import { guidedFixture } from '../../../test/guided-fixture';
 import { displayMatches } from './displayMatches';
 import { emptyProgress } from './reviewProgress';
-import { preparedCategories, preparedEvidence, reviewedEntries } from './reviewViewCache';
+import {
+  preparedCategories,
+  preparedEvidence,
+  reviewEntryProjection,
+  reviewedEntries,
+  reviewScopeHashes,
+} from './reviewViewCache';
 import { recordDecision } from './rapidReview';
 import { bulkPreviewCurrent, createBulkPreview } from './BulkPreview';
 import { compactDisplay } from './compactMatches';
@@ -170,4 +176,75 @@ it('isolates restored scope and replacement worker models without mutating cache
   const replacement = preparedCategories(updated, entries, new Set());
   expect(replacement).not.toBe(categories);
   expect(replacement[0].name).toBe(categories[0].name + ' updated');
+});
+
+it('reuses entry navigation indexes and refreshes them for scope, proposals, and decisions', () => {
+  const { editor, source, proposals, scope, document } = guidedFixture();
+  const progress = emptyProgress();
+  const prepared = displayMatches(
+    editor,
+    source,
+    {},
+    progress,
+    undefined,
+    scope,
+    proposals,
+    document,
+  );
+  const evidence = preparedEvidence(prepared, {}, editor, source);
+  const entries = reviewedEntries(evidence, progress);
+  const categories = preparedCategories(prepared, entries, new Set());
+  const sourceScope = [100];
+  const inScope = reviewScopeHashes(categories, entries, sourceScope);
+  const initial = reviewEntryProjection(entries, inScope, proposals);
+  expect(initial.entries.map((entry) => entry.hash)).toEqual([100]);
+  expect(initial.index.byGroup.get('catalog:weapon-trait')?.map((entry) => entry.hash)).toEqual([
+    100,
+  ]);
+  expect(initial.index.search.get(100)).toBe('sample 100 100');
+
+  // Going to category view and back, or remounting the workspace, retains
+  // indexes without tying them to a selected hash or URL filter.
+  const navigated = reviewedEntries(evidence, { ...progress, selected: 101, query: 'sample' });
+  expect(navigated).toBe(entries);
+  const navigatedScope = reviewScopeHashes(categories, navigated, sourceScope);
+  expect(navigatedScope).toBe(inScope);
+  expect(reviewEntryProjection(navigated, navigatedScope, proposals)).toBe(initial);
+
+  const otherScope = reviewScopeHashes(categories, entries, [101]);
+  expect(reviewEntryProjection(entries, otherScope, proposals).entries.map((e) => e.hash)).toEqual([
+    101,
+  ]);
+  expect(initial.entries.map((entry) => entry.hash)).toEqual([100]);
+  const withoutLink = new Map(proposals);
+  withoutLink.set(100, { ...proposals.get(100)!, link: undefined });
+  const unlinked = reviewEntryProjection(entries, inScope, withoutLink);
+  expect(unlinked.index.byProposal.get(false)?.map((entry) => entry.hash)).toContain(100);
+  expect(initial.index.byProposal.get(true)?.map((entry) => entry.hash)).toContain(100);
+
+  const entry = entries.find((entry) => entry.hash === 101)!;
+  const decided = reviewedEntries(
+    evidence,
+    recordDecision(progress, entry.hash, entry.evidence, 'skipped'),
+  );
+  const decidedScope = reviewScopeHashes(categories, decided, sourceScope);
+  const afterDecision = reviewEntryProjection(decided, decidedScope, proposals);
+  // Reviewed rows remain navigable even if the automatic source scope did
+  // not include them. The old open-only projection must stay unchanged.
+  expect(afterDecision.index.byStatus.get('skipped')?.map((entry) => entry.hash)).toEqual([101]);
+  expect(initial.index.byStatus.get('skipped')).toBeUndefined();
+
+  const base = entries.find((entry) => entry.hash === 100)!.base;
+  const next = {
+    ...base,
+    text: { ...base.text, en: { ...base.text.en!, text: 'Current draft text after returning' } },
+  };
+  const edited = reviewedEntries(
+    preparedEvidence(prepared, { 100: { base, next } }, editor, source),
+    progress,
+  );
+  const editedScope = reviewScopeHashes(categories, edited, sourceScope);
+  const afterEdit = reviewEntryProjection(edited, editedScope, proposals);
+  expect(afterEdit.entries[0].next).toBe(next);
+  expect(initial.entries[0].next).toBe(base);
 });
