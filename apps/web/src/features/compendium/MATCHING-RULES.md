@@ -870,3 +870,7 @@ cannot alter that snapshot during an autosave acknowledgement or route teardown.
 explicit edit after renewal backs up the original stored bytes before replacing them; a failed
 backup leaves those original bytes intact. Queue selection, query, category, and filter are
 view state: unchanged values are skipped, writes coalesce at idle, and pagehide flushes them.
+
+Approval actions occupy normal layout space. The desktop entry footer has its own flex row;
+phone entry actions and sample actions follow their content. They never float over inspection
+links, disclosures, or other controls. The layout no longer measures action bars on mount.

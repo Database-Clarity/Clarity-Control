@@ -2,7 +2,7 @@ import { confirmCompendiumSelection } from './selection';
 import { guidedDecisions, guidedRevision, type GuidedDecision } from './guidedDecisions';
 import { importContext } from './importContext';
 import { researchSuggestions } from './researchSuggestions';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import type { CompendiumData, Tooltip } from '@clarity/core';
 import { groupManifestItems } from './manifestItems';
@@ -185,7 +185,6 @@ export function ReviewQueue({
   storageKey: string;
   prepared?: ReturnType<typeof displayMatches>;
 }) {
-  const [actionBar, setActionBar] = useState<HTMLElement | null>(null);
   const { progress, update, error } = useReviewProgress(storageKey);
   const setSidebarCategories = useSidebarQueueStore((state) => state.setCompendiumCategories);
   const [params, setParams] = useSearchParams();
@@ -232,44 +231,6 @@ export function ReviewQueue({
   const { drafts, hydrated } = useDraftStore();
   const user = useAuthStore((state) => state.user);
   const locked = useSaveState((state) => state.locked);
-  useLayoutEffect(() => {
-    const actions = actionBar;
-    const page = actions?.closest('article');
-    if (!page || !actions) return;
-    const property = '--review-action-bar-height';
-    const previous = page.style.getPropertyValue(property);
-    const priority = page.style.getPropertyPriority(property);
-    let active = true;
-    const applyHeight = (height: number) => {
-      if (!active || !actions.isConnected) return;
-      const value = `${height}px`;
-      if (page.style.getPropertyValue(property) !== value) page.style.setProperty(property, value);
-    };
-    const updateHeight = () => applyHeight(actions.getBoundingClientRect().height);
-    const restoreHeight = () => {
-      active = false;
-      if (previous) page.style.setProperty(property, previous, priority);
-      else page.style.removeProperty(property);
-    };
-    if (typeof ResizeObserver === 'undefined') {
-      updateHeight();
-      window.addEventListener('resize', updateHeight);
-      return () => {
-        window.removeEventListener('resize', updateHeight);
-        restoreHeight();
-      };
-    }
-    const observer = new ResizeObserver((entries) => {
-      const height = entries?.[0]?.borderBoxSize?.[0]?.blockSize;
-      if (height === undefined) updateHeight();
-      else applyHeight(height);
-    });
-    observer.observe(actions, { box: 'border-box' });
-    return () => {
-      restoreHeight();
-      observer.disconnect();
-    };
-  }, [actionBar]);
   const fingerprint = useMemo(
     () => prepared?.fingerprint ?? sourceFingerprint(source.tabs),
     [source, prepared],
@@ -1053,7 +1014,7 @@ export function ReviewQueue({
           onAccept={acceptBulk}
         />
       )}
-      <footer ref={setActionBar} className={styles.actionBar} aria-label="Review actions">
+      <footer className={styles.actionBar} aria-label="Review actions">
         <p className={styles.actionConsequence}>
           {canEdit
             ? 'Links create local drafts, not saves · Skip/No equivalent stay in browser.'

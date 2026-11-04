@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { CompendiumData, CompendiumMatch } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import { errorMessage } from '../../services/http';
@@ -34,36 +34,6 @@ export function SampleReview({
   proposal?: ReviewProposal;
   guidance: ReturnType<typeof useGuidance>;
 }) {
-  const actions = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const node = actions.current;
-    const region = node?.closest<HTMLElement>('[aria-label="Category guidance"]');
-    if (!node || !region) return;
-    const apply = (height: number) => {
-      const value = `${height}px`;
-      if (region.style.getPropertyValue('--sample-action-height') !== value)
-        region.style.setProperty('--sample-action-height', value);
-    };
-    const measure = () => apply(node.getBoundingClientRect().height);
-    if (typeof ResizeObserver === 'undefined') {
-      measure();
-      window.addEventListener('resize', measure);
-      return () => {
-        window.removeEventListener('resize', measure);
-        region.style.removeProperty('--sample-action-height');
-      };
-    }
-    const observer = new ResizeObserver((entries) => {
-      const height = entries?.[0]?.borderBoxSize?.[0]?.blockSize;
-      if (height === undefined) measure();
-      else apply(height);
-    });
-    observer.observe(node, { box: 'border-box' });
-    return () => {
-      observer.disconnect();
-      region.style.removeProperty('--sample-action-height');
-    };
-  }, []);
   const [picker, setPicker] = useState(false);
   const [error, setError] = useState('');
   const reference = guidance.document.categories[category.id]?.references?.[entry.hash];
@@ -180,7 +150,7 @@ export function SampleReview({
           />
         </label>
       </details>
-      <div ref={actions} className={styles.actions}>
+      <div className={styles.actions}>
         <p className={styles.actionEyebrow}>Saves as example · no tooltip change</p>
         <button
           disabled={paused || guidance.conflict || !proposal?.link || !proposal.match}

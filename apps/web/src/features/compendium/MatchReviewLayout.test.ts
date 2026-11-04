@@ -39,11 +39,14 @@ it('budgets desktop panels from remaining viewport space, with phone document sc
     /@media \(max-width: 700px\)[\s\S]*\.entryReview \{\s*display: block;\s*height: auto;/,
   );
 });
-it('keeps the phone review actions and overlay clear of the home indicator, with no dock to reserve', () => {
+it('reserves approval rows in flow, without covering navigation or the phone home indicator', () => {
   const mobile = css.slice(css.indexOf('@media (max-width: 700px)'));
-  expect(mobile).toMatch(/\.actionBar \{[^}]*bottom: env\(safe-area-inset-bottom, 0px\);/);
-  expect(mobile).toMatch(/\.overlay \{[^}]*--review-action-bar-height/);
-  expect(css).toContain('var(--review-action-bar-height, 0px)');
+  const actions = css.match(/(?:^|\n)\.actionBar \{([^}]+)\}/)?.[1];
+  expect(actions).toContain('position: static;');
+  expect(actions).toContain('flex-shrink: 0;');
+  expect(mobile).toMatch(/\.actionBar \{[^}]*padding:[^;]*safe-area-inset-bottom/);
+  expect(mobile).toMatch(/\.overlay \{[^}]*safe-area-inset-bottom/);
+  expect(css).not.toContain('--review-action-bar-height');
   expect(css).not.toContain('--save-dock-height');
   expect(layoutCss).not.toContain('--save-dock-height');
   expect(css).toMatch(/\.actionBar button \{\s*min-height: max\(44px, 2\.75rem\);\s*\}/);
@@ -51,7 +54,8 @@ it('keeps the phone review actions and overlay clear of the home indicator, with
   const reviewMobile = reviewCss.slice(reviewCss.indexOf('@media (max-width: 700px)'));
   const emptyActionRule = reviewMobile.match(/([^{}]*\.empty button[^{}]*)\{([^{}]*)\}/);
   expect(emptyActionRule?.[2]).toContain('min-height: max(44px, 2.75rem);');
-  expect(categoryCss).toMatch(/@media \(max-width: 700px\)[\s\S]*\.actions \{\s*position: fixed;/);
+  expect(categoryCss.match(/\.sample > \.actions \{([^}]+)\}/)?.[1]).toContain('position: static;');
+  expect(categoryCss).not.toMatch(/\.actions \{[^}]*position: (fixed|sticky);/);
   expect(categoryCss).toContain('.actionEyebrow');
 });
 it('keeps the desktop list column bounded under the header (whatever its height) and gives phones none', () => {

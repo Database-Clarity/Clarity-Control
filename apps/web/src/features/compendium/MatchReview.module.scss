@@ -71,7 +71,7 @@
   }
 }
 .entryReview {
-  padding-bottom: max(6rem, var(--review-action-bar-height, 6rem));
+  padding-bottom: 0;
   display: flex;
   flex-direction: column;
   // Match the shell's review-mode padding and header. The old frame exceeded
@@ -258,11 +258,10 @@
 }
 .actionBar {
   color: #e2e5ee;
-  position: fixed;
-  bottom: 0;
-  left: 17rem;
-  right: 0;
-  z-index: 10;
+  // Reserve a real flex row instead of covering the review cards. In particular,
+  // an Inspect link must never share a pointer target with an approval button.
+  position: static;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -292,7 +291,7 @@
 .overlay {
   color: #e2e5ee;
   position: fixed;
-  inset: 2rem 2rem calc(var(--review-action-bar-height, 0px) + 0.5rem) calc(17rem + 2rem);
+  inset: 2rem 2rem 2rem calc(17rem + 2rem);
   z-index: 9;
   padding: 1.4rem;
   background: #1c2130;
@@ -387,10 +386,8 @@
   }
   .actionBar {
     color: #e2e5ee;
-    bottom: env(safe-area-inset-bottom, 0px);
     justify-content: stretch;
-    left: 0;
-    padding: 0.6rem;
+    padding: 0.6rem 0.6rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
     gap: 0.35rem;
   }
   .actionConsequence {
@@ -402,7 +399,7 @@
     font-size: 0.8rem;
   }
   .review {
-    padding-bottom: 13rem;
+    padding-bottom: 0;
   }
   .entryReview {
     display: block;
@@ -418,8 +415,7 @@
   }
   .overlay {
     color: #e2e5ee;
-    inset: 0.5rem 0.5rem
-      calc(var(--review-action-bar-height, 0px) + env(safe-area-inset-bottom, 0px) + 0.5rem);
+    inset: 0.5rem 0.5rem calc(env(safe-area-inset-bottom, 0px) + 0.5rem);
     padding: 1rem;
   }
   .progress {
