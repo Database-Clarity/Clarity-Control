@@ -204,6 +204,20 @@
   font-size: 0.8rem;
   color: #b6e3cd;
 }
+@media (min-width: 701px) {
+  .comparison {
+    // Give the two text panes definite tracks, so their full descriptions do
+    // not participate in repeated outer grid/flex intrinsic sizing passes.
+    height: 18rem;
+    flex: none;
+    grid-template-rows: minmax(0, 1fr);
+    > section {
+      contain: strict;
+      min-height: 0;
+      overflow: auto;
+    }
+  }
+}
 .actions {
   display: flex;
   flex-wrap: wrap;
