@@ -82,7 +82,7 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
       base={displayed}
       pending={displayed !== base}
       link={retainedLink.current.value}
-      draft={!!draft}
+      draft={!!draft && !!link}
       matched={matched}
       matching={matching}
       matchError={matchError}

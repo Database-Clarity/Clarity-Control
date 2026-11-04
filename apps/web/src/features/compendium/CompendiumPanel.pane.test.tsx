@@ -6,6 +6,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CompendiumCell, Tooltip } from '@clarity/core';
 import * as core from '@clarity/core';
+import * as dates from '../../services/format/date';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
@@ -160,6 +161,26 @@ describe('Compendium pane', () => {
     }
     expect(resolve.mock.calls).toHaveLength(resolutions);
     expect(rootReads()).toBe(measured);
+  });
+
+  it('keeps the unlinked loading body unchanged when the first text draft is created', async () => {
+    const base = { hash: 6, text: {}, associated: [] } as unknown as Tooltip;
+    const initial = vi.mocked(useDisplayMatches).getMockImplementation()!;
+    vi.mocked(useDisplayMatches).mockImplementation((...args) => ({
+      ...initial(...args),
+      loading: true,
+    }));
+    const format = vi.spyOn(dates, 'formatDate');
+    const host = await mount(base);
+    const formatted = format.mock.calls.length;
+    const status = host.querySelector('[role="status"]');
+    for (const text of ['A', 'Ab', 'Abc']) {
+      const next = { ...base, text: { en: { text } } } as Tooltip;
+      await act(async () => useDraftStore.setState({ drafts: { 6: { base, next } } }));
+    }
+    expect(format.mock.calls).toHaveLength(formatted);
+    expect(host.querySelector('[role="status"]')).toBe(status);
+    expect(status?.textContent).toBe('Matching Compendium…');
   });
 
   it('labels an unsaved match honestly, then accepts only its link into the existing draft', async () => {
