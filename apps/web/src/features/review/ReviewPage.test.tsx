@@ -681,10 +681,11 @@ it('does not cap the selection at 100', async () => {
   await mount();
   await waitFor(() => expect(host.textContent).toContain('121 pending'));
   // Select every page, then push all of them.
-  for (let page = 0; page < 9; page++) {
+  while (!button('Next page').disabled) {
     await click('Select page');
-    if (page < 8) await click('Next page');
+    await click('Next page');
   }
+  await click('Select page');
   expect(host.textContent).toContain('121 pending / 121 selected');
   expect(host.textContent).not.toContain('at most 100');
   expect(button('Push selected').disabled).toBe(false);

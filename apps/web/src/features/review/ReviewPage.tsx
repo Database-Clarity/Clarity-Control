@@ -29,7 +29,9 @@ import { useSidebarQueueStore } from '../navigation/sidebarQueue';
 import { workspaceShortcutsBlocked } from '../../ui/interaction';
 import styles from './Review.module.scss';
 
-const pageSize = 15;
+// Keep the first page close to one viewport; every row is fully rendered, and
+// the existing page controls expose the rest without offscreen layout on open.
+const pageSize = 8;
 
 export function ReviewPage() {
   const [searchParams, setSearchParams] = useSearchParams();
