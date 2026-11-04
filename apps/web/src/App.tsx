@@ -8,7 +8,7 @@ import { AuthCallback } from './features/auth/AuthCallback';
 import { GlobalDetailPage, GlobalsPage } from './features/globals/GlobalsPage';
 import { Layout } from './features/navigation/Layout';
 import { ReviewPage } from './features/review/ReviewPage';
-import { LostTextPage } from './features/lost-text/LostTextPage';
+import { LazyLostTextPage as LostTextPage } from './features/lost-text/LazyLostTextPage';
 import { SettingsRedirect } from './features/settings/SettingsRedirect';
 import { ArchivePage } from './features/archive/ArchivePage';
 import { DriftPage } from './features/drift/DriftPage';
