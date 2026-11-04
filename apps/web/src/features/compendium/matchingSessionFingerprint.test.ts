@@ -36,3 +36,40 @@ it('treats prototype-like keys as evidence data', () => {
   expect(JSON.stringify(value)).toBe(before);
   expect(Object.getPrototypeOf(value)).toBe(Object.prototype);
 });
+
+it('preserves JSON property enumeration, escaping, and omitted optional values', () => {
+  const value = {
+    '10': 'ten',
+    '2': 'two',
+    '4294967295': 'not an index',
+    '01': 'not an index either',
+    optional: undefined,
+    array: [undefined, null, true, '\n"\\\u0000', { z: 1, a: 2 }],
+  };
+  expect(matchingSessionFingerprint(value)).toBe(sourceFingerprint(value));
+});
+
+it('preserves strict adjacent-run evidence across shared styles and property orders', () => {
+  const styles = [
+    {},
+    { bold: true },
+    { bold: false },
+    { bold: undefined },
+    { italic: true, link: 'https://example.test' },
+    { color: '#123456', fontSize: 11, underline: true },
+  ];
+  const cells = styles.flatMap((left) =>
+    styles.map((right) => ({
+      plain: 'Ignored display text',
+      background: '#ffffff',
+      runs: [
+        { ...left, text: 'A', textAlign: 'left' },
+        { ...right, text: '' },
+        { text: 'B', ...Object.fromEntries(Object.entries(right).reverse()), textAlign: 'right' },
+        { text: 'C', ...right },
+        { ...left, text: '\n' },
+      ],
+    })),
+  );
+  expect(matchingSessionFingerprint(cells)).toBe(sourceFingerprint(cells));
+});
