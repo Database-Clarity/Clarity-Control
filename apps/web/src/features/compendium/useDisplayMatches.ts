@@ -79,7 +79,7 @@ export function useDisplayMatches(
   const cacheValid =
     remembered?.evidence === evidence &&
     remembered.userId === userId &&
-    remembered.inputs === inputs;
+    remembered.inputs.key === inputs.key;
   const [revision, refresh] = useState(0);
   const [result, setResult] = useState<{
     editor: EditorData;
@@ -148,7 +148,7 @@ export function useDisplayMatches(
     result?.source === source &&
     result?.evidence === evidence &&
     result?.userId === userId &&
-    result.inputs === inputs &&
+    result.inputs.key === inputs.key &&
     result.revision === revision
       ? result
       : undefined;
