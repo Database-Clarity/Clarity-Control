@@ -79,7 +79,7 @@ const clamp = (value: number, low: number, high: number) => Math.max(low, Math.m
  * The interface scale as a factor (1 at 100 %): the root font size over 16. Pane limits, defaults and
  * saved sizes are design pixels, so a pane keeps its share of the window at every scale.
  */
-function useScaleFactor(): number {
+export function useScaleFactor(): number {
   const [factor, setFactor] = useState(() => scaledPx(1));
   useEffect(() => {
     const update = () => setFactor(scaledPx(1));

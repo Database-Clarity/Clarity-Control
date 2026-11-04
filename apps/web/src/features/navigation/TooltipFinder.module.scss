@@ -134,9 +134,12 @@
   contain-intrinsic-size: auto 28px;
 
   .listbox[data-windowed] & {
-    // The window already bounds DOM work; avoid an intersection observer per recycled row.
-    content-visibility: visible;
-    contain: layout style;
+    // Generous overscan keeps fast compositor scrolling covered while React batches
+    // window changes. Only rows actually on screen lay out and paint their contents.
+    height: var(--finder-row-height);
+    content-visibility: auto;
+    contain-intrinsic-size: auto var(--finder-row-height);
+    contain: layout style paint;
   }
 
   @include theme.mobile-or-coarse {

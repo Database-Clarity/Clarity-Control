@@ -9,9 +9,9 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent,
 } from 'react';
-import { flushSync } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
@@ -40,6 +40,8 @@ import {
 } from './stepping';
 import { FinderSheetContext } from './FinderSheetContext';
 import { pulseStepping, useSteppingActivity } from './steppingActivity';
+import { phoneQuery, useMedia } from '../../ui/useMedia';
+import { useScaleFactor } from '../../ui/usePaneDivider';
 import styles from './TooltipFinder.module.scss';
 
 // Stepping asks the preview leave guard before it moves anything; see createStepping.
@@ -186,7 +188,12 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   current.current = { pathname: location.pathname, search: location.search };
   const field = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLUListElement>(null);
-  const [viewport, setViewport] = useState({ top: 0, height: 416, row: 28 });
+  const scale = useScaleFactor();
+  const touchRows = useMedia(`${phoneQuery}, (pointer: coarse)`);
+  // Matches the fixed CSS row geometry at every interface scale. Scroll handlers
+  // never need to measure a row or synchronously flush a React render.
+  const rowHeight = Math.round((touchRows ? Math.max(44, 44 * scale) : 28 * scale) * 64) / 64;
+  const [viewport, setViewport] = useState({ top: 0, height: 416 });
   const root = useRef<HTMLDivElement>(null);
   const openRef = useRef(open);
   openRef.current = open;
@@ -271,7 +278,6 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   useLayoutEffect(() => {
     const element = list.current;
     if (!open || !element) return;
-    let rowHeight = 28;
     let height = 416;
     let lastTop = -1;
     const scroll = () => {
@@ -280,16 +286,12 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       const top = Math.floor(element.scrollTop / (rowHeight * 8)) * rowHeight * 8;
       if (top === lastTop) return;
       lastTop = top;
-      // Native scroll precedes paint. Finish the small window update here so the compositor
-      // cannot expose a spacer while React is handling the next free-spin wheel packet.
-      flushSync(() => setViewport({ top, height, row: rowHeight }));
+      setViewport({ top, height });
     };
     const measure = () => {
-      const option = element.querySelector<HTMLElement>('[role="option"]');
-      rowHeight = option?.getBoundingClientRect().height || 28;
       height = element.clientHeight;
       lastTop = Math.floor(element.scrollTop / (rowHeight * 8)) * rowHeight * 8;
-      setViewport({ top: lastTop, height, row: rowHeight });
+      setViewport({ top: lastTop, height });
     };
     measure();
     const observer =
@@ -300,7 +302,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       observer?.disconnect();
       element.removeEventListener('scroll', scroll);
     };
-  }, [open, rows]);
+  }, [open, rows, rowHeight]);
 
   // A new route, or leaving the field, restores the current item and an empty query.
   const restore = () => {
@@ -470,11 +472,8 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   if (!open) options = null;
   else if (rows.length <= 80) options = rows.map(option);
   else {
-    const start = Math.max(0, Math.floor(viewport.top / viewport.row) - 16);
-    const end = Math.min(
-      rows.length,
-      Math.ceil((viewport.top + viewport.height) / viewport.row) + 24,
-    );
+    const start = Math.max(0, Math.floor(viewport.top / rowHeight) - 96);
+    const end = Math.min(rows.length, Math.ceil((viewport.top + viewport.height) / rowHeight) + 96);
     // Keep the active descendant mounted even before scrollIntoView moves the window.
     const indexes = new Set(Array.from({ length: Math.max(0, end - start) }, (_, i) => start + i));
     if (rows[active]) indexes.add(active);
@@ -487,7 +486,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
             key={`gap-${previous}`}
             role="presentation"
             aria-hidden="true"
-            style={{ height: (index - previous) * viewport.row }}
+            style={{ height: (index - previous) * rowHeight }}
           />,
         );
       nodes.push(option(rows[index], index));
@@ -499,7 +498,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
           key="gap-end"
           role="presentation"
           aria-hidden="true"
-          style={{ height: (rows.length - previous) * viewport.row }}
+          style={{ height: (rows.length - previous) * rowHeight }}
         />,
       );
     options = nodes;
@@ -514,6 +513,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
         aria-label="Tooltips"
         className={styles.listbox}
         data-windowed={rows.length > 80 || undefined}
+        style={{ '--finder-row-height': `${rowHeight}px` } as CSSProperties}
       >
         {options}
       </ul>

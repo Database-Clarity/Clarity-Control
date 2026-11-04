@@ -141,7 +141,7 @@ describe('tooltip finder combobox', () => {
     } as EditorData;
     await mount('/t/1000', many);
     await open();
-    expect(options().length).toBeLessThan(80);
+    expect(options().length).toBeLessThan(220);
     await press('End');
     const active = host.querySelector(`[id="${field().getAttribute('aria-activedescendant')}"]`);
     expect(active?.textContent).toContain('Armor 399');
