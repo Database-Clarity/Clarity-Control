@@ -57,9 +57,11 @@ export function ReviewQueue({
     if (height) setViewport((previous) => ({ ...previous, height }));
     if (row) setRowHeight(row);
   }, []);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = host.current!;
     if (typeof ResizeObserver === 'undefined') return;
+    // Register before the first paint so native layout supplies the initial
+    // window, rather than painting the provisional rows and shrinking later.
     const observer = new ResizeObserver((entries) => {
       // Native notifications arrive after layout and before paint. Commit the
       // correctly scaled window now without a synchronous geometry read.
