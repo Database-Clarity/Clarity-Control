@@ -35,7 +35,7 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
       ),
     );
     expect(host.querySelectorAll('li').length).toBeLessThan(30);
-    const selected = host.querySelector<HTMLAnchorElement>('[aria-current="page"]')!;
+    let selected = host.querySelector<HTMLAnchorElement>('[aria-current="page"]')!;
     expect(selected.getAttribute('href')).toBe('/review?hash=1800');
     await act(async () => {
       resize(
@@ -48,6 +48,7 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
         {} as ResizeObserver,
       );
     });
+    selected = host.querySelector<HTMLAnchorElement>('[aria-current="page"]')!;
     expect(selected.closest('li')?.style.height).toBe('96px');
     expect(
       host.querySelector<HTMLElement>('[aria-label="Scroll pending saved changes"]')?.scrollTop,
