@@ -229,6 +229,8 @@ beforeEach(() => {
 
 afterEach(async () => {
   await act(async () => root.unmount());
+  // A browser lifecycle flush ends this fixture's deferred navigation session.
+  window.dispatchEvent(new Event('pagehide'));
   await useDraftStore.getState().flush();
   host.remove();
   useDataStore.setState(originalData);
@@ -277,6 +279,8 @@ describe('reviewed URL/decision reproductions', () => {
     await click('Next');
     expect(selected()).toBe('Sample 101');
     expect(route().searchParams.get('hash')).toBe('101');
+    expect(progress().selected).not.toBe(101);
+    window.dispatchEvent(new Event('pagehide'));
     expect(progress().selected).toBe(101);
   });
 

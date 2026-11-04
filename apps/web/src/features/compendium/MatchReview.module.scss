@@ -217,6 +217,11 @@
     line-height: 1.4;
   }
 }
+.workspace .manifestItem {
+  // These scrollable cards end in navigation controls. Expanding a skipped
+  // description after scrolling must not push a control out of the card again.
+  content-visibility: visible;
+}
 // Desktop cards already receive their size from the viewport budget. Keep their
 // rich text out of the outer flex/grid intrinsic sizing passes on each selection.
 @media (min-width: 701px) {

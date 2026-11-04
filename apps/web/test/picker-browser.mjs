@@ -268,6 +268,14 @@ try {
           `Entry fixture did not expose Inspect: ${await page.locator('body').innerText()}; errors: ${errors.join('; ')}`,
         );
       await inspect.scrollIntoViewIfNeeded();
+      // A skipped manifest description used to expand after scrolling, pushing
+      // Inspect out of the card before a physical click could reach it.
+      await page.evaluate(
+        () =>
+          new Promise((resolve) =>
+            window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)),
+          ),
+      );
       const point = await inspect.evaluate((node) => {
         const rect = node.getBoundingClientRect(),
           x = (rect.left + rect.right) / 2,
