@@ -77,6 +77,7 @@ export function MatchReviewPage() {
   const { user, loading: authLoading } = useAuthStore();
   const linkedTab = params.get('tab') === 'linked';
   const matchedTab = params.get('tab') === 'matched';
+  const categoryViewport = !linkedTab && !matchedTab && params.get('view') !== 'entries';
   const drafts = useDraftStore((state) => state.drafts);
   const draftCount = Object.keys(drafts).length;
   const display = useDisplayMatches(editor, data, drafts, user?.id);
@@ -103,6 +104,9 @@ export function MatchReviewPage() {
   return (
     <article
       className={`${styles.review} ${linkedTab ? styles.linkedReview : params.get('view') === 'entries' ? styles.entryReview : styles.categoryReview}`}
+      data-category-review={categoryViewport ? '' : undefined}
+      tabIndex={categoryViewport ? 0 : undefined}
+      aria-label={categoryViewport ? 'Category match review' : undefined}
     >
       <header className={styles.heading}>
         <div>

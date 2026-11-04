@@ -232,6 +232,14 @@
   .categoryReview {
     contain: inline-size layout style;
   }
+  .categoryReview[data-category-review] {
+    // This region has a viewport budget. Keep its descendants out of outer
+    // intrinsic sizing, and scroll oversized scaled controls inside the region.
+    height: calc(100dvh - var(--header-h, 37px) - 2 * clamp(1rem, 3vw, 2rem));
+    min-height: 0;
+    overflow: auto;
+    contain: strict;
+  }
   .workspace > .card {
     contain: strict;
     scrollbar-gutter: stable;

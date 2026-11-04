@@ -108,3 +108,13 @@ it('budgets category space and lets an oversized workspace grow into document fl
   );
   expect(categoryCss).not.toContain('padding-bottom: 14rem;');
 });
+
+it('contains the desktop category viewport while retaining a scroll range for scaled content', () => {
+  const category = css.match(/\.categoryReview\[data-category-review\] \{([^}]+)\}/)?.[1];
+  expect(category).toContain(
+    'height: calc(100dvh - var(--header-h, 37px) - 2 * clamp(1rem, 3vw, 2rem));',
+  );
+  expect(category).toContain('min-height: 0;');
+  expect(category).toContain('overflow: auto;');
+  expect(category).toContain('contain: strict;');
+});
