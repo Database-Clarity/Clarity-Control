@@ -43,12 +43,16 @@ function createSession(
     return bridge.request<T>(payload, owner, progress);
   }
   let currentProposals: Map<number, ReviewProposal> | undefined;
-  const proposals = streamInputs(
+  const initialized = streamInputs(
     retained ? { editor } : { editor, source },
     (bytes) => bridge.post({ initialChunk: { token, bytes } }, [bytes]),
     () => disposed,
   )
-    .then(() => request<Map<number, ReviewProposal>>({ initialize: { token } }))
+    // The worker serializes initialization and display requests. Queue display
+    // once inputs are sent, while the independent proposal reply is hydrating.
+    .then(() => ({ response: request<Map<number, ReviewProposal>>({ initialize: { token } }) }));
+  const proposals = initialized
+    .then(({ response }) => response)
     .then((value) => {
       currentProposals = value;
       return value;
@@ -109,7 +113,7 @@ function createSession(
         key,
         listeners: new Set(onMatches ? [onMatches] : []),
         matches: undefined as Matches | undefined,
-        promise: proposals.then(() =>
+        promise: initialized.then(() =>
           request<Display>({ input }, (value) => {
             pending.matches = value as Matches;
             for (const listener of pending.listeners) listener(pending.matches);

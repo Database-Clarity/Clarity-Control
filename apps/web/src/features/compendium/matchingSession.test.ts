@@ -105,16 +105,21 @@ it('initializes and reloads editor inputs in the retained source worker using tr
   bridge.dispose();
 });
 
-it('initializes before source delivery and reuses the early retained session once bound', async () => {
+it('reuses early initialization and queues display before proposals finish hydrating', async () => {
   vi.resetModules();
   const f = guidedFixture();
   let initialized!: (value: { id: number }) => void;
   const started = new Promise<{ id: number }>((resolve) => {
     initialized = resolve;
   });
+  let displaying!: (value: { id: number }) => void;
+  const displayStarted = new Promise<{ id: number }>((resolve) => {
+    displaying = resolve;
+  });
   const worker = {
-    postMessage: vi.fn((value: { id: number; initialize?: unknown }) => {
+    postMessage: vi.fn((value: { id: number; initialize?: unknown; input?: unknown }) => {
       if (value.initialize) initialized(value);
+      if (value.input) displaying(value);
     }),
     terminate: vi.fn(),
   } as unknown as Worker;
@@ -127,6 +132,9 @@ it('initializes before source delivery and reuses the early retained session onc
   // A source object is only made available to the UI after initialization has begun.
   bindSourceWorker(f.source, bridge);
   const session = matchingSession(f.editor, f.source);
+  const display = session.display({ drafts: {}, progress: emptyProgress(), scope: f.scope });
+  const request = await displayStarted;
+  expect(session.currentProposals).toBeUndefined();
   const requests = vi.mocked(worker.postMessage).mock.calls.map(([value]) => value);
   expect(requests.filter((value) => value.initialize)).toHaveLength(1);
   const chunks = requests
@@ -147,6 +155,13 @@ it('initializes before source delivery and reuses the early retained session onc
     new Map(),
   );
   expect(await session.proposals).toEqual(new Map());
+  const result = { matches: new Map(), decisions: [] };
+  sendWorkerResult(
+    (data) => worker.onmessage!.call(worker, { data } as MessageEvent),
+    request.id,
+    result,
+  );
+  expect(await display).toEqual(result);
   expect(worker.terminate).not.toHaveBeenCalled();
   session.dispose();
 });
