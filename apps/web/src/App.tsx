@@ -11,6 +11,7 @@ import { useAuthStore } from './stores/auth';
 import { useEffect } from 'react';
 import { visibleLinks } from './features/navigation/links';
 import { preloadWorkspaces } from './workspacePreload';
+import { reviewRoute } from './features/review/route';
 
 import { AppLazyPage } from './AppLazyPage';
 const loadTooltipPage = () =>
@@ -77,7 +78,12 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, element: <StartPage /> },
       { path: 't/:hash', element: <TooltipPage />, handle: { preload: loadTooltipPage } },
-      { path: 'review', element: <ReviewPage />, handle: { preload: loadReviewPage } },
+      {
+        path: 'review',
+        element: <ReviewPage />,
+        loader: reviewRoute,
+        handle: { preload: loadReviewPage },
+      },
       { path: 'compendium/review', element: <MatchReviewPage /> },
       { path: 'compendium', element: <MatchReviewPage /> },
       { path: 'archive', element: <ArchivePage />, handle: { preload: loadArchivePage } },

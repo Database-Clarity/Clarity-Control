@@ -69,7 +69,15 @@ export function preloadWorkspaces(loaders: readonly WorkspaceLoader[]): () => vo
         }
       ).scheduler;
       const load = loaders[index++]!;
-      const run = () => (cancelled ? undefined : load());
+      const run = () => {
+        if (cancelled) return;
+        if (quiet !== undefined || scheduling?.isInputPending({ includeContinuous: true })) {
+          index--;
+          pause();
+          return;
+        }
+        return load();
+      };
       const pending = scheduler
         ? scheduler.postTask(run, { priority: 'background' })
         : Promise.resolve().then(run);
