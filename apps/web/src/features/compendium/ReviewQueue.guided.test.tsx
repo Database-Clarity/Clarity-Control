@@ -135,6 +135,21 @@ async function mount(scope?: 'ghost' | 'mixed') {
       ),
     ),
   );
+  // Exercise safety controls through the read-only disclosures that contain them.
+  // Opening those views must not author or persist any guidance.
+  const guidanceBefore = JSON.stringify(
+    [...cache].filter(([key]) => key.startsWith('clarity-review-guidance:')),
+  );
+  for (const prefix of ['Guided proposal preview', 'Not needed', 'Browse / category definition']) {
+    const summary = [...host.querySelectorAll('summary')].find((node) =>
+      node.textContent?.startsWith(prefix),
+    );
+    expect(summary, `Missing read-only disclosure ${prefix}`).toBeTruthy();
+    await act(async () => summary!.click());
+  }
+  expect(
+    JSON.stringify([...cache].filter(([key]) => key.startsWith('clarity-review-guidance:'))),
+  ).toBe(guidanceBefore);
   const props = () => captured.props as Parameters<typeof CategoryReview>[0];
   const button = (text: string, within: ParentNode = host) =>
     [...within.querySelectorAll('button')].find((b) => b.textContent?.startsWith(text))!;

@@ -10,6 +10,7 @@ import {
   type GuidedDecision,
 } from './guidedDecisions';
 import { RichCell } from './RichCell';
+import { ReviewDetails } from './ReviewDetails';
 
 export function GuidedPreview({
   document,
@@ -63,17 +64,14 @@ export function GuidedPreview({
     (entry) => entry.confidence === preview?.tier && entry.action === 'link',
   );
   return (
-    <details>
-      <summary>
-        Guided proposal preview ({group.high} high confidence, {group.medium} medium,{' '}
-        {group.unresolved} for owner)
-      </summary>
+    <ReviewDetails
+      summary={`Guided proposal preview (${group.high} high confidence, ${group.medium} medium, ${group.unresolved} for owner)`}
+    >
       <p>Acceptance creates local link-only drafts. Review &amp; save uses the normal save flow.</p>
       <p>{group.ownerNote}</p>
-      <details>
-        <summary>
-          Not needed ({group.entries.filter((entry) => entry.confidence === 'out-of-scope').length})
-        </summary>
+      <ReviewDetails
+        summary={`Not needed (${group.entries.filter((entry) => entry.confidence === 'out-of-scope').length})`}
+      >
         {group.entries
           .filter((entry) => entry.confidence === 'out-of-scope')
           .map((entry) => (
@@ -82,7 +80,7 @@ export function GuidedPreview({
               <button onClick={() => onRestore?.(entry.hash)}>Restore to scope</button>
             </div>
           ))}
-      </details>
+      </ReviewDetails>
       <button
         disabled={!canEdit}
         onClick={() =>
@@ -165,16 +163,15 @@ export function GuidedPreview({
       {limit < actionable.length && (
         <button onClick={() => setLimit(limit + 20)}>Show 20 more proposals</button>
       )}
-    </details>
+    </ReviewDetails>
   );
 }
 
 function Decision({ entry }: { entry: GuidedDecision }) {
   return (
-    <details>
-      <summary>
-        {entry.name} · {entry.hash} · {entry.confidence} · {entry.action}
-      </summary>
+    <ReviewDetails
+      summary={`${entry.name} · ${entry.hash} · ${entry.confidence} · ${entry.action}`}
+    >
       <p>
         {entry.ruleId}: {entry.reason}
       </p>
@@ -190,6 +187,6 @@ function Decision({ entry }: { entry: GuidedDecision }) {
           <RichCell cell={entry.link.snapshot} />
         </>
       )}
-    </details>
+    </ReviewDetails>
   );
 }

@@ -203,6 +203,7 @@ describe('compendium newline preservation per surface', () => {
     const host = await mount(
       createElement(GuidedPreview, { ...f, category: f.categories[0], canEdit: true }),
     );
+    await act(async () => host.querySelector('summary')!.click());
     await click(host, 'Preview all high');
     expect(multiline(host, '[aria-label="Category acceptance preview"]').length).toBeGreaterThan(0);
   });

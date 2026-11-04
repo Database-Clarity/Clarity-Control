@@ -16,6 +16,7 @@ import { bundleUrl } from '../../services/bundle';
 import { compendiumDataUrl } from '../../services/compendium';
 import { sourceFingerprint } from './reviewProgress';
 import { inScopeCategory } from './reviewScope';
+import { ReviewDetails } from './ReviewDetails';
 
 export type CategoryReviewRouteState = {
   query: string;
@@ -229,8 +230,7 @@ export function CategoryReview({
             onStatus={setDeliveryStatus}
             onSend={() => guidance.persistence.save()}
           />
-          <details>
-            <summary>Backup / recovery</summary>
+          <ReviewDetails summary="Backup / recovery">
             <div>
               <button onClick={exportGuidance} disabled={!guidance.ready}>
                 Export backup
@@ -295,7 +295,7 @@ export function CategoryReview({
                 </button>
               )}
             </div>
-          </details>
+          </ReviewDetails>
         </details>
       </div>
       <div className={styles.workspace}>
@@ -367,8 +367,10 @@ export function CategoryReview({
                 guidance={guidance}
               />
             )}
-            <details className={styles.categoryNote}>
-              <summary>Owner guidance for {category.name}</summary>
+            <ReviewDetails
+              className={styles.categoryNote}
+              summary={`Owner guidance for ${category.name}`}
+            >
               <label>
                 Owner guidance for {category.name}
                 <textarea
@@ -383,9 +385,11 @@ export function CategoryReview({
                   onBlur={() => void guidance.persistence.flush()}
                 />
               </label>
-            </details>
-            <details className={styles.browse}>
-              <summary>Browse / category definition ({category.entries.length} entries)</summary>
+            </ReviewDetails>
+            <ReviewDetails
+              className={styles.browse}
+              summary={`Browse / category definition (${category.entries.length} entries)`}
+            >
               <p>{category.rule}</p>
               <p>
                 {Object.entries(category.reasons)
@@ -404,7 +408,7 @@ export function CategoryReview({
               {browsing < category.entries.length && (
                 <button onClick={() => setBrowsing(browsing + 20)}>Show 20 more</button>
               )}
-            </details>
+            </ReviewDetails>
             <button onClick={() => onReview(category)}>Review these one by one</button>
             {guidance.ready && guidance.proposalInput && (
               <GuidedPreview

@@ -408,11 +408,14 @@ it('keeps notes mounted through disclosures and modal Back without background de
   });
   await mount('/compendium');
   const sample = host.querySelector('[aria-label^="Resolve sample "]')!;
-  const note = sample.querySelector<HTMLTextAreaElement>('textarea')!;
-  const disclosure = note.closest('details')!;
+  const disclosure = [...sample.querySelectorAll('details')].find(
+    (node) => node.querySelector('summary')?.textContent === 'Example note',
+  )!;
   expect(disclosure.open).toBe(false);
+  expect(sample.querySelector('textarea')).toBeNull();
+  await act(async () => disclosure.querySelector('summary')!.click());
+  const note = sample.querySelector<HTMLTextAreaElement>('textarea')!;
   await act(async () => {
-    disclosure.querySelector('summary')!.click();
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
       note,
       'Unsaved owner reasoning',
@@ -420,6 +423,7 @@ it('keeps notes mounted through disclosures and modal Back without background de
     note.dispatchEvent(new Event('input', { bubbles: true }));
   });
   await act(async () => disclosure.querySelector('summary')!.click());
+  expect(sample.querySelector('textarea')).toBe(note);
   expect(note.value).toBe('Unsaved owner reasoning');
   const pick = button('Pick other', sample);
   pick.focus();

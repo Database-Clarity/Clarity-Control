@@ -11,6 +11,7 @@ import { referenceCurrent, sampleReference } from './sampleReferences';
 import { PickerStage } from './PickerStage';
 import { LinkPicker } from './LinkPicker';
 import { RichCell } from './RichCell';
+import { ReviewDetails } from './ReviewDetails';
 import styles from './CategoryReview.module.scss';
 
 const decisions = {
@@ -107,10 +108,9 @@ export function SampleReview({
           : 'Resolve this example so agents can use it as a reference.'}
       </p>
       {reference?.link && (
-        <details>
-          <summary>Chosen source description</summary>
+        <ReviewDetails summary="Chosen source description">
           <RichCell cell={reference.link.snapshot} />
-        </details>
+        </ReviewDetails>
       )}
       <PickerStage open={picker} onBack={() => setPicker(false)}>
         <LinkPicker
@@ -123,8 +123,7 @@ export function SampleReview({
         />
       </PickerStage>
       {error && <p role="alert">{error}</p>}
-      <details>
-        <summary>Example note</summary>
+      <ReviewDetails summary="Example note">
         <label>
           Note for {entry.name} (optional)
           <textarea
@@ -149,7 +148,7 @@ export function SampleReview({
             onBlur={() => void guidance.persistence.flush()}
           />
         </label>
-      </details>
+      </ReviewDetails>
       <div className={styles.actions}>
         <p className={styles.actionEyebrow}>Saves as example · no tooltip change</p>
         <button
