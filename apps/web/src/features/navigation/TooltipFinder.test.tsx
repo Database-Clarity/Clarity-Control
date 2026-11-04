@@ -150,6 +150,42 @@ describe('tooltip finder combobox', () => {
     await press('Enter');
     expect(route()).toBe('/t/1399');
   });
+  it.each(['pointerup', 'pointercancel'])(
+    'covers a whole-category thumb jump until %s restores the landed window',
+    async (release) => {
+      const many = {
+        ...data,
+        items: Object.fromEntries(
+          Array.from({ length: 400 }, (_, i) => [
+            1000 + i,
+            item(1000 + i, `Armor ${String(i).padStart(3, '0')}`, 'armor'),
+          ]),
+        ),
+      } as EditorData;
+      await mount('/t/1000', many);
+      await open();
+      const list = host.querySelector<HTMLElement>('[role="listbox"]')!;
+      Object.defineProperties(list, {
+        clientWidth: { value: 200 },
+        clientHeight: { value: 416 },
+      });
+      expect(options().some((row) => row.textContent?.includes('Armor 399'))).toBe(false);
+      const down = new MouseEvent('pointerdown', { button: 0, bubbles: true });
+      Object.defineProperty(down, 'offsetX', { value: 207 });
+      await act(async () => void list.dispatchEvent(down));
+      expect(options()).toHaveLength(400);
+      // A thumb may traverse all overscan in one packet; its destination is
+      // already mounted before the asynchronous scroll notification arrives.
+      list.scrollTop = 9800;
+      await act(async () => void list.dispatchEvent(new Event('scroll')));
+      expect(options()).toHaveLength(400);
+      await act(async () => void window.dispatchEvent(new Event(release)));
+      expect(options().length).toBeLessThan(220);
+      expect(options().some((row) => row.textContent?.includes('Armor 399'))).toBe(true);
+      expect(list.hasAttribute('data-scrollbar-drag')).toBe(false);
+      expect(route()).toBe('/t/1000');
+    },
+  );
   it('marks only a real base -> enhanced pair with the gold arrow, and a search for the variant lands on the base', async () => {
     const variants = {
       ...data,

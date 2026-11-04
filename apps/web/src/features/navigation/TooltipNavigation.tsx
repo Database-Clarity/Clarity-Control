@@ -158,6 +158,8 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  const [draggingScrollbar, setDraggingScrollbar] = useState(false);
+  const draggingScrollbarRef = useRef(false);
   const pointerHighlight = useRef(false);
   const hoverActive = useCallback((index: number) => {
     pointerHighlight.current = true;
@@ -281,6 +283,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     let height = 416;
     let lastTop = -1;
     const scroll = () => {
+      if (draggingScrollbarRef.current) return;
       // Bucket scroll updates inside the overscan. Scrolling reads no row geometry and
       // does no React work until the visible window approaches the next bucket.
       const top = Math.floor(element.scrollTop / (rowHeight * 8)) * rowHeight * 8;
@@ -303,6 +306,32 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       element.removeEventListener('scroll', scroll);
     };
   }, [open, rows, rowHeight]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const finish = () => {
+      if (!draggingScrollbarRef.current) return;
+      const element = list.current;
+      // Restore windowing around the landed viewport in the same update that
+      // removes the drag surface, so no intermediate spacer can become visible.
+      if (element)
+        setViewport({
+          top: Math.floor(element.scrollTop / (rowHeight * 8)) * rowHeight * 8,
+          height: element.clientHeight,
+        });
+      draggingScrollbarRef.current = false;
+      setDraggingScrollbar(false);
+    };
+    window.addEventListener('pointerup', finish, true);
+    window.addEventListener('pointercancel', finish, true);
+    window.addEventListener('blur', finish);
+    return () => {
+      window.removeEventListener('pointerup', finish, true);
+      window.removeEventListener('pointercancel', finish, true);
+      window.removeEventListener('blur', finish);
+      finish();
+    };
+  }, [open, rowHeight]);
 
   // A new route, or leaving the field, restores the current item and an empty query.
   const restore = () => {
@@ -481,7 +510,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   );
   let options;
   if (!open) options = null;
-  else if (rows.length <= 80) options = rows.map(option);
+  else if (rows.length <= 80 || draggingScrollbar) options = rows.map(option);
   else {
     const start = Math.max(0, Math.floor(viewport.top / rowHeight) - 96);
     const end = Math.min(rows.length, Math.ceil((viewport.top + viewport.height) / rowHeight) + 96);
@@ -524,6 +553,20 @@ export const TooltipNavigation = memo(function TooltipNavigation({
         aria-label="Tooltips"
         className={styles.listbox}
         data-windowed={rows.length > 80 || undefined}
+        data-scrollbar-drag={draggingScrollbar || undefined}
+        onPointerDown={(event) => {
+          const element = event.currentTarget;
+          if (
+            event.button === 0 &&
+            event.target === element &&
+            event.nativeEvent.offsetX >= element.clientWidth
+          ) {
+            // Native thumb drags can jump the entire category between scroll
+            // events. Fill its complete surface before the browser starts moving.
+            draggingScrollbarRef.current = true;
+            setDraggingScrollbar(true);
+          }
+        }}
         style={{ '--finder-row-height': `${rowHeight}px` } as CSSProperties}
       >
         {options}
