@@ -94,6 +94,10 @@
   overflow: auto;
   button {
     flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
     content-visibility: auto;
     contain-intrinsic-block-size: auto 4.5rem;
     text-align: left;
