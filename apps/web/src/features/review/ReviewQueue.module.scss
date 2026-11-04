@@ -24,6 +24,8 @@
   li {
     position: absolute;
     inset-inline: 0;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 4rem;
   }
 
   li a {
@@ -34,6 +36,11 @@
     justify-content: center;
     align-items: stretch;
     flex-wrap: nowrap;
+
+    &:focus-visible {
+      // Keep the complete focus ring inside each row's paint containment.
+      outline-offset: -2px;
+    }
   }
 
   span,
