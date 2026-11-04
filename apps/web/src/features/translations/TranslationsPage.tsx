@@ -53,7 +53,11 @@ function Cards({
               </h2>
               <p>
                 <span className={styles.badge}>{languageLabel(language)}</span>{' '}
-                <span className={state === 'missing' ? styles.warning : undefined}>
+                <span
+                  className={
+                    state === 'missing' ? `${styles.warning} ${landing.warning}` : undefined
+                  }
+                >
                   {state === 'missing' && 'Not translated yet'}
                   {state === 'current' && 'Up to date'}
                   {state === 'outdated' &&
