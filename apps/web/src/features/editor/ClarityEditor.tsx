@@ -167,7 +167,6 @@ export function ClarityEditor({
   const symbolReveal = useSettingsStore((state) => state.device.symbolReveal);
   const revealRef = useRef(symbolReveal);
   revealRef.current = symbolReveal;
-  revealRef.current = symbolReveal;
   const rawRef = useRef(false);
   const [rawView, setRawView] = useState(false);
   const symbolsOn = useRef(symbols);
