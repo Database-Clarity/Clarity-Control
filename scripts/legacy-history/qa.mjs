@@ -16,7 +16,7 @@ if (
   cpus.some((cpu) => ![1, 4].includes(cpu))
 )
   throw new Error('Invalid QA cohort');
-const evidenceRoot = 'D:/GitHub/Description-editor/.agents/reports/legacy-history-impl-shots';
+const evidenceRoot = 'D:/GitHub/Description-editor/.agents/reports/legacy-history-ui-shots';
 const evidence = process.env.LEGACY_QA_RUN
   ? `${evidenceRoot}/${fixtureHash}-${process.env.LEGACY_QA_RUN}`
   : evidenceRoot;
@@ -42,7 +42,7 @@ const server = createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': types[extname(file)] ?? 'application/octet-stream' });
   res.end(readFileSync(file));
 });
-await new Promise((r) => server.listen(5246, '127.0.0.1', r));
+await new Promise((r) => server.listen(5247, '127.0.0.1', r));
 const browser = await chromium.launch({
   executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   headless: true,
@@ -71,7 +71,7 @@ try {
           await page.route('**/history/*', (route) =>
             route.fulfill({ json: { page: 1, commits: [] } }),
           );
-          await page.goto('http://127.0.0.1:5246/test/legacy-history.html');
+          await page.goto('http://127.0.0.1:5247/test/legacy-history.html');
           const toggle = page.getByRole('button', { name: 'History', exact: true });
           await toggle.waitFor();
           await page.evaluate(

@@ -14,7 +14,13 @@ import { replaceDraft } from '../../services/save/drafts';
 import { restoreLegacyText } from './revert';
 import styles from './History.module.scss';
 
-export function LegacyHistory({ hash, readOnly = false }: { hash: number; readOnly?: boolean }) {
+export function LegacyHistorySection({
+  hash,
+  readOnly = false,
+}: {
+  hash: number;
+  readOnly?: boolean;
+}) {
   const user = useAuthStore((state) => state.user);
   const base = useDataStore((state) => state.data?.bundle.tooltips[hash]);
   const draft = useDraftStore((state) => state.drafts[hash]);
@@ -83,7 +89,7 @@ export function LegacyHistory({ hash, readOnly = false }: { hash: number; readOn
       ) : (
         history.lanes.map((lane) => (
           <Lane
-            key={lane.sourceHash}
+            key={`${hash}-${lane.sourceHash}`}
             lane={lane}
             current={current}
             canRestore={canRestore && lane.verified}

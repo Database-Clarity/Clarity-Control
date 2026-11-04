@@ -43,8 +43,10 @@ export function getLegacyHistory(
   if (signal?.aborted) return Promise.reject(new DOMException('Aborted', 'AbortError'));
   const subscribe = (promise: Promise<LegacyHistory | null>) => {
     const pending = requests.get(hash);
-    if (!pending || !signal) return promise;
+    if (!pending) return promise;
     pending.consumers++;
+    // A consumer without a cancellation signal still owns its shared request.
+    if (!signal) return promise;
     const abort = () => {
       if (--pending.consumers === 0 && requests.get(hash) === pending) {
         pending.controller.abort();

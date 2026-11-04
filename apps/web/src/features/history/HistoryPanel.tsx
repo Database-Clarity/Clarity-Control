@@ -14,7 +14,7 @@ import { lastEdit } from './lastEdit';
 import { itemFor } from '../navigation/catalog';
 import { useRevisionCache, type RevisionCache } from './revisions';
 import { revertDraft } from './revert';
-import { LegacyHistory } from './LegacyHistory';
+import { LegacyHistorySection } from './LegacyHistory';
 import styles from './History.module.scss';
 
 /**
@@ -73,7 +73,7 @@ export function HistoryPanel({ hash, readOnly = false }: { hash: number; readOnl
     >
       {!signedIn ? <p>Sign in as a configured member to view v2 history.</p> : null}
       {signedIn && <HistoryContent key={`v2-${cache.identity}`} hash={hash} readOnly={readOnly} />}
-      <LegacyHistory key="legacy" hash={hash} readOnly={readOnly} />
+      <LegacyHistorySection key="legacy" hash={hash} readOnly={readOnly} />
     </PanelRow>
   );
 }

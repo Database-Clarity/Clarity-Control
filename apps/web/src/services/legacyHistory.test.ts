@@ -27,6 +27,26 @@ it('aborts obsolete navigation only after its last consumer leaves', async () =>
   await expect(getLegacyHistory(44, first.signal)).rejects.toThrow('Aborted');
 });
 const sha = 'a'.repeat(40);
+it('keeps an unsignalled consumer alive when a panel navigates away', async () => {
+  let upstream: AbortSignal | undefined;
+  let complete!: (response: Response) => void;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((_url: string, init: RequestInit) => {
+      upstream = init.signal as AbortSignal;
+      return new Promise<Response>((resolve) => {
+        complete = resolve;
+      });
+    }),
+  );
+  const controller = new AbortController();
+  const request = getLegacyHistory(45, controller.signal);
+  expect(getLegacyHistory(45)).toBe(request);
+  controller.abort();
+  expect(upstream?.aborted).toBe(false);
+  complete(new Response('', { status: 404 }));
+  expect(await request).toBeNull();
+});
 const lane: LegacyLane = {
   hash: 42,
   sourceHash: 42,
