@@ -44,6 +44,9 @@ import {
 import { useSidebarQueueStore } from '../navigation/sidebarQueue';
 import { workspaceShortcutsBlocked } from '../../ui/interaction';
 import { CompendiumPage } from './CompendiumPage';
+import { MatchedSources } from './MatchedSources';
+import { useDisplayMatches } from './useDisplayMatches';
+import type { displayMatches } from './displayMatches';
 
 const labels = {
   open: 'Unresolved',
@@ -66,7 +69,10 @@ export function MatchReviewPage() {
   const { data, load, loading, error } = useCompendiumStore();
   const { user, loading: authLoading } = useAuthStore();
   const linkedTab = params.get('tab') === 'linked';
-  const draftCount = useDraftStore((state) => Object.keys(state.drafts).length);
+  const matchedTab = params.get('tab') === 'matched';
+  const drafts = useDraftStore((state) => state.drafts);
+  const draftCount = Object.keys(drafts).length;
+  const display = useDisplayMatches(editor, data, drafts, user?.id);
   const saveLocked = useSaveState((state) => state.locked);
   useEffect(() => {
     void load();
@@ -77,6 +83,9 @@ export function MatchReviewPage() {
   );
   const reviewParams = new URLSearchParams(location.search);
   reviewParams.delete('tab');
+  const matchedParams = new URLSearchParams(location.search);
+  matchedParams.set('tab', 'matched');
+  const matchedTarget = `${location.pathname}?${matchedParams}${location.hash}`;
   const linkedParams = new URLSearchParams(location.search);
   linkedParams.set('tab', 'linked');
   const reviewSearch = reviewParams.toString();
@@ -90,7 +99,13 @@ export function MatchReviewPage() {
       <header className={styles.heading}>
         <div>
           {location.pathname !== '/compendium' && <Link to="/compendium">← Compendium</Link>}
-          <h1>{linkedTab ? 'Linked sources changed' : 'Review matches'}</h1>
+          <h1>
+            {matchedTab
+              ? 'Matched sources'
+              : linkedTab
+                ? 'Linked sources changed'
+                : 'Review matches'}
+          </h1>
         </div>
         <button
           type="button"
@@ -121,7 +136,10 @@ export function MatchReviewPage() {
         )}
       </header>
       <nav className={styles.tabs} aria-label="Compendium views">
-        <Link to={reviewTarget} aria-current={!linkedTab ? 'page' : undefined}>
+        <Link to={matchedTarget} aria-current={matchedTab ? 'page' : undefined}>
+          Matched sources
+        </Link>
+        <Link to={reviewTarget} aria-current={!linkedTab && !matchedTab ? 'page' : undefined}>
           Review matches
         </Link>
         <Link to={linkedTarget} aria-current={linkedTab ? 'page' : undefined}>
@@ -129,14 +147,26 @@ export function MatchReviewPage() {
         </Link>
       </nav>
       {error && <p role="alert">{error}</p>}
-      {linkedTab ? (
+      {!matchedTab && display.error && <p role="alert">{display.error}</p>}
+      {matchedTab ? (
+        <MatchedSources />
+      ) : linkedTab ? (
         editor && data && <CompendiumPage />
       ) : (
         <>
-          {(loading || authLoading) && <p role="status">Loading review data…</p>}
-          {editor && data && !authLoading && (
-            <ReviewQueue key={storageKey} storageKey={storageKey} editor={editor} source={data} />
-          )}
+          {(loading || authLoading || display.loading) && <p role="status">Loading review data…</p>}
+          {editor &&
+            data &&
+            !authLoading &&
+            (display.prepared || typeof Worker === 'undefined') && (
+              <ReviewQueue
+                key={storageKey}
+                storageKey={storageKey}
+                editor={editor}
+                source={data}
+                prepared={display.prepared}
+              />
+            )}
         </>
       )}
     </article>
@@ -147,10 +177,12 @@ export function ReviewQueue({
   editor,
   source,
   storageKey,
+  prepared,
 }: {
   editor: EditorData;
   source: CompendiumData;
   storageKey: string;
+  prepared?: ReturnType<typeof displayMatches>;
 }) {
   const [actionBar, setActionBar] = useState<HTMLElement | null>(null);
   const { progress, update, error } = useReviewProgress(storageKey);
@@ -207,68 +239,128 @@ export function ReviewQueue({
     const previous = page.style.getPropertyValue(property);
     const priority = page.style.getPropertyPriority(property);
     let active = true;
-    const updateHeight = () => {
+    const applyHeight = (height: number) => {
       if (!active || !actions.isConnected) return;
-      page.style.setProperty(property, `${actions.getBoundingClientRect().height}px`);
+      const value = `${height}px`;
+      if (page.style.getPropertyValue(property) !== value) page.style.setProperty(property, value);
     };
+    const updateHeight = () => applyHeight(actions.getBoundingClientRect().height);
     const restoreHeight = () => {
       active = false;
       if (previous) page.style.setProperty(property, previous, priority);
       else page.style.removeProperty(property);
     };
-    updateHeight();
     if (typeof ResizeObserver === 'undefined') {
+      updateHeight();
       window.addEventListener('resize', updateHeight);
       return () => {
         window.removeEventListener('resize', updateHeight);
         restoreHeight();
       };
     }
-    const observer = new ResizeObserver(updateHeight);
+    const observer = new ResizeObserver((entries) => {
+      const height = entries?.[0]?.borderBoxSize?.[0]?.blockSize;
+      if (height === undefined) updateHeight();
+      else applyHeight(height);
+    });
     observer.observe(actions, { box: 'border-box' });
     return () => {
       restoreHeight();
       observer.disconnect();
     };
   }, [actionBar]);
-  const fingerprint = useMemo(() => sourceFingerprint(source.tabs), [source]);
+  const fingerprint = useMemo(
+    () => prepared?.fingerprint ?? sourceFingerprint(source.tabs),
+    [source, prepared],
+  );
   const evidence = useMemo(
-    () => reviewEvidence(editor, source, drafts, fingerprint),
-    [editor, source, drafts, fingerprint],
+    () =>
+      prepared
+        ? prepared.evidence.map((entry) => ({
+            ...entry,
+            next: drafts[entry.hash]?.next ?? entry.base,
+          }))
+        : reviewEvidence(editor, source, drafts, fingerprint),
+    [editor, source, drafts, fingerprint, prepared],
   );
   const entries = useMemo(() => applyReviewProgress(evidence, progress), [evidence, progress]);
   const manifest = useMemo(
     () => groupManifestItems(editor.items, editor.aliases),
     [editor.items, editor.aliases],
   );
-  const { proposals, loading: matching, error: proposalError } = useProposals(editor, source);
-  const categories = useMemo(
-    () =>
-      reviewCategories(entries, editor, proposals, matching, !!proposalError, source).map((category) => {
-        const decorated = new Map(
-          category.entries.map((entry) => [
-            entry.hash,
-            {
-              ...entry,
-              scopeRestored: scopeState.hashes.has(entry.hash),
-            },
-          ]),
-        );
-        const decorate = (entry: (typeof category.entries)[number]) => decorated.get(entry.hash)!;
-        return {
-          ...category,
-          entries: category.entries.map(decorate),
-          samples: category.samples.map(decorate),
-          reasons: Object.fromEntries(
-            Object.entries(category.reasons).map(([reason, items]) => [
-              reason,
-              items.map(decorate),
-            ]),
-          ) as typeof category.reasons,
-        };
-      }),
-    [entries, editor, proposals, matching, proposalError, scopeState.hashes, source],
+  const {
+    proposals: coreProposals,
+    loading: matching,
+    error: proposalError,
+  } = useProposals(editor, source);
+  const proposals = useMemo(() => {
+    if (!prepared) return coreProposals;
+    const shown = new Map(coreProposals);
+    const decisions = new Map(prepared.decisions.map((decision) => [decision.hash, decision]));
+    for (const [hash, match] of prepared.matches) {
+      shown.set(hash, {
+        match,
+        link: decisions.get(hash)?.link,
+        candidates: shown.get(hash)?.candidates ?? [],
+      });
+    }
+    return shown;
+  }, [coreProposals, prepared]);
+  const currentEntries = useMemo(
+    () => new Map(entries.map((entry) => [entry.hash, entry])),
+    [entries],
   );
+  const categories = useMemo(() => {
+    if (
+      prepared &&
+      !scopeState.hashes.size &&
+      prepared.categories.every((category) =>
+        category.entries.every((entry) => {
+          const current = currentEntries.get(entry.hash);
+          return (
+            current?.status === entry.status &&
+            current.next === entry.next &&
+            current.stale === entry.stale
+          );
+        }),
+      )
+    )
+      return prepared.categories;
+    return (
+      prepared?.categories ??
+      reviewCategories(entries, editor, proposals, matching, !!proposalError, source)
+    ).map((category) => {
+      const decorated = new Map(
+        category.entries.map((entry) => [
+          entry.hash,
+          {
+            ...entry,
+            ...currentEntries.get(entry.hash),
+            scopeRestored: scopeState.hashes.has(entry.hash),
+          },
+        ]),
+      );
+      const decorate = (entry: (typeof category.entries)[number]) => decorated.get(entry.hash)!;
+      return {
+        ...category,
+        entries: category.entries.map(decorate),
+        samples: category.samples.map(decorate),
+        reasons: Object.fromEntries(
+          Object.entries(category.reasons).map(([reason, items]) => [reason, items.map(decorate)]),
+        ) as typeof category.reasons,
+      };
+    });
+  }, [
+    entries,
+    editor,
+    proposals,
+    matching,
+    proposalError,
+    scopeState.hashes,
+    source,
+    prepared,
+    currentEntries,
+  ]);
   useEffect(() => {
     setSidebarCategories(categories.map(({ id, name }) => ({ id, name })));
   }, [categories, setSidebarCategories]);
@@ -302,14 +394,24 @@ export function ReviewQueue({
     }
     if (changed) setParams(next, { replace: true });
   }, [categories, params, setParams]);
-  const inScope = new Set(
-    categories.flatMap((category) =>
-      category.entries
-        .filter((entry) => !classifyScope(entry, category.id))
-        .map((entry) => entry.hash),
-    ),
+  const inScope = useMemo(() => {
+    if (prepared?.scopeHashes && !scopeState.hashes.size) {
+      const hashes = new Set(prepared.scopeHashes);
+      for (const entry of entries) if (entry.status !== 'open') hashes.add(entry.hash);
+      return hashes;
+    }
+    return new Set(
+      categories.flatMap((category) =>
+        category.entries
+          .filter((entry) => !classifyScope(entry, category.id))
+          .map((entry) => entry.hash),
+      ),
+    );
+  }, [categories, prepared, scopeState.hashes, entries]);
+  const scopedEntries = useMemo(
+    () => entries.filter((entry) => inScope.has(entry.hash)),
+    [entries, inScope],
   );
-  const scopedEntries = entries.filter((entry) => inScope.has(entry.hash));
   const routeFilter = progressSchema.shape.filter.safeParse(params.get('status'));
   // New category links reset stale filters; normalized URLs retain each history entry's filters.
   const queueProgress: ReviewProgress = {
@@ -639,6 +741,8 @@ export function ReviewQueue({
           Undo last decision
         </button>
         <CategoryReview
+          fingerprint={fingerprint}
+          includedHashes={inScope}
           canEdit={canEdit}
           onAccept={acceptGuided}
           onRestore={restoreScope}

@@ -144,13 +144,19 @@ describe('compendium newline preservation per surface', () => {
     expect(multiline(host, 'ul button')).toHaveLength(1);
   });
 
-  it('ProposalContext (match review, bulk preview) keeps breaks in source and nearby cells', () => {
+  it('ProposalContext lazily opens nearby cells while preserving their source line breaks', async () => {
     const f = guided();
     const match = f.proposals.get(100)!.match!;
     match.tab.grid = [{ row: match.row.rowIndex, col: 1, cell: cellOf(TEXT) }] as never;
-    const html = renderToStaticMarkup(createElement(ProposalContext, { match, source: f.source }));
-    // Source cell + the nearby grid cell (cell text itself carries the "Mechanics" prefix).
-    expect(multiline(dom(html))).toHaveLength(2);
+    const compact = { ...match, tab: { ...match.tab, grid: undefined, rows: [] } };
+    const host = await mount(createElement(ProposalContext, { match: compact, source: f.source }));
+    expect(multiline(host)).toHaveLength(1);
+    await act(async () => {
+      const details = host.querySelector('details')!;
+      details.open = true;
+      details.dispatchEvent(new Event('toggle'));
+    });
+    expect(multiline(host)).toHaveLength(2);
   });
 
   it('BulkPreview keeps breaks in each proposal source', () => {

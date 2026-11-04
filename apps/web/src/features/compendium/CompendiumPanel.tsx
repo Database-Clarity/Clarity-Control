@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { resolveCompendiumLink, snapshotCompendium, type Tooltip } from '@clarity/core';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
@@ -20,6 +20,7 @@ import { scaledPx } from '../../ui/scale';
 import styles from './Compendium.module.scss';
 import { confirmCompendiumSelection } from './selection';
 import { usePaneMatch } from './usePaneMatch';
+import { useDisplayMatches } from './useDisplayMatches';
 import { openDraftSaveReview } from '../../services/save/openReview';
 
 /**
@@ -56,6 +57,19 @@ function ScaleControl() {
 }
 
 export function CompendiumPanel({ base }: { base: Tooltip }) {
+  const displayed = useDeferredValue(base);
+  return <PaneContents base={displayed} pending={displayed !== base} />;
+}
+
+// Rapid finder navigation keeps the previous styled cell until React can paint the final item.
+// The cheap wrapper absorbs intermediate items; link/review actions pause while it catches up.
+const PaneContents = memo(function PaneContents({
+  base,
+  pending,
+}: {
+  base: Tooltip;
+  pending: boolean;
+}) {
   const { data: compendium, loading, error, load } = useCompendiumStore();
   const data = useDataStore((state) => state.data);
   const drafts = useDraftStore((state) => state.drafts);
@@ -78,18 +92,33 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
   const tooltip = draft?.next ?? base;
   const link = tooltip.compendium;
   const matched = usePaneMatch(base, data, compendium, drafts, user?.id);
+  const { loading: matching, error: matchError } = useDisplayMatches(
+    data,
+    compendium,
+    drafts,
+    user?.id,
+  );
   const canEdit =
+    !pending &&
     !!apiUrl &&
     hydrated &&
     !saving &&
     !!user?.role &&
     ['maintainer', 'editor', 'trial'].includes(user.role);
   const canReview =
-    !!apiUrl && hydrated && !saving && !!user?.role && ['maintainer', 'editor'].includes(user.role);
+    !pending &&
+    !!apiUrl &&
+    hydrated &&
+    !saving &&
+    !!user?.role &&
+    ['maintainer', 'editor'].includes(user.role);
   useEffect(() => {
     void load();
   }, [load]);
-  const resolution = compendium && link ? resolveCompendiumLink(link, compendium) : undefined;
+  const resolution = useMemo(
+    () => (compendium && link ? resolveCompendiumLink(link, compendium) : undefined),
+    [compendium, link],
+  );
   const match =
     resolution && ['ok', 'changed', 'moved'].includes(resolution.status) && 'row' in resolution
       ? resolution
@@ -139,7 +168,11 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
             </button>
           </p>
         )}
-        {!link && !matched && <p>No Compendium row linked yet.</p>}
+        {!link && matching && <p role="status">Matching Compendium…</p>}
+        {!link && matchError && <p role="alert">{matchError}</p>}
+        {!link && !matched && !matching && !loading && !matchError && (
+          <p>No Compendium row linked yet.</p>
+        )}
         {!link && matched && (
           <>
             <p className={styles.meta}>
@@ -337,4 +370,4 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
       </div>
     </RightPane>
   );
-}
+});

@@ -242,6 +242,9 @@
   font-size: 0.75rem;
 }
 .rows {
+  contain: content;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   list-style: none;
   padding: 0;
   max-height: 24rem;
@@ -307,6 +310,9 @@
 }
 
 .sheetScroll {
+  contain: content;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   max-width: 100%;
   max-height: 36rem;
   overflow: auto;

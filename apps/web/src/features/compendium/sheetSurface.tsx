@@ -32,7 +32,17 @@ export function contrastRatio(a: string, b: string): number {
  * mixed toward white (dark background) or black (light background) by the smallest 5 % step that
  * does, so its hue survives.
  */
+const readableCache = new Map<string, string>();
 export function readableOn(color: string, background: string): string {
+  const key = `${color}|${background}`;
+  const cached = readableCache.get(key);
+  if (cached !== undefined) return cached;
+  const value = calculateReadableOn(color, background);
+  if (readableCache.size >= 1024) readableCache.clear();
+  readableCache.set(key, value);
+  return value;
+}
+function calculateReadableOn(color: string, background: string): string {
   if (contrastRatio(color, background) >= 4.5) return color;
   const target = luminance(background) > 0.4 ? 0 : 255;
   for (let mix = 5; mix <= 100; mix += 5) {

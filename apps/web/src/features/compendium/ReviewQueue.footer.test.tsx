@@ -87,6 +87,7 @@ beforeEach(() => {
             observe: this.observe,
             disconnect: this.disconnect,
           });
+        this.notify();
       });
       disconnect = vi.fn();
     },

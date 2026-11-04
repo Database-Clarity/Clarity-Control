@@ -2,16 +2,32 @@ import { useEffect, useMemo } from 'react';
 import { useDataStore } from '../../stores/data';
 import { useCompendiumStore } from './store';
 import { compendiumChanges } from './tracking';
+import { useDisplayMatches } from './useDisplayMatches';
+import { useDraftStore } from '../../stores/drafts';
+import { useAuthStore } from '../../stores/auth';
 
 export type CompendiumCount =
   { state: 'loading' } | { state: 'error' } | { state: 'ready'; count: number };
 
 /** Number of Compendium changes waiting for review. One load owner: whoever mounts this first. */
 export function useCompendiumCount(): CompendiumCount {
-  const tooltips = useDataStore((state) => state.data?.bundle.tooltips);
+  const editor = useDataStore((state) => state.data);
+  const tooltips = editor?.bundle.tooltips;
+  const drafts = useDraftStore((state) => state.drafts);
+  const userId = useAuthStore((state) => state.user?.id);
   const { data, error, load } = useCompendiumStore();
+  useDisplayMatches(editor, data, drafts, userId);
   useEffect(() => {
-    void load();
+    const start = () => {
+      void load();
+      void import('./MatchReviewPage');
+    };
+    if ('requestIdleCallback' in window) {
+      const id = window.requestIdleCallback(start, { timeout: 1500 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = setTimeout(start, 0);
+    return () => clearTimeout(id);
   }, [load]);
   const count = useMemo(
     () => (tooltips && data ? compendiumChanges(tooltips, data).length : null),

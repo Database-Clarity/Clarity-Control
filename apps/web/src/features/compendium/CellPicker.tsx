@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   compendiumCellAt,
   selectCompendiumCells,
@@ -61,6 +61,25 @@ export function CellPicker({
   const selection =
     preview && row ? { tab, row: { ...row, cell: preview }, cells: offsets } : undefined;
   const accepted = selection && confirmCompendiumSelection(selection, data);
+  const firstRow = Math.max(1, (anchor?.row ?? 1) - 8);
+  const lastRow = (anchor?.row ?? 1) + 8;
+  const columns = useMemo(
+    () => Math.max(1, ...(tab.grid ?? []).map((entry) => entry.col + (entry.colSpan ?? 1))),
+    [tab],
+  );
+  const visibleCells = useMemo(
+    () =>
+      new Map(
+        Array.from({ length: lastRow - firstRow + 1 }, (_, index) => firstRow + index).flatMap(
+          (row) =>
+            Array.from(
+              { length: columns },
+              (_, col) => [`${row}:${col}`, compendiumCellAt(tab, { row, col })] as const,
+            ),
+        ),
+      ),
+    [tab, firstRow, lastRow, columns],
+  );
   if (!tab.grid)
     return <p>This dataset has no sheet grid. Refresh the dataset to pick description cells.</p>;
   const hits = query.trim()
@@ -68,9 +87,6 @@ export function CellPicker({
         entry.cell.plain.toLowerCase().includes(query.trim().toLowerCase()),
       )
     : [];
-  const firstRow = Math.max(1, (anchor?.row ?? 1) - 8);
-  const lastRow = (anchor?.row ?? 1) + 8;
-  const columns = Math.max(1, ...tab.grid.map((entry) => entry.col + (entry.colSpan ?? 1)));
   function pickAnchor(position: CompendiumPosition) {
     setAnchor(position);
     setOffsets([]);
@@ -176,7 +192,7 @@ export function CellPicker({
                     <tr key={rowNumber}>
                       <th scope="row">{rowNumber}</th>
                       {Array.from({ length: columns }, (_, col) => {
-                        const entry = compendiumCellAt(tab, { row: rowNumber, col });
+                        const entry = visibleCells.get(`${rowNumber}:${col}`);
                         if (
                           entry &&
                           (col !== entry.col || rowNumber !== Math.max(firstRow, entry.row))

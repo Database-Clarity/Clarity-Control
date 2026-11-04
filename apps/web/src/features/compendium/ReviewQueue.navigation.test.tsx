@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { guidedFixture } from '../../../test/guided-fixture';
 import { ReviewQueue } from './MatchReviewPage';
 import { categoryId } from './reviewCategories';
+import { displayMatches } from './displayMatches';
 import { useCompendiumStore } from './store';
 import { emptyProgress, type ReviewProgress } from './reviewProgress';
 import { Layout } from '../navigation/Layout';
@@ -128,7 +129,11 @@ function categoryRoute(category = 'weapon-trait', hash?: number) {
   return `/compendium/review?${params}`;
 }
 
-async function mount(path = '/compendium/review?view=entries&hash=100', stored = emptyProgress()) {
+async function mount(
+  path = '/compendium/review?view=entries&hash=100',
+  stored = emptyProgress(),
+  prepared?: ReturnType<typeof displayMatches>,
+) {
   localStorage.setItem(storageKey, JSON.stringify(stored));
   await act(async () =>
     root.render(
@@ -151,6 +156,7 @@ async function mount(path = '/compendium/review?view=entries&hash=100', stored =
                   editor: fixture.editor,
                   source: fixture.source,
                   storageKey,
+                  prepared,
                 }),
               }),
             ),
@@ -692,4 +698,43 @@ describe('Shell overlay and save-dialog keyboard ownership', () => {
     expect(selected()).toBe('Sample 102');
     expect(progress().decisions[101].kind).toBe('skipped');
   });
+});
+
+it('keeps current unsaved English visible when matching evidence was prepared before text edits', async () => {
+  const prepared = displayMatches(
+    fixture.editor,
+    fixture.source,
+    {},
+    emptyProgress(),
+    undefined,
+    fixture.document.scope,
+    fixture.proposals,
+    fixture.document,
+  );
+  const base = fixture.categories[0].entries.find((entry) => entry.hash === 100)!.base;
+  const next = {
+    ...base,
+    text: { ...base.text, en: { ...base.text.en!, text: 'Current unsaved English' } },
+  };
+  useDraftStore.setState({ drafts: { 100: { base, next } } });
+  await mount(undefined, undefined, prepared);
+  expect(host.querySelector('[aria-label="Entry to review"] pre')?.textContent).toBe(
+    'Current unsaved English',
+  );
+  await act(async () =>
+    useDraftStore.setState({
+      drafts: {
+        100: {
+          base,
+          next: {
+            ...next,
+            text: { ...next.text, en: { ...next.text.en, text: 'Newer unsaved English' } },
+          },
+        },
+      },
+    }),
+  );
+  expect(host.querySelector('[aria-label="Entry to review"] pre')?.textContent).toBe(
+    'Newer unsaved English',
+  );
 });

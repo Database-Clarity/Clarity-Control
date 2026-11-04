@@ -791,3 +791,40 @@ These are guarded template/import-closure rules, not generic parent-card approva
 - Deferred to separate work: manifest-removal archive and lost-tooltip checker/recovery. Root verified 153/159 cleared texts were never human-edited manifest copies; Ricochet Rounds contained the real sharper-angle addition. Concussion, Proximity and Remote Detonation history was manifest paraphrase. No archival, resurrection or history rewriting is performed by this matcher.
 
 <!-- END GENERATED OWNER DECISIONS -->
+
+### Shipped display approvals and computed cache (2026-11-04)
+
+`approved-guidance.v1.json` is an immutable copy of the 117 references and frozen category
+membership from the read-only 2026-11-02 audit input
+`ccov-audit-42488/renewed-guidance.json`. It is an app asset, never editor-data, a saved link,
+or a new approval. `guidanceSchema` validates it; the existing `rebaselineGuidance` validator
+renews only unchanged entry/source evidence in memory. Meaningful local references/comments
+layer over their recorded categories, retaining baseline, membership and unresolved-reference
+gates. No owner browser or live guidance store is used to generate the shipped snapshot.
+
+Both the pane and Matched sources tab consume the same read-only worker results. Only
+`action=link` with `confidence=high` or the existing explicit out-of-scope parent-link exceptions
+is displayed as Matched. The historical 2,067-link report includes 145 medium proposals:
+its display-eligible population is 1,905 high + 17 explicit parent exceptions = 1,922.
+Medium proposals remain proposals, never automatic pane matches. All four Collective entries
+were already withheld in that report. Current live inputs can yield fewer links when frozen
+membership or reference evidence no longer validates; the counts must not be conflated.
+
+Regenerate `precomputed.v1.json` with `node scripts/compendium-guidance/precompute.mjs` after
+any matching-rule/input change. The command reads public source/catalog/bundle plus shipped
+approvals and writes only that app asset. Its SHA-256 key covers all catalog definitions, aliases, tooltip evidence and tracked styled
+source tabs. Fetch/build timestamps, publication/account metadata and commit-only transport
+changes are excluded for pristine display; local guidance additionally keys by the current commit
+so stale baseline gates remain intact. Exact matches use the compact value table; changed inputs recompute
+using the same matcher in a module worker. IndexedDB caches results by input hash and compiled
+worker URL (including matcher code dependencies); blocked storage falls back to memory.
+Reload published data creates a new source identity. View navigation shares the in-memory
+session, so it neither parses the sheet nor restarts matching. Rich-cell interning/memoization
+and sheet paint containment preserve text, spans, merged-cell selections, styling and colours.
+
+Worker replies use the same value-table representation in batches of 512 nodes. This preserves
+Map/undefined values, physical coordinates, full rich cells and structural sharing without a
+single large clone on the UI thread. Main-thread receivers publish only the complete result.
+Draft matching projects only link/classification metadata, caches unchanged draft entries and
+ignores live text; the review view overlays current draft English separately. Nearby sheet context
+is built only after its existing disclosure is opened; the approved description stays immediate.

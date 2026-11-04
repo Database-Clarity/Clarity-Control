@@ -39,7 +39,7 @@ describe('compendium newlines', () => {
     const wrapper = host.querySelector('[data-multiline]')!;
     expect(wrapper.textContent).toBe(TEXT);
     expect(
-      wrapper.querySelector<HTMLElement>('span span[style*="bold"], span span[style*="700"]'),
+      wrapper.querySelector<HTMLElement>('span[style*="bold"], span[style*="700"]'),
     ).not.toBeNull();
   });
   it('Multiline wraps plain picker text (buttons/list rows)', () => {

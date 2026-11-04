@@ -1,6 +1,6 @@
 .review {
   min-width: 0;
-  color: #e2e5ee;
+  color: var(--text);
   padding-bottom: 6rem;
   h1 {
     font-size: 1.65rem;
@@ -20,8 +20,8 @@
     padding: 0.55rem 0.7rem;
     border: 1px solid #596478;
     border-radius: 0.4rem;
-    background: #242a38;
-    color: inherit;
+    background: var(--ctl);
+    color: var(--text);
     max-width: 100%;
     box-sizing: border-box;
   }
@@ -92,6 +92,7 @@
   justify-content: space-between;
 }
 .tabs {
+  color: var(--text);
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
@@ -105,11 +106,11 @@
     border: 1px solid #596478;
     border-bottom: 0;
     border-radius: 0.4rem 0.4rem 0 0;
-    color: inherit;
+    color: var(--text);
     text-decoration: none;
   }
   a[aria-current='page'] {
-    background: #242a38;
+    background: var(--ctl);
     font-weight: 650;
   }
   a:focus-visible {
@@ -129,7 +130,7 @@
     position: absolute;
     right: 0;
     width: min(25rem, 75vw);
-    background: #202737;
+    background: var(--raised);
     padding: 1rem;
     z-index: 8;
     border: 1px solid #66758b;
@@ -177,6 +178,7 @@
   min-height: 0;
 }
 .card {
+  color: #e2e5ee;
   min-width: 0;
   border: 1px solid #424e62;
   border-radius: 0.6rem;
@@ -229,6 +231,7 @@
   }
 }
 .actionBar {
+  color: #e2e5ee;
   position: fixed;
   bottom: 0;
   left: 17rem;
@@ -261,6 +264,7 @@
   font-weight: 650;
 }
 .overlay {
+  color: #e2e5ee;
   position: fixed;
   inset: 2rem 2rem calc(var(--review-action-bar-height, 0px) + 0.5rem) calc(17rem + 2rem);
   z-index: 9;
@@ -297,6 +301,7 @@
 }
 @media (max-width: 1100px) {
   .actionBar {
+  color: #e2e5ee;
     justify-content: flex-start;
   }
   .review kbd {
@@ -343,11 +348,13 @@
     grid-template-columns: minmax(0, 1fr);
   }
   .card {
+  color: #e2e5ee;
     height: auto;
     max-height: none;
     padding: 1rem;
   }
   .actionBar {
+  color: #e2e5ee;
     bottom: env(safe-area-inset-bottom, 0px);
     justify-content: stretch;
     left: 0;
@@ -377,6 +384,7 @@
     flex-wrap: wrap;
   }
   .overlay {
+  color: #e2e5ee;
     inset: 0.5rem 0.5rem
       calc(var(--review-action-bar-height, 0px) + env(safe-area-inset-bottom, 0px) + 0.5rem);
     padding: 1rem;

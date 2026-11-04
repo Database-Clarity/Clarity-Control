@@ -1,5 +1,7 @@
 import { guidanceDiagnostic } from './guidanceDiagnostic';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { matchingSession } from './matchingSession';
+import type { GuidedCategory } from './guidedDecisions';
 import type { CompendiumData } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import type { ReviewProposal } from './rapidReview';
@@ -35,7 +37,11 @@ export function CategoryReview({
   canEdit = false,
   onAccept,
   onRestore,
+  fingerprint: inputFingerprint,
+  includedHashes,
 }: {
+  fingerprint?: string;
+  includedHashes?: Set<number>;
   onRestore?: (hash: number) => void;
   categories: ReviewCategory[];
   editor: EditorData;
@@ -51,6 +57,10 @@ export function CategoryReview({
   ) => void;
   onReview: (category?: ReviewCategory, hash?: number) => void;
 }) {
+  const fingerprint = useMemo(
+    () => inputFingerprint ?? sourceFingerprint(source.tabs),
+    [inputFingerprint, source],
+  );
   const [deliveryStatus, setDeliveryStatus] = useState<string | null>(null);
   const [localQuery, setLocalQuery] = useState('');
   const [localCategoryId, setLocalCategoryId] = useState('');
@@ -59,12 +69,73 @@ export function CategoryReview({
   const [importError, setImportError] = useState<string | null>(null);
   const query = routeState?.query ?? localQuery;
   const categoryId = routeState?.categoryId ?? localCategoryId;
-  const filtered = categories
-    .map(inScopeCategory)
-    .filter((category) =>
-      `${category.name} ${category.group}`.toLowerCase().includes(query.toLowerCase()),
-    );
+  const scopedCategories = useMemo(
+    () =>
+      categories.map((category) => {
+        if (!includedHashes) return inScopeCategory(category);
+        const included = (entry: ReviewCategory['entries'][number]) =>
+          includedHashes.has(entry.hash);
+        return {
+          ...category,
+          entries: category.entries.filter(included),
+          samples: category.samples.filter(included),
+          reasons: Object.fromEntries(
+            Object.entries(category.reasons).map(([reason, entries]) => [
+              reason,
+              entries.filter(included),
+            ]),
+          ) as ReviewCategory['reasons'],
+        };
+      }),
+    [categories, includedHashes],
+  );
+  const filtered = useMemo(
+    () =>
+      scopedCategories.filter((category) =>
+        `${category.name} ${category.group}`.toLowerCase().includes(query.toLowerCase()),
+      ),
+    [scopedCategories, query],
+  );
   const category = filtered.find((category) => category.id === categoryId) ?? filtered[0];
+  const activeCategoryId = category?.id ?? '';
+  const [computed, setComputed] = useState<{
+    input: typeof guidance.proposalInput;
+    categories: typeof categories;
+    categoryId: string;
+    groups: GuidedCategory[];
+  }>();
+  useEffect(() => {
+    if (typeof Worker === 'undefined' || !guidance.proposalInput) return;
+    let cancelled = false;
+    const input = guidance.proposalInput;
+    void matchingSession(editor, source)
+      .guided(
+        input,
+        categories,
+        `${editor.bundle.sourceCommit}|${fingerprint}`,
+        `${bundleUrl}|${compendiumDataUrl}`,
+        activeCategoryId,
+      )
+      .then((groups) => {
+        if (!cancelled) setComputed({ input, categories, categoryId: activeCategoryId, groups });
+      })
+      .catch(() => {
+        if (!cancelled)
+          setComputed({ input, categories, categoryId: activeCategoryId, groups: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [editor, source, categories, guidance.proposalInput, fingerprint, activeCategoryId]);
+  const computedGroups =
+    typeof Worker === 'undefined'
+      ? undefined
+      : computed &&
+          computed.input === guidance.proposalInput &&
+          computed.categories === categories &&
+          computed.categoryId === activeCategoryId
+        ? computed.groups
+        : [];
   function samples(group: ReviewCategory) {
     const references = guidance.document.categories[group.id]?.references ?? {};
     return [
@@ -323,6 +394,7 @@ export function CategoryReview({
             <button onClick={() => onReview(category)}>Review these one by one</button>
             {guidance.ready && guidance.proposalInput && (
               <GuidedPreview
+                computedGroups={computedGroups}
                 categories={categories}
                 key={category.id}
                 canEdit={canEdit && !paused && !guidance.conflict && !guidance.reloading}
@@ -333,7 +405,7 @@ export function CategoryReview({
                 category={category}
                 proposals={proposals}
                 source={source}
-                baseline={`${editor.bundle.sourceCommit}|${sourceFingerprint(source.tabs)}`}
+                baseline={`${editor.bundle.sourceCommit}|${fingerprint}`}
                 scope={`${bundleUrl}|${compendiumDataUrl}`}
               />
             )}

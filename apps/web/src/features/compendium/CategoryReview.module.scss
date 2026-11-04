@@ -46,7 +46,7 @@
   }
   p {
     font-size: 0.85rem;
-    color: #aab8cc;
+    color: var(--text2);
   }
 }
 .persistence {
@@ -96,11 +96,13 @@
     color: #aab8cc;
   }
   [aria-current='true'] {
+    color: #e2e5ee;
     border-color: #87beff;
     background: #2d3c52;
   }
 }
 .category {
+  color: #e2e5ee;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
