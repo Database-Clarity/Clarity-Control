@@ -1,0 +1,337 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`keeps standalone picker cells unchanged 1`] = `
+{
+  "controls": 0,
+  "digest": "ab165455df1859770ab3a0b92413ade164e98d89720022635882c1a845a19887",
+  "popovers": 0,
+  "text": "Picker
+
+preview",
+}
+`;
+
+exports[`preserves 'Collective Demolition' styles, alignment, text, controls, and open popovers in both diff views > Collective Demolition 1`] = `
+[
+  {
+    "closed": {
+      "controls": 21,
+      "digest": "efa02d19d8f974e6a1fcb4db238b07e13d6591392be92aa007171cb3b757db4f",
+      "popovers": 21,
+      "text": "Removed: red strike-through. Added: green underline. Dotted: tap or hover for style changes.On Elemental-Pickup Interaction:
+ScoringEach scored damage instancesinstance grants ↑increased Grenade Ability Energy for an Elemental-Pickup based duration.
+Averages 10% Grenade Energy per second under Sustained Damage across ALL WEAPON TYPES.
+Grenade Gain Formula: 10% / (1 / (60 / RPM)
+Checks out for non-burst Weapons. Rocket Launchers assume 2 procs per shot. Swords assume 60RPM.
+bold: true → false; italic: false → true; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+
+alignment: inherited → centerSnapshot Current Snapshot: 
+Firesprites and Void Breaches grant +8 seconds. 
+Ionic Traces, Stasis Shards, and both the Pickup AND Explosion of Tangles/Arc Elemental Orbs grant +4 seconds. 
+Additional pickups extend the buff duration by their corresponding duration, up to 16 seconds.
+Buff can be activated while stowed, and persists through stow.
+
+Approximate GrenadesizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: Grenade sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  AbilitysizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: Ability sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  Gains:Gains per Damage Instance scored:
+sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+PENDINGRapid-Fire colour: #cccccc → #63d275; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  ATShotgun: colour: #cccccc → #e0a261; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  SOME↑0.35% colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  POINT| colour: #cccccc → #e0a261; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  :)Adaptive SMG: ↑0.66% + Adaptive Trace: ↑0.67%
+colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+PENDINGRapid-Fire colour: #cccccc → #999999; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  ATAuto: colour: #cccccc → #999999; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  SOME↑0.825% colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  POINT| colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  :)Lightweight Pulse: ↑0.88% | Precision SMG + Aggressive MG: ↑0.99%
+colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+PENDINGAggressive colour: #cccccc → #63d275; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  ATFusion: colour: #cccccc → #63d275; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  SOME↑1.05% colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  POINT| colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  :)Rapid-Fire Fusion: ↑1.12% | Rapid-Fire Sidearm + High-Impact Pulse: ↑1.31%
+High-Impact MG: ↑1.65% | Adaptive Fusion: ↑1.76% | Heavy-Burst Pulse: ↑2.3% 
+Precision Scout: ↑3.33% | Precision HC: ↑3.4% | High-Impact Scout: ↑3.97%
+Adaptive HC: ↑4.26% | Aggressive HC: ↑4.95% | Breech GL + Adaptive Sniper: ↑6.6%
+Rapid-Fire Glaive: ↑7.04% | Swords: ↑9.9% | Aggressive Rocket: ↑10.77%
+Adaptive Rocket: ↑11.65% | Precision LFR: ↑12.38%",
+    },
+    "mode": "changes",
+  },
+  {
+    "mode": "changes",
+    "open": {
+      "controls": 21,
+      "digest": "53c76072485da1685c867896604640681f5f272d9e79c3ed5d014c6cf3edc405",
+      "popovers": 21,
+      "text": "Removed: red strike-through. Added: green underline. Dotted: tap or hover for style changes.On Elemental-Pickup Interaction:
+ScoringEach scored damage instancesinstance grants ↑increased Grenade Ability Energy for an Elemental-Pickup based duration.
+Averages 10% Grenade Energy per second under Sustained Damage across ALL WEAPON TYPES.
+Grenade Gain Formula: 10% / (1 / (60 / RPM)
+Checks out for non-burst Weapons. Rocket Launchers assume 2 procs per shot. Swords assume 60RPM.
+bold: true → false; italic: false → true; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+
+alignment: inherited → centerSnapshot Current Snapshot: 
+Firesprites and Void Breaches grant +8 seconds. 
+Ionic Traces, Stasis Shards, and both the Pickup AND Explosion of Tangles/Arc Elemental Orbs grant +4 seconds. 
+Additional pickups extend the buff duration by their corresponding duration, up to 16 seconds.
+Buff can be activated while stowed, and persists through stow.
+
+Approximate GrenadesizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: Grenade sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  AbilitysizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: Ability sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  Gains:Gains per Damage Instance scored:
+sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+PENDINGRapid-Fire colour: #cccccc → #63d275; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  ATShotgun: colour: #cccccc → #e0a261; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  SOME↑0.35% colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  POINT| colour: #cccccc → #e0a261; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  :)Adaptive SMG: ↑0.66% + Adaptive Trace: ↑0.67%
+colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+PENDINGRapid-Fire colour: #cccccc → #999999; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  ATAuto: colour: #cccccc → #999999; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  SOME↑0.825% colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  POINT| colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  :)Lightweight Pulse: ↑0.88% | Precision SMG + Aggressive MG: ↑0.99%
+colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+PENDINGAggressive colour: #cccccc → #63d275; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  ATFusion: colour: #cccccc → #63d275; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  SOME↑1.05% colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  POINT| colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  :)Rapid-Fire Fusion: ↑1.12% | Rapid-Fire Sidearm + High-Impact Pulse: ↑1.31%
+High-Impact MG: ↑1.65% | Adaptive Fusion: ↑1.76% | Heavy-Burst Pulse: ↑2.3% 
+Precision Scout: ↑3.33% | Precision HC: ↑3.4% | High-Impact Scout: ↑3.97%
+Adaptive HC: ↑4.26% | Aggressive HC: ↑4.95% | Breech GL + Adaptive Sniper: ↑6.6%
+Rapid-Fire Glaive: ↑7.04% | Swords: ↑9.9% | Aggressive Rocket: ↑10.77%
+Adaptive Rocket: ↑11.65% | Precision LFR: ↑12.38%",
+    },
+  },
+  {
+    "closed": {
+      "controls": 0,
+      "digest": "51f57d7522d91bdb2f9a86ffa5fb9c1ac8a1f8ef229fdfea5a1c7796eaba821a",
+      "popovers": 0,
+      "text": "SnapshotOn Elemental-Pickup Interaction:
+Scoring damage instances grants ↑increased Grenade Ability Energy for an Elemental-Pickup based duration.
+
+Firesprites and Void Breaches grant +8 seconds. 
+Ionic Traces, Stasis Shards, and both the Pickup AND Explosion of Tangles/Arc Elemental Orbs grant +4 seconds. 
+Additional pickups extend the buff duration by their corresponding duration, up to 16 seconds.
+Buff can be activated while stowed, and persists through stow.
+
+Grenade Ability Gains:
+PENDING AT SOME POINT :)
+PENDING AT SOME POINT :)
+PENDING AT SOME POINT :)CurrentOn Elemental-Pickup Interaction:
+Each scored damage instance grants ↑increased Grenade Ability Energy for an Elemental-Pickup based duration.
+Averages 10% Grenade Energy per second under Sustained Damage across ALL WEAPON TYPES.
+Grenade Gain Formula: 10% / (1 / (60 / RPM)
+Checks out for non-burst Weapons. Rocket Launchers assume 2 procs per shot. Swords assume 60RPM.
+
+Firesprites and Void Breaches grant +8 seconds. 
+Ionic Traces, Stasis Shards, and both the Pickup AND Explosion of Tangles/Arc Elemental Orbs grant +4 seconds. 
+Additional pickups extend the buff duration by their corresponding duration, up to 16 seconds.
+Buff can be activated while stowed, and persists through stow.
+
+Approximate Grenade Ability Gains per Damage Instance scored:
+Rapid-Fire Shotgun: ↑0.35% | Adaptive SMG: ↑0.66% + Adaptive Trace: ↑0.67%
+Rapid-Fire Auto: ↑0.825% | Lightweight Pulse: ↑0.88% | Precision SMG + Aggressive MG: ↑0.99%
+Aggressive Fusion: ↑1.05% | Rapid-Fire Fusion: ↑1.12% | Rapid-Fire Sidearm + High-Impact Pulse: ↑1.31%
+High-Impact MG: ↑1.65% | Adaptive Fusion: ↑1.76% | Heavy-Burst Pulse: ↑2.3% 
+Precision Scout: ↑3.33% | Precision HC: ↑3.4% | High-Impact Scout: ↑3.97%
+Adaptive HC: ↑4.26% | Aggressive HC: ↑4.95% | Breech GL + Adaptive Sniper: ↑6.6%
+Rapid-Fire Glaive: ↑7.04% | Swords: ↑9.9% | Aggressive Rocket: ↑10.77%
+Adaptive Rocket: ↑11.65% | Precision LFR: ↑12.38%",
+    },
+    "mode": "before-after",
+  },
+]
+`;
+
+exports[`preserves 'Collective Pugilism' styles, alignment, text, controls, and open popovers in both diff views > Collective Pugilism 1`] = `
+[
+  {
+    "closed": {
+      "controls": 34,
+      "digest": "c9598e415750464804fb63bcf628a02395ea0ef67e9e9cd5d51b32fdacab0b2a",
+      "popovers": 34,
+      "text": "Removed: red strike-through. Added: green underline. Dotted: tap or hover for style changes.On Elemental-Pickup Interaction:
+ScoringEach scored damage instancesinstance grants ↑increased Melee Ability Energy for an Elemental-pickupElemental-Pickup based duration.
+Averages 10% Melee Energy per second under Sustained Damage.
+Melee Gain Formula: 10% / (1 / (60 / RPM)
+Checks out for non-burst Weapons. Rocket Launchers assume 2 procs per shot. Swords assume 60RPM.
+bold: true → false; italic: false → true; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+
+alignment: inherited → centerSnapshot Current Snapshot: 
+Firesprites and Void Breaches colour: #b4a7d6 → #cccccc; alignment: inherited → centerSnapshot Current Snapshot:  grant +8 seconds. 
+Ionic Traces, Stasis Shards, and both the Pickup AND Explosion of Tangles/Arc Elemental Orbs grant +4 seconds. 
+Additional pickups extend the buff duration by their corresponding durationduration, seconds, up to 16 seconds.
+Buff can be activated while stowed, and persists through stow.
+
+Approximate MeleesizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: Melee sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  AbilitysizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: Ability sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  Gains:Gains per Damage Instance scored:
+sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+SpreadshotRapid-Fire colour: #999999 → #e0a261; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  HC:Shotgun: colour: #cccccc → #e0a261; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  0.5%↑0.35% colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  ↑0.55%| Adaptive SMG: ↑0.66% + Adaptive Trace: ↑0.67%
+sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+BurstRapid-Fire sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  Sidearm:Auto: colour: #cccccc → #999999; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  0.78%↑0.825% colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  ↑0.86%| Lightweight Pulse: ↑0.88% | Precision SMG + Aggressive MG: ↑0.99%
+sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+FusionAggressive sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  Rifle:Fusion: colour: #cccccc → #63d275; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  1.15%↑1.05% colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  ↑1.27%| Rapid-Fire Fusion: ↑1.12% | Rapid-Fire Sidearm + High-Impact Pulse: ↑1.31%
+colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+RocketHigh-Impact colour: #63d275 → #a481e1; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  MG: ↑1.65% | Adaptive Fusion: ↑1.76% | Heavy-Burst Pulse:colour: #63d275, #cccccc → #999999; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: Pulse: sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  1.95%↑2.3% 
+Precision colour: #cccccc → #999999; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  ↑2.15%Scout: ↑3.33% | Precision HC: ↑3.4% | High-Impact Scout: ↑3.97%
+sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+Sidearm:Adaptive colour: #cccccc → #999999; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  2.34%HC: colour: #89cdd1 → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  ↑2.57%↑4.26% | Aggressive HC: ↑4.95% | Breech GL + Adaptive Sniper: ↑6.6%
+colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+Scout:Rapid-Fire colour: #cccccc → #63d275; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  3.34%Glaive: colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  ↑3.67%↑7.04% | Swords: ↑9.9% | Aggressive Rocket: ↑10.77%
+colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+RocketAdaptive sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  Launcher:Rocket: colour: #a481e1 → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  12.9%↑11.65% colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  ↑14.2%| Precision LFR: ↑12.38%",
+    },
+    "mode": "changes",
+  },
+  {
+    "mode": "changes",
+    "open": {
+      "controls": 34,
+      "digest": "6f3c30a9cacf12e703356c80c65981ed6e4e578175d9830ae6dfd781a1ee345c",
+      "popovers": 34,
+      "text": "Removed: red strike-through. Added: green underline. Dotted: tap or hover for style changes.On Elemental-Pickup Interaction:
+ScoringEach scored damage instancesinstance grants ↑increased Melee Ability Energy for an Elemental-pickupElemental-Pickup based duration.
+Averages 10% Melee Energy per second under Sustained Damage.
+Melee Gain Formula: 10% / (1 / (60 / RPM)
+Checks out for non-burst Weapons. Rocket Launchers assume 2 procs per shot. Swords assume 60RPM.
+bold: true → false; italic: false → true; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+
+alignment: inherited → centerSnapshot Current Snapshot: 
+Firesprites and Void Breaches colour: #b4a7d6 → #cccccc; alignment: inherited → centerSnapshot Current Snapshot:  grant +8 seconds. 
+Ionic Traces, Stasis Shards, and both the Pickup AND Explosion of Tangles/Arc Elemental Orbs grant +4 seconds. 
+Additional pickups extend the buff duration by their corresponding durationduration, seconds, up to 16 seconds.
+Buff can be activated while stowed, and persists through stow.
+
+Approximate MeleesizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: Melee sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  AbilitysizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: Ability sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  Gains:Gains per Damage Instance scored:
+sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+SpreadshotRapid-Fire colour: #999999 → #e0a261; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  HC:Shotgun: colour: #cccccc → #e0a261; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  0.5%↑0.35% colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  ↑0.55%| Adaptive SMG: ↑0.66% + Adaptive Trace: ↑0.67%
+sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+BurstRapid-Fire sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  Sidearm:Auto: colour: #cccccc → #999999; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  0.78%↑0.825% colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  ↑0.86%| Lightweight Pulse: ↑0.88% | Precision SMG + Aggressive MG: ↑0.99%
+sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+FusionAggressive sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  Rifle:Fusion: colour: #cccccc → #63d275; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  1.15%↑1.05% colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  ↑1.27%| Rapid-Fire Fusion: ↑1.12% | Rapid-Fire Sidearm + High-Impact Pulse: ↑1.31%
+colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+RocketHigh-Impact colour: #63d275 → #a481e1; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  MG: ↑1.65% | Adaptive Fusion: ↑1.76% | Heavy-Burst Pulse:colour: #63d275, #cccccc → #999999; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: Pulse: sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  1.95%↑2.3% 
+Precision colour: #cccccc → #999999; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  ↑2.15%Scout: ↑3.33% | Precision HC: ↑3.4% | High-Impact Scout: ↑3.97%
+sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+Sidearm:Adaptive colour: #cccccc → #999999; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  2.34%HC: colour: #89cdd1 → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  ↑2.57%↑4.26% | Aggressive HC: ↑4.95% | Breech GL + Adaptive Sniper: ↑6.6%
+colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+Scout:Rapid-Fire colour: #cccccc → #63d275; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  3.34%Glaive: colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  ↑3.67%↑7.04% | Swords: ↑9.9% | Aggressive Rocket: ↑10.77%
+colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot: 
+RocketAdaptive sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  Launcher:Rocket: colour: #a481e1 → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  12.9%↑11.65% colour: #cccccc → #ffd966; sizePt: 9 → 6; alignment: inherited → centerSnapshot Current Snapshot:  ↑14.2%| Precision LFR: ↑12.38%",
+    },
+  },
+  {
+    "closed": {
+      "controls": 0,
+      "digest": "e628dcb5685547d2369b1497d4f82ede581957c5daca7d27177b1f21aac7df57",
+      "popovers": 0,
+      "text": "SnapshotOn Elemental-Pickup Interaction:
+Scoring damage instances grants ↑increased Melee Ability Energy for an Elemental-pickup based duration.
+
+Firesprites and Void Breaches grant +8 seconds. 
+Ionic Traces, Stasis Shards, and both the Pickup AND Explosion of Tangles/Arc Elemental Orbs grant +4 seconds. 
+Additional pickups extend the buff duration by their corresponding duration seconds, up to 16 seconds.
+Buff can be activated while stowed, and persists through stow.
+
+Melee Ability Gains:
+Spreadshot HC: 0.5% ↑0.55%
+Burst Sidearm: 0.78% ↑0.86%
+Fusion Rifle: 1.15% ↑1.27%
+Rocket Pulse: 1.95% ↑2.15%
+Sidearm: 2.34% ↑2.57%
+Scout: 3.34% ↑3.67%
+Rocket Launcher: 12.9% ↑14.2%CurrentOn Elemental-Pickup Interaction:
+Each scored damage instance grants ↑increased Melee Ability Energy for an Elemental-Pickup based duration.
+Averages 10% Melee Energy per second under Sustained Damage.
+Melee Gain Formula: 10% / (1 / (60 / RPM)
+Checks out for non-burst Weapons. Rocket Launchers assume 2 procs per shot. Swords assume 60RPM.
+
+Firesprites and Void Breaches grant +8 seconds. 
+Ionic Traces, Stasis Shards, and both the Pickup AND Explosion of Tangles/Arc Elemental Orbs grant +4 seconds. 
+Additional pickups extend the buff duration by their corresponding duration, up to 16 seconds.
+Buff can be activated while stowed, and persists through stow.
+
+Approximate Melee Ability Gains per Damage Instance scored:
+Rapid-Fire Shotgun: ↑0.35% | Adaptive SMG: ↑0.66% + Adaptive Trace: ↑0.67%
+Rapid-Fire Auto: ↑0.825% | Lightweight Pulse: ↑0.88% | Precision SMG + Aggressive MG: ↑0.99%
+Aggressive Fusion: ↑1.05% | Rapid-Fire Fusion: ↑1.12% | Rapid-Fire Sidearm + High-Impact Pulse: ↑1.31%
+High-Impact MG: ↑1.65% | Adaptive Fusion: ↑1.76% | Heavy-Burst Pulse: ↑2.3% 
+Precision Scout: ↑3.33% | Precision HC: ↑3.4% | High-Impact Scout: ↑3.97%
+Adaptive HC: ↑4.26% | Aggressive HC: ↑4.95% | Breech GL + Adaptive Sniper: ↑6.6%
+Rapid-Fire Glaive: ↑7.04% | Swords: ↑9.9% | Aggressive Rocket: ↑10.77%
+Adaptive Rocket: ↑11.65% | Precision LFR: ↑12.38%",
+    },
+    "mode": "before-after",
+  },
+]
+`;
+
+exports[`preserves 'merged description' styles, alignment, text, controls, and open popovers in both diff views > merged description 1`] = `
+[
+  {
+    "closed": {
+      "controls": 0,
+      "digest": "305d6077b9b656317809bcad243f943e934b24872417f674348ae89c4d62d590",
+      "popovers": 0,
+      "text": "Removed: red strike-through. Added: green underline. Dotted: tap or hover for style changes.Header
+Merged rows
+
+BodyNew body",
+    },
+    "mode": "changes",
+  },
+  {
+    "closed": {
+      "controls": 0,
+      "digest": "922228434c2b28e4eccf0fa77ed932c9dcc4d7870c2fdfb9650ab83d8432213b",
+      "popovers": 0,
+      "text": "SnapshotHeader
+Merged rows
+
+BodyCurrentHeader
+Merged rows
+
+New body",
+    },
+    "mode": "before-after",
+  },
+]
+`;
+
+exports[`preserves 'multiline and mixed alignment' styles, alignment, text, controls, and open popovers in both diff views > multiline and mixed alignment 1`] = `
+[
+  {
+    "closed": {
+      "controls": 0,
+      "digest": "16fe0d057d3cfaabe9dfdeec9e9ab26fcf6f08cdae1d6f47d455d39a34248bbd",
+      "popovers": 0,
+      "text": "Removed: red strike-through. Added: green underline. Dotted: tap or hover for style changes.Centre
+
+RightChanged",
+    },
+    "mode": "changes",
+  },
+  {
+    "closed": {
+      "controls": 0,
+      "digest": "c149dc2f2449f791ce48d79726bd256e2f5197d89325359a1425c2eb67ae8f2d",
+      "popovers": 0,
+      "text": "SnapshotCentre
+
+RightCurrentCentre
+
+Changed",
+    },
+    "mode": "before-after",
+  },
+]
+`;
+
+exports[`preserves 'rich runs and links' styles, alignment, text, controls, and open popovers in both diff views > rich runs and links 1`] = `
+[
+  {
+    "closed": {
+      "controls": 3,
+      "digest": "df288a28a7d996671a8c91e98c38c5039b9257d32f465f7a0e537134c28c70f8",
+      "popovers": 3,
+      "text": "Removed: red strike-through. Added: green underline. Dotted: tap or hover for style changes.Boldcolour: #ff0000 → #0000ffSnapshot Current Snapshot: Bold colour: #ff0000 → #0000ffSnapshot Current Snapshot:  linked plainitalic: true → false; underline: false → trueSnapshot Current Snapshot: plain",
+    },
+    "mode": "changes",
+  },
+  {
+    "mode": "changes",
+    "open": {
+      "controls": 3,
+      "digest": "eef7b74a111ca11124782fa66960ac3403a894cf382eaa2e7f713c9a7eed84eb",
+      "popovers": 3,
+      "text": "Removed: red strike-through. Added: green underline. Dotted: tap or hover for style changes.Boldcolour: #ff0000 → #0000ffSnapshot Current Snapshot: Bold colour: #ff0000 → #0000ffSnapshot Current Snapshot:  linked plainitalic: true → false; underline: false → trueSnapshot Current Snapshot: plain",
+    },
+  },
+  {
+    "closed": {
+      "controls": 0,
+      "digest": "1c26ecbd36084858aa223d7a0f93660594753c0019749fc5ef7a9d2919dc55fd",
+      "popovers": 0,
+      "text": "SnapshotBold linked plainCurrentBold linked plain",
+    },
+    "mode": "before-after",
+  },
+]
+`;

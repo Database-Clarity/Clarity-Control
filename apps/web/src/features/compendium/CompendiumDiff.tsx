@@ -1,6 +1,6 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { diffCompendium, type CompendiumCell, type CompendiumDiffPart } from '@clarity/core';
-import { RichCell } from './RichCell';
+import { Multiline, RichCell } from './RichCell';
 import { SheetCell } from './sheetSurface';
 import { useSettingsStore } from '../../stores/settings';
 import { Segmented } from '../../ui/RightPane';
@@ -209,34 +209,36 @@ export function CompendiumDiff({
             changes.
           </p>
           <SheetCell background={background}>
-            {diffLines(parts).map((line, lineIndex) => (
-              <span
-                key={lineIndex}
-                className={styles.diffLine}
-                style={{
-                  textAlign: (
-                    line.find((part) => part.after?.plain.trim())?.after ??
-                    line.find((part) => part.before?.plain.trim())?.before
-                  )?.runs[0]?.textAlign,
-                }}
-              >
-                {line.map((part, index) =>
-                  part.kind === 'style' ? (
-                    <StyleChange key={index} before={part.before!} after={part.after!} />
-                  ) : part.kind === 'removed' ? (
-                    <del key={index} className={styles.removed}>
-                      <RichCell cell={part.before!} inline />
-                    </del>
-                  ) : part.kind === 'added' ? (
-                    <ins key={index} className={styles.added}>
-                      <RichCell cell={part.after!} inline />
-                    </ins>
-                  ) : (
-                    <RichCell key={index} cell={part.after!} inline />
-                  ),
-                )}
-              </span>
-            ))}
+            <Multiline>
+              {diffLines(parts).map((line, lineIndex) => (
+                <span
+                  key={lineIndex}
+                  className={styles.diffLine}
+                  style={{
+                    textAlign: (
+                      line.find((part) => part.after?.plain.trim())?.after ??
+                      line.find((part) => part.before?.plain.trim())?.before
+                    )?.runs[0]?.textAlign,
+                  }}
+                >
+                  {line.map((part, index) =>
+                    part.kind === 'style' ? (
+                      <StyleChange key={index} before={part.before!} after={part.after!} />
+                    ) : part.kind === 'removed' ? (
+                      <del key={index} className={styles.removed}>
+                        <RichCell cell={part.before!} inline />
+                      </del>
+                    ) : part.kind === 'added' ? (
+                      <ins key={index} className={styles.added}>
+                        <RichCell cell={part.after!} inline />
+                      </ins>
+                    ) : (
+                      <RichCell key={index} cell={part.after!} inline />
+                    ),
+                  )}
+                </span>
+              ))}
+            </Multiline>
           </SheetCell>
         </>
       )}
