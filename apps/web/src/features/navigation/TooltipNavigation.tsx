@@ -331,12 +331,13 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       lastTop = top;
       setViewport({ top, height });
     };
-    const measure = () => {
-      height = element.clientHeight;
+    const measure = ([entry]: ResizeObserverEntry[]) => {
+      // The observer already has the laid-out content box. Reading clientHeight
+      // here (or on mount) flushes the newly opened finder before it can paint.
+      height = entry.contentRect.height;
       lastTop = Math.floor(element.scrollTop / (rowHeight * 8)) * rowHeight * 8;
       setViewport({ top: lastTop, height });
     };
-    measure();
     const observer =
       typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure);
     observer?.observe(element);
@@ -357,7 +358,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       if (element)
         setViewport({
           top: Math.floor(element.scrollTop / (rowHeight * 8)) * rowHeight * 8,
-          height: element.clientHeight,
+          height: viewportStore.getSnapshot().height,
         });
       draggingScrollbarRef.current = false;
       setDraggingScrollbar(false);
@@ -371,7 +372,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       window.removeEventListener('blur', finish);
       finish();
     };
-  }, [open, rowHeight, setViewport]);
+  }, [open, rowHeight, setViewport, viewportStore]);
 
   // A new route, or leaving the field, restores the current item and an empty query.
   const restore = () => {

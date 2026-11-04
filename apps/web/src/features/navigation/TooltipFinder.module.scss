@@ -147,6 +147,7 @@
     // ready from the first paint rather than waiting for skipped content to
     // become visible after a programmatic scroll.
     content-visibility: visible;
+    contain: layout style paint;
   }
 
   @include theme.mobile-or-coarse {

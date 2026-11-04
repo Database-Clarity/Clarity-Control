@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { FinderSheetContext } from './FinderSheetContext';
@@ -101,6 +101,51 @@ afterEach(async () => {
 });
 
 describe('tooltip finder combobox', () => {
+  it('opens and sizes from observer entries without forcing list geometry', async () => {
+    let resize: ResizeObserverCallback | undefined;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          resize = callback;
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const height = vi
+      .spyOn(HTMLElement.prototype, 'clientHeight', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.getAttribute('role') === 'listbox') throw Error('Forced finder layout');
+        return 0;
+      });
+    try {
+      await mount();
+      await open();
+      const list = host.querySelector<HTMLElement>('[role="listbox"]')!;
+      await act(async () => {
+        resize!(
+          [
+            {
+              target: list,
+              contentRect: new DOMRectReadOnly(0, 0, 100, 28),
+              borderBoxSize: [],
+              contentBoxSize: [],
+              devicePixelContentBoxSize: [],
+            },
+          ],
+          {} as ResizeObserver,
+        );
+      });
+      await press('End');
+      expect(list.scrollTop).toBe(56);
+      expect(field().getAttribute('aria-activedescendant')).toBe(options().at(-1)!.id);
+    } finally {
+      height.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('lets the phone sheet step itself but blocks an unrelated modal before landing', async () => {
     await act(async () =>
       root.render(
