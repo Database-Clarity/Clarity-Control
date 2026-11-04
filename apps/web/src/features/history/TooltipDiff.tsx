@@ -1,8 +1,9 @@
 import type { Item } from '../../services/generator';
+import { useEffect, useState } from 'react';
 import { languageLabel } from '../../languageLabels';
 import { languages, sameCell, type Tooltip } from '@clarity/core';
 import { CompendiumDiff } from '../compendium/CompendiumDiff';
-import { WordDiff } from '../../ui/diff';
+import { HistoryWordDiff } from './HistoryWordDiff';
 import {
   attachmentCategory,
   categoryLabel,
@@ -55,10 +56,32 @@ export function TooltipDiff({
 }) {
   const changed = languages.filter((lang) => before?.text[lang]?.text !== current.text[lang]?.text);
   const dateSettings = useSyncedSettings();
+  const [rendered, setRendered] = useState(1);
+  const busy = !raw && rendered < changed.length;
+  useEffect(() => {
+    if (!busy) return;
+    let timer: number | undefined;
+    // Let the current language paint before activating another language's font
+    // and layout. All sections remain in the DOM, and this always completes.
+    const next = () => {
+      timer = window.setTimeout(() => setRendered((count) => count + 1), 0);
+    };
+    const frame = window.requestAnimationFrame?.(next);
+    if (frame === undefined) next();
+    return () => {
+      if (frame !== undefined) window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [busy, rendered]);
   return (
-    <div className={styles.diff}>
-      {changed.map((lang) => (
-        <section key={lang} aria-label={`${languageLabel(lang)} comparison`}>
+    <div className={styles.diff} aria-busy={busy || undefined}>
+      {changed.map((lang, index) => (
+        <section
+          key={lang}
+          lang={lang}
+          aria-label={`${languageLabel(lang)} comparison`}
+          data-pending-render={(!raw && index >= rendered) || undefined}
+        >
           <h4>{languageLabel(lang)}</h4>
           {raw && (
             <div className={styles.columns}>
@@ -72,7 +95,7 @@ export function TooltipDiff({
               </div>
             </div>
           )}
-          <WordDiff
+          <HistoryWordDiff
             before={before?.text[lang]?.text ?? ''}
             after={current.text[lang]?.text ?? ''}
           />
