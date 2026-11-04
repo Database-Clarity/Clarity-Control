@@ -85,6 +85,7 @@
 
 // The list floats under the field in the header; in the sheet it flows in place.
 .popup {
+  contain: layout paint;
   position: absolute;
   top: calc(100% + 2px);
   left: 0;
@@ -147,7 +148,8 @@
     // ready from the first paint rather than waiting for skipped content to
     // become visible after a programmatic scroll.
     content-visibility: visible;
-    contain: layout style paint;
+    height: var(--finder-row-height);
+    contain: size layout style paint;
   }
 
   @include theme.mobile-or-coarse {
