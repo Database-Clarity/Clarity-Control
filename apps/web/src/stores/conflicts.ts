@@ -10,6 +10,7 @@ import { markersIn, openConflicts, type ConflictSummary } from '../features/conf
 import { useDataStore } from './data';
 import { useDraftStore } from './drafts';
 import { rememberSaved } from './savedOverlay';
+import type { Drafts } from '../services/draftStorage';
 
 /**
  * Save conflicts being resolved inline. The text lives in the drafts themselves (marker blocks
@@ -355,14 +356,26 @@ export const useConflictStore = createConflictStore({
   applyHead: applyHeadToData,
 });
 
+const conflictEvidence = new WeakMap<Drafts, WeakMap<ConflictState['sessions'], string>>();
+function evidenceFor(drafts: Drafts, sessions: ConflictState['sessions']) {
+  let bySession = conflictEvidence.get(drafts);
+  if (!bySession) conflictEvidence.set(drafts, (bySession = new WeakMap()));
+  let evidence = bySession.get(sessions);
+  if (evidence === undefined) {
+    evidence = JSON.stringify(openConflicts(drafts, rowCounts(sessions)));
+    bySession.set(sessions, evidence);
+  }
+  return evidence;
+}
+
 /** Every tooltip with an open conflict (marker blocks in a draft, or a row to choose), live. */
 export function useOpenConflicts(): ConflictSummary[] {
   const sessions = useConflictStore((state) => state.sessions);
   // Ordinary typing does not change conflict counts. Subscribe to the complete summary
   // evidence, rather than invalidating the shell and every conflict consumer per character.
-  const evidence = useDraftStore((state) =>
-    JSON.stringify(openConflicts(state.drafts, rowCounts(sessions))),
-  );
+  // Status, storage, and React snapshot notifications share the same immutable
+  // draft/session evidence; repeated consumers must not rescan every language.
+  const evidence = useDraftStore((state) => evidenceFor(state.drafts, sessions));
   return useMemo(() => JSON.parse(evidence) as ConflictSummary[], [evidence]);
 }
 

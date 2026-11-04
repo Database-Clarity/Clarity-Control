@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useDraftStore } from '../../stores/drafts';
 import { useNavigate } from 'react-router-dom';
@@ -10,6 +10,38 @@ import { useSettingsNotices } from '../settings/SettingsChoice';
 import { useSettingsPanel } from '../settings/panel';
 import { count, type ShellNotice } from './notices';
 
+/** Brief storage writes never mount an invisible notice or update the shell. */
+function useSlowDraftSaving() {
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let pending = false;
+    let shown = false;
+    const update = () => {
+      const next = useDraftStore.getState().pending > 0;
+      if (next === pending) return;
+      pending = next;
+      clearTimeout(timer);
+      if (next) {
+        timer = setTimeout(() => {
+          shown = true;
+          setSaving(true);
+        }, 800);
+      } else if (shown) {
+        shown = false;
+        setSaving(false);
+      }
+    };
+    const unsubscribe = useDraftStore.subscribe(update);
+    update();
+    return () => {
+      clearTimeout(timer);
+      unsubscribe();
+    };
+  }, []);
+  return saving;
+}
+
 /**
  * Every condition the shell reports as an overlay notice: draft storage, adopting signed-out
  * drafts, the last save, a previous account's failure, settings sync. Loading the page's data and
@@ -18,7 +50,6 @@ import { count, type ShellNotice } from './notices';
 export function useShellNotices(): ShellNotice[] {
   const {
     hydrated,
-    pending,
     error: draftError,
     previousAccountError,
     dismissPreviousAccountError,
@@ -30,7 +61,6 @@ export function useShellNotices(): ShellNotice[] {
   } = useDraftStore(
     useShallow((state) => ({
       hydrated: state.hydrated,
-      pending: state.pending,
       error: state.error,
       previousAccountError: state.previousAccountError,
       dismissPreviousAccountError: state.dismissPreviousAccountError,
@@ -41,6 +71,7 @@ export function useShellNotices(): ShellNotice[] {
       keepSeparate: state.keepSeparate,
     })),
   );
+  const savingDrafts = useSlowDraftSaving();
   const [adoptNote, setAdoptNote] = useState<string | null>(null);
   const saveNotice = useSaveNotice((state) => state.notice);
   const dismissSaveNotice = useSaveNotice((state) => state.dismiss);
@@ -142,8 +173,8 @@ export function useShellNotices(): ShellNotice[] {
       text: saveNotice,
       onDismiss: dismissSaveNotice,
     });
-  if (pending > 0)
+  if (savingDrafts)
     // Local writes finish in a blink while typing; only a slow one is worth saying anything about.
-    notices.push({ id: 'draft-saving', level: 'status', text: 'Saving local drafts…', delay: 800 });
+    notices.push({ id: 'draft-saving', level: 'status', text: 'Saving local drafts…' });
   return notices;
 }
