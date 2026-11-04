@@ -4,7 +4,7 @@ import { readableOn, useLegibleOn } from './sheetSurface';
 import styles from './RichCell.module.scss';
 
 const styleCache = new Map<string, CSSProperties>();
-function runStyle(run: CompendiumRun, legibleOn?: string): CSSProperties {
+export function runStyle(run: CompendiumRun, legibleOn?: string): CSSProperties {
   const key = [
     run.color,
     run.sizePt,
