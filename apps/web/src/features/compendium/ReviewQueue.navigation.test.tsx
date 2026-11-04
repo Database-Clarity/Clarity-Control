@@ -357,7 +357,8 @@ describe('category filtering and history', () => {
       element.querySelector('summary')?.textContent?.startsWith('Browse / category'),
     )!;
     expect(browse).not.toBeNull();
-    browse.open = true;
+    expect(browse.querySelector('button')).toBeNull();
+    await act(async () => browse.querySelector('summary')!.click());
     await click('Sample 105', browse);
     expect(selected()).toBe('Sample 105');
     expect(route().searchParams.get('hash')).toBe('105');
