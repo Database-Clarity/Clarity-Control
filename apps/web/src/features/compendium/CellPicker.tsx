@@ -68,25 +68,22 @@ export const CellPicker = memo(function CellPicker({
     () => Math.max(1, ...(tab.grid ?? []).map((entry) => entry.col + (entry.colSpan ?? 1))),
     [tab],
   );
-  const visibleCells = useMemo(
-    () => {
-      const cells = new Map<string, CompendiumGridCell>();
-      // One sheet scan, preserving compendiumCellAt's first-cell precedence and merged spans.
-      // Avoid scanning the entire grid again for every coordinate in the visible window.
-      for (const entry of tab.grid ?? []) {
-        const start = Math.max(firstRow, entry.row);
-        const end = Math.min(lastRow, entry.row + (entry.rowSpan ?? 1) - 1);
-        for (let row = start; row <= end; row++) {
-          for (let col = entry.col; col < entry.col + (entry.colSpan ?? 1); col++) {
-            const key = `${row}:${col}`;
-            if (!cells.has(key)) cells.set(key, entry);
-          }
+  const visibleCells = useMemo(() => {
+    const cells = new Map<string, CompendiumGridCell>();
+    // One sheet scan, preserving compendiumCellAt's first-cell precedence and merged spans.
+    // Avoid scanning the entire grid again for every coordinate in the visible window.
+    for (const entry of tab.grid ?? []) {
+      const start = Math.max(firstRow, entry.row);
+      const end = Math.min(lastRow, entry.row + (entry.rowSpan ?? 1) - 1);
+      for (let row = start; row <= end; row++) {
+        for (let col = entry.col; col < entry.col + (entry.colSpan ?? 1); col++) {
+          const key = `${row}:${col}`;
+          if (!cells.has(key)) cells.set(key, entry);
         }
       }
-      return cells;
-    },
-    [tab, firstRow, lastRow],
-  );
+    }
+    return cells;
+  }, [tab, firstRow, lastRow]);
   if (!tab.grid)
     return <p>This dataset has no sheet grid. Refresh the dataset to pick description cells.</p>;
   const hits = query.trim()
@@ -192,7 +189,14 @@ export const CellPicker = memo(function CellPicker({
             aria-label="Sheet cells around the name anchor"
             tabIndex={0}
           >
-            <table className={styles.sheet}>
+            <table
+              className={styles.sheet}
+              style={{ tableLayout: 'fixed', width: `${5 + columns * 14}rem` }}
+            >
+              <colgroup>
+                <col style={{ width: '5rem' }} />
+                <col span={columns} style={{ width: '14rem' }} />
+              </colgroup>
               <tbody>
                 {Array.from({ length: lastRow - firstRow + 1 }, (_, index) => firstRow + index).map(
                   (rowNumber) => (
