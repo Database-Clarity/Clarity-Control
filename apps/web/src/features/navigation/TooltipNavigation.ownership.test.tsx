@@ -182,12 +182,20 @@ describe('mounted Editor navigation interaction ownership', () => {
         });
         expect(route()).toContain('/t/101');
         expect(host.querySelector('article[aria-busy="true"]')).not.toBeNull();
+        if (gesture === 'ArrowDown') {
+          await act(async () => {
+            await vi.advanceTimersByTimeAsync(600);
+          });
+          expect(host.querySelector('article[aria-busy="true"]')).not.toBeNull();
+        }
         await act(async () => {
           down();
           await vi.advanceTimersByTimeAsync(25);
         });
         expect(host.querySelector('article[aria-busy="true"]')).not.toBeNull();
         await act(async () => {
+          if (gesture === 'ArrowDown')
+            field.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowDown', bubbles: true }));
           await vi.advanceTimersByTimeAsync(50);
         });
         expect(host.querySelector('article[aria-busy="true"]')).toBeNull();

@@ -39,7 +39,7 @@ import {
   type SteppingGuard,
 } from './stepping';
 import { FinderSheetContext } from './FinderSheetContext';
-import { pulseStepping, useSteppingActivity } from './steppingActivity';
+import { holdSteppingKey, pulseStepping, useSteppingActivity } from './steppingActivity';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { useScaleFactor } from '../../ui/usePaneDivider';
 import styles from './TooltipFinder.module.scss';
@@ -437,6 +437,12 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   }
   const commitRef = useRef(commit);
   commitRef.current = commit;
+  const heldKey = useRef<{ key: string; release(): void }>();
+  const releaseKey = useCallback(() => {
+    heldKey.current?.release();
+    heldKey.current = undefined;
+  }, []);
+  useEffect(() => releaseKey, [releaseKey]);
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing) return;
     if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key))
@@ -465,7 +471,17 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         // Closed, the arrows keep stepping through the category, as the dropdown always did.
         event.preventDefault();
-        if (!event.shiftKey) step.current(event.key === 'ArrowDown' ? 1 : -1);
+        if (!event.shiftKey) {
+          const moved = step.current(event.key === 'ArrowDown' ? 1 : -1);
+          if (moved || useSteppingActivity.getState().active) {
+            // Replace even an old, already released latch: keyup/blur may have
+            // ended it without another React render.
+            const previous = heldKey.current;
+            const release = holdSteppingKey(event.key);
+            previous?.release();
+            heldKey.current = { key: event.key, release };
+          }
+        }
       } else if (event.key === 'Enter') {
         event.preventDefault();
         setOpen(true);
@@ -645,6 +661,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       ref={root}
       className={styles.combo}
       onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) releaseKey();
         // The sheet keeps its list open while the sheet is; only the header form closes on blur.
         if (!sheet && !event.currentTarget.contains(event.relatedTarget)) restore();
       }}
