@@ -22,6 +22,7 @@ let latestGuide = 0;
 let latestDisplay = 0;
 let lastDisplay: ReturnType<typeof displayMatches> | undefined;
 let precomputedDisplay: ReturnType<typeof displayMatches> | undefined;
+let initialized = false;
 type Request = {
   id?: number;
   load?: { url: string };
@@ -62,11 +63,13 @@ async function process(data: Request) {
     }
     const id = data.id ?? 0;
     if (data.load) {
+      initialized = false;
       source = await (
         await import('../../services/compendiumSource')
       ).fetchCompendiumSource(data.load.url);
       sendWorkerResult(emit, id, source);
     } else if (data.initialize) {
+      initialized = false;
       const chunks = initialChunks.get(data.initialize.token);
       initialChunks.delete(data.initialize.token);
       if (!chunks) throw new Error('Compendium inputs were superseded.');
@@ -161,7 +164,9 @@ async function process(data: Request) {
         id,
         new Map([...proposals].map(([hash, proposal]) => [hash, compactProposal(proposal)])),
       );
+      initialized = true;
     } else if (data.guide) {
+      if (!initialized) throw new Error('Compendium initialization has not completed.');
       // Coalesce queued navigation/search requests before any expensive planning work.
       await new Promise((resolve) => setTimeout(resolve, 0));
       if (id !== latestGuide) throw new Error('Superseded Compendium planning request.');
@@ -184,6 +189,7 @@ async function process(data: Request) {
         : [];
       sendWorkerResult(emit, id, groups);
     } else if (data.input) {
+      if (!initialized) throw new Error('Compendium initialization has not completed.');
       if (id !== latestDisplay) throw new Error('Superseded Compendium display request.');
       const { drafts, progress, local, scope } = data.input;
       const pristine =
