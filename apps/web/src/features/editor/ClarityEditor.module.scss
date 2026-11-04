@@ -17,6 +17,11 @@
     flex-direction: column;
     min-height: 0;
     contain: layout;
+    :global(#shell-root[data-fixed]) & {
+      // The desktop shell supplies this flex slot's size. Document measurement
+      // must not make the surrounding workspace depend on the editor's content.
+      contain: size layout;
+    }
   }
   :global(.cm-editor) {
     flex: 1 1 auto;
