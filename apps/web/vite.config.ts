@@ -28,6 +28,7 @@ export default defineConfig({
   // JSON.parse is substantially cheaper than compiling a multi-megabyte object literal.
   json: { stringify: true },
   build: {
+    target: 'es2022',
     rollupOptions: {
       output: {
         manualChunks(id) {
@@ -35,5 +36,9 @@ export default defineConfig({
         },
       },
     },
+  },
+  worker: {
+    format: 'es',
+    rollupOptions: { output: { entryFileNames: 'assets/[name]-[hash].js' } },
   },
 });

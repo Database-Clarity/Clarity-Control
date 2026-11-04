@@ -1,20 +1,41 @@
 import { Navigate, useRoutes, type RouteObject } from 'react-router-dom';
-import { AdminPage } from './features/admin/AdminPage';
 import { LazyMatchReviewPage as MatchReviewPage } from './features/compendium/LazyMatchReviewPage';
-import { TooltipPage } from './features/tooltip/TooltipPage';
 import { useDataStore } from './stores/data';
 import { navigationGroups } from './features/navigation/catalog';
 import { AuthCallback } from './features/auth/AuthCallback';
-import { GlobalDetailPage, GlobalsPage } from './features/globals/GlobalsPage';
 import { Layout } from './features/navigation/Layout';
-import { ReviewPage } from './features/review/ReviewPage';
 import { LazyLostTextPage as LostTextPage } from './features/lost-text/LazyLostTextPage';
 import { SettingsRedirect } from './features/settings/SettingsRedirect';
-import { ArchivePage } from './features/archive/ArchivePage';
-import { DriftPage } from './features/drift/DriftPage';
-import { TranslationsPage } from './features/translations/TranslationsPage';
 import { PlaceholderPage } from './ui/PlaceholderPage';
 import { useAuthStore } from './stores/auth';
+
+import { AppLazyPage } from './AppLazyPage';
+const loadTooltipPage = () =>
+  import('./features/tooltip/TooltipPage').then((module) => ({ default: module.TooltipPage }));
+const TooltipPage = () => <AppLazyPage load={loadTooltipPage} />;
+const loadTranslationsPage = () =>
+  import('./features/translations/TranslationsPage').then((module) => ({
+    default: module.TranslationsPage,
+  }));
+const TranslationsPage = () => <AppLazyPage load={loadTranslationsPage} />;
+const loadArchivePage = () =>
+  import('./features/archive/ArchivePage').then((module) => ({ default: module.ArchivePage }));
+const ArchivePage = () => <AppLazyPage load={loadArchivePage} />;
+const loadDriftPage = () =>
+  import('./features/drift/DriftPage').then((module) => ({ default: module.DriftPage }));
+const DriftPage = () => <AppLazyPage load={loadDriftPage} />;
+const loadReviewPage = () =>
+  import('./features/review/ReviewPage').then((module) => ({ default: module.ReviewPage }));
+const ReviewPage = () => <AppLazyPage load={loadReviewPage} />;
+const loadAdminPage = () =>
+  import('./features/admin/AdminPage').then((module) => ({ default: module.AdminPage }));
+const AdminPage = () => <AppLazyPage load={loadAdminPage} />;
+const loadGlobalDetailPage = () =>
+  import('./features/globals/GlobalsPage').then((module) => ({ default: module.GlobalDetailPage }));
+const GlobalDetailPage = () => <AppLazyPage load={loadGlobalDetailPage} />;
+const loadGlobalsPage = () =>
+  import('./features/globals/GlobalsPage').then((module) => ({ default: module.GlobalsPage }));
+const GlobalsPage = () => <AppLazyPage load={loadGlobalsPage} />;
 
 /**
  * Every route in one place, as plain objects: main.tsx hands them to createHashRouter (a data
@@ -27,17 +48,25 @@ export const routes: RouteObject[] = [
     element: <Layout />,
     children: [
       { index: true, element: <StartPage /> },
-      { path: 't/:hash', element: <TooltipPage /> },
-      { path: 'review', element: <ReviewPage /> },
+      { path: 't/:hash', element: <TooltipPage />, handle: { preload: loadTooltipPage } },
+      { path: 'review', element: <ReviewPage />, handle: { preload: loadReviewPage } },
       { path: 'compendium/review', element: <MatchReviewPage /> },
       { path: 'compendium', element: <MatchReviewPage /> },
-      { path: 'archive', element: <ArchivePage /> },
-      { path: 'drift', element: <DriftPage /> },
+      { path: 'archive', element: <ArchivePage />, handle: { preload: loadArchivePage } },
+      { path: 'drift', element: <DriftPage />, handle: { preload: loadDriftPage } },
       { path: 'lost-text', element: <LostTextPage /> },
-      { path: 'translations', element: <TranslationsPage /> },
-      { path: 'globals', element: <GlobalsPage /> },
-      { path: 'globals/:kind/:name', element: <GlobalDetailPage /> },
-      { path: 'admin', element: <AdminPage /> },
+      {
+        path: 'translations',
+        element: <TranslationsPage />,
+        handle: { preload: loadTranslationsPage },
+      },
+      { path: 'globals', element: <GlobalsPage />, handle: { preload: loadGlobalsPage } },
+      {
+        path: 'globals/:kind/:name',
+        element: <GlobalDetailPage />,
+        handle: { preload: loadGlobalDetailPage },
+      },
+      { path: 'admin', element: <AdminPage />, handle: { preload: loadAdminPage } },
       { path: 'settings', element: <SettingsRedirect /> },
       {
         path: '*',
