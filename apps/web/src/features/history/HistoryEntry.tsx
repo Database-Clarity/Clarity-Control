@@ -381,6 +381,7 @@ function RevisionPopover({
                 before={source.revision}
                 current={source.previous ?? { hash: current?.hash ?? 0, text: {}, associated: [] }}
                 raw={false}
+                deferLanguages
               />
             ) : (
               <p>
@@ -419,6 +420,7 @@ function RevisionPopover({
                 }
                 item={item}
                 raw={false}
+                deferLanguages={legacy}
               />
             )
           ))}

@@ -47,12 +47,15 @@ export function TooltipDiff({
   current,
   item,
   raw = true,
+  deferLanguages = false,
 }: {
   before: Tooltip | null;
   current: Tooltip;
   item?: Item;
   /** Show both full texts above the word diff; popovers show the word diff alone. */
   raw?: boolean;
+  /** Legacy snapshots can have twelve languages; build their text nodes between paints. */
+  deferLanguages?: boolean;
 }) {
   const changed = languages.filter((lang) => before?.text[lang]?.text !== current.text[lang]?.text);
   const dateSettings = useSyncedSettings();
@@ -95,10 +98,12 @@ export function TooltipDiff({
               </div>
             </div>
           )}
-          <HistoryWordDiff
-            before={before?.text[lang]?.text ?? ''}
-            after={current.text[lang]?.text ?? ''}
-          />
+          {(!deferLanguages || raw || index < rendered) && (
+            <HistoryWordDiff
+              before={before?.text[lang]?.text ?? ''}
+              after={current.text[lang]?.text ?? ''}
+            />
+          )}
         </section>
       ))}
       {(before?.compendium || current.compendium) &&

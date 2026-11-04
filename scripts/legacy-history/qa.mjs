@@ -3,15 +3,28 @@ import { createServer } from 'node:http';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, extname } from 'node:path';
 import { chromium } from 'playwright-core';
+import assert from 'node:assert/strict';
 
 const root = resolve('.agents/legacy-history/qa-dist');
 const generated = resolve('.agents/legacy-history/generated');
-const evidence = 'D:/GitHub/Description-editor/.agents/reports/legacy-history-impl-shots';
+const fixtureHash = process.env.LEGACY_QA_HASH ?? '3891536761';
+const revisionRow = Number(process.env.LEGACY_QA_ROW ?? 2);
+const cpus = process.env.LEGACY_QA_CPU ? [Number(process.env.LEGACY_QA_CPU)] : [1, 4];
+if (
+  !/^\d+$/.test(fixtureHash) ||
+  ![2, 3, 4].includes(revisionRow) ||
+  cpus.some((cpu) => ![1, 4].includes(cpu))
+)
+  throw new Error('Invalid QA cohort');
+const evidenceRoot = 'D:/GitHub/Description-editor/.agents/reports/legacy-history-impl-shots';
+const evidence = process.env.LEGACY_QA_RUN
+  ? `${evidenceRoot}/${fixtureHash}-${process.env.LEGACY_QA_RUN}`
+  : evidenceRoot;
 mkdirSync(evidence, { recursive: true });
 const server = createServer((req, res) => {
   const path = req.url.split('?')[0];
   const file =
-    path === '/fixture.json' ? `${generated}/3891536761.json` : resolve(root, '.' + path);
+    path === '/fixture.json' ? `${generated}/${fixtureHash}.json` : resolve(root, '.' + path);
   if (!file.startsWith(root) && !file.startsWith(generated)) {
     res.writeHead(403).end();
     return;
@@ -35,8 +48,13 @@ const browser = await chromium.launch({
   headless: true,
 });
 const results = [];
+const fixture = JSON.parse(readFileSync(`${generated}/${fixtureHash}.json`, 'utf8'));
+const revisions = fixture.lanes.find((lane) => lane.verified).revisions;
+const selected = revisions.at(-revisionRow).text ?? {};
+const next = revisions.at(1 - revisionRow).text ?? {};
+const current = [...revisions].reverse().find((revision) => revision.text !== null).text;
 try {
-  for (const cpu of [1, 4])
+  for (const cpu of cpus)
     for (const theme of ['dark', 'light'])
       for (const width of [390, 768, 1280])
         for (const scale of [100, 150]) {
@@ -83,57 +101,99 @@ try {
           });
           const times = [];
           for (const action of ['open', 'revision', 'compare']) {
-            await page.evaluate((action) => {
-              window.__action = undefined;
-              const button =
-                action === 'open'
-                  ? [...document.querySelectorAll('button')].find(
-                      (b) => b.textContent === 'History',
-                    )
-                  : action === 'revision'
-                    ? document.querySelector('ol li:nth-child(2) > button')
-                    : [...document.querySelectorAll('button')].find(
-                        (b) => b.textContent === 'vs current draft',
-                      );
-              if (!button || button.disabled) throw new Error(`Action ${action} is not ready`);
-              const down = (event) => {
-                if (!button.contains(event.target)) return;
-                if (!event.isTrusted) throw new Error('QA requires trusted input');
-                const start = performance.now();
-                performance.mark(`legacy-${action}-start`);
-                document.removeEventListener('pointerdown', down, true);
-                // Focusing a revision can open its fixed popover before mouseup;
-                // on narrow screens the click may then land on the shared li.
-                // Measure the delivered pointer intent that actually opens it.
-                requestAnimationFrame(() =>
-                  requestAnimationFrame(() => {
-                    performance.mark(`legacy-${action}-double-raf`);
-                    window.__action = performance.now() - start;
-                  }),
-                );
-              };
-              document.addEventListener('pointerdown', down, true);
-            }, action);
+            await page.evaluate(
+              ({ action, revisionRow }) => {
+                window.__action = undefined;
+                const button =
+                  action === 'open'
+                    ? [...document.querySelectorAll('button')].find(
+                        (b) => b.textContent === 'History',
+                      )
+                    : action === 'revision'
+                      ? document.querySelector(`ol li:nth-child(${revisionRow}) > button`)
+                      : [...document.querySelectorAll('button')].find(
+                          (b) => b.textContent === 'vs current draft',
+                        );
+                if (!button || button.disabled) throw new Error(`Action ${action} is not ready`);
+                const down = (event) => {
+                  if (!button.contains(event.target)) return;
+                  if (!event.isTrusted) throw new Error('QA requires trusted input');
+                  const start = performance.now();
+                  performance.mark(`legacy-${action}-start`);
+                  document.removeEventListener('pointerdown', down, true);
+                  // Focusing a revision can open its fixed popover before mouseup;
+                  // on narrow screens the click may then land on the shared li.
+                  // Measure the delivered pointer intent that actually opens it.
+                  requestAnimationFrame(() =>
+                    requestAnimationFrame(() => {
+                      performance.mark(`legacy-${action}-double-raf`);
+                      window.__action = performance.now() - start;
+                    }),
+                  );
+                };
+                document.addEventListener('pointerdown', down, true);
+              },
+              { action, revisionRow },
+            );
             const control =
               action === 'open'
                 ? toggle
                 : action === 'revision'
-                  ? page.locator('ol li:nth-child(2) > button')
+                  ? page.locator(`ol li:nth-child(${revisionRow}) > button`)
                   : page.getByRole('button', { name: 'vs current draft', exact: true });
             // Playwright's readiness/layout probes finish before the trusted
             // pointerdown mark, so they cannot inflate the measured interval.
             await control.click();
             await page.waitForFunction(() => typeof window.__action === 'number');
             times.push(await page.evaluate(() => window.__action));
-            if (action === 'open') await page.locator('ol li:nth-child(2) > button').waitFor();
+            if (action === 'open')
+              await page.locator(`ol li:nth-child(${revisionRow}) > button`).waitFor();
             else {
               await page.getByRole('dialog').waitFor();
               await page.waitForFunction(() => {
                 const button = [...document.querySelectorAll('button')].find(
                   (b) => b.textContent === 'vs current draft',
                 );
-                return button && !button.disabled;
+                return (
+                  button &&
+                  !button.disabled &&
+                  !document.querySelector('[role="dialog"] [aria-busy="true"]')
+                );
               });
+              const actual = await page.evaluate(() =>
+                Object.fromEntries(
+                  [...document.querySelectorAll('[role="dialog"] section[lang]')].map((section) => {
+                    const diff = section.querySelector('[aria-label^="Word diff:"]');
+                    const text = (excluded) =>
+                      [...diff.childNodes]
+                        .filter((node) => node.nodeName !== excluded)
+                        .map((node) => node.textContent)
+                        .join('');
+                    return [
+                      section.getAttribute('lang'),
+                      { before: text('INS'), after: text('DEL') },
+                    ];
+                  }),
+                ),
+              );
+              const target = action === 'revision' ? next : current;
+              const expected = Object.fromEntries(
+                [...new Set([...Object.keys(selected), ...Object.keys(target)])]
+                  .filter((lang) => selected[lang] !== target[lang])
+                  .map((lang) => [
+                    lang,
+                    { before: selected[lang] ?? '', after: target[lang] ?? '' },
+                  ]),
+              );
+              for (const [lang, value] of Object.entries(expected)) {
+                if (!value.before && !value.after && actual[lang]?.before === 'No text')
+                  actual[lang] = value;
+              }
+              assert.deepEqual(
+                actual,
+                expected,
+                'Every deferred language preserves both complete texts',
+              );
             }
           }
           const geometry = await page.evaluate(() => {
