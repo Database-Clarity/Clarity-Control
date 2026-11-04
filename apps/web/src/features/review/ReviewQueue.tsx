@@ -95,6 +95,7 @@ export function ReviewQueue({
     <div
       ref={host}
       className={styles.viewport}
+      style={{ height: changes.length * rowHeight }}
       tabIndex={0}
       aria-label="Scroll pending saved changes"
       onFocusCapture={(event) => {

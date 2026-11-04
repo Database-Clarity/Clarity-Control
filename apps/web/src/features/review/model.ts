@@ -38,10 +38,8 @@ export function sidebarChanges(entries: PendingTooltip[]): SidebarPendingChange[
   return queue;
 }
 function sameMarkers(a: Record<string, string>, b: Record<string, string>): boolean {
-  return (
-    Object.keys(a).length === Object.keys(b).length &&
-    Object.keys(a).every((key) => a[key] === b[key])
-  );
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key]);
 }
 
 export function preparedPending(

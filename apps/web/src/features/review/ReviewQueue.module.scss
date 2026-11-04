@@ -3,7 +3,8 @@
   max-height: calc(100dvh - var(--header-h, 37px) - 7rem);
   overflow: auto;
   min-height: 0;
-  contain: layout paint;
+  // A definite height keeps the full virtual track out of ancestor sizing.
+  contain: strict;
 }
 
 .rowSizer {

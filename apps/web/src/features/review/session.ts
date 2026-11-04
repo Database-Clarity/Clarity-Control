@@ -31,11 +31,13 @@ useAuthStore.subscribe((state, previous) => {
   useReviewSession.setState({ notice: undefined, error: undefined });
 });
 
-export function acknowledgedMarkers(data: EditorData): Record<string, string> {
+export function acknowledgedMarkers(data: EditorData): Readonly<Record<string, string>> {
+  const { acknowledgments } = useReviewSession.getState();
+  const overlays = Object.entries(acknowledgments);
+  if (!overlays.length) return data.bundle.pushed;
   const markers = { ...data.bundle.pushed };
   const retained: Record<string, Acknowledgment> = {};
-  const { acknowledgments } = useReviewSession.getState();
-  for (const [hash, acknowledgment] of Object.entries(acknowledgments)) {
+  for (const [hash, acknowledgment] of overlays) {
     // Equal = caught up. Different from the pre-push marker = superseding server state.
     // Deleted tooltips also retire the overlay. Never overlay a later authoritative marker.
     if (data.bundle.tooltips[hash] && markers[hash] === acknowledgment.previous) {
@@ -43,7 +45,7 @@ export function acknowledgedMarkers(data: EditorData): Record<string, string> {
       markers[hash] = acknowledgment.digest;
     }
   }
-  if (Object.keys(retained).length !== Object.keys(acknowledgments).length)
+  if (Object.keys(retained).length !== overlays.length)
     useReviewSession.setState({ acknowledgments: retained });
   return markers;
 }
