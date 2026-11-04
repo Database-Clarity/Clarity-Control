@@ -318,6 +318,8 @@
 
 .sheetScroll {
   contain: content;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 36rem;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
   max-width: 100%;

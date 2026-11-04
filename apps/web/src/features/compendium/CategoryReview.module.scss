@@ -241,7 +241,10 @@
     grid-template-columns: minmax(0, 1fr);
   }
   .workspace {
-    grid-template-rows: auto;
+    // There is no viewport height budget on phones. A zero flex basis plus
+    // min-height:0 collapsed the first auto-sized grid row (the category nav).
+    flex: none;
+    grid-template-rows: max-content max-content;
   }
   .categoryButtons {
     max-height: 12rem;
@@ -285,6 +288,7 @@
 }
 @media (max-width: 700px) {
   .categories {
+    flex: none;
     padding-bottom: calc(var(--sample-action-height, 12rem) + 1rem);
   }
   .sample > .actions {
