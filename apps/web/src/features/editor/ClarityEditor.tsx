@@ -247,7 +247,7 @@ export function ClarityEditor({
     editor.focus();
   }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     callback.current = onChange;
   }, [onChange]);
   useLayoutEffect(() => {
@@ -268,15 +268,13 @@ export function ClarityEditor({
     if (editor.dom.parentNode !== container) {
       container.append(editor.dom);
       editor.requestMeasure();
-      if (restoreFocus.current && owner.activeElement === owner.body) editor.focus();
-      restoreFocus.current = false;
     }
   }, [suspended]);
   useEffect(() => {
     if (!suspended && view.current && symbolsOn.current)
       setSymbolReveal(view.current, symbolReveal);
   }, [symbolReveal, suspended]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     referenceLive.current = { tooltipHash, referenceSources, onOpenTooltip };
   }, [tooltipHash, referenceSources, onOpenTooltip]);
   useEffect(() => {
@@ -405,7 +403,7 @@ export function ClarityEditor({
     });
   }, [compact, suspended]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (suspended) return;
     const editor = view.current;
     if (!editor) return;
@@ -418,7 +416,9 @@ export function ClarityEditor({
       setChip(null);
       setCompare(null);
       setConflictIndex(0);
-      setCursor({ line: 1, column: 1 });
+      setCursor((previous) =>
+        previous.line === 1 && previous.column === 1 ? previous : { line: 1, column: 1 },
+      );
       rawRef.current = false;
       setRawView(false);
     }
@@ -443,6 +443,16 @@ export function ClarityEditor({
     // The rebuilt state starts with find closed: bring back what was open.
     if (remembersFind.current) restoreSearch(editor);
   }, [value, lang, globals, readOnly, requireEnglish, tooltipHash, suspended]);
+
+  useLayoutEffect(() => {
+    const editor = view.current;
+    const owner = host.current?.ownerDocument;
+    if (suspended || !editor || !owner) return;
+    // Restore focus only after the landed document is installed. Focusing the
+    // previous document first would measure and briefly expose its old caret.
+    if (restoreFocus.current && owner.activeElement === owner.body) editor.focus();
+    restoreFocus.current = false;
+  }, [suspended, tooltipHash, lang]);
 
   useEffect(() => {
     if (suspended) return;

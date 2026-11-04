@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, useLayoutEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { EditorView } from '@codemirror/view';
 import { undoDepth } from '@codemirror/commands';
@@ -50,6 +50,39 @@ function render(value: string, tooltipHash?: number, definitions = globals) {
 }
 
 describe('find and replace persistence', () => {
+  it('commits the landed document before layout observers can see the resumed editor', () => {
+    const snapshots: string[] = [];
+    const changed = vi.fn();
+    function Probe({
+      hash,
+      value,
+      suspended = false,
+    }: {
+      hash: number;
+      value: string;
+      suspended?: boolean;
+    }) {
+      useLayoutEffect(() => {
+        if (!suspended) snapshots.push(host.querySelector('.cm-content')?.textContent ?? '');
+      }, [hash, suspended]);
+      return (
+        <ClarityEditor
+          value={value}
+          lang="en"
+          tooltipHash={hash}
+          globals={globals}
+          onChange={changed}
+          suspended={suspended}
+        />
+      );
+    }
+    act(() => root.render(<Probe hash={10} value="Previous item" />));
+    act(() => root.render(<Probe hash={10} value="Previous item" suspended />));
+    snapshots.length = 0;
+    act(() => root.render(<Probe hash={20} value="Landed item" />));
+    expect(snapshots).toEqual(['Landed item']);
+    expect(changed).not.toHaveBeenCalled();
+  });
   it('does not take focus back from another control after a burst', () => {
     const view = render('one', 10);
     const show = (suspended: boolean) =>
