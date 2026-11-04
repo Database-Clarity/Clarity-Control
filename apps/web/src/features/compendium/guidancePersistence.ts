@@ -38,6 +38,7 @@ export class GuidancePersistence {
   private readonly key: string;
   private starting?: Promise<void>;
   private recoveryError: string | null = null;
+  private cached?: { document: GuidanceDocument; revision: string | null; pending: boolean };
 
   constructor(
     scope: string,
@@ -80,16 +81,25 @@ export class GuidancePersistence {
     for (const listener of this.listeners) listener();
   }
   private cache() {
+    if (
+      this.cached?.document === this.state.document &&
+      this.cached.revision === this.revision &&
+      this.cached.pending === this.pending
+    )
+      return;
     try {
-      this.storage.setItem(
-        this.key,
-        JSON.stringify({
-          document: this.state.document,
-          revision: this.revision,
-          pending: this.pending,
-        }),
-      );
-      notifyCompendiumInputs(this.key);
+      const cached = {
+        document: this.state.document,
+        revision: this.revision,
+        pending: this.pending,
+      };
+      const serialized = JSON.stringify(cached);
+      if (this.storage.getItem(this.key) !== serialized) {
+        this.storage.setItem(this.key, serialized);
+        notifyCompendiumInputs(this.key);
+      }
+      // Route teardown must not stringify or rewrite an unchanged browser backup.
+      this.cached = cached;
       this.set({ browserSaved: true, localError: this.recoveryError });
     } catch (error) {
       this.set({

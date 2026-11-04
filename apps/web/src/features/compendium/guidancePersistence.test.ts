@@ -38,6 +38,30 @@ function fixture() {
   return { create, request, cache, storage, document: () => document, writes: () => writes };
 }
 afterEach(() => vi.useRealTimers());
+it('does not rewrite unchanged production guidance on flush, route teardown, or remount', async () => {
+  const data = fixture();
+  const writes = vi.spyOn(data.storage, 'setItem');
+  const create = () => new GuidancePersistence('scope', '', data.storage, data.request, false);
+  const first = create();
+  await first.start();
+  first.synchronize(categories, 'baseline');
+  writes.mockClear();
+  const reads = vi.spyOn(data.storage, 'getItem');
+  await first.flush();
+  first.dispose();
+  expect(writes).not.toHaveBeenCalled();
+  expect(reads).not.toHaveBeenCalled();
+  const second = create();
+  await second.start();
+  second.synchronize(categories, 'baseline');
+  expect(writes).not.toHaveBeenCalled();
+  second.comment(categories[0].id, 'Authored guidance remains immediately backed up');
+  expect(writes).toHaveBeenCalledTimes(1);
+  expect([...data.cache.values()][0]).toContain('Authored guidance remains immediately backed up');
+  second.dispose();
+  expect(writes).toHaveBeenCalledTimes(1);
+});
+
 it('keeps loaded membership frozen while applying current owner edits', async () => {
   const data = fixture();
   const writer = data.create();
