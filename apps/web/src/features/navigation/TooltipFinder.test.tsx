@@ -200,6 +200,33 @@ describe('tooltip finder combobox', () => {
       );
     },
   );
+  it('fills a large thumb destination without expanding the whole category', async () => {
+    const many = {
+      ...data,
+      items: Object.fromEntries(
+        Array.from({ length: 800 }, (_, i) => [
+          1000 + i,
+          item(1000 + i, `Armor ${String(i).padStart(3, '0')}`, 'armor'),
+        ]),
+      ),
+    } as EditorData;
+    await mount('/t/1000', many);
+    await open();
+    const list = host.querySelector<HTMLElement>('[role="listbox"]')!;
+    Object.defineProperties(list, { clientWidth: { value: 200 }, clientHeight: { value: 416 } });
+    const down = new MouseEvent('pointerdown', { button: 0, bubbles: true });
+    Object.defineProperty(down, 'offsetX', { value: 207 });
+    await act(async () => void list.dispatchEvent(down));
+    expect(options().length).toBeLessThan(100);
+    list.scrollTop = 19600;
+    await act(async () => void list.dispatchEvent(new Event('scroll')));
+    expect(options().some((row) => row.textContent?.includes('Armor 700'))).toBe(true);
+    expect(options().length).toBeLessThan(100);
+    expect(list.querySelector<HTMLElement>('[role="presentation"]')!.style.height).toBe('22400px');
+    await act(async () => void window.dispatchEvent(new Event('pointerup')));
+    expect(options().length).toBeLessThan(220);
+    expect(options().some((row) => row.textContent?.includes('Armor 700'))).toBe(true);
+  });
   it('marks only a real base -> enhanced pair with the gold arrow, and a search for the variant lands on the base', async () => {
     const variants = {
       ...data,

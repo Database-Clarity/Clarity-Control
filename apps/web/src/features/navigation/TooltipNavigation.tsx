@@ -9,6 +9,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
   type KeyboardEvent,
 } from 'react';
@@ -68,6 +69,30 @@ const noDrafts: ReturnType<typeof useDraftStore.getState>['drafts'] = {};
 // native thumb dragging costs more than retaining these cheap contained rows.
 const retainedRowLimit = 512;
 
+interface FinderViewport {
+  top: number;
+  height: number;
+}
+function createFinderViewport() {
+  let current: FinderViewport = { top: 0, height: 416 };
+  const listeners = new Set<() => void>();
+  return {
+    getSnapshot: () => current,
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    set(update: FinderViewport | ((previous: FinderViewport) => FinderViewport)) {
+      const next = typeof update === 'function' ? update(current) : update;
+      if (next.top === current.top && next.height === current.height) return;
+      current = next;
+      for (const listener of listeners) listener();
+    },
+  };
+}
+
 // Moving the highlight changes two rows, not every catalogue lookup and DOM subtree.
 const FinderOption = memo(function FinderOption({
   row,
@@ -82,6 +107,8 @@ const FinderOption = memo(function FinderOption({
   onActive,
   onCommit,
   total,
+  virtual,
+  rowHeight,
 }: {
   row: Row;
   index: number;
@@ -95,6 +122,8 @@ const FinderOption = memo(function FinderOption({
   onActive(index: number): void;
   onCommit: { current(row: Row): void };
   total: number;
+  virtual: boolean;
+  rowHeight: number;
 }) {
   const item = itemFor(row.hash, data);
   const isDirty = variantHashes(row.hash, data).some((variant) => drafts[variant]);
@@ -104,6 +133,9 @@ const FinderOption = memo(function FinderOption({
   return (
     <li
       id={id}
+      style={
+        virtual ? { position: 'absolute', top: index * rowHeight, left: 0, right: 0 } : undefined
+      }
       role="option"
       aria-selected={current}
       aria-posinset={index + 1}
@@ -199,7 +231,13 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   // Matches the fixed CSS row geometry at every interface scale. Scroll handlers
   // never need to measure a row or synchronously flush a React render.
   const rowHeight = Math.round((touchRows ? Math.max(44, 44 * scale) : 28 * scale) * 64) / 64;
-  const [viewport, setViewport] = useState({ top: 0, height: 416 });
+  const [viewportStore] = useState(createFinderViewport);
+  const viewport = useSyncExternalStore(
+    viewportStore.subscribe,
+    viewportStore.getSnapshot,
+    viewportStore.getSnapshot,
+  );
+  const setViewport = viewportStore.set;
   const root = useRef<HTMLDivElement>(null);
   const openRef = useRef(open);
   openRef.current = open;
@@ -290,7 +328,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     let height = 416;
     let lastTop = -1;
     const scroll = () => {
-      if (rows.length <= retainedRowLimit || draggingScrollbarRef.current) return;
+      if (rows.length <= retainedRowLimit) return;
       // Bucket scroll updates inside the overscan. Scrolling reads no row geometry and
       // does no React work until the visible window approaches the next bucket.
       const top = Math.floor(element.scrollTop / (rowHeight * 8)) * rowHeight * 8;
@@ -312,7 +350,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       observer?.disconnect();
       element.removeEventListener('scroll', scroll);
     };
-  }, [open, rows, rowHeight]);
+  }, [open, rows, rowHeight, setViewport]);
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -338,7 +376,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       window.removeEventListener('blur', finish);
       finish();
     };
-  }, [open, rowHeight]);
+  }, [open, rowHeight, setViewport]);
 
   // A new route, or leaving the field, restores the current item and an empty query.
   const restore = () => {
@@ -382,8 +420,8 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     // Home/End can jump beyond the entire overscan. Fill the landed window in
     // this pre-paint commit rather than waiting for a subsequent scroll event.
     const bucket = Math.floor(element.scrollTop / (rowHeight * 8)) * rowHeight * 8;
-    setViewport((previous) => previous.top === bucket ? previous : { ...previous, top: bucket });
-  }, [open, active, rows, rowHeight, viewport.height]);
+    setViewport((previous) => (previous.top === bucket ? previous : { ...previous, top: bucket }));
+  }, [open, active, rows, rowHeight, viewport.height, setViewport]);
 
   useLayoutEffect(() => {
     // A finder list owns wheel interaction while open. Remove the global
@@ -538,42 +576,34 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       onActive={hoverActive}
       onCommit={commitRef}
       total={rows.length}
+      virtual={rows.length > retainedRowLimit}
+      rowHeight={rowHeight}
     />
   );
   let options;
   if (!open) options = null;
-  else if (rows.length <= retainedRowLimit || draggingScrollbar) options = rows.map(option);
+  else if (rows.length <= retainedRowLimit) options = rows.map(option);
   else {
-    const start = Math.max(0, Math.floor(viewport.top / rowHeight) - 96);
-    const end = Math.min(rows.length, Math.ceil((viewport.top + viewport.height) / rowHeight) + 96);
-    // Keep the active descendant mounted even before scrollIntoView moves the window.
+    const overscan = draggingScrollbar ? 32 : 96;
+    const start = Math.max(0, Math.floor(viewport.top / rowHeight) - overscan);
+    const end = Math.min(
+      rows.length,
+      Math.ceil((viewport.top + viewport.height) / rowHeight) + overscan,
+    );
+    // Absolute rows preserve the full scroll surface independent of the window.
+    // The viewport's external snapshot commits scroll changes before paint.
     const indexes = new Set(Array.from({ length: Math.max(0, end - start) }, (_, i) => start + i));
     if (rows[active]) indexes.add(active);
-    const nodes = [];
-    let previous = 0;
-    for (const index of [...indexes].sort((a, b) => a - b)) {
-      if (index > previous)
-        nodes.push(
-          <li
-            key={`gap-${previous}`}
-            role="presentation"
-            aria-hidden="true"
-            style={{ height: (index - previous) * rowHeight }}
-          />,
-        );
-      nodes.push(option(rows[index], index));
-      previous = index + 1;
-    }
-    if (previous < rows.length)
-      nodes.push(
-        <li
-          key="gap-end"
+    options = [
+      <li key="surface" role="presentation" style={{ height: rows.length * rowHeight }}>
+        <ul
           role="presentation"
-          aria-hidden="true"
-          style={{ height: (rows.length - previous) * rowHeight }}
-        />,
-      );
-    options = nodes;
+          style={{ position: 'relative', height: '100%', margin: 0, padding: 0, listStyle: 'none' }}
+        >
+          {[...indexes].sort((a, b) => a - b).map((index) => option(rows[index], index))}
+        </ul>
+      </li>,
+    ];
   }
   const trimmed = query.trim();
   const listbox = open && (
@@ -586,9 +616,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
         className={styles.listbox}
         data-windowed={rows.length > 80 || undefined}
         data-scrollbar-drag={draggingScrollbar || undefined}
-        data-scrollbar-surface={
-          draggingScrollbar || (laidOutRows && rows.length <= retainedRowLimit) || undefined
-        }
+        data-scrollbar-surface={(laidOutRows && rows.length <= retainedRowLimit) || undefined}
         onPointerDown={(event) => {
           const element = event.currentTarget;
           if (
@@ -604,7 +632,12 @@ export const TooltipNavigation = memo(function TooltipNavigation({
             setDraggingScrollbar(true);
           }
         }}
-        style={{ '--finder-row-height': `${rowHeight}px` } as CSSProperties}
+        style={
+          {
+            '--finder-row-height': `${rowHeight}px`,
+            position: rows.length > retainedRowLimit ? 'relative' : undefined,
+          } as CSSProperties
+        }
       >
         {options}
       </ul>
