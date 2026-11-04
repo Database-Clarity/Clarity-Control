@@ -9,6 +9,11 @@ import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 
 const getHistory = vi.fn();
+const getLegacyHistory = vi.fn();
+vi.mock('../../services/legacyHistory', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/legacyHistory')>()),
+  getLegacyHistory: (...args: unknown[]) => getLegacyHistory(...args),
+}));
 vi.mock('../../services/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../services/api')>()),
   apiUrl: 'https://api.test',
@@ -39,6 +44,7 @@ const originals = {
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   getHistory.mockReset();
+  getLegacyHistory.mockReset().mockResolvedValue(null);
   useDataStore.setState({
     data: {
       bundle: { tooltips: { 10: tooltip } },
@@ -61,15 +67,18 @@ afterEach(async () => {
   useDraftStore.setState(originals.drafts);
 });
 
-it('is one collapsed row: Edited <date> by <author>, n revisions', async () => {
+it('loads both histories only when the collapsed row opens', async () => {
   getHistory.mockResolvedValue({ page: 1, commits: [commit(1), commit(2), commit(3)] });
   await act(async () => root.render(<HistoryPanel hash={10} />));
-  expect(host.textContent ?? '').toMatch(/^History\s*Edited .* by ann, 3 revisions$/);
+  expect(host.textContent ?? '').toMatch(/^History\s*Edited .* by ann$/);
+  expect(getHistory).not.toHaveBeenCalled();
+  expect(getLegacyHistory).not.toHaveBeenCalled();
   expect(host.querySelector('button[aria-expanded="false"]')).not.toBeNull();
   // The commit list is not in the row until it is expanded.
   expect(host.querySelector('ol')).toBeNull();
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
   expect(host.querySelectorAll('ol li')).toHaveLength(3);
+  expect(getLegacyHistory).toHaveBeenCalledWith(10, expect.any(AbortSignal));
 });
 
 it('says 30+ when a full page of commits came back', async () => {
@@ -78,6 +87,7 @@ it('says 30+ when a full page of commits came back', async () => {
     commits: Array.from({ length: 30 }, (_, i) => commit(i + 1)),
   });
   await act(async () => root.render(<HistoryPanel hash={10} />));
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
   expect(host.textContent).toContain('30+ revisions');
 });
 

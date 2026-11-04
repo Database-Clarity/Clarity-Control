@@ -13,13 +13,13 @@ import { When } from '../../ui/When';
 import { lastEdit } from './lastEdit';
 import { itemFor } from '../navigation/catalog';
 import { useRevisionCache, type RevisionCache } from './revisions';
-import { revertDraft } from './revert';
+import { revertDraft, restoreLegacyText } from './revert';
+import { LegacyHistory } from './LegacyHistory';
 import styles from './History.module.scss';
 
 /**
  * One collapsed row: "Edited <date> by <author>, n revisions". Expanding it shows the commit list
- * with compare and Revert. The first page of commits loads with the row (it is the count), so
- * opening it is instant.
+ * with compare and Revert. Network history loads only when opened.
  */
 export function HistoryPanel({ hash, readOnly = false }: { hash: number; readOnly?: boolean }) {
   const [open, setOpen] = useState(false);
@@ -35,7 +35,7 @@ export function HistoryPanel({ hash, readOnly = false }: { hash: number; readOnl
   const signedIn = Boolean(apiUrl && user?.role);
   const cache = useRevisionCache(hash);
   useEffect(() => {
-    if (!signedIn) return;
+    if (!signedIn || !open) return;
     const controller = new AbortController();
     void cache.page(1).then(
       (result) =>
@@ -72,12 +72,20 @@ export function HistoryPanel({ hash, readOnly = false }: { hash: number; readOnl
       }
     >
       {!signedIn ? <p>Sign in as a configured member to view this tooltip's history.</p> : null}
-      {signedIn && <HistoryContent key={cache.identity} hash={hash} readOnly={readOnly} />}
+      <HistoryContent key={cache.identity} hash={hash} readOnly={readOnly} signedIn={signedIn} />
     </PanelRow>
   );
 }
 
-function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: boolean }) {
+function HistoryContent({
+  hash,
+  readOnly = false,
+  signedIn,
+}: {
+  hash: number;
+  readOnly?: boolean;
+  signedIn: boolean;
+}) {
   const user = useAuthStore((state) => state.user);
   const base = useDataStore((state) => state.data?.bundle.tooltips[hash]);
   const data = useDataStore((state) => state.data);
@@ -102,6 +110,11 @@ function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: b
   const [notice, setNotice] = useState<string>();
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
+    if (!signedIn) {
+      setLoading(false);
+      setHasMore(false);
+      return;
+    }
     const controller = new AbortController();
     setLoading(true);
     setError(undefined);
@@ -128,7 +141,7 @@ function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: b
       },
     );
     return () => controller.abort();
-  }, [cache, page, attempt]);
+  }, [cache, page, attempt, signedIn]);
   useEffect(() => {
     if (loading || !commits.length) return;
     let idle: number | undefined;
@@ -146,7 +159,7 @@ function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: b
     };
   }, [cache, commits, loading]);
   const current = draft?.next ?? base;
-  const canRestore = !readOnly && hydrated && Boolean(base);
+  const canRestore = !readOnly && signedIn && hydrated && Boolean(base);
 
   const restore = useCallback(
     (version: Tooltip) => {
@@ -197,6 +210,19 @@ function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: b
           Load more commits
         </button>
       )}
+      <LegacyHistory
+        hash={hash}
+        current={current}
+        canRestore={canRestore}
+        translator={user?.role === 'translator'}
+        onRestore={(version) => {
+          if (!base || !current || !user || !canRestore) return;
+          replaceDraft(base, restoreLegacyText(current, version, user, version.hash === hash));
+          setNotice(
+            'Published text loaded as a local draft. Review it and use Save; nothing was saved automatically.',
+          );
+        }}
+      />
     </section>
   );
 }

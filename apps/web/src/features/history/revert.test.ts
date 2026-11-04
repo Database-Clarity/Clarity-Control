@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type Tooltip } from '@clarity/core';
-import { revertDraft } from './revert';
+import { revertDraft, restoreLegacyText } from './revert';
 
 const current: Tooltip = {
   hash: 123,
@@ -17,6 +17,38 @@ const version: Tooltip = {
   associated: [],
 };
 describe('history draft restoration', () => {
+  it('restores legacy text while preserving every non-text field', () => {
+    const rich: Tooltip = {
+      ...current,
+      custom: { name: 'Custom', categoryId: 'weapon-mod' },
+      bungieSnapshot: { description: 'Snapshot', snapshotAt: '2026-10-01T00:00:00Z' },
+      legacy: { uploadedBy: 'owner' },
+    };
+    const result = restoreLegacyText(
+      rich,
+      version,
+      { id: 1, login: 'alice', role: 'editor' },
+      true,
+    );
+    expect({ ...result, text: {} }).toEqual({ ...rich, text: {} });
+    expect(result.text.en?.text).toBe('Old');
+    expect(result.text.de).toBeUndefined();
+    expect(rich.text.de).toBeDefined();
+  });
+  it('limits legacy restore to assigned languages and verified identities', () => {
+    const user = { id: 2, login: 'bob', role: 'translator' as const, languages: ['de' as const] };
+    const result = restoreLegacyText(current, version, user, true);
+    expect(result.text.en).toEqual(current.text.en);
+    expect(result.text.de).toBeUndefined();
+    expect(result.associated).toEqual(current.associated);
+    expect(() => restoreLegacyText(current, version, user, false)).toThrow('not verified');
+    expect(() => restoreLegacyText(current, version, { ...user, role: null }, true)).toThrow(
+      'permission',
+    );
+    expect(() => restoreLegacyText(current, { ...version, hash: 456 }, user, true)).toThrow(
+      'different tooltip',
+    );
+  });
   it('restores a full version for editors without mutating either input', () => {
     const result = revertDraft(current, version, { id: 1, login: 'alice', role: 'editor' });
     expect(result).toEqual(version);
