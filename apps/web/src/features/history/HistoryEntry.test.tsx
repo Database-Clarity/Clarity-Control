@@ -115,6 +115,44 @@ it('is keyboard reachable: focus opens it and Esc closes it and keeps focus on t
   expect(document.activeElement).toBe(entries()[1]);
 });
 
+it('positions from ResizeObserver sizes without synchronously measuring the new diff', async () => {
+  const observers: ResizeObserverCallback[] = [];
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(callback: ResizeObserverCallback) {
+        observers.push(callback);
+      }
+      observe = vi.fn();
+      disconnect = vi.fn();
+    },
+  );
+  const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(() => {
+    throw new Error('Synchronous popover height read');
+  });
+  const row = entries()[0].parentElement!;
+  const bounds = vi
+    .spyOn(row, 'getBoundingClientRect')
+    .mockReturnValue(new DOMRect(100, 600, 200, 50));
+  try {
+    await act(async () => entries()[0].click());
+    expect(bounds).toHaveBeenCalled();
+    await act(async () =>
+      observers[0](
+        [{ borderBoxSize: [{ blockSize: 300.4 }] } as unknown as ResizeObserverEntry],
+        {} as ResizeObserver,
+      ),
+    );
+    expect(dialog()!.style.top).toBe(`${window.innerHeight - 300 - 8}px`);
+    expect(dialog()!.style.left).toBe('306px');
+    expect(height).not.toHaveBeenCalled();
+  } finally {
+    height.mockRestore();
+    bounds.mockRestore();
+    vi.unstubAllGlobals();
+  }
+});
+
 it('click pins it past mouse leave; a press outside closes it', async () => {
   await act(async () => entries()[0].click());
   expect(dialog()).not.toBeNull();

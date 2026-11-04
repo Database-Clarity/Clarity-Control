@@ -6,7 +6,6 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type CSSProperties,
   type RefObject,
 } from 'react';
 import type { Tooltip } from '@clarity/core';
@@ -24,6 +23,14 @@ const HOVER_DELAY = 120;
 const LEAVE_DELAY = 160;
 const LONG_PRESS = 500;
 const OPENED = 'clarity-history-entry-open';
+
+interface AnchorGeometry {
+  rect: DOMRect;
+  width: number;
+}
+
+const measureAnchor = (anchor: HTMLElement | null): AnchorGeometry | undefined =>
+  anchor ? { rect: anchor.getBoundingClientRect(), width: scaledPx(480) } : undefined;
 
 export interface HistoryEntryProps {
   entry: HistoryCommit;
@@ -54,12 +61,16 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
   const [focus, setFocus] = useState(false);
   const [pinned, setPinned] = useState(false);
   const container = useRef<HTMLLIElement>(null);
+  const geometry = useRef<AnchorGeometry | undefined>(undefined);
   const trigger = useRef<HTMLButtonElement>(null);
   const timers = useRef<{ intent?: number; enter?: number; leave?: number; press?: number }>({});
   const longPressed = useRef(false);
   const dismissed = useRef(false);
   const id = useId();
   const open = pinned || hover || focus;
+  const captureAnchor = () => {
+    geometry.current = measureAnchor(container.current);
+  };
   const clearTimers = () => {
     window.clearTimeout(timers.current.intent);
     window.clearTimeout(timers.current.enter);
@@ -125,7 +136,10 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
             .load(props.commits, props.index, props.page, props.hasMore)
             .catch(() => undefined);
         }, 60);
-        timers.current.enter = window.setTimeout(() => setHover(true), HOVER_DELAY);
+        timers.current.enter = window.setTimeout(() => {
+          captureAnchor();
+          setHover(true);
+        }, HOVER_DELAY);
       }}
       onMouseLeave={() => {
         window.clearTimeout(timers.current.intent);
@@ -135,7 +149,10 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
         dismissed.current = false;
       }}
       onFocus={() => {
-        if (!dismissed.current) setFocus(true);
+        if (!dismissed.current) {
+          captureAnchor();
+          setFocus(true);
+        }
       }}
       onBlur={(event) => {
         if (event.currentTarget.contains(event.relatedTarget)) return;
@@ -157,6 +174,7 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
           window.clearTimeout(timers.current.press);
           timers.current.press = window.setTimeout(() => {
             longPressed.current = true;
+            captureAnchor();
             setPinned(true);
           }, LONG_PRESS);
         }}
@@ -171,7 +189,10 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
             return;
           }
           if (pinned) close(false);
-          else setPinned(true);
+          else {
+            captureAnchor();
+            setPinned(true);
+          }
         }}
       >
         <CommitAuthor entry={entry} link={false} />
@@ -184,6 +205,7 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
           {...props}
           id={id}
           anchor={container}
+          initialGeometry={geometry}
           translator={translator}
           pinned={pinned}
           onClose={close}
@@ -196,6 +218,7 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
 function RevisionPopover({
   id,
   anchor,
+  initialGeometry,
   pinned,
   onClose,
   entry,
@@ -212,10 +235,10 @@ function RevisionPopover({
 }: HistoryEntryProps & {
   id: string;
   anchor: RefObject<HTMLElement | null>;
+  initialGeometry: RefObject<AnchorGeometry | undefined>;
   pinned: boolean;
   onClose(restoreFocus: boolean): void;
 }) {
-  const [style, setStyle] = useState<CSSProperties>();
   const surface = useRef<HTMLDivElement>(null);
   const [source, setSource] = useState<RevisionDiffSource>();
   const [error, setError] = useState<string>();
@@ -224,37 +247,59 @@ function RevisionPopover({
   const [confirm, setConfirm] = useState(false);
   const [restoreError, setRestoreError] = useState<string>();
   useLayoutEffect(() => {
+    const element = surface.current;
+    if (!element) return;
+    let geometry = initialGeometry.current ?? measureAnchor(anchor.current);
+    let measuredHeight = 0;
     const place = () => {
-      if (!anchor.current) return;
-      const rect = anchor.current.getBoundingClientRect();
+      if (!geometry) return;
+      const { rect } = geometry;
       const edge = 8;
-      const width = Math.min(scaledPx(480), window.innerWidth - edge * 2);
+      const width = Math.min(geometry.width, window.innerWidth - edge * 2);
       const beside = rect.right + 6 + width <= window.innerWidth - edge;
-      const height = Math.min(surface.current?.offsetHeight ?? 0, window.innerHeight - edge * 2);
+      const height = Math.min(measuredHeight, window.innerHeight - edge * 2);
       const wanted = beside ? Math.max(edge, rect.top) : rect.bottom + 4;
       // Slide up rather than squash when the entry sits near the bottom of the window.
       const top = Math.min(wanted, window.innerHeight - height - edge);
-      setStyle({
-        left: beside ? rect.right + 6 : Math.max(edge, window.innerWidth - width - edge),
-        top,
-        width,
-        maxHeight: window.innerHeight - edge * 2,
+      // Placement owns only these geometry properties. Updating them directly
+      // avoids rendering the entire diff again after each size notification.
+      Object.assign(element.style, {
+        left: `${beside ? rect.right + 6 : Math.max(edge, window.innerWidth - width - edge)}px`,
+        top: `${top}px`,
+        width: `${width}px`,
+        maxHeight: `${window.innerHeight - edge * 2}px`,
       });
     };
-    place();
+    const refresh = (event?: Event) => {
+      if (event?.target instanceof Node && element.contains(event.target)) return;
+      geometry = measureAnchor(anchor.current);
+      place();
+    };
     const observer =
-      typeof ResizeObserver === 'undefined' || !surface.current
+      typeof ResizeObserver === 'undefined'
         ? undefined
-        : new ResizeObserver(place);
-    if (surface.current) observer?.observe(surface.current);
-    window.addEventListener('resize', place);
-    window.addEventListener('scroll', place, true);
+        : new ResizeObserver(([entry]) => {
+            if (!entry) return;
+            // Match offsetHeight's border-box rounding without a fresh layout read.
+            measuredHeight = Math.round(
+              entry.borderBoxSize?.[0]?.blockSize ?? element.offsetHeight,
+            );
+            // ResizeObserver runs after layout; read all geometry before writing.
+            geometry = measureAnchor(anchor.current);
+            place();
+          });
+    // Only old browsers without ResizeObserver need the synchronous fallback.
+    if (!observer) measuredHeight = element.offsetHeight;
+    place();
+    observer?.observe(element);
+    window.addEventListener('resize', refresh);
+    window.addEventListener('scroll', refresh, true);
     return () => {
       observer?.disconnect();
-      window.removeEventListener('resize', place);
-      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', refresh);
+      window.removeEventListener('scroll', refresh, true);
     };
-  }, [anchor]);
+  }, [anchor, initialGeometry]);
   useEffect(() => {
     let live = true;
     setError(undefined);
@@ -286,7 +331,6 @@ function RevisionPopover({
       aria-label={`Revision ${entry.commit.slice(0, 8)}`}
       data-pinned={pinned || undefined}
       className={`${popover.surface} ${styles.revision}`}
-      style={style}
     >
       <div className={`${popover.body} ${styles.revisionBody}`}>
         <div className={styles.revisionHead}>
