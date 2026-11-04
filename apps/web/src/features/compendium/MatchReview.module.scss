@@ -227,10 +227,10 @@
 // rich text out of the outer flex/grid intrinsic sizing passes on each selection.
 @media (min-width: 701px) {
   .entryReview {
-    contain: layout style;
+    contain: inline-size layout style;
   }
   .categoryReview {
-    contain: layout style;
+    contain: inline-size layout style;
   }
   .workspace > .card {
     contain: strict;
