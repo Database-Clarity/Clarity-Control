@@ -4,7 +4,7 @@ import { readableOn, useLegibleOn } from './sheetSurface';
 import styles from './RichCell.module.scss';
 
 const styleCache = new Map<string, CSSProperties>();
-function runStyle(run: CompendiumRun, legibleOn?: string): CSSProperties {
+export function runStyle(run: CompendiumRun, legibleOn?: string): CSSProperties {
   const key = [
     run.color,
     run.sizePt,
@@ -113,6 +113,9 @@ export const RichCell = memo(function RichCell({
   inline?: boolean;
 }): ReactNode {
   const legibleOn = useLegibleOn();
+  // Inline fragments share the enclosing diff cell's whitespace and alignment.
+  // A wrapper per word adds layout boxes without adding formatting semantics.
+  if (inline) return richRuns(cell.runs, links, legibleOn);
   // Adjacent physical lines with the same alignment share one CSS text block.
   // Literal newlines retain wrapping/blank lines without a layout box per line.
   // Runs remain React-escaped text and retain the original styles and links.
