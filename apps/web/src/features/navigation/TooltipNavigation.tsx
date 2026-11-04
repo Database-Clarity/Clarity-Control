@@ -143,7 +143,15 @@ const FinderOption = memo(function FinderOption({
     <li
       id={id}
       style={
-        virtual ? { position: 'absolute', top: index * rowHeight, left: 0, right: 0 } : undefined
+        virtual
+          ? {
+              position: 'absolute',
+              top: 0,
+              transform: `translateY(${index * rowHeight}px)`,
+              left: 0,
+              right: 0,
+            }
+          : undefined
       }
       role="option"
       aria-selected={current}
