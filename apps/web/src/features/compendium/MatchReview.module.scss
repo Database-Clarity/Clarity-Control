@@ -366,7 +366,8 @@
     text-align: left;
   }
   .actionBar button {
-    flex: 1 1 calc(50% - 0.35rem);
+    flex: 1 1 auto;
+    white-space: nowrap;
     font-size: 0.8rem;
   }
   .review {

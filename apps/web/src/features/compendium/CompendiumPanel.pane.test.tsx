@@ -5,6 +5,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CompendiumCell, Tooltip } from '@clarity/core';
+import * as core from '@clarity/core';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
@@ -97,6 +98,26 @@ const diffViews = (host: ParentNode) =>
   host.querySelectorAll('[aria-label="Compendium diff view"]');
 
 describe('Compendium pane', () => {
+  it('does not remeasure the root or resolve an unchanged source while English drafts are typed', async () => {
+    useCompendiumStore.setState({ data: { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] } });
+    const resolve = vi.spyOn(core, 'resolveCompendiumLink');
+    const css = vi.spyOn(globalThis, 'getComputedStyle');
+    await mount();
+    const resolutions = resolve.mock.calls.length;
+    const rootReads = () =>
+      css.mock.calls.filter(([element]) => element === document.documentElement).length;
+    const measured = rootReads();
+    for (const text of ['A', 'Ab', 'Abc']) {
+      const next = structuredClone(linked);
+      next.text = { en: { text } } as Tooltip['text'];
+      await act(async () =>
+        useDraftStore.setState({ drafts: { [linked.hash]: { base: linked, next } } }),
+      );
+    }
+    expect(resolve.mock.calls).toHaveLength(resolutions);
+    expect(rootReads()).toBe(measured);
+  });
+
   it('labels an unsaved match honestly, then accepts only its link into the existing draft', async () => {
     const base = { hash: 6, text: {}, associated: [] } as unknown as Tooltip;
     const next = { ...base, text: { en: { text: 'Keep my text edit' } } } as Tooltip;

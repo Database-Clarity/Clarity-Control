@@ -241,7 +241,8 @@
     overflow: visible;
   }
   .actions button {
-    flex: 1 1 40%;
+    flex: 1 1 auto;
+    white-space: nowrap;
   }
   .actions {
     position: fixed;
