@@ -98,7 +98,13 @@ export function preloadWorkspaces(loaders: readonly WorkspaceLoader[]): () => vo
           scheduling?: { isInputPending(options: { includeContinuous: boolean }): boolean };
         }
       ).scheduling;
-      if (deadline.timeRemaining() < 8 || scheduling?.isInputPending({ includeContinuous: true })) {
+      // An idle frame on a high-refresh display can be shorter than 8 ms.
+      // Only enqueue background work here; an arbitrary minimum can starve
+      // every preload even while the browser repeatedly reports idle time.
+      if (
+        deadline.timeRemaining() <= 0 ||
+        scheduling?.isInputPending({ includeContinuous: true })
+      ) {
         schedule();
         return;
       }

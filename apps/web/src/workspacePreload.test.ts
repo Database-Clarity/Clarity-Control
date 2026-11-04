@@ -36,12 +36,28 @@ const paint = () => {
   frames.shift()!(0);
   frames.shift()!(16);
 };
-async function idle() {
+async function idle(remaining = 20) {
   const [id, run] = callbacks.entries().next().value!;
   callbacks.delete(id);
-  run({ didTimeout: false, timeRemaining: () => 20 });
+  run({ didTimeout: false, timeRemaining: () => remaining });
   await vi.advanceTimersByTimeAsync(0);
 }
+
+it('uses short high-refresh idle windows but yields when time is exhausted or input is pending', async () => {
+  const load = vi.fn(async () => {});
+  const isInputPending = vi.fn(() => false);
+  vi.stubGlobal('navigator', { scheduling: { isInputPending } });
+  stop = preloadWorkspaces([load]);
+  paint();
+  await idle(0);
+  expect(load).not.toHaveBeenCalled();
+  isInputPending.mockReturnValue(true);
+  await idle(6.7);
+  expect(load).not.toHaveBeenCalled();
+  isInputPending.mockReturnValue(false);
+  await idle(6.7);
+  expect(load).toHaveBeenCalledOnce();
+});
 
 it('waits for first paint and runs every loader sequentially in its supplied order', async () => {
   const order: number[] = [];
