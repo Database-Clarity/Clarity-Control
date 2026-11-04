@@ -57,7 +57,14 @@ function batch(tooltips: Tooltip[], aliases: Aliases): Promise<string[]> {
     try {
       worker!.postMessage({
         id,
-        tooltips,
+        // Exactly the fields core's publishableHash and English fallback read. Complete
+        // records were validated on load; snapshots and archive metadata aren't hash input.
+        tooltips: tooltips.map(({ hash, text, associated, custom }) => ({
+          hash,
+          text,
+          associated,
+          custom,
+        })),
         aliasId,
         ...(initialize ? { aliases } : {}),
       } satisfies FingerprintRequest);

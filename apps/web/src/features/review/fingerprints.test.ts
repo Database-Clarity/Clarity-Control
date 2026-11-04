@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { publishableHash, type Aliases, type Tooltip } from '@clarity/core';
-import { fingerprints } from './fingerprints';
+import { fingerprints, type FingerprintRequest } from './fingerprints';
 import { pendingTooltips } from './model';
 import type { EditorData } from '../../stores/data';
 
@@ -77,6 +77,10 @@ it('runs the real worker protocol with exact core digests and reuses unchanged r
   vi.stubGlobal('Worker', TestWorker);
   const original = structuredClone(tooltip);
   const aliases = { 10: { to: 1, kind: 'frame' as const } };
+  original.bungieSnapshot = {
+    description: 'Metadata that is not published',
+    snapshotAt: '2026-01-01T00:00:00Z',
+  };
   expect(await fingerprints([original], aliases)).toEqual([
     await publishableHash(original, aliases),
   ]);
@@ -84,6 +88,7 @@ it('runs the real worker protocol with exact core digests and reuses unchanged r
     await publishableHash(original, aliases),
   ]);
   expect(posted).toHaveLength(1);
+  expect((posted[0] as FingerprintRequest).tooltips[0]).not.toHaveProperty('bungieSnapshot');
   const changed = { ...original, associated: [99] };
   expect(await fingerprints([changed], aliases)).toEqual([await publishableHash(changed, aliases)]);
   expect(await fingerprints([original], {})).toEqual([await publishableHash(original)]);

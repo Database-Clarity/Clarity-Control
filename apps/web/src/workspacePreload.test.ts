@@ -96,6 +96,17 @@ it.each([{ saveData: true }, { effectiveType: '2g' }, { effectiveType: '3g' }, {
   },
 );
 
+it('uses the reported 4G class without rejecting its rounded bandwidth estimate', async () => {
+  vi.stubGlobal('navigator', {
+    connection: { effectiveType: '4g', downlink: 1.45, saveData: false },
+  });
+  const load = vi.fn(async () => {});
+  stop = preloadWorkspaces([load]);
+  paint();
+  await idle();
+  expect(load).toHaveBeenCalledOnce();
+});
+
 it('does not preload while the first route still shows its loading state', async () => {
   document.body.innerHTML = '<main><p role="status">Loading page…</p></main>';
   const load = vi.fn(async () => {});

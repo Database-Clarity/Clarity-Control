@@ -10,7 +10,11 @@ export function allowBackgroundCode(): boolean {
     !!window.requestIdleCallback &&
     !connection?.saveData &&
     !/^(slow-2g|2g|3g)$/.test(connection?.effectiveType ?? '') &&
-    (connection?.downlink === undefined || connection.downlink >= 1.5)
+    // effectiveType already combines network estimates; don't classify a reported 4G
+    // connection twice using its rounded downlink value.
+    (connection?.effectiveType !== undefined ||
+      connection?.downlink === undefined ||
+      connection.downlink >= 1.5)
   );
 }
 
