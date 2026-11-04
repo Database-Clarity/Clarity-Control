@@ -84,12 +84,13 @@ it('gives category and pending queue links 44px phone/coarse targets without cha
     expect(targets).toContain('align-items: center;');
   }
 });
-it('applies the category viewport budget to the route itself, with internal overflow and phone scrolling', () => {
+it('budgets category space and lets an oversized workspace grow into document flow', () => {
   const category = css.match(/(?:^|\n)\.categoryReview \{([^}]+)\}/)?.[1];
   expect(category).toContain('display: flex;');
   expect(category).toContain(
-    'height: calc(100dvh - var(--header-h, 37px) - 2 * clamp(1rem, 3vw, 2rem));',
+    'min-height: calc(100dvh - var(--header-h, 37px) - 2 * clamp(1rem, 3vw, 2rem));',
   );
+  expect(category).toContain('height: auto;');
   expect(category).toContain('padding-bottom: 0;');
   expect(css).not.toContain('.entryReview .categoryReview');
   expect(categoryCss.match(/(?:^|\n)\.category \{([^}]+)\}/)?.[1]).toContain('overflow: auto;');

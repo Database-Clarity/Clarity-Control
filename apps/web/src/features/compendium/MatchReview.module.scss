@@ -86,7 +86,8 @@
 .categoryReview {
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - var(--header-h, 37px) - 2 * clamp(1rem, 3vw, 2rem));
+  height: auto;
+  min-height: calc(100dvh - var(--header-h, 37px) - 2 * clamp(1rem, 3vw, 2rem));
   padding-bottom: 0;
   box-sizing: border-box;
   > .heading {
@@ -229,7 +230,7 @@
     contain: layout style;
   }
   .categoryReview {
-    contain: size layout style;
+    contain: layout style;
   }
   .workspace > .card {
     contain: strict;
@@ -422,6 +423,7 @@
   }
   .categoryReview {
     height: auto;
+    min-height: 0;
     padding-bottom: 0;
   }
   .entryNav {
