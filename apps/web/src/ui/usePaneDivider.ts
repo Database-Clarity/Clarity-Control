@@ -105,6 +105,7 @@ export function usePaneDivider(options: PaneDividerOptions): PaneDividerHandle {
   const persist = options.persist ?? true;
   const paused = options.paused ?? false;
   const containerRef = useRef<HTMLDivElement>(null);
+  const measuredElement = useRef<HTMLDivElement>();
   const [containerWidth, setContainerWidth] = useState(0);
   const savedPane = useSettingsStore((state) => state.device.panes[storeKey]);
   const [memory, setMemory] = useState<PaneState | undefined>();
@@ -122,11 +123,21 @@ export function usePaneDivider(options: PaneDividerOptions): PaneDividerHandle {
     if (paused) return;
     const element = containerRef.current;
     if (!element) return;
-    const measure = () => setContainerWidth(element.getBoundingClientRect().width);
-    measure();
+    const measure = () => {
+      measuredElement.current = element;
+      setContainerWidth(element.getBoundingClientRect().width);
+    };
+    // The first mount still clamps before paint. Resuming the same workspace
+    // keeps its known width until the observer delivers the current layout;
+    // reading geometry here would flush every newly restored panel's layout.
+    if (measuredElement.current !== element || typeof ResizeObserver === 'undefined') measure();
     if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
+    const observer = new ResizeObserver(([entry] = []) => {
+      const size = entry?.borderBoxSize?.[0];
+      if (size) setContainerWidth(size.inlineSize);
+      else measure();
+    });
+    observer.observe(element, { box: 'border-box' });
     return () => observer.disconnect();
   }, [paused]);
 
