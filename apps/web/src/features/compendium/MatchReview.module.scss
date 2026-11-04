@@ -1,4 +1,8 @@
 .review {
+  // Windows' implicit fallback search for Supplemental Arrows-C can take an
+  // entire frame per glyph. Name the same symbol fallback explicitly, after
+  // the existing text and Destiny fonts; other platforms ignore it if absent.
+  font-family: Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', sans-serif;
   min-width: 0;
   color: var(--text);
   padding-bottom: 6rem;
@@ -46,6 +50,7 @@
   }
   label {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 0.3rem;
     font-size: 0.8rem;
     min-width: 0;
@@ -174,8 +179,9 @@
 .workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 1rem;
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
 }
 .card {
@@ -197,6 +203,8 @@
   color: #a9b9d0;
 }
 .manifestItem {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 5rem;
   font-size: 0.9rem;
   small {
     color: #a9b9d0;
@@ -204,6 +212,17 @@
   pre {
     margin: 0.2rem 0 0.6rem;
     line-height: 1.4;
+  }
+}
+// Desktop cards already receive their size from the viewport budget. Keep their
+// rich text out of the outer flex/grid intrinsic sizing passes on each selection.
+@media (min-width: 701px) {
+  .entryReview,
+  .categoryReview {
+    contain: size style;
+  }
+  .workspace > .card {
+    contain: strict;
   }
 }
 .sourceText {
@@ -306,7 +325,7 @@
 }
 @media (max-width: 1100px) {
   .actionBar {
-  color: #e2e5ee;
+    color: #e2e5ee;
     justify-content: flex-start;
   }
   .review kbd {
@@ -352,14 +371,17 @@
   .bulkCompare {
     grid-template-columns: minmax(0, 1fr);
   }
+  .workspace {
+    grid-template-rows: auto;
+  }
   .card {
-  color: #e2e5ee;
+    color: #e2e5ee;
     height: auto;
     max-height: none;
     padding: 1rem;
   }
   .actionBar {
-  color: #e2e5ee;
+    color: #e2e5ee;
     bottom: env(safe-area-inset-bottom, 0px);
     justify-content: stretch;
     left: 0;
@@ -390,7 +412,7 @@
     flex-wrap: wrap;
   }
   .overlay {
-  color: #e2e5ee;
+    color: #e2e5ee;
     inset: 0.5rem 0.5rem
       calc(var(--review-action-bar-height, 0px) + env(safe-area-inset-bottom, 0px) + 0.5rem);
     padding: 1rem;

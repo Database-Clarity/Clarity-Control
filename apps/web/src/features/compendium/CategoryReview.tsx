@@ -136,27 +136,32 @@ export function CategoryReview({
           computed.categoryId === activeCategoryId
         ? computed.groups
         : [];
-  function samples(group: ReviewCategory) {
-    const references = guidance.document.categories[group.id]?.references ?? {};
-    return [
-      ...group.samples,
-      ...group.entries.filter(
-        (entry) =>
-          references[entry.hash] && !group.samples.some((sample) => sample.hash === entry.hash),
+  const sampleIndex = useMemo(
+    () =>
+      new Map(
+        scopedCategories.map((group) => {
+          const references = guidance.document.categories[group.id]?.references ?? {};
+          const sampleHashes = new Set(group.samples.map((sample) => sample.hash));
+          const entries = [
+            ...group.samples,
+            ...group.entries.filter(
+              (entry) => references[entry.hash] && !sampleHashes.has(entry.hash),
+            ),
+          ];
+          const resolved = entries.filter((entry) => {
+            const reference = references[entry.hash];
+            return (
+              reference?.decision &&
+              reference.decision !== 'skipped' &&
+              referenceCurrent(reference, entry, guidance.document.baseline, source)
+            );
+          }).length;
+          return [group.id, { entries, resolved }] as const;
+        }),
       ),
-    ];
-  }
-  function resolved(group: ReviewCategory) {
-    return samples(group).filter((entry) => {
-      const reference = guidance.document.categories[group.id]?.references?.[entry.hash];
-      return (
-        reference?.decision &&
-        reference.decision !== 'skipped' &&
-        referenceCurrent(reference, entry, guidance.document.baseline, source)
-      );
-    }).length;
-  }
-  const entries = category ? samples(category) : [];
+    [scopedCategories, guidance.document, source],
+  );
+  const entries = category ? sampleIndex.get(category.id)!.entries : [];
   const selectedHash = routeState
     ? category && routeState.selectedSamples[category.id]
     : selected[category?.id ?? ''];
@@ -313,8 +318,8 @@ export function CategoryReview({
               >
                 <strong>{group.name}</strong>
                 <small>
-                  {resolved(group)}/{samples(group).length} samples resolved ·{' '}
-                  {group.entries.length} entries
+                  {sampleIndex.get(group.id)!.resolved}/{sampleIndex.get(group.id)!.entries.length}{' '}
+                  samples resolved · {group.entries.length} entries
                 </small>
               </button>
             ))}
@@ -325,7 +330,7 @@ export function CategoryReview({
             <header>
               <h3>{category.name}</h3>
               <span>
-                {resolved(category)}/{entries.length} samples resolved
+                {sampleIndex.get(category.id)!.resolved}/{entries.length} samples resolved
               </span>
             </header>
             <div className={styles.sampleTabs} aria-label="Representative samples">

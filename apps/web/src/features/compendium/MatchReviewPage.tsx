@@ -410,16 +410,60 @@ export function ReviewQueue({
     filter: routeFilter.success ? routeFilter.data : groupId ? 'open' : progress.filter,
   };
   const proposalFilter = params.get('proposal') ?? 'all';
-  const filtered = scopedEntries.filter(
-    (entry) =>
-      (!groupId || categoryId(entry.category) === groupId) &&
-      (!queueProgress.category || entry.category === queueProgress.category) &&
-      (!queueProgress.query ||
-        `${entry.name} ${entry.hash}`.toLowerCase().includes(queueProgress.query.toLowerCase())) &&
-      (queueProgress.filter === 'all' || entry.status === queueProgress.filter) &&
-      (proposalFilter === 'all' ||
-        (proposalFilter === 'yes') === !!proposals.get(entry.hash)?.link),
-  );
+  const filterIndex = useMemo(() => {
+    const byCategory = new Map<string, typeof scopedEntries>();
+    const byGroup = new Map<string, typeof scopedEntries>();
+    const byStatus = new Map<string, typeof scopedEntries>();
+    const byProposal = new Map<boolean, typeof scopedEntries>();
+    const search = new Map<number, string>();
+    function add<K>(
+      map: Map<K, typeof scopedEntries>,
+      key: K,
+      entry: (typeof scopedEntries)[number],
+    ) {
+      const bucket = map.get(key);
+      if (bucket) bucket.push(entry);
+      else map.set(key, [entry]);
+    }
+    for (const entry of scopedEntries) {
+      add(byCategory, entry.category, entry);
+      add(byGroup, categoryId(entry.category), entry);
+      add(byStatus, entry.status, entry);
+      add(byProposal, !!proposals.get(entry.hash)?.link, entry);
+      search.set(entry.hash, `${entry.name} ${entry.hash}`.toLowerCase());
+    }
+    return { byCategory, byGroup, byStatus, byProposal, search };
+  }, [scopedEntries, proposals]);
+  const filtered = useMemo(() => {
+    let candidates = scopedEntries;
+    function narrow(bucket: typeof scopedEntries | undefined) {
+      if (!bucket) candidates = [];
+      else if (bucket.length < candidates.length) candidates = bucket;
+    }
+    if (groupId) narrow(filterIndex.byGroup.get(groupId));
+    if (queueProgress.category) narrow(filterIndex.byCategory.get(queueProgress.category));
+    if (queueProgress.filter !== 'all') narrow(filterIndex.byStatus.get(queueProgress.filter));
+    if (proposalFilter !== 'all') narrow(filterIndex.byProposal.get(proposalFilter === 'yes'));
+    const query = queueProgress.query.toLowerCase();
+    return candidates.filter(
+      (entry) =>
+        (!groupId || categoryId(entry.category) === groupId) &&
+        (!queueProgress.category || entry.category === queueProgress.category) &&
+        (!queueProgress.query || filterIndex.search.get(entry.hash)!.includes(query)) &&
+        (queueProgress.filter === 'all' || entry.status === queueProgress.filter) &&
+        (proposalFilter === 'all' ||
+          (proposalFilter === 'yes') === !!proposals.get(entry.hash)?.link),
+    );
+  }, [
+    scopedEntries,
+    filterIndex,
+    groupId,
+    queueProgress.category,
+    queueProgress.query,
+    queueProgress.filter,
+    proposalFilter,
+    proposals,
+  ]);
   const routeHash = params.get('hash');
   const selected =
     filtered.find((entry) => String(entry.hash) === routeHash) ??
@@ -455,12 +499,15 @@ export function ReviewQueue({
     proposal?.link ??
     (proposal?.suggested && match ? confirmCompendiumSelection(match, source) : undefined);
   const canEdit = mayDraftLink(user?.role, !!apiUrl, hydrated, locked);
-  const bulkEntries = filtered.filter(
-    (entry) => entry.status === 'open' && proposals.get(entry.hash)?.link,
+  const bulkEntries = useMemo(
+    () => filtered.filter((entry) => entry.status === 'open' && proposals.get(entry.hash)?.link),
+    [filtered, proposals],
   );
-  const bulkCurrent =
-    !!bulk && bulkPreviewCurrent(bulk, editor, source, entries, proposals, drafts);
-  const completed = scopedEntries.filter((entry) => entry.status !== 'open').length;
+  const bulkCurrent = useMemo(
+    () => !!bulk && bulkPreviewCurrent(bulk, editor, source, entries, proposals, drafts),
+    [bulk, editor, source, entries, proposals, drafts],
+  );
+  const completed = scopedEntries.length - (filterIndex.byStatus.get('open')?.length ?? 0);
   const nextHash = advanceHash(
     filtered.map((entry) => entry.hash),
     index,
@@ -786,7 +833,7 @@ export function ReviewQueue({
         <progress value={completed} max={scopedEntries.length || 1} />
         <span>
           {completed} / {scopedEntries.length} reviewed ·{' '}
-          {scopedEntries.filter((e) => e.status === 'drafted').length} drafts
+          {filterIndex.byStatus.get('drafted')?.length ?? 0} drafts
         </span>
       </div>
       <div className={styles.filters}>

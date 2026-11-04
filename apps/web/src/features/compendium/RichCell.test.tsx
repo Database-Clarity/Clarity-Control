@@ -46,6 +46,34 @@ describe('compendium newlines', () => {
     const host = render(createElement('button', null, createElement(Multiline, null, TEXT)));
     expect(host.querySelector('button [data-multiline]')!.textContent).toBe(TEXT);
   });
+  it('preserves link destinations and formatting boundaries across sheet fragments', () => {
+    const value: CompendiumCell = {
+      plain: 'One two\n\nthree four',
+      runs: [
+        { text: 'One ', bold: true, href: 'https://example.com/one' },
+        { text: 'two', bold: true, href: 'https://example.com/one' },
+        { text: '\n\n' },
+        { text: '', italic: true },
+        { text: 'three', italic: true, href: 'https://example.com/three' },
+        { text: ' four', bold: true },
+      ],
+    };
+    const host = render(createElement(RichCell, { cell: value }));
+    expect(host.textContent).toBe(value.plain);
+    expect(host.querySelector('a[href="https://example.com/one"]')?.textContent).toBe('One two');
+    expect(host.querySelector('a[href="https://example.com/three"]')?.textContent).toBe('three');
+    expect(
+      host.querySelector<HTMLElement>('a[href="https://example.com/three"] span')?.style.fontStyle,
+    ).toBe('italic');
+    expect(
+      [...host.querySelectorAll<HTMLElement>('span')].some(
+        (span) => span.textContent === ' four' && span.style.fontWeight === '700',
+      ),
+    ).toBe(true);
+    const unlinked = render(createElement(RichCell, { cell: value, links: false }));
+    expect(unlinked.textContent).toBe(value.plain);
+    expect(unlinked.querySelector('a')).toBeNull();
+  });
   it('CompendiumDiff renders both sides through the multiline wrapper', () => {
     const host = render(
       createElement(CompendiumDiff, {

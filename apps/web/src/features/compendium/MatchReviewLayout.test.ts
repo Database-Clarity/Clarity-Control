@@ -28,7 +28,7 @@ it('budgets desktop panels from remaining viewport space, with phone document sc
   expect(entry).toContain('height: calc(100dvh - 2 * clamp(1.25rem, 4vw, 3rem));');
   expect(entry).toContain('box-sizing: border-box;');
   const workspace = css.match(/\.workspace \{([^}]+)\}/)?.[1];
-  expect(workspace).toContain('flex: 1;');
+  expect(workspace).toContain('flex: 1 1 0;');
   expect(workspace).toContain('min-height: 0;');
   const card = css.match(/\.card \{([^}]+)\}/)?.[1];
   expect(card).toContain('overflow: auto;');

@@ -67,16 +67,38 @@ function alignedBlocks(cell: CompendiumCell) {
   return blocks;
 }
 function richRuns(runs: (CompendiumRun | string)[], links: boolean, legibleOn?: string) {
-  return runs.map((run, index) =>
-    typeof run === 'string' ? (
-      run
-    ) : run.href && links ? (
-      <a key={index} href={run.href} target="_blank" rel="noreferrer">
-        <span style={runStyle(run, legibleOn)}>{run.text}</span>
+  const parts: (string | { text: string; style: CSSProperties; href?: string })[] = [];
+  for (const run of runs) {
+    if (typeof run === 'string') {
+      parts.push(run);
+      continue;
+    }
+    if (!run.text) continue;
+    const style = runStyle(run, legibleOn);
+    const href = links ? run.href : undefined;
+    const previous = parts.at(-1);
+    // Sheet exports split identical formatting into many runs. A single inline
+    // box preserves the exact text, styles and link while avoiding shaping each
+    // fragment separately. Newlines between aligned blocks stay untouched.
+    if (
+      previous &&
+      typeof previous !== 'string' &&
+      previous.style === style &&
+      previous.href === href
+    )
+      previous.text += run.text;
+    else parts.push({ text: run.text, style, href });
+  }
+  return parts.map((part, index) =>
+    typeof part === 'string' ? (
+      part
+    ) : part.href ? (
+      <a key={index} href={part.href} target="_blank" rel="noreferrer">
+        <span style={part.style}>{part.text}</span>
       </a>
     ) : (
-      <span key={index} style={runStyle(run, legibleOn)}>
-        {run.text}
+      <span key={index} style={part.style}>
+        {part.text}
       </span>
     ),
   );
