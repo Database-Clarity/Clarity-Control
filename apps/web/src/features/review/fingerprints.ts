@@ -4,7 +4,8 @@ import { useDataStore } from '../../stores/data';
 export interface FingerprintRequest {
   id: number;
   tooltips: Tooltip[];
-  aliases: Aliases;
+  aliasId: number;
+  aliases?: Aliases;
 }
 export interface FingerprintResponse {
   id: number;
@@ -17,6 +18,8 @@ export interface FingerprintResponse {
 const revisions = new WeakMap<Tooltip, WeakMap<Aliases, Promise<string>>>();
 let worker: Worker | undefined;
 let nextId = 0;
+let aliasIds = new WeakMap<Aliases, number>();
+let nextAliasId = 0;
 const requests = new Map<number, { resolve(hashes: string[]): void; reject(error: Error): void }>();
 
 function batch(tooltips: Tooltip[], aliases: Aliases): Promise<string[]> {
@@ -35,15 +38,28 @@ function batch(tooltips: Tooltip[], aliases: Aliases): Promise<string[]> {
       requests.clear();
       worker?.terminate();
       worker = undefined;
+      aliasIds = new WeakMap();
     };
   }
   const id = ++nextId;
+  let aliasId = aliasIds.get(aliases);
+  const initialize = aliasId === undefined;
+  if (aliasId === undefined) {
+    aliasId = ++nextAliasId;
+    aliasIds.set(aliases, aliasId);
+  }
   return new Promise((resolve, reject) => {
     requests.set(id, { resolve, reject });
     try {
-      worker!.postMessage({ id, tooltips, aliases } satisfies FingerprintRequest);
+      worker!.postMessage({
+        id,
+        tooltips,
+        aliasId,
+        ...(initialize ? { aliases } : {}),
+      } satisfies FingerprintRequest);
     } catch (reason) {
       requests.delete(id);
+      if (initialize) aliasIds.delete(aliases);
       reject(reason);
     }
   });
@@ -56,7 +72,11 @@ export async function fingerprints(tooltips: Tooltip[], aliases: Aliases): Promi
     const slice = tooltips.slice(start, start + 16);
     const changed = slice.filter((tooltip) => !revisions.get(tooltip)?.has(aliases));
     if (changed.length) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      const scheduler = (
+        globalThis as typeof globalThis & { scheduler?: { yield(): Promise<void> } }
+      ).scheduler;
+      if (scheduler) await scheduler.yield();
+      else await new Promise<void>((resolve) => setTimeout(resolve, 0));
       // Another request may have filled these revisions while we yielded.
       const missing = changed.filter((tooltip) => !revisions.get(tooltip)?.has(aliases));
       if (missing.length) {
