@@ -527,7 +527,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   useEffect(() => releaseKey, [releaseKey]);
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing) return;
-    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key))
+    if (['ArrowDown', 'ArrowUp', 'Home', 'End', 'PageDown', 'PageUp'].includes(event.key))
       pointerHighlight.current = false;
     if (event.key === 'Escape') {
       if (!open && !query) return;
@@ -576,6 +576,11 @@ export const TooltipNavigation = memo(function TooltipNavigation({
         setActive(
           (value) => (value + (event.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length,
         );
+    } else if (event.key === 'PageDown' || event.key === 'PageUp') {
+      event.preventDefault();
+      const page = Math.max(1, Math.floor((listLayout.current?.height ?? 416) / rowHeight));
+      const direction = event.key === 'PageDown' ? 1 : -1;
+      setActive((value) => Math.max(0, Math.min(rows.length - 1, value + direction * page)));
     } else if (event.key === 'Home' || event.key === 'End') {
       if (event.shiftKey) return;
       // Home/End move the highlight only while the query is empty; otherwise they edit the text.

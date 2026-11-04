@@ -229,6 +229,15 @@ describe('tooltip finder combobox', () => {
     expect(host.querySelector<HTMLElement>('[role="listbox"]')!.scrollTop).toBeGreaterThan(0);
     await press('Home');
     expect(host.querySelector<HTMLElement>('[role="listbox"]')!.scrollTop).toBe(0);
+    await press('PageDown');
+    expect(
+      host.querySelector(`[id="${field().getAttribute('aria-activedescendant')}"]`)?.textContent,
+    ).toContain('Armor 014');
+    expect(route()).toBe('/t/1000');
+    await press('PageUp');
+    expect(
+      host.querySelector(`[id="${field().getAttribute('aria-activedescendant')}"]`)?.textContent,
+    ).toContain('Armor 000');
     await press('End');
     await press('Enter');
     expect(route()).toBe('/t/1799');
