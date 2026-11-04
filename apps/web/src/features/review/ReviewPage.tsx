@@ -73,7 +73,7 @@ export function ReviewPage() {
     const ready = preparedPending(data, markers);
     setLoading(!ready);
     if (ready) setEntries(ready);
-    setSelected(new Set());
+    setSelected((previous) => (previous.size ? new Set() : previous));
     void pendingTooltips(data, markers).then(
       (result) => {
         if (!active) return;
@@ -139,7 +139,7 @@ export function ReviewPage() {
     setSearchParams(params, { replace: true });
   }, [index, loading, searchParams, setSearchParams, visibleEntries]);
   useEffect(() => {
-    setSelected(new Set());
+    setSelected((previous) => (previous.size ? new Set() : previous));
   }, [user]);
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
