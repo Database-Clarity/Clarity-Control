@@ -10,6 +10,7 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
+  const heightRead = vi.spyOn(Element.prototype, 'clientHeight', 'get');
   const changes = Array.from({ length: 2500 }, (_, hash) => ({
     hash,
     name: `Tooltip ${hash}`,
@@ -79,9 +80,13 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
       ),
     );
     expect(document.activeElement?.getAttribute('href')).toBe('/review?hash=1');
+    // Selection must use observed bounds rather than synchronously laying out
+    // the newly mounted workspace (a 75 ms layout flush at 4x in the replay).
+    expect(heightRead).not.toHaveBeenCalled();
   } finally {
     await act(async () => root.unmount());
     host.remove();
     vi.unstubAllGlobals();
+    heightRead.mockRestore();
   }
 });

@@ -39,7 +39,10 @@ export function ReviewPage() {
   const drafts = useDraftStore((state) => state.drafts);
   const setSidebarChanges = useSidebarQueueStore((state) => state.setPendingChanges);
   const { pushing, notice, error: pushError, acknowledgments } = useReviewSession();
-  const prepared = data && !Object.keys(acknowledgments).length ? preparedPending(data) : undefined;
+  const prepared = useMemo(
+    () => (data && !Object.keys(acknowledgments).length ? preparedPending(data) : undefined),
+    [data, acknowledgments],
+  );
   const [entries, setEntries] = useState<PendingTooltip[]>(prepared ?? []);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   // What the confirm dialog lists is exactly what gets pushed, from the snapshot it was opened on.
@@ -91,19 +94,30 @@ export function ReviewPage() {
       active = false;
     };
   }, [data, acknowledgments]);
-  const visibleEntries = entries.filter(
-    ({ name, category, categoryId, tooltip }) =>
-      (!categoryFilter || categoryId === categoryFilter) &&
-      (!query ||
-        `${name} ${category} ${categoryId} ${tooltip.hash}`
-          .toLowerCase()
-          .includes(query.toLowerCase())),
+  const visibleEntries = useMemo(
+    () =>
+      entries.filter(
+        ({ name, category, categoryId, tooltip }) =>
+          (!categoryFilter || categoryId === categoryFilter) &&
+          (!query ||
+            `${name} ${category} ${categoryId} ${tooltip.hash}`
+              .toLowerCase()
+              .includes(query.toLowerCase())),
+      ),
+    [entries, categoryFilter, query],
   );
-  const categories = [
-    ...new Map(
-      entries.map(({ category, categoryId }) => [categoryId, { id: categoryId, label: category }]),
-    ).values(),
-  ].sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
+  const categories = useMemo(
+    () =>
+      [
+        ...new Map(
+          entries.map(({ category, categoryId }) => [
+            categoryId,
+            { id: categoryId, label: category },
+          ]),
+        ).values(),
+      ].sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id)),
+    [entries],
+  );
   const routedIndex = visibleEntries.findIndex(
     ({ tooltip }) => String(tooltip.hash) === searchParams.get('hash'),
   );
@@ -272,6 +286,7 @@ export function ReviewPage() {
           <label>
             Category
             <select
+              data-perf-navigation="true"
               aria-label="Category"
               value={categoryFilter}
               onChange={(event) => updateFilters(query, event.target.value)}
@@ -296,7 +311,7 @@ export function ReviewPage() {
       ) : !visibleEntries.length ? (
         <section className={styles.empty}>
           <p>No saved changes match these filters.</p>
-          <button type="button" onClick={() => updateFilters('', '')}>
+          <button type="button" data-perf-navigation="true" onClick={() => updateFilters('', '')}>
             Clear filters
           </button>
         </section>

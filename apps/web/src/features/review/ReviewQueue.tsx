@@ -44,6 +44,8 @@ export function ReviewQueue({
   const href = useHref('/review');
   const [focusIndex, setFocusIndex] = useState<number>();
   const [viewport, setViewport] = useState({ top: 0, height: 800 });
+  const observedViewport = useRef(viewport);
+  observedViewport.current = viewport;
   useEffect(() => {
     const element = host.current!;
     if (typeof ResizeObserver === 'undefined') return;
@@ -63,11 +65,14 @@ export function ReviewQueue({
     const element = host.current!;
     if (index < 0) return;
     const top = index * rowHeight;
-    if (top < element.scrollTop || top + rowHeight > element.scrollTop + element.clientHeight) {
+    // ResizeObserver and scroll events already supply these bounds. Reading DOM
+    // geometry here flushes the entire newly mounted workspace's layout.
+    const viewport = observedViewport.current;
+    if (top < viewport.top || top + rowHeight > viewport.top + viewport.height) {
       element.scrollTop = top;
       setViewport((previous) => ({ ...previous, top }));
     }
-  }, [changes, selectedHash, rowHeight]);
+  }, [changes, selectedHash, rowHeight, viewport.height]);
   useEffect(() => {
     if (focusIndex !== undefined)
       host.current
@@ -116,7 +121,7 @@ export function ReviewQueue({
         event.preventDefault();
         const element = event.currentTarget;
         const top = next * rowHeight;
-        if (top < element.scrollTop || top + rowHeight > element.scrollTop + element.clientHeight) {
+        if (top < viewport.top || top + rowHeight > viewport.top + viewport.height) {
           element.scrollTop = top;
           setViewport((previous) => ({ ...previous, top }));
         }
