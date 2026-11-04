@@ -340,17 +340,10 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, active, rows]);
 
-  useEffect(() => {
-    const element = field.current;
-    if (!element) return;
-    const wheel = (event: WheelEvent) => {
-      if (!event.deltaY || event.ctrlKey || event.metaKey || event.shiftKey) return;
-      // An open list scrolls itself; the wheel steps only over the closed field.
-      if (openRef.current) return;
-      event.preventDefault();
-      const direction = wheelStepper.feed(event, event.timeStamp);
-      if (direction) step.current(direction);
-    };
+  useLayoutEffect(() => {
+    // A finder list owns wheel interaction while open. Remove the global
+    // cancelable listener entirely so its native scrolling stays compositor-led.
+    if (open) return;
     const shiftWheel = (event: WheelEvent) => {
       const direction = shiftScrollDirection(event);
       if (!direction || workspaceShortcutsBlocked(event)) return;
@@ -364,6 +357,21 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       const stepDirection = wheelStepper.feed(event, event.timeStamp);
       if (stepDirection) step.current(stepDirection);
     };
+    window.addEventListener('wheel', shiftWheel, { passive: false, capture: true });
+    return () => window.removeEventListener('wheel', shiftWheel, true);
+  }, [open, wheelStepper]);
+
+  useEffect(() => {
+    const element = field.current;
+    if (!element) return;
+    const wheel = (event: WheelEvent) => {
+      if (!event.deltaY || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      // An open list scrolls itself; the wheel steps only over the closed field.
+      if (openRef.current) return;
+      event.preventDefault();
+      const direction = wheelStepper.feed(event, event.timeStamp);
+      if (direction) step.current(direction);
+    };
     const pop = () => stepping.cancel();
     const change = (event: Event) => {
       if (event.target instanceof HTMLSelectElement) stepping.commit();
@@ -374,13 +382,11 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       if (event.target instanceof Element && event.target.closest('a[href]')) stepping.commit();
     };
     element.addEventListener('wheel', wheel, { passive: false });
-    window.addEventListener('wheel', shiftWheel, { passive: false, capture: true });
     window.addEventListener('popstate', pop);
     document.addEventListener('click', explicit, true);
     document.addEventListener('change', change, true);
     return () => {
       element.removeEventListener('wheel', wheel);
-      window.removeEventListener('wheel', shiftWheel, true);
       window.removeEventListener('popstate', pop);
       document.removeEventListener('click', explicit, true);
       document.removeEventListener('change', change, true);
