@@ -1,6 +1,7 @@
 import { resolveAlias, type Tooltip } from '@clarity/core';
 import { fingerprints } from './fingerprints';
-import type { EditorData } from '../../stores/data';
+import { useDataStore, type EditorData } from '../../stores/data';
+import { useSidebarQueueStore, type SidebarPendingChange } from '../navigation/sidebarQueue';
 export { canPushLive as canPush } from '../auth/permissions';
 
 export interface PendingTooltip {
@@ -13,7 +14,82 @@ export interface PendingTooltip {
   unpublishable?: string;
 }
 
-export async function pendingTooltips(
+const snapshots = new WeakMap<
+  EditorData,
+  {
+    markers: Record<string, string>;
+    pending: Promise<PendingTooltip[]>;
+    entries?: PendingTooltip[];
+    aliases: EditorData['aliases'];
+    tooltips: EditorData['bundle']['tooltips'];
+    items: EditorData['items'];
+    categories: EditorData['categories'];
+  }
+>();
+const queues = new WeakMap<PendingTooltip[], SidebarPendingChange[]>();
+export function sidebarChanges(entries: PendingTooltip[]): SidebarPendingChange[] {
+  let queue = queues.get(entries);
+  if (!queue) {
+    queue = entries.map(({ tooltip, name, category }) => ({ hash: tooltip.hash, name, category }));
+    queues.set(entries, queue);
+  }
+  return queue;
+}
+function sameMarkers(a: Record<string, string>, b: Record<string, string>): boolean {
+  return (
+    Object.keys(a).length === Object.keys(b).length &&
+    Object.keys(a).every((key) => a[key] === b[key])
+  );
+}
+
+export function preparedPending(
+  data: EditorData,
+  pushed = data.bundle.pushed,
+): PendingTooltip[] | undefined {
+  const snapshot = snapshots.get(data);
+  return snapshot && sameInputs(snapshot, data) && sameMarkers(snapshot.markers, pushed)
+    ? snapshot.entries
+    : undefined;
+}
+
+function sameInputs(snapshot: NonNullable<ReturnType<typeof snapshots.get>>, data: EditorData) {
+  return (
+    snapshot.aliases === data.aliases &&
+    snapshot.tooltips === data.bundle.tooltips &&
+    snapshot.items === data.items &&
+    snapshot.categories === data.categories
+  );
+}
+
+export function pendingTooltips(
+  data: EditorData,
+  pushed = data.bundle.pushed,
+): Promise<PendingTooltip[]> {
+  const existing = snapshots.get(data);
+  if (existing && sameInputs(existing, data) && sameMarkers(existing.markers, pushed))
+    return existing.pending;
+  const snapshot = {
+    markers: { ...pushed },
+    pending: computePending(data, pushed),
+    entries: undefined as PendingTooltip[] | undefined,
+    aliases: data.aliases,
+    tooltips: data.bundle.tooltips,
+    items: data.items,
+    categories: data.categories,
+  };
+  snapshots.set(data, snapshot);
+  void snapshot.pending.then(
+    (entries) => {
+      snapshot.entries = entries;
+    },
+    () => {
+      if (snapshots.get(data) === snapshot) snapshots.delete(data);
+    },
+  );
+  return snapshot.pending;
+}
+
+async function computePending(
   data: EditorData,
   pushed = data.bundle.pushed,
 ): Promise<PendingTooltip[]> {
@@ -70,4 +146,22 @@ export function publishableHashes(page: PendingTooltip[]): number[] {
 
 export function stepIndex(index: number, delta: number, length: number): number {
   return Math.max(0, Math.min(Math.max(0, length - 1), index + delta));
+}
+
+// Prepare every saved snapshot equally, independent of the next workspace destination.
+if (typeof window !== 'undefined' && typeof Worker !== 'undefined') {
+  const warm = () => {
+    const data = useDataStore.getState().data;
+    if (data)
+      void pendingTooltips(data)
+        .then((entries) => {
+          if (useDataStore.getState().data === data)
+            useSidebarQueueStore.getState().setPendingChanges(sidebarChanges(entries));
+        })
+        .catch(() => {});
+  };
+  useDataStore.subscribe((state, previous) => {
+    if (state.data !== previous.data) warm();
+  });
+  warm();
 }

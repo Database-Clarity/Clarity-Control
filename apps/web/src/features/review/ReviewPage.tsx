@@ -8,8 +8,10 @@ import { useDraftStore } from '../../stores/drafts';
 import {
   canPush,
   pendingTooltips,
+  preparedPending,
   publishableHashes,
   selectedPending,
+  sidebarChanges,
   stepIndex,
   toggleSelection,
   type PendingTooltip,
@@ -36,14 +38,15 @@ export function ReviewPage() {
   const user = useAuthStore((state) => state.user);
   const drafts = useDraftStore((state) => state.drafts);
   const setSidebarChanges = useSidebarQueueStore((state) => state.setPendingChanges);
-  const [entries, setEntries] = useState<PendingTooltip[]>([]);
+  const { pushing, notice, error: pushError, acknowledgments } = useReviewSession();
+  const prepared = data && !Object.keys(acknowledgments).length ? preparedPending(data) : undefined;
+  const [entries, setEntries] = useState<PendingTooltip[]>(prepared ?? []);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   // What the confirm dialog lists is exactly what gets pushed, from the snapshot it was opened on.
   const [confirming, setConfirming] = useState<{ entries: PendingTooltip[]; data: EditorData }>();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!prepared);
   const query = searchParams.get('query') ?? '';
   const categoryFilter = searchParams.get('category') ?? '';
-  const { pushing, notice, error: pushError, acknowledgments } = useReviewSession();
   const publisher = publisherEnabled();
   const ops = usePublishState((state) => state.ops);
   // Hashes inside a publish that is still queued or being sent; cannot be picked again.
@@ -66,9 +69,12 @@ export function ReviewPage() {
   useEffect(() => {
     let active = true;
     if (!data) return;
-    setLoading(true);
+    const markers = acknowledgedMarkers(data);
+    const ready = preparedPending(data, markers);
+    setLoading(!ready);
+    if (ready) setEntries(ready);
     setSelected(new Set());
-    void pendingTooltips(data, acknowledgedMarkers(data)).then(
+    void pendingTooltips(data, markers).then(
       (result) => {
         if (!active) return;
         setEntries(result);
@@ -116,9 +122,7 @@ export function ReviewPage() {
   );
   useEffect(() => {
     if (loading) return;
-    setSidebarChanges(
-      entries.map(({ tooltip, name, category }) => ({ hash: tooltip.hash, name, category })),
-    );
+    setSidebarChanges(sidebarChanges(entries));
   }, [entries, loading, setSidebarChanges]);
   useEffect(() => {
     if (loading) return;

@@ -1,5 +1,4 @@
 import { publishableHash, type Aliases, type Tooltip } from '@clarity/core';
-import { useDataStore } from '../../stores/data';
 
 export interface FingerprintRequest {
   id: number;
@@ -68,8 +67,8 @@ function batch(tooltips: Tooltip[], aliases: Aliases): Promise<string[]> {
 /** Clone and hash only changed revisions, in small batches, away from the input task. */
 export async function fingerprints(tooltips: Tooltip[], aliases: Aliases): Promise<string[]> {
   const results: Promise<string>[] = [];
-  for (let start = 0; start < tooltips.length; start += 16) {
-    const slice = tooltips.slice(start, start + 16);
+  for (let start = 0; start < tooltips.length; start += 64) {
+    const slice = tooltips.slice(start, start + 64);
     const changed = slice.filter((tooltip) => !revisions.get(tooltip)?.has(aliases));
     if (changed.length) {
       const scheduler = (
@@ -93,17 +92,4 @@ export async function fingerprints(tooltips: Tooltip[], aliases: Aliases): Promi
     results.push(...slice.map((tooltip) => revisions.get(tooltip)!.get(aliases)!));
   }
   return Promise.all(results);
-}
-
-// Navigation imports this small client independently of the lazy Review page. Warm every
-// saved revision equally, including revisions changed while another workspace is open.
-if (typeof window !== 'undefined' && typeof Worker !== 'undefined') {
-  const warm = () => {
-    const data = useDataStore.getState().data;
-    if (data) void fingerprints(Object.values(data.bundle.tooltips), data.aliases).catch(() => {});
-  };
-  useDataStore.subscribe((state, previous) => {
-    if (state.data !== previous.data) warm();
-  });
-  warm();
 }
