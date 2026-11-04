@@ -29,7 +29,8 @@ import { tableFormattingTransaction } from './formatTable';
 import { editorScrollMargins } from './scrollMargins';
 import { rememberSearch, restoreSearch } from './searchMemory';
 import { rawMode, setSymbolReveal, symbolExtensions, toggleRawView } from './symbols';
-import { hasImportDependencies, validateEditorText, validationDiagnostics } from './diagnostics';
+import { hasImportDependencies, validationDiagnostics } from './diagnostics';
+import { useEditorDiagnostics } from './useEditorDiagnostics';
 import { MarkupRow } from './markupRow/MarkupRow';
 import { SuggestChip } from './markupRow/SuggestChip';
 import { chipHost, chipsExtension, type Chip } from './markupRow/chips';
@@ -190,10 +191,17 @@ export function ClarityEditor({
   const conflictSlot = useRef(0);
   const configured = useRef({ lang, globals, readOnly, requireEnglish });
   // Conflict blocks are checked as "mine" only (same offsets), so markers raise no markup errors.
-  const issues = useMemo(
-    () => validateEditorText(value, lang, globals, requireEnglish, tooltipHash),
-    [value, lang, globals, requireEnglish, tooltipHash],
+  const diagnostics = useEditorDiagnostics(
+    {
+      text: value,
+      lang,
+      globals,
+      requireEnglish,
+      selfHash: tooltipHash,
+    },
+    !suspended,
   );
+  const issues = diagnostics.issues;
   const conflictCount = useMemo(() => countConflicts(value), [value]);
   const compact = useMedia(`${phoneQuery}, (pointer: coarse)`);
   const [compare, setCompare] = useState<CompareData | null>(null);
@@ -223,13 +231,13 @@ export function ClarityEditor({
       string,
       { warning: ReturnType<typeof glyphWarnings>[number]; count: number }
     >();
-    for (const warning of glyphWarnings(value)) {
+    for (const warning of diagnostics.glyphs) {
       const group = groups.get(warning.character);
       if (group) group.count++;
       else groups.set(warning.character, { warning, count: 1 });
     }
     return [...groups.values()];
-  }, [value]);
+  }, [diagnostics.glyphs]);
 
   function replaceGlyph(character: string, replacement: string) {
     const editor = view.current;
@@ -510,7 +518,11 @@ export function ClarityEditor({
       ? null
       : panel;
   return (
-    <div className={styles.editor} data-editor-root>
+    <div
+      className={styles.editor}
+      data-editor-root
+      data-validation-pending={diagnostics.pending || undefined}
+    >
       {markupRow && !readOnly && (
         <MarkupRow key={`${tooltipHash}:${lang}`} view={view} globals={globals} usage={usage} />
       )}
@@ -572,6 +584,7 @@ export function ClarityEditor({
         <SuggestChip chip={chip} view={view.current} acceptKey={acceptKey} />
       )}
       <StatusBar
+        validating={diagnostics.pending}
         readOnlyReason={readOnlyReason}
         issues={issues}
         glyphCount={glyphCount}

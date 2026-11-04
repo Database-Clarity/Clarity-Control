@@ -1,5 +1,13 @@
-import { maskConflicts, validateText, type Lang, type MarkupGlobals } from '@clarity/core';
-import { Decoration, EditorView } from '@codemirror/view';
+import {
+  maskConflicts,
+  validateText,
+  type Lang,
+  type MarkupGlobals,
+  type ValidationIssue,
+} from '@clarity/core';
+import { StateEffect, StateField } from '@codemirror/state';
+import { Decoration, EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view';
+import { hasDiagnosticWorker, requestDiagnostics } from './diagnosticWorker';
 
 const validation = new WeakMap<MarkupGlobals, Map<string, ReturnType<typeof validateText>>>();
 const importFreeValidation = new Map<string, ReturnType<typeof validateText>>();
@@ -34,23 +42,85 @@ export function validateEditorText(
   return result;
 }
 
+const setDiagnostics = StateEffect.define<readonly ValidationIssue[]>();
+const decorationsFor = (issues: readonly ValidationIssue[]) =>
+  Decoration.set(
+    issues
+      .filter((issue) => issue.to > issue.from)
+      .sort((a, b) => a.from - b.from || a.to - b.to)
+      .map((issue) =>
+        Decoration.mark({
+          class: `clarity-validation-${issue.severity}`,
+          attributes: { title: `${issue.severity}: ${issue.message}` },
+        }).range(issue.from, issue.to),
+      ),
+  );
+const asyncDiagnostics = StateField.define({
+  create: () => Decoration.none,
+  update(value, transaction) {
+    const mapped = value.map(transaction.changes);
+    for (const effect of transaction.effects)
+      if (effect.is(setDiagnostics)) return decorationsFor(effect.value);
+    return mapped;
+  },
+  provide: (field) => EditorView.decorations.from(field),
+});
+
 export function validationDiagnostics(
   lang: Lang,
   globals: MarkupGlobals,
   requireEnglish = true,
   selfHash: () => number | undefined = () => undefined,
 ) {
-  return EditorView.decorations.compute(['doc'], (state) =>
-    Decoration.set(
-      validateEditorText(state.doc.toString(), lang, globals, requireEnglish, selfHash())
-        .filter((issue) => issue.to > issue.from)
-        .sort((a, b) => a.from - b.from || a.to - b.to)
-        .map((issue) =>
-          Decoration.mark({
-            class: `clarity-validation-${issue.severity}`,
-            attributes: { title: `${issue.severity}: ${issue.message}` },
-          }).range(issue.from, issue.to),
-        ),
+  if (!hasDiagnosticWorker())
+    return EditorView.decorations.compute(['doc'], (state) =>
+      decorationsFor(
+        validateEditorText(state.doc.toString(), lang, globals, requireEnglish, selfHash()),
+      ),
+    );
+  return [
+    asyncDiagnostics,
+    ViewPlugin.fromClass(
+      class {
+        private alive = true;
+        private revision = 0;
+        private detachedResult = false;
+        constructor(view: EditorView) {
+          this.check(view);
+        }
+        update(update: ViewUpdate) {
+          if (update.docChanged || (this.detachedResult && update.view.dom.isConnected))
+            this.check(update.view);
+        }
+        check(view: EditorView) {
+          const doc = view.state.doc;
+          const revision = ++this.revision;
+          const input = {
+            text: doc.toString(),
+            lang,
+            globals,
+            requireEnglish,
+            selfHash: selfHash(),
+          };
+          const apply = (issues: readonly ValidationIssue[]) => {
+            if (!this.alive || this.revision !== revision || view.state.doc !== doc) return;
+            this.detachedResult = !view.dom.isConnected;
+            if (!this.detachedResult) view.dispatch({ effects: setDiagnostics.of(issues) });
+          };
+          void requestDiagnostics(input).then(
+            (result) => apply(result.issues),
+            () => {
+              if (this.alive && this.revision === revision && view.state.doc === doc)
+                apply(
+                  validateEditorText(input.text, lang, globals, requireEnglish, input.selfHash),
+                );
+            },
+          );
+        }
+        destroy() {
+          this.alive = false;
+        }
+      },
     ),
-  );
+  ];
 }

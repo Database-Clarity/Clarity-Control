@@ -36,6 +36,7 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 export function StatusBar({
   readOnlyReason,
   issues,
+  validating = false,
   glyphCount,
   line,
   column,
@@ -49,6 +50,7 @@ export function StatusBar({
 }: {
   readOnlyReason: string | null;
   issues: readonly ValidationIssue[];
+  validating?: boolean;
   glyphCount: number;
   line: number;
   column: number;
@@ -65,7 +67,13 @@ export function StatusBar({
   const errors = issues.filter((issue) => issue.severity === 'error').length;
   const toggle = (next: StatusPanel) => onPanel(panel === next ? null : next);
   return (
-    <div className={styles.bar} data-editor-status aria-label="Editor status" role="group">
+    <div
+      className={styles.bar}
+      data-editor-status
+      aria-label="Editor status"
+      role="group"
+      aria-busy={validating || undefined}
+    >
       {readOnlyReason && (
         <span className={styles.reason} title={readOnlyReason} data-status-reason>
           {readOnlyReason}
@@ -78,7 +86,13 @@ export function StatusBar({
         aria-expanded={panel === 'help'}
         aria-controls="editor-panel-help"
         title="Markup issues and editor help"
-        aria-label={issues.length ? plural(issues.length, 'markup issue') : 'Markup help'}
+        aria-label={
+          validating
+            ? 'Checking markup'
+            : issues.length
+              ? plural(issues.length, 'markup issue')
+              : 'Markup help'
+        }
         onClick={() => toggle('help')}
       >
         {issues.length ? (
