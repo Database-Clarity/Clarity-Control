@@ -125,6 +125,7 @@ export function useDisplayMatches(
     )
       return;
     let cancelled = false;
+    let idlePublication: number | undefined;
     void (async () => {
       if (inputs.error) throw new Error(inputs.error);
       const cached = inputs.cached;
@@ -152,7 +153,10 @@ export function useDisplayMatches(
         return;
       }
       const publish = (matches: Value['matches']) => {
-        if (!cancelled)
+        if (cancelled) return;
+        const commit = () => {
+          idlePublication = undefined;
+          if (cancelled) return;
           startTransition(() =>
             setEarlyMatches({
               editor,
@@ -165,6 +169,13 @@ export function useDisplayMatches(
               priorityHash,
             }),
           );
+        };
+        // A transition can still commit between input and its next paint.
+        // Begin rendering from the browser's post-paint idle slot instead.
+        if (typeof requestIdleCallback === 'function') {
+          if (idlePublication !== undefined) cancelIdleCallback(idlePublication);
+          idlePublication = requestIdleCallback(commit, { timeout: 50 });
+        } else commit();
       };
       if (priorityHash !== undefined)
         void session
@@ -193,6 +204,7 @@ export function useDisplayMatches(
     });
     return () => {
       cancelled = true;
+      if (idlePublication !== undefined) cancelIdleCallback(idlePublication);
     };
   }, [editor, source, matchingDrafts, evidence, userId, revision, inputs, scope, priorityHash]);
   const current =

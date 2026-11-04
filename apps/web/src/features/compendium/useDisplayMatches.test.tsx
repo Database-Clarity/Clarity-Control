@@ -24,6 +24,51 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+it('publishes a priority reply from idle and cancels stale queued publications', async () => {
+  vi.stubEnv('DEV', false);
+  vi.stubGlobal('localStorage', { getItem: () => null });
+  const idle = new Map<number, IdleRequestCallback>();
+  let serial = 0;
+  vi.stubGlobal(
+    'requestIdleCallback',
+    vi.fn((callback: IdleRequestCallback) => {
+      idle.set(++serial, callback);
+      return serial;
+    }),
+  );
+  vi.stubGlobal(
+    'cancelIdleCallback',
+    vi.fn((id: number) => idle.delete(id)),
+  );
+  const f = guidedFixture();
+  const matches = new Map();
+  calls.prioritize.mockReset().mockResolvedValue(matches);
+  calls.display.mockReset().mockReturnValue(new Promise(() => undefined));
+  let latest: ReturnType<typeof useDisplayMatches>;
+  function Probe({ hash }: { hash: number }) {
+    latest = useDisplayMatches(f.editor, f.source, {}, 'idle-priority', hash);
+    return null;
+  }
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(<Probe hash={100} />));
+    expect(latest!.matches).toBeUndefined();
+    expect(latest!.loading).toBe(true);
+    expect(requestIdleCallback).toHaveBeenCalledWith(expect.any(Function), { timeout: 50 });
+    const stale = [...idle.values()][0];
+    await act(async () => root.render(<Probe hash={200} />));
+    expect(cancelIdleCallback).toHaveBeenCalledWith(1);
+    await act(async () => stale({ didTimeout: false, timeRemaining: () => 5 }));
+    expect(latest!.matches).toBeUndefined();
+    await act(async () => [...idle.values()][0]({ didTimeout: false, timeRemaining: () => 5 }));
+    expect(latest!.matches).toBe(matches);
+    expect(latest!.loading).toBe(false);
+    expect(latest!.prepared).toBeUndefined();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 it('queues the current tooltip before source hydration and publishes only after the source is bound', async () => {
   vi.stubEnv('DEV', false);
   vi.stubGlobal('localStorage', { getItem: () => null });
