@@ -144,6 +144,16 @@ try {
       );
       await page.getByLabel('Find row by name / section').fill('Sample 100');
       await page.getByRole('button', { name: 'Pick description cells near this name' }).click();
+      assert.equal(
+        await dialog.locator('[aria-label="Description cell list"]').count(),
+        phone ? 1 : 0,
+        `${name}: only the active cell layout mounts`,
+      );
+      assert.equal(
+        await dialog.getByRole('region', { name: 'Sheet cells around the name anchor' }).count(),
+        phone ? 0 : 1,
+        `${name}: no hidden desktop grid on a phone`,
+      );
       const first = () =>
         page.getByRole('button', { name: /^Row 100, column 2(?: \(\d+\))?: First part/ });
       const second = () =>
