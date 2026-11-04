@@ -89,3 +89,19 @@ it('does not ask the server when signed out, and says so when expanded', async (
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
   expect(host.textContent).toContain('Sign in as a configured member');
 });
+
+it('uses one list request across expansion and refreshes stale rows on reopening', async () => {
+  getHistory.mockResolvedValue({ page: 1, commits: [commit(1)] });
+  await act(async () => root.render(<HistoryPanel hash={10} />));
+  const toggle = () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click();
+  await act(async () => toggle());
+  expect(getHistory).toHaveBeenCalledTimes(1);
+  await act(async () => toggle());
+  vi.useFakeTimers();
+  vi.setSystemTime(Date.now() + 61_000);
+  getHistory.mockResolvedValue({ page: 1, commits: [commit(2), commit(1)] });
+  await act(async () => toggle());
+  expect(host.querySelectorAll('ol li')).toHaveLength(2);
+  expect(getHistory).toHaveBeenCalledTimes(2);
+  vi.useRealTimers();
+});

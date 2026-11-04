@@ -2,7 +2,7 @@ import type { Item } from '../../services/generator';
 import { languageLabel } from '../../languageLabels';
 import { languages, sameCell, type Tooltip } from '@clarity/core';
 import { CompendiumDiff } from '../compendium/CompendiumDiff';
-import { WordDiff } from '../../ui/diff';
+import { HistoryWordDiff } from './HistoryWordDiff';
 import {
   attachmentCategory,
   categoryLabel,
@@ -72,7 +72,7 @@ export function TooltipDiff({
               </div>
             </div>
           )}
-          <WordDiff
+          <HistoryWordDiff
             before={before?.text[lang]?.text ?? ''}
             after={current.text[lang]?.text ?? ''}
           />

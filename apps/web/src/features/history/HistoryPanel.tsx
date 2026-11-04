@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
-import { getHistory, type HistoryCommit } from '../../services/history';
+import { type HistoryCommit } from '../../services/history';
 import { errorMessage } from '../../services/http';
 import { replaceDraft } from '../../services/save/drafts';
 import { useAuthStore } from '../../stores/auth';
@@ -29,19 +29,19 @@ export function HistoryPanel({ hash, readOnly = false }: { hash: number; readOnl
   const draft = useDraftStore((state) => state.drafts[hash]);
   const edit = lastEdit(draft?.next ?? tooltip ?? { hash, text: {}, associated: [] });
   const signedIn = Boolean(apiUrl && user?.role);
-  const userId = user?.id;
+  const cache = useRevisionCache(hash);
   useEffect(() => {
     setRevisions(undefined);
     if (!signedIn) return;
     const controller = new AbortController();
-    void getHistory(hash, 1, controller.signal).then(
+    void cache.page(1).then(
       (result) =>
         !controller.signal.aborted &&
-        setRevisions({ count: result.commits.length, more: result.commits.length === 30 }),
+        setRevisions({ count: result.length, more: result.length === 30 }),
       () => undefined,
     );
     return () => controller.abort();
-  }, [hash, signedIn, userId]);
+  }, [cache, signedIn, open]);
   const count = revisions
     ? `${revisions.count}${revisions.more ? '+' : ''} revision${revisions.count === 1 && !revisions.more ? '' : 's'}`
     : undefined;
@@ -74,8 +74,10 @@ function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: b
   const item = data ? itemFor(hash, data) : undefined;
   const draft = useDraftStore((state) => state.drafts[hash]);
   const hydrated = useDraftStore((state) => state.hydrated);
-  const [commits, setCommits] = useState<HistoryCommit[]>([]);
+  const cache = useRevisionCache(hash);
+  const [commits, setCommits] = useState<HistoryCommit[]>(() => cache.peekPage(1) ?? []);
   const [page, setPage] = useState(1);
+  const [loadedPage, setLoadedPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
@@ -85,20 +87,19 @@ function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: b
     const controller = new AbortController();
     setLoading(true);
     setError(undefined);
-    void getHistory(hash, page, controller.signal).then(
+    void cache.page(page).then(
       (result) => {
         if (controller.signal.aborted) return;
         setCommits((previous) =>
           page === 1
-            ? result.commits
+            ? result
             : [
-                ...previous.filter(
-                  (entry) => !result.commits.some((next) => next.commit === entry.commit),
-                ),
-                ...result.commits,
+                ...previous.filter((entry) => !result.some((next) => next.commit === entry.commit)),
+                ...result,
               ],
         );
-        setHasMore(result.commits.length === 30);
+        setLoadedPage(page);
+        setHasMore(result.length === 30);
         setLoading(false);
       },
       (reason: unknown) => {
@@ -109,9 +110,24 @@ function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: b
       },
     );
     return () => controller.abort();
-  }, [hash, page, attempt]);
+  }, [cache, page, attempt]);
+  useEffect(() => {
+    if (loading || !commits.length) return;
+    let idle: number | undefined;
+    const prefetch = () => {
+      for (const entry of commits.slice(0, 2))
+        void cache.version(entry.commit).catch(() => undefined);
+    };
+    const timer = window.setTimeout(() => {
+      if (window.requestIdleCallback) idle = window.requestIdleCallback(prefetch);
+      else prefetch();
+    }, 500);
+    return () => {
+      window.clearTimeout(timer);
+      if (idle !== undefined) window.cancelIdleCallback(idle);
+    };
+  }, [cache, commits, loading]);
   const current = draft?.next ?? base;
-  const cache = useRevisionCache(hash);
   const canRestore = !readOnly && hydrated && Boolean(base);
 
   function restore(version: Tooltip) {
@@ -140,7 +156,7 @@ function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: b
             entry={entry}
             index={index}
             commits={commits}
-            page={page}
+            page={loadedPage}
             hasMore={hasMore}
             cache={cache}
             current={current}

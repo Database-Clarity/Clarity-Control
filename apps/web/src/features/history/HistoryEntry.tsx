@@ -19,7 +19,7 @@ import type { RevisionCache, RevisionDiffSource } from './revisions';
 import popover from '../../ui/Popover.module.scss';
 import styles from './History.module.scss';
 
-const HOVER_DELAY = 200;
+const HOVER_DELAY = 120;
 const LEAVE_DELAY = 160;
 const LONG_PRESS = 500;
 const OPENED = 'clarity-history-entry-open';
@@ -54,18 +54,20 @@ export function HistoryEntry(props: HistoryEntryProps) {
   const [pinned, setPinned] = useState(false);
   const container = useRef<HTMLLIElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const timers = useRef<{ enter?: number; leave?: number; press?: number }>({});
+  const timers = useRef<{ intent?: number; enter?: number; leave?: number; press?: number }>({});
   const longPressed = useRef(false);
   const dismissed = useRef(false);
   const id = useId();
   const open = pinned || hover || focus;
   const clearTimers = () => {
+    window.clearTimeout(timers.current.intent);
     window.clearTimeout(timers.current.enter);
     window.clearTimeout(timers.current.leave);
     window.clearTimeout(timers.current.press);
   };
   useEffect(() => clearTimers, []);
   const close = useCallback((restoreFocus: boolean) => {
+    window.clearTimeout(timers.current.intent);
     window.clearTimeout(timers.current.enter);
     if (restoreFocus) dismissed.current = true;
     setHover(false);
@@ -108,10 +110,17 @@ export function HistoryEntry(props: HistoryEntryProps) {
       data-open={open || undefined}
       onMouseEnter={() => {
         window.clearTimeout(timers.current.leave);
+        window.clearTimeout(timers.current.intent);
         window.clearTimeout(timers.current.enter);
+        timers.current.intent = window.setTimeout(() => {
+          void props.cache
+            .load(props.commits, props.index, props.page, props.hasMore)
+            .catch(() => undefined);
+        }, 60);
         timers.current.enter = window.setTimeout(() => setHover(true), HOVER_DELAY);
       }}
       onMouseLeave={() => {
+        window.clearTimeout(timers.current.intent);
         window.clearTimeout(timers.current.enter);
         window.clearTimeout(timers.current.leave);
         timers.current.leave = window.setTimeout(() => setHover(false), LEAVE_DELAY);
@@ -331,7 +340,10 @@ function RevisionPopover({
               </button>
             ) : (
               <>
-                <p>Replaces the local draft for this tooltip. It does not save or push.</p>
+                <p>
+                  Restore this version as a new draft? This replaces your local edits without saving
+                  or pushing.
+                </p>
                 <span className={styles.confirmRow}>
                   <button type="button" onClick={restore}>
                     Load as draft

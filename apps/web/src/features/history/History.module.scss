@@ -135,3 +135,15 @@
     border-radius: 50%;
   }
 }
+
+// Keep the first loading frame stable while the immutable revision arrives.
+.revisionBody {
+  min-height: 10rem;
+}
+
+@media (pointer: coarse) {
+  .entryButton,
+  .revision button {
+    min-height: 44px;
+  }
+}
