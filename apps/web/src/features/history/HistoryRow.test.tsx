@@ -7,6 +7,7 @@ import { HistoryPanel } from './HistoryPanel';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
+import { createRevisionCache } from './revisions';
 
 const getHistory = vi.fn();
 const getLegacyHistory = vi.fn();
@@ -78,7 +79,6 @@ it('loads both histories only when the collapsed row opens', async () => {
   expect(host.querySelector('ol')).toBeNull();
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
   expect(host.querySelectorAll('ol li')).toHaveLength(3);
-  expect(getLegacyHistory).not.toHaveBeenCalled();
   await act(async () =>
     vi.waitFor(() => expect(getLegacyHistory).toHaveBeenCalledWith(10, expect.any(AbortSignal))),
   );
@@ -110,6 +110,8 @@ it('skips legacy fetches for tooltips passed during fast navigation', async () =
   try {
     await act(async () => root.render(<HistoryPanel hash={10} />));
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+    expect(getLegacyHistory).toHaveBeenCalledWith(10, expect.any(AbortSignal));
+    getLegacyHistory.mockClear();
     for (const hash of [11, 12, 13, 14]) {
       await act(async () => {
         vi.advanceTimersByTime(30);
@@ -122,6 +124,23 @@ it('skips legacy fetches for tooltips passed during fast navigation', async () =
     expect(getLegacyHistory).toHaveBeenCalledWith(14, expect.any(AbortSignal));
   } finally {
     vi.useRealTimers();
+  }
+});
+
+it('keeps v2 and legacy siblings distinct when the hash equals the cache identity', async () => {
+  getHistory.mockResolvedValue({ page: 1, commits: [] });
+  const hash = createRevisionCache(999).identity + 1;
+  const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  try {
+    await act(async () => root.render(<HistoryPanel hash={hash} />));
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+    expect(errors.mock.calls.some((args) => String(args[0]).includes('same key'))).toBe(false);
+    expect(host.querySelectorAll(`section[aria-label="History for ${hash}"]`)).toHaveLength(1);
+    expect(host.querySelectorAll('section[aria-label="Published before migration"]')).toHaveLength(
+      1,
+    );
+  } finally {
+    errors.mockRestore();
   }
 });
 

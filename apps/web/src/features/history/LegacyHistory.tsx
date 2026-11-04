@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Tooltip } from '@clarity/core';
 import {
   getLegacyHistory,
@@ -30,22 +30,29 @@ export function LegacyHistory({ hash, readOnly = false }: { hash: number; readOn
       'Published text loaded as a local draft. Review it and use Save; nothing was saved automatically.',
     );
   };
-  const [history, setHistory] = useState<History | null>();
+  const [result, setResult] = useState<{ hash: number; value: History | null }>();
+  const history = result?.hash === hash ? result.value : undefined;
+  const intent = useRef(true);
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
-    setHistory(undefined);
+    setResult(undefined);
+    setNotice(undefined);
     setError(false);
     // An open panel may survive fast tooltip navigation. Only fetch the item
     // that the user dwells on; skipped items do not need public history.
-    const timer = window.setTimeout(() => {
+    const load = () => {
       void getLegacyHistory(hash, controller.signal).then(
-        (value) => active && setHistory(value),
+        (value) => active && setResult({ hash, value }),
         () => active && setError(true),
       );
-    }, 150);
+    };
+    let timer: number | undefined;
+    if (intent.current) load();
+    else timer = window.setTimeout(load, 150);
+    intent.current = false;
     return () => {
       active = false;
       window.clearTimeout(timer);
@@ -59,7 +66,13 @@ export function LegacyHistory({ hash, readOnly = false }: { hash: number; readOn
       {error ? (
         <p>
           Published history is unavailable offline or could not be loaded.{' '}
-          <button type="button" onClick={() => setAttempt((n) => n + 1)}>
+          <button
+            type="button"
+            onClick={() => {
+              intent.current = true;
+              setAttempt((n) => n + 1);
+            }}
+          >
             Retry published history
           </button>
         </p>

@@ -72,8 +72,8 @@ export function HistoryPanel({ hash, readOnly = false }: { hash: number; readOnl
       }
     >
       {!signedIn ? <p>Sign in as a configured member to view v2 history.</p> : null}
-      {signedIn && <HistoryContent key={cache.identity} hash={hash} readOnly={readOnly} />}
-      <LegacyHistory key={hash} hash={hash} readOnly={readOnly} />
+      {signedIn && <HistoryContent key={`v2-${cache.identity}`} hash={hash} readOnly={readOnly} />}
+      <LegacyHistory key="legacy" hash={hash} readOnly={readOnly} />
     </PanelRow>
   );
 }
