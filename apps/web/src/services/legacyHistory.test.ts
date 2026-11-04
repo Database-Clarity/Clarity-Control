@@ -2,6 +2,30 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { getLegacyHistory, legacyRevisionCache, type LegacyLane } from './legacyHistory';
 
 afterEach(() => vi.unstubAllGlobals());
+it('aborts obsolete navigation only after its last consumer leaves', async () => {
+  let upstream: AbortSignal | undefined;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((_url: string, init: RequestInit) => {
+      upstream = init.signal as AbortSignal;
+      return new Promise((_resolve, reject) =>
+        upstream!.addEventListener('abort', () =>
+          reject(new DOMException('Aborted', 'AbortError')),
+        ),
+      );
+    }),
+  );
+  const first = new AbortController(),
+    second = new AbortController();
+  const request = getLegacyHistory(44, first.signal);
+  expect(getLegacyHistory(44, second.signal)).toBe(request);
+  first.abort();
+  expect(upstream?.aborted).toBe(false);
+  second.abort();
+  expect(upstream?.aborted).toBe(true);
+  await expect(request).rejects.toThrow('Aborted');
+  await expect(getLegacyHistory(44, first.signal)).rejects.toThrow('Aborted');
+});
 const sha = 'a'.repeat(40);
 const lane: LegacyLane = {
   hash: 42,
