@@ -83,7 +83,8 @@ try {
           });
           const times = [];
           for (const action of ['open', 'revision', 'compare']) {
-            const elapsed = await page.evaluate(async (action) => {
+            await page.evaluate((action) => {
+              window.__action = undefined;
               const button =
                 action === 'open'
                   ? [...document.querySelectorAll('button')].find(
@@ -94,15 +95,40 @@ try {
                     : [...document.querySelectorAll('button')].find(
                         (b) => b.textContent === 'vs current draft',
                       );
-              const start = performance.now();
               if (!button || button.disabled) throw new Error(`Action ${action} is not ready`);
-              performance.mark(`legacy-${action}-start`);
-              button.click();
-              await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-              performance.mark(`legacy-${action}-double-raf`);
-              return performance.now() - start;
+              let start;
+              const down = (event) => {
+                if (!button.contains(event.target)) return;
+                if (!event.isTrusted) throw new Error('QA requires trusted input');
+                start = performance.now();
+                performance.mark(`legacy-${action}-start`);
+                document.removeEventListener('pointerdown', down, true);
+              };
+              const clicked = (event) => {
+                if (!button.contains(event.target)) return;
+                document.removeEventListener('click', clicked, true);
+                performance.mark(`legacy-${action}-click`);
+                requestAnimationFrame(() =>
+                  requestAnimationFrame(() => {
+                    performance.mark(`legacy-${action}-double-raf`);
+                    window.__action = performance.now() - start;
+                  }),
+                );
+              };
+              document.addEventListener('pointerdown', down, true);
+              document.addEventListener('click', clicked, true);
             }, action);
-            times.push(elapsed);
+            const control =
+              action === 'open'
+                ? toggle
+                : action === 'revision'
+                  ? page.locator('ol li:nth-child(2) > button')
+                  : page.getByRole('button', { name: 'vs current draft', exact: true });
+            // Playwright's readiness/layout probes finish before the trusted
+            // pointerdown mark, so they cannot inflate the measured interval.
+            await control.click();
+            await page.waitForFunction(() => typeof window.__action === 'number');
+            times.push(await page.evaluate(() => window.__action));
             if (action === 'open') await page.locator('ol li:nth-child(2) > button').waitFor();
             else {
               await page.getByRole('dialog').waitFor();
