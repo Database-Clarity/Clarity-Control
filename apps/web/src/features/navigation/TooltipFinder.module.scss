@@ -142,9 +142,10 @@
     contain: layout style paint;
   }
 
-  .listbox[data-scrollbar-drag] & {
+  .listbox[data-scrollbar-surface] & {
     // A thumb can jump past every overscan row in one packet. Pre-layout the
-    // complete surface for this gesture instead of exposing skipped content.
+    // complete surface instead of exposing skipped content. Bounded lists keep
+    // that layout until close, avoiding another layout on every thumb release.
     content-visibility: visible;
   }
 

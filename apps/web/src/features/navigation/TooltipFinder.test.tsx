@@ -191,7 +191,13 @@ describe('tooltip finder combobox', () => {
       expect(options()).toHaveLength(400);
       expect(options().find((row) => row.textContent?.includes('Armor 399'))).toBe(lastRow);
       expect(list.hasAttribute('data-scrollbar-drag')).toBe(false);
+      expect(list.hasAttribute('data-scrollbar-surface')).toBe(true);
       expect(route()).toBe('/t/1000');
+      await press('Escape');
+      await open();
+      expect(host.querySelector('[role="listbox"]')!.hasAttribute('data-scrollbar-surface')).toBe(
+        false,
+      );
     },
   );
   it('marks only a real base -> enhanced pair with the gold arrow, and a search for the variant lands on the base', async () => {
