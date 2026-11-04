@@ -233,6 +233,7 @@
   }
   .workspace > .card {
     contain: strict;
+    scrollbar-gutter: stable;
   }
   .workspace {
     // At compact widths or large interface scales, headers and actions can

@@ -118,12 +118,19 @@
   }
 }
 @media (min-width: 701px) {
+  .workspace {
+    // Enlarged headings can exceed the viewport budget. Keep both navigation
+    // and the sample usable, and let the document scroll to the workspace.
+    min-height: 18rem;
+  }
   .categoryButtons {
     contain: strict;
     flex: 1 1 0;
+    scrollbar-gutter: stable;
   }
   .workspace > .category {
     contain: strict;
+    scrollbar-gutter: stable;
   }
 }
 .category {

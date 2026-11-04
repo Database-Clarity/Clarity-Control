@@ -4,6 +4,10 @@
   contain: inline-size layout style;
 }
 
+:global(aside[data-list]):has(> .navigation) {
+  scrollbar-gutter: stable;
+}
+
 .list {
   display: flex;
   flex-direction: column;
