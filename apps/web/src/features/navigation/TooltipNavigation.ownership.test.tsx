@@ -24,7 +24,11 @@ vi.mock('../compendium/CompendiumBadge', () => ({
   useCompendiumCount: () => ({ state: 'ready', count: 0 }),
 }));
 vi.mock('../editor', () => ({ ClarityEditor: () => null }));
-vi.mock('../preview', () => ({ PreviewColumn: () => null, TooltipPreview: () => null }));
+vi.mock('../preview', () => ({
+  PreviewColumn: ({ baseText }: { baseText: string }) =>
+    createElement('div', { 'data-preview': '' }, baseText),
+  TooltipPreview: () => null,
+}));
 vi.mock('../compendium/CompendiumPanel', () => ({ CompendiumPanel: () => null }));
 vi.mock('../history/HistoryPanel', () => ({ HistoryPanel: () => null }));
 vi.mock('../associations/AssociationsPanel', () => ({ AssociationsPanel: () => null }));
@@ -154,6 +158,17 @@ afterEach(async () => {
 });
 
 describe('mounted Editor navigation interaction ownership', () => {
+  it('restores the settled preview into the same shell slot after stepping', async () => {
+    await mount();
+    expect(host.querySelector('[data-shell-slot="left"] [data-preview]')?.textContent).toBe(
+      'Deutsch 100',
+    );
+    await shiftWheel();
+    expect(route()).toBe('/t/101?lang=de');
+    expect(host.querySelector('[data-shell-slot="left"] [data-preview]')?.textContent).toBe(
+      'Deutsch 101',
+    );
+  });
   const draftsButton = () => host.querySelector<HTMLButtonElement>('[data-drafts-button]')!;
   const overlay = () => document.querySelector('[data-shell-overlay]');
   const escape = () =>

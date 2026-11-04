@@ -89,7 +89,6 @@ export function TooltipPage({
   const hash = Number(parameter);
   const item = data && archivedItemFor(hash, data);
   const pending = <>Opening {item ? editorName(item) : `tooltip ${hash}`}…</>;
-  const column = useShellColumn();
   return (
     <>
       {/* Keep the expensive editor view alive, with its last settled route, through a burst.
@@ -107,11 +106,6 @@ export function TooltipPage({
           <article className={styles.page} aria-busy="true">
             <p role="status">{pending}</p>
           </article>
-          {column && (
-            <ShellSlot name="left">
-              <p role="status">{pending}</p>
-            </ShellSlot>
-          )}
         </>
       )}
     </>
@@ -324,7 +318,7 @@ function TooltipWorkspace({
   // Reviewed means a Base or Enhanced render of the current text is on screen (never Compare).
   const seen = column
     ? previewedHashes(mode, hash, selectedView).map((variant) => (
-        <PreviewAck key={variant} variant={variant} visible={!column.collapsed} />
+        <PreviewAck key={variant} variant={variant} visible={!column.collapsed && !suspended} />
       ))
     : null;
 
@@ -494,7 +488,8 @@ function TooltipWorkspace({
       />
       {hosted && (
         <ShellSlot name="left">
-          <div className={styles.leftStack}>
+          {suspended && <p role="status">Opening tooltip…</p>}
+          <div className={styles.leftStack} style={{ display: suspended ? 'none' : undefined }}>
             <div className={styles.previewBody}>
               {previews}
               {seen}
