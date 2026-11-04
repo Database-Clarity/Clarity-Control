@@ -16,9 +16,15 @@ export function matchingSessionFingerprint(value: unknown) {
     return sorted(value);
   }
   function sorted(value: object): unknown {
-    const result = Object.create(null) as Record<string, unknown>;
-    for (const key of Object.keys(value).sort())
-      result[key] = canonical((value as Record<string, unknown>)[key]);
+    // Ordinary objects retain V8's JSON serialization fast path. Preserve the
+    // canonicalizer's data-key semantics even for a literal __proto__ property.
+    const result: Record<string, unknown> = {};
+    for (const key of Object.keys(value).sort()) {
+      const entry = canonical((value as Record<string, unknown>)[key]);
+      if (key === '__proto__')
+        Object.defineProperty(result, key, { value: entry, enumerable: true });
+      else result[key] = entry;
+    }
     return result;
   }
   const text = JSON.stringify(canonical(value));

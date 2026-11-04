@@ -187,7 +187,7 @@ async function process(data: Request) {
         bytes.set(chunk, at);
         at += chunk.length;
       }
-      const input = JSON.parse(new TextDecoder().decode(bytes)) as {
+      const input = measured('inputs-parse', () => JSON.parse(new TextDecoder().decode(bytes))) as {
         editor: EditorData;
         source?: CompendiumData;
       };
@@ -202,7 +202,13 @@ async function process(data: Request) {
       modelToken = data.initialize.token;
       // Install the message handler before loading modules with top-level await.
       // Otherwise a worker can drop the source request during module initialization.
+      const planningStart = performance.now();
       const { matchingYield } = await planningModules();
+      performance.measure('compendium:planner-wait', {
+        start: planningStart,
+        end: performance.now(),
+      });
+      performance.clearMeasures('compendium:planner-wait');
       // Let the current pane run before hashing, assets, caches, and the full catalog.
       await matchingYield();
       await servePriority();
