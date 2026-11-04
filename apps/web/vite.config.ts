@@ -7,7 +7,6 @@ import { reviewGuidancePlugin } from './reviewGuidanceMiddleware';
 import { manifestFactsSchema } from './src/features/compendium/manifestFactsSchema';
 
 export default defineConfig({
-  worker: { format: 'es' },
   plugins: [
     {
       name: 'preload-startup-stages',
