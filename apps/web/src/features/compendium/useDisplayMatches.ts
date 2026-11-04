@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { startTransition, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { CompendiumData } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import type { Drafts } from '../../services/draftStorage';
@@ -61,6 +61,19 @@ export function useDisplayMatches(
   userId?: string | number,
   priorityHash?: number,
 ) {
+  const typingUntil = useRef(0);
+  useEffect(() => {
+    const input = (event: Event) => {
+      if (event.target instanceof Element && event.target.closest('.cm-content'))
+        typingUntil.current = performance.now() + 300;
+    };
+    document.addEventListener('beforeinput', input, true);
+    document.addEventListener('input', input, true);
+    return () => {
+      document.removeEventListener('beforeinput', input, true);
+      document.removeEventListener('input', input, true);
+    };
+  }, []);
   const evidence = draftEvidence(drafts);
   const matchingDrafts = useMemo(
     () => Object.fromEntries(JSON.parse(evidence)) as Drafts,
@@ -126,6 +139,37 @@ export function useDisplayMatches(
       return;
     let cancelled = false;
     let idlePublication: number | undefined;
+    let quietPublication: ReturnType<typeof setTimeout> | undefined;
+    const publishWhenQuiet = (update: () => void) => {
+      if (cancelled) return;
+      if (idlePublication !== undefined) cancelIdleCallback(idlePublication);
+      if (quietPublication !== undefined) clearTimeout(quietPublication);
+      const commit = () => {
+        idlePublication = undefined;
+        if (cancelled) return;
+        const remaining = typingUntil.current - performance.now();
+        const pending = (
+          navigator as Navigator & { scheduling?: { isInputPending(): boolean } }
+        ).scheduling?.isInputPending();
+        if (remaining > 0 || pending) {
+          quietPublication = setTimeout(schedule, Math.max(16, remaining));
+          return;
+        }
+        startTransition(update);
+      };
+      const schedule = () => {
+        quietPublication = undefined;
+        if (cancelled) return;
+        const remaining = typingUntil.current - performance.now();
+        // Publishing ready matches also triggers text layout. Keep that work
+        // after a pause in real editor input, uniformly for every tooltip.
+        if (remaining > 0) quietPublication = setTimeout(schedule, remaining);
+        else if (typeof requestIdleCallback === 'function')
+          idlePublication = requestIdleCallback(commit, { timeout: 50 });
+        else commit();
+      };
+      schedule();
+    };
     void (async () => {
       if (inputs.error) throw new Error(inputs.error);
       const cached = inputs.cached;
@@ -152,31 +196,19 @@ export function useDisplayMatches(
           void session.prioritize(input, priorityHash).catch(() => undefined);
         return;
       }
-      const publish = (matches: Value['matches']) => {
-        if (cancelled) return;
-        const commit = () => {
-          idlePublication = undefined;
-          if (cancelled) return;
-          startTransition(() =>
-            setEarlyMatches({
-              editor,
-              source,
-              evidence,
-              userId,
-              inputs,
-              revision,
-              matches,
-              priorityHash,
-            }),
-          );
-        };
-        // A transition can still commit between input and its next paint.
-        // Begin rendering from the browser's post-paint idle slot instead.
-        if (typeof requestIdleCallback === 'function') {
-          if (idlePublication !== undefined) cancelIdleCallback(idlePublication);
-          idlePublication = requestIdleCallback(commit, { timeout: 50 });
-        } else commit();
-      };
+      const publish = (matches: Value['matches']) =>
+        publishWhenQuiet(() =>
+          setEarlyMatches({
+            editor,
+            source,
+            evidence,
+            userId,
+            inputs,
+            revision,
+            matches,
+            priorityHash,
+          }),
+        );
       if (priorityHash !== undefined)
         void session
           .prioritize(input, priorityHash)
@@ -185,11 +217,10 @@ export function useDisplayMatches(
             // The full request owns errors; superseded priority requests are expected.
           });
       const value = await session.display(input, publish);
-      remember(editor, source, { evidence, userId, inputs, value });
-      if (!cancelled)
-        startTransition(() =>
-          setResult({ editor, source, evidence, userId, inputs, revision, value }),
-        );
+      publishWhenQuiet(() => {
+        remember(editor, source, { evidence, userId, inputs, value });
+        setResult({ editor, source, evidence, userId, inputs, revision, value });
+      });
     })().catch((error: unknown) => {
       if (!cancelled && source)
         setResult({
@@ -205,6 +236,7 @@ export function useDisplayMatches(
     return () => {
       cancelled = true;
       if (idlePublication !== undefined) cancelIdleCallback(idlePublication);
+      if (quietPublication !== undefined) clearTimeout(quietPublication);
     };
   }, [editor, source, matchingDrafts, evidence, userId, revision, inputs, scope, priorityHash]);
   const current =

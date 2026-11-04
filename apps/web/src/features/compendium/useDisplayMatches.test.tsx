@@ -69,6 +69,69 @@ it('publishes a priority reply from idle and cancels stale queued publications',
   }
 });
 
+it('holds priority and full results through editor input until a quiet idle gap', async () => {
+  vi.stubEnv('DEV', false);
+  vi.stubGlobal('localStorage', { getItem: () => null });
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+  const idle: IdleRequestCallback[] = [];
+  vi.stubGlobal(
+    'requestIdleCallback',
+    vi.fn((callback: IdleRequestCallback) => idle.push(callback)),
+  );
+  vi.stubGlobal('cancelIdleCallback', vi.fn());
+  let pending = false;
+  vi.stubGlobal('navigator', { scheduling: { isInputPending: () => pending } });
+  const f = guidedFixture();
+  const matches = new Map();
+  const value = { matches, decisions: [] };
+  let finish!: (value: unknown) => void;
+  calls.prioritize.mockReset().mockResolvedValue(matches);
+  calls.display.mockReset().mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  let latest: ReturnType<typeof useDisplayMatches>;
+  function Probe() {
+    latest = useDisplayMatches(f.editor, f.source, {}, 'typing-quiet', 100);
+    return null;
+  }
+  const editor = document.createElement('div');
+  editor.className = 'cm-content';
+  document.body.append(editor);
+  const root = createRoot(document.createElement('div'));
+  const deadline = { didTimeout: false, timeRemaining: () => 5 };
+  try {
+    await act(async () => root.render(<Probe />));
+    editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    await act(async () => idle.shift()!(deadline));
+    expect(latest!.loading).toBe(true);
+    await act(async () => vi.advanceTimersByTimeAsync(299));
+    editor.dispatchEvent(new InputEvent('beforeinput', { bubbles: true }));
+    await act(async () => finish(value));
+    // A complete result must not escape the quiet gate through the memory cache.
+    await act(async () => root.render(<Probe />));
+    expect(latest!.prepared).toBeUndefined();
+    expect(latest!.matches).toBeUndefined();
+    await act(async () => vi.advanceTimersByTimeAsync(299));
+    expect(idle).toHaveLength(0);
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    pending = true;
+    await act(async () => idle.shift()!(deadline));
+    expect(latest!.loading).toBe(true);
+    pending = false;
+    await act(async () => vi.advanceTimersByTimeAsync(16));
+    await act(async () => idle.shift()!(deadline));
+    expect(latest!.prepared).toBe(value);
+    expect(latest!.matches).toBe(matches);
+    expect(latest!.loading).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+    editor.remove();
+    vi.useRealTimers();
+  }
+});
+
 it('queues the current tooltip before source hydration and publishes only after the source is bound', async () => {
   vi.stubEnv('DEV', false);
   vi.stubGlobal('localStorage', { getItem: () => null });
