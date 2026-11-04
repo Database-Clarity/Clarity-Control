@@ -45,20 +45,36 @@ export function preloadWorkspaces(loaders: readonly WorkspaceLoader[]): () => vo
   let busy = false;
   let index = 0;
   let frame = 0;
+  let painting = false;
+  let painted = false;
   const observer = new MutationObserver(() => schedule());
   const inputEvents = ['keydown', 'pointerdown', 'wheel', 'input', 'touchstart'] as const;
   const ready = () => {
-    if (document.hidden || document.querySelector('main [aria-busy="true"]')) return false;
+    if (document.hidden) return false;
     const main = document.querySelector('main');
-    return (
-      !!main &&
-      ![...main.querySelectorAll('[role="status"]')].some((node) =>
-        /loading|opening|matching|comparing publishable/i.test(node.textContent ?? ''),
-      )
-    );
+    // Async reference matching can continue in a worker after the workspace has
+    // painted. It must not postpone code-only imports into a later interaction.
+    return !!main?.querySelector('h1, .cm-content');
   };
+  function afterPaint() {
+    painting = true;
+    frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        painting = false;
+        painted = ready();
+        schedule();
+      });
+    });
+  }
   function schedule() {
-    if (cancelled || busy || quiet !== undefined || idle !== undefined || index >= loaders.length)
+    if (
+      cancelled ||
+      painting ||
+      busy ||
+      quiet !== undefined ||
+      idle !== undefined ||
+      index >= loaders.length
+    )
       return;
     idle = window.requestIdleCallback((deadline) => {
       idle = undefined;
@@ -73,6 +89,10 @@ export function preloadWorkspaces(loaders: readonly WorkspaceLoader[]): () => vo
         return;
       }
       observer.disconnect();
+      if (!painted) {
+        afterPaint();
+        return;
+      }
       const scheduling = (
         navigator as Navigator & {
           scheduling?: { isInputPending(options: { includeContinuous: boolean }): boolean };
@@ -126,9 +146,7 @@ export function preloadWorkspaces(loaders: readonly WorkspaceLoader[]): () => vo
     window.addEventListener(event, pause, { passive: true, capture: true });
   document.addEventListener('visibilitychange', schedule);
   // The first workspace must get a complete paint before background imports can begin.
-  frame = requestAnimationFrame(() => {
-    frame = requestAnimationFrame(schedule);
-  });
+  afterPaint();
   return () => {
     cancelled = true;
     cancelAnimationFrame(frame);

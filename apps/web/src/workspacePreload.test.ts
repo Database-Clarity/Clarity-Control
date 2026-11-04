@@ -117,5 +117,17 @@ it('does not preload while the first route still shows its loading state', async
   document.querySelector('main')!.innerHTML = '<h1>Ready</h1>';
   await vi.advanceTimersByTimeAsync(0);
   await idle();
+  expect(load).not.toHaveBeenCalled();
+  paint();
+  await idle();
+  expect(load).toHaveBeenCalledOnce();
+});
+
+it('uses idle time after workspace paint while asynchronous reference matching continues', async () => {
+  document.body.innerHTML = '<main><h1>Editor</h1><p role="status">Matching Compendium…</p></main>';
+  const load = vi.fn(async () => {});
+  stop = preloadWorkspaces([load]);
+  paint();
+  await idle();
   expect(load).toHaveBeenCalledOnce();
 });
