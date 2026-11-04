@@ -158,33 +158,45 @@ afterEach(async () => {
 });
 
 describe('mounted Editor navigation interaction ownership', () => {
-  it('keeps a burst suspended while held arrows continue at the category boundary', async () => {
-    vi.useFakeTimers();
-    try {
-      await mount();
-      const field = host.querySelector<HTMLInputElement>('input[aria-label="Tooltip"]')!;
-      const down = () =>
-        field.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
-      await act(async () => {
-        down();
-        await vi.advanceTimersByTimeAsync(25);
-      });
-      expect(route()).toContain('/t/101');
-      expect(host.querySelector('article[aria-busy="true"]')).not.toBeNull();
-      await act(async () => {
-        down();
-        await vi.advanceTimersByTimeAsync(25);
-      });
-      expect(host.querySelector('article[aria-busy="true"]')).not.toBeNull();
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(50);
-      });
-      expect(host.querySelector('article[aria-busy="true"]')).toBeNull();
-      expect(document.querySelector('[data-preview]')?.textContent).toBe('Deutsch 101');
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+  it.each(['ArrowDown', 'Shift+wheel'])(
+    'keeps a burst suspended while %s continues at the category boundary',
+    async (gesture) => {
+      vi.useFakeTimers();
+      try {
+        await mount();
+        const field = host.querySelector<HTMLInputElement>('input[aria-label="Tooltip"]')!;
+        const down = () =>
+          gesture === 'ArrowDown'
+            ? field.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+            : host.dispatchEvent(
+                new WheelEvent('wheel', {
+                  bubbles: true,
+                  cancelable: true,
+                  shiftKey: true,
+                  deltaY: 100,
+                }),
+              );
+        await act(async () => {
+          down();
+          await vi.advanceTimersByTimeAsync(25);
+        });
+        expect(route()).toContain('/t/101');
+        expect(host.querySelector('article[aria-busy="true"]')).not.toBeNull();
+        await act(async () => {
+          down();
+          await vi.advanceTimersByTimeAsync(25);
+        });
+        expect(host.querySelector('article[aria-busy="true"]')).not.toBeNull();
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(50);
+        });
+        expect(host.querySelector('article[aria-busy="true"]')).toBeNull();
+        expect(document.querySelector('[data-preview]')?.textContent).toBe('Deutsch 101');
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it('does not land a queued wheel step behind a newly opened sheet', async () => {
     await mount();

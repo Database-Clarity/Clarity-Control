@@ -354,7 +354,12 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     const shiftWheel = (event: WheelEvent) => {
       const direction = shiftScrollDirection(event);
       if (!direction || workspaceShortcutsBlocked(event)) return;
-      if (!canStep.current(direction)) return;
+      if (!canStep.current(direction)) {
+        // At the boundary the remaining packets still belong to the same gesture.
+        // Keep the workspace idle until that physical gesture actually stops.
+        if (useSteppingActivity.getState().active) pulseStepping();
+        return;
+      }
       event.preventDefault();
       const stepDirection = wheelStepper.feed(event, event.timeStamp);
       if (stepDirection) step.current(stepDirection);
