@@ -85,14 +85,16 @@ export function validationDiagnostics(
         private alive = true;
         private revision = 0;
         private detachedResult = false;
+        private timer: ReturnType<typeof setTimeout> | undefined;
         constructor(view: EditorView) {
-          this.check(view);
+          this.check(view, 0);
         }
         update(update: ViewUpdate) {
           if (update.docChanged || (this.detachedResult && update.view.dom.isConnected))
             this.check(update.view);
         }
-        check(view: EditorView) {
+        check(view: EditorView, delay = 40) {
+          clearTimeout(this.timer);
           const doc = view.state.doc;
           const revision = ++this.revision;
           const input = {
@@ -107,18 +109,23 @@ export function validationDiagnostics(
             this.detachedResult = !view.dom.isConnected;
             if (!this.detachedResult) view.dispatch({ effects: setDiagnostics.of(issues) });
           };
-          void requestDiagnostics(input).then(
-            (result) => apply(result.issues),
-            () => {
-              if (this.alive && this.revision === revision && view.state.doc === doc)
-                apply(
-                  validateEditorText(input.text, lang, globals, requireEnglish, input.selfHash),
-                );
-            },
-          );
+          // Preparing the worker snapshot must not run inside CodeMirror's input
+          // transaction. Cancel skipped edits before inspecting their imports.
+          this.timer = setTimeout(() => {
+            void requestDiagnostics(input).then(
+              (result) => apply(result.issues),
+              () => {
+                if (this.alive && this.revision === revision && view.state.doc === doc)
+                  apply(
+                    validateEditorText(input.text, lang, globals, requireEnglish, input.selfHash),
+                  );
+              },
+            );
+          }, delay);
         }
         destroy() {
           this.alive = false;
+          clearTimeout(this.timer);
         }
       },
     ),
