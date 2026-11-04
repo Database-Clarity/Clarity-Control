@@ -12,7 +12,7 @@ import { readProgress, reviewStorageKey } from './reviewProgress';
 import { bundleUrl } from '../../services/bundle';
 import { compendiumDataUrl, pendingCompendiumWorker } from '../../services/compendium';
 import { apiUrl } from '../../services/api';
-import { pickerRowIndex } from './pickerRows';
+import { warmPickerRowIndexes } from './pickerRows';
 
 export type CompendiumCount =
   { state: 'loading' } | { state: 'error' } | { state: 'ready'; count: number };
@@ -37,10 +37,8 @@ export function useCompendiumCount(): CompendiumCount {
     // Separate idle jobs keep this work out of editor input and foreground navigation.
     const evidence = () =>
       preparedEvidence(prepared, useDraftStore.getState().drafts, editor, data);
+    const cancelIndexWarmup = warmPickerRowIndexes(data.tabs);
     const jobs = [
-      ...data.tabs.map((tab) => () => {
-        pickerRowIndex(tab);
-      }),
       () => groupManifestItems(editor.items, editor.aliases),
       () => {
         try {
@@ -73,6 +71,7 @@ export function useCompendiumCount(): CompendiumCount {
     schedule();
     return () => {
       cancelled = true;
+      cancelIndexWarmup();
       if (idle !== undefined) window.cancelIdleCallback(idle);
       if (timer !== undefined) clearTimeout(timer);
     };
