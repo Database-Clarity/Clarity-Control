@@ -130,7 +130,7 @@ export function CompendiumPage() {
       </ul>
       {(unlinked ? listedMissing.length : listedChanges.length) > limit && (
         <button type="button" onClick={() => setLimit(limit + 100)}>
-          Show 100 more ({(unlinked ? listedMissing.length : listedChanges.length) - limit} remaining)
+          Show 100 more
         </button>
       )}
       {unlinked && !listedMissing.length && <p>No unlinked tooltips match these filters.</p>}

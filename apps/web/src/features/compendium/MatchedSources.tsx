@@ -80,7 +80,7 @@ export function MatchedSources() {
       </ul>
       {filtered.length > limit && (
         <button type="button" onClick={() => setLimit(limit + 100)}>
-          Show 100 more ({filtered.length - limit} remaining)
+          Show 100 more
         </button>
       )}
       {!result.loading && !result.error && !filtered.length && (
