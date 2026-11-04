@@ -5,6 +5,15 @@ import './ui/global.scss';
 
 // Keep vendor initialization and the application/data graph in separate tasks.
 // Every entry route follows the same bootstrap; facts resolve before sync consumers run.
+// Schema constructors account for most of the application graph's synchronous
+// initialization. Evaluate a small schema entry first, then give input/paint a
+// turn before evaluating the data schemas and their consumers (even on warm loads).
+await import('../../../packages/core/src/languages');
+await new Promise<void>((resolve) => setTimeout(resolve, 0));
+// Import the data schemas directly: the barrel also initializes unrelated
+// schemas and stores, which would put their cost back into a single task.
+await import('../../../packages/core/src/schemas');
+await new Promise<void>((resolve) => setTimeout(resolve, 0));
 const { routes } = await import('./App');
 const [{ startPublisher }, { useSettingsStore }, { watchSystemTheme }] = await Promise.all([
   import('./features/review/publisher'),
