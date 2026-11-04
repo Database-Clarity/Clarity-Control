@@ -1,10 +1,11 @@
 import { memo, useEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useHref, useLinkClickHandler } from 'react-router-dom';
 import type { SidebarPendingChange } from '../navigation/sidebarQueue';
 import styles from './ReviewQueue.module.scss';
 
 const defaultRowHeight = 64;
-const overscan = 6;
+const overscan = 1;
 const QueueLink = memo(function QueueLink({
   change,
   href,
@@ -130,7 +131,9 @@ export function ReviewQueue({
       }}
       onScroll={(event) => {
         const top = event.currentTarget.scrollTop;
-        setViewport((previous) => ({ ...previous, top }));
+        // Commit the small window in this scroll turn, before the browser paints
+        // its new position. This needs only one buffer row in either direction.
+        flushSync(() => setViewport((previous) => ({ ...previous, top })));
       }}
     >
       <span ref={sizer} className={styles.rowSizer} aria-hidden="true" data-review-row-size="" />
