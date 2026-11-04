@@ -10,9 +10,17 @@ import './ui/global.scss';
 // turn before evaluating the data schemas and their consumers (even on warm loads).
 await import('../../../packages/core/src/languages');
 await new Promise<void>((resolve) => setTimeout(resolve, 0));
-// Import the data schemas directly: the barrel also initializes unrelated
-// schemas and stores, which would put their cost back into a single task.
+// Separate the data schemas' own dependencies too: constructing all of them
+// together can still exceed the task budget on a throttled, busy machine.
+await import('../../../packages/core/src/legacy');
+await new Promise<void>((resolve) => setTimeout(resolve, 0));
+await import('../../../packages/core/src/compendium/types');
+await new Promise<void>((resolve) => setTimeout(resolve, 0));
 await import('../../../packages/core/src/schemas');
+await new Promise<void>((resolve) => setTimeout(resolve, 0));
+await import('../../../packages/core/src/settings');
+await new Promise<void>((resolve) => setTimeout(resolve, 0));
+await import('../../../packages/core/src/aliasGroups');
 await new Promise<void>((resolve) => setTimeout(resolve, 0));
 const { routes } = await import('./App');
 const [{ startPublisher }, { useSettingsStore }, { watchSystemTheme }] = await Promise.all([
