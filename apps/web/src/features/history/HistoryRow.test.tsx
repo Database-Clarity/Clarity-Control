@@ -90,15 +90,94 @@ it('does not ask the server when signed out, and says so when expanded', async (
   expect(host.textContent).toContain('Sign in as a configured member');
 });
 
-it('keeps an expanded history row open while cancelling suspended requests', async () => {
+it('uses one list request across expansion and refreshes stale rows on reopening', async () => {
   getHistory.mockResolvedValue({ page: 1, commits: [commit(1)] });
   await act(async () => root.render(<HistoryPanel hash={10} />));
+  const toggle = () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click();
+  await act(async () => toggle());
+  expect(getHistory).toHaveBeenCalledTimes(1);
+  await act(async () => toggle());
+  vi.useFakeTimers();
+  vi.setSystemTime(Date.now() + 61_000);
+  getHistory.mockResolvedValue({ page: 1, commits: [commit(2), commit(1)] });
+  await act(async () => toggle());
+  expect(host.querySelectorAll('ol li')).toHaveLength(2);
+  expect(getHistory).toHaveBeenCalledTimes(2);
+  vi.useRealTimers();
+});
+
+it('shows subjects and spreads mounting a full cached page across frames', async () => {
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => frames.push(callback));
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  getHistory.mockResolvedValue({
+    page: 1,
+    commits: Array.from({ length: 30 }, (_, i) => ({
+      ...commit(i + 1),
+      message: `Subject ${i}\n\nA long commit body that belongs outside the row`,
+    })),
+  });
+  try {
+    await act(async () => root.render(<HistoryPanel hash={10} />));
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+    expect(host.querySelectorAll('ol li > button')).toHaveLength(4);
+    expect(host.textContent).not.toContain('A long commit body');
+    while (frames.length) await act(async () => frames.shift()!(0));
+    expect(host.querySelectorAll('ol li > button')).toHaveLength(30);
+    expect(host.textContent).not.toContain('Preparing remaining revisions');
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it('refreshes the first page when saving advances bundle head after paging', async () => {
+  let advanced = false;
+  getHistory.mockImplementation((_hash: number, page: number) =>
+    Promise.resolve({
+      page,
+      commits:
+        page === 1
+          ? Array.from({ length: 30 }, (_, i) => ({
+              ...commit(advanced ? 100 - i : 90 - i),
+              message: advanced && i === 0 ? 'NEW HEAD REVISION' : `old row ${i}`,
+            }))
+          : [commit(advanced ? 61 : 60)],
+    }),
+  );
+  await act(async () => root.render(<HistoryPanel hash={10} />));
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
-  const signals = getHistory.mock.calls.map((call) => call[2] as AbortSignal);
+  const more = [...host.querySelectorAll('button')].find(
+    (b) => b.textContent === 'Load more commits',
+  )!;
+  await act(async () => more.click());
+  advanced = true;
+  await act(async () => {
+    const data = useDataStore.getState().data!;
+    useDataStore.setState({
+      data: { ...data, bundle: { ...data.bundle, sourceCommit: 'new-head' } },
+    });
+  });
+  // The parent has refreshed page 1, so the new revision must be visible in its child list too.
+  expect(getHistory.mock.calls.filter(([, p]) => p === 1)).toHaveLength(2);
+  expect(host.textContent).toContain('NEW HEAD REVISION');
+  expect(getHistory.mock.calls.filter(([, p]) => p === 2)).toHaveLength(1);
+});
+
+it('keeps an expanded history row open while cancelling suspended requests', async () => {
+  getHistory.mockResolvedValue({ page: 1, commits: [commit(1)] });
+  getHistory.mockImplementationOnce(
+    (_hash: number, _page: number, signal: AbortSignal) =>
+      new Promise<never>((_resolve, reject) =>
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+      ),
+  );
+  await act(async () => root.render(<HistoryPanel hash={10} />));
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  const signal = getHistory.mock.calls[0][2] as AbortSignal;
   getHistory.mockClear();
   await act(async () => root.render(<HistoryPanel hash={10} suspended />));
   expect(host.querySelector('button[aria-expanded=true]')).not.toBeNull();
-  expect(signals.every((signal) => signal.aborted)).toBe(true);
+  expect(signal.aborted).toBe(true);
   expect(getHistory).not.toHaveBeenCalled();
   await act(async () => root.render(<HistoryPanel hash={10} />));
   expect(host.querySelector('button[aria-expanded=true]')).not.toBeNull();

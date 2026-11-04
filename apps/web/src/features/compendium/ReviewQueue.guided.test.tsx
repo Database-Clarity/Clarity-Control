@@ -166,6 +166,8 @@ async function mount(scope?: 'ghost' | 'mixed') {
     click,
     frozen,
     request,
+    guidanceBytes: () =>
+      JSON.stringify([...cache].filter(([key]) => key.startsWith('clarity-review-guidance:'))),
     failBackups: () => {
       backupFailure = true;
     },
@@ -174,6 +176,7 @@ async function mount(scope?: 'ghost' | 'mixed') {
     },
     close: async () => {
       await act(async () => root.unmount());
+      window.dispatchEvent(new Event('pagehide'));
       await useDraftStore.getState().flush();
     },
   };
@@ -197,10 +200,10 @@ it('states the example-only consequence inside the category action group', async
     const sample = f.host.querySelector('[aria-label="Resolve sample Sample 100"]')!;
     const accept = f.button('Accept proposed link', sample);
     const actions = accept.parentElement!;
-    expect(actions.querySelector('p')?.textContent).toBe(
-      'Saves as example · no tooltip change',
-    );
-    expect([...actions.querySelectorAll('button')].map((button) => button.textContent?.trim())).toEqual(
+    expect(actions.querySelector('p')?.textContent).toBe('Saves as example · no tooltip change');
+    expect(
+      [...actions.querySelectorAll('button')].map((button) => button.textContent?.trim()),
+    ).toEqual(
       expect.arrayContaining([
         expect.stringContaining('Accept proposed link'),
         expect.stringContaining('Pick other'),
@@ -237,22 +240,34 @@ it.each([false, true])(
 );
 
 it.each(['ghost', 'mixed'] as const)(
-  'retains %s exclusions and Restore when stale-guidance renewal cannot back up',
+  'retains %s exclusions and stored guidance through in-memory renewal and an authored backup failure',
   async (scope) => {
     const f = await mount(scope);
     try {
       const original = structuredClone(f.props().guidance.document);
       f.failBackups();
+      let importedBytes = '';
       await act(async () => {
         f.props().guidance.persistence.importBackup({
           ...original,
           baseline: 'stale-baseline',
         });
+        importedBytes = f.guidanceBytes();
+      });
+      expect(JSON.parse(importedBytes)).toHaveLength(1);
+      const stored = JSON.parse(JSON.parse(importedBytes)[0][1]).document;
+      expect(stored.baseline).toBe('stale-baseline');
+      expect(stored.categories).toEqual(original.categories);
+      expect(f.guidanceBytes()).toBe(importedBytes);
+      expect(f.props().guidance.document.baseline).toBe(f.baseline);
+      expect(f.props().guidance.document.scope).toBe(original.scope);
+      expect(f.props().guidance.localError).toBeNull();
+      await act(async () => {
+        f.props().guidance.persistence.comment(f.categories[0].id, 'Authored after renewal');
       });
       const p = f.props();
-      expect(p.guidance.document.baseline).toBe('stale-baseline');
-      expect(p.guidance.document.categories).toEqual(original.categories);
-      expect(p.guidance.localError).toContain('renewal backup failed');
+      expect(p.guidance.localError).toContain('Browser backup failed: quota');
+      expect(f.guidanceBytes()).toBe(importedBytes);
       expect(f.host.textContent).toContain(`Not needed (${scope === 'ghost' ? 6 : 1})`);
       expect(f.button('Restore to scope')).toBeTruthy();
       const group = guidedDecisions(
@@ -263,7 +278,22 @@ it.each(['ghost', 'mixed'] as const)(
         f.baseline,
         f.document.scope,
       )[0];
-      expect(group.high).toBe(0);
+      // Renewal can validate the original three references in memory. A failed
+      // authored backup neither removes those references nor promotes exclusions.
+      expect(group.high).toBe(scope === 'ghost' ? 0 : 3);
+      expect(
+        group.entries
+          .filter((entry) => entry.confidence === 'high')
+          .map(({ hash, action }) => [hash, action]),
+      ).toEqual(
+        scope === 'ghost'
+          ? []
+          : [
+              [100, 'link'],
+              [101, 'link'],
+              [103, 'no-equivalent'],
+            ],
+      );
       expect(group.medium).toBe(0);
       expect(group.outOfScope).toBe(scope === 'ghost' ? 6 : 1);
       expect(group.samples).not.toContain(scope === 'ghost' ? 100 : 5699512);
@@ -308,20 +338,25 @@ it.each(['comment', 'reload', 'conflict'] as const)(
       await f.click('Preview all high');
       const oldHandler = f.frozen();
       const persistence = f.props().guidance.persistence;
+      const capturedDocument = persistence.getSnapshot().document;
       await act(async () => {
         if (kind === 'comment')
           persistence.comment(f.categories[0].id, 'Needs owner interpretation');
         if (kind === 'reload') await persistence.reloadDisk();
         if (kind === 'conflict') {
           f.conflict();
-          persistence.synchronize([], f.baseline);
+          persistence.save();
           await persistence.flush();
+          expect(persistence.getSnapshot().conflict).toBe(true);
+          expect(persistence.getSnapshot().document).toBe(capturedDocument);
         }
         // Invoke before React can refresh the render's captured guidance state.
         oldHandler();
       });
       expect(f.button('Accept all high').disabled).toBe(true);
       expect(useDraftStore.getState().drafts).toEqual({});
+      if (kind === 'conflict')
+        expect(f.request.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true);
     } finally {
       await f.close();
     }

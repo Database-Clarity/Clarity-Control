@@ -1,4 +1,26 @@
 import { z } from 'zod';
+import { validateInWorker } from './jsonValidationClient';
+
+async function parseResponse<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
+  if (typeof Worker !== 'undefined') {
+    // Match schema identity, never just a URL: callers cannot accidentally bypass validation.
+    const [{ bundleSchema }, { itemsSchema }] = await Promise.all([
+      import('./bundleSchema'),
+      import('./generatorSchema'),
+    ]);
+    const kind =
+      (schema as z.ZodType) === bundleSchema
+        ? 'bundle'
+        : (schema as z.ZodType) === itemsSchema
+          ? 'items'
+          : undefined;
+    if (kind) {
+      const bytes = await validateInWorker(kind, await response.arrayBuffer());
+      return JSON.parse(new TextDecoder().decode(bytes)) as T;
+    }
+  }
+  return schema.parse(await response.json());
+}
 
 export async function fetchJson<T>(
   url: string,
@@ -7,7 +29,7 @@ export async function fetchJson<T>(
 ): Promise<T> {
   const response = await fetch(url, init);
   if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
-  return schema.parse(await response.json());
+  return parseResponse(response, schema);
 }
 
 /** Like `fetchJson`, but a 404 yields `undefined` (the file is optional). */
@@ -19,7 +41,7 @@ export async function fetchOptionalJson<T>(
   const response = await fetch(url, init);
   if (response.status === 404) return undefined;
   if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
-  return schema.parse(await response.json());
+  return parseResponse(response, schema);
 }
 
 /** Browsers reject `fetch` with a bare TypeError ("Failed to fetch", "Load failed", ...). */

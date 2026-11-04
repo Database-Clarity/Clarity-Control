@@ -115,6 +115,44 @@ it('is keyboard reachable: focus opens it and Esc closes it and keeps focus on t
   expect(document.activeElement).toBe(entries()[1]);
 });
 
+it('positions from ResizeObserver sizes without synchronously measuring the new diff', async () => {
+  const observers: ResizeObserverCallback[] = [];
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(callback: ResizeObserverCallback) {
+        observers.push(callback);
+      }
+      observe = vi.fn();
+      disconnect = vi.fn();
+    },
+  );
+  const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(() => {
+    throw new Error('Synchronous popover height read');
+  });
+  const row = entries()[0].parentElement!;
+  const bounds = vi
+    .spyOn(row, 'getBoundingClientRect')
+    .mockReturnValue(new DOMRect(100, 600, 200, 50));
+  try {
+    await act(async () => entries()[0].click());
+    expect(bounds).toHaveBeenCalled();
+    await act(async () =>
+      observers[0](
+        [{ borderBoxSize: [{ blockSize: 300.4 }] } as unknown as ResizeObserverEntry],
+        {} as ResizeObserver,
+      ),
+    );
+    expect(dialog()!.style.top).toBe(`${window.innerHeight - 300 - 8}px`);
+    expect(dialog()!.style.left).toBe('306px');
+    expect(height).not.toHaveBeenCalled();
+  } finally {
+    height.mockRestore();
+    bounds.mockRestore();
+    vi.unstubAllGlobals();
+  }
+});
+
 it('click pins it past mouse leave; a press outside closes it', async () => {
   await act(async () => entries()[0].click());
   expect(dialog()).not.toBeNull();
@@ -127,6 +165,17 @@ it('click pins it past mouse leave; a press outside closes it', async () => {
     document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
   });
   expect(dialog()).toBeNull();
+});
+
+it('cancels pending hover on a closed row when another revision is pinned', async () => {
+  await act(async () => {
+    entries()[0].parentElement!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+  });
+  await act(async () => entries()[1].click());
+  await wait(260);
+  expect(entries()[0].getAttribute('aria-expanded')).toBe('false');
+  expect(entries()[1].getAttribute('aria-expanded')).toBe('true');
+  expect(host.querySelectorAll('[role="dialog"]')).toHaveLength(1);
 });
 
 it('the first revision is shown as all new, and the cache means one request per commit', async () => {
@@ -212,4 +261,24 @@ it('shows one popover at a time and keeps links out of the trigger button', asyn
     b.textContent?.includes('vs current draft'),
   )!;
   expect(compare.getAttribute('aria-pressed')).toBe('false');
+});
+
+it('shows restored and deleted revisions without retrying immutable file absence', async () => {
+  getVersion.mockImplementation((_hash: number, sha: string) =>
+    sha === id(2)
+      ? Promise.reject(new Error('API HTTP 404: {"error":"Tooltip did not exist at that commit"}'))
+      : Promise.resolve({ commit: sha, tooltip: versions[sha] }),
+  );
+  await act(async () => entries()[0].click());
+  await wait(0);
+  expect(dialog()!.textContent).toContain('Restored in this revision.');
+  expect(dialog()!.textContent).not.toContain('Retry');
+  await act(async () => entries()[1].click());
+  await wait(0);
+  expect(dialog()!.textContent).toContain('Deleted in this revision.');
+  expect(dialog()!.textContent).not.toContain('Restore this revision');
+  expect(dialog()!.querySelector('del')!.textContent).toContain('one');
+  await act(async () => entries()[0].click());
+  await wait(0);
+  expect(getVersion.mock.calls.filter(([, sha]) => sha === id(2))).toHaveLength(1);
 });

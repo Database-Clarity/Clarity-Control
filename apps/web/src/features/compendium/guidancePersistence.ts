@@ -1,4 +1,5 @@
 import type { CompendiumData } from '@clarity/core';
+import { notifyCompendiumInputs } from './inputEvents';
 import type { ReviewCategory } from './reviewCategories';
 import { rebaselineGuidance } from './rebaselineGuidance';
 import { guidanceDiagnostic as errorMessage } from './guidanceDiagnostic';
@@ -37,6 +38,11 @@ export class GuidancePersistence {
   private readonly key: string;
   private starting?: Promise<void>;
   private recoveryError: string | null = null;
+  private cached?: { document: GuidanceDocument; revision: string | null; pending: boolean };
+  private authoredDocument?: GuidanceDocument;
+  private storedRaw?: string;
+  private renewalBackup?: string;
+  private pendingBackup?: string;
 
   constructor(
     scope: string,
@@ -79,16 +85,38 @@ export class GuidancePersistence {
     for (const listener of this.listeners) listener();
   }
   private cache() {
+    const document = this.authoredDocument;
+    if (!document) return;
+    if (
+      this.cached?.document === document &&
+      this.cached.revision === this.revision &&
+      this.cached.pending === this.pending
+    )
+      return;
     try {
-      this.storage.setItem(
-        this.key,
-        JSON.stringify({
-          document: this.state.document,
-          revision: this.revision,
-          pending: this.pending,
-        }),
-      );
-      this.set({ browserSaved: true, localError: this.recoveryError });
+      if (this.pendingBackup) {
+        // Preserve the original approval bytes before an explicit edit commits
+        // an in-memory renewal. Opening the page never writes this backup.
+        const prefix = `${this.key}:pre-renewal:`;
+        let suffix = Date.now();
+        while (this.storage.getItem(prefix + suffix) !== null) suffix++;
+        this.storage.setItem(prefix + suffix, this.pendingBackup);
+        this.pendingBackup = undefined;
+      }
+      const cached = {
+        document,
+        revision: this.revision,
+        pending: this.pending,
+      };
+      const serialized = JSON.stringify(cached);
+      if (this.storage.getItem(this.key) !== serialized) {
+        this.storage.setItem(this.key, serialized);
+        notifyCompendiumInputs(this.key);
+      }
+      // Route teardown must not stringify or rewrite an unchanged browser backup.
+      this.cached = cached;
+      this.storedRaw = serialized;
+      this.set({ browserSaved: document === this.state.document, localError: this.recoveryError });
     } catch (error) {
       this.set({
         browserSaved: false,
@@ -111,20 +139,22 @@ export class GuidancePersistence {
     try {
       const raw = this.storage.getItem(this.key);
       if (raw) {
+        this.storedRaw = raw;
         const cached = guidanceCacheSchema.parse(JSON.parse(raw));
         if (cached.document.scope !== this.state.document.scope)
           throw new Error('Backup dataset mismatch');
         this.revision = cached.revision;
         this.pending = cached.pending;
-        this.set({ document: cached.document, proposalInput: cached.document });
+        this.cached = cached;
+        this.set({ document: cached.document, proposalInput: cached.document, browserSaved: true });
       }
     } catch (error) {
+      this.renewalBackup ??= this.storedRaw;
       this.recoveryError = `Browser backup could not be recovered: ${errorMessage(error)}`;
       this.set({ localError: this.recoveryError });
     }
     if (!this.diskAvailable) {
       this.set({ ready: true, proposalInput: this.state.document });
-      this.cache();
       return;
     }
     try {
@@ -144,9 +174,8 @@ export class GuidancePersistence {
         diskSaved: !this.pending && !!disk.document,
         document: this.pending ? this.state.document : (disk.document ?? this.state.document),
         proposalInput: this.pending ? this.state.document : (disk.document ?? undefined),
+        browserSaved: this.pending && this.state.browserSaved,
       });
-      this.cache();
-      if (this.pending) this.schedule();
     } catch (error) {
       this.set({
         ready: true,
@@ -160,21 +189,13 @@ export class GuidancePersistence {
     const original = this.state.document;
     if (!original.baseline || original.baseline === baseline) return true;
     const result = rebaselineGuidance(original, categories, source, baseline, original.scope);
-    try {
-      // Never replace an earlier recovery point, even across repeated renewals.
-      const prefix = `${this.key}:pre-renewal:`;
-      let suffix = Date.now();
-      while (this.storage.getItem(prefix + suffix) !== null) suffix++;
-      this.storage.setItem(
-        prefix + suffix,
-        JSON.stringify({ document: original, revision: this.revision, pending: this.pending }),
-      );
-    } catch (error) {
-      this.set({
-        localError: `Guidance renewal backup failed: ${errorMessage(error)}. Guidance was not renewed.`,
+    this.renewalBackup ??=
+      this.storedRaw ??
+      JSON.stringify({
+        document: original,
+        revision: this.revision,
+        pending: this.pending,
       });
-      return false;
-    }
     this.change(result.document);
     this.set({
       proposalInput: result.document,
@@ -240,11 +261,10 @@ export class GuidancePersistence {
     const document = guidanceSchema.parse(input);
     if (document.scope !== this.state.document.scope)
       throw new Error('The guidance backup belongs to another dataset.');
-    this.change(document);
+    this.change(document, true);
     this.set({ proposalInput: document, planningRevision: this.state.planningRevision + 1 });
   }
   private change(document: GuidanceDocument, ownerEdit = false) {
-    this.pending = true;
     const input = this.state.proposalInput;
     const proposalInput =
       ownerEdit && input
@@ -266,10 +286,22 @@ export class GuidancePersistence {
       document,
       proposalInput,
       diskSaved: false,
+      browserSaved: false,
       planningRevision: this.state.planningRevision + (ownerEdit ? 1 : 0),
     });
+    if (ownerEdit) this.save();
+  }
+  // Called only by authored decisions/comments/imports, or an explicit Send.
+  save() {
+    this.authorizePersistence();
+    this.pending = true;
     this.cache();
     this.schedule();
+  }
+  private authorizePersistence() {
+    this.authoredDocument = this.state.document;
+    this.pendingBackup ??= this.renewalBackup;
+    this.renewalBackup = undefined;
   }
   private schedule() {
     if (!this.diskAvailable) return;
@@ -280,12 +312,13 @@ export class GuidancePersistence {
   }
   async flush() {
     clearTimeout(this.timer);
+    if (!this.authoredDocument) return;
     if (!this.diskAvailable) {
       this.cache();
       return;
     }
     if (!this.pending || this.state.saving || this.state.conflict || this.state.reloading) return;
-    const document = this.state.document;
+    const document = this.authoredDocument;
     this.set({ saving: true, error: null });
     try {
       const response = await this.request(this.endpoint, {
@@ -305,8 +338,8 @@ export class GuidancePersistence {
       )
         throw new Error('Disk save returned an invalid acknowledgement');
       this.revision = saved.revision;
-      this.pending = document !== this.state.document;
-      this.set({ diskSaved: !this.pending });
+      this.pending = document !== this.authoredDocument;
+      this.set({ diskSaved: !this.pending && document === this.state.document });
       this.cache();
     } catch (error) {
       this.set({
@@ -344,6 +377,7 @@ export class GuidancePersistence {
         error: null,
         diskSaved: !!disk.document,
       });
+      this.authorizePersistence();
       this.cache();
     } catch (error) {
       this.set({

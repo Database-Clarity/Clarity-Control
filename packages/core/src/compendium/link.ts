@@ -11,6 +11,7 @@ import {
 } from './config.js';
 import {
   compendiumSimilarity,
+  compendiumMatches,
   combineCompendiumMatches,
   normaliseCompendiumName,
   resolveCompendiumLink,
@@ -46,6 +47,9 @@ export function autoLinkCompendium(
   data: CompendiumData,
   now: string,
   tooltips: Record<string, Tooltip> = {},
+  // Batch consumers can share their existing alias-family index. Other callers
+  // retain the ordinary scan, including callers with mutable catalog inputs.
+  indexedFamily?: readonly CompendiumItem[],
 ): AutoLinkResult {
   const item = items[tooltip.hash];
   const name = item?.name ?? tooltip.custom?.name ?? String(tooltip.hash);
@@ -96,9 +100,9 @@ export function autoLinkCompendium(
           candidates: matches.map((match) => ({ ...match, similarity: 1 })),
         };
   }
-  const family = Object.values(items).filter(
-    (entry) => resolveAlias(entry.hash, aliases) === tooltip.hash,
-  );
+  const family =
+    indexedFamily ??
+    Object.values(items).filter((entry) => resolveAlias(entry.hash, aliases) === tooltip.hash);
   const base = item?.baseHash === undefined ? undefined : items[item.baseHash];
   const names = new Set(
     [
@@ -110,11 +114,9 @@ export function autoLinkCompendium(
     ].filter((value): value is string => !!value),
   );
   const normalized = new Set([...names].map(normaliseCompendiumName));
-  const all = data.tabs
-    .filter((tab) => isTrackedCompendiumTab(tab.name))
-    .flatMap((tab) => tab.rows.map((row) => ({ tab, row })));
+  const all = compendiumMatches(data);
   const preferred = compendiumPreferredTabs(category, name);
-  function matches(rows: CompendiumMatch[]): CompendiumMatch[] {
+  function matches(rows: readonly CompendiumMatch[]): CompendiumMatch[] {
     const direct = rows.filter(({ row }) =>
       compendiumIdentifiers(row.name).some((identifier) => identifier === name),
     );
@@ -162,7 +164,10 @@ export function autoLinkCompendium(
     };
   const english = tooltip.text.en?.text ?? '';
   const candidates = (found.length ? found : all)
-    .map((match) => ({ ...match, similarity: compendiumSimilarity(english, match.row.cell.plain) }))
+    .map((match) => ({
+      ...match,
+      similarity: compendiumSimilarity(english, match.row.cell.plain, found.length ? 0 : 0.6),
+    }))
     .filter((candidate) => found.length || candidate.similarity >= 0.6)
     .sort(
       (a, b) =>

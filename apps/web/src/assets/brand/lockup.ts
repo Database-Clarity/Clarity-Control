@@ -4,6 +4,8 @@
  * (lockup-j75-*.svg is kept) or at final artwork. Brand.tsx and CSS do not change.
  * Source artwork is the owner's, exported from the design round (overhaul-r3-fable/shots/lockups-svg).
  * Light is the outlined version, not an inversion of dark.
+ * 2026-11-04: the Control word was rebuilt at Clarity's own scale (lowercase x-height 413.5, Orbitron 800), with
+ * the bar lifted into the i-dot band; the viewBox is 6005 x 1020 (was 5512), so the header lockup is ~9% wider.
  */
 import dark from './lockup-k75-dark.svg';
 import light from './lockup-k75-light.svg';

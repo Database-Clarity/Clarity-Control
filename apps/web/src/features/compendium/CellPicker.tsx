@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import {
   compendiumCellAt,
   selectCompendiumCells,
@@ -9,12 +9,14 @@ import {
   type CompendiumCellOffset,
   type CompendiumMatch,
   type CompendiumData,
+  type CompendiumGridCell,
 } from '@clarity/core';
 import { confirmCompendiumSelection } from './selection';
 import { Multiline, RichCell } from './RichCell';
+import { phoneQuery, useMedia } from '../../ui/useMedia';
 import styles from './Compendium.module.scss';
 
-export function CellPicker({
+export const CellPicker = memo(function CellPicker({
   tab,
   data,
   initial,
@@ -29,6 +31,7 @@ export function CellPicker({
   referenceOnly?: boolean;
   onChoose(match: CompendiumMatch): void;
 }) {
+  const phone = useMedia(phoneQuery);
   const list = useRef<HTMLDivElement>(null);
   const returnCell = useRef('');
   const [detail, setDetail] = useState<{ row: number; col: number }>();
@@ -38,7 +41,7 @@ export function CellPicker({
       list.current
         ?.querySelector<HTMLButtonElement>(`[data-cell-address="${returnCell.current}"]`)
         ?.focus();
-  }, [detail]);
+  }, [detail, phone]);
   const [anchor, setAnchor] = useState<CompendiumPosition | undefined>(initial?.anchor);
   const [query, setQuery] = useState('');
   const [offsets, setOffsets] = useState<CompendiumCellOffset[]>([]);
@@ -61,6 +64,29 @@ export function CellPicker({
   const selection =
     preview && row ? { tab, row: { ...row, cell: preview }, cells: offsets } : undefined;
   const accepted = selection && confirmCompendiumSelection(selection, data);
+  const firstRow = Math.max(1, (anchor?.row ?? 1) - 8);
+  const lastRow = (anchor?.row ?? 1) + 8;
+  const columns = useMemo(
+    () => Math.max(1, ...(tab.grid ?? []).map((entry) => entry.col + (entry.colSpan ?? 1))),
+    [tab],
+  );
+  const visibleCells = useMemo(() => {
+    const cells = new Map<string, CompendiumGridCell>();
+    if (phone) return cells;
+    // One sheet scan, preserving compendiumCellAt's first-cell precedence and merged spans.
+    // Avoid scanning the entire grid again for every coordinate in the visible window.
+    for (const entry of tab.grid ?? []) {
+      const start = Math.max(firstRow, entry.row);
+      const end = Math.min(lastRow, entry.row + (entry.rowSpan ?? 1) - 1);
+      for (let row = start; row <= end; row++) {
+        for (let col = entry.col; col < entry.col + (entry.colSpan ?? 1); col++) {
+          const key = `${row}:${col}`;
+          if (!cells.has(key)) cells.set(key, entry);
+        }
+      }
+    }
+    return cells;
+  }, [tab, firstRow, lastRow, phone]);
   if (!tab.grid)
     return <p>This dataset has no sheet grid. Refresh the dataset to pick description cells.</p>;
   const hits = query.trim()
@@ -68,9 +94,6 @@ export function CellPicker({
         entry.cell.plain.toLowerCase().includes(query.trim().toLowerCase()),
       )
     : [];
-  const firstRow = Math.max(1, (anchor?.row ?? 1) - 8);
-  const lastRow = (anchor?.row ?? 1) + 8;
-  const columns = Math.max(1, ...tab.grid.map((entry) => entry.col + (entry.colSpan ?? 1)));
   function pickAnchor(position: CompendiumPosition) {
     setAnchor(position);
     setOffsets([]);
@@ -99,84 +122,96 @@ export function CellPicker({
             Name anchor: {row?.name}. Select description cells in reading order; click again to
             remove. Numbers show selection order.
           </p>
-          <div ref={list} className={styles.phoneCells} aria-label="Description cell list">
-            {detail ? (
-              <section aria-label="Cell detail">
-                <button type="button" onClick={() => setDetail(undefined)}>
-                  Back to cells
-                </button>
-                <p>
-                  Row {detail.row}, column {detail.col + 1}
-                </p>
-                {(() => {
-                  const entry = compendiumCellAt(tab, detail);
-                  if (!entry) return null;
-                  const offset = { dRow: entry.row - anchor.row, dCol: entry.col - anchor.col };
-                  const selected = offsets.findIndex(
-                    (value) => value.dRow === offset.dRow && value.dCol === offset.dCol,
-                  );
-                  return (
-                    <>
-                      <RichCell cell={entry.cell} />
+          {phone && (
+            <div ref={list} className={styles.phoneCells} aria-label="Description cell list">
+              {detail ? (
+                <section aria-label="Cell detail">
+                  <button type="button" onClick={() => setDetail(undefined)}>
+                    Back to cells
+                  </button>
+                  <p>
+                    Row {detail.row}, column {detail.col + 1}
+                  </p>
+                  {(() => {
+                    const entry = compendiumCellAt(tab, detail);
+                    if (!entry) return null;
+                    const offset = { dRow: entry.row - anchor.row, dCol: entry.col - anchor.col };
+                    const selected = offsets.findIndex(
+                      (value) => value.dRow === offset.dRow && value.dCol === offset.dCol,
+                    );
+                    return (
+                      <>
+                        <RichCell cell={entry.cell} />
+                        <button
+                          type="button"
+                          aria-pressed={selected >= 0}
+                          disabled={selected < 0 && offsets.length >= 256}
+                          onClick={() =>
+                            setOffsets(
+                              selected >= 0
+                                ? offsets.filter((_, i) => i !== selected)
+                                : [...offsets, offset],
+                            )
+                          }
+                        >
+                          {selected >= 0 ? `Remove cell (${selected + 1})` : 'Select cell next'}
+                        </button>
+                      </>
+                    );
+                  })()}
+                </section>
+              ) : (
+                tab.grid
+                  .filter((entry) => entry.row >= firstRow && entry.row <= lastRow)
+                  .map((entry) => {
+                    const selected = offsets.findIndex(
+                      (value) =>
+                        value.dRow === entry.row - anchor.row &&
+                        value.dCol === entry.col - anchor.col,
+                    );
+                    return (
                       <button
                         type="button"
-                        aria-pressed={selected >= 0}
-                        disabled={selected < 0 && offsets.length >= 256}
-                        onClick={() =>
-                          setOffsets(
-                            selected >= 0
-                              ? offsets.filter((_, i) => i !== selected)
-                              : [...offsets, offset],
-                          )
-                        }
+                        key={`${entry.row}:${entry.col}`}
+                        data-cell-address={`${entry.row}:${entry.col}`}
+                        onClick={() => {
+                          returnCell.current = `${entry.row}:${entry.col}`;
+                          setDetail({ row: entry.row, col: entry.col });
+                        }}
                       >
-                        {selected >= 0 ? `Remove cell (${selected + 1})` : 'Select cell next'}
+                        Row {entry.row}, column {entry.col + 1}
+                        {selected >= 0 ? ` (${selected + 1})` : ''}:{' '}
+                        <Multiline>{entry.cell.plain.slice(0, 160)}</Multiline>
                       </button>
-                    </>
-                  );
-                })()}
-              </section>
-            ) : (
-              tab.grid
-                .filter((entry) => entry.row >= firstRow && entry.row <= lastRow)
-                .map((entry) => {
-                  const selected = offsets.findIndex(
-                    (value) =>
-                      value.dRow === entry.row - anchor.row &&
-                      value.dCol === entry.col - anchor.col,
-                  );
-                  return (
-                    <button
-                      type="button"
-                      key={`${entry.row}:${entry.col}`}
-                      data-cell-address={`${entry.row}:${entry.col}`}
-                      onClick={() => {
-                        returnCell.current = `${entry.row}:${entry.col}`;
-                        setDetail({ row: entry.row, col: entry.col });
-                      }}
-                    >
-                      Row {entry.row}, column {entry.col + 1}
-                      {selected >= 0 ? ` (${selected + 1})` : ''}:{' '}
-                      <Multiline>{entry.cell.plain.slice(0, 160)}</Multiline>
-                    </button>
-                  );
-                })
-            )}
-          </div>
-          <div
-            className={styles.sheetScroll}
-            role="region"
-            aria-label="Sheet cells around the name anchor"
-            tabIndex={0}
-          >
-            <table className={styles.sheet}>
-              <tbody>
-                {Array.from({ length: lastRow - firstRow + 1 }, (_, index) => firstRow + index).map(
-                  (rowNumber) => (
+                    );
+                  })
+              )}
+            </div>
+          )}
+          {!phone && (
+            <div
+              className={styles.sheetScroll}
+              role="region"
+              aria-label="Sheet cells around the name anchor"
+              tabIndex={0}
+            >
+              <table
+                className={styles.sheet}
+                style={{ tableLayout: 'fixed', width: `${5 + columns * 14}rem` }}
+              >
+                <colgroup>
+                  <col style={{ width: '5rem' }} />
+                  <col span={columns} style={{ width: '14rem' }} />
+                </colgroup>
+                <tbody>
+                  {Array.from(
+                    { length: lastRow - firstRow + 1 },
+                    (_, index) => firstRow + index,
+                  ).map((rowNumber) => (
                     <tr key={rowNumber}>
                       <th scope="row">{rowNumber}</th>
                       {Array.from({ length: columns }, (_, col) => {
-                        const entry = compendiumCellAt(tab, { row: rowNumber, col });
+                        const entry = visibleCells.get(`${rowNumber}:${col}`);
                         if (
                           entry &&
                           (col !== entry.col || rowNumber !== Math.max(firstRow, entry.row))
@@ -221,11 +256,11 @@ export function CellPicker({
                         );
                       })}
                     </tr>
-                  ),
-                )}
-              </tbody>
-            </table>
-          </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           <p>{offsets.length} selected</p>
           {preview && (
             <div className={styles.cell}>
@@ -258,4 +293,4 @@ export function CellPicker({
       {!anchor && <p>Search for the item name, then choose its anchor cell.</p>}
     </section>
   );
-}
+});

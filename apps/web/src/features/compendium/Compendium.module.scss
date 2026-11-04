@@ -4,6 +4,8 @@
 // ---- the editor page's Compendium pane (header and scroll live in ui/RightPane) ----
 // CSS zoom on the pane body is the device's Compendium scale; the header never scales.
 .zoom {
+  font-family: Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', sans-serif;
+  contain: content;
   min-width: 0;
   padding-bottom: 0.5rem;
   font-size: 0.8125rem;
@@ -242,12 +244,17 @@
   font-size: 0.75rem;
 }
 .rows {
+  contain: content;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   list-style: none;
   padding: 0;
   max-height: 24rem;
   overflow: auto;
 }
 .rows li {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 2.25rem;
   padding: 0.5rem;
   border-bottom: 1px solid #454c5a;
 }
@@ -255,6 +262,9 @@
   overflow-wrap: anywhere;
 }
 @media (max-width: 700px) {
+  .rows li {
+    contain-intrinsic-size: auto 3.875rem;
+  }
   .rows a {
     display: inline-flex;
     align-items: center;
@@ -307,6 +317,11 @@
 }
 
 .sheetScroll {
+  contain: content;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 36rem;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   max-width: 100%;
   max-height: 36rem;
   overflow: auto;

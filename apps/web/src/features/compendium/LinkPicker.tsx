@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  compendiumIdentifiers,
   compendiumNameVariants,
   compendiumPreferredTabs,
   normaliseCompendiumName,
@@ -19,6 +18,7 @@ import { mayDraftLink } from './reviewQueue';
 import { useAuthStore } from '../../stores/auth';
 import { useSaveState } from '../../services/save/state';
 import { apiUrl } from '../../services/api';
+import { pickerRowIndex, pickerRows } from './pickerRows';
 
 export function LinkPicker({
   base,
@@ -45,28 +45,15 @@ export function LinkPicker({
   const locked = useSaveState((state) => state.locked);
   const canEdit =
     !readOnly && (!!onReference || mayDraftLink(user?.role, !!apiUrl, hydrated, locked));
-  const [section, setSection] = useState('');
-  const updateDraft = useDraftStore((state) => state.updateDraft);
-  const [anchorRow, setAnchorRow] = useState<CompendiumMatch['row']>();
-  const [gid, setGid] = useState('');
-  const [query, setQuery] = useState(name);
-  const [visited, setVisited] = useState<
-    Record<string, { gid: string; row?: CompendiumMatch['row'] }>
-  >({});
-  const cellKey = `${gid}:${anchorRow?.rowIndex}:${anchorRow?.anchor?.col}`;
-  useEffect(() => {
-    if (gid)
-      setVisited((old) => (old[cellKey] ? old : { ...old, [cellKey]: { gid, row: anchorRow } }));
-  }, [gid, anchorRow, cellKey]);
-  const [error, setError] = useState<string | null>(null);
   const preferenceKey = `clarity-compendium-tab:${category}`;
-  useEffect(() => {
-    if (!data) return;
+  const initial = useMemo(() => {
+    if (!data) return { gid: '', section: '', query: name, row: undefined, error: null };
     let remembered: string | null = null;
+    let storageError: string | null = null;
     try {
       remembered = localStorage.getItem(preferenceKey);
     } catch (error) {
-      setError(`Cannot read remembered tab: ${errorMessage(error)}`);
+      storageError = `Cannot read remembered tab: ${errorMessage(error)}`;
     }
     const names = compendiumNameVariants(category, name).map(normaliseCompendiumName);
     const preferred = compendiumPreferredTabs(category, name);
@@ -78,9 +65,9 @@ export function LinkPicker({
       })
       .find((tab) =>
         tab.rows.some((row) =>
-          compendiumIdentifiers(row.name).some((identifier) =>
-            names.includes(normaliseCompendiumName(identifier)),
-          ),
+          pickerRowIndex(tab)
+            .details.get(row)!
+            .identifiers.some((identifier) => names.includes(identifier)),
         ),
       );
     const initialGid =
@@ -89,48 +76,61 @@ export function LinkPicker({
       data.tabs.find((tab) => preferred.includes(tab.gid))?.gid ??
       data.tabs.find((tab) => tab.rows.length || tab.grid?.length)?.gid ??
       '';
-    setGid(initialGid);
     const initialTab = data.tabs.find((tab) => tab.gid === initialGid);
     const initialSection = categorySuggestions(data, category, name).find(
       (hint) => hint.gid === initialGid,
     )?.section;
     const exactRow = initialTab?.rows.find((row) =>
-      names.includes(normaliseCompendiumName(row.name)),
+      names.includes(pickerRowIndex(initialTab!).details.get(row)!.name),
     );
-    setSection(exactRow ? '' : (initialSection ?? ''));
-    setAnchorRow(
-      exactRow ??
+    return {
+      gid: initialGid,
+      section: exactRow ? '' : (initialSection ?? ''),
+      query: exactRow ? name : '',
+      row:
+        exactRow ??
         (initialSection
           ? initialTab?.rows.find((row) => row.section === initialSection)
           : undefined),
-    );
-    if (!exactRow) setQuery('');
+      error: storageError,
+    };
   }, [data, name, category, preferenceKey]);
-  const rows = useMemo(() => {
-    const searches = compendiumNameVariants(category, query).map(normaliseCompendiumName);
-    const exact = (name: string) =>
-      compendiumIdentifiers(name).some((identifier) =>
-        searches.includes(normaliseCompendiumName(identifier)),
-      );
-    return (
-      data?.tabs
-        .find((tab) => tab.gid === gid)
-        ?.rows.filter((row) => !section || row.section === section)
-        .filter(
-          (row) =>
-            !query.trim() ||
-            searches.some((search) =>
-              normaliseCompendiumName(`${row.name} ${row.section ?? ''}`).includes(search),
-            ),
-        )
-        .sort(
-          (a, b) =>
-            Number(exact(b.name)) - Number(exact(a.name)) ||
-            a.name.localeCompare(b.name) ||
-            a.rowIndex - b.rowIndex,
-        ) ?? []
-    );
-  }, [data, gid, query, category, section]);
+  const [initialized, setInitialized] = useState(initial);
+  const [section, setSection] = useState(initial.section);
+  const updateDraft = useDraftStore((state) => state.updateDraft);
+  const [anchorRow, setAnchorRow] = useState<CompendiumMatch['row'] | undefined>(initial.row);
+  const [gid, setGid] = useState(initial.gid);
+  const [query, setQuery] = useState(initial.query);
+  const [error, setError] = useState<string | null>(initial.error);
+  if (initialized !== initial) {
+    // Reconcile a reopened picker before committing any stale entry or empty sheet.
+    setInitialized(initial);
+    setGid(initial.gid);
+    setSection(initial.section);
+    setAnchorRow(initial.row);
+    setQuery(initial.query);
+    setError(initial.error);
+  }
+  const [visited, setVisited] = useState<
+    Record<string, { gid: string; row?: CompendiumMatch['row'] }>
+  >({});
+  const cellKey = `${gid}:${anchorRow?.rowIndex}:${anchorRow?.anchor?.col}`;
+  const sheets =
+    visited[cellKey] || !gid ? visited : { ...visited, [cellKey]: { gid, row: anchorRow } };
+  useEffect(() => {
+    if (gid)
+      setVisited((old) => (old[cellKey] ? old : { ...old, [cellKey]: { gid, row: anchorRow } }));
+  }, [gid, anchorRow, cellKey]);
+  const { rows, exact } = useMemo(
+    () =>
+      pickerRows(
+        data?.tabs.find((tab) => tab.gid === gid),
+        category,
+        query,
+        section,
+      ),
+    [data, gid, category, query, section],
+  );
   function choose(match: CompendiumMatch) {
     if (!canEdit) return;
     const link = data && confirmCompendiumSelection(match, data);
@@ -153,6 +153,9 @@ export function LinkPicker({
     }
     onLinked();
   }
+  const chooseCurrent = useRef(choose);
+  chooseCurrent.current = choose;
+  const chooseLatest = useCallback((match: CompendiumMatch) => chooseCurrent.current(match), []);
   if (!data) return null;
   const tab = data.tabs.find((tab) => tab.gid === gid);
   return (
@@ -247,11 +250,7 @@ export function LinkPicker({
           rows.slice(0, 100).map((row) => (
             <li key={`${row.rowIndex}:${row.name}`}>
               <button type="button" disabled={!canEdit} onClick={() => choose({ tab, row })}>
-                {compendiumIdentifiers(row.name).some((identifier) =>
-                  compendiumNameVariants(category, query)
-                    .map(normaliseCompendiumName)
-                    .includes(normaliseCompendiumName(identifier)),
-                ) && 'Exact match: '}
+                {exact.has(row) && 'Exact match: '}
                 {row.name} {row.section && ` / ${row.section}`} <small>(row {row.rowIndex})</small>
               </button>
               <button type="button" onClick={() => setAnchorRow(row)}>
@@ -260,7 +259,7 @@ export function LinkPicker({
             </li>
           ))}
       </ul>
-      {Object.entries(visited).map(([key, saved]) => {
+      {Object.entries(sheets).map(([key, saved]) => {
         const savedTab = data.tabs.find((entry) => entry.gid === saved.gid);
         return (
           savedTab && (
@@ -269,7 +268,7 @@ export function LinkPicker({
                 tab={savedTab}
                 data={data}
                 initial={saved.row}
-                onChoose={choose}
+                onChoose={chooseLatest}
                 readOnly={!canEdit}
                 referenceOnly={!!onReference}
               />
