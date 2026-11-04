@@ -57,6 +57,12 @@
   content-visibility: hidden;
 }
 
+// Large inserted paragraphs should paint a simple underline, rather than
+// computing a glyph-outline intersection for every descender.
+.revision .diff ins {
+  text-decoration-skip-ink: none;
+}
+
 .commits {
   list-style: none;
   margin: 0;
