@@ -57,7 +57,13 @@ type Request = {
 const initialChunks = new Map<number, Uint8Array[]>();
 let queue = Promise.resolve();
 let planning: Promise<typeof import('./matchingSessionPlanning')> | undefined;
-const planningModules = () => (planning ??= import('./matchingSessionPlanning'));
+const planningModules = () =>
+  (planning ??= Promise.all([
+    // Every plan needs these facts. Discover the leaf alongside its consumers,
+    // so a late worker-module fetch cannot serialize behind source parsing.
+    import('./manifest-facts.json'),
+    import('./matchingSessionPlanning'),
+  ]).then(([, module]) => module));
 function measured<T>(name: string, compute: () => T): T {
   const start = performance.now();
   const value = compute();
