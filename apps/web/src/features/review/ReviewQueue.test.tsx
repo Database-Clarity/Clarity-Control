@@ -12,10 +12,15 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
   const root = createRoot(host);
   const heightRead = vi.spyOn(Element.prototype, 'clientHeight', 'get');
   heightRead.mockImplementation(function (this: Element) {
-    if (this.hasAttribute('data-review-row-size')) return 64;
+    if (this.hasAttribute('data-review-row-size')) return 69;
     if (this.getAttribute('aria-label') === 'Scroll pending saved changes') return 1600;
     return 0;
   });
+  const rowBounds = vi
+    .spyOn(Element.prototype, 'getBoundingClientRect')
+    .mockImplementation(function (this: Element) {
+      return { height: this.hasAttribute('data-review-row-size') ? 69.12 : 0 } as DOMRect;
+    });
   const changes = Array.from({ length: 2500 }, (_, hash) => ({
     hash,
     name: `Tooltip ${hash}`,
@@ -44,6 +49,7 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
     const scroller = host.querySelector<HTMLElement>(
       '[aria-label="Scroll pending saved changes"]',
     )!;
+    expect(scroller.scrollTop).toBeCloseTo(1800 * 69.12);
     const renderedBottom = Math.max(
       ...[...host.querySelectorAll<HTMLElement>('li')].map(
         (row) => Number.parseFloat(row.style.top) + Number.parseFloat(row.style.height),
@@ -103,5 +109,6 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
     host.remove();
     vi.unstubAllGlobals();
     heightRead.mockRestore();
+    rowBounds.mockRestore();
   }
 });

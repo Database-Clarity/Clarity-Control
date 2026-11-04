@@ -51,7 +51,7 @@ export function ReviewQueue({
     // Bootstrap the exact window before its first paint. Observer notifications
     // handle later resizes; selection and scrolling use the cached bounds.
     const height = host.current!.clientHeight;
-    const row = sizer.current!.clientHeight;
+    const row = sizer.current!.getBoundingClientRect().height;
     if (height) setViewport((previous) => ({ ...previous, height }));
     if (row) setRowHeight(row);
   }, []);
