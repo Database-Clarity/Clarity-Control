@@ -78,7 +78,10 @@ it('loads both histories only when the collapsed row opens', async () => {
   expect(host.querySelector('ol')).toBeNull();
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
   expect(host.querySelectorAll('ol li')).toHaveLength(3);
-  expect(getLegacyHistory).toHaveBeenCalledWith(10, expect.any(AbortSignal));
+  expect(getLegacyHistory).not.toHaveBeenCalled();
+  await act(async () =>
+    vi.waitFor(() => expect(getLegacyHistory).toHaveBeenCalledWith(10, expect.any(AbortSignal))),
+  );
 });
 
 it('says 30+ when a full page of commits came back', async () => {
@@ -98,6 +101,28 @@ it('does not ask the server when signed out, and says so when expanded', async (
   expect(host.textContent).toContain('Edited');
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
   expect(host.textContent).toContain('Sign in as a configured member');
+  expect(host.textContent).not.toContain('No commits found');
+});
+
+it('skips legacy fetches for tooltips passed during fast navigation', async () => {
+  getHistory.mockResolvedValue({ page: 1, commits: [] });
+  vi.useFakeTimers();
+  try {
+    await act(async () => root.render(<HistoryPanel hash={10} />));
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+    for (const hash of [11, 12, 13, 14]) {
+      await act(async () => {
+        vi.advanceTimersByTime(30);
+        root.render(<HistoryPanel hash={hash} />);
+      });
+    }
+    expect(getLegacyHistory).not.toHaveBeenCalled();
+    await act(async () => vi.advanceTimersByTime(150));
+    expect(getLegacyHistory).toHaveBeenCalledTimes(1);
+    expect(getLegacyHistory).toHaveBeenCalledWith(14, expect.any(AbortSignal));
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it('uses one list request across expansion and refreshes stale rows on reopening', async () => {

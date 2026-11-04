@@ -7,21 +7,29 @@ import {
   type LegacyLane,
 } from '../../services/legacyHistory';
 import { HistoryEntry } from './HistoryEntry';
+import { useAuthStore } from '../../stores/auth';
+import { useDataStore } from '../../stores/data';
+import { useDraftStore } from '../../stores/drafts';
+import { replaceDraft } from '../../services/save/drafts';
+import { restoreLegacyText } from './revert';
 import styles from './History.module.scss';
 
-export function LegacyHistory({
-  hash,
-  current,
-  canRestore,
-  translator,
-  onRestore,
-}: {
-  hash: number;
-  current?: Tooltip;
-  canRestore: boolean;
-  translator: boolean;
-  onRestore(version: Tooltip): void;
-}) {
+export function LegacyHistory({ hash, readOnly = false }: { hash: number; readOnly?: boolean }) {
+  const user = useAuthStore((state) => state.user);
+  const base = useDataStore((state) => state.data?.bundle.tooltips[hash]);
+  const draft = useDraftStore((state) => state.drafts[hash]);
+  const hydrated = useDraftStore((state) => state.hydrated);
+  const current = draft?.next ?? base;
+  const canRestore = !readOnly && hydrated && Boolean(base && user?.role);
+  const translator = user?.role === 'translator';
+  const [notice, setNotice] = useState<string>();
+  const onRestore = (version: Tooltip) => {
+    if (!base || !current || !user || !canRestore) return;
+    replaceDraft(base, restoreLegacyText(current, version, user, version.hash === hash));
+    setNotice(
+      'Published text loaded as a local draft. Review it and use Save; nothing was saved automatically.',
+    );
+  };
   const [history, setHistory] = useState<History | null>();
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -30,18 +38,24 @@ export function LegacyHistory({
     const controller = new AbortController();
     setHistory(undefined);
     setError(false);
-    void getLegacyHistory(hash, controller.signal).then(
-      (value) => active && setHistory(value),
-      () => active && setError(true),
-    );
+    // An open panel may survive fast tooltip navigation. Only fetch the item
+    // that the user dwells on; skipped items do not need public history.
+    const timer = window.setTimeout(() => {
+      void getLegacyHistory(hash, controller.signal).then(
+        (value) => active && setHistory(value),
+        () => active && setError(true),
+      );
+    }, 150);
     return () => {
       active = false;
+      window.clearTimeout(timer);
       controller.abort();
     };
   }, [hash, attempt]);
   return (
-    <section aria-label="Published before migration">
+    <section aria-label="Published before migration" className={styles.historySection}>
       <h4>Published before migration</h4>
+      {notice && <p role="status">{notice}</p>}
       {error ? (
         <p>
           Published history is unavailable offline or could not be loaded.{' '}

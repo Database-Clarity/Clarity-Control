@@ -13,7 +13,7 @@ import { When } from '../../ui/When';
 import { lastEdit } from './lastEdit';
 import { itemFor } from '../navigation/catalog';
 import { useRevisionCache, type RevisionCache } from './revisions';
-import { revertDraft, restoreLegacyText } from './revert';
+import { revertDraft } from './revert';
 import { LegacyHistory } from './LegacyHistory';
 import styles from './History.module.scss';
 
@@ -71,21 +71,14 @@ export function HistoryPanel({ hash, readOnly = false }: { hash: number; readOnl
         )
       }
     >
-      {!signedIn ? <p>Sign in as a configured member to view this tooltip's history.</p> : null}
-      <HistoryContent key={cache.identity} hash={hash} readOnly={readOnly} signedIn={signedIn} />
+      {!signedIn ? <p>Sign in as a configured member to view v2 history.</p> : null}
+      {signedIn && <HistoryContent key={cache.identity} hash={hash} readOnly={readOnly} />}
+      <LegacyHistory key={hash} hash={hash} readOnly={readOnly} />
     </PanelRow>
   );
 }
 
-function HistoryContent({
-  hash,
-  readOnly = false,
-  signedIn,
-}: {
-  hash: number;
-  readOnly?: boolean;
-  signedIn: boolean;
-}) {
+function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: boolean }) {
   const user = useAuthStore((state) => state.user);
   const base = useDataStore((state) => state.data?.bundle.tooltips[hash]);
   const data = useDataStore((state) => state.data);
@@ -110,11 +103,6 @@ function HistoryContent({
   const [notice, setNotice] = useState<string>();
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    if (!signedIn) {
-      setLoading(false);
-      setHasMore(false);
-      return;
-    }
     const controller = new AbortController();
     setLoading(true);
     setError(undefined);
@@ -141,7 +129,7 @@ function HistoryContent({
       },
     );
     return () => controller.abort();
-  }, [cache, page, attempt, signedIn]);
+  }, [cache, page, attempt]);
   useEffect(() => {
     if (loading || !commits.length) return;
     let idle: number | undefined;
@@ -159,7 +147,7 @@ function HistoryContent({
     };
   }, [cache, commits, loading]);
   const current = draft?.next ?? base;
-  const canRestore = !readOnly && signedIn && hydrated && Boolean(base);
+  const canRestore = !readOnly && hydrated && Boolean(base);
 
   const restore = useCallback(
     (version: Tooltip) => {
@@ -174,7 +162,7 @@ function HistoryContent({
   );
 
   return (
-    <section aria-label={`History for ${hash}`}>
+    <section aria-label={`History for ${hash}`} className={styles.historySection}>
       {error && (
         <p role="alert">
           {error}{' '}
@@ -210,19 +198,6 @@ function HistoryContent({
           Load more commits
         </button>
       )}
-      <LegacyHistory
-        hash={hash}
-        current={current}
-        canRestore={canRestore}
-        translator={user?.role === 'translator'}
-        onRestore={(version) => {
-          if (!base || !current || !user || !canRestore) return;
-          replaceDraft(base, restoreLegacyText(current, version, user, version.hash === hash));
-          setNotice(
-            'Published text loaded as a local draft. Review it and use Save; nothing was saved automatically.',
-          );
-        }}
-      />
     </section>
   );
 }

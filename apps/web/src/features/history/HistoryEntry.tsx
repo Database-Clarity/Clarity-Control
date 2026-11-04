@@ -348,6 +348,12 @@ function RevisionPopover({
             <span>
               <CommitAuthor entry={entry} /> <code>{entry.commit.slice(0, 8)}</code>
             </span>
+            {legacy && mode === 'previous' && index > 0 && (
+              <span>
+                Next published state: <CommitAuthor entry={commits[index - 1]} />{' '}
+                <code>{commits[index - 1].commit.slice(0, 8)}</code>
+              </span>
+            )}
           </span>
           <button
             type="button"
