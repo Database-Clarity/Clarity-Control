@@ -79,6 +79,89 @@ Physical cell decomposition and cooldown sharing do **not** establish item ident
 A suggestion requires trigram Dice >=0.98 and a best/runner-up gap >=0.15. The suggested row is selected for explicit Confirm / Choose another; until confirmation it remains a repair, cannot mark reviewed, and blocks English saves. Confirmation creates a local draft with the new identity. Auto-link reports and the review queue retain the suggested row first among candidates; queue confirmation is explicit and suggestions never enter bulk acceptance. Ordered manual offsets are evaluated at each possible anchor; incomplete selections are excluded and configured descriptions never substitute for an override.
 Calibration: `relink-calibration.test.ts` evaluates the 2026-10-30 reviewed-source and 2026-10-31 frozen-matcher sheets. No same-identity changed descriptions exist in their overlap; this is rename-simulation evidence, not observed rename precision. For 52 frozen current rows, punctuation, final-word deletion and numeric changes yield 155 rename-like cases plus 155 absent-identity negatives. Threshold sweep 0.85–0.98 / margin 0.05–0.15 had zero false suggestions; choose the strictest tested pair (0.98/0.15). Measured accepted-suggestion precision: 139/139 (100%); all 155 negatives withheld. The limited corpus does not establish live precision. Resolver, panel, queue and save-enricher tests cover identity/style/parts, duplicates, threshold/margin, cross-tab recovery, overrides and explicit confirmation.
 
+### Shipped display approvals and computed cache (2026-11-04)
+
+`approved-guidance.v1.json` is an immutable copy of the 117 references and frozen category
+membership from the read-only 2026-11-02 audit input
+`ccov-audit-42488/renewed-guidance.json`. It is an app asset, never editor-data, a saved link,
+or a new approval. `guidanceSchema` validates it; the existing `rebaselineGuidance` validator
+renews only unchanged entry/source evidence in memory. Meaningful local references/comments
+layer over their recorded categories, retaining baseline, membership and unresolved-reference
+gates. No owner browser or live guidance store is used to generate the shipped snapshot.
+The pinned original is `C:/Users/Seleo/AppData/Local/Temp/ccov-audit-42488/renewed-guidance.json`
+(SHA-256 `2cbb42830f8fbfcbb2304319f093358f4fafeae47da3cbf3ba599796fecadb86`).
+The committed JSON has identical parsed content; formatting changes its file hash.
+The audit editor/catalog input is `ccov-sol-high-20261102/inputs.json`; the refreshed audit
+source is `.agents/reports/compendium-baseline/compendium-8602377.json` in the coordination checkout.
+
+Both the pane and Matched sources tab consume the same read-only worker results. Only
+`action=link` with `confidence=high` or the existing explicit out-of-scope parent-link exceptions
+is displayed as Matched. The historical 2,067-link report includes 145 medium proposals:
+its display-eligible population is 1,905 high + 17 explicit parent exceptions = 1,922.
+Medium proposals remain proposals, never automatic pane matches. All four Collective entries
+were already withheld in that report. Current live inputs can yield fewer links when frozen
+membership or reference evidence no longer validates; the counts must not be conflated.
+
+Regenerate `precomputed.v1.json` with `node scripts/compendium-guidance/precompute.mjs` after
+any matching-rule/input change. The command reads public source/catalog/bundle plus shipped
+approvals and writes only that app asset. Its SHA-256 key covers all catalog definitions, aliases, tooltip evidence and tracked styled
+source tabs. Fetch/build timestamps, publication/account metadata and commit-only transport
+changes are excluded for pristine display; local guidance additionally keys by the current commit
+so stale baseline gates remain intact. Exact matches use the compact value table; changed inputs recompute
+using the same matcher in a module worker. IndexedDB caches results by input hash and compiled
+worker URL (including matcher code dependencies); blocked storage falls back to memory.
+Reload published data creates a new source identity. View navigation shares the in-memory
+session, so it neither parses the sheet nor restarts matching. Rich-cell interning/memoization
+and sheet paint containment preserve text, spans, merged-cell selections, styling and colours.
+
+Worker replies use the same value-table representation in one transferred UTF-8 buffer per
+result stage, with independently readable packets of 128 nodes inside. This preserves
+Map/undefined values, physical coordinates, full rich cells and structural sharing without a
+burst of structured-clone messages. Decoding runs in background-priority slices (idle callbacks
+where the scheduler API is unavailable) with a 2 ms budget, checks
+pending discrete and continuous input, and yields inside large array/map/object nodes. The complete,
+validated match map may publish before review metadata; partial review models never publish.
+Callbacks are scoped to the editor, source, account, draft/link evidence, local guidance/progress
+and request revision, so an older result cannot supply another context's automatic links.
+Worker review replies carry English evidence only; the UI restores original tooltip/draft
+identities and all translations from its authoritative editor store before any draft operation.
+Optional IndexedDB writes do not delay delivery. Memory serves pending writes, and persistent
+proposal caches retain their pristine display model as a pair, including on an immediate reload.
+Draft matching projects only link/classification metadata, caches unchanged draft entries and
+ignores live text; the review view overlays current draft English separately. Nearby sheet context
+is built only after its existing disclosure is opened; the approved description stays immediate.
+The generator also emits `precomputed.v1.json.gz`. Modern browsers fetch that 1.49 MB asset;
+the worker handles both HTTP-decoded and raw gzip responses. Browsers without native gzip
+decompression retain the JSON fallback. Review models are prepared across all entries in
+separate idle jobs, without using a selected route or predicted navigation sequence.
+Closed source-picker content retains its selections but stops reconciling entry changes;
+hidden visited sheets are memoized. Linked/unlinked lists render 100 entries at a time with
+an explicit continuation, rather than laying out thousands of invisible rows on first opening.
+The worker retains complete grids for matching and validation. Proposal/display replies carry
+compact tab metadata because the UI already owns the grid; confirmation still resolves every
+selected cell against that original source before creating a draft.
+
+The source loader and matcher now share one retained worker. It fetches, parses and validates
+the source once; that source is never cloned back into another matching worker. Editor input
+is serialized in bounded, yielding UTF-8 chunks and its ArrayBuffers are transferred. An
+editor reload replaces the initialized editor while retaining the worker's source. Unchanged
+focus/storage events compare stored content before parsing, and selection-only/empty guidance
+metadata changes do not invalidate matching. Same-window guidance/decision writes notify the
+shared input store; actual changes still withhold old matches until validation completes.
+
+Opening or navigating the review page derives its guidance category scaffold and baseline
+renewal in memory. It never persists approval data, including an empty guidance scope, or
+replays pending approval saves merely because the page mounted. Decisions, comments, imports,
+explicit retries, and Send to agents authorize a persistence snapshot. Later derived changes
+cannot alter that snapshot during an autosave acknowledgement or route teardown. The first
+explicit edit after renewal backs up the original stored bytes before replacing them; a failed
+backup leaves those original bytes intact. Queue selection, query, category, and filter are
+view state: unchanged values are skipped, writes coalesce at idle, and pagehide flushes them.
+
+Approval actions occupy normal layout space. The desktop entry footer has its own flex row;
+phone entry actions and sample actions follow their content. They never float over inspection
+links, disclosures, or other controls. The layout no longer measures action bars on mount.
+
 <!-- BEGIN GENERATED OWNER DECISIONS -->
 ## Maintainer decisions and exceptions (generated)
 
@@ -791,86 +874,3 @@ These are guarded template/import-closure rules, not generic parent-card approva
 - Deferred to separate work: manifest-removal archive and lost-tooltip checker/recovery. Root verified 153/159 cleared texts were never human-edited manifest copies; Ricochet Rounds contained the real sharper-angle addition. Concussion, Proximity and Remote Detonation history was manifest paraphrase. No archival, resurrection or history rewriting is performed by this matcher.
 
 <!-- END GENERATED OWNER DECISIONS -->
-
-### Shipped display approvals and computed cache (2026-11-04)
-
-`approved-guidance.v1.json` is an immutable copy of the 117 references and frozen category
-membership from the read-only 2026-11-02 audit input
-`ccov-audit-42488/renewed-guidance.json`. It is an app asset, never editor-data, a saved link,
-or a new approval. `guidanceSchema` validates it; the existing `rebaselineGuidance` validator
-renews only unchanged entry/source evidence in memory. Meaningful local references/comments
-layer over their recorded categories, retaining baseline, membership and unresolved-reference
-gates. No owner browser or live guidance store is used to generate the shipped snapshot.
-The pinned original is `C:/Users/Seleo/AppData/Local/Temp/ccov-audit-42488/renewed-guidance.json`
-(SHA-256 `2cbb42830f8fbfcbb2304319f093358f4fafeae47da3cbf3ba599796fecadb86`).
-The committed JSON has identical parsed content; formatting changes its file hash.
-The audit editor/catalog input is `ccov-sol-high-20261102/inputs.json`; the refreshed audit
-source is `.agents/reports/compendium-baseline/compendium-8602377.json` in the coordination checkout.
-
-Both the pane and Matched sources tab consume the same read-only worker results. Only
-`action=link` with `confidence=high` or the existing explicit out-of-scope parent-link exceptions
-is displayed as Matched. The historical 2,067-link report includes 145 medium proposals:
-its display-eligible population is 1,905 high + 17 explicit parent exceptions = 1,922.
-Medium proposals remain proposals, never automatic pane matches. All four Collective entries
-were already withheld in that report. Current live inputs can yield fewer links when frozen
-membership or reference evidence no longer validates; the counts must not be conflated.
-
-Regenerate `precomputed.v1.json` with `node scripts/compendium-guidance/precompute.mjs` after
-any matching-rule/input change. The command reads public source/catalog/bundle plus shipped
-approvals and writes only that app asset. Its SHA-256 key covers all catalog definitions, aliases, tooltip evidence and tracked styled
-source tabs. Fetch/build timestamps, publication/account metadata and commit-only transport
-changes are excluded for pristine display; local guidance additionally keys by the current commit
-so stale baseline gates remain intact. Exact matches use the compact value table; changed inputs recompute
-using the same matcher in a module worker. IndexedDB caches results by input hash and compiled
-worker URL (including matcher code dependencies); blocked storage falls back to memory.
-Reload published data creates a new source identity. View navigation shares the in-memory
-session, so it neither parses the sheet nor restarts matching. Rich-cell interning/memoization
-and sheet paint containment preserve text, spans, merged-cell selections, styling and colours.
-
-Worker replies use the same value-table representation in one transferred UTF-8 buffer per
-result stage, with independently readable packets of 128 nodes inside. This preserves
-Map/undefined values, physical coordinates, full rich cells and structural sharing without a
-burst of structured-clone messages. Decoding runs in background-priority slices (idle callbacks
-where the scheduler API is unavailable) with a 2 ms budget, checks
-pending discrete and continuous input, and yields inside large array/map/object nodes. The complete,
-validated match map may publish before review metadata; partial review models never publish.
-Callbacks are scoped to the editor, source, account, draft/link evidence, local guidance/progress
-and request revision, so an older result cannot supply another context's automatic links.
-Worker review replies carry English evidence only; the UI restores original tooltip/draft
-identities and all translations from its authoritative editor store before any draft operation.
-Optional IndexedDB writes do not delay delivery. Memory serves pending writes, and persistent
-proposal caches retain their pristine display model as a pair, including on an immediate reload.
-Draft matching projects only link/classification metadata, caches unchanged draft entries and
-ignores live text; the review view overlays current draft English separately. Nearby sheet context
-is built only after its existing disclosure is opened; the approved description stays immediate.
-The generator also emits `precomputed.v1.json.gz`. Modern browsers fetch that 1.49 MB asset;
-the worker handles both HTTP-decoded and raw gzip responses. Browsers without native gzip
-decompression retain the JSON fallback. Review models are prepared across all entries in
-separate idle jobs, without using a selected route or predicted navigation sequence.
-Closed source-picker content retains its selections but stops reconciling entry changes;
-hidden visited sheets are memoized. Linked/unlinked lists render 100 entries at a time with
-an explicit continuation, rather than laying out thousands of invisible rows on first opening.
-The worker retains complete grids for matching and validation. Proposal/display replies carry
-compact tab metadata because the UI already owns the grid; confirmation still resolves every
-selected cell against that original source before creating a draft.
-
-The source loader and matcher now share one retained worker. It fetches, parses and validates
-the source once; that source is never cloned back into another matching worker. Editor input
-is serialized in bounded, yielding UTF-8 chunks and its ArrayBuffers are transferred. An
-editor reload replaces the initialized editor while retaining the worker's source. Unchanged
-focus/storage events compare stored content before parsing, and selection-only/empty guidance
-metadata changes do not invalidate matching. Same-window guidance/decision writes notify the
-shared input store; actual changes still withhold old matches until validation completes.
-
-Opening or navigating the review page derives its guidance category scaffold and baseline
-renewal in memory. It never persists approval data, including an empty guidance scope, or
-replays pending approval saves merely because the page mounted. Decisions, comments, imports,
-explicit retries, and Send to agents authorize a persistence snapshot. Later derived changes
-cannot alter that snapshot during an autosave acknowledgement or route teardown. The first
-explicit edit after renewal backs up the original stored bytes before replacing them; a failed
-backup leaves those original bytes intact. Queue selection, query, category, and filter are
-view state: unchanged values are skipped, writes coalesce at idle, and pagehide flushes them.
-
-Approval actions occupy normal layout space. The desktop entry footer has its own flex row;
-phone entry actions and sample actions follow their content. They never float over inspection
-links, disclosures, or other controls. The layout no longer measures action bars on mount.
