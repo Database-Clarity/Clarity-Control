@@ -130,6 +130,7 @@ export function* guidedDecisionSteps(
   scope: string,
   onlyHash?: number,
   sheetFingerprint = sourceFingerprint(source.tabs),
+  onlyCategory?: string,
 ): Generator<void, GuidedCategory[]> {
   const current = new Map(categories.map((category) => [category.id, category]));
   const globalUsable = new Map<number, GuidanceReference>();
@@ -151,7 +152,12 @@ export function* guidedDecisionSteps(
   }
   const groups: GuidedCategory[] = [];
   for (const record of Object.values(document.categories)) {
-    if (!record.active || (onlyHash !== undefined && !record.hashes.includes(onlyHash))) continue;
+    if (
+      !record.active ||
+      (onlyHash !== undefined && !record.hashes.includes(onlyHash)) ||
+      (onlyCategory !== undefined && record.id !== onlyCategory)
+    )
+      continue;
     const category = current.get(record.id);
     const entries = new Map(category?.entries.map((entry) => [entry.hash, entry]));
     const issues: string[] = [];

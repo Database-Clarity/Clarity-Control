@@ -4,9 +4,9 @@ import type { EditorData } from '../../stores/data';
 import type { Drafts } from '../../services/draftStorage';
 import { apiUrl } from '../../services/api';
 import { bundleUrl } from '../../services/bundle';
-import { compendiumDataUrl } from '../../services/compendium';
+import { pendingCompendiumWorker, compendiumDataUrl } from '../../services/compendium';
 import { guidanceResponseSchema } from './guidanceSchema';
-import { matchingSession } from './matchingSession';
+import { matchingSession, prewarmMatchingSession } from './matchingSession';
 import type { displayMatches } from './displayMatches';
 import { storedInputs, type StoredInputs } from './storedInputs';
 
@@ -113,8 +113,10 @@ export function useDisplayMatches(
     };
   }, []);
   useEffect(() => {
-    if (!editor || !source) return;
-    const previous = memory.get(editor)?.get(source);
+    if (!editor) return;
+    const bridge = !source ? pendingCompendiumWorker() : undefined;
+    if (!source && (!bridge || priorityHash === undefined)) return;
+    const previous = source ? memory.get(editor)?.get(source) : undefined;
     if (
       !import.meta.env.DEV &&
       previous?.evidence === evidence &&
@@ -137,8 +139,18 @@ export function useDisplayMatches(
           throw new Error('Local Compendium guidance conflicts with disk.');
         local = cached?.pending ? local : (disk.document ?? local);
       }
-      const session = matchingSession(editor, source);
+      const session = source
+        ? matchingSession(editor, source)
+        : bridge && prewarmMatchingSession(editor, bridge);
+      if (!session) return;
       const input = { drafts: matchingDrafts, progress: inputs.progress, local, scope };
+      // Queue intent while the source is still hydrating on the main thread.
+      // The retained worker already owns the complete source and editor inputs.
+      if (!source) {
+        if (priorityHash !== undefined)
+          void session.prioritize(input, priorityHash).catch(() => undefined);
+        return;
+      }
       const publish = (matches: Value['matches']) => {
         if (!cancelled)
           startTransition(() =>
@@ -168,7 +180,7 @@ export function useDisplayMatches(
           setResult({ editor, source, evidence, userId, inputs, revision, value }),
         );
     })().catch((error: unknown) => {
-      if (!cancelled)
+      if (!cancelled && source)
         setResult({
           editor,
           source,

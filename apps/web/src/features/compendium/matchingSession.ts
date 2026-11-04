@@ -190,11 +190,13 @@ export function prewarmMatchingSession(editor: EditorData, bridge: Bridge) {
   if (bridge.disposed) return;
   let byBridge = warming.get(editor);
   if (!byBridge) warming.set(editor, (byBridge = new WeakMap()));
-  if (byBridge.has(bridge)) return;
+  const existing = byBridge.get(bridge);
+  if (existing) return existing;
   const cache = byBridge;
   const session = createSession(editor, undefined, bridge, () => cache.delete(bridge));
   cache.set(bridge, session);
   void session.proposals.catch(() => cache.delete(bridge));
+  return session;
 }
 
 export function peekMatchingSession(editor: EditorData, source: CompendiumData) {

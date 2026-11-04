@@ -27,8 +27,42 @@ export function prepareMatchingPlan(
   fingerprint = matchingSessionFingerprint(source.tabs),
 ) {
   const baseline = `${editor.bundle.sourceCommit}|${fingerprint}`;
-  const evidence = reviewEvidence(editor, source, input.drafts, fingerprint);
-  const shipped = guidanceSchema.parse(approvedInput);
+  const approvedDocument = guidanceSchema.parse(approvedInput);
+  const relevant =
+    onlyHash === undefined
+      ? undefined
+      : new Set(
+          [approvedDocument, input.local].flatMap((document) =>
+            Object.values(document?.categories ?? {})
+              .filter((record) => record.hashes.includes(onlyHash))
+              .map((record) => record.id),
+          ),
+        );
+  const referencesFor = (
+    id: string,
+    references: NonNullable<(typeof approvedDocument.categories)[string]['references']>,
+  ) =>
+    !relevant || relevant.has(id)
+      ? references
+      : Object.fromEntries(
+          Object.entries(references).filter(
+            ([, reference]) => reference.decision === 'no-equivalent',
+          ),
+        );
+  const shipped = relevant
+    ? {
+        ...approvedDocument,
+        categories: Object.fromEntries(
+          Object.entries(approvedDocument.categories).map(([id, record]) => [
+            id,
+            {
+              ...record,
+              references: referencesFor(id, record.references ?? {}),
+            },
+          ]),
+        ),
+      }
+    : approvedDocument;
   // Every owner reference, including no-equivalent support in other categories,
   // participates. Unrelated entries only affect review metadata, never this decision.
   const needed =
@@ -37,14 +71,34 @@ export function prepareMatchingPlan(
       : new Set([
           onlyHash,
           ...[shipped, input.local].flatMap((document) =>
-            Object.values(document?.categories ?? {}).flatMap((record) =>
-              Object.values(record.references ?? {}).map((reference) => reference.hash),
+            Object.entries(document?.categories ?? {}).flatMap(([id, record]) =>
+              Object.values(referencesFor(id, record.references ?? {})).map(
+                (reference) => reference.hash,
+              ),
             ),
           ),
         ]);
-  const entries = needed ? evidence.filter((entry) => needed.has(entry.hash)) : evidence;
+  // Review evidence reads only the addressed item's catalog row and tooltip.
+  // Keep the complete editor for manifest grouping/classification below.
+  const evidenceEditor = needed
+    ? {
+        ...editor,
+        items: Object.fromEntries(
+          [...needed].flatMap((hash) => (editor.items[hash] ? [[hash, editor.items[hash]]] : [])),
+        ),
+        bundle: {
+          ...editor.bundle,
+          tooltips: Object.fromEntries(
+            [...needed].flatMap((hash) =>
+              editor.bundle.tooltips[hash] ? [[hash, editor.bundle.tooltips[hash]]] : [],
+            ),
+          ),
+        },
+      }
+    : editor;
+  const evidence = reviewEvidence(evidenceEditor, source, input.drafts, fingerprint);
   const categories = reviewCategories(
-    applyReviewProgress(entries, input.progress),
+    applyReviewProgress(evidence, input.progress),
     editor,
     proposals,
     false,
@@ -64,7 +118,10 @@ export function prepareMatchingPlan(
           id,
           {
             ...record,
-            references: { ...document.categories[id]?.references, ...record.references },
+            references: referencesFor(id, {
+              ...document.categories[id]?.references,
+              ...record.references,
+            }),
           },
         ]),
     ),

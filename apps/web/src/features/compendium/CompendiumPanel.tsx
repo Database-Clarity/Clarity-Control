@@ -189,7 +189,7 @@ const PaneContents = memo(function PaneContents({
         data-scale={scale}
         data-match-hash={base.hash}
         data-match-state={
-          matchError ? 'error' : !link && matching && !matched ? 'loading' : 'ready'
+          matchError ? 'error' : loading || (!link && matching && !matched) ? 'loading' : 'ready'
         }
       >
         {picking && canEdit && (
@@ -230,13 +230,12 @@ const PaneContents = memo(function PaneContents({
               </>
             ) : matching ? (
               'Matching Compendium…'
+            ) : !loading && !matchError ? (
+              'No Compendium row linked yet.'
             ) : null}
           </p>
         )}
         {!link && matchError && <p role="alert">{matchError}</p>}
-        {!link && !matched && !matching && !loading && !matchError && (
-          <p>No Compendium row linked yet.</p>
-        )}
         {!link && matched && (
           <>
             <p>

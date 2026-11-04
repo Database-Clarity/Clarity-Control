@@ -3,6 +3,7 @@ import { receiveWorkerResult, type WorkerReply } from './workerReplies';
 
 type Receiver = ReturnType<typeof receiveWorkerResult>;
 type Job = {
+  urgent: boolean;
   owner?: object;
   resolve(value: unknown): void;
   reject(error: Error): void;
@@ -14,22 +15,32 @@ export function createWorkerBridge(worker: Worker) {
   let serial = 0;
   let failure: Error | undefined;
   const jobs = new Map<number, Job>();
-  const arrivals: { id: number; reply: WorkerReply }[] = [];
+  const arrivals: { id: number; reply?: WorkerReply; steps?: ReturnType<Receiver['steps']> }[] = [];
   let active: { id: number; job: Job; steps: ReturnType<Receiver['steps']> } | undefined;
   let scheduled = false;
+  let scheduledUrgent = false;
+  let scheduleGeneration = 0;
   const inputPending = () =>
     (
       globalThis.navigator as Navigator & {
         scheduling?: { isInputPending(options?: { includeContinuous: boolean }): boolean };
       }
     )?.scheduling?.isInputPending({ includeContinuous: true }) ?? false;
-  const schedule = () => {
-    if (scheduled || failure) return;
+  const schedule = (urgent = false) => {
+    if (failure || (scheduled && (!urgent || scheduledUrgent))) return;
     scheduled = true;
+    scheduledUrgent = urgent;
+    const generation = ++scheduleGeneration;
+    const run = (deadline?: IdleDeadline) => {
+      if (generation === scheduleGeneration) decode(deadline);
+    };
     const scheduler = (
       globalThis as typeof globalThis & {
         scheduler?: {
-          postTask(callback: () => void, options: { priority: 'background' }): Promise<unknown>;
+          postTask(
+            callback: () => void,
+            options: { priority: 'background' | 'user-visible' },
+          ): Promise<unknown>;
         };
       }
     ).scheduler;
@@ -38,27 +49,31 @@ export function createWorkerBridge(worker: Worker) {
     // even when no input or rendering work was pending.
     if (scheduler && !inputPending())
       void scheduler
-        .postTask(() => decode(), { priority: 'background' })
+        .postTask(() => run(), { priority: urgent ? 'user-visible' : 'background' })
         .catch((error: unknown) => {
+          if (generation !== scheduleGeneration) return;
           failure = error instanceof Error ? error : new Error(String(error));
           rejectAll(failure);
         });
-    else if (typeof requestIdleCallback === 'function') requestIdleCallback(decode);
-    else setTimeout(decode, 0);
+    else if (typeof requestIdleCallback === 'function') requestIdleCallback(run);
+    else setTimeout(run, 0);
   };
   function decode(deadline?: IdleDeadline) {
     scheduled = false;
     if (failure) return;
     const start = performance.now();
     const end = start + Math.min(2, deadline?.timeRemaining() ?? 2);
-    while (performance.now() < end && !inputPending()) {
+    let steps = 0;
+    // Checking native scheduling APIs for every graph node dominated decode CPU.
+    // Poll in small batches, including before the first node of each slice.
+    while (steps++ % 16 !== 0 || (performance.now() < end && !inputPending())) {
       if (active && jobs.get(active.id) !== active.job) active = undefined;
       if (!active) {
         const next = arrivals.shift();
         if (!next) break;
         const job = jobs.get(next.id);
         if (!job) continue;
-        active = { id: next.id, job, steps: job.receive.steps(next.reply) };
+        active = { id: next.id, job, steps: next.steps ?? job.receive.steps(next.reply!) };
       }
       const { id, job } = active;
       try {
@@ -80,7 +95,8 @@ export function createWorkerBridge(worker: Worker) {
     }
     performance.measure('compendium:decode', { start, end: performance.now() });
     performance.clearMeasures('compendium:decode');
-    if (active || arrivals.length) schedule();
+    if (active || arrivals.length)
+      schedule(!!active?.job.urgent || !!jobs.get(arrivals[0]?.id)?.urgent);
   }
   const rejectAll = (error: Error) => {
     for (const job of jobs.values()) job.reject(error);
@@ -96,8 +112,19 @@ export function createWorkerBridge(worker: Worker) {
       job.reject(new Error(data.error));
       return;
     }
-    arrivals.push({ id: data.id, reply: data });
-    schedule();
+    if (job.urgent && active && !active.job.urgent) {
+      // Keep this receiver's graph/partial stage intact while the pane decodes.
+      arrivals.unshift({ id: active.id, steps: active.steps });
+      active = undefined;
+    }
+    const beforeBackground = job.urgent
+      ? arrivals.findIndex((arrival) => !jobs.get(arrival.id)?.urgent)
+      : -1;
+    arrivals.splice(beforeBackground < 0 ? arrivals.length : beforeBackground, 0, {
+      id: data.id,
+      reply: data,
+    });
+    schedule(job.urgent);
   };
   worker.onerror = () => {
     failure = new Error('Compendium worker failed. Reload published data to retry.');
@@ -117,6 +144,7 @@ export function createWorkerBridge(worker: Worker) {
       return new Promise((resolve, reject) => {
         const id = ++serial;
         jobs.set(id, {
+          urgent: 'priority' in payload,
           owner,
           progress,
           resolve: (value) => resolve(value as T),

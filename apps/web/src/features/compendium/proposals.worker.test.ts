@@ -78,6 +78,9 @@ it('withholds display results after a failed replacement initialization', async 
       },
     }),
   ).rejects.toThrow(/initializ/i);
+  await expect(request(7, { priority: { token: 2, hash: 100, input } })).rejects.toThrow(
+    /initializ/i,
+  );
   failAsset = false;
   const recovered = await initialize(5, next);
   expect(recovered).toBeInstanceOf(Map);
@@ -92,35 +95,61 @@ it('publishes selected review evidence before assets/full proposals, and reprior
   const f = guidedFixture();
   vi.stubGlobal('indexedDB', undefined);
   let release!: () => void;
-  const asset = new Promise<void>((resolve) => { release = resolve; });
-  vi.stubGlobal('fetch', async () => { await asset; return new Response('', { status: 404 }); });
-  const pending = new Map<number, {
-    receive: ReturnType<typeof receiveWorkerResult>;
-    resolve(value: unknown): void;
-    reject(error: Error): void;
-  }>();
+  const asset = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  vi.stubGlobal('fetch', async () => {
+    await asset;
+    return new Response('', { status: 404 });
+  });
+  const pending = new Map<
+    number,
+    {
+      receive: ReturnType<typeof receiveWorkerResult>;
+      resolve(value: unknown): void;
+      reject(error: Error): void;
+    }
+  >();
   const worker = {
     onmessage: null as null | ((event: { data: unknown }) => void),
     postMessage(reply: WorkerReply) {
       const job = pending.get(reply.id);
       if (!job) return;
-      if (reply.error) { pending.delete(reply.id); job.reject(Error(reply.error)); return; }
+      if (reply.error) {
+        pending.delete(reply.id);
+        job.reject(Error(reply.error));
+        return;
+      }
       const result = job.receive(reply);
-      if (result.done) { pending.delete(reply.id); job.resolve(result.value); }
+      if (result.done) {
+        pending.delete(reply.id);
+        job.resolve(result.value);
+      }
     },
   };
   vi.stubGlobal('self', worker);
   await import('./proposals.worker');
-  const request = <T>(id: number, data: object) => new Promise<T>((resolve, reject) => {
-    pending.set(id, { receive: receiveWorkerResult(), resolve: (value) => resolve(value as T), reject });
-    worker.onmessage!({ data: { id, ...data } });
-  });
+  const request = <T>(id: number, data: object) =>
+    new Promise<T>((resolve, reject) => {
+      pending.set(id, {
+        receive: receiveWorkerResult(),
+        resolve: (value) => resolve(value as T),
+        reject,
+      });
+      worker.onmessage!({ data: { id, ...data } });
+    });
   const bytes = new TextEncoder().encode(JSON.stringify({ editor: f.editor, source: f.source }));
   worker.onmessage!({ data: { initialChunk: { token: 17, bytes: bytes.buffer } } });
   let finished = false;
-  const initialized = request(1, { initialize: { token: 17 } }).then(() => { finished = true; });
-  const input = { drafts: {}, progress: emptyProgress(), scope: approved.scope,
-    local: { ...f.document, scope: approved.scope } };
+  const initialized = request(1, { initialize: { token: 17 } }).then(() => {
+    finished = true;
+  });
+  const input = {
+    drafts: {},
+    progress: emptyProgress(),
+    scope: approved.scope,
+    local: { ...f.document, scope: approved.scope },
+  };
   type Priority = import('./matchingSessionPlanning').PriorityReview;
   const first = await request<Priority>(2, { priority: { token: 17, hash: 100, input } });
   expect(finished).toBe(false);
@@ -131,9 +160,13 @@ it('publishes selected review evidence before assets/full proposals, and reprior
   expect(next.entry?.hash).toBe(102);
   release();
   await initialized;
-  const full = await request<ReturnType<typeof import('./displayMatches').displayMatches>>(4, { input });
+  const full = await request<ReturnType<typeof import('./displayMatches').displayMatches>>(4, {
+    input,
+  });
   for (const review of [first, next]) {
-    expect(review.entry).toEqual(full.categories.flatMap((c) => c.entries).find((e) => e.hash === review.hash));
+    expect(review.entry).toEqual(
+      full.categories.flatMap((c) => c.entries).find((e) => e.hash === review.hash),
+    );
     expect(review.decision).toEqual(full.decisions.find((d) => d.hash === review.hash));
     expect(review.matches.get(review.hash)?.row).toEqual(full.matches.get(review.hash)?.row);
   }

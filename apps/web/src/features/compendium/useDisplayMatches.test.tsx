@@ -9,16 +9,61 @@ import { compendiumDataUrl } from '../../services/compendium';
 import { emptyProgress, reviewStorageKey } from './reviewProgress';
 import { notifyCompendiumInputs } from './inputEvents';
 import { useDisplayMatches } from './useDisplayMatches';
+import * as sourceService from '../../services/compendium';
 
-const calls = vi.hoisted(() => ({ display: vi.fn() }));
+const calls = vi.hoisted(() => ({ display: vi.fn(), prioritize: vi.fn(), prewarm: vi.fn() }));
 vi.mock('./matchingSession', async (original) => ({
   ...(await original<typeof import('./matchingSession')>()),
-  matchingSession: () => ({ display: calls.display }),
+  matchingSession: () => ({ display: calls.display, prioritize: calls.prioritize }),
+  prewarmMatchingSession: calls.prewarm,
 }));
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
+
+it('queues the current tooltip before source hydration and publishes only after the source is bound', async () => {
+  vi.stubEnv('DEV', false);
+  vi.stubGlobal('localStorage', { getItem: () => null });
+  const f = guidedFixture();
+  const bridge = {} as NonNullable<ReturnType<typeof sourceService.pendingCompendiumWorker>>;
+  vi.spyOn(sourceService, 'pendingCompendiumWorker').mockReturnValue(bridge);
+  const matches = new Map([
+    [
+      100,
+      {
+        status: 'ok' as const,
+        changed: false,
+        tab: f.source.tabs[0],
+        row: f.source.tabs[0].rows[0],
+      },
+    ],
+  ]);
+  calls.prioritize.mockReset().mockResolvedValue(matches);
+  calls.prewarm.mockReset().mockReturnValue({ prioritize: calls.prioritize });
+  calls.display.mockReset().mockReturnValue(new Promise(() => undefined));
+  let latest: ReturnType<typeof useDisplayMatches>;
+  function Probe({ source }: { source: typeof f.source | null }) {
+    latest = useDisplayMatches(f.editor, source, {}, 'early-intent', 100);
+    return null;
+  }
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<Probe source={null} />));
+    expect(calls.prewarm).toHaveBeenCalledWith(f.editor, bridge);
+    expect(calls.prioritize).toHaveBeenCalledTimes(1);
+    expect(latest!.matches).toBeUndefined();
+    expect(calls.display).not.toHaveBeenCalled();
+    await act(async () => root.render(<Probe source={f.source} />));
+    expect(latest!.matches).toBe(matches);
+    expect(latest!.loading).toBe(false);
+    expect(latest!.prepared).toBeUndefined();
+  } finally {
+    await act(async () => root.unmount());
+  }
 });
 
 it('reuses content through typing/focus and withholds old matches when local decisions change', async () => {
