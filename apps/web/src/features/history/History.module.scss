@@ -46,8 +46,8 @@
 // Preserve every language's diff in the DOM, but only shape/layout comparisons
 // near the popover's scroll viewport. Legacy multi-language revisions otherwise
 // perform expensive cold font fallback even for text the user cannot see.
-.revision .diff > section[data-deferred] {
-  content-visibility: hidden;
+.revision .diff > section {
+  content-visibility: auto;
   contain-intrinsic-size: auto 12rem;
 }
 

@@ -86,11 +86,11 @@ function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: b
   const hydrated = useDraftStore((state) => state.hydrated);
   const cache = useRevisionCache(hash);
   const [commits, setCommits] = useState<HistoryCommit[]>(() => cache.peekPage(1) ?? []);
-  const [visibleCount, setVisibleCount] = useState(8);
+  const [visibleCount, setVisibleCount] = useState(4);
   useEffect(() => {
     if (visibleCount >= commits.length) return;
     const frame = window.requestAnimationFrame(() =>
-      setVisibleCount((count) => Math.min(count + 8, commits.length)),
+      setVisibleCount((count) => Math.min(count + 4, commits.length)),
     );
     return () => window.cancelAnimationFrame(frame);
   }, [commits.length, visibleCount]);

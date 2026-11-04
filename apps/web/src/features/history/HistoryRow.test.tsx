@@ -120,7 +120,7 @@ it('shows subjects and spreads mounting a full cached page across frames', async
   try {
     await act(async () => root.render(<HistoryPanel hash={10} />));
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
-    expect(host.querySelectorAll('ol li > button')).toHaveLength(8);
+    expect(host.querySelectorAll('ol li > button')).toHaveLength(4);
     expect(host.textContent).not.toContain('A long commit body');
     while (frames.length) await act(async () => frames.shift()!(0));
     expect(host.querySelectorAll('ol li > button')).toHaveLength(30);

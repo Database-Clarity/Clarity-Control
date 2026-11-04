@@ -78,11 +78,18 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
   }, []);
   useEffect(() => {
     const others = (event: Event) => {
-      if ((event as CustomEvent<string>).detail !== id) close(false);
+      if ((event as CustomEvent<string>).detail === id) return;
+      // Cancel pending intent even on closed rows, but do not schedule three
+      // redundant React state updates on every row whenever a revision opens.
+      if (open) close(false);
+      else {
+        window.clearTimeout(timers.current.intent);
+        window.clearTimeout(timers.current.enter);
+      }
     };
     document.addEventListener(OPENED, others);
     return () => document.removeEventListener(OPENED, others);
-  }, [id, close]);
+  }, [open, id, close]);
   useEffect(() => {
     if (open) document.dispatchEvent(new CustomEvent(OPENED, { detail: id }));
   }, [open, id]);

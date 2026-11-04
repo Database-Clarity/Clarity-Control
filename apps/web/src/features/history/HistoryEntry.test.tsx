@@ -129,6 +129,17 @@ it('click pins it past mouse leave; a press outside closes it', async () => {
   expect(dialog()).toBeNull();
 });
 
+it('cancels pending hover on a closed row when another revision is pinned', async () => {
+  await act(async () => {
+    entries()[0].parentElement!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+  });
+  await act(async () => entries()[1].click());
+  await wait(260);
+  expect(entries()[0].getAttribute('aria-expanded')).toBe('false');
+  expect(entries()[1].getAttribute('aria-expanded')).toBe('true');
+  expect(host.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+});
+
 it('the first revision is shown as all new, and the cache means one request per commit', async () => {
   await act(async () => entries()[2].click());
   await wait(0);

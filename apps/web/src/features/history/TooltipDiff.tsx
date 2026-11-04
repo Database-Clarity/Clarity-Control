@@ -1,5 +1,4 @@
 import type { Item } from '../../services/generator';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { languageLabel } from '../../languageLabels';
 import { languages, sameCell, type Tooltip } from '@clarity/core';
 import { CompendiumDiff } from '../compendium/CompendiumDiff';
@@ -58,13 +57,8 @@ export function TooltipDiff({
   const dateSettings = useSyncedSettings();
   return (
     <div className={styles.diff}>
-      {changed.map((lang, index) => (
-        <ComparisonSection
-          key={lang}
-          language={lang}
-          label={`${languageLabel(lang)} comparison`}
-          defer={!raw && index > 0}
-        >
+      {changed.map((lang) => (
+        <section key={lang} lang={lang} aria-label={`${languageLabel(lang)} comparison`}>
           <h4>{languageLabel(lang)}</h4>
           {raw && (
             <div className={styles.columns}>
@@ -82,7 +76,7 @@ export function TooltipDiff({
             before={before?.text[lang]?.text ?? ''}
             after={current.text[lang]?.text ?? ''}
           />
-        </ComparisonSection>
+        </section>
       ))}
       {(before?.compendium || current.compendium) &&
         !sameCell(
@@ -108,51 +102,5 @@ export function TooltipDiff({
         <p key={line}>{line}</p>
       ))}
     </div>
-  );
-}
-
-/** Keep offscreen languages intact without shaping every legacy font on open. */
-function ComparisonSection({
-  children,
-  language,
-  label,
-  defer,
-}: {
-  children: ReactNode;
-  language: string;
-  label: string;
-  defer: boolean;
-}) {
-  const section = useRef<HTMLElement>(null);
-  const [visible, setVisible] = useState(!defer);
-  const deferred = defer && !visible;
-  useEffect(() => {
-    if (!deferred || !section.current) return;
-    if (typeof IntersectionObserver === 'undefined') {
-      setVisible(true);
-      return;
-    }
-    const element = section.current;
-    // Observe after the first language has its real height, rather than treating
-    // placeholder heights as evidence that every language is initially visible.
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setVisible(true);
-          observer.disconnect();
-        }
-      },
-      { root: element.closest('[role="dialog"]') },
-    );
-    const frame = requestAnimationFrame(() => observer.observe(element));
-    return () => {
-      cancelAnimationFrame(frame);
-      observer.disconnect();
-    };
-  }, [deferred]);
-  return (
-    <section ref={section} lang={language} aria-label={label} data-deferred={deferred || undefined}>
-      {children}
-    </section>
   );
 }
