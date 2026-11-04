@@ -9,6 +9,44 @@ import { manifestFactsSchema } from './src/features/compendium/manifestFactsSche
 export default defineConfig({
   plugins: [
     {
+      name: 'preload-startup-stages',
+      transformIndexHtml: {
+        order: 'post',
+        handler(html, context) {
+          const bundle = context.bundle;
+          if (!bundle) return html;
+          // Fetch the shared bootstrap graph together, while main.tsx still
+          // evaluates its stages separately. Otherwise each yield also adds a
+          // network round trip before the workspace can start loading data.
+          // These modules are required on every route; page chunks stay lazy.
+          const files = new Set<string>();
+          const visit = (file: string) => {
+            if (files.has(file)) return;
+            const chunk = bundle[file];
+            if (chunk?.type !== 'chunk') return;
+            files.add(file);
+            chunk.imports.forEach(visit);
+          };
+          for (const chunk of Object.values(bundle)) {
+            if (
+              chunk.type === 'chunk' &&
+              chunk.isEntry &&
+              chunk.facadeModuleId?.replaceAll('\\', '/').endsWith('/apps/web/index.html')
+            ) {
+              chunk.dynamicImports.forEach(visit);
+            }
+          }
+          return [...files]
+            .filter((file) => !html.includes(`href="./${file}"`))
+            .map((file) => ({
+              tag: 'link',
+              attrs: { rel: 'modulepreload', crossorigin: '', href: `./${file}` },
+              injectTo: 'head' as const,
+            }));
+        },
+      },
+    },
+    {
       name: 'validate-manifest-facts',
       buildStart() {
         const path = fileURLToPath(
