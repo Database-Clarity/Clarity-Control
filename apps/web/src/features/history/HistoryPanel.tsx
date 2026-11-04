@@ -19,7 +19,7 @@ import styles from './History.module.scss';
 
 /**
  * One collapsed row: "Edited <date> by <author>, n revisions". Expanding it shows the commit list
- * with compare and Revert. Network history loads only when opened.
+ * with compare and Revert. The v2 list supplies the collapsed count; legacy history loads on open.
  */
 export function HistoryPanel({ hash, readOnly = false }: { hash: number; readOnly?: boolean }) {
   const [open, setOpen] = useState(false);
@@ -35,7 +35,7 @@ export function HistoryPanel({ hash, readOnly = false }: { hash: number; readOnl
   const signedIn = Boolean(apiUrl && user?.role);
   const cache = useRevisionCache(hash);
   useEffect(() => {
-    if (!signedIn || !open) return;
+    if (!signedIn) return;
     const controller = new AbortController();
     void cache.page(1).then(
       (result) =>

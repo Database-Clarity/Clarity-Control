@@ -68,11 +68,11 @@ afterEach(async () => {
   useDraftStore.setState(originals.drafts);
 });
 
-it('loads both histories only when the collapsed row opens', async () => {
+it('keeps the v2 count ready and loads legacy history only on open', async () => {
   getHistory.mockResolvedValue({ page: 1, commits: [commit(1), commit(2), commit(3)] });
   await act(async () => root.render(<HistoryPanel hash={10} />));
-  expect(host.textContent ?? '').toMatch(/^History\s*Edited .* by ann$/);
-  expect(getHistory).not.toHaveBeenCalled();
+  expect(host.textContent ?? '').toMatch(/^History\s*Edited .* by ann, 3 revisions$/);
+  expect(getHistory).toHaveBeenCalledTimes(1);
   expect(getLegacyHistory).not.toHaveBeenCalled();
   expect(host.querySelector('button[aria-expanded="false"]')).not.toBeNull();
   // The commit list is not in the row until it is expanded.
