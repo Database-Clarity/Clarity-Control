@@ -39,7 +39,7 @@ import {
   type SteppingGuard,
 } from './stepping';
 import { FinderSheetContext } from './FinderSheetContext';
-import { pulseStepping } from './steppingActivity';
+import { pulseStepping, useSteppingActivity } from './steppingActivity';
 import styles from './TooltipFinder.module.scss';
 
 // Stepping asks the preview leave guard before it moves anything; see createStepping.
@@ -223,7 +223,12 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   };
   step.current = (direction) => {
     const target = stepTarget(stepLocation(), direction, hashes);
-    if (!target) return false;
+    if (!target) {
+      // A free-spin gesture can reach the category boundary long before its wheel
+      // packets stop. Keep pending panel work cancelled until the input rests.
+      if (useSteppingActivity.getState().active) pulseStepping();
+      return false;
+    }
     // Refused before anything moves: the selection, the pending history entry and the timer stay.
     if (!stepping.step(target.from, target.to.path)) return false;
     pulseStepping();
