@@ -25,7 +25,9 @@ it('lets real catalog selects shrink inside narrow phone filter tracks', () => {
 it('budgets desktop panels from remaining viewport space, with phone document scrolling', () => {
   const entry = css.match(/(?:^|\n)\.entryReview \{([^}]+)\}/)?.[1];
   expect(entry).toContain('display: flex;');
-  expect(entry).toContain('height: calc(100dvh - 2 * clamp(1.25rem, 4vw, 3rem));');
+  expect(entry).toContain(
+    'height: calc(100dvh - var(--header-h, 37px) - 2 * clamp(1rem, 3vw, 2rem));',
+  );
   expect(entry).toContain('box-sizing: border-box;');
   const workspace = css.match(/\.workspace \{([^}]+)\}/)?.[1];
   expect(workspace).toContain('flex: 1 1 0;');
@@ -80,7 +82,9 @@ it('gives category and pending queue links 44px phone/coarse targets without cha
 it('applies the category viewport budget to the route itself, with internal overflow and phone scrolling', () => {
   const category = css.match(/(?:^|\n)\.categoryReview \{([^}]+)\}/)?.[1];
   expect(category).toContain('display: flex;');
-  expect(category).toContain('height: calc(100dvh - 2 * clamp(1.25rem, 4vw, 3rem));');
+  expect(category).toContain(
+    'height: calc(100dvh - var(--header-h, 37px) - 2 * clamp(1rem, 3vw, 2rem));',
+  );
   expect(category).toContain('padding-bottom: 0;');
   expect(css).not.toContain('.entryReview .categoryReview');
   expect(categoryCss.match(/(?:^|\n)\.category \{([^}]+)\}/)?.[1]).toContain('overflow: auto;');

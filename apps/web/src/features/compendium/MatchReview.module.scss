@@ -74,7 +74,9 @@
   padding-bottom: max(6rem, var(--review-action-bar-height, 6rem));
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - 2 * clamp(1.25rem, 4vw, 3rem));
+  // Match the shell's review-mode padding and header. The old frame exceeded
+  // the viewport, adding a document scrollbar and another width/layout pass.
+  height: calc(100dvh - var(--header-h, 37px) - 2 * clamp(1rem, 3vw, 2rem));
   box-sizing: border-box;
   > * {
     flex-shrink: 0;
@@ -83,7 +85,7 @@
 .categoryReview {
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - 2 * clamp(1.25rem, 4vw, 3rem));
+  height: calc(100dvh - var(--header-h, 37px) - 2 * clamp(1rem, 3vw, 2rem));
   padding-bottom: 0;
   box-sizing: border-box;
   > .heading {

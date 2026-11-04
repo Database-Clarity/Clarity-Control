@@ -295,6 +295,7 @@ export function CategoryReview({
           <label>
             Find category
             <input
+              size={1}
               value={query}
               onChange={(event) => {
                 if (routeState) routeState.onQueryChange(event.target.value);

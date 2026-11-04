@@ -80,6 +80,11 @@
   gap: 0.7rem;
   min-height: 0;
   min-width: 0;
+  input {
+    // This is a plain category-name search. Keep symbol-font fallback metrics
+    // out of the native input's preferred character-width calculation.
+    font-family: Arial, Helvetica, sans-serif;
+  }
 }
 .categoryButtons {
   contain: content;
