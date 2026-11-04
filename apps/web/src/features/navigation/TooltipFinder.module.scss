@@ -118,6 +118,13 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   list-style: none;
+
+  &[data-windowed] {
+    // Large lists already fill this bounded surface. Isolate changing row
+    // contents from workspace size/layout without deferring their paint.
+    height: min(60dvh, 26rem);
+    contain: strict;
+  }
 }
 
 .option {

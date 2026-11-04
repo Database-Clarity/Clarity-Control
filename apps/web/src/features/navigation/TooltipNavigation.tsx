@@ -594,9 +594,9 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     }
   };
 
-  const option = (row: Row, index: number) => (
+  const option = (row: Row, index: number, key: string | number = row.hash) => (
     <FinderOption
-      key={row.hash}
+      key={key}
       row={row}
       index={index}
       id={optionId(row.hash)}
@@ -615,7 +615,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   );
   let options;
   if (!open) options = null;
-  else if (rows.length <= retainedRowLimit) options = rows.map(option);
+  else if (rows.length <= retainedRowLimit) options = rows.map((row, index) => option(row, index));
   else {
     const overscan = 64;
     const initialIndex = query.trim()
@@ -633,11 +633,12 @@ export const TooltipNavigation = memo(function TooltipNavigation({
           ? targetTop
           : Math.max(baseTop, targetTop + rowHeight - viewport.height)
         : viewport.top;
-    const start = Math.max(0, Math.floor(renderTop / rowHeight) - overscan);
-    const end = Math.min(
-      rows.length,
-      Math.ceil((renderTop + viewport.height) / rowHeight) + overscan,
+    const windowSize = Math.min(rows.length, Math.ceil(viewport.height / rowHeight) + 2 * overscan);
+    const start = Math.max(
+      0,
+      Math.min(rows.length - windowSize, Math.floor(renderTop / rowHeight) - overscan),
     );
+    const end = start + windowSize;
     // Absolute rows preserve the full scroll surface independent of the window.
     // The viewport's external snapshot commits scroll changes before paint.
     const indexes = new Set(Array.from({ length: Math.max(0, end - start) }, (_, i) => start + i));
@@ -648,7 +649,15 @@ export const TooltipNavigation = memo(function TooltipNavigation({
           role="presentation"
           style={{ position: 'relative', height: '100%', margin: 0, padding: 0, listStyle: 'none' }}
         >
-          {[...indexes].sort((a, b) => a - b).map((index) => option(rows[index], index))}
+          {[...indexes]
+            .sort((a, b) => a - b)
+            .map((index) =>
+              option(
+                rows[index],
+                index,
+                index >= start && index < end ? index % windowSize : 'active',
+              ),
+            )}
         </ul>
       </li>,
     ];
