@@ -1,6 +1,6 @@
 import changedSourceEvidence from './changedSourceEvidence.json';
 import { compendiumTabId } from '@clarity/core';
-import { inferredSiphonDecision } from './safeSourceRules';
+import { inferredSiphonDecision, inferredSetBonusDecision } from './safeSourceRules';
 import {
   combineCompendiumMatches,
   compendiumIdentifiers,
@@ -298,6 +298,8 @@ export function guidedDecisions(
             ...result,
             reason: 'Category comment needs agent interpretation; no automatic rule applied.',
           };
+        const setBonus = inferredSetBonusDecision(entry, source);
+        if (setBonus) return { ...result, ...setBonus };
         const manifestDecision =
           !entry.scopeRestored &&
           entry.classification?.categoryId !== 'attachment-effect' &&

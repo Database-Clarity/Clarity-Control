@@ -1,0 +1,566 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`records the full set-perk census, leaving the mismatched perk unresolved 1`] = `
+[
+  {
+    "action": "link",
+    "hash": 2840280305,
+    "name": "AION Adapter (2 pc): Force Absorption",
+  },
+  {
+    "action": "link",
+    "hash": 2840280304,
+    "name": "AION Adapter (4 pc): Reactive Shock",
+  },
+  {
+    "action": "link",
+    "hash": 2140508055,
+    "name": "AION Renewal (2 pc): Force Converter",
+  },
+  {
+    "action": "link",
+    "hash": 2140508054,
+    "name": "AION Renewal (4 pc): Reactive Booster",
+  },
+  {
+    "action": "link",
+    "hash": 696050397,
+    "name": "Apostate's Blade (2 pc): Regenerative Threshold",
+  },
+  {
+    "action": "link",
+    "hash": 696050396,
+    "name": "Apostate's Blade (4 pc): Melee Conduction",
+  },
+  {
+    "action": "link",
+    "hash": 17188252,
+    "name": "Atheon's Memory (2 pc): Radiolaria Breach",
+  },
+  {
+    "action": "link",
+    "hash": 17188253,
+    "name": "Atheon's Memory (4 pc): Collective Power",
+  },
+  {
+    "action": "link",
+    "hash": 1964062929,
+    "name": "Bushido (2 pc): Iaido",
+  },
+  {
+    "action": "link",
+    "hash": 1964062928,
+    "name": "Bushido (4 pc): Unfaltering Focus",
+  },
+  {
+    "action": "link",
+    "hash": 2657416818,
+    "name": "Circuit (2 pc): Revving Up",
+  },
+  {
+    "action": "link",
+    "hash": 2657416819,
+    "name": "Circuit (4 pc): Dielectric Drift",
+  },
+  {
+    "action": "link",
+    "hash": 1814176200,
+    "name": "CODA (2 pc): Between Poles",
+  },
+  {
+    "action": "link",
+    "hash": 1814176201,
+    "name": "CODA (4 pc): So Very Thin",
+  },
+  {
+    "action": "link",
+    "hash": 1901305283,
+    "name": "Collective Psyche (2 pc): Accretion",
+  },
+  {
+    "action": "link",
+    "hash": 1901305282,
+    "name": "Collective Psyche (4 pc): Doppler Effect",
+  },
+  {
+    "action": "link",
+    "hash": 3872620150,
+    "name": "Crota's Memory (2 pc): Cursed Fist",
+  },
+  {
+    "action": "link",
+    "hash": 3872620151,
+    "name": "Crota's Memory (4 pc): Power of the Son",
+  },
+  {
+    "action": "link",
+    "hash": 2562518502,
+    "name": "Cruel Electrum (2 pc): Primary Survivor",
+  },
+  {
+    "action": "link",
+    "hash": 2562518503,
+    "name": "Cruel Electrum (4 pc): Primary Phantom",
+  },
+  {
+    "action": "link",
+    "hash": 793561548,
+    "name": "Crystocrene (2 pc): Resupply",
+  },
+  {
+    "action": "link",
+    "hash": 793561549,
+    "name": "Crystocrene (4 pc): From the Storm",
+  },
+  {
+    "action": "link",
+    "hash": 3432283357,
+    "name": "Cyberserpent Null (2 pc): Adrenal Rush",
+  },
+  {
+    "action": "link",
+    "hash": 3432283356,
+    "name": "Cyberserpent Null (4 pc): Bountiful Munitions",
+  },
+  {
+    "action": "link",
+    "hash": 3599123169,
+    "name": "Dark Age (2 pc): Taking Initiative",
+  },
+  {
+    "action": "link",
+    "hash": 3599123168,
+    "name": "Dark Age (4 pc): Healing Initiative",
+  },
+  {
+    "action": "link",
+    "hash": 1875006806,
+    "name": "Deep Explorer (2 pc): Built Bitter",
+  },
+  {
+    "action": "link",
+    "hash": 1875006807,
+    "name": "Deep Explorer (4 pc): Bittersweet",
+  },
+  {
+    "action": "link",
+    "hash": 2513809221,
+    "name": "Disaster Corps Set (2 pc): Pleas Heard",
+  },
+  {
+    "action": "link",
+    "hash": 2513809220,
+    "name": "Disaster Corps Set (4 pc): Magnificent Duty",
+  },
+  {
+    "action": "link",
+    "hash": 3449901215,
+    "name": "Dreambane (2 pc): Nightmarish Power",
+  },
+  {
+    "action": "link",
+    "hash": 3449901214,
+    "name": "Dreambane (4 pc): Nightmarish Resilience",
+  },
+  {
+    "action": "link",
+    "hash": 4083289735,
+    "name": "Eutechnology (2 pc): Gift of the Ley Lines",
+  },
+  {
+    "action": "link",
+    "hash": 4083289734,
+    "name": "Eutechnology (4 pc): Techeun's Foresight",
+  },
+  {
+    "action": "link",
+    "hash": 1076851135,
+    "name": "Exodus Down (2 pc): Emergency Electromagnet",
+  },
+  {
+    "action": "link",
+    "hash": 1076851134,
+    "name": "Exodus Down (4 pc): Repurposed Charge",
+  },
+  {
+    "action": "link",
+    "hash": 3458982982,
+    "name": "Ferropotent (2 pc): Rapid Repair",
+  },
+  {
+    "action": "link",
+    "hash": 3458982983,
+    "name": "Ferropotent (4 pc): Built from Scratch",
+  },
+  {
+    "action": "link",
+    "hash": 3004427454,
+    "name": "First Ascent (2 pc): Stack 'Em Up",
+  },
+  {
+    "action": "link",
+    "hash": 3004427455,
+    "name": "First Ascent (4 pc): Burn 'Em Down",
+  },
+  {
+    "action": "link",
+    "hash": 754620349,
+    "name": "Flain (2 pc): Sinew Stitching",
+  },
+  {
+    "action": "link",
+    "hash": 754620348,
+    "name": "Flain (4 pc): Knit Together",
+  },
+  {
+    "action": "link",
+    "hash": 3657900811,
+    "name": "Great Hunt (2 pc): Taken Barrier",
+  },
+  {
+    "action": "link",
+    "hash": 3657900810,
+    "name": "Great Hunt (4 pc): Taken Armaments",
+  },
+  {
+    "action": "link",
+    "hash": 3575602896,
+    "name": "Iron Battalion Set (2 pc): Primary Honing",
+  },
+  {
+    "action": "link",
+    "hash": 3575602897,
+    "name": "Iron Battalion Set (4 pc): Supercyclical",
+  },
+  {
+    "action": "link",
+    "hash": 3157066724,
+    "name": "Iron Panoply Set (2 pc): Vigilant Watch",
+  },
+  {
+    "action": "link",
+    "hash": 3157066725,
+    "name": "Iron Panoply Set (4 pc): Iron Conviction",
+  },
+  {
+    "action": "link",
+    "hash": 4110483281,
+    "name": "Kentarch 3 (2 pc): Network Admin",
+  },
+  {
+    "action": "link",
+    "hash": 4110483280,
+    "name": "Kentarch 3 (4 pc): Network Upload",
+  },
+  {
+    "action": "link",
+    "hash": 2433863523,
+    "name": "Last Discipline (2 pc): Terminal Velocity",
+  },
+  {
+    "action": "link",
+    "hash": 2433863522,
+    "name": "Last Discipline (4 pc): Power Loader",
+  },
+  {
+    "action": "link",
+    "hash": 2270091246,
+    "name": "Legacy's Oath (2 pc): Augmented Servos",
+  },
+  {
+    "action": "owner",
+    "hash": 2270091247,
+    "name": "Legacy's Oath (4 pc): God-like Judgment",
+  },
+  {
+    "action": "link",
+    "hash": 2769443639,
+    "name": "Luminopotent (2 pc): Ionic Overclock",
+  },
+  {
+    "action": "link",
+    "hash": 2769443638,
+    "name": "Luminopotent (4 pc): Shock and Clear",
+  },
+  {
+    "action": "link",
+    "hash": 4048287940,
+    "name": "Lustrous (2 pc): Photogalvanic",
+  },
+  {
+    "action": "link",
+    "hash": 4048287941,
+    "name": "Lustrous (4 pc): Cauterize",
+  },
+  {
+    "action": "link",
+    "hash": 3160370591,
+    "name": "New Demotic (2 pc): Paroli",
+  },
+  {
+    "action": "link",
+    "hash": 3160370590,
+    "name": "New Demotic (4 pc): Martingale",
+  },
+  {
+    "action": "link",
+    "hash": 1567556260,
+    "name": "Nezarec's Nightmare (2 pc): Bad Dreams",
+  },
+  {
+    "action": "link",
+    "hash": 1567556261,
+    "name": "Nezarec's Nightmare (4 pc): Dream-Devourer",
+  },
+  {
+    "action": "link",
+    "hash": 846599599,
+    "name": "Oryx's Memory (2 pc): Iron Sharpens Iron",
+  },
+  {
+    "action": "link",
+    "hash": 846599598,
+    "name": "Oryx's Memory (4 pc): Ascendant Escape",
+  },
+  {
+    "action": "link",
+    "hash": 2318783944,
+    "name": "Pantheos Resplendent (2 pc): Well Prepared",
+  },
+  {
+    "action": "link",
+    "hash": 2318783945,
+    "name": "Pantheos Resplendent (4 pc): Down the Line",
+  },
+  {
+    "action": "link",
+    "hash": 3091068916,
+    "name": "Per Audacia (2 pc): Primary Chain",
+  },
+  {
+    "action": "link",
+    "hash": 3091068917,
+    "name": "Per Audacia (4 pc): Sublime Transit",
+  },
+  {
+    "action": "link",
+    "hash": 705026903,
+    "name": "Promised (2 pc): Stable Resonance",
+  },
+  {
+    "action": "link",
+    "hash": 705026902,
+    "name": "Promised (4 pc): Resonance Redirection",
+  },
+  {
+    "action": "link",
+    "hash": 1010623577,
+    "name": "Resonant Fury (2 pc): Resonant Plating",
+  },
+  {
+    "action": "link",
+    "hash": 1010623576,
+    "name": "Resonant Fury (4 pc): Siphoning Touch",
+  },
+  {
+    "action": "link",
+    "hash": 1246205950,
+    "name": "Reverie Dawn (2 pc): A Wish for Protection",
+  },
+  {
+    "action": "link",
+    "hash": 1246205951,
+    "name": "Reverie Dawn (4 pc): A Wish Fulfilled",
+  },
+  {
+    "action": "link",
+    "hash": 109046537,
+    "name": "Sage Protector (2 pc): Combat Meditation",
+  },
+  {
+    "action": "link",
+    "hash": 109046536,
+    "name": "Sage Protector (4 pc): Blade Focus",
+  },
+  {
+    "action": "link",
+    "hash": 4287944422,
+    "name": "Seventh Seraph (2 pc): Rasputin's Wrath",
+  },
+  {
+    "action": "link",
+    "hash": 4287944423,
+    "name": "Seventh Seraph (4 pc): Rasputin's Reprisal",
+  },
+  {
+    "action": "link",
+    "hash": 219133236,
+    "name": "Shrewd Survivor (2 pc): Reflex Action",
+  },
+  {
+    "action": "link",
+    "hash": 219133237,
+    "name": "Shrewd Survivor (4 pc): Hotshot",
+  },
+  {
+    "action": "link",
+    "hash": 3078673682,
+    "name": "Smoke Jumper Set (2 pc): Ride Together, Die Together",
+  },
+  {
+    "action": "link",
+    "hash": 3078673683,
+    "name": "Smoke Jumper Set (4 pc): Too Old for This",
+  },
+  {
+    "action": "link",
+    "hash": 627214276,
+    "name": "Spacewalk (2 pc): Augmented Armaments",
+  },
+  {
+    "action": "link",
+    "hash": 627214277,
+    "name": "Spacewalk (4 pc): Augmented Explosives",
+  },
+  {
+    "action": "link",
+    "hash": 3916960436,
+    "name": "Swordmaster (2 pc): Balestra",
+  },
+  {
+    "action": "link",
+    "hash": 3916960437,
+    "name": "Swordmaster (4 pc): Stesso Tempo",
+  },
+  {
+    "action": "link",
+    "hash": 1836665911,
+    "name": "Taken King (2 pc): The Ceremony",
+  },
+  {
+    "action": "link",
+    "hash": 1836665910,
+    "name": "Taken King (4 pc): Lucent Swarm",
+  },
+  {
+    "action": "link",
+    "hash": 2458353887,
+    "name": "Techeun's Regalia (2 pc): Queensfoil Rush",
+  },
+  {
+    "action": "link",
+    "hash": 2458353886,
+    "name": "Techeun's Regalia (4 pc): Truth to Power",
+  },
+  {
+    "action": "link",
+    "hash": 1130213040,
+    "name": "Techsec (2 pc): Wrecker",
+  },
+  {
+    "action": "link",
+    "hash": 1130213041,
+    "name": "Techsec (4 pc): Concussive Rounds",
+  },
+  {
+    "action": "link",
+    "hash": 681117218,
+    "name": "Thriving Survivor (2 pc): Opening Act",
+  },
+  {
+    "action": "link",
+    "hash": 681117219,
+    "name": "Thriving Survivor (4 pc): Room Clearing",
+  },
+  {
+    "action": "link",
+    "hash": 4275454259,
+    "name": "Thunderhead (2 pc): License to Thrill",
+  },
+  {
+    "action": "link",
+    "hash": 4275454258,
+    "name": "Thunderhead (4 pc): Lethal Weave",
+  },
+  {
+    "action": "link",
+    "hash": 446332292,
+    "name": "TM Custom (2 pc): Old Martian Diplomacy",
+  },
+  {
+    "action": "link",
+    "hash": 446332293,
+    "name": "TM Custom (4 pc): High Noon",
+  },
+  {
+    "action": "link",
+    "hash": 4261390988,
+    "name": "Triumphal Anthem (2 pc): Scoot to Loot",
+  },
+  {
+    "action": "link",
+    "hash": 4261390989,
+    "name": "Triumphal Anthem (4 pc): Shoot to Scoot",
+  },
+  {
+    "action": "link",
+    "hash": 1025384966,
+    "name": "Twofold Crown (2 pc): Crook and Flail",
+  },
+  {
+    "action": "link",
+    "hash": 1025384967,
+    "name": "Twofold Crown (4 pc): Gift of Sight",
+  },
+  {
+    "action": "link",
+    "hash": 1302582377,
+    "name": "Veritas (2 pc): Lucent Transmutation",
+  },
+  {
+    "action": "link",
+    "hash": 1302582376,
+    "name": "Veritas (4 pc): Lucent Tithes",
+  },
+  {
+    "action": "link",
+    "hash": 3376007203,
+    "name": "Wayward Psyche Set (2 pc): Special Relativity",
+  },
+  {
+    "action": "link",
+    "hash": 3376007202,
+    "name": "Wayward Psyche Set (4 pc): Superluminal Motion",
+  },
+  {
+    "action": "link",
+    "hash": 3390457361,
+    "name": "Wild Anthem (2 pc): Fanfare",
+  },
+  {
+    "action": "link",
+    "hash": 3390457360,
+    "name": "Wild Anthem (4 pc): Suros Harmony",
+  },
+  {
+    "action": "link",
+    "hash": 4160419914,
+    "name": "Wildwood (2 pc): Watchtower",
+  },
+  {
+    "action": "link",
+    "hash": 4160419915,
+    "name": "Wildwood (4 pc): Field Expertise",
+  },
+  {
+    "action": "link",
+    "hash": 2162040230,
+    "name": "Yearning Echo (2 pc): Untold Greed",
+  },
+  {
+    "action": "link",
+    "hash": 2162040231,
+    "name": "Yearning Echo (4 pc): Overflowing Coffers",
+  },
+]
+`;

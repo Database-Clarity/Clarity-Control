@@ -44,6 +44,49 @@ export function reviewedOwnerDecision(
   proposal: ReviewProposal | undefined,
   source: CompendiumData,
 ): Partial<GuidedDecision> | undefined {
+  const renewed = (records.reapproved as Record<string, (typeof records.reapproved)['4019266109']>)[
+    entry.hash
+  ];
+  if (renewed) {
+    const tab = source.tabs.find((tab) => tab.gid === renewed.gid);
+    const rows =
+      tab?.rows.filter(
+        (row) => row.name === renewed.name && sourceFingerprint(row.cell) === renewed.cellEvidence,
+      ) ?? [];
+    // Keep the named card identity, and pin the explicit duplicate-card selection.
+    const bodies =
+      tab?.grid?.filter((cell) => sourceFingerprint(cell.cell) === renewed.cellEvidence) ?? [];
+    const body = bodies[0];
+    const link =
+      entry.name === renewed.name &&
+      `catalog:${entry.category}` === renewed.categoryId &&
+      rows.length === 1 &&
+      rows[0].anchor &&
+      bodies.length === 1 &&
+      tab &&
+      body &&
+      confirmCompendiumSelection(
+        {
+          tab,
+          row: {
+            ...rows[0],
+            cell: body.cell,
+          },
+          sourceAnchor: rows[0].anchor,
+          cells: [{ dRow: body.row - rows[0].anchor!.row, dCol: body.col - rows[0].anchor!.col }],
+        },
+        source,
+      );
+    return {
+      action: link ? 'link' : 'owner',
+      confidence: link ? 'high' : 'unresolved',
+      ruleId: 'owner-reapproved-collective',
+      link: link ? { ...link, snapshotAt: source.fetchedAt } : undefined,
+      reason: link
+        ? `${renewed.reviewedAt}: ${renewed.quote} (${renewed.decisionPage}); link approval only.`
+        : 'Re-approved Collective identity or styled source changed; verify again.',
+    };
+  }
   const record = (records.verified as Record<string, (typeof records.verified)['4194622039']>)[
     entry.hash
   ];

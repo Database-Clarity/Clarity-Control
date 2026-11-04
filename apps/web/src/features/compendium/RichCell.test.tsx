@@ -120,7 +120,8 @@ describe('alignment and diff preference', () => {
         createElement(CompendiumDiff, props),
       ),
     );
-    expect(host.querySelector('ins [data-multiline]')?.textContent).toBe('new');
+    expect(host.querySelector('ins')?.textContent).toBe('new');
+    expect(host.querySelector('ins')?.closest('[data-multiline]')).not.toBeNull();
     expect(host.querySelector<HTMLElement>('[style*="text-align"]')?.style.textAlign).toBe('right');
     const button = [...host.querySelectorAll('button')].find(
       (el) => el.textContent === 'Before / After',
