@@ -92,6 +92,7 @@ it('budgets category space and lets an oversized workspace grow into document fl
   );
   expect(category).toContain('height: auto;');
   expect(category).toContain('padding-bottom: 0;');
+  expect(categoryCss.match(/(?:^|\n)\.categories \{([^}]+)\}/)?.[1]).toContain('flex: 1 0 auto;');
   expect(css).not.toContain('.entryReview .categoryReview');
   expect(categoryCss.match(/(?:^|\n)\.category \{([^}]+)\}/)?.[1]).toContain('overflow: auto;');
   expect(categoryCss.match(/(?:^|\n)\.sample \{([^}]+)\}/)?.[1]).toContain('overflow: visible;');

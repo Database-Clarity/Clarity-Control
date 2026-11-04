@@ -1,6 +1,8 @@
 .categories {
   display: flex;
-  flex: 1 1 0;
+  // Include the workspace minimum in the outer page's height. A zero basis
+  // lets scaled headings push its controls outside the document scroll range.
+  flex: 1 0 auto;
   flex-direction: column;
   gap: 0.65rem;
   min-width: 0;
