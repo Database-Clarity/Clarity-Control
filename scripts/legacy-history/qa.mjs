@@ -65,8 +65,14 @@ try {
           );
           const cdp = await page.context().newCDPSession(page);
           await cdp.send('Emulation.setCPUThrottlingRate', { rate: cpu });
+          // Settle harness theme/scale changes before measuring app actions. This does
+          // not open history, fetch its artifact, or warm any revision/diff cache.
+          await page.evaluate(async () => {
+            await document.fonts.ready;
+            await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+          });
           await cdp.send('Tracing.start', {
-            categories: 'devtools.timeline',
+            categories: 'devtools.timeline,toplevel,blink.user_timing',
             transferMode: 'ReturnAsStream',
           });
           await page.evaluate(() => {
@@ -89,13 +95,24 @@ try {
                         (b) => b.textContent === 'vs current draft',
                       );
               const start = performance.now();
+              if (!button || button.disabled) throw new Error(`Action ${action} is not ready`);
+              performance.mark(`legacy-${action}-start`);
               button.click();
               await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+              performance.mark(`legacy-${action}-double-raf`);
               return performance.now() - start;
             }, action);
             times.push(elapsed);
             if (action === 'open') await page.locator('ol li:nth-child(2) > button').waitFor();
-            else await page.getByRole('dialog').waitFor();
+            else {
+              await page.getByRole('dialog').waitFor();
+              await page.waitForFunction(() => {
+                const button = [...document.querySelectorAll('button')].find(
+                  (b) => b.textContent === 'vs current draft',
+                );
+                return button && !button.disabled;
+              });
+            }
           }
           const geometry = await page.evaluate(() => {
             const d = document.querySelector('[role="dialog"]');
