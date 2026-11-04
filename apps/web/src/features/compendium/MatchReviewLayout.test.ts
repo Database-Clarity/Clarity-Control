@@ -26,8 +26,9 @@ it('budgets desktop panels from remaining viewport space, with phone document sc
   const entry = css.match(/(?:^|\n)\.entryReview \{([^}]+)\}/)?.[1];
   expect(entry).toContain('display: flex;');
   expect(entry).toContain(
-    'height: calc(100dvh - var(--header-h, 37px) - 2 * clamp(1rem, 3vw, 2rem));',
+    'min-height: calc(100dvh - var(--header-h, 37px) - 2 * clamp(1rem, 3vw, 2rem));',
   );
+  expect(entry).toContain('height: auto;');
   expect(entry).toContain('box-sizing: border-box;');
   const workspace = css.match(/\.workspace \{([^}]+)\}/)?.[1];
   expect(workspace).toContain('flex: 1 1 0;');
