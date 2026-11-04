@@ -146,8 +146,12 @@
 .category {
   contain: content;
   color: #e2e5ee;
-  display: flex;
-  flex-direction: column;
+  // This is a scroller with naturally sized rows, not a flex-height budget.
+  // Give rich text its final inline size before calculating each row's height.
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: max-content;
+  align-content: start;
   gap: 0.5rem;
   min-width: 0;
   min-height: 0;
@@ -182,8 +186,10 @@
   }
 }
 .sample {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: max-content;
+  align-content: start;
   gap: 0.4rem;
   // The category is the scroller. Size this content from its text once, rather
   // than resolving a zero flex basis against the text's automatic minimum.
