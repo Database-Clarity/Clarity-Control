@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
 import { compendiumSimilarity, normaliseCompendiumName } from './resolve.js';
+import { compendiumIdentifiers } from './config.js';
 
 function referenceName(name: string) {
   return name
@@ -67,4 +68,17 @@ it('retains results after both text caches have evicted earlier entries', () => 
   }
   expect(compendiumSimilarity(left, right)).toBe(expected);
   expect(normaliseCompendiumName('Écho [PvE]')).toBe('echo');
+});
+
+it('keeps multiline and Roman identifier expansion independent of caller mutations', () => {
+  const name = '  ↑ Arc I–III\n+ Écho\n';
+  const expected = compendiumIdentifiers(name);
+  expect(expected).toContain('Arc I');
+  expect(expected).toContain('Arc II');
+  expect(expected).toContain('Arc III');
+  expect(expected).toContain('Écho');
+  const edited = compendiumIdentifiers(name);
+  edited.sort().splice(0, 2, 'Changed');
+  expect(compendiumIdentifiers(name)).toEqual(expected);
+  expect(compendiumIdentifiers(name + 'Changed')).not.toEqual(expected);
 });

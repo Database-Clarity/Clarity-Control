@@ -46,6 +46,9 @@ export function autoLinkCompendium(
   data: CompendiumData,
   now: string,
   tooltips: Record<string, Tooltip> = {},
+  // Batch consumers can share their existing alias-family index. Other callers
+  // retain the ordinary scan, including callers with mutable catalog inputs.
+  indexedFamily?: readonly CompendiumItem[],
 ): AutoLinkResult {
   const item = items[tooltip.hash];
   const name = item?.name ?? tooltip.custom?.name ?? String(tooltip.hash);
@@ -96,9 +99,9 @@ export function autoLinkCompendium(
           candidates: matches.map((match) => ({ ...match, similarity: 1 })),
         };
   }
-  const family = Object.values(items).filter(
-    (entry) => resolveAlias(entry.hash, aliases) === tooltip.hash,
-  );
+  const family =
+    indexedFamily ??
+    Object.values(items).filter((entry) => resolveAlias(entry.hash, aliases) === tooltip.hash);
   const base = item?.baseHash === undefined ? undefined : items[item.baseHash];
   const names = new Set(
     [

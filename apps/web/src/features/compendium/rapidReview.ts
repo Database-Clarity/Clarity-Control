@@ -9,6 +9,7 @@ import {
 import type { EditorData } from '../../stores/data';
 import type { ReviewProgress } from './reviewProgress';
 import { confirmCompendiumSelection } from './selection';
+import { groupManifestItems } from './manifestItems';
 
 export interface ReviewProposal {
   match?: CompendiumMatch;
@@ -29,6 +30,7 @@ export function proposalFor(
     source,
     source.fetchedAt,
     editor.bundle.tooltips,
+    groupManifestItems(editor.items, editor.aliases).get(base.hash) ?? [],
   );
   const resolved = result.next?.compendium && resolveCompendiumLink(result.next.compendium, source);
   const match = resolved && 'row' in resolved ? resolved : undefined;

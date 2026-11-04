@@ -55,6 +55,9 @@ it('uses aliases and base names without creating authored tooltips for alias has
   };
   const aliases = { 999: { to: 123, kind: 'sandbox' as const } };
   expect(autoLinkCompendium(tooltip, items, aliases, data, now).reason).toBe('linked');
+  expect(autoLinkCompendium(tooltip, items, aliases, data, now, {}, Object.values(items))).toEqual(
+    autoLinkCompendium(tooltip, items, aliases, data, now),
+  );
   expect(autoLinkCompendium({ ...tooltip, hash: 999 }, items, aliases, data, now).reason).toBe(
     'alias',
   );
