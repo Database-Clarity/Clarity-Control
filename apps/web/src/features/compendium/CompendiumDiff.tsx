@@ -1,5 +1,10 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { diffCompendium, type CompendiumCell, type CompendiumDiffPart } from '@clarity/core';
+import {
+  diffCompendium,
+  styleKey,
+  type CompendiumCell,
+  type CompendiumDiffPart,
+} from '@clarity/core';
 import { Multiline, RichCell } from './RichCell';
 import { SheetCell } from './sheetSurface';
 import { useSettingsStore } from '../../stores/settings';
@@ -179,7 +184,7 @@ export function CompendiumDiff({
   const sideBySide = mode === 'before-after';
   // Links store no background; both sides sit on the row's current one.
   const background = after.background ?? before.background;
-  const parts = useMemo(() => diffCompendium(before, after), [before, after]);
+  const lines = useMemo(() => diffLines(diffCompendium(before, after)), [before, after]);
   return (
     <section aria-label="Styled Compendium diff">
       {given === undefined && (
@@ -210,7 +215,7 @@ export function CompendiumDiff({
           </p>
           <SheetCell background={background}>
             <Multiline>
-              {diffLines(parts).map((line, lineIndex) => (
+              {lines.map((line, lineIndex) => (
                 <span
                   key={lineIndex}
                   className={styles.diffLine}
@@ -250,6 +255,7 @@ export function CompendiumDiff({
 // remains inline within its source line, including for mixed-alignment selections.
 function diffLines(parts: CompendiumDiffPart[]): CompendiumDiffPart[][] {
   const lines: CompendiumDiffPart[][] = [[]];
+  let previousKey: string | undefined;
   for (const part of parts) {
     const source = part.after ?? part.before!;
     let offset = 0;
@@ -266,13 +272,35 @@ function diffLines(parts: CompendiumDiffPart[]): CompendiumDiffPart[][] {
           }),
         };
       };
-      lines.at(-1)!.push({
+      const fragment: CompendiumDiffPart = {
         kind: part.kind,
         ...(part.before ? { before: slice(part.before) } : {}),
         ...(part.after ? { after: slice(part.after) } : {}),
-      });
+      };
+      // Coalesce plain, identically styled neighbours instead of rendering one
+      // RichCell and highlight wrapper per word. Links and style-change controls
+      // keep their individual targets, and alignment never crosses a line break.
+      const cells = [fragment.before, fragment.after].filter((cell) => cell !== undefined);
+      const key =
+        part.kind !== 'style' && cells.every((cell) => cell.runs.length === 1 && !cell.runs[0].href)
+          ? JSON.stringify([part.kind, ...cells.map((cell) => styleKey(cell.runs[0]))])
+          : undefined;
+      const line = lines.at(-1)!;
+      const previous = line.at(-1);
+      if (key !== undefined && key === previousKey && previous) {
+        for (const side of ['before', 'after'] as const) {
+          if (previous[side] && fragment[side]) {
+            previous[side].plain += fragment[side].plain;
+            previous[side].runs[0].text += fragment[side].plain;
+          }
+        }
+      } else line.push(fragment);
+      previousKey = key;
       offset += text.length;
-      if (text.endsWith('\n')) lines.push([]);
+      if (text.endsWith('\n')) {
+        lines.push([]);
+        previousKey = undefined;
+      }
     });
   }
   return lines;
