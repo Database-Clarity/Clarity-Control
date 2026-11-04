@@ -277,7 +277,7 @@ export function ReviewQueue({
   const evidence = useMemo(
     () =>
       prepared
-        ? preparedEvidence(prepared, drafts)
+        ? preparedEvidence(prepared, drafts, editor, source)
         : reviewEvidence(editor, source, drafts, fingerprint),
     [editor, source, drafts, fingerprint, prepared],
   );

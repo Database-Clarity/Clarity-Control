@@ -155,17 +155,15 @@ export function useDisplayMatches(
   const value = current?.error
     ? undefined
     : (current?.value ?? (cacheValid ? remembered?.value : undefined));
-  // Unchanged factual review evidence remains usable while local decisions are recomputed.
+  // Factual review evidence remains usable while local decisions or link edits recompute.
+  // The review projection separately validates changed local links against the same source.
   // The authoritative matches/decisions above are withheld until the new inputs validate.
   const reviewPrepared =
     value ??
-    (result?.editor === editor &&
-    result.source === source &&
-    result.evidence === evidence &&
-    result.userId === userId
+    (result?.editor === editor && result.source === source && result.userId === userId
       ? result.value
-      : remembered?.evidence === evidence && remembered.userId === userId
-        ? remembered.value
+      : remembered?.userId === userId
+        ? remembered?.value
         : undefined);
   return {
     prepared: value,
@@ -176,3 +174,4 @@ export function useDisplayMatches(
     error: current?.error,
   };
 }
+

@@ -28,7 +28,8 @@ export function useCompendiumCount(): CompendiumCount {
     if (!editor || !data || !prepared) return;
     // Prepare the entire review model fairly, regardless of viewport, selection or route.
     // Separate idle jobs keep this work out of editor input and foreground navigation.
-    const evidence = () => preparedEvidence(prepared, useDraftStore.getState().drafts);
+    const evidence = () =>
+      preparedEvidence(prepared, useDraftStore.getState().drafts, editor, data);
     const jobs = [
       () => groupManifestItems(editor.items, editor.aliases),
       () => {

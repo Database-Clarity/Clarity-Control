@@ -62,7 +62,9 @@ it('reuses content through typing/focus and withholds old matches when local dec
     });
     expect(calls.display).toHaveBeenCalledTimes(1);
     expect(latest!.matches).toBe(first.matches);
-    await act(async () => root.render(<Probe key="warm-remount" drafts={{ [base.hash]: { base, next } }} />));
+    await act(async () =>
+      root.render(<Probe key="warm-remount" drafts={{ [base.hash]: { base, next } }} />),
+    );
     expect(latest!.prepared).toBe(first);
     expect(calls.display).toHaveBeenCalledTimes(1);
     let finish!: (value: unknown) => void;
@@ -91,5 +93,48 @@ it('reuses content through typing/focus and withholds old matches when local dec
   } finally {
     await act(async () => root.unmount());
     host.remove();
+  }
+});
+it('keeps factual review content through local link edits while withholding old automatic matches', async () => {
+  vi.stubEnv('DEV', false);
+  vi.stubGlobal('localStorage', { getItem: () => null });
+  const fixture = guidedFixture();
+  const base = fixture.categories[0].entries[0].base;
+  const first = { matches: new Map([[base.hash, { row: { name: 'Source' } }]]), decisions: [] };
+  calls.display.mockReset().mockResolvedValue(first);
+  let latest: ReturnType<typeof useDisplayMatches>;
+  function Probe({ drafts }: { drafts: Drafts }) {
+    latest = useDisplayMatches(fixture.editor, fixture.source, drafts, 'local-link-regression');
+    return null;
+  }
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<Probe drafts={{}} />));
+    let finish!: (value: unknown) => void;
+    calls.display.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const next = {
+      ...base,
+      compendium: {
+        gid: 'g1',
+        rowKey: 'Source',
+        snapshotAt: '2026-11-04T00:00:00Z',
+        snapshot: { plain: 'Source', runs: [{ text: 'Source' }] },
+      },
+    };
+    await act(async () => root.render(<Probe drafts={{ [base.hash]: { base, next } }} />));
+    expect(latest!.matches).toBeUndefined();
+    expect(latest!.prepared).toBeUndefined();
+    expect(latest!.reviewPrepared).toBe(first);
+    expect(latest!.loading).toBe(true);
+    await act(async () => finish({ matches: new Map(), decisions: [] }));
+    expect(latest!.matches?.size).toBe(0);
+  } finally {
+    await act(async () => root.unmount());
   }
 });
