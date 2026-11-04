@@ -1,7 +1,7 @@
 import { archiveCategoryLabel, archivedItemFor } from '../archive/archive';
 import { AttachmentCategoryControl } from './AttachmentCategoryControl';
 import { useCompendiumStore } from '../compendium/store';
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { translationQueue, type Lang, type MarkupGlobals, type Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
@@ -138,6 +138,10 @@ function TooltipWorkspace({
   // has several enhanced versions, which one. Both are working choices, never saved.
   const [previewMode, setPreviewMode] = useState<PreviewMode | null>(null);
   const [previewPick, setPreviewPick] = useState<{ hash: number; variant: number }>();
+  const onPreviewVariant = useCallback(
+    (variant: number) => setPreviewPick({ hash: hashOverride ?? Number(parameter), variant }),
+    [hashOverride, parameter],
+  );
   const phone = useMedia(phoneQuery);
   const markupRow = useMarkupRow();
   const user = useAuthStore((state) => state.user);
@@ -322,7 +326,7 @@ function TooltipWorkspace({
       mode={mode}
       onMode={setPreviewMode}
       variant={selectedView?.hash}
-      onVariant={(variant) => setPreviewPick({ hash, variant })}
+      onVariant={onPreviewVariant}
       acknowledgement={seen}
     />
   );

@@ -1,4 +1,12 @@
-import { memo, useDeferredValue, useMemo, type ReactNode } from 'react';
+import {
+  memo,
+  startTransition,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
 import { parseMarkup, type Lang, type MarkupGlobals, type MarkupSpan } from '@clarity/core';
 import { compareRenders, type CompareLine, type Comparison } from './compare';
 import { classNames, Lines, PreviewSpan, TooltipPreview } from './TooltipPreview';
@@ -51,7 +59,17 @@ const labels: Record<PreviewMode, string> = {
  * a working view of the two, so only Base and Enhanced ever count as "previewed".
  */
 export function PreviewColumn(props: PreviewColumnProps) {
-  const deferred = useDeferredValue(props);
+  const [settled, setSettled] = useState(props);
+  const changedDocument = settled.hash !== props.hash || settled.lang !== props.lang;
+  // A route change starts with the correct document immediately. Live edits wait
+  // for a short input pause, so skipped text snapshots never parse or relayout.
+  if (changedDocument) setSettled(props);
+  useEffect(() => {
+    if (settled === props) return;
+    const timer = setTimeout(() => startTransition(() => setSettled(props)), 40);
+    return () => clearTimeout(timer);
+  }, [props, settled]);
+  const deferred = useDeferredValue(settled);
   // A different document/language must never display the previous one's contents.
   // Same-document typing can let the editor paint before parsing its live preview.
   const content = deferred.hash === props.hash && deferred.lang === props.lang ? deferred : props;
@@ -241,5 +259,6 @@ const CompareRow = memo(
       </div>
     );
   },
-  (previous, next) => JSON.stringify(previous.entry) === JSON.stringify(next.entry),
+  (previous, next) =>
+    previous.entry === next.entry || JSON.stringify(previous.entry) === JSON.stringify(next.entry),
 );

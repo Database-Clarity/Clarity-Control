@@ -75,6 +75,7 @@ const pressed = () =>
 
 describe('PreviewColumn', () => {
   it('acknowledges only the text that its deferred body actually committed', async () => {
+    vi.useFakeTimers();
     const commits: { expected: string; rendered: string }[] = [];
     function Acknowledge({ expected }: { expected: string }) {
       useLayoutEffect(() => {
@@ -85,20 +86,36 @@ describe('PreviewColumn', () => {
       });
       return null;
     }
-    await render({
-      baseText: 'Old text',
-      enhanced: [],
-      mode: 'base',
-      acknowledgement: <Acknowledge expected="Old text" />,
-    });
-    await render({
-      baseText: 'New text',
-      enhanced: [],
-      mode: 'base',
-      acknowledgement: <Acknowledge expected="New text" />,
-    });
-    expect(commits.length).toBeGreaterThanOrEqual(2);
-    expect(commits.every(({ expected, rendered }) => expected === rendered)).toBe(true);
+    try {
+      await render({
+        baseText: 'Old text',
+        enhanced: [],
+        mode: 'base',
+        acknowledgement: <Acknowledge expected="Old text" />,
+      });
+      await render({
+        baseText: 'Skipped text',
+        enhanced: [],
+        mode: 'base',
+        acknowledgement: <Acknowledge expected="Skipped text" />,
+      });
+      await act(async () => vi.advanceTimersByTimeAsync(20));
+      await render({
+        baseText: 'New text',
+        enhanced: [],
+        mode: 'base',
+        acknowledgement: <Acknowledge expected="New text" />,
+      });
+      expect(host.querySelector('[class*="description"]')?.textContent).toBe('Old text');
+      expect(commits.map((c) => c.expected)).toEqual(['Old text']);
+      await act(async () => vi.advanceTimersByTimeAsync(40));
+      expect(commits.map((c) => c.expected)).toEqual(['Old text', 'New text']);
+      expect(commits.every(({ expected, rendered }) => expected === rendered)).toBe(true);
+      await render({ hash: 99, baseText: 'Different document', enhanced: [], mode: 'base' });
+      expect(host.querySelector('[class*="description"]')?.textContent).toBe('Different document');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('shows ONE perk header above Base | Enhanced | Compare', async () => {
