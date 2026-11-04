@@ -11,6 +11,7 @@ import {
 } from './config.js';
 import {
   compendiumSimilarity,
+  compendiumMatches,
   combineCompendiumMatches,
   normaliseCompendiumName,
   resolveCompendiumLink,
@@ -113,11 +114,9 @@ export function autoLinkCompendium(
     ].filter((value): value is string => !!value),
   );
   const normalized = new Set([...names].map(normaliseCompendiumName));
-  const all = data.tabs
-    .filter((tab) => isTrackedCompendiumTab(tab.name))
-    .flatMap((tab) => tab.rows.map((row) => ({ tab, row })));
+  const all = compendiumMatches(data);
   const preferred = compendiumPreferredTabs(category, name);
-  function matches(rows: CompendiumMatch[]): CompendiumMatch[] {
+  function matches(rows: readonly CompendiumMatch[]): CompendiumMatch[] {
     const direct = rows.filter(({ row }) =>
       compendiumIdentifiers(row.name).some((identifier) => identifier === name),
     );

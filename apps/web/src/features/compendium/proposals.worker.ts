@@ -118,11 +118,13 @@ async function process(data: Request) {
             };
           }
         }
-        const [{ reviewEvidence }, { proposalFor }] = await Promise.all([
-          import('./reviewQueue'),
-          import('./rapidReview'),
-        ]);
-        return {
+        const [{ reviewEvidence }, { proposalFor }, { withCompendiumMatchingIndex }] =
+          await Promise.all([
+            import('./reviewQueue'),
+            import('./rapidReview'),
+            import('@clarity/core'),
+          ]);
+        return withCompendiumMatchingIndex(source, () => ({
           proposals: new Map(
             reviewEvidence(editor, source, {}, '')
               .filter((entry) => !entry.valid)
@@ -131,7 +133,7 @@ async function process(data: Request) {
                 compactProposal(proposalFor(entry.base, editor, source)),
               ]),
           ),
-        };
+        }));
       });
       // Cache the two halves together. A proposals-only cache hit used to lose
       // its pristine display model and rerun all guidance on an immediate reload.
@@ -192,19 +194,16 @@ async function process(data: Request) {
             (c) => c.comment || Object.keys(c.references ?? {}).length,
           ));
       const key = `${import.meta.url}:display:${dataKey}:${pristine ? 'pristine' : `${editor.bundle.sourceCommit}|${await contentHash(data.input)}`}`;
-      const result = await cachedComputation(key, async () =>
-        pristine && precomputedDisplay
-          ? precomputedDisplay
-          : (await import('./displayMatches')).displayMatches(
-              editor,
-              source,
-              drafts,
-              progress,
-              local,
-              scope,
-              proposals,
-            ),
-      );
+      const result = await cachedComputation(key, async () => {
+        if (pristine && precomputedDisplay) return precomputedDisplay;
+        const [{ displayMatches }, { withCompendiumMatchingIndex }] = await Promise.all([
+          import('./displayMatches'),
+          import('@clarity/core'),
+        ]);
+        return withCompendiumMatchingIndex(source, () =>
+          displayMatches(editor, source, drafts, progress, local, scope, proposals),
+        );
+      });
       lastDisplay = result;
       const compact = compactDisplay(result);
       // The current pane can use the validated match map before review metadata
