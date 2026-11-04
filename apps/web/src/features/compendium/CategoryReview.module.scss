@@ -120,6 +120,14 @@
   }
 }
 @media (min-width: 701px) {
+  .categories {
+    // The review page already supplies the available height. Size the two
+    // headers first, then give the workspace its remaining track, without a
+    // second intrinsic flex-size pass through the sample's rich text.
+    display: grid;
+    grid-template-rows: max-content max-content minmax(18rem, 1fr);
+    flex: 1 0 0;
+  }
   .workspace {
     // Enlarged headings can exceed the viewport budget. Keep both navigation
     // and the sample usable, and let the document scroll to the workspace.
