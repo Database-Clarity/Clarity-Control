@@ -69,6 +69,13 @@ const noDrafts: ReturnType<typeof useDraftStore.getState>['drafts'] = {};
 // native thumb dragging costs more than retaining these cheap contained rows.
 const retainedRowLimit = 512;
 
+function FinderDraftIndicator({ hash, data }: { hash: number; data: EditorData }) {
+  const dirty = useDraftStore((state) =>
+    variantHashes(hash, data).some((variant) => state.drafts[variant]),
+  );
+  return dirty ? <span className={styles.draftDot} role="img" aria-label="Unsaved draft" /> : null;
+}
+
 interface FinderViewport {
   top: number;
   height: number;
@@ -314,9 +321,6 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   const currentItem = itemFor(hash, data);
   const currentLabel = currentItem ? listName(currentItem, data) : '';
   const sharedLabel = sharedPerkLabel(hash, data, compendiumSource);
-  const dirty = useDraftStore((state) =>
-    variantHashes(hash, data).some((variant) => state.drafts[variant]),
-  );
   useLayoutEffect(() => {
     const element = list.current;
     if (!open || !element) return;
@@ -742,7 +746,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
           }}
           onKeyDown={onKeyDown}
         />
-        {dirty && <span className={styles.draftDot} role="img" aria-label="Unsaved draft" />}
+        <FinderDraftIndicator hash={hash} data={data} />
       </div>
       {listbox}
       <span role="status" className="sr-only">
