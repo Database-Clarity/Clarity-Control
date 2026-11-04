@@ -1,4 +1,21 @@
+import type { ComponentType } from 'react';
+
 export type WorkspaceLoader = () => Promise<unknown>;
+const loadedPages = new WeakMap<WorkspaceLoader, ComponentType>();
+
+/** Share the actual resolved component with the route, not only the browser's module cache. */
+export function workspacePage(load: () => Promise<{ default: ComponentType }>) {
+  const preload = () =>
+    load().then((module) => {
+      loadedPages.set(preload, module.default);
+      return module;
+    });
+  return preload;
+}
+
+export function loadedWorkspacePage(load: WorkspaceLoader): ComponentType | undefined {
+  return loadedPages.get(load);
+}
 
 export function allowBackgroundCode(): boolean {
   const connection = (
