@@ -93,7 +93,7 @@ it('applies the category viewport budget to the route itself, with internal over
     'overflow: visible;',
   );
   expect(categoryCss.match(/(?:^|\n)\.categoryButtons \{([^}]+)\}/)?.[1]).toContain(
-    'grid-auto-rows: max-content;',
+    'flex-direction: column;',
   );
   expect(css).toMatch(/@media \(max-width: 700px\)[\s\S]*\.categoryReview \{[^}]*height: auto;/);
   expect(categoryCss).toMatch(

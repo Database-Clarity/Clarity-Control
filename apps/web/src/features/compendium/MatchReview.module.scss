@@ -228,6 +228,7 @@
   }
 }
 .sourceText {
+  contain: inline-size layout style paint;
   white-space: pre-wrap;
   font-size: 0.95rem;
   line-height: 1.6;
