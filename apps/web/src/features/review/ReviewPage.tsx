@@ -72,11 +72,21 @@ export function ReviewPage() {
   useEffect(() => {
     let active = true;
     if (!data) return;
+    // The initial snapshot was already checked against these exact saved
+    // markers. Rechecking and cloning thousands of markers in the mount effect
+    // repeats that work before the first workspace paint.
+    if (prepared) {
+      setEntries(prepared);
+      setLoading(false);
+      setSelected((previous) => (previous.size ? new Set() : previous));
+      return;
+    }
     const markers = acknowledgedMarkers(data);
     const ready = preparedPending(data, markers);
     setLoading(!ready);
     if (ready) setEntries(ready);
     setSelected((previous) => (previous.size ? new Set() : previous));
+    if (ready) return;
     void pendingTooltips(data, markers).then(
       (result) => {
         if (!active) return;
@@ -93,7 +103,7 @@ export function ReviewPage() {
     return () => {
       active = false;
     };
-  }, [data, acknowledgments]);
+  }, [data, acknowledgments, prepared]);
   const visibleEntries = useMemo(
     () =>
       entries.filter(
