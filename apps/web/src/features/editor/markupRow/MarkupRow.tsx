@@ -25,7 +25,10 @@ export const MarkupRow = memo(function MarkupRow({
   globals: MarkupGlobals;
   usage?: UsageCorpus;
 }) {
-  const entries = useMemo(() => markupEntries(globals), [globals]);
+  // The toolbar catalogue depends only on variable definitions. Its insertion actions
+  // receive the live globals separately; import snapshot edits must not rebuild every entry.
+  const variables = globals.variables;
+  const entries = useMemo(() => markupEntries({ variables, titles: '' }), [variables]);
   const items = useMemo(() => rowEntries(entries), [entries]);
   const buttons = items.filter((item): item is MarkupEntry => item !== rowSeparator);
   const scroller = useRef<HTMLDivElement>(null);

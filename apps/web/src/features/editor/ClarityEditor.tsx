@@ -29,7 +29,7 @@ import { tableFormattingTransaction } from './formatTable';
 import { editorScrollMargins } from './scrollMargins';
 import { rememberSearch, restoreSearch } from './searchMemory';
 import { rawMode, setSymbolReveal, symbolExtensions, toggleRawView } from './symbols';
-import { validateEditorText, validationDiagnostics } from './diagnostics';
+import { hasImportDependencies, validateEditorText, validationDiagnostics } from './diagnostics';
 import { MarkupRow } from './markupRow/MarkupRow';
 import { SuggestChip } from './markupRow/SuggestChip';
 import { chipHost, chipsExtension, type Chip } from './markupRow/chips';
@@ -400,9 +400,17 @@ export function ClarityEditor({
 
   useEffect(() => {
     const previous = configured.current;
+    // A draft edit changes the imports snapshot even when this document does not import
+    // anything. Keep its facets/decorations intact in that case. The live reference source
+    // still updates, and typing an import immediately installs the latest snapshot.
+    const sameDefinitions =
+      previous.globals.variables === globals.variables &&
+      previous.globals.titles === globals.titles &&
+      previous.globals.type === globals.type;
+    const importFree = !hasImportDependencies(value, globals);
     if (
       previous.lang === lang &&
-      previous.globals === globals &&
+      (previous.globals === globals || (sameDefinitions && importFree)) &&
       previous.readOnly === readOnly &&
       previous.requireEnglish === requireEnglish
     )
@@ -421,7 +429,7 @@ export function ClarityEditor({
         ),
       ),
     });
-  }, [lang, globals, readOnly, requireEnglish]);
+  }, [lang, globals, readOnly, requireEnglish, value]);
 
   useEffect(() => {
     const editor = view.current;

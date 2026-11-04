@@ -34,14 +34,14 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function render(value: string, tooltipHash?: number) {
+function render(value: string, tooltipHash?: number, definitions = globals) {
   act(() =>
     root.render(
       <ClarityEditor
         value={value}
         lang="en"
         tooltipHash={tooltipHash}
-        globals={globals}
+        globals={definitions}
         onChange={() => {}}
       />,
     ),
@@ -50,6 +50,25 @@ function render(value: string, tooltipHash?: number) {
 }
 
 describe('find and replace persistence', () => {
+  it('uses fresh import diagnostics when typing an import after unrelated snapshot edits', () => {
+    const first = { ...globals, imports: { 42: '#missing' } };
+    const next = { ...globals, imports: { 42: 'resolved' } };
+    const view = render('plain', 10, first);
+    render('plain', 10, next);
+    act(() => view.dispatch({ changes: { from: 0, to: 5, insert: 'import main from 42' } }));
+    render('import main from 42', 10, next);
+    expect(view.dom.querySelector('.clarity-validation-warning')).toBeNull();
+  });
+
+  it('updates imported title diagnostics even while the document itself has no import', () => {
+    const titles = 'title Detail (\nimport main from 42\n)';
+    const first = { variables: '', titles, imports: { 42: '#missing' } };
+    const next = { variables: '', titles, imports: { 42: 'resolved' } };
+    const view = render('<title Label [Detail] />', 10, first);
+    expect(view.dom.querySelector('.clarity-validation-warning')).not.toBeNull();
+    render('<title Label [Detail] />', 10, next);
+    expect(view.dom.querySelector('.clarity-validation-warning')).toBeNull();
+  });
   it('reuses the view but resets undo and selection when another tooltip has identical text', () => {
     const view = render('one', 10);
     act(() => view.dispatch({ changes: { from: 3, insert: ' cat' }, selection: { anchor: 7 } }));

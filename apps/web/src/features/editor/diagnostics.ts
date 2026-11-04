@@ -2,6 +2,11 @@ import { maskConflicts, validateText, type Lang, type MarkupGlobals } from '@cla
 import { Decoration, EditorView } from '@codemirror/view';
 
 const validation = new WeakMap<MarkupGlobals, Map<string, ReturnType<typeof validateText>>>();
+const importFreeValidation = new Map<string, ReturnType<typeof validateText>>();
+
+export function hasImportDependencies(text: string, globals: MarkupGlobals): boolean {
+  return [text, globals.variables, globals.titles].some((source) => source.includes('import '));
+}
 /** Status and decorations validate the same immutable globals snapshot during a render. */
 export function validateEditorText(
   text: string,
@@ -10,9 +15,16 @@ export function validateEditorText(
   requireEnglish = true,
   selfHash?: number,
 ) {
-  let results = validation.get(globals);
+  const importFree = !hasImportDependencies(text, globals);
+  let results = importFree ? importFreeValidation : validation.get(globals);
   if (!results) validation.set(globals, (results = new Map()));
-  const key = JSON.stringify([lang, requireEnglish, selfHash, text]);
+  const key = JSON.stringify([
+    lang,
+    requireEnglish,
+    selfHash,
+    text,
+    importFree ? [globals.variables, globals.titles, globals.type] : undefined,
+  ]);
   let result = results.get(key);
   if (!result) {
     result = validateText(maskConflicts(text), lang, globals, requireEnglish, selfHash);
