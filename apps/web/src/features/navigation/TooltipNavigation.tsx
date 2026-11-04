@@ -233,10 +233,10 @@ const FinderOptions = memo(function FinderOptions({
   );
   if (rows.length <= retainedRowLimit) return <>{rows.map((row, index) => option(row, index))}</>;
 
-  // Retain a 400px wheel packet plus eight rows for the scroll bucket,
-  // including at reduced interface scales. Larger offscreen windows make native
-  // layout and paint proportional to rows the user cannot see on each jump.
-  const overscan = Math.max(24, Math.ceil(400 / rowHeight) + 8);
+  // The synchronous external-store subscription fills the destination on every
+  // native scroll notification, including jumps larger than this buffer. Keep
+  // half a viewport on either side without laying out several hidden screens.
+  const overscan = Math.max(8, Math.ceil(viewport.height / rowHeight / 2));
   const initialIndex = query.trim()
     ? 0
     : Math.max(
@@ -432,7 +432,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     }
     revealedActive.current = active;
     if (rows.length > retainedRowLimit) {
-      const bucket = Math.floor(layout.top / (rowHeight * 8)) * rowHeight * 8;
+      const bucket = Math.floor(layout.top / rowHeight) * rowHeight;
       setViewport({ top: bucket, height: layout.height });
     }
   };
@@ -446,9 +446,8 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     const scroll = () => {
       if (listLayout.current) listLayout.current.top = element.scrollTop;
       if (rows.length <= retainedRowLimit) return;
-      // Bucket scroll updates inside the overscan. Scrolling reads no row geometry and
-      // does no React work until the visible window approaches the next bucket.
-      const top = Math.floor(element.scrollTop / (rowHeight * 8)) * rowHeight * 8;
+      // Fill at every row boundary, before paint, without reading row geometry.
+      const top = Math.floor(element.scrollTop / rowHeight) * rowHeight;
       if (top === lastTop) return;
       lastTop = top;
       setViewport({ top, height });
@@ -461,7 +460,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       // Land on already-laid-out rows before paint. Initial windowing is based
       // on the selected row, so this does not mount a distant second window.
       revealActive.current();
-      lastTop = Math.floor(listLayout.current.top / (rowHeight * 8)) * rowHeight * 8;
+      lastTop = Math.floor(listLayout.current.top / rowHeight) * rowHeight;
     };
     const observer =
       typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure);
@@ -486,7 +485,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       // removes the drag surface, so no intermediate spacer can become visible.
       if (element)
         setViewport({
-          top: Math.floor(element.scrollTop / (rowHeight * 8)) * rowHeight * 8,
+          top: Math.floor(element.scrollTop / rowHeight) * rowHeight,
           height: viewportStore.getSnapshot().height,
         });
       draggingScrollbarRef.current = false;

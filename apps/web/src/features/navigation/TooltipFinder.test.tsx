@@ -299,21 +299,21 @@ describe('tooltip finder combobox', () => {
     const selected = vi.spyOn(HTMLOptionElement.prototype, 'selected', 'set');
     try {
       const list = host.querySelector<HTMLElement>('[role="listbox"]')!;
-      for (const top of [5600, 11200, 16800, 0]) {
+      for (const top of [5600, 11200, 16800, 2813, 0]) {
         list.scrollTop = top;
         await act(async () => void list.dispatchEvent(new Event('scroll')));
-        const index = top / 28;
+        const index = Math.floor(top / 28);
         expect(options().some((row) => row.getAttribute('aria-posinset') === `${index + 1}`)).toBe(
           true,
         );
         // Every visible row is filled even after a jump much larger than
         // overscan; offscreen rows must not inflate every scroll commit.
-        for (let visible = index; visible < index + 15; visible++) {
+        for (let visible = index; visible < index + (top % 28 ? 16 : 15); visible++) {
           expect(
             options().some((row) => row.getAttribute('aria-posinset') === `${visible + 1}`),
           ).toBe(true);
         }
-        expect(options().length).toBeLessThan(70);
+        expect(options().length).toBeLessThan(36);
       }
       expect(selected).not.toHaveBeenCalled();
       expect(route()).toBe('/t/1000');
