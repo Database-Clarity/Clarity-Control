@@ -4,7 +4,7 @@ import type { HistoryCommit } from './history';
 import type { RevisionCache } from '../features/history/revisions';
 
 // Frozen artifact commit; publication requires independent data verification.
-export const legacyHistoryCommit = 'c86485f767b70225e44dbe0262cd61e332522e4e';
+export const legacyHistoryCommit = 'ca7d872d64512bc9ecba094dac6e368f65e1fea5';
 const source = `https://raw.githubusercontent.com/Database-Clarity/Live-Clarity-Database/${legacyHistoryCommit}`;
 const sha = z.string().regex(/^[0-9a-f]{40}$/);
 const revisionSchema = z.object({
