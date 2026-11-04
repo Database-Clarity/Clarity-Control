@@ -4,7 +4,7 @@ import styles from '../../ui/diff/WordDiff.module.scss';
 
 let worker: Worker | undefined;
 let sequence = 0;
-const pending = new Map<number, (parts: WordChange[]) => void>();
+const pending = new Map<number, (parts: WordChange[] | null) => void>();
 const results = new Map<string, WordChange[]>();
 const coarse = (before: string, after: string): WordChange[] =>
   before === after
@@ -31,19 +31,23 @@ export function HistoryWordDiff({ before, after }: { before: string; after: stri
           pending.delete(event.data.id);
         };
         worker.onerror = () => {
+          for (const finish of pending.values()) finish(null);
           pending.clear();
           worker?.terminate();
           worker = undefined;
         };
       }
       pending.set(id, (parts) => {
-        results.set(key, parts);
-        while (results.size > 24) results.delete(results.keys().next().value!);
-        setComputed({ key, parts });
+        if (parts) {
+          results.set(key, parts);
+          while (results.size > 24) results.delete(results.keys().next().value!);
+        }
+        setComputed({ key, parts: parts ?? coarse(before, after) });
       });
       worker.postMessage({ id, before, after });
     } catch {
       pending.delete(id);
+      setComputed({ key, parts: coarse(before, after) });
     }
     return () => {
       pending.delete(id);
@@ -56,6 +60,9 @@ export function HistoryWordDiff({ before, after }: { before: string; after: stri
   return (
     <div
       className={styles.diff}
+      aria-busy={
+        (large && typeof Worker !== 'undefined' && !cached && computed?.key !== key) || undefined
+      }
       aria-label="Word diff: removed text struck through, added text underlined"
     >
       {parts.map((part, index) =>

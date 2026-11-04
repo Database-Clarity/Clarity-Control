@@ -359,3 +359,46 @@ describe('Compendium pane', () => {
     });
   });
 });
+import linksFixture from './fixtures/compendium-links.json';
+import { reviewedOwnerDecision } from './ownerReviewed';
+import { guidedFixture } from '../../../test/guided-fixture';
+import type { EditorData } from '../../stores/data';
+
+it.each([4019266109, 2613226185, 1888882410, 3684445958])(
+  'compares approval evidence for unsaved owner-approved Collective %s without writing a snapshot',
+  async (hash) => {
+    const f = guidedFixture();
+    f.editor.items = linksFixture.items as EditorData['items'];
+    f.editor.bundle.tooltips = {};
+    const source = core.compendiumDataSchema.parse(linksFixture.source);
+    const item = f.editor.items[hash];
+    const base: Tooltip = { hash, text: {}, associated: [] };
+    const decision = reviewedOwnerDecision(
+      {
+        ...f.categories[0].entries[0],
+        hash,
+        name: item.name,
+        category: item.categoryId,
+        base,
+        next: base,
+      },
+      undefined,
+      source,
+    )!;
+    const resolved = core.resolveCompendiumLink(decision.link!, source);
+    if (!('row' in resolved)) throw new Error('Missing approved source');
+    expect(resolved.row.name).toBe(item.name);
+    expect(resolved.row.anchor?.row).toBe(item.name === 'Collective Demolition' ? 52 : 53);
+    useDataStore.setState({ data: f.editor });
+    useCompendiumStore.setState({ data: source });
+    vi.mocked(usePaneMatch).mockReturnValue(resolved);
+    const before = JSON.stringify([f.editor, source]);
+    const host = await mount(base);
+    expect(host.textContent).toContain('Compendium sheet changed since approval.');
+    expect(host.textContent).not.toContain('No saved snapshot to compare.');
+    expect(host.textContent).toContain(`Weapon Perks / ${item.name}`);
+    expect(diffViews(host)).toHaveLength(1);
+    expect(base.compendium).toBeUndefined();
+    expect(JSON.stringify([f.editor, source])).toBe(before);
+  },
+);

@@ -46,6 +46,8 @@ export interface HistoryEntryProps {
   translator: boolean;
   /** Restore is offered only when the page may edit and drafts have loaded. */
   canRestore: boolean;
+  /** Published artifacts compare the selected state to its next published state. */
+  legacy?: boolean;
   /** Replaces the local draft with this revision; throws a readable error when not allowed. */
   onRestore(version: Tooltip): void;
 }
@@ -63,7 +65,14 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
   const container = useRef<HTMLLIElement>(null);
   const geometry = useRef<AnchorGeometry | undefined>(undefined);
   const trigger = useRef<HTMLButtonElement>(null);
-  const timers = useRef<{ intent?: number; enter?: number; leave?: number; press?: number }>({});
+  const timers = useRef<{
+    intent?: number;
+    enter?: number;
+    leave?: number;
+    press?: number;
+    pointerFocus?: number;
+  }>({});
+  const pointerFocusing = useRef(false);
   const longPressed = useRef(false);
   const dismissed = useRef(false);
   const id = useId();
@@ -76,6 +85,7 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
     window.clearTimeout(timers.current.enter);
     window.clearTimeout(timers.current.leave);
     window.clearTimeout(timers.current.press);
+    window.clearTimeout(timers.current.pointerFocus);
   };
   useEffect(() => clearTimers, []);
   const close = useCallback((restoreFocus: boolean) => {
@@ -149,7 +159,7 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
         dismissed.current = false;
       }}
       onFocus={() => {
-        if (!dismissed.current) {
+        if (!dismissed.current && !pointerFocusing.current) {
           captureAnchor();
           setFocus(true);
         }
@@ -169,6 +179,13 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
         aria-controls={open ? id : undefined}
         title="Show what this revision changed"
         onPointerDown={(event) => {
+          // Pointer focus precedes click in the same input task. Opening at both
+          // stages renders and lays out the popover twice; keyboard focus still opens it.
+          pointerFocusing.current = true;
+          window.clearTimeout(timers.current.pointerFocus);
+          timers.current.pointerFocus = window.setTimeout(() => {
+            pointerFocusing.current = false;
+          }, 0);
           longPressed.current = false;
           if (event.pointerType !== 'touch') return;
           window.clearTimeout(timers.current.press);
@@ -232,6 +249,7 @@ function RevisionPopover({
   translator,
   canRestore,
   onRestore,
+  legacy,
 }: HistoryEntryProps & {
   id: string;
   anchor: RefObject<HTMLElement | null>;
@@ -336,11 +354,21 @@ function RevisionPopover({
         <div className={styles.revisionHead}>
           <span className={styles.revisionTitle}>
             <strong>
-              {mode === 'previous' ? 'Changed in this revision' : 'Compared with current'}
+              {mode === 'previous'
+                ? legacy
+                  ? 'Published text → next published state'
+                  : 'Changed in this revision'
+                : 'Compared with current'}
             </strong>
             <span>
               <CommitAuthor entry={entry} /> <code>{entry.commit.slice(0, 8)}</code>
             </span>
+            {legacy && mode === 'previous' && index > 0 && (
+              <span>
+                Next published state: <CommitAuthor entry={commits[index - 1]} />{' '}
+                <code>{commits[index - 1].commit.slice(0, 8)}</code>
+              </span>
+            )}
           </span>
           <button
             type="button"
@@ -362,7 +390,21 @@ function RevisionPopover({
         )}
         {!source && !error && <p role="status">Loading revision...</p>}
         {source &&
-          (mode === 'previous' ? (
+          (legacy && mode === 'previous' ? (
+            source.hasPredecessor ? (
+              <TooltipDiff
+                before={source.revision}
+                current={source.previous ?? { hash: current?.hash ?? 0, text: {}, associated: [] }}
+                raw={false}
+                eagerLanguages
+              />
+            ) : (
+              <p>
+                Last published state before migration. Compare with the current draft to see later
+                changes.
+              </p>
+            )
+          ) : mode === 'previous' ? (
             <>
               {!source.revision ? (
                 <p>Deleted in this revision.</p>
@@ -386,11 +428,20 @@ function RevisionPopover({
             </>
           ) : (
             current && (
-              <TooltipDiff before={source.revision} current={current} item={item} raw={false} />
+              <TooltipDiff
+                before={source.revision}
+                current={
+                  legacy ? { hash: current.hash, text: current.text, associated: [] } : current
+                }
+                item={item}
+                raw={false}
+                eagerLanguages={legacy}
+              />
             )
           ))}
         {source?.revision && canRestore && (
           <div className={styles.revisionActions}>
+            {legacy && <p>Only language text is restored. Other tooltip fields stay unchanged.</p>}
             {translator && (
               <p>
                 Restore replaces only your assigned translation languages; other fields stay
