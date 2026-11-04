@@ -1,6 +1,8 @@
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { useSidebarQueueStore } from './sidebarQueue';
 import styles from './Layout.module.scss';
+import { ReviewQueue } from '../review/ReviewQueue';
+import '../review/fingerprints';
 
 export function CompendiumSidebarNavigation() {
   const categories = useSidebarQueueStore((state) => state.compendiumCategories);
@@ -42,18 +44,7 @@ export function ReviewSidebarNavigation() {
       {changes === null ? (
         <p>Loading saved changes…</p>
       ) : changes.length ? (
-        <ul className={styles.sidebarList}>
-          {changes.map((change) => (
-            <li key={change.hash}>
-              <Link
-                to={`/review?hash=${change.hash}`}
-                aria-current={selectedHash === String(change.hash) ? 'page' : undefined}
-              >
-                {change.name} <small>{change.hash}</small>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <ReviewQueue changes={changes} selectedHash={selectedHash} />
       ) : (
         <p>No saved changes are waiting to go live.</p>
       )}

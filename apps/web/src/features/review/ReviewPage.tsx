@@ -302,6 +302,7 @@ export function ReviewPage() {
             <button
               type="button"
               disabled={!index || pushing}
+              data-perf-navigation="true"
               onClick={() => selectIndex((value) => stepIndex(value, -1, visibleEntries.length))}
             >
               Previous
@@ -312,6 +313,7 @@ export function ReviewPage() {
             <button
               type="button"
               disabled={index >= visibleEntries.length - 1 || pushing}
+              data-perf-navigation="true"
               onClick={() => selectIndex((value) => stepIndex(value, 1, visibleEntries.length))}
             >
               Next
@@ -377,6 +379,7 @@ export function ReviewPage() {
                 <button
                   type="button"
                   disabled={!start || pushing}
+                  data-perf-navigation="true"
                   onClick={() => selectIndex(start - pageSize)}
                 >
                   Previous page
@@ -384,6 +387,7 @@ export function ReviewPage() {
                 <button
                   type="button"
                   disabled={start + pageSize >= visibleEntries.length || pushing}
+                  data-perf-navigation="true"
                   onClick={() => selectIndex(start + pageSize)}
                 >
                   Next page

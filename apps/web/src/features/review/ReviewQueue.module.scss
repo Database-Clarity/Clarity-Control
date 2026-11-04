@@ -1,0 +1,36 @@
+.viewport {
+  max-height: calc(100dvh - var(--header-h, 37px) - 7rem);
+  overflow: auto;
+  min-height: 0;
+  contain: layout paint;
+}
+
+.list {
+  position: relative;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+
+  li {
+    position: absolute;
+    inset-inline: 0;
+  }
+
+  li a {
+    box-sizing: border-box;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: stretch;
+    flex-wrap: nowrap;
+  }
+
+  span,
+  small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

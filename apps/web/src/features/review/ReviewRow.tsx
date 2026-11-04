@@ -60,6 +60,7 @@ export function ReviewRow({
         />{' '}
         <button
           type="button"
+          data-perf-navigation="true"
           onClick={onOpen}
           aria-current={active ? 'true' : undefined}
           aria-label={`Open ${entry.name}, ${entry.category}, ${entry.tooltip.hash}`}

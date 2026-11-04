@@ -1,4 +1,5 @@
-import { publishableHash, resolveAlias, type Tooltip } from '@clarity/core';
+import { resolveAlias, type Tooltip } from '@clarity/core';
+import { fingerprints } from './fingerprints';
 import type { EditorData } from '../../stores/data';
 export { canPushLive as canPush } from '../auth/permissions';
 
@@ -16,25 +17,27 @@ export async function pendingTooltips(
   data: EditorData,
   pushed = data.bundle.pushed,
 ): Promise<PendingTooltip[]> {
-  const entries = await Promise.all(
-    Object.values(data.bundle.tooltips).map(async (tooltip) => {
-      if (resolveAlias(tooltip.hash, data.aliases) !== tooltip.hash) return null;
-      if ((await publishableHash(tooltip, data.aliases)) === pushed[tooltip.hash]) return null;
-      const item = data.items[tooltip.hash];
-      const categoryId = item?.categoryId ?? tooltip.custom?.categoryId ?? 'other';
-      const category = data.categories.find((entry) => entry.id === categoryId);
-      return {
-        tooltip,
-        name: item?.name ?? tooltip.custom?.name ?? `Tooltip ${tooltip.hash}`,
-        category: category?.label ?? categoryId,
-        categoryId,
-        categoryOrder: category?.order ?? 9999,
-        ...(!item && !tooltip.custom
-          ? { unpublishable: 'No generator entry for this tooltip, so it cannot be pushed.' }
-          : {}),
-      };
-    }),
+  const tooltips = Object.values(data.bundle.tooltips).filter(
+    (tooltip) => resolveAlias(tooltip.hash, data.aliases) === tooltip.hash,
   );
+  const hashes = await fingerprints(tooltips, data.aliases);
+  const categories = new Map(data.categories.map((entry) => [entry.id, entry]));
+  const entries = tooltips.map((tooltip, index) => {
+    if (hashes[index] === pushed[tooltip.hash]) return null;
+    const item = data.items[tooltip.hash];
+    const categoryId = item?.categoryId ?? tooltip.custom?.categoryId ?? 'other';
+    const category = categories.get(categoryId);
+    return {
+      tooltip,
+      name: item?.name ?? tooltip.custom?.name ?? `Tooltip ${tooltip.hash}`,
+      category: category?.label ?? categoryId,
+      categoryId,
+      categoryOrder: category?.order ?? 9999,
+      ...(!item && !tooltip.custom
+        ? { unpublishable: 'No generator entry for this tooltip, so it cannot be pushed.' }
+        : {}),
+    };
+  });
   return entries
     .filter((entry): entry is PendingTooltip => entry !== null)
     .sort(
