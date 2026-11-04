@@ -47,6 +47,7 @@ import { workspaceShortcutsBlocked } from '../../ui/interaction';
 import { CompendiumPage } from './CompendiumPage';
 import { MatchedSources } from './MatchedSources';
 import { useDisplayMatches } from './useDisplayMatches';
+import { rememberReviewPage } from './reviewPageComponent';
 import type { displayMatches } from './displayMatches';
 
 const labels = {
@@ -173,6 +174,8 @@ export function MatchReviewPage() {
     </article>
   );
 }
+
+rememberReviewPage(MatchReviewPage);
 
 export function ReviewQueue({
   editor,

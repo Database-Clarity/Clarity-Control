@@ -1,8 +1,33 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { LazyMatchReviewPage } from './LazyMatchReviewPage';
+import { loadedReviewPage, rememberReviewPage } from './reviewPageComponent';
+
+it('renders prefetched code without a loading fallback and preserves the mounted page state', () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const previous = loadedReviewPage();
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  function Prefetched() {
+    const [count, setCount] = useState(0);
+    return <button onClick={() => setCount(count + 1)}>Review {count}</button>;
+  }
+  try {
+    rememberReviewPage(Prefetched);
+    act(() => root.render(<LazyMatchReviewPage />));
+    expect(host.querySelector('[role="status"]')).toBeNull();
+    expect(host.textContent).toBe('Review 0');
+    act(() => host.querySelector('button')!.click());
+    rememberReviewPage(() => <p>Another code generation</p>);
+    act(() => root.render(<LazyMatchReviewPage />));
+    expect(host.textContent).toBe('Review 1');
+  } finally {
+    act(() => root.unmount());
+    rememberReviewPage(previous);
+  }
+});
 
 it('loads on first mount and retries a failed chunk without losing the surrounding page', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });

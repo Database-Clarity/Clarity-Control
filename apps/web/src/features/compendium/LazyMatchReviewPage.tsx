@@ -1,4 +1,5 @@
 import { Component, Suspense, lazy, useState, type ComponentType, type ReactNode } from 'react';
+import { loadedReviewPage } from './reviewPageComponent';
 
 const loadPage = () =>
   import('./MatchReviewPage').then((module) => ({ default: module.MatchReviewPage }));
@@ -29,12 +30,15 @@ export function LazyMatchReviewPage({
   load?: () => Promise<{ default: ComponentType }>;
 }) {
   const [attempt, setAttempt] = useState(0);
-  const [Page, setPage] = useState(() => lazy(load));
+  const page = () => (load === loadPage && loadedReviewPage()) || lazy(load);
+  // Idle prefetch already evaluated the page. Reuse it without introducing a
+  // fresh pending lazy boundary on every navigation into this workspace.
+  const [Page, setPage] = useState(page);
   return (
     <LoadBoundary
       key={attempt}
       retry={() => {
-        setPage(() => lazy(load));
+        setPage(page);
         setAttempt((value) => value + 1);
       }}
     >
