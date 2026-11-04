@@ -861,3 +861,12 @@ editor reload replaces the initialized editor while retaining the worker's sourc
 focus/storage events compare stored content before parsing, and selection-only/empty guidance
 metadata changes do not invalidate matching. Same-window guidance/decision writes notify the
 shared input store; actual changes still withhold old matches until validation completes.
+
+Opening or navigating the review page derives its guidance category scaffold and baseline
+renewal in memory. It never persists approval data, including an empty guidance scope, or
+replays pending approval saves merely because the page mounted. Decisions, comments, imports,
+explicit retries, and Send to agents authorize a persistence snapshot. Later derived changes
+cannot alter that snapshot during an autosave acknowledgement or route teardown. The first
+explicit edit after renewal backs up the original stored bytes before replacing them; a failed
+backup leaves those original bytes intact. Queue selection, query, category, and filter are
+view state: unchanged values are skipped, writes coalesce at idle, and pagehide flushes them.

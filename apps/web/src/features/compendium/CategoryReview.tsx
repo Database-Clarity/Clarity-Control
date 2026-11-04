@@ -227,6 +227,7 @@ export function CategoryReview({
             document={guidance.document}
             ready={guidance.ready}
             onStatus={setDeliveryStatus}
+            onSend={() => guidance.persistence.save()}
           />
           <details>
             <summary>Backup / recovery</summary>
@@ -268,7 +269,14 @@ export function CategoryReview({
                 guidance.error &&
                 !guidance.conflict &&
                 !guidance.reloading && (
-                  <button onClick={() => void guidance.persistence.flush()}>Retry disk save</button>
+                  <button
+                    onClick={() => {
+                      guidance.persistence.save();
+                      void guidance.persistence.flush();
+                    }}
+                  >
+                    Retry disk save
+                  </button>
                 )}
               {guidance.diskAvailable && (
                 <button
