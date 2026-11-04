@@ -303,7 +303,9 @@ it('keeps linked filters active and does not retain an interactive review queue'
   expect(route().searchParams.get('linkedCategory')).toBe('weapon-trait');
   expect(host.querySelector('[aria-label="Category guidance"]')).toBeNull();
   expect(host.querySelector('[aria-label="Entry to review"]')).toBeNull();
-  expect(host.querySelectorAll('nav[aria-label="Compendium views"] a')).toHaveLength(2);
+  expect(
+    [...host.querySelectorAll('nav[aria-label="Compendium views"] a')].map((link) => link.textContent),
+  ).toEqual(['Matched sources', 'Review matches', 'Linked sources changed']);
 
   const before = {
     drafts: useDraftStore.getState().drafts,

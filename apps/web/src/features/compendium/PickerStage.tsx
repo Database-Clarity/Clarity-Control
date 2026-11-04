@@ -1,6 +1,15 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import styles from './PickerStage.module.scss';
+
+// Retain the user's picker state, without rebuilding its hidden sheets for every entry
+// visited after the dialog has closed. Reopening reconciles the current entry before focus.
+const StageContents = memo(
+  function StageContents({ children }: { children: ReactNode; open: boolean }) {
+    return <>{children}</>;
+  },
+  (previous, next) => !next.open || previous.children === next.children,
+);
 
 /** A dedicated stage: native modality owns focus and pointer interaction. */
 export function PickerStage({
@@ -78,7 +87,9 @@ export function PickerStage({
         </button>
         <h2>Choose source</h2>
       </header>
-      <div className={styles.content}>{children}</div>
+      <div className={styles.content}>
+        <StageContents open={open}>{children}</StageContents>
+      </div>
     </dialog>,
     document.body,
   );

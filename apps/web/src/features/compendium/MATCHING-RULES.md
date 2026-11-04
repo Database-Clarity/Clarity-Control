@@ -801,6 +801,11 @@ or a new approval. `guidanceSchema` validates it; the existing `rebaselineGuidan
 renews only unchanged entry/source evidence in memory. Meaningful local references/comments
 layer over their recorded categories, retaining baseline, membership and unresolved-reference
 gates. No owner browser or live guidance store is used to generate the shipped snapshot.
+The pinned original is `C:/Users/Seleo/AppData/Local/Temp/ccov-audit-42488/renewed-guidance.json`
+(SHA-256 `2cbb42830f8fbfcbb2304319f093358f4fafeae47da3cbf3ba599796fecadb86`).
+The committed JSON has identical parsed content; formatting changes its file hash.
+The audit editor/catalog input is `ccov-sol-high-20261102/inputs.json`; the refreshed audit
+source is `.agents/reports/compendium-baseline/compendium-8602377.json` in the coordination checkout.
 
 Both the pane and Matched sources tab consume the same read-only worker results. Only
 `action=link` with `confidence=high` or the existing explicit out-of-scope parent-link exceptions
@@ -828,3 +833,10 @@ single large clone on the UI thread. Main-thread receivers publish only the comp
 Draft matching projects only link/classification metadata, caches unchanged draft entries and
 ignores live text; the review view overlays current draft English separately. Nearby sheet context
 is built only after its existing disclosure is opened; the approved description stays immediate.
+The generator also emits `precomputed.v1.json.gz`. Modern browsers fetch that 1.49 MB asset;
+the worker handles both HTTP-decoded and raw gzip responses. Browsers without native gzip
+decompression retain the JSON fallback. Review models are prepared across all entries in
+separate idle jobs, without using a selected route or predicted navigation sequence.
+Closed source-picker content retains its selections but stops reconciling entry changes;
+hidden visited sheets are memoized. Linked/unlinked lists render 100 entries at a time with
+an explicit continuation, rather than laying out thousands of invisible rows on first opening.

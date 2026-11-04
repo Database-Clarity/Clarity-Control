@@ -5,6 +5,13 @@ import { compendiumChanges } from './tracking';
 import { useDisplayMatches } from './useDisplayMatches';
 import { useDraftStore } from '../../stores/drafts';
 import { useAuthStore } from '../../stores/auth';
+import { groupManifestItems } from './manifestItems';
+import { preparedEvidence, preparedProposals, reviewedEntries } from './reviewViewCache';
+import { peekMatchingSession } from './matchingSession';
+import { readProgress, reviewStorageKey } from './reviewProgress';
+import { bundleUrl } from '../../services/bundle';
+import { compendiumDataUrl } from '../../services/compendium';
+import { apiUrl } from '../../services/api';
 
 export type CompendiumCount =
   { state: 'loading' } | { state: 'error' } | { state: 'ready'; count: number };
@@ -16,7 +23,49 @@ export function useCompendiumCount(): CompendiumCount {
   const drafts = useDraftStore((state) => state.drafts);
   const userId = useAuthStore((state) => state.user?.id);
   const { data, error, load } = useCompendiumStore();
-  useDisplayMatches(editor, data, drafts, userId);
+  const { prepared } = useDisplayMatches(editor, data, drafts, userId);
+  useEffect(() => {
+    if (!editor || !data || !prepared) return;
+    // Prepare the entire review model fairly, regardless of viewport, selection or route.
+    // Separate idle jobs keep this work out of editor input and foreground navigation.
+    const evidence = () => preparedEvidence(prepared, drafts);
+    const jobs = [
+      () => groupManifestItems(editor.items, editor.aliases),
+      () => {
+        try {
+          const key = reviewStorageKey(
+            `${bundleUrl}|${compendiumDataUrl}|${apiUrl ?? 'read-only'}`,
+            userId,
+          );
+          reviewedEntries(evidence(), readProgress(localStorage, key));
+        } catch {
+          // The review view owns the existing invalid-progress recovery/error flow.
+        }
+      },
+      () => {
+        const core = peekMatchingSession(editor, data)?.currentProposals;
+        if (core) preparedProposals(prepared, core);
+      },
+    ];
+    let cancelled = false;
+    let idle: number | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = () => {
+      const next = () => {
+        if (cancelled) return;
+        jobs.shift()?.();
+        if (jobs.length) schedule();
+      };
+      if ('requestIdleCallback' in window) idle = window.requestIdleCallback(next);
+      else timer = setTimeout(next, 0);
+    };
+    schedule();
+    return () => {
+      cancelled = true;
+      if (idle !== undefined) window.cancelIdleCallback(idle);
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, [editor, data, prepared, drafts, userId]);
   useEffect(() => {
     const start = () => {
       void load();

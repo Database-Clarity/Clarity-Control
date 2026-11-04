@@ -17,7 +17,8 @@ import { useDraftStore } from '../../stores/drafts';
 import { useCompendiumStore } from './store';
 import { PickerStage } from './PickerStage';
 import { LinkPicker } from './LinkPicker';
-import { applyReviewProgress, mayDraftLink, reviewEvidence } from './reviewQueue';
+import { mayDraftLink, reviewEvidence } from './reviewQueue';
+import { preparedEvidence, preparedProposals, reviewedEntries } from './reviewViewCache';
 import {
   progressSchema,
   reviewStorageKey,
@@ -276,14 +277,11 @@ export function ReviewQueue({
   const evidence = useMemo(
     () =>
       prepared
-        ? prepared.evidence.map((entry) => ({
-            ...entry,
-            next: drafts[entry.hash]?.next ?? entry.base,
-          }))
+        ? preparedEvidence(prepared, drafts)
         : reviewEvidence(editor, source, drafts, fingerprint),
     [editor, source, drafts, fingerprint, prepared],
   );
-  const entries = useMemo(() => applyReviewProgress(evidence, progress), [evidence, progress]);
+  const entries = useMemo(() => reviewedEntries(evidence, progress), [evidence, progress]);
   const manifest = useMemo(
     () => groupManifestItems(editor.items, editor.aliases),
     [editor.items, editor.aliases],
@@ -295,16 +293,7 @@ export function ReviewQueue({
   } = useProposals(editor, source);
   const proposals = useMemo(() => {
     if (!prepared) return coreProposals;
-    const shown = new Map(coreProposals);
-    const decisions = new Map(prepared.decisions.map((decision) => [decision.hash, decision]));
-    for (const [hash, match] of prepared.matches) {
-      shown.set(hash, {
-        match,
-        link: decisions.get(hash)?.link,
-        candidates: shown.get(hash)?.candidates ?? [],
-      });
-    }
-    return shown;
+    return preparedProposals(prepared, coreProposals);
   }, [coreProposals, prepared]);
   const currentEntries = useMemo(
     () => new Map(entries.map((entry) => [entry.hash, entry])),

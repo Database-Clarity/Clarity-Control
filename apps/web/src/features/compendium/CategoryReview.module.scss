@@ -81,6 +81,7 @@
   min-width: 0;
 }
 .categoryButtons {
+  contain: content;
   display: grid;
   grid-auto-rows: max-content;
   align-content: start;
@@ -102,6 +103,7 @@
   }
 }
 .category {
+  contain: content;
   color: #e2e5ee;
   display: flex;
   flex-direction: column;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import {
   compendiumCellAt,
   selectCompendiumCells,
@@ -9,12 +9,13 @@ import {
   type CompendiumCellOffset,
   type CompendiumMatch,
   type CompendiumData,
+  type CompendiumGridCell,
 } from '@clarity/core';
 import { confirmCompendiumSelection } from './selection';
 import { Multiline, RichCell } from './RichCell';
 import styles from './Compendium.module.scss';
 
-export function CellPicker({
+export const CellPicker = memo(function CellPicker({
   tab,
   data,
   initial,
@@ -68,17 +69,23 @@ export function CellPicker({
     [tab],
   );
   const visibleCells = useMemo(
-    () =>
-      new Map(
-        Array.from({ length: lastRow - firstRow + 1 }, (_, index) => firstRow + index).flatMap(
-          (row) =>
-            Array.from(
-              { length: columns },
-              (_, col) => [`${row}:${col}`, compendiumCellAt(tab, { row, col })] as const,
-            ),
-        ),
-      ),
-    [tab, firstRow, lastRow, columns],
+    () => {
+      const cells = new Map<string, CompendiumGridCell>();
+      // One sheet scan, preserving compendiumCellAt's first-cell precedence and merged spans.
+      // Avoid scanning the entire grid again for every coordinate in the visible window.
+      for (const entry of tab.grid ?? []) {
+        const start = Math.max(firstRow, entry.row);
+        const end = Math.min(lastRow, entry.row + (entry.rowSpan ?? 1) - 1);
+        for (let row = start; row <= end; row++) {
+          for (let col = entry.col; col < entry.col + (entry.colSpan ?? 1); col++) {
+            const key = `${row}:${col}`;
+            if (!cells.has(key)) cells.set(key, entry);
+          }
+        }
+      }
+      return cells;
+    },
+    [tab, firstRow, lastRow],
   );
   if (!tab.grid)
     return <p>This dataset has no sheet grid. Refresh the dataset to pick description cells.</p>;
@@ -274,4 +281,4 @@ export function CellPicker({
       {!anchor && <p>Search for the item name, then choose its anchor cell.</p>}
     </section>
   );
-}
+});

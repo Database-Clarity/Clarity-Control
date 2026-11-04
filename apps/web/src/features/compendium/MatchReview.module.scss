@@ -178,6 +178,7 @@
   min-height: 0;
 }
 .card {
+  contain: content;
   color: #e2e5ee;
   min-width: 0;
   border: 1px solid #424e62;

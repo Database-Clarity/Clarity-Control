@@ -2,6 +2,7 @@
 import { createServer } from 'vite';
 import { createHash } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
+import { gzipSync } from 'node:zlib';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -69,9 +70,14 @@ try {
   };
   // JSON normalization drops optional undefined fields before interning the value table.
   const encoded = codec.encodePrecomputed(JSON.parse(JSON.stringify(value)));
+  const text = JSON.stringify(encoded) + '\n';
   await writeFile(
     path.join(root, 'apps/web/src/features/compendium/precomputed.v1.json'),
-    JSON.stringify(encoded) + '\n',
+    text,
+  );
+  await writeFile(
+    path.join(root, 'apps/web/src/features/compendium/precomputed.v1.json.gz'),
+    gzipSync(text),
   );
   console.log(
     `Computed ${result.matches.size} eligible matches; source ${source.fetchedAt}; bundle ${editor.bundle.sourceCommit}.`,

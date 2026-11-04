@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   compendiumIdentifiers,
   compendiumNameVariants,
@@ -153,6 +153,9 @@ export function LinkPicker({
     }
     onLinked();
   }
+  const chooseCurrent = useRef(choose);
+  chooseCurrent.current = choose;
+  const chooseLatest = useCallback((match: CompendiumMatch) => chooseCurrent.current(match), []);
   if (!data) return null;
   const tab = data.tabs.find((tab) => tab.gid === gid);
   return (
@@ -269,7 +272,7 @@ export function LinkPicker({
                 tab={savedTab}
                 data={data}
                 initial={saved.row}
-                onChoose={choose}
+                onChoose={chooseLatest}
                 readOnly={!canEdit}
                 referenceOnly={!!onReference}
               />

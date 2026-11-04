@@ -5,6 +5,8 @@ import type { displayMatches } from './displayMatches';
 import type { DisplayInput } from './matchingSession';
 import { cachedComputation, contentHash } from './workerCache';
 import precomputedUrl from './precomputed.v1.json?url';
+import compressedUrl from './precomputed.v1.json.gz?url';
+import { compressedJson } from './compressedJson';
 import { decodePrecomputed } from './precomputedCodec';
 import type { GuidanceDocument } from './guidanceSchema';
 import { matchingInputs } from './matchingInputs';
@@ -39,9 +41,13 @@ self.onmessage = async ({
       source = data.source;
       dataKey = await contentHash(matchingInputs(editor, source));
       proposals = await cachedComputation(`${import.meta.url}:proposals:${dataKey}`, async () => {
-        const response = await fetch(precomputedUrl);
+        const compressed = typeof DecompressionStream !== 'undefined';
+        const response = await fetch(compressed ? compressedUrl : precomputedUrl);
         if (response.ok) {
-          const encoded = (await response.json()) as { nodes: unknown[]; root: number };
+          const encoded = (await (compressed ? compressedJson(response) : response.json())) as {
+            nodes: unknown[];
+            root: number;
+          };
           const precomputed = decodePrecomputed(encoded.nodes, encoded.root) as {
             key: string;
             proposals: [number, ReviewProposal][];
