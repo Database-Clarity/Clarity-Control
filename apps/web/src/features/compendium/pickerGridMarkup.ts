@@ -1,6 +1,7 @@
 import type { CompendiumCell, CompendiumRun, CompendiumSheet } from '@clarity/core';
 import richStyles from './RichCell.module.scss';
 import gridStyles from './PickerGrid.module.scss';
+import { isPickerSeparator, pickerSeparatorLabelRow } from './pickerSeparators';
 
 // All source text and attribute values cross this one escaping boundary. Links are
 // deliberately omitted, just as in RichCell's links={false} selection surface.
@@ -99,10 +100,12 @@ export function pickerGridHtml(
   firstRow: number,
   lastRow: number,
   columns: number,
+  windowFirst = firstRow,
+  windowLast = lastRow,
 ) {
   let cache = windows.get(tab);
   if (!cache) windows.set(tab, (cache = new Map()));
-  const key = `${firstRow}:${lastRow}:${columns}`;
+  const key = `${firstRow}:${lastRow}:${columns}:${windowFirst}:${windowLast}`;
   const cached = cache.get(key);
   if (cached !== undefined) return cached;
   const occupied = new Map<string, NonNullable<CompendiumSheet['grid']>[number]>();
@@ -127,7 +130,21 @@ export function pickerGridHtml(
         html += '<td></td>';
         continue;
       }
-      if (col !== entry.col || row !== Math.max(firstRow, entry.row)) continue;
+      const separator = (entry.rowSpan ?? 1) > 1 && isPickerSeparator(entry.cell);
+      if (col !== entry.col || (!separator && row !== Math.max(firstRow, entry.row))) continue;
+      if (separator) {
+        const start = Math.max(windowFirst, entry.row),
+          end = Math.min(windowLast, entry.row + (entry.rowSpan ?? 1) - 1);
+        const background = /^#[\da-f]{6}$/i.test(entry.cell.background ?? '')
+          ? ` style="background:${entry.cell.background}"`
+          : '';
+        const text =
+          row === pickerSeparatorLabelRow(entry, windowFirst, windowLast)
+            ? pickerCellHtml(entry.cell)
+            : '';
+        html += `<td class="${gridStyles.separator}" colspan="${entry.colSpan ?? 1}" data-cell="${entry.row}:${entry.col}" data-separator="true" data-start="${row === start}" data-end="${row === end}"${background}><button type="button" class="${gridStyles.contents}" data-row="${entry.row}" data-col="${entry.col}" aria-pressed="false" data-separator-label="${row === pickerSeparatorLabelRow(entry, windowFirst, windowLast)}" aria-label="${escape(`Row ${entry.row}, column ${col + 1}: ${entry.cell.plain}`)}">${text}</button></td>`;
+        continue;
+      }
       const span = Math.min(entry.row + (entry.rowSpan ?? 1) - row, lastRow - row + 1);
       html += `<td colspan="${entry.colSpan ?? 1}" rowspan="${span}" data-cell="${entry.row}:${entry.col}"><button type="button" class="${gridStyles.contents}" data-row="${entry.row}" data-col="${entry.col}" aria-pressed="false" aria-label="${escape(`Row ${entry.row}, column ${col + 1}: ${entry.cell.plain}`)}">${pickerCellHtml(entry.cell)}</button></td>`;
     }

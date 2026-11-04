@@ -6,7 +6,11 @@ const sheet = (spans: { row: number; rowSpan: number }[]): CompendiumSheet => ({
   gid: '1',
   name: 'spans',
   rows: [],
-  grid: spans.map((span) => ({ ...span, col: 0, cell: { plain: '-', runs: [{ text: '-' }] } })),
+  grid: spans.map((span) => ({
+    ...span,
+    col: 0,
+    cell: { plain: 'content', runs: [{ text: 'content' }] },
+  })),
 });
 describe('independent picker row bands', () => {
   it('closes intersecting spans transitively before choosing the next boundary', () => {
@@ -21,11 +25,12 @@ describe('independent picker row bands', () => {
       ),
     ).toEqual([
       { first: 1, last: 12 },
-      { first: 13, last: 16 },
-      { first: 17, last: 20 },
+      { first: 13, last: 15 },
+      { first: 16, last: 18 },
+      { first: 19, last: 20 },
     ]);
   });
-  it('keeps the Armor Mods 19-row span in one band, including a clipped window start', () => {
+  it('keeps a non-separator 19-row span in one band, including a clipped window start', () => {
     expect(pickerBands(sheet([{ row: 2, rowSpan: 19 }]), 5, 21)).toEqual([
       { first: 5, last: 20 },
       { first: 21, last: 21 },

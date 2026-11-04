@@ -11,14 +11,18 @@ const GridBand = memo(function GridBand({
   tab,
   band,
   columns,
+  firstRow,
+  lastRow,
 }: {
   tab: CompendiumSheet;
   band: PickerBand;
   columns: number;
+  firstRow: number;
+  lastRow: number;
 }) {
   const markup = useMemo(
-    () => ({ __html: pickerGridHtml(tab, band.first, band.last, columns) }),
-    [tab, band, columns],
+    () => ({ __html: pickerGridHtml(tab, band.first, band.last, columns, firstRow, lastRow) }),
+    [tab, band, columns, firstRow, lastRow],
   );
   return (
     <table
@@ -126,12 +130,12 @@ export const PickerGrid = memo(function PickerGrid({
   }, [bands, count]);
   useLayoutEffect(() => {
     const anchorCell = compendiumCellAt(tab, anchor);
-    const previousAnchor = body.current!.querySelector('[data-anchor="true"]');
-    previousAnchor?.removeAttribute('data-anchor');
+    for (const previous of body.current!.querySelectorAll('[data-anchor="true"]'))
+      previous.removeAttribute('data-anchor');
     if (anchorCell)
       body
-        .current!.querySelector(`[data-cell="${anchorCell.row}:${anchorCell.col}"]`)
-        ?.setAttribute('data-anchor', 'true');
+        .current!.querySelectorAll(`[data-cell="${anchorCell.row}:${anchorCell.col}"]`)
+        .forEach((piece) => piece.setAttribute('data-anchor', 'true'));
     for (const button of body.current!.querySelectorAll('button')) {
       const row = Number(button.dataset.row),
         col = Number(button.dataset.col);
@@ -144,7 +148,7 @@ export const PickerGrid = memo(function PickerGrid({
       const disabled = selected < 0 && offsets.length >= 256;
       if (button.disabled !== disabled) button.disabled = disabled;
       let order = button.querySelector('strong');
-      if (selected < 0) order?.remove();
+      if (selected < 0 || button.dataset.separatorLabel === 'false') order?.remove();
       else {
         if (!order) {
           order = document.createElement('strong');
@@ -160,7 +164,10 @@ export const PickerGrid = memo(function PickerGrid({
       ref={viewport}
       className={styles.sheetScroll}
       onClick={(event) => {
-        const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-row]');
+        const target = event.target as HTMLElement;
+        const button =
+          target.closest<HTMLButtonElement>('button[data-row]') ??
+          target.closest('td[data-separator]')?.querySelector('button');
         if (button && !button.disabled && body.current?.contains(button))
           onToggle({
             dRow: Number(button.dataset.row) - anchor.row,
@@ -175,7 +182,14 @@ export const PickerGrid = memo(function PickerGrid({
     >
       <div ref={body} style={{ width: `${5 + columns * 14}rem` }}>
         {bands.slice(0, count).map((band) => (
-          <GridBand key={band.first} tab={tab} band={band} columns={columns} />
+          <GridBand
+            key={band.first}
+            tab={tab}
+            band={band}
+            columns={columns}
+            firstRow={firstRow}
+            lastRow={lastRow}
+          />
         ))}
       </div>
     </div>
