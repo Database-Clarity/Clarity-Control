@@ -3,3 +3,7 @@
   // layout and paint local, without size containment or estimated row heights.
   contain: layout style paint;
 }
+
+.band + .band {
+  margin-top: -1px;
+}
