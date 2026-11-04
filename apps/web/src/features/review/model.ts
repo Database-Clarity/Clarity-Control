@@ -1,6 +1,8 @@
 import { resolveAlias, type Tooltip } from '@clarity/core';
 import { fingerprints, prepareFingerprintWorker } from './fingerprints';
 import { useDataStore, type EditorData } from '../../stores/data';
+import { useAuthStore } from '../../stores/auth';
+import { allowBackgroundCode } from '../../workspacePreload';
 import { useSidebarQueueStore, type SidebarPendingChange } from '../navigation/sidebarQueue';
 export { canPushLive as canPush } from '../auth/permissions';
 
@@ -150,13 +152,15 @@ export function stepIndex(index: number, delta: number, length: number): number 
 
 // Prepare every saved snapshot equally, independent of the next workspace destination.
 if (typeof window !== 'undefined' && typeof Worker !== 'undefined') {
-  // Initialize code while the bundle/catalogue are still loading, without sending data.
-  try {
-    prepareFingerprintWorker();
-  } catch {
-    /* Opening Review reports a failed worker. */
-  }
   const warm = () => {
+    const role = useAuthStore.getState().user?.role;
+    if (!allowBackgroundCode() || (role !== 'editor' && role !== 'maintainer')) return;
+    // Initialize code while the bundle/catalogue are still loading, without sending data.
+    try {
+      prepareFingerprintWorker();
+    } catch {
+      return;
+    }
     const data = useDataStore.getState().data;
     if (data)
       void pendingTooltips(data)
@@ -168,6 +172,9 @@ if (typeof window !== 'undefined' && typeof Worker !== 'undefined') {
   };
   useDataStore.subscribe((state, previous) => {
     if (state.data !== previous.data) warm();
+  });
+  useAuthStore.subscribe((state, previous) => {
+    if (state.user?.role !== previous.user?.role) warm();
   });
   warm();
 }

@@ -1,19 +1,22 @@
 export type WorkspaceLoader = () => Promise<unknown>;
 
-/** Code only; one route per idle turn, in the role's ordinary workspace order. */
-export function preloadWorkspaces(loaders: readonly WorkspaceLoader[]): () => void {
+export function allowBackgroundCode(): boolean {
   const connection = (
     navigator as Navigator & {
       connection?: { saveData?: boolean; effectiveType?: string; downlink?: number };
     }
   ).connection;
-  if (
-    !window.requestIdleCallback ||
-    connection?.saveData ||
-    /^(slow-2g|2g|3g)$/.test(connection?.effectiveType ?? '') ||
-    (connection?.downlink !== undefined && connection.downlink < 1.5)
-  )
-    return () => {};
+  return (
+    !!window.requestIdleCallback &&
+    !connection?.saveData &&
+    !/^(slow-2g|2g|3g)$/.test(connection?.effectiveType ?? '') &&
+    (connection?.downlink === undefined || connection.downlink >= 1.5)
+  );
+}
+
+/** Code only; one route per idle turn, in the role's ordinary workspace order. */
+export function preloadWorkspaces(loaders: readonly WorkspaceLoader[]): () => void {
+  if (!allowBackgroundCode()) return () => {};
 
   let cancelled = false;
   let idle: number | undefined;
