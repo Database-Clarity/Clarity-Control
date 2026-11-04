@@ -25,10 +25,13 @@ it('lets real catalog selects shrink inside narrow phone filter tracks', () => {
 it('budgets desktop panels from remaining viewport space, with phone document scrolling', () => {
   const entry = css.match(/(?:^|\n)\.entryReview \{([^}]+)\}/)?.[1];
   expect(entry).toContain('display: flex;');
-  expect(entry).toContain('height: calc(100dvh - 2 * clamp(1.25rem, 4vw, 3rem));');
+  expect(entry).toContain(
+    'min-height: calc(100dvh - var(--header-h, 37px) - 2 * clamp(1rem, 3vw, 2rem));',
+  );
+  expect(entry).toContain('height: auto;');
   expect(entry).toContain('box-sizing: border-box;');
   const workspace = css.match(/\.workspace \{([^}]+)\}/)?.[1];
-  expect(workspace).toContain('flex: 1;');
+  expect(workspace).toContain('flex: 1 1 0;');
   expect(workspace).toContain('min-height: 0;');
   const card = css.match(/\.card \{([^}]+)\}/)?.[1];
   expect(card).toContain('overflow: auto;');
@@ -37,11 +40,14 @@ it('budgets desktop panels from remaining viewport space, with phone document sc
     /@media \(max-width: 700px\)[\s\S]*\.entryReview \{\s*display: block;\s*height: auto;/,
   );
 });
-it('keeps the phone review actions and overlay clear of the home indicator, with no dock to reserve', () => {
+it('reserves approval rows in flow, without covering navigation or the phone home indicator', () => {
   const mobile = css.slice(css.indexOf('@media (max-width: 700px)'));
-  expect(mobile).toMatch(/\.actionBar \{[^}]*bottom: env\(safe-area-inset-bottom, 0px\);/);
-  expect(mobile).toMatch(/\.overlay \{[^}]*--review-action-bar-height/);
-  expect(css).toContain('var(--review-action-bar-height, 0px)');
+  const actions = css.match(/(?:^|\n)\.actionBar \{([^}]+)\}/)?.[1];
+  expect(actions).toContain('position: static;');
+  expect(actions).toContain('flex-shrink: 0;');
+  expect(mobile).toMatch(/\.actionBar \{[^}]*padding:[^;]*safe-area-inset-bottom/);
+  expect(mobile).toMatch(/\.overlay \{[^}]*safe-area-inset-bottom/);
+  expect(css).not.toContain('--review-action-bar-height');
   expect(css).not.toContain('--save-dock-height');
   expect(layoutCss).not.toContain('--save-dock-height');
   expect(css).toMatch(/\.actionBar button \{\s*min-height: max\(44px, 2\.75rem\);\s*\}/);
@@ -49,7 +55,8 @@ it('keeps the phone review actions and overlay clear of the home indicator, with
   const reviewMobile = reviewCss.slice(reviewCss.indexOf('@media (max-width: 700px)'));
   const emptyActionRule = reviewMobile.match(/([^{}]*\.empty button[^{}]*)\{([^{}]*)\}/);
   expect(emptyActionRule?.[2]).toContain('min-height: max(44px, 2.75rem);');
-  expect(categoryCss).toMatch(/@media \(max-width: 700px\)[\s\S]*\.actions \{\s*position: fixed;/);
+  expect(categoryCss.match(/\.sample > \.actions \{([^}]+)\}/)?.[1]).toContain('position: static;');
+  expect(categoryCss).not.toMatch(/\.actions \{[^}]*position: (fixed|sticky);/);
   expect(categoryCss).toContain('.actionEyebrow');
 });
 it('keeps the desktop list column bounded under the header (whatever its height) and gives phones none', () => {
@@ -80,7 +87,9 @@ it('gives category and pending queue links 44px phone/coarse targets without cha
 it('applies the category viewport budget to the route itself, with internal overflow and phone scrolling', () => {
   const category = css.match(/(?:^|\n)\.categoryReview \{([^}]+)\}/)?.[1];
   expect(category).toContain('display: flex;');
-  expect(category).toContain('height: calc(100dvh - 2 * clamp(1.25rem, 4vw, 3rem));');
+  expect(category).toContain(
+    'height: calc(100dvh - var(--header-h, 37px) - 2 * clamp(1rem, 3vw, 2rem));',
+  );
   expect(category).toContain('padding-bottom: 0;');
   expect(css).not.toContain('.entryReview .categoryReview');
   expect(categoryCss.match(/(?:^|\n)\.category \{([^}]+)\}/)?.[1]).toContain('overflow: auto;');
@@ -89,7 +98,7 @@ it('applies the category viewport budget to the route itself, with internal over
     'overflow: visible;',
   );
   expect(categoryCss.match(/(?:^|\n)\.categoryButtons \{([^}]+)\}/)?.[1]).toContain(
-    'grid-auto-rows: max-content;',
+    'flex-direction: column;',
   );
   expect(css).toMatch(/@media \(max-width: 700px\)[\s\S]*\.categoryReview \{[^}]*height: auto;/);
   expect(categoryCss).toMatch(

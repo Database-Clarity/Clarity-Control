@@ -39,12 +39,40 @@ describe('compendium newlines', () => {
     const wrapper = host.querySelector('[data-multiline]')!;
     expect(wrapper.textContent).toBe(TEXT);
     expect(
-      wrapper.querySelector<HTMLElement>('span span[style*="bold"], span span[style*="700"]'),
+      wrapper.querySelector<HTMLElement>('span[style*="bold"], span[style*="700"]'),
     ).not.toBeNull();
   });
   it('Multiline wraps plain picker text (buttons/list rows)', () => {
     const host = render(createElement('button', null, createElement(Multiline, null, TEXT)));
     expect(host.querySelector('button [data-multiline]')!.textContent).toBe(TEXT);
+  });
+  it('preserves link destinations and formatting boundaries across sheet fragments', () => {
+    const value: CompendiumCell = {
+      plain: 'One two\n\nthree four',
+      runs: [
+        { text: 'One ', bold: true, href: 'https://example.com/one' },
+        { text: 'two', bold: true, href: 'https://example.com/one' },
+        { text: '\n\n' },
+        { text: '', italic: true },
+        { text: 'three', italic: true, href: 'https://example.com/three' },
+        { text: ' four', bold: true },
+      ],
+    };
+    const host = render(createElement(RichCell, { cell: value }));
+    expect(host.textContent).toBe(value.plain);
+    expect(host.querySelector('a[href="https://example.com/one"]')?.textContent).toBe('One two');
+    expect(host.querySelector('a[href="https://example.com/three"]')?.textContent).toBe('three');
+    expect(
+      host.querySelector<HTMLElement>('a[href="https://example.com/three"] span')?.style.fontStyle,
+    ).toBe('italic');
+    expect(
+      [...host.querySelectorAll<HTMLElement>('span')].some(
+        (span) => span.textContent === ' four' && span.style.fontWeight === '700',
+      ),
+    ).toBe(true);
+    const unlinked = render(createElement(RichCell, { cell: value, links: false }));
+    expect(unlinked.textContent).toBe(value.plain);
+    expect(unlinked.querySelector('a')).toBeNull();
   });
   it('CompendiumDiff renders both sides through the multiline wrapper', () => {
     const host = render(
@@ -75,11 +103,12 @@ describe('alignment and diff preference', () => {
     };
     const host = render(createElement(RichCell, { cell: value }));
     expect(host.textContent).toBe(value.plain);
-    expect(
-      [...host.querySelectorAll<HTMLElement>('[style*="text-align"]')].map(
-        (el) => el.style.textAlign,
-      ),
-    ).toEqual(['center', 'center', 'right']);
+    const blocks = [...host.querySelectorAll<HTMLElement>('[style*="text-align"]')];
+    expect(blocks.find((el) => el.textContent?.includes('Centre'))?.style.textAlign).toBe('center');
+    expect(blocks.find((el) => el.textContent?.includes('Right'))?.style.textAlign).toBe('right');
+    expect(blocks.find((el) => el.textContent?.includes('Centre'))?.textContent).toContain(
+      'Centre\n\n',
+    );
   });
   it('keeps diff words inline inside aligned lines and updates all mounted comparisons', () => {
     const props = { before: aligned('One\nold'), after: aligned('One\nnew', 'right') };

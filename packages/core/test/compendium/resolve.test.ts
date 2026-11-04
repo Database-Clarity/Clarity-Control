@@ -4,6 +4,7 @@ import {
   resolveCompendiumLink,
   snapshotCompendium,
   compendiumSimilarity,
+  withCompendiumMatchingIndex,
 } from '../../src/compendium/resolve.js';
 import type { CompendiumData, CompendiumLink, CompendiumRow } from '../../src/compendium/types.js';
 const cell = (text: string, color?: string) => ({
@@ -35,6 +36,45 @@ const data = (first: CompendiumRow[] = [], second: CompendiumRow[] = []): Compen
   ],
 });
 describe('robust Compendium link resolution', () => {
+  it('keeps indexed results equivalent, restores nested contexts, and observes later source edits', () => {
+    const source = data([row('Test')]);
+    const changed = data([row('Test', 'Changed description')]);
+    const expected = resolveCompendiumLink(link, source);
+    withCompendiumMatchingIndex(source, () => {
+      expect(resolveCompendiumLink(link, source)).toEqual(expected);
+      withCompendiumMatchingIndex(changed, () => {
+        expect(resolveCompendiumLink(link, changed).status).toBe('changed');
+      });
+      expect(resolveCompendiumLink(link, source)).toEqual(expected);
+    });
+    source.tabs[0].rows[0].cell = cell('Edited in place after the batch');
+    expect(resolveCompendiumLink(link, source).status).toBe('changed');
+    withCompendiumMatchingIndex(source, () => {
+      expect(resolveCompendiumLink(link, source).status).toBe('changed');
+    });
+    expect(() =>
+      withCompendiumMatchingIndex(source, () => {
+        throw Error('aborted batch');
+      }),
+    ).toThrow('aborted batch');
+    source.tabs[0].rows[0].cell = link.snapshot;
+    expect(resolveCompendiumLink(link, source).status).toBe('ok');
+  });
+  it('does not let an indexed manual-cell projection change later whole-row resolution', () => {
+    const source = data([{ ...row('Test'), anchor: { row: 6, col: 0 } }]);
+    source.tabs[0].grid = [
+      { row: 6, col: 0, cell: cell('Test') },
+      { row: 6, col: 1, cell: cell('Manual description') },
+    ];
+    const manual = { ...link, cells: [{ dRow: 0, dCol: 1 }], snapshot: cell('Manual description') };
+    const expected = resolveCompendiumLink(manual, source);
+    withCompendiumMatchingIndex(source, () => {
+      expect(resolveCompendiumLink(manual, source)).toEqual(expected);
+      expect(resolveCompendiumLink(link, source).status).toBe('ok');
+      expect(resolveCompendiumLink(manual, source)).toEqual(expected);
+    });
+    expect(source.tabs[0].rows[0].cell).toEqual(link.snapshot);
+  });
   it('returns ok after rows reorder and changed on text OR style changes', () => {
     expect(resolveCompendiumLink(link, data([row('Test')])).status).toBe('ok');
     expect(resolveCompendiumLink(link, data([row('Test', 'different')])).status).toBe('changed');
