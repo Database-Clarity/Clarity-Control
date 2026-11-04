@@ -147,6 +147,13 @@ describe('tooltip finder combobox', () => {
     expect(active?.textContent).toContain('Armor 399');
     expect(active?.getAttribute('aria-posinset')).toBe('400');
     expect(active?.getAttribute('aria-setsize')).toBe('400');
+    // Fill the destination viewport before paint, not only the active row
+    // isolated after a spacer while waiting for the next scroll event.
+    expect(options().some((row) => row.textContent?.includes('Armor 398'))).toBe(true);
+    expect(host.querySelector<HTMLElement>('[role="listbox"]')!.scrollTop).toBeGreaterThan(0);
+    await press('Home');
+    expect(host.querySelector<HTMLElement>('[role="listbox"]')!.scrollTop).toBe(0);
+    await press('End');
     await press('Enter');
     expect(route()).toBe('/t/1399');
   });

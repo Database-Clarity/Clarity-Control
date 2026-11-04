@@ -362,12 +362,21 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     // Only a new query, scope or opening resets the highlight; route changes close the list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, query, allCategories]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open || pointerHighlight.current) return;
-    const row = rows[active];
-    if (row) document.getElementById(optionId(row.hash))?.scrollIntoView?.({ block: 'nearest' });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, active, rows]);
+    const element = list.current;
+    if (!element || !rows[active]) return;
+    const top = active * rowHeight;
+    const bottom = top + rowHeight;
+    const scrollTop = element.scrollTop;
+    const next = top < scrollTop ? top : Math.max(scrollTop, bottom - viewport.height);
+    if (next === scrollTop) return;
+    element.scrollTop = next;
+    // Home/End can jump beyond the entire overscan. Fill the landed window in
+    // this pre-paint commit rather than waiting for a subsequent scroll event.
+    const bucket = Math.floor(element.scrollTop / (rowHeight * 8)) * rowHeight * 8;
+    setViewport((previous) => previous.top === bucket ? previous : { ...previous, top: bucket });
+  }, [open, active, rows, rowHeight, viewport.height]);
 
   useLayoutEffect(() => {
     // A finder list owns wheel interaction while open. Remove the global
@@ -579,6 +588,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
           ) {
             // Native thumb drags can jump the entire category between scroll
             // events. Fill its complete surface before the browser starts moving.
+            pointerHighlight.current = true;
             draggingScrollbarRef.current = true;
             setDraggingScrollbar(true);
           }
