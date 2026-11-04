@@ -7,7 +7,7 @@ export function ReviewDetails({
   className,
 }: {
   summary: ReactNode;
-  children: ReactNode;
+  children: ReactNode | (() => ReactNode);
   className?: string;
 }) {
   const [mounted, setMounted] = useState(false);
@@ -27,7 +27,7 @@ export function ReviewDetails({
       }}
     >
       <summary>{summary}</summary>
-      {mounted && children}
+      {mounted && (typeof children === 'function' ? children() : children)}
     </details>
   );
 }

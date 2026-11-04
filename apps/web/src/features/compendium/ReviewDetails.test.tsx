@@ -10,6 +10,7 @@ it('mounts on the first summary activation, and retains edited state through clo
   document.body.append(host);
   const root = createRoot(host);
   let mounts = 0;
+  let builds = 0;
   function Body() {
     const [value] = useState(() => {
       mounts++;
@@ -22,16 +23,21 @@ it('mounts on the first summary activation, and retains edited state through clo
       root.render(
         createElement(ReviewDetails, {
           summary: 'Details',
-          children: createElement(Body),
+          children: () => {
+            builds++;
+            return createElement(Body);
+          },
         }),
       ),
     );
     expect(mounts).toBe(0);
+    expect(builds).toBe(0);
     expect(host.querySelector('input')).toBeNull();
     const summary = host.querySelector('summary')!;
     act(() => summary.click());
     const input = host.querySelector('input')!;
     expect(mounts).toBe(1);
+    expect(builds).toBeGreaterThan(0);
     input.value = 'Unsaved note';
     act(() => summary.click());
     expect(host.querySelector('input')).toBe(input);

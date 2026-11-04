@@ -390,23 +390,27 @@ export function CategoryReview({
               className={styles.browse}
               summary={`Browse / category definition (${category.entries.length} entries)`}
             >
-              <p>{category.rule}</p>
-              <p>
-                {Object.entries(category.reasons)
-                  .filter(([, entries]) => entries.length)
-                  .map(
-                    ([reason, entries]) =>
-                      `${reasonLabels[reason as keyof typeof reasonLabels]}: ${entries.length}`,
-                  )
-                  .join(' · ')}
-              </p>
-              {category.entries.slice(0, browsing).map((entry) => (
-                <button key={entry.hash} onClick={() => onReview(category, entry.hash)}>
-                  {entry.name} · {entry.hash}
-                </button>
-              ))}
-              {browsing < category.entries.length && (
-                <button onClick={() => setBrowsing(browsing + 20)}>Show 20 more</button>
+              {() => (
+                <>
+                  <p>{category.rule}</p>
+                  <p>
+                    {Object.entries(category.reasons)
+                      .filter(([, entries]) => entries.length)
+                      .map(
+                        ([reason, entries]) =>
+                          `${reasonLabels[reason as keyof typeof reasonLabels]}: ${entries.length}`,
+                      )
+                      .join(' · ')}
+                  </p>
+                  {category.entries.slice(0, browsing).map((entry) => (
+                    <button key={entry.hash} onClick={() => onReview(category, entry.hash)}>
+                      {entry.name} · {entry.hash}
+                    </button>
+                  ))}
+                  {browsing < category.entries.length && (
+                    <button onClick={() => setBrowsing(browsing + 20)}>Show 20 more</button>
+                  )}
+                </>
               )}
             </ReviewDetails>
             <button onClick={() => onReview(category)}>Review these one by one</button>
