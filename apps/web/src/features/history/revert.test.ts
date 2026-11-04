@@ -22,6 +22,17 @@ describe('history draft restoration', () => {
       ...current,
       custom: { name: 'Custom', categoryId: 'weapon-mod' },
       bungieSnapshot: { description: 'Snapshot', snapshotAt: '2026-10-01T00:00:00Z' },
+      compendium: {
+        gid: '1',
+        rowKey: 'row',
+        snapshot: { plain: '', runs: [] },
+        snapshotAt: '2026-10-01T00:00:00Z',
+      },
+      archive: {
+        removedAt: '2026-10-01T00:00:00Z',
+        lastSeen: { name: 'Old name', categoryId: 'weapon-mod', manifestVersion: 'pinned' },
+        note: 'Keep',
+      },
       legacy: { uploadedBy: 'owner' },
     };
     const result = restoreLegacyText(
