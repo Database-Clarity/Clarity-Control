@@ -46,6 +46,8 @@ export interface PaneDividerHandle {
   collapsed: boolean;
   dragging: boolean;
   containerWidth: number;
+  /** Current root font scale, already measured when the scale setting changes. */
+  scale: number;
   /** The size the user chose, if any; a viewport clamp never changes it. */
   saved: PaneState | undefined;
   /** Sets the intended width (and expands). Used by compatibility adapters; the divider itself calls it too. */
@@ -272,6 +274,7 @@ export function usePaneDivider(options: PaneDividerOptions): PaneDividerHandle {
     collapsed,
     dragging: dragWidth !== null,
     containerWidth,
+    scale: k,
     saved,
     setWidth,
     collapse,

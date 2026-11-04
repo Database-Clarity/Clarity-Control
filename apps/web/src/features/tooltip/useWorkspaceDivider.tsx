@@ -1,6 +1,5 @@
 import type { CSSProperties } from 'react';
 import { PaneDivider } from '../../ui/PaneDivider';
-import { scaledPx } from '../../ui/scale';
 import { DIVIDER_TRACK, usePaneDivider } from '../../ui/usePaneDivider';
 import styles from './TooltipPage.module.scss';
 
@@ -28,7 +27,8 @@ export function useWorkspaceDivider(hasPane = true, suspended = false) {
     paused: suspended,
   });
   // The limits are design pixels; the window is measured in CSS pixels at the current scale.
-  const split = hasPane && pane.containerWidth >= scaledPx(EDITOR_MIN + DIVIDER_TRACK + RIGHT_MIN);
+  const split =
+    hasPane && pane.containerWidth >= (EDITOR_MIN + DIVIDER_TRACK + RIGHT_MIN) * pane.scale;
   return {
     container: pane.containerRef,
     split,

@@ -77,6 +77,21 @@ afterEach(() => {
 });
 
 describe('workspace divider', () => {
+  it('reuses measured scale during content edits and follows scale changes', () => {
+    let rootPx = 16;
+    const getStyle = vi
+      .spyOn(window, 'getComputedStyle')
+      .mockImplementation(() => ({ fontSize: `${rootPx}px` }) as CSSStyleDeclaration);
+    render(true);
+    expect(host.querySelector('[data-mode]')?.getAttribute('data-mode')).toBe('split');
+    getStyle.mockClear();
+    render(true);
+    expect(getStyle).not.toHaveBeenCalled();
+    rootPx = 24;
+    act(() => window.dispatchEvent(new Event('clarity-ui-scale')));
+    expect(host.querySelector('[data-mode]')?.getAttribute('data-mode')).toBe('toggle');
+  });
+
   it('retains split measurements and the selected pane while a navigation burst suspends work', () => {
     const show = (suspended: boolean) =>
       act(() =>
