@@ -72,3 +72,16 @@ it('keeps stale rows and coalesces concurrent refreshes', async () => {
   await refresh;
   expect(getHistory).toHaveBeenCalledTimes(2);
 });
+
+it('invalidates shifted later pages when a refreshed list has a new head', async () => {
+  vi.useFakeTimers();
+  const cache = createRevisionCache(10);
+  await cache.page(1);
+  await cache.page(2);
+  vi.advanceTimersByTime(60_001);
+  getHistory.mockResolvedValueOnce({ commits: [{ commit: 'new' }] });
+  await cache.page(1);
+  expect(cache.peekPage(2)).toBeUndefined();
+  await cache.page(2);
+  expect(getHistory).toHaveBeenCalledTimes(4);
+});

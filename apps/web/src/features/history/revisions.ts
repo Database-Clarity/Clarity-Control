@@ -51,6 +51,12 @@ export function createRevisionCache(hash: number) {
     }
     const request = remember(pages, number, MAX_PAGES, async () => {
       const commits = (await getHistory(hash, number)).commits;
+      if (number === 1 && snapshots.get(1)?.commits[0]?.commit !== commits[0]?.commit) {
+        // A new list head shifts every page boundary; bodies remain immutable.
+        for (const oldPage of pages.keys()) if (oldPage !== 1) pages.delete(oldPage);
+        for (const oldPage of snapshots.keys()) if (oldPage !== 1) snapshots.delete(oldPage);
+      }
+      if (pages.get(number) !== request) return commits;
       snapshots.set(number, { commits, at: Date.now(), request });
       while (snapshots.size > MAX_PAGES) snapshots.delete(snapshots.keys().next().value!);
       return commits;
