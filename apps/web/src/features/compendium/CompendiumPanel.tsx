@@ -31,6 +31,7 @@ import { openDraftSaveReview } from '../../services/save/openReview';
  * with room to spare for font rounding.
  */
 const HEADER_TOGGLE_MIN = 381;
+const ApprovalDiff = memo(CompendiumDiff);
 
 /** Compendium zoom (70–100 %), kept on this device: − / value / +. */
 function ScaleControl() {
@@ -242,16 +243,18 @@ const PaneContents = memo(function PaneContents({
                 Open source tab
               </a>
             </p>
-            {approved ? (
-              <>
-                {!roomy && <div className={styles.diffModes}>{diffToggle}</div>}
-                <CompendiumDiff before={approved} after={matched.row.cell} mode={diffMode} />
-              </>
-            ) : (
-              <SheetCell background={matched.row.cell.background}>
-                <RichCell cell={matched.row.cell} />
-              </SheetCell>
-            )}
+            <div style={{ contain: 'layout style' }}>
+              {approved ? (
+                <>
+                  {!roomy && <div className={styles.diffModes}>{diffToggle}</div>}
+                  <ApprovalDiff before={approved} after={matched.row.cell} mode={diffMode} />
+                </>
+              ) : (
+                <SheetCell background={matched.row.cell.background}>
+                  <RichCell cell={matched.row.cell} />
+                </SheetCell>
+              )}
+            </div>
             {canEdit && (
               <div className={styles.actions}>
                 <button
