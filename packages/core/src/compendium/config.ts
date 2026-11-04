@@ -214,7 +214,13 @@ const catalystWeapons: Record<string, string> = {
   'Colony Catalyst': 'The Colony',
   'Prospector Catalyst': 'The Prospector',
 };
+const identifiersByName = new Map<string, { values: string[]; characters: number }>();
+let identifierCharacters = 0;
+const roman = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
 export function compendiumIdentifiers(name: string): string[] {
+  const cached = identifiersByName.get(name);
+  // Keep the public array independent: callers may sort or edit their own result.
+  if (cached) return [...cached.values];
   const identifiers = [
     name,
     ...name
@@ -222,8 +228,7 @@ export function compendiumIdentifiers(name: string): string[] {
       .map((line) => line.replace(/^[↑+\s]+/u, '').trim())
       .filter(Boolean),
   ];
-  const roman = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
-  return identifiers.flatMap((identifier) => {
+  const values = identifiers.flatMap((identifier) => {
     const range = /^(.*?) ([IVX]+)[–-]([IVX]+)$/.exec(identifier);
     if (!range) return [identifier];
     const start = roman.indexOf(range[2]);
@@ -236,6 +241,17 @@ export function compendiumIdentifiers(name: string): string[] {
           ...roman.slice(start, end + 1).map((suffix) => `${range[1]} ${suffix}`),
         ];
   });
+  const characters = name.length + values.reduce((sum, value) => sum + value.length, 0);
+  if (characters <= 4_000_000) {
+    while (identifiersByName.size >= 8192 || identifierCharacters + characters > 4_000_000) {
+      const [key, old] = identifiersByName.entries().next().value!;
+      identifiersByName.delete(key);
+      identifierCharacters -= old.characters;
+    }
+    identifiersByName.set(name, { values: [...values], characters });
+    identifierCharacters += characters;
+  }
+  return values;
 }
 
 /** Stable sheet IDs live only in compendiumTabs. Matchers refer to their configured names. */
