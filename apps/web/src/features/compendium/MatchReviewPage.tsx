@@ -18,7 +18,12 @@ import { useCompendiumStore } from './store';
 import { PickerStage } from './PickerStage';
 import { LinkPicker } from './LinkPicker';
 import { mayDraftLink, reviewEvidence } from './reviewQueue';
-import { preparedEvidence, preparedProposals, reviewedEntries } from './reviewViewCache';
+import {
+  preparedCategories,
+  preparedEvidence,
+  preparedProposals,
+  reviewedEntries,
+} from './reviewViewCache';
 import {
   progressSchema,
   reviewStorageKey,
@@ -259,61 +264,36 @@ export function ReviewQueue({
     if (!prepared) return coreProposals;
     return preparedProposals(prepared, coreProposals);
   }, [coreProposals, prepared]);
-  const currentEntries = useMemo(
-    () => new Map(entries.map((entry) => [entry.hash, entry])),
-    [entries],
-  );
   const categories = useMemo(() => {
-    if (
-      prepared &&
-      !scopeState.hashes.size &&
-      prepared.categories.every((category) =>
-        category.entries.every((entry) => {
-          const current = currentEntries.get(entry.hash);
-          return (
-            current?.status === entry.status &&
-            current.next === entry.next &&
-            current.stale === entry.stale
-          );
-        }),
-      )
-    )
-      return prepared.categories;
-    return (
-      prepared?.categories ??
-      reviewCategories(entries, editor, proposals, matching, !!proposalError, source)
-    ).map((category) => {
-      const decorated = new Map(
-        category.entries.map((entry) => [
-          entry.hash,
-          {
-            ...entry,
-            ...currentEntries.get(entry.hash),
-            scopeRestored: scopeState.hashes.has(entry.hash),
-          },
-        ]),
-      );
-      const decorate = (entry: (typeof category.entries)[number]) => decorated.get(entry.hash)!;
-      return {
-        ...category,
-        entries: category.entries.map(decorate),
-        samples: category.samples.map(decorate),
-        reasons: Object.fromEntries(
-          Object.entries(category.reasons).map(([reason, items]) => [reason, items.map(decorate)]),
-        ) as typeof category.reasons,
-      };
-    });
-  }, [
-    entries,
-    editor,
-    proposals,
-    matching,
-    proposalError,
-    scopeState.hashes,
-    source,
-    prepared,
-    currentEntries,
-  ]);
+    if (prepared) return preparedCategories(prepared, entries, scopeState.hashes);
+    const currentEntries = new Map(entries.map((entry) => [entry.hash, entry]));
+    return reviewCategories(entries, editor, proposals, matching, !!proposalError, source).map(
+      (category) => {
+        const decorated = new Map(
+          category.entries.map((entry) => [
+            entry.hash,
+            {
+              ...entry,
+              ...currentEntries.get(entry.hash),
+              scopeRestored: scopeState.hashes.has(entry.hash),
+            },
+          ]),
+        );
+        const decorate = (entry: (typeof category.entries)[number]) => decorated.get(entry.hash)!;
+        return {
+          ...category,
+          entries: category.entries.map(decorate),
+          samples: category.samples.map(decorate),
+          reasons: Object.fromEntries(
+            Object.entries(category.reasons).map(([reason, items]) => [
+              reason,
+              items.map(decorate),
+            ]),
+          ) as typeof category.reasons,
+        };
+      },
+    );
+  }, [entries, editor, proposals, matching, proposalError, scopeState.hashes, source, prepared]);
   useEffect(() => {
     setSidebarCategories(categories.map(({ id, name }) => ({ id, name })));
   }, [categories, setSidebarCategories]);
@@ -362,8 +342,8 @@ export function ReviewQueue({
     );
   }, [categories, prepared, scopeState.hashes, entries]);
   const scopedEntries = useMemo(
-    () => entries.filter((entry) => inScope.has(entry.hash)),
-    [entries, inScope],
+    () => (categoryView ? [] : entries.filter((entry) => inScope.has(entry.hash))),
+    [entries, inScope, categoryView],
   );
   const routeFilter = progressSchema.shape.filter.safeParse(params.get('status'));
   // New category links reset stale filters; normalized URLs retain each history entry's filters.
@@ -375,6 +355,7 @@ export function ReviewQueue({
   };
   const proposalFilter = params.get('proposal') ?? 'all';
   const filterIndex = useMemo(() => {
+    if (categoryView) return;
     const byCategory = new Map<string, typeof scopedEntries>();
     const byGroup = new Map<string, typeof scopedEntries>();
     const byStatus = new Map<string, typeof scopedEntries>();
@@ -397,8 +378,9 @@ export function ReviewQueue({
       search.set(entry.hash, `${entry.name} ${entry.hash}`.toLowerCase());
     }
     return { byCategory, byGroup, byStatus, byProposal, search };
-  }, [scopedEntries, proposals]);
+  }, [categoryView, scopedEntries, proposals]);
   const filtered = useMemo(() => {
+    if (!filterIndex) return [];
     let candidates = scopedEntries;
     function narrow(bucket: typeof scopedEntries | undefined) {
       if (!bucket) candidates = [];
@@ -468,14 +450,15 @@ export function ReviewQueue({
     [filtered, proposals],
   );
   const bulkCurrent = useMemo(
-    () => !!bulk && bulkPreviewCurrent(bulk, editor, source, entries, proposals, drafts),
-    [bulk, editor, source, entries, proposals, drafts],
+    () =>
+      !categoryView &&
+      !!bulk &&
+      bulkPreviewCurrent(bulk, editor, source, entries, proposals, drafts),
+    [categoryView, bulk, editor, source, entries, proposals, drafts],
   );
-  const completed = scopedEntries.length - (filterIndex.byStatus.get('open')?.length ?? 0);
-  const nextHash = advanceHash(
-    filtered.map((entry) => entry.hash),
-    index,
-  );
+  const completed = scopedEntries.length - (filterIndex?.byStatus.get('open')?.length ?? 0);
+  const filteredHashes = useMemo(() => filtered.map((entry) => entry.hash), [filtered]);
+  const nextHash = advanceHash(filteredHashes, index);
   function selectionParams(
     hash: number | undefined,
     state = queueProgress,
@@ -797,7 +780,7 @@ export function ReviewQueue({
         <progress value={completed} max={scopedEntries.length || 1} />
         <span>
           {completed} / {scopedEntries.length} reviewed ·{' '}
-          {filterIndex.byStatus.get('drafted')?.length ?? 0} drafts
+          {filterIndex?.byStatus.get('drafted')?.length ?? 0} drafts
         </span>
       </div>
       <div className={styles.filters}>

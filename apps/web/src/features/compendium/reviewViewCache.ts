@@ -20,6 +20,67 @@ const proposals = new WeakMap<
   Prepared,
   WeakMap<Map<number, ReviewProposal>, Map<number, ReviewProposal>>
 >();
+const emptyRestored: ReadonlySet<number> = new Set();
+const categoryProjections = new WeakMap<
+  Prepared,
+  WeakMap<
+    ReturnType<typeof applyReviewProgress>,
+    WeakMap<ReadonlySet<number>, Prepared['categories']>
+  >
+>();
+
+export function preparedCategories(
+  prepared: Prepared,
+  entries: ReturnType<typeof applyReviewProgress>,
+  restored: ReadonlySet<number>,
+): Prepared['categories'] {
+  // Immutable evidence and decisions already retain `entries` across mounts.
+  // Empty restore sets are equivalent even when a new queue creates its own Set.
+  const scope = restored.size ? restored : emptyRestored;
+  let byEntries = categoryProjections.get(prepared);
+  if (!byEntries) categoryProjections.set(prepared, (byEntries = new WeakMap()));
+  let byScope = byEntries.get(entries);
+  if (!byScope) byEntries.set(entries, (byScope = new WeakMap()));
+  const previous = byScope.get(scope);
+  if (previous) return previous;
+  const currentEntries = new Map(entries.map((entry) => [entry.hash, entry]));
+  const unchanged =
+    !scope.size &&
+    prepared.categories.every((category) =>
+      category.entries.every((entry) => {
+        const current = currentEntries.get(entry.hash);
+        return (
+          current?.status === entry.status &&
+          current.next === entry.next &&
+          current.stale === entry.stale
+        );
+      }),
+    );
+  const categories = unchanged
+    ? prepared.categories
+    : prepared.categories.map((category) => {
+        const decorated = new Map(
+          category.entries.map((entry) => [
+            entry.hash,
+            { ...entry, ...currentEntries.get(entry.hash), scopeRestored: scope.has(entry.hash) },
+          ]),
+        );
+        const decorate = (entry: (typeof category.entries)[number]) => decorated.get(entry.hash)!;
+        return {
+          ...category,
+          entries: category.entries.map(decorate),
+          samples: category.samples.map(decorate),
+          reasons: Object.fromEntries(
+            Object.entries(category.reasons).map(([reason, items]) => [
+              reason,
+              items.map(decorate),
+            ]),
+          ) as typeof category.reasons,
+        };
+      });
+  byScope.set(scope, categories);
+  return categories;
+}
 
 // Data and draft objects are immutable. Retain the projection across workspace mounts,
 // while always overlaying the actual current draft text rather than the worker's metadata copy.
