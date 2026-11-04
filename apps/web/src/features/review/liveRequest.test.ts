@@ -1,7 +1,11 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { getPushedVersion } from '../../services/history';
 import { useAuthStore } from '../../stores/auth';
-import { startReviewLiveRequest, takeReviewLiveRequest } from './liveRequest';
+import {
+  preparedReviewLiveValue,
+  startReviewLiveRequest,
+  takeReviewLiveRequest,
+} from './liveRequest';
 
 vi.mock('../../services/history', () => ({ getPushedVersion: vi.fn() }));
 beforeEach(() => {
@@ -31,6 +35,18 @@ it('does not reuse an abandoned route request', () => {
   navigation.abort();
   expect(previous.aborted).toBe(true);
   expect(takeReviewLiveRequest(123).controller.signal).not.toBe(previous);
+});
+
+it('makes a completed comparison available on first render, without reusing it on retry', async () => {
+  const value = { tooltip: null, pushedHash: 'pushed' };
+  vi.mocked(getPushedVersion).mockResolvedValue(value);
+  startReviewLiveRequest(123, new AbortController().signal);
+  await Promise.resolve();
+  expect(preparedReviewLiveValue(123)).toBe(value);
+  expect(preparedReviewLiveValue(456)).toBeUndefined();
+  expect(takeReviewLiveRequest(123).value).toBe(value);
+  expect(preparedReviewLiveValue(123)).toBeUndefined();
+  expect(takeReviewLiveRequest(123).value).toBeUndefined();
 });
 
 it('does not reuse a response for another hash or account', () => {

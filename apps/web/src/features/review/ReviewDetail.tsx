@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Tooltip } from '@clarity/core';
-import { takeReviewLiveRequest } from './liveRequest';
+import { preparedReviewLiveValue, takeReviewLiveRequest } from './liveRequest';
 import { errorMessage } from '../../services/http';
 import { useAuthStore } from '../../stores/auth';
 import { useDraftStore } from '../../stores/drafts';
@@ -15,7 +15,9 @@ import type { PendingTooltip } from './model';
 import styles from './Review.module.scss';
 
 export function ReviewDetail({ entry }: { entry: PendingTooltip }) {
-  const [live, setLive] = useState<{ tooltip: Tooltip | null; pushedHash: string | null }>();
+  const [live, setLive] = useState<
+    { tooltip: Tooltip | null; pushedHash: string | null } | undefined
+  >(() => preparedReviewLiveValue(entry.tooltip.hash));
   const [error, setError] = useState<string>();
   const [attempt, setAttempt] = useState(0);
   const [confirm, setConfirm] = useState(false);
@@ -62,8 +64,8 @@ export function ReviewDetail({ entry }: { entry: PendingTooltip }) {
     }
   }
   useEffect(() => {
-    const { controller, pending } = takeReviewLiveRequest(entry.tooltip.hash);
-    setLive(undefined);
+    const { controller, pending, value } = takeReviewLiveRequest(entry.tooltip.hash);
+    setLive(value);
     setError(undefined);
     void pending.then(
       (result) => {
