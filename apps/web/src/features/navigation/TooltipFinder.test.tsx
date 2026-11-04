@@ -271,11 +271,11 @@ describe('tooltip finder combobox', () => {
       await act(async () => void list.dispatchEvent(new Event('scroll')));
       expect(options().length).toBeLessThan(160);
       expect(options().some((row) => row.textContent?.includes('Armor 350'))).toBe(true);
-      const lastRow = options().find((row) => row.textContent?.includes('Armor 399'));
+      const lastRow = options().find((row) => row.textContent?.includes('Armor 364'));
       expect(lastRow).toBeDefined();
       await act(async () => void window.dispatchEvent(new Event(release)));
       expect(options().length).toBeLessThan(160);
-      expect(options().find((row) => row.textContent?.includes('Armor 399'))).toBe(lastRow);
+      expect(options().find((row) => row.textContent?.includes('Armor 364'))).toBe(lastRow);
       expect(list.hasAttribute('data-scrollbar-drag')).toBe(false);
       expect(list.hasAttribute('data-windowed')).toBe(true);
       expect(route()).toBe('/t/1000');
@@ -306,6 +306,14 @@ describe('tooltip finder combobox', () => {
         expect(options().some((row) => row.getAttribute('aria-posinset') === `${index + 1}`)).toBe(
           true,
         );
+        // Every visible row is filled even after a jump much larger than
+        // overscan; offscreen rows must not inflate every scroll commit.
+        for (let visible = index; visible < index + 15; visible++) {
+          expect(
+            options().some((row) => row.getAttribute('aria-posinset') === `${visible + 1}`),
+          ).toBe(true);
+        }
+        expect(options().length).toBeLessThan(70);
       }
       expect(selected).not.toHaveBeenCalled();
       expect(route()).toBe('/t/1000');

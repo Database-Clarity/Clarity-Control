@@ -233,7 +233,10 @@ const FinderOptions = memo(function FinderOptions({
   );
   if (rows.length <= retainedRowLimit) return <>{rows.map((row, index) => option(row, index))}</>;
 
-  const overscan = 64;
+  // Retain a 400px wheel packet plus eight rows for the scroll bucket,
+  // including at reduced interface scales. Larger offscreen windows make native
+  // layout and paint proportional to rows the user cannot see on each jump.
+  const overscan = Math.max(24, Math.ceil(400 / rowHeight) + 8);
   const initialIndex = query.trim()
     ? 0
     : Math.max(
