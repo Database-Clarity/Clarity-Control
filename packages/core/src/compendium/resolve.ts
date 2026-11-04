@@ -87,6 +87,7 @@ export interface CompendiumMatch {
   row: CompendiumRow;
   parts?: string[];
   cells?: CompendiumLink['cells'];
+  sourceAnchor?: CompendiumLink['sourceAnchor'];
   setBonusPieces?: 2 | 4;
 }
 export interface CompendiumCandidate extends CompendiumMatch {
@@ -207,6 +208,15 @@ export function resolveCompendiumLink(
       ? (index.normalizedTab.get(JSON.stringify([link.gid, normalizedKey])) ?? [])
       : all.filter(({ tab, row }) => tab.gid === link.gid && row.nameNorm === normalizedKey);
   let moved = false;
+  if (link.sourceAnchor) {
+    if (!link.cells) return { status: 'missing' };
+    found = found.filter(
+      ({ row }) =>
+        row.anchor?.row === link.sourceAnchor!.row && row.anchor.col === link.sourceAnchor!.col,
+    );
+    // Explicit duplicate-card selections cannot silently jump to another row.
+    if (found.length !== 1) return { status: 'missing' };
+  }
   if (!found.length) {
     found = index
       ? (index.normalized.get(normalizedKey) ?? [])
@@ -251,6 +261,7 @@ export function resolveCompendiumLink(
       if (!cell) return { status: 'missing' };
       match.row = { ...match.row, cell };
       match.cells = link.cells;
+      match.sourceAnchor = link.sourceAnchor;
     }
     if (link.setBonusPieces) {
       if (match.tab.gid !== compendiumTabId('Armor Perks')) return { status: 'missing' };
@@ -489,6 +500,7 @@ export function snapshotCompendium(
     rowKey: match.row.name,
     ...(match.row.section ? { section: match.row.section } : {}),
     ...(match.cells ? { cells: match.cells } : {}),
+    ...(match.sourceAnchor ? { sourceAnchor: match.sourceAnchor } : {}),
     ...(match.parts ? { parts: match.parts } : {}),
     ...(match.setBonusPieces ? { setBonusPieces: match.setBonusPieces } : {}),
     // The sheet background is display-only and stays out of stored links.

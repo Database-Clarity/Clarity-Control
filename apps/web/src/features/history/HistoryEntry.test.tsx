@@ -103,6 +103,17 @@ it('opens on hover with that revision diffed against its predecessor, per langua
   expect(dialog()!.style.top).not.toBe('');
 });
 
+it('waits for click after pointer focus instead of opening twice', async () => {
+  await act(async () => {
+    entries()[1].dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    entries()[1].focus();
+  });
+  expect(dialog()).toBeNull();
+  await act(async () => entries()[1].click());
+  expect(dialog()).not.toBeNull();
+  expect(entries()[1].getAttribute('aria-expanded')).toBe('true');
+});
+
 it('is keyboard reachable: focus opens it and Esc closes it and keeps focus on the entry', async () => {
   await act(async () => entries()[1].focus());
   await wait(0);
