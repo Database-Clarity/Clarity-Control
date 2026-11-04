@@ -58,12 +58,32 @@ try {
       headless: true,
       args: ['--allow-file-access-from-files', '--disable-background-networking'],
     });
-    for (const [name, viewport] of [
-      ['desktop', { width: 1440, height: 900 }],
-      ['phone', { width: 390, height: 844 }],
-      ['short-phone', { width: 390, height: 500 }],
-    ]) {
+    const cases = [390, 768, 1280].flatMap((width) =>
+      ['dark', 'light'].flatMap((theme) =>
+        [100, 150].map((scale) => ({
+          name: `${width}-${theme}-${scale}`,
+          viewport: { width, height: width === 390 ? 844 : 800 },
+          theme,
+          scale,
+        })),
+      ),
+    );
+    cases.push({
+      name: 'short-phone',
+      viewport: { width: 390, height: 500 },
+      theme: 'dark',
+      scale: 150,
+    });
+    for (const { name, viewport, theme, scale } of cases) {
       const context = await browser.newContext({ viewport });
+      await context.addInitScript(
+        ({ theme, scale }) =>
+          window.addEventListener('DOMContentLoaded', () => {
+            document.documentElement.dataset.theme = theme;
+            document.documentElement.style.fontSize = `${(16 * scale) / 100}px`;
+          }),
+        { theme, scale },
+      );
       const network = [];
       await context.route(/^https?:/, async (route) => {
         network.push(route.request().url());

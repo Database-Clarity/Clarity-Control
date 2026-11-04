@@ -226,6 +226,11 @@
   .workspace > .card {
     contain: strict;
   }
+  .workspace {
+    // At compact widths or large interface scales, headers and actions can
+    // exceed the viewport budget. Keep the cards usable and let the page scroll.
+    min-height: 12rem;
+  }
 }
 .sourceText {
   contain: inline-size layout style paint;
