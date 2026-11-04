@@ -174,13 +174,15 @@
   }
 }
 .comparison {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  // Keep equal-width cards without a grid row's intrinsic height measurement
+  // of the full rich source before stretching both cards to the same height.
+  display: flex;
   gap: 0.75rem;
   flex: 1 0 auto;
   min-height: 18rem;
   section {
     contain: inline-size layout style paint;
+    flex: 1 1 0;
     min-width: 0;
     overflow: visible;
     overflow-wrap: anywhere;
@@ -241,9 +243,14 @@
   .category header {
     flex-wrap: wrap;
   }
-  .workspace,
-  .comparison {
+  .workspace {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .comparison {
+    flex-direction: column;
+    section {
+      flex: none;
+    }
   }
   .workspace {
     // There is no viewport height budget on phones. A zero flex basis plus
