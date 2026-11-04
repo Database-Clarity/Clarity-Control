@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   defaultKeymap,
   history,
@@ -94,6 +94,8 @@ export interface ClarityEditorProps {
   symbols?: boolean;
   /** Carries find and replace across tooltips in this tab. Off for stored forms (a second editor). */
   findMemory?: boolean;
+  /** Detach the expensive editor surface while selection input is still arriving. */
+  suspended?: boolean;
 }
 
 function configuration(
@@ -141,9 +143,14 @@ export function ClarityEditor({
   usage,
   symbols = true,
   findMemory = true,
+  suspended = false,
 }: ClarityEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
+  const wasSuspended = useRef(false);
+  const restoreFocus = useRef(false);
+  if (suspended && !wasSuspended.current) restoreFocus.current = view.current?.hasFocus ?? false;
+  wasSuspended.current = suspended;
   /** Fixed for the editor's lifetime: a stored form never joins the tab's find memory. */
   const remembersFind = useRef(findMemory);
   const callback = useRef(onChange);
@@ -160,6 +167,7 @@ export function ClarityEditor({
   const symbolReveal = useSettingsStore((state) => state.device.symbolReveal);
   const revealRef = useRef(symbolReveal);
   revealRef.current = symbolReveal;
+  revealRef.current = symbolReveal;
   const rawRef = useRef(false);
   const [rawView, setRawView] = useState(false);
   const symbolsOn = useRef(symbols);
@@ -175,6 +183,7 @@ export function ClarityEditor({
     navigate: () => referenceLive.current.onOpenTooltip,
   });
   const initial = useRef({ value, lang, globals, readOnly, requireEnglish });
+  initial.current = { value, lang, globals, readOnly, requireEnglish };
   const document = useRef({ tooltipHash, lang });
   const config = useRef(new Compartment());
   const extensions = useRef<Extension[]>([]);
@@ -242,14 +251,37 @@ export function ClarityEditor({
   useEffect(() => {
     callback.current = onChange;
   }, [onChange]);
+  useLayoutEffect(() => {
+    const editor = view.current;
+    const container = host.current;
+    if (!editor || !container) return;
+    const owner = container.ownerDocument;
+    if (suspended) {
+      // Keep the view/state (including undo and caret), but take its DOM out of
+      // layout so hidden CodeMirror measurements cannot compete with the finder.
+      editor.dom.remove();
+      const changedFocus = () => {
+        restoreFocus.current = false;
+      };
+      owner.addEventListener('pointerdown', changedFocus, true);
+      return () => owner.removeEventListener('pointerdown', changedFocus, true);
+    }
+    if (editor.dom.parentNode !== container) {
+      container.append(editor.dom);
+      editor.requestMeasure();
+      if (restoreFocus.current && owner.activeElement === owner.body) editor.focus();
+      restoreFocus.current = false;
+    }
+  }, [suspended]);
   useEffect(() => {
-    if (view.current && symbolsOn.current) setSymbolReveal(view.current, symbolReveal);
-  }, [symbolReveal]);
+    if (!suspended && view.current && symbolsOn.current)
+      setSymbolReveal(view.current, symbolReveal);
+  }, [symbolReveal, suspended]);
   useEffect(() => {
     referenceLive.current = { tooltipHash, referenceSources, onOpenTooltip };
   }, [tooltipHash, referenceSources, onOpenTooltip]);
   useEffect(() => {
-    if (!host.current) return;
+    if (suspended || view.current || !host.current) return;
     const format = (editor: EditorView) => {
       if (editor.state.readOnly) return false;
       const transaction = tableFormattingTransaction(editor.state);
@@ -334,13 +366,26 @@ export function ClarityEditor({
       state: EditorState.create({ doc: initial.current.value, extensions: extensions.current }),
     });
     view.current = editor;
+    document.current = {
+      tooltipHash: referenceLive.current.tooltipHash,
+      lang: initial.current.lang,
+    };
+    configured.current = {
+      lang: initial.current.lang,
+      globals: initial.current.globals,
+      readOnly: initial.current.readOnly,
+      requireEnglish: initial.current.requireEnglish,
+    };
     // Find and replace carries over from the previous tooltip (or page) in this tab.
     if (remembersFind.current) restoreSearch(editor);
-    return () => {
+  }, [suspended]);
+  useEffect(
+    () => () => {
+      view.current?.destroy();
       view.current = null;
-      editor.destroy();
-    };
-  }, []);
+    },
+    [],
+  );
 
   // The conflict actions' host: set again whenever the editor state is rebuilt for a new text.
   const compactRef = useRef(compact);
@@ -355,12 +400,14 @@ export function ClarityEditor({
       },
     });
   useEffect(() => {
+    if (suspended) return;
     view.current?.dispatch({
       effects: conflictConfig.current.reconfigure(conflictHostExtension()),
     });
-  }, [compact]);
+  }, [compact, suspended]);
 
   useEffect(() => {
+    if (suspended) return;
     const editor = view.current;
     if (!editor) return;
     const switched = document.current.tooltipHash !== tooltipHash || document.current.lang !== lang;
@@ -396,9 +443,10 @@ export function ClarityEditor({
     editor.setState(EditorState.create({ doc: value, extensions: nextExtensions }));
     // The rebuilt state starts with find closed: bring back what was open.
     if (remembersFind.current) restoreSearch(editor);
-  }, [value, lang, globals, readOnly, requireEnglish, tooltipHash]);
+  }, [value, lang, globals, readOnly, requireEnglish, tooltipHash, suspended]);
 
   useEffect(() => {
+    if (suspended) return;
     const previous = configured.current;
     // A draft edit changes the imports snapshot even when this document does not import
     // anything. Keep its facets/decorations intact in that case. The live reference source
@@ -429,7 +477,7 @@ export function ClarityEditor({
         ),
       ),
     });
-  }, [lang, globals, readOnly, requireEnglish, value]);
+  }, [lang, globals, readOnly, requireEnglish, value, suspended]);
 
   useEffect(() => {
     const editor = view.current;

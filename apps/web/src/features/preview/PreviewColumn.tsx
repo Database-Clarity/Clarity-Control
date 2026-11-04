@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo, useDeferredValue, useMemo, type ReactNode } from 'react';
 import { parseMarkup, type Lang, type MarkupGlobals, type MarkupSpan } from '@clarity/core';
 import { compareRenders, type CompareLine, type Comparison } from './compare';
 import { classNames, Lines, PreviewSpan, TooltipPreview } from './TooltipPreview';
@@ -35,6 +35,8 @@ export interface PreviewColumnProps {
   /** Which enhanced version is shown, when there are several. */
   variant: number | undefined;
   onVariant(hash: number): void;
+  /** Effects that acknowledge the current text, after its deferred render commits. */
+  acknowledgement?: ReactNode;
 }
 
 const labels: Record<PreviewMode, string> = {
@@ -48,7 +50,26 @@ const labels: Record<PreviewMode, string> = {
  * enhanced version), then one body. Base and Enhanced are the renders a consumer sees; Compare is
  * a working view of the two, so only Base and Enhanced ever count as "previewed".
  */
-export function PreviewColumn({
+export function PreviewColumn(props: PreviewColumnProps) {
+  const deferred = useDeferredValue(props);
+  // A different document/language must never display the previous one's contents.
+  // Same-document typing can let the editor paint before parsing its live preview.
+  const content = deferred.hash === props.hash && deferred.lang === props.lang ? deferred : props;
+  return (
+    <>
+      <PreviewColumnBody
+        {...content}
+        mode={props.mode}
+        variant={props.variant}
+        onMode={props.onMode}
+        onVariant={props.onVariant}
+      />
+      {content === props && props.acknowledgement}
+    </>
+  );
+}
+
+const PreviewColumnBody = memo(function PreviewColumnBody({
   hash,
   lang,
   name,
@@ -152,7 +173,7 @@ export function PreviewColumn({
       </TooltipPreview>
     </section>
   );
-}
+});
 
 /**
  * One changed value: struck base value, arrow, enhanced value. The arrow stays with the words on

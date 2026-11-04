@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
-import { act, createElement } from 'react';
+import { act, createElement, Fragment } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import { TooltipPage } from './TooltipPage';
 import { ClarityEditor, type ClarityEditorProps } from '../editor';
+import { PreviewColumn, type PreviewColumnProps } from '../preview';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { useAuthStore } from '../../stores/auth';
@@ -29,20 +30,18 @@ vi.mock('../editor', () => ({
   ),
 }));
 vi.mock('../preview', () => ({
-  PreviewColumn: ({
-    baseText,
-    name,
-    enhanced,
-  }: {
-    baseText: string;
-    name: string;
-    enhanced: { name: string }[];
-  }) =>
+  PreviewColumn: vi.fn(({ baseText, name, enhanced, acknowledgement }: PreviewColumnProps) =>
     createElement(
-      'div',
-      { 'data-preview': name, 'data-enhanced': enhanced.map((view) => view.name).join('|') },
-      baseText,
+      Fragment,
+      null,
+      createElement(
+        'div',
+        { 'data-preview': name, 'data-enhanced': enhanced.map((view) => view.name).join('|') },
+        baseText,
+      ),
+      acknowledgement,
     ),
+  ),
 }));
 vi.mock('../compendium/CompendiumPanel', () => ({
   CompendiumPanel: ({ base }: { base: Tooltip }) =>
@@ -190,8 +189,10 @@ it('freezes skipped workspace work, cancels side panels and reuses the editor af
   expect(host.querySelector('[data-compendium]')).toBeNull();
   expect(host.querySelector('[data-history]')?.getAttribute('data-suspended')).toBe('true');
   vi.mocked(ClarityEditor).mockClear();
+  vi.mocked(PreviewColumn).mockClear();
   await act(async () => navigateRoute('/t/20'));
   expect(ClarityEditor).not.toHaveBeenCalled();
+  expect(PreviewColumn).not.toHaveBeenCalled();
   expect(editors()[0]).toBe(editor);
   expect(host.querySelector('article[aria-busy=true]')?.textContent).toContain('Next perk');
   await act(async () => useSteppingActivity.setState({ active: false }));

@@ -50,6 +50,79 @@ function render(value: string, tooltipHash?: number, definitions = globals) {
 }
 
 describe('find and replace persistence', () => {
+  it('does not take focus back from another control after a burst', () => {
+    const view = render('one', 10);
+    const show = (suspended: boolean) =>
+      act(() =>
+        root.render(
+          <ClarityEditor
+            value="one"
+            lang="en"
+            tooltipHash={10}
+            globals={globals}
+            onChange={() => {}}
+            suspended={suspended}
+          />,
+        ),
+      );
+    act(() => view.focus());
+    show(true);
+    const control = document.createElement('button');
+    document.body.append(control);
+    control.focus();
+    show(false);
+    expect(document.activeElement).toBe(control);
+    control.remove();
+  });
+
+  it('does not create an editor for an initially suspended route', () => {
+    const show = (suspended: boolean, value: string) =>
+      act(() =>
+        root.render(
+          <ClarityEditor
+            value={value}
+            lang="en"
+            tooltipHash={20}
+            globals={globals}
+            onChange={() => {}}
+            suspended={suspended}
+          />,
+        ),
+      );
+    show(true, 'Skipped');
+    expect(host.querySelector('.cm-editor')).toBeNull();
+    show(false, 'Landed');
+    const view = EditorView.findFromDOM(host.querySelector<HTMLElement>('.cm-editor')!)!;
+    expect(view.state.doc.toString()).toBe('Landed');
+    expect(undoDepth(view.state)).toBe(0);
+  });
+
+  it('detaches the editor through a selection burst without losing its state', () => {
+    const view = render('one', 10);
+    act(() => view.dispatch({ changes: { from: 3, insert: ' cat' }, selection: { anchor: 7 } }));
+    const show = (suspended: boolean) =>
+      act(() =>
+        root.render(
+          <ClarityEditor
+            value="one cat"
+            lang="en"
+            tooltipHash={10}
+            globals={globals}
+            onChange={() => {}}
+            suspended={suspended}
+          />,
+        ),
+      );
+    show(true);
+    expect(host.querySelector('.cm-editor')).toBeNull();
+    expect(view.dom.isConnected).toBe(false);
+    show(false);
+    expect(EditorView.findFromDOM(host.querySelector<HTMLElement>('.cm-editor')!)).toBe(view);
+    expect(view.state.doc.toString()).toBe('one cat');
+    expect(view.state.selection.main.head).toBe(7);
+    expect(undoDepth(view.state)).toBe(1);
+  });
+
   it('uses fresh import diagnostics when typing an import after unrelated snapshot edits', () => {
     const first = { ...globals, imports: { 42: '#missing' } };
     const next = { ...globals, imports: { 42: 'resolved' } };

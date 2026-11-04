@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, useLayoutEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MarkupGlobals } from '@clarity/core';
@@ -74,6 +74,33 @@ const pressed = () =>
     .map((button) => button.textContent);
 
 describe('PreviewColumn', () => {
+  it('acknowledges only the text that its deferred body actually committed', async () => {
+    const commits: { expected: string; rendered: string }[] = [];
+    function Acknowledge({ expected }: { expected: string }) {
+      useLayoutEffect(() => {
+        commits.push({
+          expected,
+          rendered: host.querySelector('[class*="description"]')?.textContent ?? '',
+        });
+      });
+      return null;
+    }
+    await render({
+      baseText: 'Old text',
+      enhanced: [],
+      mode: 'base',
+      acknowledgement: <Acknowledge expected="Old text" />,
+    });
+    await render({
+      baseText: 'New text',
+      enhanced: [],
+      mode: 'base',
+      acknowledgement: <Acknowledge expected="New text" />,
+    });
+    expect(commits.length).toBeGreaterThanOrEqual(2);
+    expect(commits.every(({ expected, rendered }) => expected === rendered)).toBe(true);
+  });
+
   it('shows ONE perk header above Base | Enhanced | Compare', async () => {
     await render();
     expect(host.querySelectorAll('header')).toHaveLength(1);

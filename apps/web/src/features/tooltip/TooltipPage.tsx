@@ -84,6 +84,8 @@ export function TooltipPage({
   const navigate = useNavigate();
   const data = useDataStore((state) => state.data);
   const busy = active && hashOverride === undefined;
+  const hasSettled = useRef(!busy);
+  if (!busy) hasSettled.current = true;
   const settled = useRef<WorkspaceRoute>({ parameter, search, setSearch, navigate });
   if (!busy) settled.current = { parameter, search, setSearch, navigate };
   const hash = Number(parameter);
@@ -93,14 +95,16 @@ export function TooltipPage({
     <>
       {/* Keep the expensive editor view alive, with its last settled route, through a burst.
         display:contents adds no layout box in the ordinary workspace. */}
-      <div style={{ display: busy ? 'none' : 'contents' }}>
-        <StableWorkspace
-          hashOverride={hashOverride}
-          readOnly={readOnly}
-          route={settled.current}
-          suspended={busy}
-        />
-      </div>
+      {hasSettled.current && (
+        <div style={{ display: busy ? 'none' : 'contents' }}>
+          <StableWorkspace
+            hashOverride={hashOverride}
+            readOnly={readOnly}
+            route={settled.current}
+            suspended={busy}
+          />
+        </div>
+      )}
       {busy && (
         <>
           <article className={styles.page} aria-busy="true">
@@ -293,7 +297,13 @@ function TooltipWorkspace({
       setPreviewMode('enhanced');
     } else setPreviewMode('base');
   };
-  const previews = (
+  // A deferred preview acknowledges text only after that version actually commits.
+  const seen = column
+    ? previewedHashes(mode, hash, selectedView).map((variant) => (
+        <PreviewAck key={variant} variant={variant} visible={!column.collapsed && !suspended} />
+      ))
+    : null;
+  const previews = suspended ? null : (
     <PreviewColumn
       hash={hash}
       lang={lang}
@@ -313,14 +323,9 @@ function TooltipWorkspace({
       onMode={setPreviewMode}
       variant={selectedView?.hash}
       onVariant={(variant) => setPreviewPick({ hash, variant })}
+      acknowledgement={seen}
     />
   );
-  // Reviewed means a Base or Enhanced render of the current text is on screen (never Compare).
-  const seen = column
-    ? previewedHashes(mode, hash, selectedView).map((variant) => (
-        <PreviewAck key={variant} variant={variant} visible={!column.collapsed && !suspended} />
-      ))
-    : null;
 
   const owner = singleOwnerLabel(hash, data);
   const shared = sharedPerkLabel(hash, data, compendiumSource);
@@ -358,6 +363,7 @@ function TooltipWorkspace({
   const overrideTargets = overrides.map((variant) => ({ hash: variant, name: nameOf(variant) }));
   const editing = (variant: number, base: Tooltip) => (
     <ClarityEditor
+      suspended={suspended}
       value={textOf(variant)}
       lang={lang}
       globals={globalsFor(variant)}
@@ -418,6 +424,7 @@ function TooltipWorkspace({
         target: { hash: variant, name: nameOf(variant) },
         node: (
           <ClarityEditor
+            suspended={suspended}
             value={tooltipFor(variant, data).text[lang]?.text ?? ''}
             lang={lang}
             globals={globalsFor(variant)}
@@ -495,10 +502,7 @@ function TooltipWorkspace({
         <ShellSlot name="left">
           {suspended && <p role="status">Opening tooltip…</p>}
           <div className={styles.leftStack} style={{ display: suspended ? 'none' : undefined }}>
-            <div className={styles.previewBody}>
-              {previews}
-              {seen}
-            </div>
+            <div className={styles.previewBody}>{previews}</div>
             {rows}
           </div>
         </ShellSlot>

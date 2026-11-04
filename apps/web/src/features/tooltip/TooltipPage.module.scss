@@ -307,6 +307,12 @@
   min-height: 100%;
 }
 .previewBody {
+  contain: layout paint;
+  // Inline title popovers can extend beyond the text's box. Restore their original
+  // overflow and stacking while one is hovered or focused.
+  &:has([aria-describedby]:hover, [aria-describedby]:focus-within) {
+    contain: none;
+  }
   flex: 1 0 auto;
   min-width: 0;
 }
