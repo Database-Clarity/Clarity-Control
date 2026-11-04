@@ -50,7 +50,7 @@ export interface PublishedHistoryManifest {
   gaps: string[];
   files: Record<string, { sha256: string; bytes: number; gzipBytes: number; revisions: number }>;
 }
-export const publishedHistoryCommit = 'c86485f767b70225e44dbe0262cd61e332522e4e';
+export const publishedHistoryCommit = 'ca7d872d64512bc9ecba094dac6e368f65e1fea5';
 export const publishedHistoryBaseUrl = `https://raw.githubusercontent.com/Database-Clarity/Live-Clarity-Database/${publishedHistoryCommit}`;
 export const publishedHistoryUrl = (canonicalHash: number) =>
   `${publishedHistoryBaseUrl}/${canonicalHash}.json`;

@@ -1,8 +1,23 @@
 import unittest
-from generate import append_revision, encode, project, resolve
+from generate import append_revision, encode, project, resolve, records_from_snapshot
 
 
 class HistoryTest(unittest.TestCase):
+    def test_mixed_shape_placeholders_do_not_fabricate_mass_deletions(self):
+        real = {'1': {'editor': {'en': {'main': 'Published'}}}}
+        placeholders = {'1': {'hash': 1}, '2': {'hash': 2}}
+        self.assertEqual(records_from_snapshot({**real, 'perks': placeholders}), real)
+        self.assertEqual(records_from_snapshot({'perks': real}), real)
+        self.assertEqual(records_from_snapshot(real), real)
+        with self.assertRaisesRegex(ValueError, 'Ambiguous'):
+            records_from_snapshot({**real, 'perks': real})
+        self.assertEqual(records_from_snapshot({'perks': placeholders}), {})
+
+    def test_legacy_portuguese_spelling_is_preserved_without_guessing_conflicts(self):
+        self.assertEqual(project({'editor': {'pt-rb': {'main': 'Texto'}}}), {'pt-br': 'Texto'})
+        with self.assertRaises(ValueError):
+            project({'editor': {'pt-rb': {'main': 'A'}, 'pt-br': {'main': 'B'}}})
+
     def test_missing_blank_and_deletion_are_distinct(self):
         lane = []
         for state in ({}, {'en': ''}, {'en': ''}, None, None, {'en': ''}):

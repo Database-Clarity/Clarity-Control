@@ -6,6 +6,10 @@ The script pins the published converter cutoff, the reviewed alias mapping, and 
 tooltip inventory. It reads both raw published file names, never intermediate authored states.
 It writes deterministic UTF-8 JSON, one file per existing canonical tooltip, plus a checksum manifest.
 
+Transitional files with both flat records and nested placeholders use the container that actually
+holds authored text. Two authored containers are an error; a snapshot with no authored container
+is a gap. The legacy spelling `pt-rb` maps explicitly to `pt-br`; conflicting spellings are an error.
+
 Each source hash has an independent lane. Exact hashes are restore-verified; reviewed sandbox
 aliases are displayed with provenance but cannot restore. Frame aliases, legendary frames,
 enhanced frames, and name aliases are excluded. Exotic frames remain ordinary exact identities.

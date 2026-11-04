@@ -21,11 +21,36 @@ def encode(value):
     return (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')) + '\n').encode()
 
 
+def records_from_snapshot(snapshot):
+    """A transitional file can contain both real flat records and nested placeholders."""
+    flat = {key: value for key, value in snapshot.items()
+            if key.isdecimal() and isinstance(value, dict)}
+    nested = snapshot.get('perks', {})
+    if not isinstance(nested, dict):
+        raise ValueError('Malformed perks container')
+
+    def holds_text(records):
+        return any(isinstance(record, dict) and isinstance(record.get('editor'), dict)
+                   and any(isinstance(value, dict) and isinstance(value.get('main'), str)
+                           for value in record['editor'].values())
+                   for record in records.values())
+
+    flat_text, nested_text = holds_text(flat), holds_text(nested)
+    if flat_text and nested_text:
+        raise ValueError('Ambiguous authored text in both source containers')
+    return flat if flat_text else nested if nested_text else {}
+
+
 def project(record):
     if record is None:
         return None
-    return {lang: record['editor'][lang]['main'] for lang in LANGUAGES
-            if isinstance(record.get('editor', {}).get(lang, {}).get('main'), str)}
+    editor = record.get('editor', {})
+    if ('pt-rb' in editor and 'pt-br' in editor
+            and editor['pt-rb'].get('main') != editor['pt-br'].get('main')):
+        raise ValueError('Conflicting Portuguese language spellings')
+    return {lang: editor.get(lang, editor.get('pt-rb', {}) if lang == 'pt-br' else {})['main']
+            for lang in LANGUAGES
+            if isinstance(editor.get(lang, editor.get('pt-rb', {}) if lang == 'pt-br' else {}).get('main'), str)}
 
 
 def resolve(source, aliases):
@@ -98,7 +123,7 @@ def generate(repo, mapping_repo, output):
                 gaps.append(commit)
                 continue
             snapshot = json.loads(raw)
-            records = snapshot.get('perks', snapshot)
+            records = records_from_snapshot(snapshot)
             if not records:
                 gaps.append(commit)
                 continue
