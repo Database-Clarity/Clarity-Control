@@ -31,3 +31,6 @@ cached as an absent revision. Deletions show the previous text removed; restorat
 show the restored text added. Deleted versions cannot be restored as drafts.
 Other HTTP/network failures remain retryable. Rows show the commit subject only;
 full pages mount eight rows per animation frame to keep cached opens responsive.
+
+A changed bundle head or authenticated cache identity resets the open list to page
+one, so saving after paging cannot mix older pages with the newest revisions.

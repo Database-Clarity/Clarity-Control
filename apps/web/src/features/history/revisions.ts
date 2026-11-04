@@ -13,6 +13,7 @@ export interface RevisionDiffSource {
 const PAGE_TTL = 60_000;
 const MAX_PAGES = 6;
 const MAX_VERSIONS = 24;
+let cacheIdentity = 0;
 
 /** Bounded LRU; failed requests are evicted and concurrent consumers share one request. */
 function remember<K, V>(map: Map<K, Promise<V>>, key: K, limit: number, make: () => Promise<V>) {
@@ -99,6 +100,7 @@ export function createRevisionCache(hash: number) {
     return (await page(loadedPage + 1))[0]?.commit ?? null;
   };
   return {
+    identity: ++cacheIdentity,
     version,
     page,
     peekPage: (number: number) => snapshots.get(number)?.commits,

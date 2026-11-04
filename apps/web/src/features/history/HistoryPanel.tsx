@@ -72,7 +72,7 @@ export function HistoryPanel({ hash, readOnly = false }: { hash: number; readOnl
       }
     >
       {!signedIn ? <p>Sign in as a configured member to view this tooltip's history.</p> : null}
-      {signedIn && <HistoryContent key={`${hash}:${user?.id}`} hash={hash} readOnly={readOnly} />}
+      {signedIn && <HistoryContent key={cache.identity} hash={hash} readOnly={readOnly} />}
     </PanelRow>
   );
 }

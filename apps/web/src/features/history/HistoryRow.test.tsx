@@ -129,3 +129,36 @@ it('shows subjects and spreads mounting a full cached page across frames', async
     vi.unstubAllGlobals();
   }
 });
+
+it('refreshes the first page when saving advances bundle head after paging', async () => {
+  let advanced = false;
+  getHistory.mockImplementation((_hash: number, page: number) =>
+    Promise.resolve({
+      page,
+      commits:
+        page === 1
+          ? Array.from({ length: 30 }, (_, i) => ({
+              ...commit(advanced ? 100 - i : 90 - i),
+              message: advanced && i === 0 ? 'NEW HEAD REVISION' : `old row ${i}`,
+            }))
+          : [commit(advanced ? 61 : 60)],
+    }),
+  );
+  await act(async () => root.render(<HistoryPanel hash={10} />));
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  const more = [...host.querySelectorAll('button')].find(
+    (b) => b.textContent === 'Load more commits',
+  )!;
+  await act(async () => more.click());
+  advanced = true;
+  await act(async () => {
+    const data = useDataStore.getState().data!;
+    useDataStore.setState({
+      data: { ...data, bundle: { ...data.bundle, sourceCommit: 'new-head' } },
+    });
+  });
+  // The parent has refreshed page 1, so the new revision must be visible in its child list too.
+  expect(getHistory.mock.calls.filter(([, p]) => p === 1)).toHaveLength(2);
+  expect(host.textContent).toContain('NEW HEAD REVISION');
+  expect(getHistory.mock.calls.filter(([, p]) => p === 2)).toHaveLength(1);
+});
