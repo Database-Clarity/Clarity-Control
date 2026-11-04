@@ -284,6 +284,36 @@ describe('tooltip finder combobox', () => {
       expect(host.querySelector('[role="listbox"]')!.hasAttribute('data-windowed')).toBe(true);
     },
   );
+  it('fills scroll windows without reconciling the category picker', async () => {
+    const many = {
+      ...data,
+      items: Object.fromEntries(
+        Array.from({ length: 800 }, (_, i) => [
+          1000 + i,
+          item(1000 + i, `Armor ${String(i).padStart(3, '0')}`, 'armor'),
+        ]),
+      ),
+    } as EditorData;
+    await mount('/t/1000', many);
+    await open();
+    const selected = vi.spyOn(HTMLOptionElement.prototype, 'selected', 'set');
+    try {
+      const list = host.querySelector<HTMLElement>('[role="listbox"]')!;
+      for (const top of [5600, 11200, 16800, 0]) {
+        list.scrollTop = top;
+        await act(async () => void list.dispatchEvent(new Event('scroll')));
+        const index = top / 28;
+        expect(options().some((row) => row.getAttribute('aria-posinset') === `${index + 1}`)).toBe(
+          true,
+        );
+      }
+      expect(selected).not.toHaveBeenCalled();
+      expect(route()).toBe('/t/1000');
+      expect(field().getAttribute('aria-activedescendant')).toBe(options()[0].id);
+    } finally {
+      selected.mockRestore();
+    }
+  });
   it('fills a large thumb destination and commits the landed row', async () => {
     const many = {
       ...data,

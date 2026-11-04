@@ -10,8 +10,10 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ComponentProps,
   type CSSProperties,
   type KeyboardEvent,
+  type MutableRefObject,
 } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { EditorData } from '../../stores/data';
@@ -181,6 +183,100 @@ const FinderOption = memo(function FinderOption({
   );
 });
 
+interface FinderOptionsProps extends Omit<
+  ComponentProps<typeof FinderOption>,
+  'row' | 'index' | 'id' | 'current' | 'active' | 'total' | 'virtual'
+> {
+  rows: Row[];
+  active: number;
+  hash: number;
+  base: string;
+  query: string;
+  viewportStore: ReturnType<typeof createFinderViewport>;
+  listLayout: MutableRefObject<{ top: number } | null>;
+  pointerHighlight: MutableRefObject<boolean>;
+  revealedActive: MutableRefObject<number | null>;
+}
+
+// Native scrolling updates only this boundary. In particular, it must not
+// reconcile every category option or the combobox on each window shift.
+const FinderOptions = memo(function FinderOptions({
+  rows,
+  active,
+  hash,
+  base,
+  query,
+  viewportStore,
+  listLayout,
+  pointerHighlight,
+  revealedActive,
+  ...rowProps
+}: FinderOptionsProps) {
+  const viewport = useSyncExternalStore(
+    viewportStore.subscribe,
+    viewportStore.getSnapshot,
+    viewportStore.getSnapshot,
+  );
+  const { rowHeight } = rowProps;
+  const option = (row: Row, index: number, key: string | number = row.hash) => (
+    <FinderOption
+      {...rowProps}
+      key={key}
+      row={row}
+      index={index}
+      id={`${base}-o${row.hash}`}
+      current={row.hash === hash}
+      active={index === active}
+      total={rows.length}
+      virtual={rows.length > retainedRowLimit}
+    />
+  );
+  if (rows.length <= retainedRowLimit) return <>{rows.map((row, index) => option(row, index))}</>;
+
+  const overscan = 64;
+  const initialIndex = query.trim()
+    ? 0
+    : Math.max(
+        0,
+        rows.findIndex((row) => row.hash === hash),
+      );
+  const targetIndex = listLayout.current ? active : initialIndex;
+  const targetTop = targetIndex * rowHeight;
+  const baseTop = listLayout.current ? viewport.top : 0;
+  const renderTop =
+    !pointerHighlight.current && revealedActive.current !== active
+      ? targetTop < baseTop
+        ? targetTop
+        : Math.max(baseTop, targetTop + rowHeight - viewport.height)
+      : viewport.top;
+  const windowSize = Math.min(rows.length, Math.ceil(viewport.height / rowHeight) + 2 * overscan);
+  const start = Math.max(
+    0,
+    Math.min(rows.length - windowSize, Math.floor(renderTop / rowHeight) - overscan),
+  );
+  const end = start + windowSize;
+  const indexes = new Set(Array.from({ length: end - start }, (_, i) => start + i));
+  if (rows[active]) indexes.add(active);
+  return (
+    <li role="presentation" style={{ height: rows.length * rowHeight }}>
+      <ul
+        role="presentation"
+        style={{ position: 'relative', height: '100%', margin: 0, padding: 0, listStyle: 'none' }}
+      >
+        {[...indexes]
+          .sort((a, b) => a - b)
+          .map((index) =>
+            option(
+              rows[index],
+              index,
+              index >= start && index < end ? index % windowSize : 'active',
+            ),
+          )}
+      </ul>
+    </li>
+  );
+});
+
 /**
  * The editor's finder: category, a searchable tooltip combobox (the selector itself) and the
  * position in the category. Typing filters, arrows move the highlighted option, Enter commits,
@@ -244,11 +340,6 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   // never need to measure a row or synchronously flush a React render.
   const rowHeight = Math.round((touchRows ? Math.max(44, 44 * scale) : 28 * scale) * 64) / 64;
   const [viewportStore] = useState(createFinderViewport);
-  const viewport = useSyncExternalStore(
-    viewportStore.subscribe,
-    viewportStore.getSnapshot,
-    viewportStore.getSnapshot,
-  );
   const setViewport = viewportStore.set;
   const root = useRef<HTMLDivElement>(null);
   const openRef = useRef(open);
@@ -594,74 +685,6 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     }
   };
 
-  const option = (row: Row, index: number, key: string | number = row.hash) => (
-    <FinderOption
-      key={key}
-      row={row}
-      index={index}
-      id={optionId(row.hash)}
-      current={row.hash === hash}
-      active={index === active}
-      data={data}
-      drafts={drafts}
-      source={compendiumSource}
-      allCategories={allCategories}
-      onActive={hoverActive}
-      onCommit={commitRef}
-      total={rows.length}
-      virtual={rows.length > retainedRowLimit}
-      rowHeight={rowHeight}
-    />
-  );
-  let options;
-  if (!open) options = null;
-  else if (rows.length <= retainedRowLimit) options = rows.map((row, index) => option(row, index));
-  else {
-    const overscan = 64;
-    const initialIndex = query.trim()
-      ? 0
-      : Math.max(
-          0,
-          rows.findIndex((row) => row.hash === hash),
-        );
-    const targetIndex = listLayout.current ? active : initialIndex;
-    const targetTop = targetIndex * rowHeight;
-    const baseTop = listLayout.current ? viewport.top : 0;
-    const renderTop =
-      !pointerHighlight.current && revealedActive.current !== active
-        ? targetTop < baseTop
-          ? targetTop
-          : Math.max(baseTop, targetTop + rowHeight - viewport.height)
-        : viewport.top;
-    const windowSize = Math.min(rows.length, Math.ceil(viewport.height / rowHeight) + 2 * overscan);
-    const start = Math.max(
-      0,
-      Math.min(rows.length - windowSize, Math.floor(renderTop / rowHeight) - overscan),
-    );
-    const end = start + windowSize;
-    // Absolute rows preserve the full scroll surface independent of the window.
-    // The viewport's external snapshot commits scroll changes before paint.
-    const indexes = new Set(Array.from({ length: Math.max(0, end - start) }, (_, i) => start + i));
-    if (rows[active]) indexes.add(active);
-    options = [
-      <li key="surface" role="presentation" style={{ height: rows.length * rowHeight }}>
-        <ul
-          role="presentation"
-          style={{ position: 'relative', height: '100%', margin: 0, padding: 0, listStyle: 'none' }}
-        >
-          {[...indexes]
-            .sort((a, b) => a - b)
-            .map((index) =>
-              option(
-                rows[index],
-                index,
-                index >= start && index < end ? index % windowSize : 'active',
-              ),
-            )}
-        </ul>
-      </li>,
-    ];
-  }
   const trimmed = query.trim();
   const listbox = open && (
     <div className={styles.popup} data-variant={variant}>
@@ -695,7 +718,24 @@ export const TooltipNavigation = memo(function TooltipNavigation({
           } as CSSProperties
         }
       >
-        {options}
+        <FinderOptions
+          rows={rows}
+          active={active}
+          hash={hash}
+          base={base}
+          query={query}
+          viewportStore={viewportStore}
+          listLayout={listLayout}
+          pointerHighlight={pointerHighlight}
+          revealedActive={revealedActive}
+          data={data}
+          drafts={drafts}
+          source={compendiumSource}
+          allCategories={allCategories}
+          onActive={hoverActive}
+          onCommit={commitRef}
+          rowHeight={rowHeight}
+        />
       </ul>
       {!rows.length && (
         <p className={styles.empty}>
