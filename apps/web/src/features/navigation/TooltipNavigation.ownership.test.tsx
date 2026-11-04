@@ -118,6 +118,7 @@ async function shiftWheel() {
     deltaY: 100,
   });
   await act(async () => host.dispatchEvent(event));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
   return event;
 }
 

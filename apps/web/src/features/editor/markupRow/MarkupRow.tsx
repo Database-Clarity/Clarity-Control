@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { EditorView } from '@codemirror/view';
 import type { MarkupGlobals } from '@clarity/core';
 import { EntryGlyph } from './EntryGlyph';
@@ -16,7 +16,7 @@ const numbered = 9;
  * focus from the text, so the selection they act on stays put; keyboard users move along the row
  * with the arrow keys, insert with Enter or a number, and land back in the text.
  */
-export function MarkupRow({
+export const MarkupRow = memo(function MarkupRow({
   view,
   globals,
   usage,
@@ -55,11 +55,13 @@ export function MarkupRow({
         start: element.scrollLeft > 1,
         end: element.scrollLeft + element.clientWidth < element.scrollWidth - 1,
       });
-    measure();
     element.addEventListener('scroll', measure, { passive: true });
     const observer =
       typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure);
     observer?.observe(element);
+    // ResizeObserver supplies the initial dimensions after layout. Measuring here would
+    // force a layout halfway through the editor's document switch.
+    const frame = observer ? undefined : requestAnimationFrame(measure);
     // The wheel scrolls the row sideways (a vertical wheel has nothing else to do over it).
     const wheel = (event: WheelEvent) => {
       if (element.scrollWidth <= element.clientWidth) return;
@@ -73,6 +75,7 @@ export function MarkupRow({
       element.removeEventListener('scroll', measure);
       element.removeEventListener('wheel', wheel);
       observer?.disconnect();
+      if (frame !== undefined) cancelAnimationFrame(frame);
     };
   }, []);
 
@@ -156,4 +159,4 @@ export function MarkupRow({
       )}
     </div>
   );
-}
+});

@@ -1,6 +1,6 @@
 import { ArchiveIcon } from '../archive/ArchiveIcon';
 import { languageLabel } from '../../languageLabels';
-import { useId, useMemo, type ReactNode } from 'react';
+import { memo, useId, useMemo, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   markupLanguage,
@@ -67,39 +67,48 @@ export function PreviewSpan({ part }: { part: MarkupSpan }) {
   );
 }
 
+// A keystroke usually changes one line. Parsed lines are plain render data, so retain
+// the unchanged React subtrees even when a fresh parse creates new line objects.
+const PreviewLine = memo(
+  function PreviewLine({ line }: { line: MarkupLine }) {
+    return line.table ? (
+      <table className={classNames(line.classNames)}>
+        <tbody>
+          {line.table.map((row, rowIndex) => (
+            <tr key={rowIndex} className={classNames(row.classNames)}>
+              {row.rowContent?.map((cell, cellIndex) => (
+                <td
+                  key={cellIndex}
+                  colSpan={cell.colSpan}
+                  rowSpan={cell.rowSpan}
+                  className={classNames(cell.classNames)}
+                >
+                  {cell.cellContent.map((part, partIndex) => (
+                    <PreviewSpan key={partIndex} part={part} />
+                  ))}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    ) : (
+      <div className={classNames(line.classNames)}>
+        {line.linesContent?.map((part, partIndex) => (
+          <PreviewSpan key={partIndex} part={part} />
+        ))}
+      </div>
+    );
+  },
+  (previous, next) => JSON.stringify(previous.line) === JSON.stringify(next.line),
+);
+
 export function Lines({ lines }: { lines: MarkupLine[] }) {
   return (
     <>
-      {lines.map((line, index) => {
-        return line.table ? (
-          <table className={classNames(line.classNames)} key={index}>
-            <tbody>
-              {line.table.map((row, rowIndex) => (
-                <tr key={rowIndex} className={classNames(row.classNames)}>
-                  {row.rowContent?.map((cell, cellIndex) => (
-                    <td
-                      key={cellIndex}
-                      colSpan={cell.colSpan}
-                      rowSpan={cell.rowSpan}
-                      className={classNames(cell.classNames)}
-                    >
-                      {cell.cellContent.map((part, partIndex) => (
-                        <PreviewSpan key={partIndex} part={part} />
-                      ))}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <div key={index} className={classNames(line.classNames)}>
-            {line.linesContent?.map((part, partIndex) => (
-              <PreviewSpan key={partIndex} part={part} />
-            ))}
-          </div>
-        );
-      })}
+      {lines.map((line, index) => (
+        <PreviewLine key={index} line={line} />
+      ))}
     </>
   );
 }

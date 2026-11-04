@@ -20,9 +20,7 @@ import {
   countConflicts,
   glyphWarnings,
   canReplaceGlyph,
-  maskConflicts,
   markupLanguage,
-  validateText,
   type Lang,
   type MarkupGlobals,
 } from '@clarity/core';
@@ -31,7 +29,7 @@ import { tableFormattingTransaction } from './formatTable';
 import { editorScrollMargins } from './scrollMargins';
 import { rememberSearch, restoreSearch } from './searchMemory';
 import { rawMode, setSymbolReveal, symbolExtensions, toggleRawView } from './symbols';
-import { validationDiagnostics } from './diagnostics';
+import { validateEditorText, validationDiagnostics } from './diagnostics';
 import { MarkupRow } from './markupRow/MarkupRow';
 import { SuggestChip } from './markupRow/SuggestChip';
 import { chipHost, chipsExtension, type Chip } from './markupRow/chips';
@@ -177,11 +175,15 @@ export function ClarityEditor({
     navigate: () => referenceLive.current.onOpenTooltip,
   });
   const initial = useRef({ value, lang, globals, readOnly, requireEnglish });
+  const document = useRef({ tooltipHash, lang });
   const config = useRef(new Compartment());
   const extensions = useRef<Extension[]>([]);
+  const configurationSlot = useRef(0);
+  const conflictSlot = useRef(0);
+  const configured = useRef({ lang, globals, readOnly, requireEnglish });
   // Conflict blocks are checked as "mine" only (same offsets), so markers raise no markup errors.
   const issues = useMemo(
-    () => validateText(maskConflicts(value), lang, globals, requireEnglish, tooltipHash),
+    () => validateEditorText(value, lang, globals, requireEnglish, tooltipHash),
     [value, lang, globals, requireEnglish, tooltipHash],
   );
   const conflictCount = useMemo(() => countConflicts(value), [value]);
@@ -254,6 +256,20 @@ export function ClarityEditor({
       if (transaction) editor.dispatch(transaction);
       return true;
     };
+    const initialConfiguration = config.current.of(
+      configuration(
+        initial.current.lang,
+        initial.current.globals,
+        initial.current.readOnly,
+        initial.current.requireEnglish,
+        references.current,
+        onSuggest.current,
+        chipHooks.current,
+      ),
+    );
+    const initialConflicts = conflictConfig.current.of(
+      conflictHost.of({ compact: false, onCompare: () => undefined, onPanel: () => undefined }),
+    );
     extensions.current = [
       lineNumbers(),
       highlightActiveLine(),
@@ -261,9 +277,7 @@ export function ClarityEditor({
       EditorView.lineWrapping,
       editorScrollMargins(),
       conflictExtensions(),
-      conflictConfig.current.of(
-        conflictHost.of({ compact: false, onCompare: () => undefined, onPanel: () => undefined }),
-      ),
+      initialConflicts,
       history(),
       search({ top: true }),
       indentOnInput(),
@@ -293,17 +307,7 @@ export function ClarityEditor({
         ...defaultKeymap,
         indentWithTab,
       ]),
-      config.current.of(
-        configuration(
-          initial.current.lang,
-          initial.current.globals,
-          initial.current.readOnly,
-          initial.current.requireEnglish,
-          references.current,
-          onSuggest.current,
-          chipHooks.current,
-        ),
-      ),
+      initialConfiguration,
       EditorView.updateListener.of((update) => {
         const raw = update.state.field(rawMode, false);
         if (raw !== undefined && raw !== rawRef.current) {
@@ -323,6 +327,8 @@ export function ClarityEditor({
         }
       }),
     ];
+    configurationSlot.current = extensions.current.indexOf(initialConfiguration);
+    conflictSlot.current = extensions.current.indexOf(initialConflicts);
     const editor = new EditorView({
       parent: host.current,
       state: EditorState.create({ doc: initial.current.value, extensions: extensions.current }),
@@ -356,31 +362,52 @@ export function ClarityEditor({
 
   useEffect(() => {
     const editor = view.current;
-    if (!editor || editor.state.doc.toString() === value) return;
+    if (!editor) return;
+    const switched = document.current.tooltipHash !== tooltipHash || document.current.lang !== lang;
+    document.current = { tooltipHash, lang };
+    if (!switched && editor.state.doc.toString() === value) return;
+    if (switched) {
+      setPanel(null);
+      setSuggestion(null);
+      setChip(null);
+      setCompare(null);
+      setConflictIndex(0);
+      setCursor({ line: 1, column: 1 });
+      rawRef.current = false;
+      setRawView(false);
+    }
     // A different tooltip/language must never undo into the previous document.
-    editor.setState(EditorState.create({ doc: value, extensions: extensions.current }));
-    editor.dispatch({
-      effects: [
-        config.current.reconfigure(
-          configuration(
-            lang,
-            globals,
-            readOnly,
-            requireEnglish,
-            references.current,
-            onSuggest.current,
-            chipHooks.current,
-          ),
-        ),
-        // A rebuilt state starts from the initial extensions: the compartments need their live values.
-        conflictConfig.current.reconfigure(conflictHostExtension()),
-      ],
-    });
+    const nextExtensions = [...extensions.current];
+    nextExtensions[configurationSlot.current] = config.current.of(
+      configuration(
+        lang,
+        globals,
+        readOnly,
+        requireEnglish,
+        references.current,
+        onSuggest.current,
+        chipHooks.current,
+      ),
+    );
+    nextExtensions[conflictSlot.current] = conflictConfig.current.of(conflictHostExtension());
+    configured.current = { lang, globals, readOnly, requireEnglish };
+    // Install the live compartments at creation: do not parse/decorate the new document
+    // with the first tooltip's globals and then repeat that work in a reconfiguration.
+    editor.setState(EditorState.create({ doc: value, extensions: nextExtensions }));
     // The rebuilt state starts with find closed: bring back what was open.
     if (remembersFind.current) restoreSearch(editor);
-  }, [value, lang, globals, readOnly, requireEnglish]);
+  }, [value, lang, globals, readOnly, requireEnglish, tooltipHash]);
 
   useEffect(() => {
+    const previous = configured.current;
+    if (
+      previous.lang === lang &&
+      previous.globals === globals &&
+      previous.readOnly === readOnly &&
+      previous.requireEnglish === requireEnglish
+    )
+      return;
+    configured.current = { lang, globals, readOnly, requireEnglish };
     view.current?.dispatch({
       effects: config.current.reconfigure(
         configuration(
@@ -409,7 +436,7 @@ export function ClarityEditor({
     const line = editor.state.doc.line(highlightLine);
     editor.dispatch({ selection: { anchor: line.from, head: line.to }, scrollIntoView: true });
     editor.focus();
-  }, [highlightLine]);
+  }, [highlightLine, tooltipHash, lang]);
 
   const glyphCount = glyphs.reduce((sum, group) => sum + group.count, 0);
   // A panel for something that has gone away closes itself.
@@ -419,7 +446,9 @@ export function ClarityEditor({
       : panel;
   return (
     <div className={styles.editor} data-editor-root>
-      {markupRow && !readOnly && <MarkupRow view={view} globals={globals} usage={usage} />}
+      {markupRow && !readOnly && (
+        <MarkupRow key={`${tooltipHash}:${lang}`} view={view} globals={globals} usage={usage} />
+      )}
       <div className={styles.textArea}>
         <div ref={host} className={styles.host} />
         {open === 'glyphs' && (

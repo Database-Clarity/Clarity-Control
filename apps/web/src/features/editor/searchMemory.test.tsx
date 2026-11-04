@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { EditorView } from '@codemirror/view';
+import { undoDepth } from '@codemirror/commands';
 import {
   closeSearchPanel,
   getSearchQuery,
@@ -33,16 +34,32 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function render(value: string) {
+function render(value: string, tooltipHash?: number) {
   act(() =>
     root.render(
-      <ClarityEditor value={value} lang="en" globals={globals} onChange={() => {}} />,
+      <ClarityEditor
+        value={value}
+        lang="en"
+        tooltipHash={tooltipHash}
+        globals={globals}
+        onChange={() => {}}
+      />,
     ),
   );
   return EditorView.findFromDOM(host.querySelector<HTMLElement>('.cm-editor')!)!;
 }
 
 describe('find and replace persistence', () => {
+  it('reuses the view but resets undo and selection when another tooltip has identical text', () => {
+    const view = render('one', 10);
+    act(() => view.dispatch({ changes: { from: 3, insert: ' cat' }, selection: { anchor: 7 } }));
+    expect(undoDepth(view.state)).toBe(1);
+    const next = render('one cat', 20);
+    expect(next).toBe(view);
+    expect(next.state.doc.toString()).toBe('one cat');
+    expect(next.state.selection.main.head).toBe(0);
+    expect(undoDepth(next.state)).toBe(0);
+  });
   it('opens at the top of the editor', () => {
     const view = render('one');
     act(() => void openSearchPanel(view));
@@ -65,9 +82,13 @@ describe('find and replace persistence', () => {
     expect(next.state.doc.toString()).toBe('two cat cat');
     expect(searchPanelOpen(next.state)).toBe(true);
     const query = getSearchQuery(next.state);
-    expect([query.search, query.replace, query.caseSensitive, query.wholeWord, query.regexp]).toEqual(
-      ['cat', 'dog', true, true, false],
-    );
+    expect([
+      query.search,
+      query.replace,
+      query.caseSensitive,
+      query.wholeWord,
+      query.regexp,
+    ]).toEqual(['cat', 'dog', true, true, false]);
     expect(host.querySelector<HTMLInputElement>('input[name=search]')!.value).toBe('cat');
     expect(host.querySelector<HTMLInputElement>('input[name=replace]')!.value).toBe('dog');
   });
@@ -85,7 +106,9 @@ describe('find and replace persistence', () => {
 
   it('keeps the caret in the editor when the same editor is rebuilt', () => {
     // Browsers focus a field on select(), which the panel calls when it opens; jsdom does not.
-    vi.spyOn(HTMLInputElement.prototype, 'select').mockImplementation(function (this: HTMLInputElement) {
+    vi.spyOn(HTMLInputElement.prototype, 'select').mockImplementation(function (
+      this: HTMLInputElement,
+    ) {
       this.focus();
     });
     const view = render('one');
@@ -109,7 +132,14 @@ describe('find and replace persistence', () => {
     const otherRoot = createRoot(other);
     act(() =>
       otherRoot.render(
-        <ClarityEditor value="stored" lang="en" globals={globals} readOnly findMemory={false} onChange={() => {}} />,
+        <ClarityEditor
+          value="stored"
+          lang="en"
+          globals={globals}
+          readOnly
+          findMemory={false}
+          onChange={() => {}}
+        />,
       ),
     );
     const second = EditorView.findFromDOM(other.querySelector<HTMLElement>('.cm-editor')!)!;

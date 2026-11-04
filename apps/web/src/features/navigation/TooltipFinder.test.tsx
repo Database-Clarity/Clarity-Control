@@ -82,6 +82,7 @@ async function press(name: string, init: KeyboardEventInit = {}) {
     ...init,
   });
   await act(async () => void field().dispatchEvent(event));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
   return event;
 }
 const open = () => act(async () => field().click());
@@ -100,6 +101,27 @@ afterEach(async () => {
 });
 
 describe('tooltip finder combobox', () => {
+  it('windows a large category while keeping End and its active descendant usable', async () => {
+    const many = {
+      ...data,
+      items: Object.fromEntries(
+        Array.from({ length: 400 }, (_, i) => [
+          1000 + i,
+          item(1000 + i, `Armor ${String(i).padStart(3, '0')}`, 'armor'),
+        ]),
+      ),
+    } as EditorData;
+    await mount('/t/1000', many);
+    await open();
+    expect(options().length).toBeLessThan(80);
+    await press('End');
+    const active = host.querySelector(`[id="${field().getAttribute('aria-activedescendant')}"]`);
+    expect(active?.textContent).toContain('Armor 399');
+    expect(active?.getAttribute('aria-posinset')).toBe('400');
+    expect(active?.getAttribute('aria-setsize')).toBe('400');
+    await press('Enter');
+    expect(route()).toBe('/t/1399');
+  });
   it('marks only a real base -> enhanced pair with the gold arrow, and a search for the variant lands on the base', async () => {
     const variants = {
       ...data,
@@ -379,6 +401,7 @@ describe('finder wheel stepping', () => {
     const wheel = async (target: Element) => {
       const event = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 100 });
       await act(async () => void target.dispatchEvent(event));
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
       return event;
     };
     const closed = await wheel(field());

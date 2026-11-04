@@ -1,5 +1,17 @@
 import { useCompendiumStore } from '../compendium/store';
-import { useContext, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import {
+  memo,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react';
+import { flushSync } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
@@ -27,6 +39,7 @@ import {
   type SteppingGuard,
 } from './stepping';
 import { FinderSheetContext } from './FinderSheetContext';
+import { pulseStepping } from './steppingActivity';
 import styles from './TooltipFinder.module.scss';
 
 // Stepping asks the preview leave guard before it moves anything; see createStepping.
@@ -47,6 +60,83 @@ interface Row {
   category: string;
 }
 
+const noItems: never[] = [];
+const noDrafts: ReturnType<typeof useDraftStore.getState>['drafts'] = {};
+
+// Moving the highlight changes two rows, not every catalogue lookup and DOM subtree.
+const FinderOption = memo(function FinderOption({
+  row,
+  index,
+  id,
+  current,
+  active,
+  data,
+  drafts,
+  source,
+  allCategories,
+  onActive,
+  onCommit,
+  total,
+}: {
+  row: Row;
+  index: number;
+  id: string;
+  current: boolean;
+  active: boolean;
+  data: EditorData;
+  drafts: ReturnType<typeof useDraftStore.getState>['drafts'];
+  source: ReturnType<typeof useCompendiumStore.getState>['data'];
+  allCategories: boolean;
+  onActive(index: number): void;
+  onCommit: { current(row: Row): void };
+  total: number;
+}) {
+  const item = itemFor(row.hash, data);
+  const isDirty = variantHashes(row.hash, data).some((variant) => drafts[variant]);
+  const shared = sharedPerkLabel(row.hash, data, source);
+  const frames = frameGroupSize(row.hash, data);
+  const enhanced = enhancedPairs(row.hash, data).length > 0;
+  return (
+    <li
+      id={id}
+      role="option"
+      aria-selected={current}
+      aria-posinset={index + 1}
+      aria-setsize={total}
+      data-active={active || undefined}
+      data-current={current || undefined}
+      title={shared}
+      className={styles.option}
+      onMouseDown={(event) => event.preventDefault()}
+      onMouseMove={() => !active && onActive(index)}
+      onClick={() => onCommit.current(row)}
+    >
+      <span className={styles.mark} aria-hidden="true">
+        {isDirty ? '*' : ''}
+      </span>
+      <span className={styles.name}>
+        {isDirty && <span className="sr-only">Unsaved draft: </span>}
+        {row.name}
+      </span>
+      <small>
+        {enhanced && (
+          <span className={styles.enhanced} title="Has an enhanced version">
+            <EnhancedArrow />
+          </span>
+        )}
+        {row.perk && <span className={styles.perk}>{row.perk}</span>}
+        <span className={styles.tail}>
+          {row.perk && ' · '}
+          {row.hash}
+          {shared && !row.listsPieces && ' · shared perk'}
+          {frames > 1 && ` ×${frames}`}
+          {item && allCategories && ` · ${row.category}`}
+        </span>
+      </small>
+    </li>
+  );
+});
+
 /**
  * The editor's finder: category, a searchable tooltip combobox (the selector itself) and the
  * position in the category. Typing filters, arrows move the highlighted option, Enter commits,
@@ -54,7 +144,7 @@ interface Row {
  * the selected (current) one are drawn differently. `bar` is the header form; `sheet` the phone
  * form, which adds Previous/Next because touch screens have no Shift+wheel.
  */
-export function TooltipNavigation({
+export const TooltipNavigation = memo(function TooltipNavigation({
   data,
   variant = 'bar',
 }: {
@@ -66,6 +156,11 @@ export function TooltipNavigation({
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  const pointerHighlight = useRef(false);
+  const hoverActive = useCallback((index: number) => {
+    pointerHighlight.current = true;
+    setActive(index);
+  }, []);
   const [allCategories, setAllCategories] = useState(false);
   const base = useId();
   const listId = `${base}-list`;
@@ -75,39 +170,54 @@ export function TooltipNavigation({
     () => (query.trim() ? navigationGroups(data, query) : groups),
     [data, groups, query],
   );
-  const drafts = useDraftStore((state) => state.drafts);
+  const drafts = useDraftStore((state) => (open ? state.drafts : noDrafts));
   const navigate = useNavigate();
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
   const location = useLocation();
   const hash = Number(location.pathname.split('/')[2]);
-  const sections = groups.flatMap((group) => group.sections);
+  const sections = useMemo(() => groups.flatMap((group) => group.sections), [groups]);
   const selectedCategory =
     sections.find((category) => category.id === itemFor(hash, data)?.categoryId) ?? sections[0];
-  const items = selectedCategory?.items ?? [];
-  const hashes = items.map((item) => item.hash);
+  const items = selectedCategory?.items ?? noItems;
+  const hashes = useMemo(() => items.map((item) => item.hash), [items]);
   const position = categoryPosition(hash, hashes);
   const current = useRef({ pathname: location.pathname, search: location.search });
   current.current = { pathname: location.pathname, search: location.search };
   const field = useRef<HTMLInputElement>(null);
+  const list = useRef<HTMLUListElement>(null);
+  const [viewport, setViewport] = useState({ top: 0, height: 416, row: 28 });
   const root = useRef<HTMLDivElement>(null);
   const openRef = useRef(open);
   openRef.current = open;
   const [stepping] = useState(() =>
-    createStepping((target, options) => navigateRef.current(target, options), steppingGuard),
+    createStepping(
+      (target, options) => navigateRef.current(target, options),
+      steppingGuard,
+      typeof requestAnimationFrame === 'function'
+        ? { request: (run) => requestAnimationFrame(run), cancel: (id) => cancelAnimationFrame(id) }
+        : undefined,
+    ),
   );
   const [wheelStepper] = useState(createWheelStepper);
   const step = useRef<(direction: number) => boolean>(() => false);
   const canStep = useRef<(direction: number) => boolean>(() => false);
+  const stepLocation = () => {
+    const pending = stepping.target?.split('?');
+    return pending
+      ? { pathname: pending[0], search: pending[1] ? `?${pending[1]}` : '' }
+      : current.current;
+  };
   step.current = (direction) => {
-    const target = stepTarget(current.current, direction, hashes);
+    const target = stepTarget(stepLocation(), direction, hashes);
     if (!target) return false;
     // Refused before anything moves: the selection, the pending history entry and the timer stay.
     if (!stepping.step(target.from, target.to.path)) return false;
+    pulseStepping();
     current.current = target.to;
     return true;
   };
-  canStep.current = (direction) => Boolean(stepTarget(current.current, direction, hashes));
+  canStep.current = (direction) => Boolean(stepTarget(stepLocation(), direction, hashes));
 
   // The list: the current category by default, every category on request.
   const scoped: CategorySection[] = useMemo(() => {
@@ -137,7 +247,43 @@ export function TooltipNavigation({
   const currentItem = itemFor(hash, data);
   const currentLabel = currentItem ? listName(currentItem, data) : '';
   const sharedLabel = sharedPerkLabel(hash, data, compendiumSource);
-  const dirty = variantHashes(hash, data).some((variant) => drafts[variant]);
+  const dirty = useDraftStore((state) =>
+    variantHashes(hash, data).some((variant) => state.drafts[variant]),
+  );
+
+  useLayoutEffect(() => {
+    const element = list.current;
+    if (!open || !element) return;
+    let rowHeight = 28;
+    let height = 416;
+    let lastTop = -1;
+    const scroll = () => {
+      // Bucket scroll updates inside the overscan. Scrolling reads no row geometry and
+      // does no React work until the visible window approaches the next bucket.
+      const top = Math.floor(element.scrollTop / (rowHeight * 8)) * rowHeight * 8;
+      if (top === lastTop) return;
+      lastTop = top;
+      // Native scroll precedes paint. Finish the small window update here so the compositor
+      // cannot expose a spacer while React is handling the next free-spin wheel packet.
+      flushSync(() => setViewport({ top, height, row: rowHeight }));
+    };
+    const measure = () => {
+      const option = element.querySelector<HTMLElement>('[role="option"]');
+      rowHeight = option?.getBoundingClientRect().height || 28;
+      height = element.clientHeight;
+      lastTop = Math.floor(element.scrollTop / (rowHeight * 8)) * rowHeight * 8;
+      setViewport({ top: lastTop, height, row: rowHeight });
+    };
+    measure();
+    const observer =
+      typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure);
+    observer?.observe(element);
+    element.addEventListener('scroll', scroll, { passive: true });
+    return () => {
+      observer?.disconnect();
+      element.removeEventListener('scroll', scroll);
+    };
+  }, [open, rows]);
 
   // A new route, or leaving the field, restores the current item and an empty query.
   const restore = () => {
@@ -162,13 +308,14 @@ export function TooltipNavigation({
   }, [variant, sheetOpen]);
   useEffect(() => {
     if (!open) return;
+    pointerHighlight.current = false;
     const index = rows.findIndex((row) => row.hash === hash);
     setActive(query.trim() ? 0 : Math.max(0, index));
     // Only a new query, scope or opening resets the highlight; route changes close the list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, query, allCategories]);
   useEffect(() => {
-    if (!open) return;
+    if (!open || pointerHighlight.current) return;
     const row = rows[active];
     if (row) document.getElementById(optionId(row.hash))?.scrollIntoView?.({ block: 'nearest' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -218,7 +365,10 @@ export function TooltipNavigation({
   }, [stepping, wheelStepper]);
   function choose(target: number) {
     stepping.commit();
-    navigate(tooltipPath(target, location.search));
+    const path = tooltipPath(target, location.search);
+    if (!steppingGuard.allow(location.pathname, path)) return;
+    pulseStepping();
+    navigate(path);
   }
   function commit(row: Row | undefined) {
     if (!row) return;
@@ -226,8 +376,12 @@ export function TooltipNavigation({
     // A refused (guarded) navigation leaves the route; the field shows the current item again.
     choose(row.hash);
   }
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing) return;
+    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key))
+      pointerHighlight.current = false;
     if (event.key === 'Escape') {
       if (!open && !query) return;
       // Restore the current item and its query; the focus stays in the field.
@@ -278,57 +432,73 @@ export function TooltipNavigation({
     }
   };
 
-  const option = (row: Row) => {
-    const index = rows.indexOf(row);
-    const item = itemFor(row.hash, data);
-    const isDirty = variantHashes(row.hash, data).some((variant) => drafts[variant]);
-    const shared = sharedPerkLabel(row.hash, data, compendiumSource);
-    const frames = frameGroupSize(row.hash, data);
-    const enhanced = enhancedPairs(row.hash, data).length > 0;
-    return (
-      <li
-        key={row.hash}
-        id={optionId(row.hash)}
-        role="option"
-        aria-selected={row.hash === hash}
-        data-active={index === active || undefined}
-        data-current={row.hash === hash || undefined}
-        title={shared}
-        className={styles.option}
-        onMouseDown={(event) => event.preventDefault()}
-        onMouseMove={() => index !== active && setActive(index)}
-        onClick={() => commit(row)}
-      >
-        <span className={styles.mark} aria-hidden="true">
-          {isDirty ? '*' : ''}
-        </span>
-        <span className={styles.name}>
-          {isDirty && <span className="sr-only">Unsaved draft: </span>}
-          {row.name}
-        </span>
-        <small>
-          {enhanced && (
-            <span className={styles.enhanced} title="Has an enhanced version">
-              <EnhancedArrow />
-            </span>
-          )}
-          {row.perk && <span className={styles.perk}>{row.perk}</span>}
-          <span className={styles.tail}>
-            {row.perk && ' · '}
-            {row.hash}
-            {shared && !row.listsPieces && ' · shared perk'}
-            {frames > 1 && ` ×${frames}`}
-            {item && allCategories && ` · ${row.category}`}
-          </span>
-        </small>
-      </li>
+  const option = (row: Row, index: number) => (
+    <FinderOption
+      key={row.hash}
+      row={row}
+      index={index}
+      id={optionId(row.hash)}
+      current={row.hash === hash}
+      active={index === active}
+      data={data}
+      drafts={drafts}
+      source={compendiumSource}
+      allCategories={allCategories}
+      onActive={hoverActive}
+      onCommit={commitRef}
+      total={rows.length}
+    />
+  );
+  let options;
+  if (!open) options = null;
+  else if (rows.length <= 80) options = rows.map(option);
+  else {
+    const start = Math.max(0, Math.floor(viewport.top / viewport.row) - 16);
+    const end = Math.min(
+      rows.length,
+      Math.ceil((viewport.top + viewport.height) / viewport.row) + 24,
     );
-  };
+    // Keep the active descendant mounted even before scrollIntoView moves the window.
+    const indexes = new Set(Array.from({ length: Math.max(0, end - start) }, (_, i) => start + i));
+    if (rows[active]) indexes.add(active);
+    const nodes = [];
+    let previous = 0;
+    for (const index of [...indexes].sort((a, b) => a - b)) {
+      if (index > previous)
+        nodes.push(
+          <li
+            key={`gap-${previous}`}
+            role="presentation"
+            aria-hidden="true"
+            style={{ height: (index - previous) * viewport.row }}
+          />,
+        );
+      nodes.push(option(rows[index], index));
+      previous = index + 1;
+    }
+    if (previous < rows.length)
+      nodes.push(
+        <li
+          key="gap-end"
+          role="presentation"
+          aria-hidden="true"
+          style={{ height: (rows.length - previous) * viewport.row }}
+        />,
+      );
+    options = nodes;
+  }
   const trimmed = query.trim();
   const listbox = open && (
     <div className={styles.popup} data-variant={variant}>
-      <ul id={listId} role="listbox" aria-label="Tooltips" className={styles.listbox}>
-        {rows.map(option)}
+      <ul
+        ref={list}
+        id={listId}
+        role="listbox"
+        aria-label="Tooltips"
+        className={styles.listbox}
+        data-windowed={rows.length > 80 || undefined}
+      >
+        {options}
       </ul>
       {!rows.length && (
         <p className={styles.empty}>
@@ -490,4 +660,4 @@ export function TooltipNavigation({
       </small>
     </section>
   );
-}
+});

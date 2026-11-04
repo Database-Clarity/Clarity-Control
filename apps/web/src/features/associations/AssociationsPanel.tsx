@@ -24,12 +24,17 @@ export function AssociationsPanel({ hash }: { hash: number }) {
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const tooltip = data ? (draft?.next ?? tooltipFor(hash, data)) : undefined;
+  const editable = Boolean(apiUrl && hydrated && !saving && canEditTooltipFields(user));
   const candidates = useMemo(
-    () => (data && tooltip ? associationCandidates(data, query, hash, tooltip.associated) : []),
-    [data, tooltip, query, hash],
+    // PanelRow does not mount its body while collapsed. Do not scan and sort the entire
+    // catalogue on every item switch or keystroke for a picker that is not being shown.
+    () =>
+      open && adding && editable && data && tooltip
+        ? associationCandidates(data, query, hash, tooltip.associated)
+        : [],
+    [open, adding, editable, data, tooltip, query, hash],
   );
   if (!data || !tooltip) return null;
-  const editable = Boolean(apiUrl && hydrated && !saving && canEditTooltipFields(user));
   function change(associated: number[]) {
     if (!editable || !data) return;
     updateDraft(tooltipFor(hash, data), (next) => ({ ...next, associated }));

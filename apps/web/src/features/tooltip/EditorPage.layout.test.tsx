@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import { TooltipPage } from './TooltipPage';
@@ -10,6 +10,7 @@ import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { useAuthStore } from '../../stores/auth';
 import { useSaveState } from '../../services/save/state';
+import { useSteppingActivity } from '../navigation/steppingActivity';
 
 vi.mock('../../services/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../services/api')>()),
@@ -113,6 +114,11 @@ const originals = {
   save: useSaveState.getState(),
 };
 
+let navigateRoute: ReturnType<typeof useNavigate>;
+function PageHarness() {
+  navigateRoute = useNavigate();
+  return <TooltipPage />;
+}
 async function render(path = '/t/10') {
   await act(async () =>
     root.render(
@@ -122,7 +128,7 @@ async function render(path = '/t/10') {
         createElement(
           Routes,
           null,
-          createElement(Route, { path: '/t/:hash', element: createElement(TooltipPage) }),
+          createElement(Route, { path: '/t/:hash', element: createElement(PageHarness) }),
         ),
       ),
     ),
@@ -137,6 +143,7 @@ const signIn = (role: 'maintainer' | 'editor' | 'translator' | null) =>
   });
 
 beforeEach(() => {
+  useSteppingActivity.setState({ active: false });
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   phone = false;
   Object.defineProperty(window, 'matchMedia', {
@@ -165,6 +172,32 @@ afterEach(async () => {
   useAuthStore.setState(originals.auth);
   useSaveState.setState(originals.save);
   vi.mocked(ClarityEditor).mockClear();
+  useSteppingActivity.setState({ active: false });
+});
+
+it('freezes skipped workspace work, cancels side panels and reuses the editor after a burst', async () => {
+  useDataStore.setState({
+    data: {
+      ...data,
+      items: { ...data.items, 20: item(20, 'Next perk', 'trait') },
+      bundle: { ...data.bundle, tooltips: { ...data.bundle.tooltips, 20: tip(20, 'Next text') } },
+    },
+  });
+  await render();
+  const editor = editors()[0];
+  await act(async () => useSteppingActivity.setState({ active: true }));
+  expect(host.querySelector('[data-compendium]')).toBeNull();
+  expect(host.querySelector('[data-history]')).toBeNull();
+  vi.mocked(ClarityEditor).mockClear();
+  await act(async () => navigateRoute('/t/20'));
+  expect(ClarityEditor).not.toHaveBeenCalled();
+  expect(editors()[0]).toBe(editor);
+  expect(host.querySelector('[aria-busy=true]')?.textContent).toContain('Next perk');
+  await act(async () => useSteppingActivity.setState({ active: false }));
+  expect(editors()[0]).toBe(editor);
+  expect(editors()[0].textContent).toBe('Next text');
+  expect(host.querySelector('[data-history]')?.getAttribute('data-history')).toBe('20');
+  expect(host.querySelector('[data-compendium]')).not.toBeNull();
 });
 
 describe('inline conflicts on the page', () => {

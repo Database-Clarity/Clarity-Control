@@ -133,6 +133,12 @@
   content-visibility: auto;
   contain-intrinsic-size: auto 28px;
 
+  .listbox[data-windowed] & {
+    // The window already bounds DOM work; avoid an intersection observer per recycled row.
+    content-visibility: visible;
+    contain: layout style;
+  }
+
   @include theme.mobile-or-coarse {
     min-height: max(44px, 2.75rem);
   }

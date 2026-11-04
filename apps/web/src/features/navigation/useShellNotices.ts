@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useDraftStore } from '../../stores/drafts';
 import { useNavigate } from 'react-router-dom';
 import { useConflictStore, useOpenConflicts, usePausedForOtherTab } from '../../stores/conflicts';
@@ -26,7 +27,20 @@ export function useShellNotices(): ShellNotice[] {
     unowned,
     adopt,
     keepSeparate,
-  } = useDraftStore();
+  } = useDraftStore(
+    useShallow((state) => ({
+      hydrated: state.hydrated,
+      pending: state.pending,
+      error: state.error,
+      previousAccountError: state.previousAccountError,
+      dismissPreviousAccountError: state.dismissPreviousAccountError,
+      hydrate: state.hydrate,
+      retry: state.retry,
+      unowned: state.unowned,
+      adopt: state.adopt,
+      keepSeparate: state.keepSeparate,
+    })),
+  );
   const [adoptNote, setAdoptNote] = useState<string | null>(null);
   const saveNotice = useSaveNotice((state) => state.notice);
   const dismissSaveNotice = useSaveNotice((state) => state.dismiss);

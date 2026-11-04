@@ -358,8 +358,12 @@ export const useConflictStore = createConflictStore({
 /** Every tooltip with an open conflict (marker blocks in a draft, or a row to choose), live. */
 export function useOpenConflicts(): ConflictSummary[] {
   const sessions = useConflictStore((state) => state.sessions);
-  const drafts = useDraftStore((state) => state.drafts);
-  return useMemo(() => openConflicts(drafts, rowCounts(sessions)), [drafts, sessions]);
+  // Ordinary typing does not change conflict counts. Subscribe to the complete summary
+  // evidence, rather than invalidating the shell and every conflict consumer per character.
+  const evidence = useDraftStore((state) =>
+    JSON.stringify(openConflicts(state.drafts, rowCounts(sessions))),
+  );
+  return useMemo(() => JSON.parse(evidence) as ConflictSummary[], [evidence]);
 }
 
 /**

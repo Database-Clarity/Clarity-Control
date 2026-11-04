@@ -1,7 +1,7 @@
 import { archiveCategoryLabel, archivedItemFor } from '../archive/archive';
 import { AttachmentCategoryControl } from './AttachmentCategoryControl';
 import { useCompendiumStore } from '../compendium/store';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { translationQueue, type Lang, type MarkupGlobals, type Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
@@ -55,6 +55,15 @@ import {
   storedFormVariants,
 } from './variants';
 import styles from './TooltipPage.module.scss';
+import { useSteppingActivity } from '../navigation/steppingActivity';
+
+interface WorkspaceRoute {
+  parameter?: string;
+  search: URLSearchParams;
+  setSearch: ReturnType<typeof useSearchParams>[1];
+  navigate: ReturnType<typeof useNavigate>;
+}
+const StableWorkspace = memo(TooltipWorkspace);
 
 /**
  * The editor page (variant model D): ONE base editor per item, whatever the role. Enhanced
@@ -69,9 +78,59 @@ export function TooltipPage({
   hashOverride?: number;
   readOnly?: boolean;
 }) {
-  const compendiumSource = useCompendiumStore((state) => state.data);
+  const active = useSteppingActivity((state) => state.active);
   const { hash: parameter } = useParams();
   const [search, setSearch] = useSearchParams();
+  const navigate = useNavigate();
+  const data = useDataStore((state) => state.data);
+  const busy = active && hashOverride === undefined;
+  const settled = useRef<WorkspaceRoute>({ parameter, search, setSearch, navigate });
+  if (!busy) settled.current = { parameter, search, setSearch, navigate };
+  const hash = Number(parameter);
+  const item = data && archivedItemFor(hash, data);
+  const pending = <>Opening {item ? editorName(item) : `tooltip ${hash}`}…</>;
+  const column = useShellColumn();
+  return (
+    <>
+      {/* Keep the expensive editor view alive, with its last settled route, through a burst.
+        display:contents adds no layout box in the ordinary workspace. */}
+      <div style={{ display: busy ? 'none' : 'contents' }}>
+        <StableWorkspace
+          hashOverride={hashOverride}
+          readOnly={readOnly}
+          route={settled.current}
+          suspended={busy}
+        />
+      </div>
+      {busy && (
+        <>
+          <article className={styles.page} aria-busy="true">
+            <p role="status">{pending}</p>
+          </article>
+          {column && (
+            <ShellSlot name="left">
+              <p role="status">{pending}</p>
+            </ShellSlot>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+function TooltipWorkspace({
+  hashOverride,
+  readOnly = false,
+  route,
+  suspended,
+}: {
+  hashOverride?: number;
+  readOnly?: boolean;
+  route: WorkspaceRoute;
+  suspended: boolean;
+}) {
+  const compendiumSource = useCompendiumStore((state) => state.data);
+  const { parameter, search, setSearch, navigate } = route;
   const data = useDataStore((state) => state.data);
   const [remembered, setRemembered] = useState<Lang>();
   // The enhanced version whose own text is open in the editor (null: the base). Keyed by item, so
@@ -118,7 +177,6 @@ export function TooltipPage({
   );
   // Saved text only, so the suggestion menu's usage counts do not change as you type.
   const usage = useMemo(() => corpusUsage(data?.bundle.tooltips ?? {}), [data?.bundle.tooltips]);
-  const navigate = useNavigate();
   function openDefinition(target: TooltipTarget) {
     // Ordinary navigation (a pushed history entry), the same route a Globals page link takes.
     const canonical = data ? canonicalHash(target.hash, data) : target.hash;
@@ -128,7 +186,13 @@ export function TooltipPage({
   // shown there; without one (a phone, or the page on its own) they stay inline in the page.
   const column = useShellColumn();
   const showPreview = column?.show;
-  const reviewEntries = usePreviewReviewStore((state) => state.entries);
+  const reviewCanonical = data ? canonicalHash(hashOverride ?? Number(parameter), data) : undefined;
+  const unpreviewed = usePreviewReviewStore(
+    (state) =>
+      Object.values(state.entries).filter(
+        (entry) => entry.canonical === reviewCanonical && entry.dirty > entry.reviewed,
+      ).length,
+  );
   // "Show preview" from the leave guard opens the column on a render that counts as seen: Base, or
   // Enhanced for an override with unseen edits. Compare never does, so it is left.
   const reveal = useRef<() => void>(undefined);
@@ -279,17 +343,15 @@ export function TooltipPage({
       {!readOnly && item && <AttachmentCategoryControl base={primaryBase} item={item} />}
       {owner && <NoteRow text={owner} />}
       {shared && <NoteRow text={shared} />}
-      {!readOnly && <AssociationsPanel hash={activeHash} />}
-      <HistoryPanel hash={activeHash} readOnly={readOnly} />
+      {!suspended && !readOnly && <AssociationsPanel hash={activeHash} />}
+      {!suspended && <HistoryPanel hash={activeHash} readOnly={readOnly} />}
     </div>
   );
 
   // The editor's status bar tells how many edits the preview has not shown yet, and offers it.
   const previewStatus = column
     ? {
-        unpreviewed: Object.values(reviewEntries).filter(
-          (entry) => entry.canonical === canonical && entry.dirty > entry.reviewed,
-        ).length,
+        unpreviewed,
         collapsed: column.collapsed,
         onShow: () => {
           const host = usePreviewReviewStore.getState().host;
@@ -302,7 +364,6 @@ export function TooltipPage({
   const overrideTargets = overrides.map((variant) => ({ hash: variant, name: nameOf(variant) }));
   const editing = (variant: number, base: Tooltip) => (
     <ClarityEditor
-      key={`${variant}:${lang}`}
       value={textOf(variant)}
       lang={lang}
       globals={globalsFor(variant)}
@@ -426,7 +487,9 @@ export function TooltipPage({
           )
         }
         compendium={
-          !readOnly && user?.role !== 'translator' ? <CompendiumPanel base={activeBase} /> : null
+          !suspended && !readOnly && user?.role !== 'translator' ? (
+            <CompendiumPanel base={activeBase} />
+          ) : null
         }
       />
       {hosted && (
