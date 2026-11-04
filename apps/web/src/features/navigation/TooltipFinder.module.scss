@@ -142,10 +142,10 @@
     contain: layout style paint;
   }
 
-  .listbox[data-scrollbar-surface] & {
-    // A thumb can jump past every overscan row in one packet. Pre-layout the
-    // complete surface instead of exposing skipped content. Bounded lists keep
-    // that layout until close, avoiding another layout on every thumb release.
+  .listbox[data-eager-rows] & {
+    // Bounded lists also jump on opening/Home/End. Keep their cheap contents
+    // ready from the first paint rather than waiting for skipped content to
+    // become visible after a programmatic scroll.
     content-visibility: visible;
   }
 

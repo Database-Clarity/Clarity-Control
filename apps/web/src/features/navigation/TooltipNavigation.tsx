@@ -194,7 +194,6 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [draggingScrollbar, setDraggingScrollbar] = useState(false);
-  const [laidOutRows, setLaidOutRows] = useState(false);
   const draggingScrollbarRef = useRef(false);
   const pointerHighlight = useRef(false);
   const hoverActive = useCallback((index: number) => {
@@ -318,10 +317,6 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   const dirty = useDraftStore((state) =>
     variantHashes(hash, data).some((variant) => state.drafts[variant]),
   );
-  useEffect(() => {
-    if (!open) setLaidOutRows(false);
-  }, [open]);
-
   useLayoutEffect(() => {
     const element = list.current;
     if (!open || !element) return;
@@ -616,7 +611,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
         className={styles.listbox}
         data-windowed={rows.length > 80 || undefined}
         data-scrollbar-drag={draggingScrollbar || undefined}
-        data-scrollbar-surface={(laidOutRows && rows.length <= retainedRowLimit) || undefined}
+        data-eager-rows={rows.length <= retainedRowLimit || undefined}
         onPointerDown={(event) => {
           const element = event.currentTarget;
           if (
@@ -624,10 +619,9 @@ export const TooltipNavigation = memo(function TooltipNavigation({
             event.target === element &&
             event.nativeEvent.offsetX >= element.clientWidth
           ) {
-            // Native thumb drags can jump the entire category between scroll
-            // events. Fill its complete surface before the browser starts moving.
+            // Bounded lists are already laid out; larger lists synchronously
+            // fill a smaller window as the native scrollbar moves.
             pointerHighlight.current = true;
-            if (rows.length <= retainedRowLimit) setLaidOutRows(true);
             draggingScrollbarRef.current = true;
             setDraggingScrollbar(true);
           }
