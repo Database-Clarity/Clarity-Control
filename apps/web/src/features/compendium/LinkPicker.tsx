@@ -45,28 +45,15 @@ export function LinkPicker({
   const locked = useSaveState((state) => state.locked);
   const canEdit =
     !readOnly && (!!onReference || mayDraftLink(user?.role, !!apiUrl, hydrated, locked));
-  const [section, setSection] = useState('');
-  const updateDraft = useDraftStore((state) => state.updateDraft);
-  const [anchorRow, setAnchorRow] = useState<CompendiumMatch['row']>();
-  const [gid, setGid] = useState('');
-  const [query, setQuery] = useState(name);
-  const [visited, setVisited] = useState<
-    Record<string, { gid: string; row?: CompendiumMatch['row'] }>
-  >({});
-  const cellKey = `${gid}:${anchorRow?.rowIndex}:${anchorRow?.anchor?.col}`;
-  useEffect(() => {
-    if (gid)
-      setVisited((old) => (old[cellKey] ? old : { ...old, [cellKey]: { gid, row: anchorRow } }));
-  }, [gid, anchorRow, cellKey]);
-  const [error, setError] = useState<string | null>(null);
   const preferenceKey = `clarity-compendium-tab:${category}`;
-  useEffect(() => {
-    if (!data) return;
+  const initial = useMemo(() => {
+    if (!data) return { gid: '', section: '', query: name, row: undefined, error: null };
     let remembered: string | null = null;
+    let storageError: string | null = null;
     try {
       remembered = localStorage.getItem(preferenceKey);
     } catch (error) {
-      setError(`Cannot read remembered tab: ${errorMessage(error)}`);
+      storageError = `Cannot read remembered tab: ${errorMessage(error)}`;
     }
     const names = compendiumNameVariants(category, name).map(normaliseCompendiumName);
     const preferred = compendiumPreferredTabs(category, name);
@@ -89,7 +76,6 @@ export function LinkPicker({
       data.tabs.find((tab) => preferred.includes(tab.gid))?.gid ??
       data.tabs.find((tab) => tab.rows.length || tab.grid?.length)?.gid ??
       '';
-    setGid(initialGid);
     const initialTab = data.tabs.find((tab) => tab.gid === initialGid);
     const initialSection = categorySuggestions(data, category, name).find(
       (hint) => hint.gid === initialGid,
@@ -97,15 +83,44 @@ export function LinkPicker({
     const exactRow = initialTab?.rows.find((row) =>
       names.includes(normaliseCompendiumName(row.name)),
     );
-    setSection(exactRow ? '' : (initialSection ?? ''));
-    setAnchorRow(
-      exactRow ??
+    return {
+      gid: initialGid,
+      section: exactRow ? '' : (initialSection ?? ''),
+      query: exactRow ? name : '',
+      row:
+        exactRow ??
         (initialSection
           ? initialTab?.rows.find((row) => row.section === initialSection)
           : undefined),
-    );
-    if (!exactRow) setQuery('');
+      error: storageError,
+    };
   }, [data, name, category, preferenceKey]);
+  const [initialized, setInitialized] = useState(initial);
+  const [section, setSection] = useState(initial.section);
+  const updateDraft = useDraftStore((state) => state.updateDraft);
+  const [anchorRow, setAnchorRow] = useState<CompendiumMatch['row'] | undefined>(initial.row);
+  const [gid, setGid] = useState(initial.gid);
+  const [query, setQuery] = useState(initial.query);
+  const [error, setError] = useState<string | null>(initial.error);
+  if (initialized !== initial) {
+    // Reconcile a reopened picker before committing any stale entry or empty sheet.
+    setInitialized(initial);
+    setGid(initial.gid);
+    setSection(initial.section);
+    setAnchorRow(initial.row);
+    setQuery(initial.query);
+    setError(initial.error);
+  }
+  const [visited, setVisited] = useState<
+    Record<string, { gid: string; row?: CompendiumMatch['row'] }>
+  >({});
+  const cellKey = `${gid}:${anchorRow?.rowIndex}:${anchorRow?.anchor?.col}`;
+  const sheets =
+    visited[cellKey] || !gid ? visited : { ...visited, [cellKey]: { gid, row: anchorRow } };
+  useEffect(() => {
+    if (gid)
+      setVisited((old) => (old[cellKey] ? old : { ...old, [cellKey]: { gid, row: anchorRow } }));
+  }, [gid, anchorRow, cellKey]);
   const rows = useMemo(() => {
     const searches = compendiumNameVariants(category, query).map(normaliseCompendiumName);
     const exact = (name: string) =>
@@ -263,7 +278,7 @@ export function LinkPicker({
             </li>
           ))}
       </ul>
-      {Object.entries(visited).map(([key, saved]) => {
+      {Object.entries(sheets).map(([key, saved]) => {
         const savedTab = data.tabs.find((entry) => entry.gid === saved.gid);
         return (
           savedTab && (

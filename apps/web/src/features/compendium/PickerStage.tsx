@@ -21,7 +21,7 @@ export function PickerStage({
   onBack(): void;
   open: boolean;
 }) {
-  const [mounted, setMounted] = useState(false);
+  const [mounted, setMounted] = useState(open);
   useEffect(() => {
     if (open) setMounted(true);
   }, [open]);
