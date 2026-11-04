@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import type { Tooltip } from '@clarity/core';
+import { languages, type Tooltip } from '@clarity/core';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement } from 'react';
 import { identityLines, TooltipDiff } from './TooltipDiff';
@@ -15,6 +15,32 @@ const withCustom = (name: string, categoryId: string): Tooltip => ({
 });
 const F = 'Category: Weapon Attachments → Attachment Effects';
 const R = 'Category: Attachment Effects → Weapon Attachments';
+it('renders every published language immediately, including language removals', () => {
+  const before: Tooltip = {
+    ...plain,
+    text: Object.fromEntries(
+      languages.map((lang) => [
+        lang,
+        {
+          text: `Historical ${lang}`,
+          updatedAt: '2024-01-01T00:00:00Z',
+          updatedBy: 'author',
+        },
+      ]),
+    ),
+  };
+  const html = renderToStaticMarkup(
+    createElement(TooltipDiff, {
+      before,
+      current: plain,
+      raw: false,
+      eagerLanguages: true,
+    }),
+  );
+  for (const language of languages) expect(html).toContain(`Historical ${language}`);
+  expect(html).not.toContain('data-pending-render');
+  expect(html).not.toContain('aria-busy="true"');
+});
 it('shows only the friendly category line when category is the sole change', () => {
   const promoted = withCustom(item!.name, 'attachment-effect');
   expect(identityLines(plain, promoted, item)).toEqual([F]);
