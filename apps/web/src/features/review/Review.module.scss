@@ -29,10 +29,14 @@
 
 .filters {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(12rem, 1fr) auto;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   align-items: end;
   gap: 0.75rem;
   margin-block: 1rem;
+
+  > span {
+    grid-column: 1 / -1;
+  }
 
   label {
     display: grid;
