@@ -112,3 +112,10 @@ it('records the full set-perk census, leaving the mismatched perk unresolved', (
   ]);
   expect(results).toMatchSnapshot();
 });
+it('withholds a picked approval when its named source anchor is missing', () => {
+  const f = setup();
+  const entry = f.entries.find((e) => e.hash === 1888882410)!;
+  delete f.source.tabs.find((t) => t.gid === '1662574278')!.rows.find((r) => r.rowIndex === 53)!
+    .anchor;
+  expect(reviewedOwnerDecision(entry, undefined, f.source)?.action).toBe('owner');
+});

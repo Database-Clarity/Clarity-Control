@@ -61,6 +61,7 @@ export function reviewedOwnerDecision(
       entry.name === renewed.name &&
       `catalog:${entry.category}` === renewed.categoryId &&
       rows.length === 1 &&
+      rows[0].anchor &&
       bodies.length === 1 &&
       tab &&
       body &&
