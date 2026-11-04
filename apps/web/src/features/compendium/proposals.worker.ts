@@ -3,12 +3,7 @@ import type { EditorData } from '../../stores/data';
 import type { ReviewProposal } from './rapidReview';
 import type { displayMatches } from './displayMatches';
 import type { DisplayInput } from './matchingSession';
-import {
-  prepareMatchingPlan,
-  matchingPlanSteps,
-  finishMatchingPlan,
-  matchingYield,
-} from './matchingSessionPlanning';
+import type { prepareMatchingPlan } from './matchingSessionPlanning';
 import { matchingSessionFingerprint } from './matchingSessionFingerprint';
 import { compactMatch } from './compactMatches';
 import { cachedComputation, contentHash } from './workerCache';
@@ -76,9 +71,14 @@ async function servePriority() {
   if (!request || request.token !== modelToken) return;
   priority = undefined;
   try {
-    const [{ proposalFor }, { withCompendiumMatchingIndex }] = await Promise.all([
+    const [
+      { proposalFor },
+      { withCompendiumMatchingIndex },
+      { prepareMatchingPlan, matchingPlanSteps },
+    ] = await Promise.all([
       import('./rapidReview'),
       import('@clarity/core'),
+      import('./matchingSessionPlanning'),
     ]);
     // A replacement generation may have arrived during module loading.
     if (request.token !== modelToken) throw new Error('Compendium inputs changed.');
@@ -176,6 +176,9 @@ async function process(data: Request) {
       priorityProposals.clear();
       fingerprint = undefined;
       modelToken = data.initialize.token;
+      // Install the message handler before loading modules with top-level await.
+      // Otherwise a worker can drop the source request during module initialization.
+      const { matchingYield } = await import('./matchingSessionPlanning');
       // Let the current pane run before hashing, assets, caches, and the full catalog.
       await matchingYield();
       await servePriority();
@@ -281,10 +284,23 @@ async function process(data: Request) {
           scopeRestored: restoredHashes.has(e.hash),
         })),
       }));
+      const { completeMatchingSteps } = await import('./matchingSessionPlanning');
       const groups = Object.keys(document.categories).length
-        ? (await import('./guidedDecisions'))
-            .guidedDecisions(document, categories, proposals, source, baseline, scope)
-            .filter((g) => g.id === categoryId)
+        ? (
+            await completeMatchingSteps(
+              source,
+              (await import('./guidedDecisions')).guidedDecisionSteps(
+                document,
+                categories,
+                proposals,
+                source,
+                baseline,
+                scope,
+                undefined,
+                lastDisplay.fingerprint,
+              ),
+            )
+          ).filter((g) => g.id === categoryId)
         : [];
       sendWorkerResult(emit, id, groups);
     } else if (data.input) {
@@ -301,6 +317,8 @@ async function process(data: Request) {
       const key = `${import.meta.url}:display:${dataKey}:${pristine ? 'pristine' : `${editor.bundle.sourceCommit}|${await contentHash(data.input)}`}`;
       const result = await cachedComputation(key, async () => {
         if (pristine && precomputedDisplay) return precomputedDisplay;
+        const { finishMatchingPlan, prepareMatchingPlan } =
+          await import('./matchingSessionPlanning');
         return finishMatchingPlan(
           prepareMatchingPlan(
             editor,

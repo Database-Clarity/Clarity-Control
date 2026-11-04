@@ -142,7 +142,10 @@ export async function finishMatchingPlan(
   source: CompendiumData,
   proposals: Map<number, ReviewProposal>,
 ) {
-  const steps = matchingPlanSteps(plan, source, proposals);
+  return completeMatchingSteps(source, matchingPlanSteps(plan, source, proposals));
+}
+
+export async function completeMatchingSteps<T>(source: CompendiumData, steps: Generator<void, T>) {
   for (;;) {
     const next = withCompendiumMatchingIndex(source, () => {
       const end = performance.now() + 8;

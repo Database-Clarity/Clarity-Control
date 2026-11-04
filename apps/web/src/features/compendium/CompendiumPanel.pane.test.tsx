@@ -13,8 +13,10 @@ import { useSettingsStore } from '../../stores/settings';
 import { useCompendiumStore } from './store';
 import { CompendiumPanel } from './CompendiumPanel';
 import { usePaneMatch } from './usePaneMatch';
+import { useDisplayMatches } from './useDisplayMatches';
 
 vi.mock('./usePaneMatch', () => ({ usePaneMatch: vi.fn() }));
+vi.mock('./useDisplayMatches', () => ({ useDisplayMatches: vi.fn() }));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 vi.mock('../../services/api', () => ({ apiUrl: 'https://api.test' }));
@@ -42,6 +44,14 @@ let width: number | undefined;
 
 beforeEach(() => {
   vi.mocked(usePaneMatch).mockReturnValue(undefined);
+  vi.mocked(useDisplayMatches).mockReturnValue({
+    prepared: undefined,
+    reviewPrepared: undefined,
+    matches: undefined,
+    decisions: undefined,
+    loading: false,
+    error: undefined,
+  });
   const values = new Map<string, string>();
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => values.get(key) ?? null,
@@ -107,6 +117,31 @@ const diffViews = (host: ParentNode) =>
   host.querySelectorAll('[aria-label="Compendium diff view"]');
 
 describe('Compendium pane', () => {
+  it('reuses the status row for a priority match without waiting for full catalog metadata', async () => {
+    const base = { hash: 6, text: {}, associated: [] } as unknown as Tooltip;
+    const initial = vi.mocked(useDisplayMatches).getMockImplementation()!;
+    vi.mocked(useDisplayMatches).mockImplementation((...args) => ({
+      ...initial(...args),
+      loading: true,
+    }));
+    const host = await mount(base);
+    const status = host.querySelector('[role="status"]')!;
+    expect(status.textContent).toBe('Matching Compendium…');
+    expect(vi.mocked(useDisplayMatches).mock.calls.at(-1)?.[4]).toBe(base.hash);
+    vi.mocked(usePaneMatch).mockReturnValue({ status: 'ok', changed: false, tab, row });
+    // The pane must also tolerate a late loading subscriber: the match is authoritative.
+    await act(async () => useDraftStore.setState({ drafts: { 6: { base, next: base } } }));
+    expect(host.contains(status)).toBe(true);
+    expect(status.textContent).toContain('Matched');
+    expect(status.getAttribute('role')).toBeNull();
+    expect(host.textContent).not.toContain('Matching Compendium…');
+    const cell = host.querySelector('[data-multiline]');
+    vi.mocked(useDisplayMatches).mockImplementation(initial);
+    await act(async () => useDraftStore.setState({ drafts: {} }));
+    expect(host.contains(status)).toBe(true);
+    expect(host.querySelector('[data-multiline]')).toBe(cell);
+  });
+
   it('does not remeasure the root or resolve an unchanged source while English drafts are typed', async () => {
     useCompendiumStore.setState({ data: { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] } });
     const resolve = vi.spyOn(core, 'resolveCompendiumLink');
