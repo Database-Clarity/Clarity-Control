@@ -1,8 +1,53 @@
-import { compendiumTabId } from '@clarity/core';
+import { compendiumTabId, setBonusCell } from '@clarity/core';
 import { type CompendiumData } from '@clarity/core';
 import type { ReviewSample } from './reviewCategories';
 import { confirmCompendiumSelection } from './selection';
 import type { GuidedDecision } from './guidedDecisions';
+
+export function inferredSetBonusDecision(
+  entry: ReviewSample,
+  source: CompendiumData,
+): Partial<GuidedDecision> | undefined {
+  if (entry.category !== 'armor-set-bonus') return;
+  const metadata = entry.setBonus;
+  const identity = /^(.*) \(([24]) pc\): (.+)$/.exec(entry.name);
+  const setName = metadata?.setName.replace(/ Set$/, '');
+  const heading = setName === 'Wayward Psyche' ? 'Uncaged Deviants' : setName;
+  const matches =
+    !metadata ||
+    !identity ||
+    identity[1] !== metadata.setName ||
+    Number(identity[2]) !== metadata.pieceCount
+      ? []
+      : source.tabs
+          .filter((tab) => tab.gid === compendiumTabId('Armor Perks'))
+          .flatMap((tab) =>
+            tab.rows.flatMap((row) => {
+              if (
+                row.section !== 'Armor Set Bonuses' ||
+                row.name.split(/\r?\n/)[0].trim() !== heading
+              )
+                return [];
+              const cell = setBonusCell(row.cell, metadata.pieceCount);
+              if (
+                !cell ||
+                cell.plain.split(/\r?\n/)[0] !== `${metadata.pieceCount} Piece | ${identity[3]}`
+              )
+                return [];
+              return [{ tab, row: { ...row, cell }, setBonusPieces: metadata.pieceCount }];
+            }),
+          );
+  const link = matches.length === 1 && confirmCompendiumSelection(matches[0], source);
+  return {
+    action: link ? 'link' : 'owner',
+    confidence: link ? 'high' : 'unresolved',
+    ruleId: 'armor-set-perk-piece-count',
+    link: link ? { ...link, snapshotAt: source.fetchedAt } : undefined,
+    reason: link
+      ? 'Exact set heading, perk name, and piece count; owner-approved Set suffix and Wayward Psyche alias.'
+      : 'Set bonus identity or unique exact source is not established; verify manually.',
+  };
+}
 
 // Element/damage-family labels are supported only on actual helmet mod plugs.
 // Artifact "Elemental Siphon" is a different family and cannot enter this path.

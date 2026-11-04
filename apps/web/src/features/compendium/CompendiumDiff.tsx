@@ -1,7 +1,12 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { diffCompendium, type CompendiumCell, type CompendiumDiffPart } from '@clarity/core';
-import { RichCell } from './RichCell';
-import { SheetCell } from './sheetSurface';
+import {
+  diffCompendium,
+  styleKey,
+  type CompendiumCell,
+  type CompendiumDiffPart,
+} from '@clarity/core';
+import { Multiline, RichCell, runStyle } from './RichCell';
+import { SheetCell, useLegibleOn } from './sheetSurface';
 import { useSettingsStore } from '../../stores/settings';
 import { Segmented } from '../../ui/RightPane';
 import styles from './Compendium.module.scss';
@@ -71,6 +76,8 @@ function changes(before: CompendiumCell, after: CompendiumCell): string[] {
   });
 }
 function StyleChange({ before, after }: { before: CompendiumCell; after: CompendiumCell }) {
+  const legibleOn = useLegibleOn();
+  const singleRun = after.runs.length === 1 ? after.runs[0] : undefined;
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -115,6 +122,7 @@ function StyleChange({ before, after }: { before: CompendiumCell; after: Compend
       <button
         type="button"
         className={styles.styleToggle}
+        style={singleRun ? runStyle(singleRun, legibleOn) : undefined}
         title={description}
         aria-label={`${after.plain}: ${description}`}
         aria-describedby={id}
@@ -132,7 +140,7 @@ function StyleChange({ before, after }: { before: CompendiumCell; after: Compend
           }
         }}
       >
-        <RichCell cell={after} links={false} inline />
+        {singleRun ? singleRun.text : <RichCell cell={after} links={false} inline />}
       </button>
       <span
         ref={popover}
@@ -141,25 +149,33 @@ function StyleChange({ before, after }: { before: CompendiumCell; after: Compend
         role="tooltip"
         style={{ insetInlineStart: offset }}
       >
-        <span>{description}</span>
-        <span className={styles.swatches}>
-          {[before, after].map((cell, index) => (
-            <span key={index}>
-              {index ? 'Current' : 'Snapshot'}{' '}
-              {[...new Set(cell.runs.map((run) => run.color).filter(Boolean))].map((color) => (
-                <span
-                  key={color}
-                  className={styles.swatch}
-                  style={{ backgroundColor: color }}
-                  title={color}
-                />
+        {visible ? (
+          <>
+            <span>{description}</span>
+            <span className={styles.swatches}>
+              {[before, after].map((cell, index) => (
+                <span key={index}>
+                  {index ? 'Current' : 'Snapshot'}{' '}
+                  {[...new Set(cell.runs.map((run) => run.color).filter(Boolean))].map((color) => (
+                    <span
+                      key={color}
+                      className={styles.swatch}
+                      style={{ backgroundColor: color }}
+                      title={color}
+                    />
+                  ))}
+                </span>
               ))}
             </span>
-          ))}
-        </span>
-        <span>
-          Snapshot: <RichCell cell={before} />
-        </span>
+            <span>
+              Snapshot: <RichCell cell={before} />
+            </span>
+          </>
+        ) : (
+          // Retain the full accessible description while CSS hides the popup.
+          // Its formatting and swatches are built synchronously on any open path.
+          `${description}Snapshot Current Snapshot: ${before.plain}`
+        )}
       </span>
     </span>
   );
@@ -179,7 +195,7 @@ export function CompendiumDiff({
   const sideBySide = mode === 'before-after';
   // Links store no background; both sides sit on the row's current one.
   const background = after.background ?? before.background;
-  const parts = useMemo(() => diffCompendium(before, after), [before, after]);
+  const lines = useMemo(() => preparedLines(before, after), [before, after]);
   return (
     <section aria-label="Styled Compendium diff">
       {given === undefined && (
@@ -209,34 +225,36 @@ export function CompendiumDiff({
             changes.
           </p>
           <SheetCell background={background}>
-            {diffLines(parts).map((line, lineIndex) => (
-              <span
-                key={lineIndex}
-                className={styles.diffLine}
-                style={{
-                  textAlign: (
-                    line.find((part) => part.after?.plain.trim())?.after ??
-                    line.find((part) => part.before?.plain.trim())?.before
-                  )?.runs[0]?.textAlign,
-                }}
-              >
-                {line.map((part, index) =>
-                  part.kind === 'style' ? (
-                    <StyleChange key={index} before={part.before!} after={part.after!} />
-                  ) : part.kind === 'removed' ? (
-                    <del key={index} className={styles.removed}>
-                      <RichCell cell={part.before!} inline />
-                    </del>
-                  ) : part.kind === 'added' ? (
-                    <ins key={index} className={styles.added}>
-                      <RichCell cell={part.after!} inline />
-                    </ins>
-                  ) : (
-                    <RichCell key={index} cell={part.after!} inline />
-                  ),
-                )}
-              </span>
-            ))}
+            <Multiline>
+              {lines.map((line, lineIndex) => (
+                <span
+                  key={lineIndex}
+                  className={styles.diffLine}
+                  style={{
+                    textAlign: (
+                      line.find((part) => part.after?.plain.trim())?.after ??
+                      line.find((part) => part.before?.plain.trim())?.before
+                    )?.runs[0]?.textAlign,
+                  }}
+                >
+                  {line.map((part, index) =>
+                    part.kind === 'style' ? (
+                      <StyleChange key={index} before={part.before!} after={part.after!} />
+                    ) : part.kind === 'removed' ? (
+                      <del key={index} className={styles.removed}>
+                        <RichCell cell={part.before!} inline />
+                      </del>
+                    ) : part.kind === 'added' ? (
+                      <ins key={index} className={styles.added}>
+                        <RichCell cell={part.after!} inline />
+                      </ins>
+                    ) : (
+                      <RichCell key={index} cell={part.after!} inline />
+                    ),
+                  )}
+                </span>
+              ))}
+            </Multiline>
           </SheetCell>
         </>
       )}
@@ -244,10 +262,24 @@ export function CompendiumDiff({
   );
 }
 
+// Base/enhanced tooltips and return navigation can compare the same immutable
+// source content in different cell objects. Keep a small, content-keyed cache.
+const lineCache = new Map<string, CompendiumDiffPart[][]>();
+function preparedLines(before: CompendiumCell, after: CompendiumCell) {
+  const key = JSON.stringify([before, after]);
+  const cached = lineCache.get(key);
+  if (cached) return cached;
+  const lines = diffLines(diffCompendium(before, after));
+  if (lineCache.size >= 32) lineCache.delete(lineCache.keys().next().value!);
+  lineCache.set(key, lines);
+  return lines;
+}
+
 // Split fragments at line breaks before laying them out; each highlighted word
 // remains inline within its source line, including for mixed-alignment selections.
 function diffLines(parts: CompendiumDiffPart[]): CompendiumDiffPart[][] {
   const lines: CompendiumDiffPart[][] = [[]];
+  let previousKey: string | undefined;
   for (const part of parts) {
     const source = part.after ?? part.before!;
     let offset = 0;
@@ -264,13 +296,35 @@ function diffLines(parts: CompendiumDiffPart[]): CompendiumDiffPart[][] {
           }),
         };
       };
-      lines.at(-1)!.push({
+      const fragment: CompendiumDiffPart = {
         kind: part.kind,
         ...(part.before ? { before: slice(part.before) } : {}),
         ...(part.after ? { after: slice(part.after) } : {}),
-      });
+      };
+      // Coalesce plain, identically styled neighbours instead of rendering one
+      // RichCell and highlight wrapper per word. Links and style-change controls
+      // keep their individual targets, and alignment never crosses a line break.
+      const cells = [fragment.before, fragment.after].filter((cell) => cell !== undefined);
+      const key =
+        part.kind !== 'style' && cells.every((cell) => cell.runs.length === 1 && !cell.runs[0].href)
+          ? JSON.stringify([part.kind, ...cells.map((cell) => styleKey(cell.runs[0]))])
+          : undefined;
+      const line = lines.at(-1)!;
+      const previous = line.at(-1);
+      if (key !== undefined && key === previousKey && previous) {
+        for (const side of ['before', 'after'] as const) {
+          if (previous[side] && fragment[side]) {
+            previous[side].plain += fragment[side].plain;
+            previous[side].runs[0].text += fragment[side].plain;
+          }
+        }
+      } else line.push(fragment);
+      previousKey = key;
       offset += text.length;
-      if (text.endsWith('\n')) lines.push([]);
+      if (text.endsWith('\n')) {
+        lines.push([]);
+        previousKey = undefined;
+      }
     });
   }
   return lines;

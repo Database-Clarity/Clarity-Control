@@ -87,6 +87,7 @@ export const compendiumLinkSchema = z
     snapshot: compendiumCellSchema,
     snapshotAt: z.string().datetime({ offset: true }),
     cells: compendiumCellOffsetsSchema.optional(),
+    sourceAnchor: compendiumPositionSchema.optional(),
     parts: z.array(z.string()).optional(),
     setBonusPieces: z.union([z.literal(2), z.literal(4)]).optional(),
   })

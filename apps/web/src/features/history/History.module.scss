@@ -1,5 +1,13 @@
 @use '../../ui/controls';
 
+// These legacy arrows are covered by Segoe UI Symbol. Resolve their face
+// directly instead of walking the Latin and icon fonts during cold layout.
+@font-face {
+  font-family: HistorySymbols;
+  src: local('Segoe UI Symbol');
+  unicode-range: U+2060, U+2190-21FF, U+2900-297F, U+1F800-1F8FF;
+}
+
 // Local faces with limited coverage avoid a generic fallback scan per character,
 // while Latin text and markup retain the interface's existing font and metrics.
 @font-face {
@@ -32,14 +40,17 @@
 .diff {
   // Resolve legacy arrows through the symbol face directly. The generic Windows
   // fallback search otherwise stalls layout on the first revision using them.
-  font-family: Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', sans-serif;
+  font-family: HistorySymbols, Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', sans-serif;
 
   section:lang(ko) {
-    font-family: HistoryKorean, Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', sans-serif;
+    font-family:
+      HistoryKorean, HistorySymbols, Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', sans-serif;
   }
 
   section:lang(zh) {
-    font-family: HistoryChinese, Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', sans-serif;
+    font-family:
+      HistoryChinese, HistorySymbols, Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol',
+      sans-serif;
   }
 }
 
@@ -69,6 +80,15 @@
   padding: 0;
   display: grid;
   gap: 0.125rem;
+}
+
+.historySection > button,
+.historySection > p > button {
+  @include controls.button;
+  white-space: nowrap;
+  @media (pointer: coarse) {
+    min-height: 44px;
+  }
 }
 
 .entry {

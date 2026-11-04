@@ -17,6 +17,7 @@ export type ReviewSample = ReviewEntry & {
   classification?: ItemClassification;
   exoticParentNames?: string[];
   scopeRestored?: boolean;
+  setBonus?: { setName: string; pieceCount: 2 | 4 };
   artifactSunset?: boolean;
   manifestFacts?: { item: ManifestFacts['items'][string]; version: string };
 };
@@ -112,11 +113,20 @@ export function reviewCategories(
         description: item.inGameDescription,
         baseHash: item.baseHash,
         owners: item.owners,
+        ...(item.categoryId === 'armor-set-bonus'
+          ? { setName: item.setName, pieceCount: item.pieceCount }
+          : {}),
       }))
       .sort((a, b) => a.hash - b.hash);
     const sample: ReviewSample = {
       evidenceManifest,
       ...entry,
+      ...(items.length === 1 &&
+      items[0].categoryId === 'armor-set-bonus' &&
+      items[0].setName &&
+      items[0].pieceCount
+        ? { setBonus: { setName: items[0].setName, pieceCount: items[0].pieceCount } }
+        : {}),
       classification:
         editor.items[entry.hash] && classifyItem(editor.items[entry.hash], entry.next),
       exoticParentNames: [
