@@ -66,11 +66,14 @@ export function warmPickerRowIndexes(tabs: readonly CompendiumSheet[]) {
   let idle: number | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let quietUntil = 0;
+  let inputSeen = false;
   let position = 0;
   let work: ReturnType<typeof prepareRowIndex> | undefined;
   const events = ['keydown', 'beforeinput', 'input', 'pointerdown', 'wheel'] as const;
   const pause = () => {
-    quietUntil = performance.now() + 75;
+    // Even reading the clock can be expensive under CPU throttling. Input only
+    // marks the job; its next idle callback starts the full quiet period.
+    inputSeen = true;
   };
   for (const event of events)
     window.addEventListener(event, pause, { capture: true, passive: true });
@@ -89,6 +92,12 @@ export function warmPickerRowIndexes(tabs: readonly CompendiumSheet[]) {
   };
   const run = (deadline?: IdleDeadline) => {
     if (cancelled) return;
+    if (inputSeen) {
+      inputSeen = false;
+      quietUntil = performance.now() + 75;
+      schedule();
+      return;
+    }
     const started = performance.now();
     const pending = (
       navigator as Navigator & {

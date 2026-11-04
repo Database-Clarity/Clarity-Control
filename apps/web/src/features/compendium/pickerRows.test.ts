@@ -119,6 +119,18 @@ it('leaves work for another idle period when the deadline has less than two mill
   cancel();
 });
 
+it('keeps clock reads out of continuous input callbacks', () => {
+  const queue = idleQueue();
+  const cancel = warmPickerRowIndexes([{ ...tab, rows: [...tab.rows] }]);
+  const clock = vi.spyOn(performance, 'now');
+  window.dispatchEvent(new WheelEvent('wheel'));
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }));
+  expect(clock).not.toHaveBeenCalled();
+  queue.run();
+  expect(clock).toHaveBeenCalled();
+  cancel();
+});
+
 it('pauses for pending input and a quiet period after typing, and cancels queued work', () => {
   vi.useFakeTimers();
   const queue = idleQueue();
