@@ -1,4 +1,6 @@
-import { Children, createElement, isValidElement } from 'react';
+// @vitest-environment jsdom
+import { act, Children, createElement, isValidElement } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it, vi } from 'vitest';
 import type { CompendiumData } from '@clarity/core';
@@ -107,9 +109,46 @@ it('disables category textareas and reload/save controls while disk reload is ou
     }),
   );
   expect(html).toContain('Reloading guidance');
-  expect(html).toMatch(/<textarea[^>]*disabled=""/);
-  expect(html).toMatch(/<button disabled="">Reload disk guidance/);
+  expect(html).not.toContain('<textarea');
+  expect(html).not.toContain('Reload disk guidance');
   expect(html).not.toContain('Retry disk save');
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(
+        createElement(CategoryReview, {
+          editor,
+          source,
+          categories: reviewCategories(entries, editor, proposals, false),
+          proposals,
+          guidance,
+          onReview: vi.fn(),
+        }),
+      ),
+    );
+    for (const label of ['Details', 'Backup / recovery', 'Example note', 'Owner guidance for']) {
+      const summary = [...host.querySelectorAll('summary')].find(
+        (node) =>
+          node.textContent === label ||
+          (label === 'Owner guidance for' && node.textContent?.startsWith(label)),
+      );
+      expect(summary, `Missing disclosure ${label}`).toBeTruthy();
+      await act(async () => summary!.click());
+    }
+    const textareas = [...host.querySelectorAll('textarea')];
+    expect(textareas.length).toBeGreaterThan(0);
+    expect(textareas.every((node) => node.disabled)).toBe(true);
+    const reload = [...host.querySelectorAll('button')].find(
+      (node) => node.textContent === 'Reload disk guidance',
+    );
+    expect(reload).toBeTruthy();
+    expect(reload!.disabled).toBe(true);
+    expect(host.textContent).not.toContain('Retry disk save');
+  } finally {
+    await act(async () => root.unmount());
+  }
   persistence.dispose();
 });
 

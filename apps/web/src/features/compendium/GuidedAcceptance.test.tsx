@@ -24,6 +24,7 @@ it('accepts exactly displayed high links, cancels without action, and blocks a s
   };
   try {
     await render();
+    await act(async () => host.querySelector('summary')!.click());
     await click('Preview all high');
     expect(host.querySelector('[aria-label="Category acceptance preview"]')?.textContent).toContain(
       '3 high links',
@@ -63,6 +64,7 @@ it('preselects one medium source for confirmation and respects read-only permiss
     [...host.querySelectorAll('button')].find((button) => button.textContent?.startsWith(text))!;
   try {
     await act(async () => root.render(createElement(GuidedPreview, props)));
+    await act(async () => host.querySelector('summary')!.click());
     await act(async () => button('Review medium').click());
     expect(host.querySelector('[aria-label="Category acceptance preview"]')?.textContent).toContain(
       'Mechanics 2',
