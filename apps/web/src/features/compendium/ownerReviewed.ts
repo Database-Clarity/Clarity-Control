@@ -44,6 +44,51 @@ export function reviewedOwnerDecision(
   proposal: ReviewProposal | undefined,
   source: CompendiumData,
 ): Partial<GuidedDecision> | undefined {
+  const renewed = (records.reapproved as Record<string, (typeof records.reapproved)['4019266109']>)[
+    entry.hash
+  ];
+  if (renewed) {
+    const tab = source.tabs.find((tab) => tab.gid === renewed.gid);
+    const rows =
+      tab?.rows.filter(
+        (row) => row.name === renewed.name && sourceFingerprint(row.cell) === renewed.cellEvidence,
+      ) ?? [];
+    // Anchor the explicitly picked description itself. Pugilism's duplicate name
+    // must never combine the rewritten card with the obsolete body at row 54.
+    const bodies =
+      tab?.grid?.filter((cell) => sourceFingerprint(cell.cell) === renewed.cellEvidence) ?? [];
+    const body = bodies[0];
+    const link =
+      entry.name === renewed.name &&
+      `catalog:${entry.category}` === renewed.categoryId &&
+      rows.length === 1 &&
+      bodies.length === 1 &&
+      tab &&
+      body &&
+      confirmCompendiumSelection(
+        {
+          tab,
+          row: {
+            name: body.cell.plain.trim(),
+            nameNorm: normaliseCompendiumName(body.cell.plain),
+            rowIndex: body.row,
+            anchor: { row: body.row, col: body.col },
+            cell: body.cell,
+          },
+          cells: [{ dRow: 0, dCol: 0 }],
+        },
+        source,
+      );
+    return {
+      action: link ? 'link' : 'owner',
+      confidence: link ? 'high' : 'unresolved',
+      ruleId: 'owner-reapproved-collective',
+      link: link ? { ...link, snapshotAt: source.fetchedAt } : undefined,
+      reason: link
+        ? `${renewed.reviewedAt}: ${renewed.quote} (${renewed.decisionPage}); link approval only.`
+        : 'Re-approved Collective identity or styled source changed; verify again.',
+    };
+  }
   const record = (records.verified as Record<string, (typeof records.verified)['4194622039']>)[
     entry.hash
   ];
