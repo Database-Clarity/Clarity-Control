@@ -3,6 +3,14 @@ import type { EditorData } from '../../stores/data';
 import type { ReviewProposal } from './rapidReview';
 import type { displayMatches } from './displayMatches';
 import type { DisplayInput } from './matchingSession';
+import {
+  prepareMatchingPlan,
+  matchingPlanSteps,
+  finishMatchingPlan,
+  matchingYield,
+} from './matchingSessionPlanning';
+import { matchingSessionFingerprint } from './matchingSessionFingerprint';
+import { compactMatch } from './compactMatches';
 import { cachedComputation, contentHash } from './workerCache';
 import precomputedUrl from './precomputed.v1.json?url';
 import compressedUrl from './precomputed.v1.json.gz?url';
@@ -18,11 +26,17 @@ let editor: EditorData;
 let source: CompendiumData;
 let proposals: Map<number, ReviewProposal>;
 let dataKey: string;
+let fingerprint: string | undefined;
 let latestGuide = 0;
 let latestDisplay = 0;
+let latestPriority = 0;
 let lastDisplay: ReturnType<typeof displayMatches> | undefined;
 let precomputedDisplay: ReturnType<typeof displayMatches> | undefined;
 let initialized = false;
+let modelToken: number | undefined;
+let priority: (NonNullable<Request['priority']> & { id: number }) | undefined;
+let priorityPlan: { key: string; plan: ReturnType<typeof prepareMatchingPlan> } | undefined;
+const priorityProposals = new Map<number, ReviewProposal>();
 type Request = {
   id?: number;
   load?: { url: string };
@@ -30,6 +44,7 @@ type Request = {
   cancelInit?: { token: number };
   initialize?: { token: number };
   input?: DisplayInput;
+  priority?: { token: number; hash: number; input: DisplayInput };
   guide?: {
     document: GuidanceDocument;
     baseline: string;
@@ -42,12 +57,79 @@ type Request = {
 const initialChunks = new Map<number, Uint8Array[]>();
 let queue = Promise.resolve();
 self.onmessage = ({ data }: MessageEvent<Request>) => {
+  if (data.priority) {
+    if (priority)
+      self.postMessage({ id: priority.id, error: 'Superseded Compendium priority request.' });
+    latestPriority = data.id ?? 0;
+    priority = { ...data.priority, id: latestPriority };
+    void servePriority();
+    return;
+  }
   if (data.guide) latestGuide = data.id ?? 0;
   if (data.input) latestDisplay = data.id ?? 0;
   // A source's worker survives editor reloads. Keep each initialized editor consistent
   // through async cache reads; a later generation never mutates an in-flight model.
   queue = queue.then(() => process(data));
 };
+async function servePriority() {
+  const request = priority;
+  if (!request || request.token !== modelToken) return;
+  priority = undefined;
+  try {
+    const [{ proposalFor }, { withCompendiumMatchingIndex }] = await Promise.all([
+      import('./rapidReview'),
+      import('@clarity/core'),
+    ]);
+    // A replacement generation may have arrived during module loading.
+    if (request.token !== modelToken) throw new Error('Compendium inputs changed.');
+    if (request.id !== latestPriority) throw new Error('Superseded Compendium priority request.');
+    const result = withCompendiumMatchingIndex(source, () => {
+      const key = `${request.hash}:${JSON.stringify(request.input)}`;
+      if (priorityPlan?.key !== key)
+        priorityPlan = {
+          key,
+          plan: prepareMatchingPlan(
+            editor,
+            source,
+            request.input,
+            new Map(),
+            undefined,
+            request.hash,
+            (fingerprint ??= matchingSessionFingerprint(source.tabs)),
+          ),
+        };
+      if (!priorityProposals.has(request.hash)) {
+        const entry = priorityPlan.plan.evidence.find((entry) => entry.hash === request.hash);
+        if (entry && !entry.valid)
+          priorityProposals.set(request.hash, proposalFor(entry.base, editor, source));
+      }
+      const steps = matchingPlanSteps(priorityPlan.plan, source, priorityProposals, request.hash);
+      let next = steps.next();
+      while (!next.done) next = steps.next();
+      return {
+        hash: request.hash,
+        fingerprint: priorityPlan.plan.fingerprint,
+        baseline: priorityPlan.plan.baseline,
+        entry: priorityPlan.plan.categories
+          .flatMap((category) => category.entries)
+          .find((entry) => entry.hash === request.hash),
+        proposal: priorityProposals.has(request.hash)
+          ? compactProposal(priorityProposals.get(request.hash)!)
+          : undefined,
+        decision: next.value.decisions.find((decision) => decision.hash === request.hash),
+        matches: new Map(
+          [...next.value.matches].map(([hash, match]) => [hash, compactMatch(match)]),
+        ),
+      };
+    });
+    sendWorkerResult(emit, request.id, result);
+  } catch (error) {
+    self.postMessage({
+      id: request.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
 async function process(data: Request) {
   try {
     if (data.initialChunk) {
@@ -64,12 +146,14 @@ async function process(data: Request) {
     const id = data.id ?? 0;
     if (data.load) {
       initialized = false;
+      modelToken = undefined;
       source = await (
         await import('../../services/compendiumSource')
       ).fetchCompendiumSource(data.load.url);
       sendWorkerResult(emit, id, source);
     } else if (data.initialize) {
       initialized = false;
+      modelToken = undefined;
       const chunks = initialChunks.get(data.initialize.token);
       initialChunks.delete(data.initialize.token);
       if (!chunks) throw new Error('Compendium inputs were superseded.');
@@ -88,6 +172,13 @@ async function process(data: Request) {
       if (!source) throw new Error('Compendium source is not loaded.');
       precomputedDisplay = undefined;
       lastDisplay = undefined;
+      priorityPlan = undefined;
+      priorityProposals.clear();
+      fingerprint = undefined;
+      modelToken = data.initialize.token;
+      // Let the current pane run before hashing, assets, caches, and the full catalog.
+      await matchingYield();
+      await servePriority();
       dataKey = await contentHash(matchingInputs(editor, source));
       const prepared = await cachedComputation<{
         proposals: Map<number, ReviewProposal>;
@@ -127,16 +218,23 @@ async function process(data: Request) {
             import('./rapidReview'),
             import('@clarity/core'),
           ]);
-        return withCompendiumMatchingIndex(source, () => ({
-          proposals: new Map(
-            reviewEvidence(editor, source, {}, '')
-              .filter((entry) => !entry.valid)
-              .map((entry) => [
-                entry.hash,
-                compactProposal(proposalFor(entry.base, editor, source)),
-              ]),
-          ),
-        }));
+        const entries = reviewEvidence(editor, source, {}, '').filter((entry) => !entry.valid);
+        const computed = new Map<number, ReviewProposal>();
+        let index = 0;
+        while (index < entries.length) {
+          withCompendiumMatchingIndex(source, () => {
+            const end = performance.now() + 8;
+            do {
+              const entry = entries[index++];
+              const proposal =
+                priorityProposals.get(entry.hash) ?? proposalFor(entry.base, editor, source);
+              priorityProposals.set(entry.hash, proposal);
+              computed.set(entry.hash, compactProposal(proposal));
+            } while (index < entries.length && performance.now() < end);
+          });
+          await matchingYield();
+        }
+        return { proposals: computed };
       });
       // Cache the two halves together. A proposals-only cache hit used to lose
       // its pristine display model and rerun all guidance on an immediate reload.
@@ -158,6 +256,7 @@ async function process(data: Request) {
           },
         ]),
       );
+      for (const [hash, proposal] of proposals) priorityProposals.set(hash, proposal);
       precomputedDisplay = prepared.display;
       sendWorkerResult(
         emit,
@@ -191,7 +290,7 @@ async function process(data: Request) {
     } else if (data.input) {
       if (!initialized) throw new Error('Compendium initialization has not completed.');
       if (id !== latestDisplay) throw new Error('Superseded Compendium display request.');
-      const { drafts, progress, local, scope } = data.input;
+      const { drafts, progress, local } = data.input;
       const pristine =
         !Object.keys(drafts).length &&
         !Object.keys(progress.decisions).length &&
@@ -202,12 +301,18 @@ async function process(data: Request) {
       const key = `${import.meta.url}:display:${dataKey}:${pristine ? 'pristine' : `${editor.bundle.sourceCommit}|${await contentHash(data.input)}`}`;
       const result = await cachedComputation(key, async () => {
         if (pristine && precomputedDisplay) return precomputedDisplay;
-        const [{ displayMatches }, { withCompendiumMatchingIndex }] = await Promise.all([
-          import('./displayMatches'),
-          import('@clarity/core'),
-        ]);
-        return withCompendiumMatchingIndex(source, () =>
-          displayMatches(editor, source, drafts, progress, local, scope, proposals),
+        return finishMatchingPlan(
+          prepareMatchingPlan(
+            editor,
+            source,
+            data.input!,
+            proposals,
+            undefined,
+            undefined,
+            (fingerprint ??= matchingSessionFingerprint(source.tabs)),
+          ),
+          source,
+          proposals,
         );
       });
       lastDisplay = result;
@@ -217,6 +322,7 @@ async function process(data: Request) {
       sendWorkerResult(emit, id, compact, compact.matches);
     }
   } catch (error) {
+    if (data.initialize || data.load) modelToken = undefined;
     self.postMessage({
       id: data.id,
       error: error instanceof Error ? error.message : String(error),

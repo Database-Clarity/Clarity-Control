@@ -9,7 +9,7 @@ export function usePaneMatch(
   drafts: Drafts,
   userId?: string | number,
 ) {
-  const result = useDisplayMatches(editor, source, drafts, userId);
+  const result = useDisplayMatches(editor, source, drafts, userId, base.hash);
   return base.compendium || drafts[base.hash]?.next.compendium
     ? undefined
     : result.matches?.get(base.hash);

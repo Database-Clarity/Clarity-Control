@@ -59,6 +59,7 @@ export function useDisplayMatches(
   source: CompendiumData | null,
   drafts: Drafts,
   userId?: string | number,
+  priorityHash?: number,
 ) {
   const evidence = draftEvidence(drafts);
   const matchingDrafts = useMemo(
@@ -89,6 +90,7 @@ export function useDisplayMatches(
     inputs: StoredInputs;
     revision: number;
     matches: Value['matches'];
+    priorityHash?: number;
   }>();
   const [result, setResult] = useState<{
     editor: EditorData;
@@ -135,20 +137,31 @@ export function useDisplayMatches(
           throw new Error('Local Compendium guidance conflicts with disk.');
         local = cached?.pending ? local : (disk.document ?? local);
       }
-      const value = await matchingSession(editor, source).display(
-        {
-          drafts: matchingDrafts,
-          progress: inputs.progress,
-          local,
-          scope,
-        },
-        (matches) => {
-          if (!cancelled)
-            startTransition(() =>
-              setEarlyMatches({ editor, source, evidence, userId, inputs, revision, matches }),
-            );
-        },
-      );
+      const session = matchingSession(editor, source);
+      const input = { drafts: matchingDrafts, progress: inputs.progress, local, scope };
+      const publish = (matches: Value['matches']) => {
+        if (!cancelled)
+          startTransition(() =>
+            setEarlyMatches({
+              editor,
+              source,
+              evidence,
+              userId,
+              inputs,
+              revision,
+              matches,
+              priorityHash,
+            }),
+          );
+      };
+      if (priorityHash !== undefined)
+        void session
+          .prioritize(input, priorityHash)
+          .then(publish)
+          .catch(() => {
+            // The full request owns errors; superseded priority requests are expected.
+          });
+      const value = await session.display(input, publish);
       remember(editor, source, { evidence, userId, inputs, value });
       if (!cancelled)
         startTransition(() =>
@@ -169,7 +182,7 @@ export function useDisplayMatches(
     return () => {
       cancelled = true;
     };
-  }, [editor, source, matchingDrafts, evidence, userId, revision, inputs, scope]);
+  }, [editor, source, matchingDrafts, evidence, userId, revision, inputs, scope, priorityHash]);
   const current =
     result?.editor === editor &&
     result?.source === source &&
@@ -192,22 +205,23 @@ export function useDisplayMatches(
       : remembered?.userId === userId
         ? remembered?.value
         : undefined);
+  const partial =
+    !current?.error &&
+    earlyMatches?.editor === editor &&
+    earlyMatches.source === source &&
+    earlyMatches.evidence === evidence &&
+    earlyMatches.userId === userId &&
+    earlyMatches.inputs.key === inputs.key &&
+    earlyMatches.revision === revision &&
+    earlyMatches.priorityHash === priorityHash
+      ? earlyMatches.matches
+      : undefined;
   return {
     prepared: value,
     reviewPrepared,
-    matches:
-      value?.matches ??
-      (!current?.error &&
-      earlyMatches?.editor === editor &&
-      earlyMatches.source === source &&
-      earlyMatches.evidence === evidence &&
-      earlyMatches.userId === userId &&
-      earlyMatches.inputs.key === inputs.key &&
-      earlyMatches.revision === revision
-        ? earlyMatches.matches
-        : undefined),
+    matches: value?.matches ?? partial,
     decisions: value?.decisions,
-    loading: !!editor && !!source && !current && !value,
+    loading: !!editor && !!source && !current && !value && (priorityHash === undefined || !partial),
     error: current?.error,
   };
 }

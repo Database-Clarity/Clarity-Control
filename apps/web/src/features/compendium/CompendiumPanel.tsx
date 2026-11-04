@@ -75,6 +75,7 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
     source,
     drafts,
     userId,
+    displayed.hash,
   );
   return (
     <PaneContents
@@ -182,7 +183,15 @@ const PaneContents = memo(function PaneContents({
         </RightPaneHeader>
       }
     >
-      <div className={styles.zoom} style={{ zoom: scale / 100 }} data-scale={scale}>
+      <div
+        className={styles.zoom}
+        style={{ zoom: scale / 100 }}
+        data-scale={scale}
+        data-match-hash={base.hash}
+        data-match-state={
+          matchError ? 'error' : !link && matching && !matched ? 'loading' : 'ready'
+        }
+      >
         {picking && canEdit && (
           <div className={styles.picker}>
             <LinkPicker
@@ -202,23 +211,34 @@ const PaneContents = memo(function PaneContents({
             </button>
           </p>
         )}
-        {!link && matching && <p role="status">Matching Compendium…</p>}
+        {!link && (
+          <p
+            role={matching && !matched ? 'status' : undefined}
+            className={styles.meta}
+            style={{ minHeight: '1lh' }}
+          >
+            {matched ? (
+              <>
+                <span
+                  className={styles.matched}
+                  title="Matched automatically — not saved"
+                  tabIndex={0}
+                >
+                  Matched
+                </span>{' '}
+                {matched.tab.name} / {matched.row.name}
+              </>
+            ) : matching ? (
+              'Matching Compendium…'
+            ) : null}
+          </p>
+        )}
         {!link && matchError && <p role="alert">{matchError}</p>}
         {!link && !matched && !matching && !loading && !matchError && (
           <p>No Compendium row linked yet.</p>
         )}
         {!link && matched && (
           <>
-            <p className={styles.meta}>
-              <span
-                className={styles.matched}
-                title="Matched automatically — not saved"
-                tabIndex={0}
-              >
-                Matched
-              </span>{' '}
-              {matched.tab.name} / {matched.row.name}
-            </p>
             <p>
               No saved snapshot to compare.{' '}
               <a

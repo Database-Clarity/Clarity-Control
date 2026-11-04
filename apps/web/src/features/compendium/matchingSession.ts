@@ -8,6 +8,7 @@ import type { displayMatches } from './displayMatches';
 import type { ReviewCategory } from './reviewCategories';
 import type { GuidedCategory } from './guidedDecisions';
 import { createWorkerBridge, sourceWorkerFor } from './workerBridge';
+import type { PriorityReview } from './matchingSessionPlanning';
 import { streamInputs } from './streamInputs';
 type Display = ReturnType<typeof displayMatches>;
 export interface DisplayInput {
@@ -66,8 +67,31 @@ function createSession(
         listeners: Set<(matches: Matches) => void>;
       }
     | undefined;
+  let priorityKey: string | undefined;
+  const priorities = new Map<number, Promise<PriorityReview>>();
   return {
     proposals,
+    prioritize(input: DisplayInput, hash: number) {
+      return this.prioritizeReview(input, hash).then((review) => review.matches);
+    },
+    prioritizeReview(input: DisplayInput, hash: number) {
+      const key = displayInputKey(input);
+      if (key !== priorityKey) {
+        priorities.clear();
+        priorityKey = key;
+      }
+      const existing = priorities.get(hash);
+      if (existing) return existing;
+      const result = initialized.then(() =>
+        request<PriorityReview>({ priority: { token, input, hash } }),
+      );
+      priorities.set(hash, result);
+      void result.catch(() => {
+        if (priorities.get(hash) === result) priorities.delete(hash);
+      });
+      if (priorities.size > 64) priorities.delete(priorities.keys().next().value!);
+      return result;
+    },
     get currentProposals() {
       return currentProposals;
     },
