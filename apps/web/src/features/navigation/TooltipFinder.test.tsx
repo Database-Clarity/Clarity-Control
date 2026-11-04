@@ -153,6 +153,20 @@ describe('tooltip finder combobox', () => {
         );
       });
       await press('End');
+      await act(async () => {
+        resize!(
+          [
+            {
+              target: list,
+              contentRect: new DOMRectReadOnly(0, 0, 100, 28),
+              borderBoxSize: [],
+              contentBoxSize: [],
+              devicePixelContentBoxSize: [],
+            },
+          ],
+          {} as ResizeObserver,
+        );
+      });
       expect(list.scrollTop).toBe(56);
       expect(field().getAttribute('aria-activedescendant')).toBe(options().at(-1)!.id);
     } finally {
@@ -220,7 +234,7 @@ describe('tooltip finder combobox', () => {
     expect(route()).toBe('/t/1799');
   });
   it.each(['pointerup', 'pointercancel'])(
-    'covers a whole-category thumb jump until %s restores the landed window',
+    'fills the thumb destination before paint and keeps it through %s',
     async (release) => {
       const many = {
         ...data,
@@ -234,31 +248,31 @@ describe('tooltip finder combobox', () => {
       await mount('/t/1000', many);
       await open();
       const list = host.querySelector<HTMLElement>('[role="listbox"]')!;
-      expect(list.hasAttribute('data-eager-rows')).toBe(true);
+      expect(list.hasAttribute('data-windowed')).toBe(true);
       Object.defineProperties(list, {
         clientWidth: { value: 200 },
         clientHeight: { value: 416 },
       });
-      const lastRow = options().find((row) => row.textContent?.includes('Armor 399'));
-      expect(lastRow).toBeDefined();
       const down = new MouseEvent('pointerdown', { button: 0, bubbles: true });
       Object.defineProperty(down, 'offsetX', { value: 207 });
       await act(async () => void list.dispatchEvent(down));
-      expect(options()).toHaveLength(400);
-      // A thumb may traverse all overscan in one packet; its destination is
-      // already mounted before the asynchronous scroll notification arrives.
+      expect(options().length).toBeLessThan(160);
+      // One native scroll notification fills the jumped-to viewport synchronously.
       list.scrollTop = 9800;
       await act(async () => void list.dispatchEvent(new Event('scroll')));
-      expect(options()).toHaveLength(400);
+      expect(options().length).toBeLessThan(160);
+      expect(options().some((row) => row.textContent?.includes('Armor 350'))).toBe(true);
+      const lastRow = options().find((row) => row.textContent?.includes('Armor 399'));
+      expect(lastRow).toBeDefined();
       await act(async () => void window.dispatchEvent(new Event(release)));
-      expect(options()).toHaveLength(400);
+      expect(options().length).toBeLessThan(160);
       expect(options().find((row) => row.textContent?.includes('Armor 399'))).toBe(lastRow);
       expect(list.hasAttribute('data-scrollbar-drag')).toBe(false);
-      expect(list.hasAttribute('data-eager-rows')).toBe(true);
+      expect(list.hasAttribute('data-windowed')).toBe(true);
       expect(route()).toBe('/t/1000');
       await press('Escape');
       await open();
-      expect(host.querySelector('[role="listbox"]')!.hasAttribute('data-eager-rows')).toBe(true);
+      expect(host.querySelector('[role="listbox"]')!.hasAttribute('data-windowed')).toBe(true);
     },
   );
   it('fills a large thumb destination without expanding the whole category', async () => {
@@ -282,7 +296,10 @@ describe('tooltip finder combobox', () => {
     list.scrollTop = 19600;
     await act(async () => void list.dispatchEvent(new Event('scroll')));
     expect(options().some((row) => row.textContent?.includes('Armor 700'))).toBe(true);
-    expect(options().length).toBeLessThan(100);
+    for (let index = 700; index < 715; index++) {
+      expect(options().some((row) => row.textContent?.includes(`Armor ${index}`))).toBe(true);
+    }
+    expect(options().length).toBeLessThan(160);
     expect(list.querySelector<HTMLElement>('[role="presentation"]')!.style.height).toBe('22400px');
     await act(async () => void window.dispatchEvent(new Event('pointerup')));
     expect(options().length).toBeLessThan(220);

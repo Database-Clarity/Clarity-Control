@@ -135,12 +135,11 @@
   contain-intrinsic-size: auto 28px;
 
   .listbox[data-windowed] & {
-    // Generous overscan keeps fast compositor scrolling covered while React batches
-    // window changes. Only rows actually on screen lay out and paint their contents.
+    // Every mounted row is laid out immediately, including overscan and jumps.
     height: var(--finder-row-height);
-    content-visibility: auto;
+    content-visibility: visible;
     contain-intrinsic-size: auto var(--finder-row-height);
-    contain: layout style paint;
+    contain: size layout style paint;
   }
 
   .listbox[data-eager-rows] & {

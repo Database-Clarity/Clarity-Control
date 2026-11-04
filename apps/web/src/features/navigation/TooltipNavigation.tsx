@@ -65,9 +65,9 @@ interface Row {
 
 const noItems: never[] = [];
 const noDrafts: ReturnType<typeof useDraftStore.getState>['drafts'] = {};
-// Bounded lists keep a stable DOM: expanding/collapsing their row set during
-// native thumb dragging costs more than retaining these cheap contained rows.
-const retainedRowLimit = 512;
+// Small lists remain eager; longer lists keep a symmetric, fully laid-out
+// window. Its contents never rely on deferred content-visibility painting.
+const retainedRowLimit = 96;
 
 function FinderDraftIndicator({ hash, data }: { hash: number; data: EditorData }) {
   const dirty = useDraftStore((state) =>
@@ -232,6 +232,8 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   current.current = { pathname: location.pathname, search: location.search };
   const field = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLUListElement>(null);
+  const listObserver = useRef<ResizeObserver | null>(null);
+  const revealedActive = useRef<number | null>(null);
   const listLayout = useRef<{ element: HTMLUListElement; top: number; height: number } | null>(
     null,
   );
@@ -334,10 +336,16 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       layout.element.scrollTop = next;
       layout.top = next;
     }
+    revealedActive.current = active;
+    if (rows.length > retainedRowLimit) {
+      const bucket = Math.floor(layout.top / (rowHeight * 8)) * rowHeight * 8;
+      setViewport({ top: bucket, height: layout.height });
+    }
   };
   useLayoutEffect(() => {
     const element = list.current;
     listLayout.current = null;
+    revealedActive.current = null;
     if (!open || !element) return;
     let height = 416;
     let lastTop = -1;
@@ -356,22 +364,20 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       // here (or on mount) flushes the newly opened finder before it can paint.
       height = entry.contentRect.height;
       listLayout.current = { element, top: element.scrollTop, height };
-      if (rows.length <= retainedRowLimit) {
-        // The browser has laid out the eager rows. Land the highlight before
-        // paint without forcing their layout inside the React mount commit.
-        revealActive.current();
-        return;
-      }
-      lastTop = Math.floor(element.scrollTop / (rowHeight * 8)) * rowHeight * 8;
-      setViewport({ top: lastTop, height });
+      // Land on already-laid-out rows before paint. Initial windowing is based
+      // on the selected row, so this does not mount a distant second window.
+      revealActive.current();
+      lastTop = Math.floor(listLayout.current.top / (rowHeight * 8)) * rowHeight * 8;
     };
     const observer =
       typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure);
+    listObserver.current = observer ?? null;
     observer?.observe(element);
     if (!observer) listLayout.current = { element, top: 0, height };
     element.addEventListener('scroll', scroll, { passive: true });
     return () => {
       observer?.disconnect();
+      listObserver.current = null;
       element.removeEventListener('scroll', scroll);
       if (listLayout.current?.element === element) listLayout.current = null;
     };
@@ -436,21 +442,14 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     if (!open || pointerHighlight.current) return;
     const element = list.current;
     if (!element || !rows[active]) return;
-    if (rows.length <= retainedRowLimit) {
-      revealActive.current();
-      return;
-    }
-    const top = active * rowHeight;
-    const bottom = top + rowHeight;
-    const scrollTop = element.scrollTop;
-    const next = top < scrollTop ? top : Math.max(scrollTop, bottom - viewport.height);
-    if (next === scrollTop) return;
-    element.scrollTop = next;
-    // Home/End can jump beyond the entire overscan. Fill the landed window in
-    // this pre-paint commit rather than waiting for a subsequent scroll event.
-    const bucket = Math.floor(element.scrollTop / (rowHeight * 8)) * rowHeight * 8;
-    setViewport((previous) => (previous.top === bucket ? previous : { ...previous, top: bucket }));
-  }, [open, active, rows, rowHeight, viewport.height, setViewport]);
+    // Let layout finish for the prefilled destination before changing scrollTop.
+    // Re-observing schedules a fresh delivery even when the box size is unchanged.
+    const observer = listObserver.current;
+    if (observer) {
+      observer.disconnect();
+      observer.observe(element);
+    } else revealActive.current();
+  }, [open, active, rows, rowHeight]);
 
   useLayoutEffect(() => {
     // A finder list owns wheel interaction while open. Remove the global
@@ -613,11 +612,26 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   if (!open) options = null;
   else if (rows.length <= retainedRowLimit) options = rows.map(option);
   else {
-    const overscan = draggingScrollbar ? 32 : 96;
-    const start = Math.max(0, Math.floor(viewport.top / rowHeight) - overscan);
+    const overscan = 64;
+    const initialIndex = query.trim()
+      ? 0
+      : Math.max(
+          0,
+          rows.findIndex((row) => row.hash === hash),
+        );
+    const targetIndex = listLayout.current ? active : initialIndex;
+    const targetTop = targetIndex * rowHeight;
+    const baseTop = listLayout.current ? viewport.top : 0;
+    const renderTop =
+      !pointerHighlight.current && revealedActive.current !== active
+        ? targetTop < baseTop
+          ? targetTop
+          : Math.max(baseTop, targetTop + rowHeight - viewport.height)
+        : viewport.top;
+    const start = Math.max(0, Math.floor(renderTop / rowHeight) - overscan);
     const end = Math.min(
       rows.length,
-      Math.ceil((viewport.top + viewport.height) / rowHeight) + overscan,
+      Math.ceil((renderTop + viewport.height) / rowHeight) + overscan,
     );
     // Absolute rows preserve the full scroll surface independent of the window.
     // The viewport's external snapshot commits scroll changes before paint.
