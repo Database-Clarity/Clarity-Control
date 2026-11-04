@@ -77,13 +77,15 @@ const cases: { name: string; before: CompendiumCell; after: CompendiumCell }[] =
 ];
 
 // Baseline digests were captured BEFORE consolidating inline wrappers. This signature
-// ignores neutral wrappers/React IDs, but retains every styled text leaf, inherited
-// whitespace/alignment, link, added/removed context, control, and style-popover state.
+// ignores neutral wrappers/React IDs and CSS-hidden formatting, but retains visible
+// styles, whitespace/alignment, links, diff context, controls, and full tooltip text.
 function signature(host: HTMLElement) {
   const leaves: { text: string; style: string; context: string }[] = [];
   const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT);
   let node: Node | null;
   while ((node = walker.nextNode())) {
+    const tooltip = node.parentElement?.closest('[role=tooltip]');
+    if (tooltip && tooltip.parentElement?.getAttribute('data-open') !== 'true') continue;
     const ancestors: HTMLElement[] = [];
     for (let p = node.parentElement; p && p !== host; p = p.parentElement) ancestors.unshift(p);
     const style: Record<string, string> = { whiteSpace: 'normal' };
@@ -131,8 +133,16 @@ function signature(host: HTMLElement) {
       !!document.getElementById(el.getAttribute('aria-describedby')!),
   }));
   return {
-    digest: createHash('sha256').update(JSON.stringify({ leaves, controls })).digest('hex'),
-    text: host.textContent,
+    digest: createHash('sha256')
+      .update(
+        JSON.stringify({
+          leaves,
+          controls,
+          tooltips: [...host.querySelectorAll('[role=tooltip]')].map((el) => el.textContent),
+        }),
+      )
+      .digest('hex'),
+    text: JSON.stringify(host.textContent),
     controls: controls.length,
     popovers: host.querySelectorAll('[role=tooltip]').length,
   };
@@ -149,12 +159,16 @@ it.each(cases)(
       roots.push(root);
       await act(async () => root.render(createElement(CompendiumDiff, { before, after, mode })));
       outputs.push({ mode, closed: signature(host) });
-      const toggle = host.querySelector<HTMLButtonElement>('button[aria-expanded]');
-      if (toggle) {
+      const toggles = [...host.querySelectorAll<HTMLButtonElement>('button[aria-expanded]')];
+      const opened: string[] = [];
+      for (const toggle of toggles) {
         await act(async () => toggle.click());
         expect(toggle.getAttribute('aria-expanded')).toBe('true');
-        outputs.push({ mode, open: signature(host) });
+        opened.push(signature(host).digest);
+        await act(async () => toggle.click());
+        expect(toggle.getAttribute('aria-expanded')).toBe('false');
       }
+      if (opened.length) outputs.push({ mode, opened });
     }
     expect(outputs).toMatchSnapshot(name);
   },

@@ -147,24 +147,32 @@ function StyleChange({ before, after }: { before: CompendiumCell; after: Compend
         style={{ insetInlineStart: offset }}
       >
         <span>{description}</span>
-        <span className={styles.swatches}>
-          {[before, after].map((cell, index) => (
-            <span key={index}>
-              {index ? 'Current' : 'Snapshot'}{' '}
-              {[...new Set(cell.runs.map((run) => run.color).filter(Boolean))].map((color) => (
-                <span
-                  key={color}
-                  className={styles.swatch}
-                  style={{ backgroundColor: color }}
-                  title={color}
-                />
+        {visible ? (
+          <>
+            <span className={styles.swatches}>
+              {[before, after].map((cell, index) => (
+                <span key={index}>
+                  {index ? 'Current' : 'Snapshot'}{' '}
+                  {[...new Set(cell.runs.map((run) => run.color).filter(Boolean))].map((color) => (
+                    <span
+                      key={color}
+                      className={styles.swatch}
+                      style={{ backgroundColor: color }}
+                      title={color}
+                    />
+                  ))}
+                </span>
               ))}
             </span>
-          ))}
-        </span>
-        <span>
-          Snapshot: <RichCell cell={before} />
-        </span>
+            <span>
+              Snapshot: <RichCell cell={before} />
+            </span>
+          </>
+        ) : (
+          // Retain the full accessible description while CSS hides the popup.
+          // Its formatting and swatches are built synchronously on any open path.
+          `Snapshot Current Snapshot: ${before.plain}`
+        )}
       </span>
     </span>
   );
