@@ -8,6 +8,9 @@ import { LazyLostTextPage as LostTextPage } from './features/lost-text/LazyLostT
 import { SettingsRedirect } from './features/settings/SettingsRedirect';
 import { PlaceholderPage } from './ui/PlaceholderPage';
 import { useAuthStore } from './stores/auth';
+import { useEffect } from 'react';
+import { visibleLinks } from './features/navigation/links';
+import { preloadWorkspaces } from './workspacePreload';
 
 import { AppLazyPage } from './AppLazyPage';
 const loadTooltipPage = () =>
@@ -30,6 +33,31 @@ const ReviewPage = () => <AppLazyPage load={loadReviewPage} />;
 const loadAdminPage = () =>
   import('./features/admin/AdminPage').then((module) => ({ default: module.AdminPage }));
 const AdminPage = () => <AppLazyPage load={loadAdminPage} />;
+const workspaceLoaders: Record<string, () => Promise<unknown>> = {
+  '/': loadTooltipPage,
+  '/review': loadReviewPage,
+  '/compendium': () => import('./features/compendium/MatchReviewPage'),
+  '/translations': loadTranslationsPage,
+  '/drift': loadDriftPage,
+  '/lost-text': () => import('./features/lost-text/LostTextPage'),
+  '/archive': loadArchivePage,
+  '/admin': loadAdminPage,
+};
+
+function WorkspaceRouteLayer() {
+  const role = useAuthStore((state) => state.user?.role);
+  const loading = useAuthStore((state) => state.loading);
+  const ready = useDataStore((state) => state.status === 'ready');
+  useEffect(() => {
+    if (!ready || loading) return;
+    return preloadWorkspaces(
+      visibleLinks(role ? { role } : null)
+        .map(({ to }) => workspaceLoaders[to])
+        .filter((load) => load !== undefined),
+    );
+  }, [role, ready, loading]);
+  return <Layout />;
+}
 const loadGlobalDetailPage = () =>
   import('./features/globals/GlobalsPage').then((module) => ({ default: module.GlobalDetailPage }));
 const GlobalDetailPage = () => <AppLazyPage load={loadGlobalDetailPage} />;
@@ -45,7 +73,7 @@ const GlobalsPage = () => <AppLazyPage load={loadGlobalsPage} />;
 export const routes: RouteObject[] = [
   { path: 'auth/callback', element: <AuthCallback /> },
   {
-    element: <Layout />,
+    element: <WorkspaceRouteLayer />,
     children: [
       { index: true, element: <StartPage /> },
       { path: 't/:hash', element: <TooltipPage />, handle: { preload: loadTooltipPage } },
