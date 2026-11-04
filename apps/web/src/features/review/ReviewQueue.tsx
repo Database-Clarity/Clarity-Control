@@ -1,10 +1,33 @@
-import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { memo, useEffect, useRef, useState } from 'react';
+import { useHref, useLinkClickHandler } from 'react-router-dom';
 import type { SidebarPendingChange } from '../navigation/sidebarQueue';
 import styles from './ReviewQueue.module.scss';
 
 const rowHeight = 64;
 const overscan = 6;
+const QueueLink = memo(function QueueLink({
+  change,
+  href,
+  current,
+}: {
+  change: SidebarPendingChange;
+  href: string;
+  current: boolean;
+}) {
+  const to = `/review?hash=${change.hash}`;
+  const onClick = useLinkClickHandler(to);
+  return (
+    <a
+      href={`${href}?hash=${change.hash}`}
+      onClick={onClick}
+      title={`${change.name} · ${change.hash}`}
+      aria-current={current ? 'page' : undefined}
+    >
+      <span>{change.name}</span>
+      <small>{change.hash}</small>
+    </a>
+  );
+});
 
 /** Fixed-height, bounded DOM; URL selection also reveals rows outside the current window. */
 export function ReviewQueue({
@@ -15,6 +38,8 @@ export function ReviewQueue({
   selectedHash: string | null;
 }) {
   const host = useRef<HTMLDivElement>(null);
+  // Resolve the router/base href once per window, rather than querying <base> per row.
+  const href = useHref('/review');
   const [focusIndex, setFocusIndex] = useState<number>();
   const [viewport, setViewport] = useState({ top: 0, height: 800 });
   useEffect(() => {
@@ -50,12 +75,24 @@ export function ReviewQueue({
     changes.length,
     start + Math.ceil(viewport.height / rowHeight) + overscan * 2,
   );
+  const indices = Array.from({ length: end - start }, (_, offset) => start + offset);
+  // A wheel scroll must not unmount the focused anchor and silently move focus to <body>.
+  if (focusIndex !== undefined && focusIndex < changes.length && !indices.includes(focusIndex))
+    indices.push(focusIndex);
   return (
     <div
       ref={host}
       className={styles.viewport}
       tabIndex={0}
       aria-label="Scroll pending saved changes"
+      onFocusCapture={(event) => {
+        const row = (event.target as Element).closest<HTMLElement>('[data-index]');
+        if (row) setFocusIndex(Number(row.dataset.index));
+      }}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+          setFocusIndex(undefined);
+      }}
       onKeyDown={(event) => {
         const row = (event.target as Element).closest<HTMLElement>('[data-index]');
         if (!row || event.altKey || event.ctrlKey || event.metaKey) return;
@@ -84,24 +121,24 @@ export function ReviewQueue({
       }}
     >
       <ul className={styles.list} style={{ height: changes.length * rowHeight }}>
-        {changes.slice(start, end).map((change, offset) => (
-          <li
-            key={change.hash}
-            aria-posinset={start + offset + 1}
-            aria-setsize={changes.length}
-            data-index={start + offset}
-            style={{ top: (start + offset) * rowHeight, height: rowHeight }}
-          >
-            <Link
-              to={`/review?hash=${change.hash}`}
-              title={`${change.name} · ${change.hash}`}
-              aria-current={selectedHash === String(change.hash) ? 'page' : undefined}
+        {indices.map((index) => {
+          const change = changes[index]!;
+          return (
+            <li
+              key={change.hash}
+              aria-posinset={index + 1}
+              aria-setsize={changes.length}
+              data-index={index}
+              style={{ top: index * rowHeight, height: rowHeight }}
             >
-              <span>{change.name}</span>
-              <small>{change.hash}</small>
-            </Link>
-          </li>
-        ))}
+              <QueueLink
+                change={change}
+                href={href}
+                current={selectedHash === String(change.hash)}
+              />
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

@@ -26,12 +26,20 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
     expect(host.querySelectorAll('li').length).toBeLessThan(30);
     const selected = host.querySelector<HTMLAnchorElement>('[aria-current="page"]')!;
     expect(selected.getAttribute('href')).toBe('/review?hash=1800');
-    selected.focus();
+    await act(async () => selected.focus());
     await act(async () =>
       selected.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })),
     );
     expect(document.activeElement?.getAttribute('href')).toBe('/review?hash=2499');
     expect(host.querySelectorAll('li').length).toBeLessThan(30);
+    await act(async () => {
+      const scroller = host.querySelector<HTMLElement>(
+        '[aria-label="Scroll pending saved changes"]',
+      )!;
+      scroller.scrollTop = 0;
+      scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
+    });
+    expect(document.activeElement?.getAttribute('href')).toBe('/review?hash=2499');
     await act(async () =>
       document.activeElement?.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Home', bubbles: true }),

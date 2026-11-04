@@ -21,9 +21,8 @@ let aliasIds = new WeakMap<Aliases, number>();
 let nextAliasId = 0;
 const requests = new Map<number, { resolve(hashes: string[]): void; reject(error: Error): void }>();
 
-function batch(tooltips: Tooltip[], aliases: Aliases): Promise<string[]> {
-  if (typeof Worker === 'undefined')
-    return Promise.all(tooltips.map((t) => publishableHash(t, aliases)));
+export function prepareFingerprintWorker(): void {
+  if (typeof Worker === 'undefined') return;
   if (!worker) {
     worker = new Worker(new URL('./fingerprints.worker.ts', import.meta.url), { type: 'module' });
     worker.onmessage = ({ data }: MessageEvent<FingerprintResponse>) => {
@@ -40,6 +39,12 @@ function batch(tooltips: Tooltip[], aliases: Aliases): Promise<string[]> {
       aliasIds = new WeakMap();
     };
   }
+}
+
+function batch(tooltips: Tooltip[], aliases: Aliases): Promise<string[]> {
+  if (typeof Worker === 'undefined')
+    return Promise.all(tooltips.map((t) => publishableHash(t, aliases)));
+  prepareFingerprintWorker();
   const id = ++nextId;
   let aliasId = aliasIds.get(aliases);
   const initialize = aliasId === undefined;
