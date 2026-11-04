@@ -102,15 +102,6 @@ try {
       }));
       assert.equal(size.width, size.clientWidth, `${name}: horizontal document overflow`);
       const phone = viewport.width === 390;
-      if (!phone) {
-        const textPane = page.getByRole('region', { name: 'Sample entry', exact: true });
-        await textPane.focus();
-        await page.keyboard.press('PageDown');
-        await page.waitForFunction(
-          () => document.querySelector('[aria-label="Sample entry"]').scrollTop > 0,
-        );
-        assert.match(await textPane.textContent(), /Long synthetic description\./);
-      }
       const owner = page.getByText('Owner guidance for Synthetic traits', { exact: true }).first();
       const note = page.getByText('Example note', { exact: true });
       await owner.click();

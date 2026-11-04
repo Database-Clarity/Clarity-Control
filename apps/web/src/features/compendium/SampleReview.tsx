@@ -76,7 +76,7 @@ export function SampleReview({
   return (
     <section className={styles.sample} aria-label={`Resolve sample ${entry.name}`} tabIndex={0}>
       <div className={styles.comparison}>
-        <section aria-label="Sample entry" tabIndex={0}>
+        <section aria-label="Sample entry">
           <h3>
             {entry.name} <small>{entry.hash}</small>
           </h3>
@@ -86,7 +86,7 @@ export function SampleReview({
           )}
           {items.length > 1 && <small>{items.length} manifest items share this description.</small>}
         </section>
-        <section aria-label="Sample proposed source" tabIndex={0}>
+        <section aria-label="Sample proposed source">
           <h3>{proposal?.link ? 'Proposed source' : 'Manual candidate'}</h3>
           {match ? (
             <>
