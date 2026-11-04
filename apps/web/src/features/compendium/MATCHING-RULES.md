@@ -840,3 +840,6 @@ separate idle jobs, without using a selected route or predicted navigation seque
 Closed source-picker content retains its selections but stops reconciling entry changes;
 hidden visited sheets are memoized. Linked/unlinked lists render 100 entries at a time with
 an explicit continuation, rather than laying out thousands of invisible rows on first opening.
+The worker retains complete grids for matching and validation. Proposal/display replies carry
+compact tab metadata because the UI already owns the grid; confirmation still resolves every
+selected cell against that original source before creating a draft.

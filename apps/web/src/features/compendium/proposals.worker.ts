@@ -7,6 +7,7 @@ import { cachedComputation, contentHash } from './workerCache';
 import precomputedUrl from './precomputed.v1.json?url';
 import compressedUrl from './precomputed.v1.json.gz?url';
 import { compressedJson } from './compressedJson';
+import { compactMatch, compactProposal } from './compactMatches';
 import { decodePrecomputed } from './precomputedCodec';
 import type { GuidanceDocument } from './guidanceSchema';
 import { matchingInputs } from './matchingInputs';
@@ -86,7 +87,11 @@ self.onmessage = async ({
             .map((entry) => [entry.hash, proposalFor(entry.base, editor, source)]),
         );
       });
-      sendWorkerResult(emit, data.id, proposals);
+      sendWorkerResult(
+        emit,
+        data.id,
+        new Map([...proposals].map(([hash, proposal]) => [hash, compactProposal(proposal)])),
+      );
     } else if (data.guide) {
       latestGuide = data.id;
       // Coalesce queued navigation/search requests before any expensive planning work.
@@ -134,7 +139,10 @@ self.onmessage = async ({
             ),
       );
       lastDisplay = result;
-      sendWorkerResult(emit, data.id, result);
+      sendWorkerResult(emit, data.id, {
+        ...result,
+        matches: new Map([...result.matches].map(([hash, match]) => [hash, compactMatch(match)])),
+      });
     }
   } catch (error) {
     self.postMessage({

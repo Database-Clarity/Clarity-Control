@@ -39,18 +39,28 @@ export function SampleReview({
     const node = actions.current;
     const region = node?.closest<HTMLElement>('[aria-label="Category guidance"]');
     if (!node || !region) return;
-    const update = () =>
-      region.style.setProperty(
-        '--sample-action-height',
-        `${node.getBoundingClientRect().height}px`,
-      );
-    update();
-    window.addEventListener('resize', update);
-    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(update);
-    observer?.observe(node);
+    const apply = (height: number) => {
+      const value = `${height}px`;
+      if (region.style.getPropertyValue('--sample-action-height') !== value)
+        region.style.setProperty('--sample-action-height', value);
+    };
+    const measure = () => apply(node.getBoundingClientRect().height);
+    if (typeof ResizeObserver === 'undefined') {
+      measure();
+      window.addEventListener('resize', measure);
+      return () => {
+        window.removeEventListener('resize', measure);
+        region.style.removeProperty('--sample-action-height');
+      };
+    }
+    const observer = new ResizeObserver((entries) => {
+      const height = entries?.[0]?.borderBoxSize?.[0]?.blockSize;
+      if (height === undefined) measure();
+      else apply(height);
+    });
+    observer.observe(node, { box: 'border-box' });
     return () => {
-      window.removeEventListener('resize', update);
-      observer?.disconnect();
+      observer.disconnect();
       region.style.removeProperty('--sample-action-height');
     };
   }, []);
