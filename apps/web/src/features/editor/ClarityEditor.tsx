@@ -31,6 +31,7 @@ import { rememberSearch, restoreSearch } from './searchMemory';
 import { rawMode, setSymbolReveal, symbolExtensions, toggleRawView } from './symbols';
 import { hasImportDependencies, validationDiagnostics } from './diagnostics';
 import { useEditorDiagnostics } from './useEditorDiagnostics';
+import { createCursorPosition } from './cursorPosition';
 import { MarkupRow } from './markupRow/MarkupRow';
 import { SuggestChip } from './markupRow/SuggestChip';
 import { chipHost, chipsExtension, type Chip } from './markupRow/chips';
@@ -39,7 +40,7 @@ import {
   ConflictPanel,
   GlyphPanel,
   HelpPanel,
-  StatusBar,
+  CursorStatusBar,
   type PreviewStatus,
   type StatusPanel,
 } from './StatusBar';
@@ -175,7 +176,7 @@ export function ClarityEditor({
     acceptKey: () => acceptKeyRef.current,
     onChange: (next: Chip | null) => setChip(next),
   });
-  const [cursor, setCursor] = useState({ line: 1, column: 1 });
+  const [cursor] = useState(createCursorPosition);
   const referenceLive = useRef({ tooltipHash, referenceSources, onOpenTooltip });
   const references = useRef<Omit<ReferenceHost, 'lang' | 'globals'>>({
     sources: () => referenceLive.current.referenceSources,
@@ -356,11 +357,7 @@ export function ClarityEditor({
         if (update.docChanged || update.selectionSet) {
           const head = update.state.selection.main.head;
           const line = update.state.doc.lineAt(head);
-          setCursor((previous) =>
-            previous.line === line.number && previous.column === head - line.from + 1
-              ? previous
-              : { line: line.number, column: head - line.from + 1 },
-          );
+          cursor.set(line.number, head - line.from + 1);
         }
       }),
     ];
@@ -383,7 +380,7 @@ export function ClarityEditor({
     };
     // Find and replace carries over from the previous tooltip (or page) in this tab.
     if (remembersFind.current) restoreSearch(editor);
-  }, [suspended]);
+  }, [cursor, suspended]);
   useEffect(
     () => () => {
       view.current?.destroy();
@@ -424,9 +421,7 @@ export function ClarityEditor({
       setChip(null);
       setCompare(null);
       setConflictIndex(0);
-      setCursor((previous) =>
-        previous.line === 1 && previous.column === 1 ? previous : { line: 1, column: 1 },
-      );
+      cursor.set(1, 1);
       rawRef.current = false;
       setRawView(false);
     }
@@ -450,7 +445,7 @@ export function ClarityEditor({
     editor.setState(EditorState.create({ doc: value, extensions: nextExtensions }));
     // The rebuilt state starts with find closed: bring back what was open.
     if (remembersFind.current) restoreSearch(editor);
-  }, [value, lang, globals, readOnly, requireEnglish, tooltipHash, suspended]);
+  }, [value, lang, globals, readOnly, requireEnglish, tooltipHash, suspended, cursor]);
 
   useLayoutEffect(() => {
     const editor = view.current;
@@ -583,13 +578,12 @@ export function ClarityEditor({
       {chip && view.current && !suggestion && (
         <SuggestChip chip={chip} view={view.current} acceptKey={acceptKey} />
       )}
-      <StatusBar
+      <CursorStatusBar
         validating={diagnostics.pending}
         readOnlyReason={readOnlyReason}
         issues={issues}
         glyphCount={glyphCount}
-        line={cursor.line}
-        column={cursor.column}
+        cursor={cursor}
         preview={preview}
         conflicts={
           conflictCount > 0

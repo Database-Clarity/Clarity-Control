@@ -1,8 +1,24 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import {
+  memo,
+  useEffect,
+  useRef,
+  useSyncExternalStore,
+  type ComponentProps,
+  type ReactNode,
+} from 'react';
 import { canReplaceGlyph, type GlyphWarning, type ValidationIssue } from '@clarity/core';
 import styles from './StatusBar.module.scss';
+import type { CursorPositionStore } from './cursorPosition';
 
 export type StatusPanel = 'help' | 'glyphs' | 'conflicts';
+
+export const CursorStatusBar = memo(function CursorStatusBar({
+  cursor,
+  ...props
+}: Omit<ComponentProps<typeof StatusBar>, 'line' | 'column'> & { cursor: CursorPositionStore }) {
+  const position = useSyncExternalStore(cursor.subscribe, cursor.getSnapshot, cursor.getSnapshot);
+  return <StatusBar {...props} line={position.line} column={position.column} />;
+});
 
 /** Unresolved conflict blocks in the text: the bar counts them and jumps to the next. */
 export interface ConflictStatus {
