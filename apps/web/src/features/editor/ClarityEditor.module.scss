@@ -44,7 +44,9 @@
     // The scroller already clips its contents. Isolate its layout and paint from
     // live preview updates; CodeMirror tooltips live outside this scroller.
     contain: layout paint;
-    font-family: var(--editor-font, Consolas, monospace);
+    // Tooltip arrows are absent from the text faces. Name their Windows fallback
+    // directly instead of searching the installed fonts on a document's first layout.
+    font-family: var(--editor-font, Consolas), 'Segoe UI Symbol', monospace;
     font-variant-ligatures: none;
     font-feature-settings:
       'liga' 0,
