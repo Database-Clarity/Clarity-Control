@@ -61,6 +61,9 @@
 }
 
 .card {
+  // The workspace assigns the column width. Descendant text does not need to
+  // participate in its parent's intrinsic inline sizing.
+  contain: inline-size layout;
   min-width: 0;
   padding: 1rem;
   border: 1px solid var(--line);
@@ -110,17 +113,18 @@
 .list {
   list-style: none;
   padding: 0;
-  display: grid;
-  gap: 1rem;
   overflow-wrap: anywhere;
 
   li {
-    display: grid;
-    gap: 0.45rem;
+    contain: inline-size layout;
     padding: 0.65rem;
     border: 1px solid var(--line);
     border-radius: 0.4rem;
     background: var(--raised);
+  }
+
+  li + li {
+    margin-block-start: 1rem;
   }
 
   label {
@@ -142,6 +146,7 @@
   }
 
   li > div {
+    margin-block-start: 0.45rem;
     font-size: 0.8rem;
     color: var(--text2);
     overflow-wrap: anywhere;
