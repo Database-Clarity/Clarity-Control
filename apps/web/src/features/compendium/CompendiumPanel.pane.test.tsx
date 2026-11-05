@@ -13,6 +13,7 @@ import { useSettingsStore } from '../../stores/settings';
 import { useCompendiumStore } from './store';
 import { CompendiumPanel } from './CompendiumPanel';
 import { usePaneMatch } from './usePaneMatch';
+import * as diffCache from './compendiumDiffCache';
 
 vi.mock('./usePaneMatch', () => ({ usePaneMatch: vi.fn() }));
 
@@ -108,6 +109,35 @@ const diffViews = (host: ParentNode) =>
   host.querySelectorAll('[aria-label="Compendium diff view"]');
 
 describe('Compendium pane', () => {
+  it('ignores late diff preparation for a superseded tooltip', async () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    let resolveFirst!: () => void;
+    let resolveLatest!: () => void;
+    vi.spyOn(diffCache, 'prepareCompendiumDiff')
+      .mockReturnValueOnce(new Promise<void>(resolve => { resolveFirst = resolve; }))
+      .mockReturnValueOnce(new Promise<void>(resolve => { resolveLatest = resolve; }));
+    useCompendiumStore.setState({ data: { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] } } as never);
+    const host = await mount();
+    const root = roots.at(-1)!;
+    await act(async () => root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 6 } })));
+    expect(frames.size).toBe(0);
+    expect(host.querySelector('aside')?.getAttribute('aria-busy')).toBe('true');
+    await act(async () => root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 7 } })));
+    await act(async () => resolveFirst());
+    expect(frames.size).toBe(0);
+    await act(async () => resolveLatest());
+    expect(frames.size).toBe(1);
+    await act(async () => [...frames.values()][0](0));
+    expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe('Compendium for 7');
+    expect(host.querySelector('aside')?.hasAttribute('aria-busy')).toBe(false);
+  });
+
   it('commits only the latest frame target and pauses actions while older content is visible', async () => {
     const frames = new Map<number, FrameRequestCallback>();
     let nextFrame = 0;

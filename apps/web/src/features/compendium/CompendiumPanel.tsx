@@ -1,7 +1,8 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { resolveCompendiumLink, snapshotCompendium, sameCell, type Tooltip } from '@clarity/core';
 import { approvalEvidence } from './approvalEvidence';
+import { initializeCompendiumDiffWorker, prepareCompendiumDiff } from './compendiumDiffCache';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
@@ -60,10 +61,11 @@ function ScaleControl() {
 }
 
 /** Let the editor finish its frame's DOM reads before replacing the rich pane. */
-function usePaneFrame(base: Tooltip) {
+function usePaneFrame(base: Tooltip, prepare: (signal: AbortSignal) => Promise<void> | undefined) {
   const [ready, setReady] = useState(base);
   const committed = useRef(base);
   const frame = useRef<number>();
+  const generation = useRef(0);
   // A frame callback can fire just before a newer navigation render. Its queued
   // update must not make that superseded tooltip visible, even for one commit.
   const displayed = ready === base ? base : committed.current;
@@ -74,35 +76,79 @@ function usePaneFrame(base: Tooltip) {
   // the passive phase below, after the editor has registered its frame reads.
   useLayoutEffect(
     () => () => {
+      generation.current++;
       if (frame.current !== undefined) cancelAnimationFrame(frame.current);
       frame.current = undefined;
     },
-    [base],
+    [base, prepare],
   );
   useEffect(() => {
     if (displayed === base) return;
-    const scheduled = requestAnimationFrame(() => {
-      if (frame.current !== scheduled) return;
-      frame.current = undefined;
-      // Commit in this paint opportunity rather than handing React another
-      // frame after the editor and preview have already finished.
-      flushSync(() => setReady(base));
-    });
-    frame.current = scheduled;
+    const controller = new AbortController();
+    const current = generation.current;
+    let scheduled: number | undefined;
+    const schedule = () => {
+      if (controller.signal.aborted || generation.current !== current) return;
+      scheduled = requestAnimationFrame(() => {
+        if (frame.current !== scheduled) return;
+        frame.current = undefined;
+        // Commit in this paint opportunity rather than handing React another
+        // frame after the editor and preview have already finished.
+        flushSync(() => setReady(base));
+      });
+      frame.current = scheduled;
+    };
+    const preparation = prepare(controller.signal);
+    if (preparation) void preparation.then(schedule, schedule);
+    else schedule();
     return () => {
-      cancelAnimationFrame(scheduled);
+      controller.abort();
+      if (scheduled !== undefined) cancelAnimationFrame(scheduled);
       if (frame.current === scheduled) frame.current = undefined;
     };
-  }, [base, displayed]);
+  }, [base, displayed, prepare]);
   return displayed;
 }
 
 export function CompendiumPanel({ base }: { base: Tooltip }) {
-  const displayed = usePaneFrame(base);
   const editor = useDataStore((state) => state.data);
   const source = useCompendiumStore((state) => state.data);
   const drafts = useDraftStore((state) => state.drafts);
   const userId = useAuthStore((state) => state.user?.id);
+  const diffMode = useSettingsStore((state) => state.device.remembered.compendiumDiff);
+  const incomingMatch = usePaneMatch(base, editor, source, drafts, userId);
+  useEffect(initializeCompendiumDiffWorker, []);
+  const prepare = useCallback(
+    (signal: AbortSignal) => {
+      const prepareCells = (
+        before: Parameters<typeof prepareCompendiumDiff>[0],
+        after: typeof before,
+      ) => {
+        const preparation = prepareCompendiumDiff(before, after, signal);
+        if (diffMode === 'before-after') {
+          // This view does not need a diff to paint. Its alternate view can use
+          // the same prepared content without blocking the current source.
+          void preparation?.catch(() => undefined);
+          return;
+        }
+        return preparation;
+      };
+      const incomingDraft = drafts[base.hash];
+      const incomingLink = incomingDraft ? incomingDraft.next.compendium : base.compendium;
+      if (incomingLink && source) {
+        const resolved = resolveCompendiumLink(incomingLink, source);
+        if (['ok', 'changed', 'moved'].includes(resolved.status) && 'row' in resolved)
+          return prepareCells(incomingLink.snapshot, resolved.row.cell);
+      } else if (incomingMatch && editor) {
+        const item = itemFor(base.hash, editor);
+        const approved =
+          item && approvalEvidence(base.hash, item.name, item.categoryId, incomingMatch);
+        if (approved) return prepareCells(approved, incomingMatch.row.cell);
+      }
+    },
+    [base, drafts, source, incomingMatch, editor, diffMode],
+  );
+  const displayed = usePaneFrame(base, prepare);
   const draft = drafts[displayed.hash];
   const link = draft ? draft.next.compendium : displayed.compendium;
   // Draft updates clone the whole tooltip. Retain unchanged link metadata across text edits,
@@ -182,11 +228,7 @@ const PaneContents = memo(function PaneContents({
     !!user?.role &&
     ['maintainer', 'editor', 'trial'].includes(user.role);
   const canReview =
-    !!apiUrl &&
-    hydrated &&
-    !saving &&
-    !!user?.role &&
-    ['maintainer', 'editor'].includes(user.role);
+    !!apiUrl && hydrated && !saving && !!user?.role && ['maintainer', 'editor'].includes(user.role);
   useEffect(() => {
     void load();
   }, [load]);
@@ -407,7 +449,9 @@ const PaneContents = memo(function PaneContents({
                         <button
                           type="button"
                           disabled={
-                            pending || !compendium || !confirmCompendiumSelection(candidate, compendium)
+                            pending ||
+                            !compendium ||
+                            !confirmCompendiumSelection(candidate, compendium)
                           }
                           onClick={() => {
                             if (!compendium) return;
