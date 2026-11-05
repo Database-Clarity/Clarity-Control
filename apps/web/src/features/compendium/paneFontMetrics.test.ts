@@ -41,6 +41,7 @@ beforeEach(() => {
   vi.stubGlobal('CanvasRenderingContext2D', class {});
   vi.stubGlobal('scheduler', undefined);
   vi.stubGlobal('navigator', {
+    userAgent: 'Vitest',
     scheduling: { isInputPending: () => pending },
   });
   vi.stubGlobal('requestIdleCallback', (callback: IdleRequestCallback) => {
@@ -156,4 +157,36 @@ it('reuses completed preparation but prepares a new source revision or zoom', as
   await Promise.resolve();
   expect(idle.size).toBe(1);
   zoom();
+});
+
+it('does not read dirty sheet styles again when source data or zoom changes', async () => {
+  const { act, createElement } = await import('react');
+  const { createRoot } = await import('react-dom/client');
+  const { usePaneFontMetrics } = await import('./paneFontMetrics');
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  const body = document.createElement('div');
+  body.innerHTML = '<div data-scale="100"></div>';
+  const bodyRef = { current: body };
+  const style = vi
+    .spyOn(window, 'getComputedStyle')
+    .mockReturnValue({ fontFamily: 'Arial' } as CSSStyleDeclaration);
+  function Pane({ data, scale }: { data: CompendiumData | null; scale: number }) {
+    usePaneFontMetrics(bodyRef, data, scale);
+    return null;
+  }
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(createElement(Pane, { data: null, scale: 100 })));
+    expect(style).toHaveBeenCalledTimes(1);
+    const revision = source();
+    await act(async () => root.render(createElement(Pane, { data: revision, scale: 100 })));
+    await act(async () => root.render(createElement(Pane, { data: revision, scale: 80 })));
+    expect(style).toHaveBeenCalledTimes(1);
+    body.innerHTML = '<div data-scale="80"></div>';
+    await act(async () => root.render(createElement(Pane, { data: source(), scale: 80 })));
+    expect(style).toHaveBeenCalledTimes(2);
+  } finally {
+    await act(async () => root.unmount());
+  }
 });

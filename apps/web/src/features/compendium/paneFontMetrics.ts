@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 import type { CompendiumCell, CompendiumData } from '@clarity/core';
 
 const prepared = new WeakMap<CompendiumData, Set<string>>();
@@ -179,9 +179,14 @@ export function usePaneFontMetrics(
   source: CompendiumData | null,
   scale: number,
 ) {
+  const sheet = useRef<{ element: HTMLElement; family: string }>();
   useEffect(() => {
     const zoom = body.current?.querySelector<HTMLElement>('[data-scale]');
     if (!zoom) return;
-    return warmPaneFontMetrics(source, getComputedStyle(zoom).fontFamily, scale / 100);
+    // Source arrival and zoom change the metrics to prepare, but not this node's
+    // sheet font stack. Reading it again after those renders forces dirty layout.
+    if (sheet.current?.element !== zoom)
+      sheet.current = { element: zoom, family: getComputedStyle(zoom).fontFamily };
+    return warmPaneFontMetrics(source, sheet.current.family, scale / 100);
   }, [body, source, scale]);
 }
