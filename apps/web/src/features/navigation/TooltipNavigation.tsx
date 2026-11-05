@@ -591,13 +591,15 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     const shiftWheel = (event: WheelEvent) => {
       const direction = shiftScrollDirection(event);
       if (!direction || workspaceShortcutsBlocked(event)) return;
+      // The gesture still belongs to stepping at either end of the category.
+      // Letting its default horizontal overscroll escape can navigate Back.
+      event.preventDefault();
       if (!canStep.current(direction)) {
         // At the boundary the remaining packets still belong to the same gesture.
         // Keep the workspace idle until that physical gesture actually stops.
         if (useSteppingActivity.getState().active) pulseStepping();
         return;
       }
-      event.preventDefault();
       const stepDirection = wheelStepper.feed(event, event.timeStamp);
       if (stepDirection) step.current(stepDirection);
     };

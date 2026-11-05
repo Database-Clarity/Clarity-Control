@@ -302,6 +302,29 @@ describe('mounted Editor navigation interaction ownership', () => {
     );
     expect(useSteppingActivity.getState().active).toBe(false);
   });
+  it.each([
+    [-1, 'deltaY'],
+    [-1, 'deltaX'],
+    [1, 'deltaY'],
+    [1, 'deltaX'],
+  ] as const)(
+    'consumes boundary Shift-wheel %s on %s without navigating',
+    async (direction, axis) => {
+      await mount();
+      if (direction > 0) await shiftWheel();
+      const before = route();
+      const event = new WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        shiftKey: true,
+        [axis]: direction * 100,
+      });
+      await act(async () => host.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(true);
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+      expect(route()).toBe(before);
+    },
+  );
   it.each(['ArrowDown', 'Shift+wheel'])(
     'keeps stepping active and the document visible while %s continues at the category boundary',
     async (gesture) => {
