@@ -1,4 +1,5 @@
 import {
+  cloneElement,
   memo,
   startTransition,
   useCallback,
@@ -75,6 +76,7 @@ function usePaneFrame(
   base: Tooltip,
   prepare: (signal: AbortSignal) => Promise<void> | false | undefined,
   concurrent: boolean,
+  stepping: boolean,
 ) {
   const [ready, setReady] = useState(base);
   const committed = useRef(base);
@@ -82,7 +84,7 @@ function usePaneFrame(
   const generation = useRef(0);
   // A frame callback can fire just before a newer navigation render. Its queued
   // update must not make that superseded tooltip visible, even for one commit.
-  const displayed = ready === base ? base : committed.current;
+  const displayed = !stepping && ready === base ? base : committed.current;
   useLayoutEffect(() => {
     committed.current = displayed;
   }, [displayed]);
@@ -94,10 +96,10 @@ function usePaneFrame(
       if (frame.current !== undefined) cancelAnimationFrame(frame.current);
       frame.current = undefined;
     },
-    [base, prepare],
+    [base, prepare, stepping],
   );
   useEffect(() => {
-    if (displayed === base) return;
+    if (stepping || displayed === base) return;
     const controller = new AbortController();
     const current = generation.current;
     let scheduled: number | undefined;
@@ -121,11 +123,22 @@ function usePaneFrame(
       if (scheduled !== undefined) cancelAnimationFrame(scheduled);
       if (frame.current === scheduled) frame.current = undefined;
     };
-  }, [base, displayed, prepare, concurrent]);
+  }, [base, displayed, prepare, concurrent, stepping]);
   return displayed;
 }
 
-export function CompendiumPanel({ base }: { base: Tooltip }) {
+export function CompendiumPanel({
+  base: incomingBase,
+  stepping = false,
+}: {
+  base: Tooltip;
+  stepping?: boolean;
+}) {
+  const retainedBase = useRef(incomingBase);
+  const base = stepping ? retainedBase.current : incomingBase;
+  useLayoutEffect(() => {
+    if (!stepping) retainedBase.current = incomingBase;
+  }, [incomingBase, stepping]);
   const editor = useDataStore((state) => state.data);
   const source = useCompendiumStore((state) => state.data);
   const drafts = useDraftStore((state) => state.drafts);
@@ -151,6 +164,7 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
   const incomingLink = incomingLinkRef.current.value;
   useEffect(initializeCompendiumDiffWorker, []);
   const comparison = useMemo(() => {
+    if (stepping) return;
     if (incomingLink && source) {
       const resolved = resolveCompendiumLink(incomingLink, source);
       if (['ok', 'changed', 'moved'].includes(resolved.status) && 'row' in resolved)
@@ -161,13 +175,13 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
         item && approvalEvidence(base.hash, item.name, item.categoryId, incomingMatch);
       if (approved) return { before: approved, after: incomingMatch.row.cell };
     }
-  }, [base, incomingLink, source, incomingMatch, editor]);
+  }, [base, incomingLink, source, incomingMatch, editor, stepping]);
   const prepare = useCallback(
     (signal: AbortSignal) => {
       // Keep the old pane until the incoming row can be prepared. Committing an
       // empty pane first would paint its plain cell and then replace it again
       // when the worker projection arrives.
-      if (awaitingMatch) return false;
+      if (stepping || awaitingMatch) return false;
       if (!comparison) return;
       const preparation = prepareCompendiumDiff(comparison.before, comparison.after, signal);
       if (diffMode === 'before-after') {
@@ -176,12 +190,13 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
       }
       return preparation;
     },
-    [awaitingMatch, comparison, diffMode],
+    [awaitingMatch, comparison, diffMode, stepping],
   );
   const displayed = usePaneFrame(
     base,
     prepare,
     !!comparison && !sameCell(comparison.before, comparison.after),
+    stepping,
   );
   const draft = drafts[displayed.hash];
   const link = draft ? draft.next.compendium : displayed.compendium;
@@ -209,6 +224,7 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
     <PaneContents
       base={displayed}
       pending={displayed !== base}
+      stepping={stepping}
       link={retainedLink.current.value}
       draft={!!draft && !!link}
       matched={matched}
@@ -223,6 +239,7 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
 const PaneContents = memo(function PaneContents({
   base,
   pending: navigating,
+  stepping,
   link,
   draft,
   matched,
@@ -231,6 +248,7 @@ const PaneContents = memo(function PaneContents({
 }: {
   base: Tooltip;
   pending: boolean;
+  stepping: boolean;
   link: Tooltip['compendium'];
   draft: boolean;
   matched: ReturnType<typeof usePaneMatch>;
@@ -247,6 +265,15 @@ const PaneContents = memo(function PaneContents({
   const scale = useSettingsStore((state) => state.device.compendiumScale);
   const [diffMode, setDiffMode] = useCompendiumDiffMode();
   const bodyRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    // The retained source and header must not expose stale actions to pointer
+    // or keyboard input while the separate loading overlay is visible.
+    for (const node of [
+      bodyRef.current?.firstElementChild,
+      bodyRef.current?.previousElementSibling,
+    ])
+      node?.toggleAttribute('inert', stepping);
+  }, [stepping]);
   const width = useElementWidth(bodyRef);
   // Unmeasured (no layout) counts as roomy; a narrow pane puts the switch above the diff instead.
   // Touch-sized controls (phone, coarse pointer) are wider than the measure below allows for.
@@ -297,7 +324,7 @@ const PaneContents = memo(function PaneContents({
   const pending = navigating || preparedDiff.pending;
 
   const diffToggle = <CompendiumDiffModeToggle mode={diffMode} onChange={setDiffMode} />;
-  return (
+  const pane = (
     <RightPane
       className={styles.pane}
       busy={pending}
@@ -601,4 +628,23 @@ const PaneContents = memo(function PaneContents({
       </div>
     </RightPane>
   );
+  const retainedPane = useRef(pane);
+  useLayoutEffect(() => {
+    if (!stepping) retainedPane.current = pane;
+  });
+  if (!stepping) return pane;
+  const previous = retainedPane.current;
+  return cloneElement(previous, {
+    busy: true,
+    className: `${styles.pane} ${styles.steppingPane}`,
+    children: (
+      <>
+        {previous.props.children}
+        <div className={styles.steppingOverlay} role="status">
+          <span className={styles.spinner} aria-hidden="true" />
+          Loading Compendium…
+        </div>
+      </>
+    ),
+  });
 });

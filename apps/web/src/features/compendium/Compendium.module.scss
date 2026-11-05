@@ -20,6 +20,19 @@
 .pane {
   contain: layout style;
 }
+.steppingPane {
+  position: relative;
+}
+.steppingOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--page);
+  font-size: 0.8125rem;
+}
 // The fixed desktop workspace supplies the pane's size. Its scroll contents must
 // not participate in flex/grid intrinsic sizing when a different entry arrives.
 // Phone panes keep their natural height and page scrolling.
