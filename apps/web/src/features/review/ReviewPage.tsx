@@ -233,6 +233,12 @@ export function ReviewPage() {
     },
     [index, searchParams, setSearchParams, visibleEntries],
   );
+  const committedSelectIndex = useRef(selectIndex);
+  useLayoutEffect(() => {
+    // Window listeners can run after a commit but before passive effects bind
+    // a new closure. Use that commit's selection alongside any queued intent.
+    committedSelectIndex.current = selectIndex;
+  }, [selectIndex]);
   const openCurrentRow = useCallback(
     (hash: number) => {
       const next = visibleEntries.findIndex((entry) => entry.tooltip.hash === hash);
@@ -282,13 +288,11 @@ export function ReviewPage() {
         return;
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
       event.preventDefault();
-      selectIndex((value) =>
-        stepIndex(value, event.key === 'ArrowDown' ? 1 : -1, visibleEntries.length),
-      );
+      committedSelectIndex.current((value) => value + (event.key === 'ArrowDown' ? 1 : -1));
     }
     window.addEventListener('keydown', keydown);
     return () => window.removeEventListener('keydown', keydown);
-  }, [pushing, selectIndex, visibleEntries.length]);
+  }, [pushing]);
   const hashes = selected.size
     ? selectedPending(selected, entries).filter((hash) => !inFlight.has(hash))
     : [];

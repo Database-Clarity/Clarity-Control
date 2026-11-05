@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
-import { act, createElement, useEffect } from 'react';
+import { act, createElement, useEffect, useLayoutEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter, Routes, Route, createMemoryRouter, RouterProvider } from 'react-router-dom';
+import {
+  MemoryRouter,
+  Routes,
+  Route,
+  createMemoryRouter,
+  RouterProvider,
+  useLocation,
+} from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { merge3, publishableHash, type Tooltip } from '@clarity/core';
 import { Layout } from '../navigation/Layout';
@@ -295,7 +302,7 @@ it('keeps main controls usable while the sidebar links warm', async () => {
   }
 });
 
-async function mountDelayedReview() {
+async function mountDelayedReview(review = <ReviewPage />) {
   for (const hash of [20, 30]) bundle.tooltips[hash] = { ...structuredClone(tooltip), hash };
   vi.mocked(loadGenerator).mockResolvedValue({
     categories: [],
@@ -338,7 +345,7 @@ async function mountDelayedReview() {
   const router = createMemoryRouter(
     [
       { path: '/other', element: <p>Other workspace</p> },
-      { path: '/review', element: <ReviewPage />, loader: reviewRoute },
+      { path: '/review', element: review, loader: reviewRoute },
     ],
     { initialEntries: ['/other'] },
   );
@@ -448,6 +455,32 @@ it('retains both arrow intents before React effects flush, and resets them for a
     });
     expect(router.state.location.search).toBe('?hash=20');
     expect(post).not.toHaveBeenCalled();
+  } finally {
+    router.dispose();
+  }
+});
+
+it('handles the second arrow between a router commit and passive listener effects', async () => {
+  function KeyDuringCommit() {
+    const location = useLocation();
+    useLayoutEffect(() => {
+      if (new URLSearchParams(location.search).get('hash') !== '20') return;
+      document.body.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
+      );
+    }, [location.search]);
+    return <ReviewPage />;
+  }
+  const { router, requests } = await mountDelayedReview(<KeyDuringCommit />);
+  try {
+    await act(async () => {
+      document.body.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
+      );
+    });
+    expect(router.state.location.search).toBe('?hash=30');
+    expect(host.querySelector('[aria-label="Selected change"] h2')?.textContent).toBe('Abacus 30');
+    expect(requests.at(-1)!.hash).toBe(30);
   } finally {
     router.dispose();
   }
