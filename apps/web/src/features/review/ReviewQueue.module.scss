@@ -5,8 +5,6 @@
   min-height: 0;
   // A definite height keeps the full virtual track out of ancestor sizing.
   contain: strict;
-  // Keep this bounded scroll surface in its own composited paint layer.
-  transform: translateZ(0);
 }
 
 .rowSizer {
