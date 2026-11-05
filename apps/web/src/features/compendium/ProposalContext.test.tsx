@@ -35,7 +35,13 @@ it('keeps deferred text and native links, and formats before Tab or beforematch 
   match.tab.grid = [0, 1].map((col) => ({
     row: match.row.rowIndex,
     col,
-    cell: { plain: text, runs: [{ text, href: `https://example.com/${col}`, bold: true }] },
+    cell: {
+      plain: text,
+      runs: [
+        { text: '', href: 'https://example.com/empty' },
+        { text, href: `https://example.com/${col}`, bold: true },
+      ],
+    },
   }));
   const host = document.createElement('section');
   host.setAttribute('aria-label', 'Proposed source');
@@ -56,6 +62,7 @@ it('keeps deferred text and native links, and formats before Tab or beforematch 
       expect(cell.getAttribute('hidden')).toBe('until-found');
       expect(cell.querySelector('[data-multiline]')!.textContent).toBe(text);
       expect(cell.querySelector('a')?.target).toBe('_blank');
+      expect(cell.querySelectorAll('a')).toHaveLength(1);
       expect(cell.querySelector('[style]')).toBeNull();
     }
     details.querySelector('summary')!.focus();
@@ -65,9 +72,12 @@ it('keeps deferred text and native links, and formats before Tab or beforematch 
     expect(cells[0].hasAttribute('hidden')).toBe(false);
     expect(cells[0].querySelector('a span')?.getAttribute('style')).toContain('font-weight: 700');
     expect(cells[1].hasAttribute('hidden')).toBe(true);
+    const textNode = cells[1].querySelector('a')!.firstChild!;
+    document.getSelection()!.setBaseAndExtent(textNode, 2, textNode, 8);
     await act(async () => cells[1].dispatchEvent(new Event('beforematch', { bubbles: true })));
     expect(cells[1].hasAttribute('hidden')).toBe(false);
     expect(cells[1].querySelector('[data-multiline]')!.textContent).toBe(text);
+    expect(document.getSelection()!.toString()).toBe(text.slice(2, 8));
     expect(details.open).toBe(true);
   } finally {
     await act(async () => root.unmount());
