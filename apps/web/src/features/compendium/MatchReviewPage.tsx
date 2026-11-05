@@ -437,24 +437,35 @@ export function ReviewQueue({
   );
   const entryProjection = categoryView ? undefined : preparedEntryProjection;
   useEffect(() => {
-    setSidebarCategories(
-      categories.map(({ id, name }) => {
-        const open = preparedEntryProjection.index.byGroup
-          .get(id)
-          ?.filter((entry) => entry.status === 'open');
-        const selected = open?.find((entry) => entry.hash === progress.selected) ?? open?.[0];
-        const target = new URLSearchParams({
-          view: 'entries',
-          group: id,
-          query: '',
-          category: '',
-          status: 'open',
-          proposal: 'all',
-        });
-        if (selected) target.set('hash', String(selected.hash));
-        return { id, name, entryTarget: `/compendium/review?${target}` };
-      }),
-    );
+    const next = categories.map(({ id, name }) => {
+      const open = preparedEntryProjection.index.byGroup
+        .get(id)
+        ?.filter((entry) => entry.status === 'open');
+      const selected = open?.find((entry) => entry.hash === progress.selected) ?? open?.[0];
+      const target = new URLSearchParams({
+        view: 'entries',
+        group: id,
+        query: '',
+        category: '',
+        status: 'open',
+        proposal: 'all',
+      });
+      if (selected) target.set('hash', String(selected.hash));
+      return { id, name, entryTarget: `/compendium/review?${target}` };
+    });
+    const current = useSidebarQueueStore.getState().compendiumCategories;
+    if (
+      current &&
+      current.length === next.length &&
+      next.every(
+        (category, index) =>
+          category.id === current[index].id &&
+          category.name === current[index].name &&
+          category.entryTarget === current[index].entryTarget,
+      )
+    )
+      return;
+    setSidebarCategories(next);
   }, [categories, preparedEntryProjection, progress.selected, setSidebarCategories]);
   const scopedEntries = useMemo(() => entryProjection?.entries ?? [], [entryProjection]);
   const routeFilter = progressSchema.shape.filter.safeParse(params.get('status'));
