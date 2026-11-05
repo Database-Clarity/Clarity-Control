@@ -7,6 +7,10 @@ import type { EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { FinderSheetContext } from './FinderSheetContext';
 import { TooltipNavigation } from './TooltipNavigation';
+import {
+  observeNativeDialogShortcutOwner,
+  registerWorkspaceShortcutOwner,
+} from '../../ui/interaction';
 
 const item = (hash: number, name: string, categoryId: string, extra = {}) => ({
   hash,
@@ -190,6 +194,9 @@ describe('tooltip finder combobox', () => {
         </MemoryRouter>,
       ),
     );
+    const releaseSheet = registerWorkspaceShortcutOwner(
+      host.querySelector('[data-shell-overlay]')!,
+    );
     const next = () => host.querySelector<HTMLButtonElement>('[aria-label="Next tooltip"]')!;
     await act(async () => next().click());
     await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
@@ -197,12 +204,15 @@ describe('tooltip finder combobox', () => {
     const modal = document.createElement('dialog');
     modal.setAttribute('open', '');
     document.body.append(modal);
+    const releaseModal = observeNativeDialogShortcutOwner(modal);
     try {
       await act(async () => next().click());
       await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
       expect(route()).toBe('/t/11');
     } finally {
+      releaseModal();
       modal.remove();
+      releaseSheet();
     }
   });
   it('windows a large category while keeping End and its active descendant usable', async () => {

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, createElement, Fragment } from 'react';
+import { act, createElement, Fragment, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -30,8 +30,16 @@ vi.mock('../editor', () => ({
   ),
 }));
 vi.mock('../preview', () => ({
-  PreviewColumn: vi.fn(({ baseText, name, enhanced, acknowledgement }: PreviewColumnProps) =>
-    createElement(
+  PreviewColumn: vi.fn(function MockPreviewColumn({
+    baseText,
+    name,
+    enhanced,
+    acknowledgement,
+    hash,
+    onDocumentPaint,
+  }: PreviewColumnProps) {
+    useEffect(() => onDocumentPaint?.(hash), [hash, onDocumentPaint]);
+    return createElement(
       Fragment,
       null,
       createElement(
@@ -40,12 +48,16 @@ vi.mock('../preview', () => ({
         baseText,
       ),
       acknowledgement,
-    ),
-  ),
+    );
+  }),
 }));
 vi.mock('../compendium/CompendiumPanel', () => ({
-  CompendiumPanel: ({ base }: { base: Tooltip }) =>
-    createElement('aside', { 'data-compendium': base.hash }, 'Compendium panel'),
+  CompendiumPanel: ({ base, stepping }: { base: Tooltip; stepping?: boolean }) =>
+    createElement(
+      'aside',
+      { 'data-compendium': base.hash, 'data-stepping': stepping || undefined },
+      'Compendium panel',
+    ),
 }));
 vi.mock('../history/HistoryPanel', () => ({
   HistoryPanel: ({ hash, suspended }: { hash: number; suspended?: boolean }) =>
@@ -145,7 +157,7 @@ const signIn = (role: 'maintainer' | 'editor' | 'translator' | null) =>
   });
 
 beforeEach(() => {
-  useSteppingActivity.setState({ active: false });
+  useSteppingActivity.setState({ active: false, deferWorkspace: false, target: undefined });
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   phone = false;
   Object.defineProperty(window, 'matchMedia', {
@@ -174,10 +186,12 @@ afterEach(async () => {
   useAuthStore.setState(originals.auth);
   useSaveState.setState(originals.save);
   vi.mocked(ClarityEditor).mockClear();
-  useSteppingActivity.setState({ active: false });
+  useSteppingActivity.setState({ active: false, deferWorkspace: false, target: undefined });
+  vi.useRealTimers();
 });
 
 it('keeps the editor mounted while replacing an alias URL with its canonical route', async () => {
+  vi.useFakeTimers();
   useDataStore.setState({
     data: {
       ...data,
@@ -192,10 +206,13 @@ it('keeps the editor mounted while replacing an alias URL with its canonical rou
   await act(async () => navigateRoute('/t/21?lang=en&line=1'));
   expect(currentLocation.pathname).toBe('/t/20');
   expect(currentLocation.search).toBe('?lang=en');
-  expect(vi.mocked(ClarityEditor).mock.calls.some(([props]) => props.highlightLine === 1)).toBe(false);
+  expect(vi.mocked(ClarityEditor).mock.calls.some(([props]) => props.highlightLine === 1)).toBe(
+    false,
+  );
   expect(editors()[0]).toBe(editor);
   expect(editor.textContent).toBe('Next text');
   expect(editor.dataset.editor).toBe('20');
+  await act(async () => vi.advanceTimersByTimeAsync(20));
   expect(host.querySelector('[data-compendium]')?.getAttribute('data-compendium')).toBe('20');
   await act(async () => navigateRoute('/t/21?lang=en&line=1'));
   expect(editors()[0]).toBe(editor);
@@ -203,7 +220,8 @@ it('keeps the editor mounted while replacing an alias URL with its canonical rou
   expect(useDraftStore.getState().edit).not.toHaveBeenCalled();
 });
 
-it('freezes skipped workspace work, cancels side panels, and reuses the editor after a burst', async () => {
+it('retains skipped content, paints the latest admitted document, and completes its pane after preview paint', async () => {
+  vi.useFakeTimers();
   useDataStore.setState({
     data: {
       ...data,
@@ -213,8 +231,12 @@ it('freezes skipped workspace work, cancels side panels, and reuses the editor a
   });
   await render();
   const editor = editors()[0];
-  await act(async () => useSteppingActivity.setState({ active: true }));
-  expect(host.querySelector('[data-compendium]')).toBeNull();
+  const pane = host.querySelector('[data-compendium]');
+  await act(async () =>
+    useSteppingActivity.setState({ active: true, deferWorkspace: true, target: '/t/20' }),
+  );
+  expect(host.querySelector('[data-compendium]')).toBe(pane);
+  expect(pane?.getAttribute('data-stepping')).toBe('true');
   expect(host.querySelector('[data-history]')?.getAttribute('data-suspended')).toBe('true');
   vi.mocked(ClarityEditor).mockClear();
   vi.mocked(PreviewColumn).mockClear();
@@ -222,12 +244,27 @@ it('freezes skipped workspace work, cancels side panels, and reuses the editor a
   expect(ClarityEditor).not.toHaveBeenCalled();
   expect(PreviewColumn).not.toHaveBeenCalled();
   expect(editors()[0]).toBe(editor);
-  expect(host.querySelector('article[aria-busy=true]')?.textContent).toContain('Next perk');
+  expect(editor.textContent).toBe(BASE);
+  expect(host.querySelector('[data-preview]')?.textContent).toBe(BASE);
+  expect(currentLocation.pathname).toBe('/t/20');
+  expect(host.querySelector('article[aria-busy=true]')).not.toBeNull();
+  await act(async () => useSteppingActivity.setState({ deferWorkspace: false }));
+  expect(editors()[0]).toBe(editor);
+  expect(editor.dataset.editor).toBe('20');
+  expect(editor.textContent).toBe('Next text');
+  expect(host.querySelector('[data-preview]')?.textContent).toBe('Next text');
+  expect(vi.mocked(PreviewColumn).mock.calls.at(-1)?.[0].hash).toBe(20);
+  expect(host.querySelector('[data-compendium]')).toBe(pane);
+  expect(pane?.getAttribute('data-compendium')).toBe('10');
+  await act(async () => vi.advanceTimersByTimeAsync(20));
+  expect(pane?.getAttribute('data-compendium')).toBe('20');
   await act(async () => useSteppingActivity.setState({ active: false }));
   expect(editors()[0]).toBe(editor);
   expect(editors()[0].textContent).toBe('Next text');
   expect(host.querySelector('[data-history]')?.getAttribute('data-history')).toBe('20');
-  expect(host.querySelector('[data-compendium]')).not.toBeNull();
+  expect(host.querySelector('[data-compendium]')).toBe(pane);
+  expect(pane?.hasAttribute('data-stepping')).toBe(false);
+  expect(host.querySelector('article[aria-busy=true]')).toBeNull();
 });
 
 describe('inline conflicts on the page', () => {
