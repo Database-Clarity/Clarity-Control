@@ -85,34 +85,40 @@ export function createGuidanceMiddleware(file: string): Connect.NextHandleFuncti
       }
       const temporary = `${file}.${randomUUID()}.tmp`;
       let temporaryExists = false;
+      let result: { status: number; body: unknown };
       try {
         const current = await readGuidance(file);
         if (current.revision !== payload.revision) {
-          send(response, 409, {
-            error: 'Guidance changed on disk. Reload it before editing again.',
-          });
-          return;
+          result = {
+            status: 409,
+            body: { error: 'Guidance changed on disk. Reload it before editing again.' },
+          };
+        } else {
+          const raw = `${JSON.stringify(payload.document, null, 2)}\n`;
+          const output = await open(temporary, 'wx');
+          temporaryExists = true;
+          try {
+            await output.writeFile(raw, 'utf8');
+            await output.sync();
+          } finally {
+            await output.close();
+          }
+          await rename(temporary, file);
+          temporaryExists = false;
+          result = {
+            status: 200,
+            body: {
+              document: payload.document,
+              revision: createHash('sha256').update(raw).digest('hex'),
+            },
+          };
         }
-        const raw = `${JSON.stringify(payload.document, null, 2)}\n`;
-        const output = await open(temporary, 'wx');
-        temporaryExists = true;
-        try {
-          await output.writeFile(raw, 'utf8');
-          await output.sync();
-        } finally {
-          await output.close();
-        }
-        await rename(temporary, file);
-        temporaryExists = false;
-        send(response, 200, {
-          document: payload.document,
-          revision: createHash('sha256').update(raw).digest('hex'),
-        });
       } finally {
         await lock.close();
         await unlink(`${file}.lock`);
         if (temporaryExists) await unlink(temporary);
       }
+      send(response, result.status, result.body);
     })().catch((error: unknown) => {
       console.error('Local review guidance failed:', error);
       if (!response.headersSent)
