@@ -1,7 +1,17 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  memo,
+  startTransition,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { flushSync } from 'react-dom';
 import { resolveCompendiumLink, snapshotCompendium, sameCell, type Tooltip } from '@clarity/core';
 import { approvalEvidence } from './approvalEvidence';
+import { usePreparedPaneDiff } from './usePreparedPaneDiff';
 import { initializeCompendiumDiffWorker, prepareCompendiumDiff } from './compendiumDiffCache';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
@@ -61,7 +71,11 @@ function ScaleControl() {
 }
 
 /** Let the editor finish its frame's DOM reads before replacing the rich pane. */
-function usePaneFrame(base: Tooltip, prepare: (signal: AbortSignal) => Promise<void> | undefined) {
+function usePaneFrame(
+  base: Tooltip,
+  prepare: (signal: AbortSignal) => Promise<void> | undefined,
+  concurrent: boolean,
+) {
   const [ready, setReady] = useState(base);
   const committed = useRef(base);
   const frame = useRef<number>();
@@ -94,7 +108,8 @@ function usePaneFrame(base: Tooltip, prepare: (signal: AbortSignal) => Promise<v
         frame.current = undefined;
         // Commit in this paint opportunity rather than handing React another
         // frame after the editor and preview have already finished.
-        flushSync(() => setReady(base));
+        if (concurrent) startTransition(() => setReady(base));
+        else flushSync(() => setReady(base));
       });
       frame.current = scheduled;
     };
@@ -106,7 +121,7 @@ function usePaneFrame(base: Tooltip, prepare: (signal: AbortSignal) => Promise<v
       if (scheduled !== undefined) cancelAnimationFrame(scheduled);
       if (frame.current === scheduled) frame.current = undefined;
     };
-  }, [base, displayed, prepare]);
+  }, [base, displayed, prepare, concurrent]);
   return displayed;
 }
 
@@ -116,39 +131,52 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
   const drafts = useDraftStore((state) => state.drafts);
   const userId = useAuthStore((state) => state.user?.id);
   const diffMode = useSettingsStore((state) => state.device.remembered.compendiumDiff);
-  const incomingMatch = usePaneMatch(base, editor, source, drafts, userId);
+  // One subscription supplies both the incoming preparation and displayed row.
+  // Repeated subscriptions each decoded the same worker reply during a switch.
+  const {
+    matches,
+    loading: matching,
+    error: matchError,
+  } = useDisplayMatches(editor, source, drafts, userId);
+  const incomingMatch =
+    base.compendium || drafts[base.hash]?.next.compendium ? undefined : matches?.get(base.hash);
+  const incomingDraft = drafts[base.hash];
+  const rawIncomingLink = incomingDraft ? incomingDraft.next.compendium : base.compendium;
+  const incomingKey = JSON.stringify(rawIncomingLink);
+  const incomingLinkRef = useRef({ key: incomingKey, value: rawIncomingLink });
+  if (incomingLinkRef.current.key !== incomingKey)
+    incomingLinkRef.current = { key: incomingKey, value: rawIncomingLink };
+  const incomingLink = incomingLinkRef.current.value;
   useEffect(initializeCompendiumDiffWorker, []);
+  const comparison = useMemo(() => {
+    if (incomingLink && source) {
+      const resolved = resolveCompendiumLink(incomingLink, source);
+      if (['ok', 'changed', 'moved'].includes(resolved.status) && 'row' in resolved)
+        return { before: incomingLink.snapshot, after: resolved.row.cell };
+    } else if (incomingMatch && editor) {
+      const item = itemFor(base.hash, editor);
+      const approved =
+        item && approvalEvidence(base.hash, item.name, item.categoryId, incomingMatch);
+      if (approved) return { before: approved, after: incomingMatch.row.cell };
+    }
+  }, [base, incomingLink, source, incomingMatch, editor]);
   const prepare = useCallback(
     (signal: AbortSignal) => {
-      const prepareCells = (
-        before: Parameters<typeof prepareCompendiumDiff>[0],
-        after: typeof before,
-      ) => {
-        const preparation = prepareCompendiumDiff(before, after, signal);
-        if (diffMode === 'before-after') {
-          // This view does not need a diff to paint. Its alternate view can use
-          // the same prepared content without blocking the current source.
-          void preparation?.catch(() => undefined);
-          return;
-        }
-        return preparation;
-      };
-      const incomingDraft = drafts[base.hash];
-      const incomingLink = incomingDraft ? incomingDraft.next.compendium : base.compendium;
-      if (incomingLink && source) {
-        const resolved = resolveCompendiumLink(incomingLink, source);
-        if (['ok', 'changed', 'moved'].includes(resolved.status) && 'row' in resolved)
-          return prepareCells(incomingLink.snapshot, resolved.row.cell);
-      } else if (incomingMatch && editor) {
-        const item = itemFor(base.hash, editor);
-        const approved =
-          item && approvalEvidence(base.hash, item.name, item.categoryId, incomingMatch);
-        if (approved) return prepareCells(approved, incomingMatch.row.cell);
+      if (!comparison) return;
+      const preparation = prepareCompendiumDiff(comparison.before, comparison.after, signal);
+      if (diffMode === 'before-after') {
+        void preparation?.catch(() => undefined);
+        return;
       }
+      return preparation;
     },
-    [base, drafts, source, incomingMatch, editor, diffMode],
+    [comparison, diffMode],
   );
-  const displayed = usePaneFrame(base, prepare);
+  const displayed = usePaneFrame(
+    base,
+    prepare,
+    !!comparison && !sameCell(comparison.before, comparison.after),
+  );
   const draft = drafts[displayed.hash];
   const link = draft ? draft.next.compendium : displayed.compendium;
   // Draft updates clone the whole tooltip. Retain unchanged link metadata across text edits,
@@ -156,13 +184,21 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
   const linkKey = JSON.stringify(link);
   const retainedLink = useRef({ key: linkKey, value: link });
   if (retainedLink.current.key !== linkKey) retainedLink.current = { key: linkKey, value: link };
-  const matched = usePaneMatch(displayed, editor, source, drafts, userId);
-  const { loading: matching, error: matchError } = useDisplayMatches(
-    editor,
-    source,
-    drafts,
-    userId,
-  );
+  const currentMatch =
+    displayed.compendium || drafts[displayed.hash]?.next.compendium
+      ? undefined
+      : matches?.get(displayed.hash);
+  // A priority reply may contain only the incoming row. Preserve the visible
+  // row until the handoff commits.
+  const previousMatch = useRef({ base: displayed, value: currentMatch });
+  const navigating = displayed !== base;
+  const matched =
+    navigating && previousMatch.current.base === displayed
+      ? previousMatch.current.value
+      : currentMatch;
+  useLayoutEffect(() => {
+    if (!navigating) previousMatch.current = { base: displayed, value: currentMatch };
+  }, [displayed, currentMatch, navigating]);
   return (
     <PaneContents
       base={displayed}
@@ -180,7 +216,7 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
 // The cheap wrapper absorbs intermediate items; link/review actions pause while it catches up.
 const PaneContents = memo(function PaneContents({
   base,
-  pending,
+  pending: navigating,
   link,
   draft,
   matched,
@@ -249,6 +285,11 @@ const PaneContents = memo(function PaneContents({
     [link, matched, item, base.hash],
   );
   const approvalChanged = approved && matched && !sameCell(approved, matched.row.cell);
+  const comparisonBefore = link && match ? link.snapshot : !link ? approved : undefined;
+  const comparisonAfter = link && match ? match.row.cell : !link ? matched?.row.cell : undefined;
+  const preparedDiff = usePreparedPaneDiff(comparisonBefore, comparisonAfter, diffMode);
+  const pending = navigating || preparedDiff.pending;
+
   const diffToggle = <CompendiumDiffModeToggle mode={diffMode} onChange={setDiffMode} />;
   return (
     <RightPane
@@ -332,7 +373,17 @@ const PaneContents = memo(function PaneContents({
               {approved ? (
                 <>
                   {!roomy && <div className={styles.diffModes}>{diffToggle}</div>}
-                  <ApprovalDiff before={approved} after={matched.row.cell} mode={diffMode} />
+                  {preparedDiff.pair ? (
+                    <ApprovalDiff
+                      before={preparedDiff.pair.before}
+                      after={preparedDiff.pair.after}
+                      mode={diffMode}
+                    />
+                  ) : (
+                    <SheetCell background={matched.row.cell.background}>
+                      <RichCell cell={matched.row.cell} />
+                    </SheetCell>
+                  )}
                 </>
               ) : (
                 <SheetCell background={matched.row.cell.background}>
@@ -397,7 +448,17 @@ const PaneContents = memo(function PaneContents({
                   </a>
                 </p>
                 {!roomy && <div className={styles.diffModes}>{diffToggle}</div>}
-                <CompendiumDiff before={link.snapshot} after={match.row.cell} mode={diffMode} />
+                {preparedDiff.pair ? (
+                  <CompendiumDiff
+                    before={preparedDiff.pair.before}
+                    after={preparedDiff.pair.after}
+                    mode={diffMode}
+                  />
+                ) : (
+                  <SheetCell background={match.row.cell.background}>
+                    <RichCell cell={match.row.cell} />
+                  </SheetCell>
+                )}
                 {canReview && (
                   <div className={styles.actions}>
                     <button

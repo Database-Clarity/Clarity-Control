@@ -16,6 +16,7 @@ type Job = {
   promise: Promise<void>;
   resolve: () => void;
   reject: (error: unknown) => void;
+  signals: Set<AbortSignal>;
 };
 let serial = 0;
 let worker: Worker | undefined;
@@ -83,31 +84,52 @@ export function prepareCompendiumDiff(
     return;
   }
   const existing = pending.get(key);
-  if (existing) return existing.promise;
+  if (existing) {
+    attach(existing, signal);
+    return existing.promise;
+  }
   let resolve!: () => void;
   let reject!: (error: unknown) => void;
   const promise = new Promise<void>((done, fail) => {
     resolve = done;
     reject = fail;
   });
-  const job: Job = { id: ++serial, key, before, after, promise, resolve, reject };
+  const job: Job = {
+    id: ++serial,
+    key,
+    before,
+    after,
+    promise,
+    resolve,
+    reject,
+    signals: new Set(),
+  };
   pending.set(key, job);
   queue.push(job);
-  signal.addEventListener(
-    'abort',
-    () => {
-      // A running calculation may populate the content cache, but superseded
-      // queued targets never delay the newest target behind a worker backlog.
-      const index = queue.indexOf(job);
-      if (index < 0) return;
-      queue.splice(index, 1);
-      pending.delete(key);
-      reject(new DOMException('Pane target superseded', 'AbortError'));
-    },
-    { once: true },
-  );
+  attach(job, signal);
   dispatch();
   return promise;
+}
+
+function attach(job: Job, signal: AbortSignal) {
+  job.signals.add(signal);
+  const abort = () => {
+    if ([...job.signals].some((signal) => !signal.aborted)) return;
+    // A running calculation may populate the content cache, but superseded
+    // queued targets never delay the newest target behind a worker backlog.
+    const index = queue.indexOf(job);
+    if (index < 0) return;
+    queue.splice(index, 1);
+    pending.delete(job.key);
+    job.reject(new DOMException('Pane target superseded', 'AbortError'));
+  };
+  signal.addEventListener('abort', abort, { once: true });
+  if (signal.aborted) abort();
+}
+
+export function hasPreparedDiff(before: CompendiumCell, after: CompendiumCell) {
+  if (typeof Worker === 'undefined') preparedLines(before, after);
+  return cache.has(keyFor(before, after));
 }
 
 /** Other diff surfaces retain synchronous rendering, with the same bounded cache. */

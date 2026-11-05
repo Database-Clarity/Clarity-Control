@@ -12,10 +12,19 @@ import { useDraftStore } from '../../stores/drafts';
 import { useSettingsStore } from '../../stores/settings';
 import { useCompendiumStore } from './store';
 import { CompendiumPanel } from './CompendiumPanel';
-import { usePaneMatch } from './usePaneMatch';
 import * as diffCache from './compendiumDiffCache';
 
-vi.mock('./usePaneMatch', () => ({ usePaneMatch: vi.fn() }));
+const paneMatch = vi.hoisted(() => vi.fn());
+const matchState = vi.hoisted(() => ({
+  loading: false,
+  rows: undefined as Map<number, unknown> | undefined,
+}));
+vi.mock('./useDisplayMatches', () => ({
+  useDisplayMatches: () => ({
+    loading: matchState.loading,
+    matches: { get: (hash: number) => (matchState.rows ? matchState.rows.get(hash) : paneMatch()) },
+  }),
+}));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 vi.mock('../../services/api', () => ({ apiUrl: 'https://api.test' }));
@@ -43,7 +52,9 @@ const roots: Root[] = [];
 let width: number | undefined;
 
 beforeEach(() => {
-  vi.mocked(usePaneMatch).mockReturnValue(undefined);
+  paneMatch.mockReturnValue(undefined);
+  matchState.loading = false;
+  matchState.rows = undefined;
   const values = new Map<string, string>();
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => values.get(key) ?? null,
@@ -109,6 +120,32 @@ const diffViews = (host: ParentNode) =>
   host.querySelectorAll('[aria-label="Compendium diff view"]');
 
 describe('Compendium pane', () => {
+  it('retains the displayed match while a priority reply contains only the next tooltip', async () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    const oldBase = { ...linked, compendium: undefined };
+    const nextBase = { ...oldBase, hash: 6 };
+    const oldMatch = { status: 'ok', changed: false, tab, row };
+    const nextMatch = { ...oldMatch, row: { ...row, cell: cell('Next source row') } };
+    matchState.rows = new Map([[5, oldMatch]]);
+    const host = await mount(oldBase);
+    expect(host.textContent).toContain('New text');
+    matchState.rows = new Map([[6, nextMatch]]);
+    await act(async () => roots.at(-1)!.render(createElement(CompendiumPanel, { base: nextBase })));
+    expect(host.querySelector('aside')?.getAttribute('aria-busy')).toBe('true');
+    expect(host.textContent).toContain('New text');
+    expect(host.textContent).not.toContain('Next source row');
+    expect(button(host, 'Accept match (local draft)')?.disabled).toBe(true);
+    await act(async () => [...frames.values()][0](0));
+    expect(host.textContent).toContain('Next source row');
+    expect(host.querySelector('aside')?.hasAttribute('aria-busy')).toBe(false);
+  });
+
   it('ignores late diff preparation for a superseded tooltip', async () => {
     const frames = new Map<number, FrameRequestCallback>();
     let serial = 0;
@@ -120,15 +157,29 @@ describe('Compendium pane', () => {
     let resolveFirst!: () => void;
     let resolveLatest!: () => void;
     vi.spyOn(diffCache, 'prepareCompendiumDiff')
-      .mockReturnValueOnce(new Promise<void>(resolve => { resolveFirst = resolve; }))
-      .mockReturnValueOnce(new Promise<void>(resolve => { resolveLatest = resolve; }));
-    useCompendiumStore.setState({ data: { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] } } as never);
+      .mockReturnValueOnce(
+        new Promise<void>((resolve) => {
+          resolveFirst = resolve;
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise<void>((resolve) => {
+          resolveLatest = resolve;
+        }),
+      );
+    useCompendiumStore.setState({
+      data: { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] },
+    } as never);
     const host = await mount();
     const root = roots.at(-1)!;
-    await act(async () => root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 6 } })));
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 6 } })),
+    );
     expect(frames.size).toBe(0);
     expect(host.querySelector('aside')?.getAttribute('aria-busy')).toBe('true');
-    await act(async () => root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 7 } })));
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 7 } })),
+    );
     await act(async () => resolveFirst());
     expect(frames.size).toBe(0);
     await act(async () => resolveLatest());
@@ -224,7 +275,7 @@ describe('Compendium pane', () => {
     const original = useDraftStore.getState().updateDraft;
     useCompendiumStore.setState({ data: { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] } });
     useDraftStore.setState({ drafts: { 6: { base, next } }, updateDraft });
-    vi.mocked(usePaneMatch).mockReturnValue({ status: 'ok', changed: false, tab, row });
+    paneMatch.mockReturnValue({ status: 'ok', changed: false, tab, row });
     try {
       const host = await mount(base);
       expect(host.querySelector('[title="Matched automatically — not saved"]')?.textContent).toBe(
@@ -244,7 +295,7 @@ describe('Compendium pane', () => {
   });
 
   it('saved and draft links hide matcher provenance and expose draft review', async () => {
-    vi.mocked(usePaneMatch).mockReturnValue({ status: 'ok', changed: false, tab, row });
+    paneMatch.mockReturnValue({ status: 'ok', changed: false, tab, row });
     const host = await mount();
     expect(host.textContent).not.toContain('Accept match');
     expect(host.querySelector('[title="Matched automatically — not saved"]')).toBeNull();
@@ -425,7 +476,7 @@ it.each([4019266109, 2613226185, 1888882410, 3684445958])(
     expect(resolved.row.anchor?.row).toBe(item.name === 'Collective Demolition' ? 52 : 53);
     useDataStore.setState({ data: f.editor });
     useCompendiumStore.setState({ data: source });
-    vi.mocked(usePaneMatch).mockReturnValue(resolved);
+    paneMatch.mockReturnValue(resolved);
     const before = JSON.stringify([f.editor, source]);
     const host = await mount(base);
     expect(host.textContent).toContain('Compendium sheet changed since approval.');

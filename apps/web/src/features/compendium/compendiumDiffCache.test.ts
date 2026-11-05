@@ -94,3 +94,23 @@ it('ignores a stale worker fallback after that result has already completed', as
   await current;
   expect(preparedLines(before, latest)).toEqual(projectCompendiumDiff(before, latest));
 });
+
+it('keeps queued shared preparation when one consumer is cancelled', async () => {
+  const { prepareCompendiumDiff } = await setup();
+  const first = prepareCompendiumDiff(
+    cell('Saved A'),
+    cell('Current A'),
+    new AbortController().signal,
+  );
+  const a = new AbortController(),
+    b = new AbortController();
+  const shared = prepareCompendiumDiff(cell('Saved B'), cell('Current B'), a.signal);
+  expect(prepareCompendiumDiff(cell('Saved B'), cell('Current B'), b.signal)).toBe(shared);
+  a.abort();
+  const worker = FakeWorker.instances[0];
+  worker.complete();
+  await first;
+  expect(worker.requests).toHaveLength(2);
+  worker.complete();
+  await shared;
+});
