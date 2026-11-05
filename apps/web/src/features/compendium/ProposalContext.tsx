@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CompendiumMatch, CompendiumData } from '@clarity/core';
 import { RichCell } from './RichCell';
+import { deferContextCells } from './deferredContext';
 import styles from './MatchReview.module.scss';
 
 export function ProposalContext({
@@ -11,6 +12,7 @@ export function ProposalContext({
   source: CompendiumData;
 }) {
   const [contextOpen, setContextOpen] = useState(false);
+  const details = useRef<HTMLDetailsElement>(null);
   const grid = source.tabs.find((tab) => tab.gid === match?.tab.gid)?.grid ?? match?.tab.grid;
   const cells = useMemo(
     () =>
@@ -23,6 +25,9 @@ export function ProposalContext({
         : undefined,
     [match, contextOpen, grid],
   );
+  useLayoutEffect(() => {
+    if (details.current && cells?.length) return deferContextCells(details.current, cells);
+  }, [cells]);
   if (!match) return <p>No source location established. Use Pick other to search all tabs.</p>;
   return (
     <>
@@ -34,13 +39,14 @@ export function ProposalContext({
         <RichCell cell={match.row.cell} />
       </div>
       <details
+        ref={details}
         open={contextOpen}
         onToggle={(event) => setContextOpen(event.currentTarget.open)}
         className={styles.context}
       >
         <summary>Nearby sheet cells · {source.fetchedAt.slice(0, 10)}</summary>
         {cells?.map((cell) => (
-          <div key={`${cell.row}:${cell.col}`}>
+          <div key={`${match.tab.gid}:${cell.row}:${cell.col}`} data-context-cell>
             <small>
               R{cell.row} C{cell.col + 1}
             </small>

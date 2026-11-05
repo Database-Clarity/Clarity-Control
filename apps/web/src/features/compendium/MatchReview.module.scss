@@ -287,11 +287,17 @@
     margin-bottom: 0.5rem;
   }
   > div {
+    contain: inline-size layout style paint;
     content-visibility: auto;
     contain-intrinsic-size: auto 5rem;
     border-top: 1px solid #424e62;
     padding: 0.45rem;
     white-space: pre-wrap;
+  }
+  > div[hidden='until-found'] {
+    // Preserve a searchable native until-found box. The card's observer, Tab,
+    // and beforematch expose it before its text is needed.
+    content-visibility: hidden;
   }
   small {
     color: #a9b9d0;
