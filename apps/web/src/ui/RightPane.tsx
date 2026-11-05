@@ -11,14 +11,16 @@ export function RightPane({
   header,
   children,
   bodyRef,
+  className,
 }: {
   label: string;
   header: ReactNode;
   children: ReactNode;
   bodyRef?: Ref<HTMLDivElement>;
+  className?: string;
 }) {
   return (
-    <aside className={styles.pane} aria-label={label}>
+    <aside className={className ? `${styles.pane} ${className}` : styles.pane} aria-label={label}>
       {header}
       <div className={styles.body} ref={bodyRef}>
         {children}

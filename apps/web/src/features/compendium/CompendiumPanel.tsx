@@ -171,6 +171,7 @@ const PaneContents = memo(function PaneContents({
   const diffToggle = <CompendiumDiffModeToggle mode={diffMode} onChange={setDiffMode} />;
   return (
     <RightPane
+      className={styles.pane}
       label={`Compendium for ${item?.name ?? base.hash}`}
       bodyRef={bodyRef}
       header={

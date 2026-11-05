@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   diffCompendium,
   styleKey,
@@ -75,7 +75,13 @@ function changes(before: CompendiumCell, after: CompendiumCell): string[] {
         ];
   });
 }
-function StyleChange({ before, after }: { before: CompendiumCell; after: CompendiumCell }) {
+const StyleChange = memo(function StyleChange({
+  before,
+  after,
+}: {
+  before: CompendiumCell;
+  after: CompendiumCell;
+}) {
   const legibleOn = useLegibleOn();
   const singleRun = after.runs.length === 1 ? after.runs[0] : undefined;
   const [open, setOpen] = useState(false);
@@ -179,7 +185,7 @@ function StyleChange({ before, after }: { before: CompendiumCell; after: Compend
       </span>
     </span>
   );
-}
+});
 export function CompendiumDiff({
   before,
   after,
@@ -195,7 +201,10 @@ export function CompendiumDiff({
   const sideBySide = mode === 'before-after';
   // Links store no background; both sides sit on the row's current one.
   const background = after.background ?? before.background;
-  const lines = useMemo(() => preparedLines(before, after), [before, after]);
+  const lines = useMemo(
+    () => (sideBySide ? [] : preparedLines(before, after)),
+    [before, after, sideBySide],
+  );
   return (
     <section aria-label="Styled Compendium diff">
       {given === undefined && (
