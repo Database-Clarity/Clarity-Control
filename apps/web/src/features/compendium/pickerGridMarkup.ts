@@ -102,10 +102,11 @@ export function pickerGridHtml(
   columns: number,
   windowFirst = firstRow,
   windowLast = lastRow,
+  grid = false,
 ) {
   let cache = windows.get(tab);
   if (!cache) windows.set(tab, (cache = new Map()));
-  const key = `${firstRow}:${lastRow}:${columns}:${windowFirst}:${windowLast}`;
+  const key = `${firstRow}:${lastRow}:${columns}:${windowFirst}:${windowLast}:${grid}`;
   const cached = cache.get(key);
   if (cached !== undefined) return cached;
   const occupied = new Map<string, NonNullable<CompendiumSheet['grid']>[number]>();
@@ -132,6 +133,7 @@ export function pickerGridHtml(
       }
       const separator = (entry.rowSpan ?? 1) > 1 && isPickerSeparator(entry.cell);
       if (col !== entry.col || (!separator && row !== Math.max(firstRow, entry.row))) continue;
+      const placement = grid ? ` style="grid-column:span ${entry.colSpan ?? 1}"` : '';
       if (separator) {
         const start = Math.max(windowFirst, entry.row),
           end = Math.min(windowLast, entry.row + (entry.rowSpan ?? 1) - 1);
@@ -139,11 +141,11 @@ export function pickerGridHtml(
           row === pickerSeparatorLabelRow(entry, windowFirst, windowLast)
             ? pickerCellHtml(entry.cell)
             : '';
-        html += `<td class="${gridStyles.separator}" colspan="${entry.colSpan ?? 1}" data-cell="${entry.row}:${entry.col}" data-separator="true" data-start="${row === start}" data-end="${row === end}"><button type="button" class="${gridStyles.contents}" data-row="${entry.row}" data-col="${entry.col}" aria-pressed="false" data-separator-label="${row === pickerSeparatorLabelRow(entry, windowFirst, windowLast)}" aria-label="${escape(`Row ${entry.row}, column ${col + 1}: ${entry.cell.plain}`)}">${text}</button></td>`;
+        html += `<td class="${gridStyles.separator}" colspan="${entry.colSpan ?? 1}"${placement} data-cell="${entry.row}:${entry.col}" data-separator="true" data-start="${row === start}" data-end="${row === end}"><button type="button" class="${gridStyles.contents}" data-row="${entry.row}" data-col="${entry.col}" aria-pressed="false" data-separator-label="${row === pickerSeparatorLabelRow(entry, windowFirst, windowLast)}" aria-label="${escape(`Row ${entry.row}, column ${col + 1}: ${entry.cell.plain}`)}">${text}</button></td>`;
         continue;
       }
       const span = Math.min(entry.row + (entry.rowSpan ?? 1) - row, lastRow - row + 1);
-      html += `<td colspan="${entry.colSpan ?? 1}" rowspan="${span}" data-cell="${entry.row}:${entry.col}"><button type="button" class="${gridStyles.contents}" data-row="${entry.row}" data-col="${entry.col}" aria-pressed="false" aria-label="${escape(`Row ${entry.row}, column ${col + 1}: ${entry.cell.plain}`)}">${pickerCellHtml(entry.cell)}</button></td>`;
+      html += `<td colspan="${entry.colSpan ?? 1}" rowspan="${span}"${placement} data-cell="${entry.row}:${entry.col}"><button type="button" class="${gridStyles.contents}" data-row="${entry.row}" data-col="${entry.col}" aria-pressed="false" aria-label="${escape(`Row ${entry.row}, column ${col + 1}: ${entry.cell.plain}`)}">${pickerCellHtml(entry.cell)}</button></td>`;
     }
     html += '</tr>';
   }

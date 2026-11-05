@@ -31,6 +31,25 @@
   }
 }
 
+// A single independent row needs no native table sizing pass. Meaningful vertical
+// spans keep their native tables; both paths use exactly the same fixed tracks.
+table.rowGrid {
+  display: grid;
+  box-sizing: content-box;
+  border-left: 1px solid #657080;
+  colgroup {
+    display: none;
+  }
+  tbody,
+  tr {
+    display: contents;
+  }
+  td,
+  th {
+    border-left: 0;
+  }
+}
+
 // Each piece keeps the source width and identity, with only the merged cell's
 // outer border. Its hit target must not contribute a new minimum row height.
 table td.separator {

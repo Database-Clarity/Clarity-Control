@@ -2,6 +2,19 @@ import type { CompendiumSheet } from '@clarity/core';
 import { isPickerSeparator } from './pickerSeparators';
 
 export type PickerBand = { first: number; last: number };
+/** Only span-free rows can use independent fixed grid tracks. */
+export function pickerBandUsesGrid(tab: CompendiumSheet, band: PickerBand): boolean {
+  return (
+    band.first === band.last &&
+    !(tab.grid ?? []).some(
+      (entry) =>
+        (entry.rowSpan ?? 1) > 1 &&
+        entry.row <= band.last &&
+        entry.row + entry.rowSpan! > band.first &&
+        !isPickerSeparator(entry.cell),
+    )
+  );
+}
 /** Use the smallest native-span closure, so filling the pane never lays out surplus rows. */
 export function pickerBands(tab: CompendiumSheet, first: number, last: number): PickerBand[] {
   const bands: PickerBand[] = [];

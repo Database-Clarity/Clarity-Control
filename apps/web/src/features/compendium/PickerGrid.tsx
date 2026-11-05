@@ -5,7 +5,7 @@ import type { CompendiumCellOffset, CompendiumPosition, CompendiumSheet } from '
 import { pickerGridHtml } from './pickerGridMarkup';
 import styles from './Compendium.module.scss';
 import gridStyles from './PickerGrid.module.scss';
-import { pickerBands, type PickerBand } from './pickerBands';
+import { pickerBands, pickerBandUsesGrid, type PickerBand } from './pickerBands';
 
 const GridBand = memo(function GridBand({
   tab,
@@ -20,15 +20,22 @@ const GridBand = memo(function GridBand({
   firstRow: number;
   lastRow: number;
 }) {
+  const grid = useMemo(() => pickerBandUsesGrid(tab, band), [tab, band]);
   const markup = useMemo(
-    () => ({ __html: pickerGridHtml(tab, band.first, band.last, columns, firstRow, lastRow) }),
-    [tab, band, columns, firstRow, lastRow],
+    () => ({
+      __html: pickerGridHtml(tab, band.first, band.last, columns, firstRow, lastRow, grid),
+    }),
+    [tab, band, columns, firstRow, lastRow, grid],
   );
   return (
     <div className={gridStyles.band}>
       <table
-        className={styles.sheet}
-        style={{ tableLayout: 'fixed', width: `${5 + columns * 14}rem` }}
+        className={`${styles.sheet}${grid ? ` ${gridStyles.rowGrid}` : ''}`}
+        style={{
+          tableLayout: 'fixed',
+          width: `${5 + columns * 14}rem`,
+          ...(grid && { gridTemplateColumns: `5rem repeat(${columns}, 14rem)` }),
+        }}
       >
         <colgroup>
           <col style={{ width: '5rem' }} />
