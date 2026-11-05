@@ -37,6 +37,21 @@ let failedToken: number | undefined;
 let priority: (NonNullable<Request['priority']> & { id: number }) | undefined;
 let priorityPlan: { key: string; plan: ReturnType<typeof prepareMatchingPlan> } | undefined;
 const priorityProposals = new Map<number, ReviewProposal>();
+let loadingAsset: ReturnType<typeof loadPreparedAsset> | undefined;
+
+function loadPreparedAsset() {
+  const compressed = typeof DecompressionStream !== 'undefined';
+  return fetch(compressed ? compressedUrl : precomputedUrl, { priority: 'low' })
+    .then(async (response) => ({
+      encoded: response.ok
+        ? ((await (compressed ? compressedJson(response) : response.json())) as {
+            nodes: unknown[];
+            root: number;
+          })
+        : undefined,
+    }))
+    .catch((error: unknown) => ({ error }));
+}
 type Request = {
   id?: number;
   load?: { url: string };
@@ -183,9 +198,13 @@ async function process(data: Request) {
       // Begin planning-module I/O while the source is on the network. The handler
       // is already installed, so top-level awaits cannot drop incoming messages.
       void planningModules().catch(() => undefined);
-      source = await (
+      const fetchingSource = (
         await import('../../services/compendiumSource')
       ).fetchCompendiumSource(data.load.url);
+      // Uniform catalog prefetch overlaps source I/O instead of serializing it
+      // after priority planning. A selected reply never waits for this asset.
+      loadingAsset = loadPreparedAsset();
+      source = await fetchingSource;
       sendWorkerResult(emit, id, source);
       // Fingerprinting is independent of UI inputs; overlap it with source hydration.
       fingerprint = measured('source-fingerprint', () => matchingSessionFingerprint(source.tabs));
@@ -209,6 +228,8 @@ async function process(data: Request) {
       editor = input.editor;
       if (input.source) source = input.source;
       if (!source) throw new Error('Compendium source is not loaded.');
+      const asset = loadingAsset ?? loadPreparedAsset();
+      loadingAsset = undefined;
       precomputedDisplay = undefined;
       lastDisplay = undefined;
       priorityPlan = undefined;
@@ -232,13 +253,12 @@ async function process(data: Request) {
         proposals: Map<number, ReviewProposal>;
         display?: ReturnType<typeof displayMatches>;
       }>(`${import.meta.url}:prepared:${dataKey}`, async () => {
-        const compressed = typeof DecompressionStream !== 'undefined';
-        const response = await fetch(compressed ? compressedUrl : precomputedUrl);
-        if (response.ok) {
-          const encoded = (await (compressed ? compressedJson(response) : response.json())) as {
-            nodes: unknown[];
-            root: number;
-          };
+        const preparedAsset = await asset;
+        // A cache hit needs no asset; preserve the original failure behaviour on
+        // a miss without leaving an early prefetch rejection unhandled.
+        if ('error' in preparedAsset) throw preparedAsset.error;
+        const { encoded } = preparedAsset;
+        if (encoded) {
           const precomputed = decodePrecomputed(encoded.nodes, encoded.root) as {
             key: string;
             proposals: [number, ReviewProposal][];

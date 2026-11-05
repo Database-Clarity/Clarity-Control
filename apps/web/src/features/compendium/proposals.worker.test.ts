@@ -98,7 +98,9 @@ it('publishes selected review evidence before assets/full proposals, and reprior
   const asset = new Promise<void>((resolve) => {
     release = resolve;
   });
+  let assetRequests = 0;
   vi.stubGlobal('fetch', async () => {
+    assetRequests++;
     await asset;
     return new Response('', { status: 404 });
   });
@@ -159,6 +161,7 @@ it('publishes selected review evidence before assets/full proposals, and reprior
   type Priority = import('./matchingSessionPlanning').PriorityReview;
   const first = await request<Priority>(2, { priority: { token: 17, hash: 100, input } });
   expect(finished).toBe(false);
+  expect(assetRequests).toBe(1);
   expect(first.entry?.hash).toBe(100);
   expect(first.matches.get(100)?.row.name).toBe('Sample 100');
   const next = await request<Priority>(3, { priority: { token: 17, hash: 102, input } });
@@ -171,6 +174,7 @@ it('publishes selected review evidence before assets/full proposals, and reprior
   expect(pane).toEqual(first.matches);
   expect(pane.get(100)?.tab.grid).toBeUndefined();
   expect(pane.get(100)?.tab.rows).toEqual([]);
+  expect(assetRequests).toBe(1);
   release();
   await initialized;
   const full = await request<ReturnType<typeof import('./displayMatches').displayMatches>>(4, {
