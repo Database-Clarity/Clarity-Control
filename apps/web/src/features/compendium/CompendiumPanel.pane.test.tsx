@@ -140,9 +140,14 @@ const diffViews = (host: ParentNode) =>
   host.querySelectorAll('[aria-label="Compendium diff view"]');
 
 describe('Compendium pane', () => {
-  it.each(['desktop', 'phone'])(
-    'discards the inline picker on stepping while retaining its pane and source on %s',
-    async (mode) => {
+  it.each([
+    ['desktop', 'query'],
+    ['phone', 'query'],
+    ['desktop', 'close'],
+    ['phone', 'close'],
+  ])(
+    'discards the inline picker and restores %s focus from its %s control on stepping',
+    async (mode, focusedControl) => {
       const frames = new Map<number, FrameRequestCallback>();
       let serial = 0;
       vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
@@ -164,7 +169,7 @@ describe('Compendium pane', () => {
       const source = host.querySelector('[data-scale]');
       const query = host.querySelector<HTMLInputElement>('[aria-label="Picker query"]')!;
       query.value = 'Old picker state';
-      query.focus();
+      (focusedControl === 'close' ? button(host, 'Close picker')! : query).focus();
       await act(async () => {
         useSteppingActivity.setState({ active: true });
         root.render(

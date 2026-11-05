@@ -62,18 +62,41 @@ function InlineLinkPicker({ children, onStep }: { children: ReactNode; onStep():
   const stepping = useSteppingActivity((state) => state.active);
   const [closed, setClosed] = useState(false);
   const element = useRef<HTMLDivElement | null>(null);
+  const paneHadFocus = useRef(false);
   const steppingRef = useRef(stepping);
   steppingRef.current = stepping;
+  useLayoutEffect(
+    () =>
+      useSteppingActivity.subscribe((state, previous) => {
+        if (!state.active || previous.active) return;
+        // Capture before the commit disables the header toggle and the browser
+        // moves focus to the body. The toggle is outside the picker element.
+        const pane = element.current?.closest('aside');
+        paneHadFocus.current = !!pane?.contains(pane.ownerDocument.activeElement);
+      }),
+    [],
+  );
   const attach = useCallback((node: HTMLDivElement | null) => {
     const previous = element.current;
     element.current = node;
-    if (node || !steppingRef.current || !previous?.contains(previous.ownerDocument.activeElement))
+    if (
+      node ||
+      !steppingRef.current ||
+      !previous ||
+      (!paneHadFocus.current && !previous.contains(previous.ownerDocument.activeElement))
+    )
       return;
     const owner = previous.ownerDocument;
     // Restore focus after the commit. The finder is stable across document
     // swaps, and its focus handler lands the newest route before more input.
     queueMicrotask(() => {
-      if (owner.activeElement !== owner.body && owner.activeElement?.isConnected) return;
+      if (
+        owner.activeElement !== owner.body &&
+        owner.activeElement?.isConnected &&
+        !owner.activeElement.matches(':disabled') &&
+        !owner.activeElement.closest('[hidden], [inert]')
+      )
+        return;
       const finder = owner.querySelector<HTMLInputElement>('input[aria-label="Tooltip"]');
       const target =
         finder && !finder.disabled && !finder.closest('[hidden], [inert]')
