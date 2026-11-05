@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Tooltip } from '@clarity/core';
 import { preparedReviewLiveValue, takeReviewLiveRequest } from './liveRequest';
@@ -14,7 +14,7 @@ import { TooltipDiff } from '../history/TooltipDiff';
 import type { PendingTooltip } from './model';
 import styles from './Review.module.scss';
 
-export function ReviewDetail({ entry }: { entry: PendingTooltip }) {
+export const ReviewDetail = memo(function ReviewDetail({ entry }: { entry: PendingTooltip }) {
   const [live, setLive] = useState<
     { tooltip: Tooltip | null; pushedHash: string | null } | undefined
   >(() => preparedReviewLiveValue(entry.tooltip.hash));
@@ -126,4 +126,4 @@ export function ReviewDetail({ entry }: { entry: PendingTooltip }) {
       )}
     </section>
   );
-}
+});
