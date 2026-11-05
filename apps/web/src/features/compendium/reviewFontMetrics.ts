@@ -3,6 +3,45 @@ import type { CompendiumData } from '@clarity/core';
 
 const prepared = new WeakMap<CompendiumData, Set<string>>();
 const latin = Array.from({ length: 95 }, (_, index) => String.fromCharCode(32 + index)).join('');
+const reviewFamily =
+  'Arial, Helvetica, DestinySymbols, "Segoe UI Symbol", "Segoe UI Emoji", "Yu Gothic", sans-serif';
+
+/** The review module is prefetched during idle time, before its first navigation. */
+export function preloadReviewFontMetrics(source: CompendiumData) {
+  let cancelled = false;
+  let idle: number | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let cancel = () => {};
+  function prepare() {
+    if (cancelled) return;
+    if (
+      (
+        navigator as Navigator & {
+          scheduling?: { isInputPending(options: { includeContinuous: boolean }): boolean };
+        }
+      ).scheduling?.isInputPending({ includeContinuous: true })
+    ) {
+      schedule();
+      return;
+    }
+    cancel = warmReviewFontMetrics(
+      source,
+      reviewFamily,
+      parseFloat(getComputedStyle(document.documentElement).fontSize),
+    );
+  }
+  function schedule() {
+    if (typeof requestIdleCallback === 'function') idle = requestIdleCallback(prepare);
+    else timer = setTimeout(prepare, 16);
+  }
+  schedule();
+  return () => {
+    cancelled = true;
+    if (idle !== undefined) cancelIdleCallback(idle);
+    if (timer !== undefined) clearTimeout(timer);
+    cancel();
+  };
+}
 
 /** Populate text-face metrics only; uncommon glyphs can block in the OS font service. */
 export function warmReviewFontMetrics(source: CompendiumData, family: string, rem: number) {

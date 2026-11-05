@@ -56,7 +56,7 @@ import { ReviewDetails } from './ReviewDetails';
 import { useDisplayMatches } from './useDisplayMatches';
 import { rememberReviewPage } from './reviewPageComponent';
 import type { displayMatches } from './displayMatches';
-import { useReviewFontMetrics } from './reviewFontMetrics';
+import { preloadReviewFontMetrics, useReviewFontMetrics } from './reviewFontMetrics';
 
 const labels = {
   open: 'Unresolved',
@@ -246,6 +246,27 @@ export function MatchReviewPage() {
 }
 
 rememberReviewPage(MatchReviewPage);
+
+// CompendiumBadge already prefetches this module during idle time. Prepare all
+// source styles equally, with the same input-aware slices used by the page.
+if (typeof document !== 'undefined' && typeof Worker !== 'undefined') {
+  let cancelFonts = () => {};
+  const prepareFonts = () => {
+    cancelFonts();
+    const source = useCompendiumStore.getState().data;
+    cancelFonts = source ? preloadReviewFontMetrics(source) : () => {};
+  };
+  const unsubscribeFonts = useCompendiumStore.subscribe((state, previous) => {
+    if (state.data !== previous.data) prepareFonts();
+  });
+  prepareFonts();
+  window.addEventListener('clarity-ui-scale', prepareFonts);
+  import.meta.hot?.dispose(() => {
+    cancelFonts();
+    unsubscribeFonts();
+    window.removeEventListener('clarity-ui-scale', prepareFonts);
+  });
+}
 
 export function ReviewQueue({
   editor,

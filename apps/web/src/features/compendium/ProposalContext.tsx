@@ -45,8 +45,10 @@ export function ProposalContext({
         className={styles.context}
       >
         <summary>Nearby sheet cells · {source.fetchedAt.slice(0, 10)}</summary>
-        {cells?.map((cell) => (
-          <div key={`${match.tab.gid}:${cell.row}:${cell.col}`} data-context-cell>
+        {cells?.map((cell, index) => (
+          // Reuse each physical display slot across selections. React updates
+          // its text, styles, and links without remounting the whole sheet window.
+          <div key={index} data-context-cell>
             <small>
               R{cell.row} C{cell.col + 1}
             </small>

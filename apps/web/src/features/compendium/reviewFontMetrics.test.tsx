@@ -3,7 +3,11 @@ import { act, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { guidedFixture } from '../../../test/guided-fixture';
-import { useReviewFontMetrics, warmReviewFontMetrics } from './reviewFontMetrics';
+import {
+  preloadReviewFontMetrics,
+  useReviewFontMetrics,
+  warmReviewFontMetrics,
+} from './reviewFontMetrics';
 
 let pending: Map<number, IdleRequestCallback>;
 let now: number;
@@ -59,6 +63,28 @@ it('waits for idle time, pauses for pending input, yields after a slow unit, and
   tick();
   expect(calls).toHaveLength(1);
   expect(pending.size).toBe(1);
+  cancel();
+  expect(pending.size).toBe(0);
+});
+
+it('preloads the full source fairly while idle, and pauses before even reading the Editor style', async () => {
+  const styles = vi
+    .spyOn(window, 'getComputedStyle')
+    .mockReturnValue({ fontSize: '16px' } as CSSStyleDeclaration);
+  const cancel = preloadReviewFontMetrics(guidedFixture().source);
+  expect(styles).not.toHaveBeenCalled();
+  input = true;
+  tick();
+  expect(styles).not.toHaveBeenCalled();
+  input = false;
+  tick();
+  await Promise.resolve();
+  expect(styles).toHaveBeenCalledTimes(1);
+  tick();
+  expect(calls).toHaveLength(1);
+  input = true;
+  tick();
+  expect(calls).toHaveLength(1);
   cancel();
   expect(pending.size).toBe(0);
 });
