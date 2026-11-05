@@ -45,6 +45,23 @@ export function reviewSignature(tooltip: Tooltip): string {
   return stableStringify({ text, compendium: tooltip.compendium ?? null });
 }
 
+/** Match the signature without serializing both documents on every keystroke. */
+function sameReviewContent(left: Tooltip, right: Tooltip): boolean {
+  if (left === right) return true;
+  const languages = Object.keys(left.text) as (keyof Tooltip['text'])[];
+  if (languages.length !== Object.keys(right.text).length) return false;
+  for (const lang of languages) {
+    if (
+      !Object.hasOwn(right.text, lang) ||
+      (left.text[lang]?.text ?? '') !== (right.text[lang]?.text ?? '')
+    )
+      return false;
+  }
+  const leftLink = left.compendium ?? null;
+  const rightLink = right.compendium ?? null;
+  return leftLink === rightLink || stableStringify(leftLink) === stableStringify(rightLink);
+}
+
 export function changedVariants(
   before: Drafts,
   after: Drafts,
@@ -53,14 +70,14 @@ export function changedVariants(
   const changed: number[] = [];
   for (const [key, draft] of Object.entries(after)) {
     const was = before[key] ? before[key].next : draft.base;
-    if (reviewSignature(draft.next) !== reviewSignature(was)) changed.push(Number(key));
+    if (!sameReviewContent(draft.next, was)) changed.push(Number(key));
   }
   for (const [key, draft] of Object.entries(before)) {
     if (after[key]) continue;
     // The draft went away: reverted to base, discarded, or saved. What the reader sees changes
     // only when the text it falls back to differs from what the draft showed.
     const fallback = baseOf(Number(key)) ?? draft.base;
-    if (reviewSignature(fallback) !== reviewSignature(draft.next)) changed.push(Number(key));
+    if (!sameReviewContent(fallback, draft.next)) changed.push(Number(key));
   }
   return changed;
 }
