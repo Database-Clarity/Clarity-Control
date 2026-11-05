@@ -1,11 +1,132 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { holdSteppingKey, pulseStepping, useSteppingActivity } from './steppingActivity';
+import {
+  beginSteppingFrame,
+  holdSteppingKey,
+  pulseStepping,
+  recordSteppingWorkspaceWork,
+  useSteppingActivity,
+} from './steppingActivity';
 
 afterEach(() => {
   window.dispatchEvent(new Event('blur'));
   vi.runAllTimers();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+it('gives a costly frame and pending physical input room without extending the burst', () => {
+  vi.useFakeTimers();
+  let pending = false;
+  vi.stubGlobal('navigator', { scheduling: { isInputPending: () => pending } });
+  pulseStepping();
+  const finish = beginSteppingFrame();
+  expect(useSteppingActivity.getState().deferWorkspace).toBe(true);
+  vi.advanceTimersByTime(17);
+  finish();
+  recordSteppingWorkspaceWork(17);
+  pulseStepping();
+  beginSteppingFrame()();
+  expect(useSteppingActivity.getState().deferWorkspace).toBe(true);
+  beginSteppingFrame()();
+  expect(useSteppingActivity.getState().deferWorkspace).toBe(true);
+  vi.advanceTimersByTime(25);
+  beginSteppingFrame()();
+  expect(useSteppingActivity.getState().deferWorkspace).toBe(false);
+  pending = true;
+  beginSteppingFrame()();
+  expect(useSteppingActivity.getState().deferWorkspace).toBe(true);
+  vi.advanceTimersByTime(15);
+  expect(useSteppingActivity.getState()).toMatchObject({ active: false, deferWorkspace: false });
+});
+
+it('catches up on the next free frame and cancels obsolete handoffs on new input', () => {
+  vi.useFakeTimers();
+  let pending = true;
+  let nextId = 0;
+  const callbacks = new Map<number, FrameRequestCallback>();
+  const cancelled = vi.fn();
+  vi.stubGlobal('navigator', { scheduling: { isInputPending: () => pending } });
+  vi.stubGlobal('requestAnimationFrame', (run: FrameRequestCallback) => {
+    callbacks.set(++nextId, run);
+    return nextId;
+  });
+  vi.stubGlobal('cancelAnimationFrame', cancelled);
+  pulseStepping();
+  beginSteppingFrame()();
+  const obsolete = nextId;
+  vi.advanceTimersByTime(4);
+  pulseStepping();
+  expect(cancelled).toHaveBeenCalledWith(obsolete);
+  callbacks.get(obsolete)!(0);
+  expect(useSteppingActivity.getState().deferWorkspace).toBe(true);
+  beginSteppingFrame()();
+  pending = false;
+  vi.advanceTimersByTime(8);
+  callbacks.get(nextId)!(0);
+  expect(useSteppingActivity.getState()).toMatchObject({ active: true, deferWorkspace: false });
+});
+
+it('coalesces input activity without notifying React until the route frame', () => {
+  vi.useFakeTimers();
+  const changed = vi.fn();
+  const unsubscribe = useSteppingActivity.subscribe(changed);
+  for (let packet = 0; packet < 300; packet++) pulseStepping();
+  expect(changed).not.toHaveBeenCalled();
+  beginSteppingFrame()();
+  expect(changed).toHaveBeenCalledTimes(1);
+  expect(useSteppingActivity.getState()).toMatchObject({ active: true, deferWorkspace: true });
+  unsubscribe();
+});
+
+it('resumes the URL on a free frame while a costly async document still waits', () => {
+  vi.useFakeTimers();
+  let pending = true;
+  let nextId = 0;
+  const callbacks = new Map<number, FrameRequestCallback>();
+  vi.stubGlobal('navigator', { scheduling: { isInputPending: () => pending } });
+  vi.stubGlobal('requestAnimationFrame', (run: FrameRequestCallback) => {
+    callbacks.set(++nextId, run);
+    return nextId;
+  });
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const resume = vi.fn();
+  pulseStepping(undefined, resume);
+  beginSteppingFrame()();
+  recordSteppingWorkspaceWork(30);
+  pending = false;
+  vi.advanceTimersByTime(9);
+  callbacks.get(nextId)!(0);
+  expect(resume).toHaveBeenCalledOnce();
+  expect(useSteppingActivity.getState().deferWorkspace).toBe(true);
+  vi.advanceTimersByTime(29);
+  callbacks.get(nextId)!(0);
+  expect(useSteppingActivity.getState().deferWorkspace).toBe(false);
+});
+
+it('uses the boundary fallback frame directly instead of adding another URL handoff frame', () => {
+  vi.useFakeTimers();
+  let pending = true;
+  let nextId = 0;
+  const callbacks = new Map<number, FrameRequestCallback>();
+  vi.stubGlobal('navigator', { scheduling: { isInputPending: () => pending } });
+  vi.stubGlobal('requestAnimationFrame', (run: FrameRequestCallback) => {
+    callbacks.set(++nextId, run);
+    return nextId;
+  });
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const resume = vi.fn();
+  pulseStepping(undefined, resume);
+  beginSteppingFrame()();
+  recordSteppingWorkspaceWork(30);
+  pending = false;
+  vi.advanceTimersByTime(4);
+  pulseStepping();
+  const fallback = nextId;
+  vi.advanceTimersByTime(8);
+  callbacks.get(fallback)!(0);
+  expect(resume).toHaveBeenCalledOnce();
+  expect(useSteppingActivity.getState().deferWorkspace).toBe(true);
 });
 
 describe('physical navigation key holds', () => {

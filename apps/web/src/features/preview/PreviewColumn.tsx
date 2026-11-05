@@ -45,6 +45,11 @@ export interface PreviewColumnProps {
   onVariant(hash: number): void;
   /** Effects that acknowledge the current text, after its deferred render commits. */
   acknowledgement?: ReactNode;
+  /** Keep document parsing behind the urgent editor/header render during stepping. */
+  stepping?: boolean;
+  /** The current document committed and had an opportunity to paint. */
+  onDocumentPaint?(hash: number): void;
+  pendingDocument?: boolean;
 }
 
 const labels: Record<PreviewMode, string> = {
@@ -63,24 +68,51 @@ export function PreviewColumn(props: PreviewColumnProps) {
   const changedDocument = settled.hash !== props.hash || settled.lang !== props.lang;
   // A route change starts with the correct document immediately. Live edits wait
   // for a short input pause, so skipped text snapshots never parse or relayout.
-  if (changedDocument) setSettled(props);
+  if (changedDocument && !props.stepping) setSettled(props);
   useEffect(() => {
     if (settled === props) return;
-    const timer = setTimeout(() => startTransition(() => setSettled(props)), 40);
-    return () => clearTimeout(timer);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const settle = () => {
+      timer = setTimeout(() => startTransition(() => setSettled(props)), props.stepping ? 0 : 40);
+    };
+    // Paint the urgent editor and header before parsing the preview. New input
+    // cancels this snapshot instead of queuing intermediate documents.
+    const frame = props.stepping ? requestAnimationFrame(settle) : undefined;
+    if (!props.stepping) settle();
+    return () => {
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
   }, [props, settled]);
   const deferred = useDeferredValue(settled);
   // A different document/language must never display the previous one's contents.
   // Same-document typing can let the editor paint before parsing its live preview.
-  const content = deferred.hash === props.hash && deferred.lang === props.lang ? deferred : props;
+  const content =
+    props.stepping || (deferred.hash === props.hash && deferred.lang === props.lang)
+      ? deferred
+      : props;
+  const pendingDocument = content.hash !== props.hash || content.lang !== props.lang;
+  const onDocumentPaint = props.onDocumentPaint;
+  useEffect(() => {
+    if (pendingDocument || !onDocumentPaint) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const frame = requestAnimationFrame(() => {
+      timer = setTimeout(() => onDocumentPaint(content.hash), 0);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  }, [pendingDocument, content.hash, content.lang, onDocumentPaint]);
   return (
     <>
       <PreviewColumnBody
         {...content}
-        mode={props.mode}
-        variant={props.variant}
+        mode={content.hash === props.hash ? props.mode : content.mode}
+        variant={content.hash === props.hash ? props.variant : content.variant}
         onMode={props.onMode}
         onVariant={props.onVariant}
+        pendingDocument={pendingDocument}
       />
       {content === props && props.acknowledgement}
     </>
@@ -102,6 +134,7 @@ const PreviewColumnBody = memo(function PreviewColumnBody({
   onMode,
   variant,
   onVariant,
+  pendingDocument,
 }: PreviewColumnProps) {
   const selected = enhanced.find((entry) => entry.hash === variant) ?? enhanced[0];
   const effective: PreviewMode = selected ? mode : 'base';
@@ -167,7 +200,12 @@ const PreviewColumnBody = memo(function PreviewColumnBody({
   );
 
   return (
-    <section className={styles.column} aria-label={`${name} preview`}>
+    <section
+      className={styles.column}
+      aria-label={`${name} preview`}
+      aria-busy={pendingDocument || undefined}
+      data-tooltip-hash={hash}
+    >
       <TooltipPreview
         text={shown ? shown.text : baseText}
         lang={lang}

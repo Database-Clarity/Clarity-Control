@@ -6,6 +6,9 @@ import { IdentityMenu } from './IdentityMenu';
 import { ShellOverlay } from './ShellOverlay';
 import { FinderSheetContext } from './FinderSheetContext';
 import { WorkspaceList } from './WorkspaceTabs';
+import { useSteppingActivity } from './steppingActivity';
+import { useDataStore } from '../../stores/data';
+import { editorName, exoticPiece, itemFor } from './catalog';
 import styles from './PhoneHeader.module.scss';
 
 /**
@@ -36,6 +39,16 @@ export function PhoneHeader({
   /** Notices that hang from the header's lower edge without taking space. */
   overlay?: ReactNode;
 }) {
+  const target = useSteppingActivity((state) => state.target);
+  const data = useDataStore((state) => state.data);
+  const item =
+    target && pathname.startsWith('/t/') && data
+      ? itemFor(Number(target.split('/')[2].split('?')[0]), data)
+      : undefined;
+  if (item) {
+    title = exoticPiece(item) ? item.name : editorName(item);
+    kicker = exoticPiece(item) || undefined;
+  }
   const [sheet, setSheet] = useState<'workspaces' | 'finder' | null>(null);
   const menu = useRef<HTMLButtonElement>(null);
   const finderButton = useRef<HTMLButtonElement>(null);
@@ -56,6 +69,7 @@ export function PhoneHeader({
       {hasFinder ? (
         <button
           ref={finderButton}
+          data-tooltip-finder
           type="button"
           className={styles.title}
           aria-haspopup="dialog"

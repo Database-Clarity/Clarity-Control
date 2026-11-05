@@ -30,6 +30,8 @@
   --hair: #2a2f36;
   --pop-edge: #58606a;
   --ghost-edge: #454b53;
+  --skel: var(--hair);
+  --skel-shine: var(--ghost-edge);
   // Controls and fields
   --ctl: #2b2f35;
   --ctl-edge: #6c7480;
@@ -134,6 +136,8 @@
   --hair: #cfdde8;
   --pop-edge: #9fb6c6;
   --ghost-edge: #b5c9d8;
+  --skel: var(--hair);
+  --skel-shine: color-mix(in srgb, var(--hair), var(--raised) 65%);
   // Controls and fields
   --ctl: #ffffff;
   --ctl-edge: #6a8294;

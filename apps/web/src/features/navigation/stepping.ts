@@ -1,6 +1,6 @@
 import { langSchema } from '@clarity/core';
 
-export type NavigateTo = (path: string, options: { replace: boolean }) => void;
+export type NavigateTo = (path: string, options: { replace: boolean; flushSync?: boolean }) => void;
 
 export function stepWithinCategory(
   current: number,
@@ -13,7 +13,8 @@ export function stepWithinCategory(
 
 /** Tooltip route that keeps only a valid `?lang=`; `line`/`variant` highlights never carry over. */
 export function tooltipPath(hash: number, search: string): string {
-  const lang = langSchema.safeParse(new URLSearchParams(search).get('lang')).data;
+  const requested = new URLSearchParams(search).get('lang');
+  const lang = requested === null ? undefined : langSchema.safeParse(requested).data;
   return `/t/${hash}${lang ? `?lang=${lang}` : ''}`;
 }
 
@@ -28,8 +29,15 @@ export function stepTarget(
   location: { pathname: string; search: string },
   direction: number,
   hashes: readonly number[],
+  indexes?: ReadonlyMap<number, number>,
 ): StepTarget | undefined {
-  const next = stepWithinCategory(Number(location.pathname.split('/')[2]), direction, hashes);
+  const current = Number(location.pathname.split('/')[2]);
+  const index = indexes?.get(current);
+  const next = indexes
+    ? index === undefined
+      ? undefined
+      : hashes[index + direction]
+    : stepWithinCategory(current, direction, hashes);
   if (next === undefined) return undefined;
   const path = tooltipPath(next, location.search);
   const [pathname, search = ''] = path.split('?');
@@ -151,15 +159,22 @@ export interface SteppingGuard {
 export function createStepping(
   navigate: NavigateTo,
   guard?: SteppingGuard,
-  frames?: { request(run: () => void): number; cancel(id: number): void; allow?(): boolean },
+  frames?: {
+    request(run: () => void): number;
+    cancel(id: number): void;
+    allow?(): boolean;
+    end?(committed: boolean): void;
+  },
 ) {
   let origin: string | undefined;
   let destination: string | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let permittedAt: number | undefined;
   let frame: number | undefined;
+  let frameGeneration = 0;
   let landed: string | undefined;
-  function cancel() {
+  function cancel(committed = false) {
+    frameGeneration++;
     if (frame !== undefined) frames?.cancel(frame);
     frame = undefined;
     clearTimeout(timer);
@@ -167,12 +182,31 @@ export function createStepping(
     destination = undefined;
     landed = undefined;
     permittedAt = undefined;
+    frames?.end?.(committed);
+  }
+  function land(landNavigate: NavigateTo) {
+    if ((frames?.allow && !frames.allow()) || (guard && permittedAt !== guard.epoch())) {
+      destination = landed;
+      if (!destination) cancel();
+      return;
+    }
+    if (destination) {
+      landNavigate(destination, { replace: true, flushSync: true });
+      landed = destination;
+    }
+  }
+  function flush(landNavigate: NavigateTo = navigate) {
+    frameGeneration++;
+    if (frame !== undefined) frames?.cancel(frame);
+    frame = undefined;
+    land(landNavigate);
   }
   function commit() {
     // The two navigations restore the history shape of one gesture that was already allowed. If an
     // edit or a navigation happened since, that allowance is spent: leave history as it is.
     const valid = !guard || permittedAt === guard.epoch();
-    if (valid && origin && destination && origin !== destination) {
+    const committed = Boolean(valid && origin && destination && origin !== destination);
+    if (committed && origin && destination) {
       const [from, to] = [origin, destination];
       const run = () => {
         navigate(from, { replace: true });
@@ -181,7 +215,7 @@ export function createStepping(
       if (guard) guard.authorized(run);
       else run();
     }
-    cancel();
+    cancel(committed);
   }
   return {
     get target() {
@@ -201,26 +235,22 @@ export function createStepping(
       if (!frames) {
         navigate(to, { replace: true });
         landed = to;
-      } else if (frame === undefined)
+      } else if (frame === undefined) {
+        const generation = frameGeneration;
         frame = frames.request(() => {
+          if (generation !== frameGeneration) return;
           frame = undefined;
-          if ((frames.allow && !frames.allow()) || (guard && permittedAt !== guard.epoch())) {
-            // A dialog/list may have opened since the wheel packet was accepted. Keep
-            // the last landed route and never move the workspace behind its new owner.
-            destination = landed;
-            if (!destination) cancel();
-            return;
-          }
-          if (destination) {
-            navigate(destination, { replace: true });
-            landed = destination;
-          }
+          // The adapter publishes identity synchronously while the router can
+          // coalesce document work. A newly opened overlay still owns input.
+          land(navigate);
         });
+      }
       clearTimeout(timer);
       timer = setTimeout(commit, 1000);
       return true;
     },
     commit,
-    cancel,
+    flush,
+    cancel: () => cancel(),
   };
 }

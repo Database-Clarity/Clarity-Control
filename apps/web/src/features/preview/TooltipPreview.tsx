@@ -1,6 +1,12 @@
 import { ArchiveIcon } from '../archive/ArchiveIcon';
 import { languageLabel } from '../../languageLabels';
-import { memo, useId, useMemo, type ReactNode } from 'react';
+import { memo, useContext, useId, useMemo, type ReactNode } from 'react';
+import {
+  LivePreviewIdentity,
+  previewIdentityFor,
+  type PreviewIdentity,
+} from './LivePreviewIdentity';
+import { useSteppingActivity } from '../navigation/steppingActivity';
 import { Link } from 'react-router-dom';
 import {
   markupLanguage,
@@ -153,7 +159,6 @@ export function TooltipPreview({
     () => (replaced ? null : parseMarkup(text, globals)),
     [text, globals, replaced],
   );
-  const iconUrl = icon?.startsWith('/common/') ? `https://www.bungie.net${icon}` : icon;
   return (
     <section
       className={[styles.preview, fill ? styles.fill : ''].filter(Boolean).join(' ')}
@@ -161,18 +166,14 @@ export function TooltipPreview({
       aria-label={`${name} preview`}
     >
       <div className={styles.top}>
-        <header className={styles.header}>
-          {archiveIcon ? (
-            <ArchiveIcon icon={icon} />
-          ) : (
-            iconUrl && linkUrl(iconUrl) && <img className={styles.icon} src={iconUrl} alt="" />
-          )}
-          <div>
-            {piece && <div className={styles.piece}>{piece}</div>}
-            <div className={styles.name}>{name}</div>
-            {categoryLabel && <div className={styles.category}>{categoryLabel}</div>}
-          </div>
-        </header>
+        <PreviewHeader
+          name={name}
+          piece={piece}
+          icon={icon}
+          categoryLabel={categoryLabel}
+          archiveIcon={archiveIcon}
+          live={fill}
+        />
         {bar}
       </div>
       <div className={styles.description}>{children ?? <Lines lines={parsed?.lines ?? []} />}</div>
@@ -192,6 +193,40 @@ export function TooltipPreview({
         <AssociatedTooltips hash={tooltipHash} lang={lang} globals={globals} />
       )}
     </section>
+  );
+}
+
+function PreviewHeader(props: PreviewIdentity & { live: boolean }) {
+  const identity = useContext(LivePreviewIdentity);
+  const target = useSteppingActivity((state) => (props.live ? state.target : undefined));
+  const data = useDataStore((state) => (target ? state.data : null));
+  const urgent = useMemo(
+    () =>
+      target && data
+        ? previewIdentityFor(
+            canonicalHash(Number(target.split('/')[2].split('?')[0]), data),
+            data,
+            identity?.archiveIcon,
+          )
+        : undefined,
+    [target, data, identity?.archiveIcon],
+  );
+  const { name, piece, icon, categoryLabel, archiveIcon } =
+    urgent || (props.live && identity) || props;
+  const iconUrl = icon?.startsWith('/common/') ? `https://www.bungie.net${icon}` : icon;
+  return (
+    <header className={styles.header}>
+      {archiveIcon ? (
+        <ArchiveIcon icon={icon} />
+      ) : (
+        iconUrl && linkUrl(iconUrl) && <img className={styles.icon} src={iconUrl} alt="" />
+      )}
+      <div>
+        {piece && <div className={styles.piece}>{piece}</div>}
+        <div className={styles.name}>{name}</div>
+        {categoryLabel && <div className={styles.category}>{categoryLabel}</div>}
+      </div>
+    </header>
   );
 }
 

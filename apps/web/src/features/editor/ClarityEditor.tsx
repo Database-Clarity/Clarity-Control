@@ -8,7 +8,13 @@ import {
 } from '@codemirror/commands';
 import { bracketMatching, indentOnInput } from '@codemirror/language';
 import { search, searchKeymap } from '@codemirror/search';
-import { Compartment, EditorState, type Extension } from '@codemirror/state';
+import {
+  Annotation,
+  Compartment,
+  EditorState,
+  Transaction,
+  type Extension,
+} from '@codemirror/state';
 import {
   EditorView,
   keymap,
@@ -28,7 +34,7 @@ import { clarityHighlighting, clarityLanguage } from './language';
 import { tableFormattingTransaction } from './formatTable';
 import { editorScrollMargins } from './scrollMargins';
 import { rememberSearch, restoreSearch } from './searchMemory';
-import { rawMode, setSymbolReveal, symbolExtensions, toggleRawView } from './symbols';
+import { rawMode, setSymbolReveal, symbolExtensions, toggleRaw, toggleRawView } from './symbols';
 import { hasImportDependencies, validationDiagnostics } from './diagnostics';
 import { useEditorDiagnostics } from './useEditorDiagnostics';
 import { createCursorPosition } from './cursorPosition';
@@ -65,6 +71,9 @@ import type { UsageCorpus } from './suggest/usage';
 import type { ReferenceSources } from './references';
 import styles from './ClarityEditor.module.scss';
 
+// Loading another saved/draft document must never call the authoring callback.
+const documentLoad = Annotation.define<boolean>();
+
 export interface ClarityEditorProps {
   value: string;
   lang: Lang;
@@ -98,6 +107,8 @@ export interface ClarityEditorProps {
   findMemory?: boolean;
   /** Detach the expensive editor surface while selection input is still arriving. */
   suspended?: boolean;
+  /** Navigation keeps the text live without moving the DOM selection on each step. */
+  stepping?: boolean;
 }
 
 function configuration(
@@ -146,11 +157,14 @@ export function ClarityEditor({
   symbols = true,
   findMemory = true,
   suspended = false,
+  stepping = false,
 }: ClarityEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const wasSuspended = useRef(false);
   const restoreFocus = useRef(false);
+  const wasStepping = useRef(false);
+  const scrolled = useRef(false);
   if (suspended && !wasSuspended.current) restoreFocus.current = view.current?.hasFocus ?? false;
   wasSuspended.current = suspended;
   /** Fixed for the editor's lifetime: a stored form never joins the tab's find memory. */
@@ -187,9 +201,9 @@ export function ClarityEditor({
   initial.current = { value, lang, globals, readOnly, requireEnglish };
   const document = useRef({ tooltipHash, lang });
   const config = useRef(new Compartment());
+  const undo = useRef(new Compartment());
+  const historyUsed = useRef(false);
   const extensions = useRef<Extension[]>([]);
-  const configurationSlot = useRef(0);
-  const conflictSlot = useRef(0);
   const configured = useRef({ lang, globals, readOnly, requireEnglish });
   // Conflict blocks are checked as "mine" only (same offsets), so markers raise no markup errors.
   const diagnostics = useEditorDiagnostics(
@@ -261,6 +275,22 @@ export function ClarityEditor({
   }, [onChange]);
   useLayoutEffect(() => {
     const editor = view.current;
+    if (!editor) return;
+    if (stepping) {
+      wasStepping.current = true;
+      const selection = editor.dom.ownerDocument.getSelection();
+      // Retire an old DOM range only when another control owns focus. A focused
+      // editor must keep receiving native text/composition input during a burst.
+      if (
+        !editor.hasFocus &&
+        selection?.anchorNode &&
+        editor.contentDOM.contains(selection.anchorNode)
+      )
+        selection.removeAllRanges();
+    }
+  }, [stepping]);
+  useLayoutEffect(() => {
+    const editor = view.current;
     const container = host.current;
     if (!editor || !container) return;
     const owner = container.ownerDocument;
@@ -313,10 +343,15 @@ export function ClarityEditor({
       highlightActiveLine(),
       drawSelection(),
       EditorView.lineWrapping,
+      EditorView.domEventHandlers({
+        scroll(_event, editor) {
+          scrolled.current = editor.scrollDOM.scrollTop !== 0;
+        },
+      }),
       editorScrollMargins(),
       conflictExtensions(),
       initialConflicts,
-      history(),
+      undo.current.of(history()),
       search({ top: true }),
       indentOnInput(),
       bracketMatching(),
@@ -347,27 +382,28 @@ export function ClarityEditor({
       ]),
       initialConfiguration,
       EditorView.updateListener.of((update) => {
+        const loaded = update.transactions.some((tr) => tr.annotation(documentLoad));
         const raw = update.state.field(rawMode, false);
         if (raw !== undefined && raw !== rawRef.current) {
           rawRef.current = raw;
           setRawView(raw);
         }
         if (remembersFind.current) rememberSearch(update);
-        if (update.docChanged) callback.current(update.state.doc.toString());
+        if (update.docChanged && !loaded) callback.current(update.state.doc.toString());
         if (update.docChanged || update.selectionSet) {
+          if (!loaded) historyUsed.current = true;
           const head = update.state.selection.main.head;
           const line = update.state.doc.lineAt(head);
           cursor.set(line.number, head - line.from + 1);
         }
       }),
     ];
-    configurationSlot.current = extensions.current.indexOf(initialConfiguration);
-    conflictSlot.current = extensions.current.indexOf(initialConflicts);
     const editor = new EditorView({
       parent: host.current,
       state: EditorState.create({ doc: initial.current.value, extensions: extensions.current }),
     });
     view.current = editor;
+    editor.dom.dataset.tooltipHash = String(referenceLive.current.tooltipHash ?? '');
     document.current = {
       tooltipHash: referenceLive.current.tooltipHash,
       lang: initial.current.lang,
@@ -414,7 +450,22 @@ export function ClarityEditor({
     if (!editor) return;
     const switched = document.current.tooltipHash !== tooltipHash || document.current.lang !== lang;
     document.current = { tooltipHash, lang };
-    if (!switched && editor.state.doc.toString() === value) return;
+    const endingStep = !stepping && wasStepping.current;
+    if (endingStep) wasStepping.current = false;
+    if (!switched && editor.state.doc.toString() === value) {
+      if (
+        endingStep &&
+        (editor.state.selection.main.anchor !== 0 ||
+          editor.state.selection.main.head !== 0 ||
+          scrolled.current)
+      )
+        editor.dispatch({
+          selection: { anchor: 0 },
+          effects: EditorView.scrollIntoView(0, { y: 'start' }),
+          annotations: Transaction.addToHistory.of(false),
+        });
+      return;
+    }
     if (switched) {
       setPanel(null);
       setSuggestion(null);
@@ -425,37 +476,61 @@ export function ClarityEditor({
       rawRef.current = false;
       setRawView(false);
     }
-    // A different tooltip/language must never undo into the previous document.
-    const nextExtensions = [...extensions.current];
-    nextExtensions[configurationSlot.current] = config.current.of(
-      configuration(
-        lang,
-        globals,
-        readOnly,
-        requireEnglish,
-        references.current,
-        onSuggest.current,
-        chipHooks.current,
-      ),
-    );
-    nextExtensions[conflictSlot.current] = conflictConfig.current.of(conflictHostExtension());
+    const previous = configured.current;
+    const reconfigure =
+      previous.lang !== lang ||
+      previous.globals !== globals ||
+      previous.readOnly !== readOnly ||
+      previous.requireEnglish !== requireEnglish;
     configured.current = { lang, globals, readOnly, requireEnglish };
-    // Install the live compartments at creation: do not parse/decorate the new document
-    // with the first tooltip's globals and then repeat that work in a reconfiguration.
-    editor.setState(EditorState.create({ doc: value, extensions: nextExtensions }));
-    // The rebuilt state starts with find closed: bring back what was open.
-    if (remembersFind.current) restoreSearch(editor);
-  }, [value, lang, globals, readOnly, requireEnglish, tooltipHash, suspended, cursor]);
+    // Ordinary stepping is a single document transaction and retains the same
+    // plugins and extensions. Only a used history field needs the extra reset:
+    // mapping old undo deletions can resurrect text from another tooltip.
+    const reset = historyUsed.current
+      ? editor.state.update({ effects: undo.current.reconfigure([]) })
+      : undefined;
+    const from = reset?.state ?? editor.state;
+    const load = from.update({
+      changes: { from: 0, to: from.doc.length, insert: value },
+      ...(stepping ? {} : { selection: { anchor: 0 } }),
+      effects: [
+        ...(reset ? [undo.current.reconfigure(history())] : []),
+        ...(reconfigure
+          ? [
+              config.current.reconfigure(
+                configuration(
+                  lang,
+                  globals,
+                  readOnly,
+                  requireEnglish,
+                  references.current,
+                  onSuggest.current,
+                  chipHooks.current,
+                ),
+              ),
+            ]
+          : []),
+        ...(switched ? [toggleRaw.of(false)] : []),
+        // Reading scrollTop during the React commit forces layout of the new
+        // document. Let CodeMirror reset a scrolled view in its measure phase.
+        ...(!stepping || scrolled.current ? [EditorView.scrollIntoView(0, { y: 'start' })] : []),
+      ],
+      annotations: [documentLoad.of(true), Transaction.addToHistory.of(false)],
+    });
+    editor.update(reset ? [reset, load] : [load]);
+    historyUsed.current = false;
+    editor.dom.dataset.tooltipHash = String(tooltipHash ?? '');
+  }, [value, lang, globals, readOnly, requireEnglish, tooltipHash, suspended, stepping, cursor]);
 
   useLayoutEffect(() => {
     const editor = view.current;
     const owner = host.current?.ownerDocument;
-    if (suspended || !editor || !owner) return;
+    if (suspended || stepping || !editor || !owner) return;
     // Restore focus only after the landed document is installed. Focusing the
     // previous document first would measure and briefly expose its old caret.
     if (restoreFocus.current && owner.activeElement === owner.body) editor.focus();
     restoreFocus.current = false;
-  }, [suspended, tooltipHash, lang]);
+  }, [suspended, stepping, tooltipHash, lang]);
 
   useEffect(() => {
     if (suspended) return;
@@ -519,7 +594,7 @@ export function ClarityEditor({
       data-validation-pending={diagnostics.pending || undefined}
     >
       {markupRow && !readOnly && (
-        <MarkupRow key={`${tooltipHash}:${lang}`} view={view} globals={globals} usage={usage} />
+        <MarkupRow key={lang} view={view} globals={globals} usage={usage} />
       )}
       <div className={styles.textArea}>
         <div ref={host} className={styles.host} />
