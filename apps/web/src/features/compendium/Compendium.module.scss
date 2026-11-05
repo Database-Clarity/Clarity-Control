@@ -240,6 +240,8 @@
   background: #23844066;
   text-decoration: underline;
   text-decoration-color: #76f49c;
+  // Keep diff markers continuous, without per-glyph ink intersection work.
+  text-decoration-skip-ink: none;
 }
 .styleChange {
   display: inline;
