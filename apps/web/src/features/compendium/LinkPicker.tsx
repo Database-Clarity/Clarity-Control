@@ -31,7 +31,39 @@ export function LinkPicker({
   readOnly = false,
   suggestions,
   onReference,
-}: {
+  retainPrevious = false,
+}: LinkPickerProps) {
+  const [started, setStarted] = useState(false);
+  useEffect(() => {
+    if (!retainPrevious) return;
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => setStarted(true);
+    channel.port2.postMessage(null);
+    return () => {
+      channel.port1.close();
+      channel.port2.close();
+    };
+  }, [retainPrevious]);
+  return !retainPrevious || started ? (
+    <PreparedLinkPicker
+      {...{
+        base,
+        name,
+        category,
+        onLinked,
+        onBeforeLinked,
+        readOnly,
+        suggestions,
+        onReference,
+        retainPrevious,
+      }}
+    />
+  ) : (
+    <section className={`${gridStyles.picker} ${gridStyles.pendingOpen}`} aria-hidden="true" />
+  );
+}
+
+type LinkPickerProps = {
   base: Tooltip;
   name: string;
   category: string;
@@ -40,7 +72,21 @@ export function LinkPicker({
   readOnly?: boolean;
   suggestions?: CompendiumSuggestion[];
   onReference?(match: CompendiumMatch): void;
-}) {
+  /** Keep the caller's live previous surface visible while first-pane bands prepare. */
+  retainPrevious?: boolean;
+};
+
+function PreparedLinkPicker({
+  base,
+  name,
+  category,
+  onLinked,
+  onBeforeLinked,
+  readOnly = false,
+  suggestions,
+  onReference,
+  retainPrevious = false,
+}: LinkPickerProps) {
   const data = useCompendiumStore((state) => state.data);
   const user = useAuthStore((state) => state.user);
   const hydrated = useDraftStore((state) => state.hydrated);
@@ -113,6 +159,23 @@ export function LinkPicker({
     Record<string, { gid: string; row?: CompendiumMatch['row'] }>
   >({});
   const cellKey = `${gid}:${anchorRow?.rowIndex}:${anchorRow?.anchor?.col}`;
+  const [shownCellKey, setShownCellKey] = useState<string>();
+  const readySheets = useRef(new Set<string>());
+  const [readyInitial, setReadyInitial] = useState(initial);
+  const sheetInitial = useRef(initial);
+  if (sheetInitial.current !== initial) {
+    sheetInitial.current = initial;
+    readySheets.current.clear();
+  }
+  const openReady = !retainPrevious || (readyInitial === initial && !!shownCellKey);
+  const currentCellKey = useRef(cellKey);
+  currentCellKey.current = cellKey;
+  useEffect(() => {
+    if (!gid || readySheets.current.has(cellKey)) {
+      setShownCellKey(cellKey);
+      setReadyInitial(initial);
+    }
+  }, [cellKey, gid, initial]);
   const sheets =
     visited[cellKey] || !gid ? visited : { ...visited, [cellKey]: { gid, row: anchorRow } };
   useEffect(() => {
@@ -157,7 +220,11 @@ export function LinkPicker({
   if (!data) return null;
   const tab = data.tabs.find((tab) => tab.gid === gid);
   return (
-    <section className={gridStyles.picker} aria-label="Link a Compendium row">
+    <section
+      className={`${gridStyles.picker}${openReady ? '' : ` ${gridStyles.pendingOpen}`}`}
+      aria-label="Link a Compendium row"
+      data-picker-ready={openReady}
+    >
       <h3>Choose tab and row</h3>
       <label>
         Compendium tab{' '}
@@ -256,7 +323,26 @@ export function LinkPicker({
         const savedTab = data.tabs.find((entry) => entry.gid === saved.gid);
         return (
           savedTab && (
-            <div key={key} hidden={key !== cellKey}>
+            <div
+              key={key}
+              data-picker-sheet-state={
+                key === (retainPrevious ? shownCellKey : cellKey)
+                  ? 'active'
+                  : key === cellKey
+                    ? 'preparing'
+                    : 'inactive'
+              }
+              hidden={key !== cellKey && (!retainPrevious || key !== shownCellKey)}
+              className={
+                retainPrevious &&
+                openReady &&
+                shownCellKey &&
+                key === cellKey &&
+                key !== shownCellKey
+                  ? gridStyles.preparingSheet
+                  : undefined
+              }
+            >
               <CellPicker
                 tab={savedTab}
                 data={data}
@@ -264,6 +350,17 @@ export function LinkPicker({
                 onChoose={chooseLatest}
                 readOnly={!canEdit}
                 referenceOnly={!!onReference}
+                onReady={
+                  retainPrevious
+                    ? () => {
+                        readySheets.current.add(key);
+                        if (currentCellKey.current === key) {
+                          setShownCellKey(key);
+                          setReadyInitial(initial);
+                        }
+                      }
+                    : undefined
+                }
               />
             </div>
           )

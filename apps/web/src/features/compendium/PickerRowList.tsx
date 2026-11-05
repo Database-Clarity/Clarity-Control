@@ -1,6 +1,7 @@
 import { memo, useMemo } from 'react';
 import type { CompendiumRow } from '@clarity/core';
 import styles from './Compendium.module.scss';
+import gridStyles from './PickerGrid.module.scss';
 
 const escape = (text: string) =>
   text.replace(
@@ -54,7 +55,7 @@ export const PickerRowList = memo(function PickerRowList({
   );
   return (
     <ul
-      className={styles.rows}
+      className={`${styles.rows} ${gridStyles.rowList}`}
       dangerouslySetInnerHTML={markup}
       onClick={(event) => {
         const button = (event.target as HTMLElement).closest<HTMLButtonElement>(

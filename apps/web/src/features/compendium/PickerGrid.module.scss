@@ -4,6 +4,29 @@
   min-inline-size: 0;
 }
 
+.pendingOpen,
+.preparingSheet {
+  // Keep the real previous pane/grid visible and usable until the new visible
+  // bands are complete. Hidden content still receives native layout, one task
+  // per band; no placeholder or estimated row height reaches the user.
+  position: absolute;
+  visibility: hidden;
+  inline-size: 100%;
+  inset-inline: 0;
+}
+
+div:has(> .pendingOpen) {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+ul.rowList li {
+  // These at most 100 plain labels must have their real height before a hidden
+  // picker is revealed; an intrinsic placeholder would shift the grid afterward.
+  content-visibility: visible;
+}
+
 .viewport {
   contain: inline-size layout style paint;
   inline-size: 100%;

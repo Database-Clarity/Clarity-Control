@@ -56,6 +56,7 @@ export const PickerGrid = memo(function PickerGrid({
   anchor,
   offsets,
   onToggle,
+  onReady,
 }: {
   tab: CompendiumSheet;
   firstRow: number;
@@ -64,9 +65,13 @@ export const PickerGrid = memo(function PickerGrid({
   anchor: CompendiumPosition;
   offsets: CompendiumCellOffset[];
   onToggle(offset: CompendiumCellOffset): void;
+  onReady?(): void;
 }) {
   const body = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
+  const ready = useRef(onReady);
+  ready.current = onReady;
+  const staged = !!onReady;
   const bands = useMemo(() => pickerBands(tab, firstRow, lastRow), [tab, firstRow, lastRow]);
   const [state, setState] = useState({ bands, count: 1 });
   if (state.bands !== bands) setState({ bands, count: 1 });
@@ -74,11 +79,14 @@ export const PickerGrid = memo(function PickerGrid({
   useEffect(() => {
     if (bands.length < 2 || typeof ResizeObserver === 'undefined') {
       setState({ bands, count: bands.length });
+      ready.current?.();
       return;
     }
     let cancelled = false,
       frame = 0,
-      mounted = 1;
+      mounted = 1,
+      filling = true,
+      pending = false;
     const channel = new MessageChannel();
     const schedule = () => {
       if (cancelled || mounted >= bands.length) return;
@@ -87,9 +95,25 @@ export const PickerGrid = memo(function PickerGrid({
       });
     };
     channel.port1.onmessage = () => {
+      pending = false;
       if (cancelled || mounted >= bands.length) return;
-      setState({ bands, count: ++mounted });
-      schedule();
+      const inputPending = (
+        navigator as Navigator & {
+          scheduling?: { isInputPending(options: { includeContinuous: boolean }): boolean };
+        }
+      ).scheduling?.isInputPending({ includeContinuous: true });
+      if (inputPending) {
+        frame = requestAnimationFrame(() => channel.port2.postMessage(null));
+        return;
+      }
+      if (filling) {
+        // The live previous surface stays visible while this hidden band lays
+        // out. Its ResizeObserver notification decides whether another is needed.
+        flushSync(() => setState({ bands, count: ++mounted }));
+      } else {
+        setState({ bands, count: ++mounted });
+        schedule();
+      }
     };
     let contentHeight = 0,
       viewportHeight = 0,
@@ -100,6 +124,13 @@ export const PickerGrid = memo(function PickerGrid({
         if (entry.target === viewport.current) viewportHeight = entry.contentRect.height;
       }
       if (!first || !contentHeight || !viewportHeight) return;
+      if (staged && mounted < bands.length && contentHeight <= viewportHeight + 1) {
+        if (!pending) {
+          pending = true;
+          channel.port2.postMessage(null);
+        }
+        return;
+      }
       first = false;
       observer.disconnect();
       // Fill the pane before its first paint, using real band heights. Mounting
@@ -110,6 +141,8 @@ export const PickerGrid = memo(function PickerGrid({
         contentHeight = body.current!.getBoundingClientRect().height;
         viewportHeight = viewport.current!.clientHeight;
       }
+      filling = false;
+      if (ready.current) flushSync(() => ready.current?.());
       schedule();
     });
     observer.observe(body.current!);
@@ -121,7 +154,7 @@ export const PickerGrid = memo(function PickerGrid({
       channel.port1.close();
       channel.port2.close();
     };
-  }, [bands]);
+  }, [bands, staged]);
   const previousSelection = useRef<{ row: number; col: number }[]>([]);
   const previousLimit = useRef(false);
   useLayoutEffect(() => {

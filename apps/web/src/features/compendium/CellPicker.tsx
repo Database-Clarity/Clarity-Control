@@ -24,6 +24,7 @@ export const CellPicker = memo(function CellPicker({
   onChoose,
   readOnly = false,
   referenceOnly = false,
+  onReady,
 }: {
   tab: CompendiumSheet;
   data: CompendiumData;
@@ -31,6 +32,7 @@ export const CellPicker = memo(function CellPicker({
   readOnly?: boolean;
   referenceOnly?: boolean;
   onChoose(match: CompendiumMatch): void;
+  onReady?(): void;
 }) {
   const phone = useMedia(phoneQuery);
   const list = useRef<HTMLDivElement>(null);
@@ -44,6 +46,9 @@ export const CellPicker = memo(function CellPicker({
         ?.focus();
   }, [detail, phone]);
   const [anchor, setAnchor] = useState<CompendiumPosition | undefined>(initial?.anchor);
+  useEffect(() => {
+    if (phone || !anchor || !tab.grid) onReady?.();
+  }, [phone, anchor, tab, onReady]);
   const [query, setQuery] = useState('');
   const [offsets, setOffsets] = useState<CompendiumCellOffset[]>([]);
   const anchorCell = anchor && compendiumCellAt(tab, anchor);
@@ -174,6 +179,7 @@ export const CellPicker = memo(function CellPicker({
           )}
           {!phone && (
             <PickerGrid
+              onReady={onReady}
               tab={tab}
               firstRow={firstRow}
               lastRow={lastRow}

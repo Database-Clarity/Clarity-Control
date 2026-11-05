@@ -196,6 +196,7 @@ const PaneContents = memo(function PaneContents({
         {picking && canEdit && (
           <div className={styles.picker}>
             <LinkPicker
+              retainPrevious
               base={base}
               name={item?.name ?? base.custom?.name ?? ''}
               category={item?.categoryId ?? 'other'}
