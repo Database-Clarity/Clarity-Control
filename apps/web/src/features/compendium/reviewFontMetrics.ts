@@ -133,7 +133,27 @@ export function useReviewFontMetrics(
   useEffect(() => {
     if (!source || !article.current) return;
     let cancel = () => {};
+    let idle: number | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let disposed = false;
+    function clearScheduled() {
+      if (idle !== undefined) cancelIdleCallback(idle);
+      if (timer !== undefined) clearTimeout(timer);
+      idle = undefined;
+      timer = undefined;
+    }
     function prepare() {
+      if (disposed) return;
+      if (
+        (
+          navigator as Navigator & {
+            scheduling?: { isInputPending(options: { includeContinuous: boolean }): boolean };
+          }
+        ).scheduling?.isInputPending({ includeContinuous: true })
+      ) {
+        schedule();
+        return;
+      }
       cancel();
       if (!article.current) return;
       cancel = warmReviewFontMetrics(
@@ -142,11 +162,20 @@ export function useReviewFontMetrics(
         parseFloat(getComputedStyle(document.documentElement).fontSize),
       );
     }
-    prepare();
-    window.addEventListener('clarity-ui-scale', prepare);
+    function schedule() {
+      clearScheduled();
+      // React may flush this effect inside a navigation input task. Even the
+      // computed-style reads must wait until optional preparation can run.
+      if (typeof requestIdleCallback === 'function') idle = requestIdleCallback(prepare);
+      else timer = setTimeout(prepare, 16);
+    }
+    schedule();
+    window.addEventListener('clarity-ui-scale', schedule);
     return () => {
+      disposed = true;
+      clearScheduled();
       cancel();
-      window.removeEventListener('clarity-ui-scale', prepare);
+      window.removeEventListener('clarity-ui-scale', schedule);
     };
   }, [article, source]);
 }

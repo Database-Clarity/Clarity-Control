@@ -2,20 +2,8 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { deferContextCells } from './deferredContext';
 
-let pending: Map<number, () => void>;
-let input: boolean;
 let intersect: () => void;
 beforeEach(() => {
-  pending = new Map();
-  input = false;
-  let serial = 0;
-  vi.stubGlobal('scheduler', undefined);
-  vi.stubGlobal('navigator', { scheduling: { isInputPending: () => input } });
-  vi.stubGlobal('requestIdleCallback', (callback: () => void) => {
-    pending.set(++serial, callback);
-    return serial;
-  });
-  vi.stubGlobal('cancelIdleCallback', (id: number) => pending.delete(id));
   vi.stubGlobal(
     'IntersectionObserver',
     class {
@@ -61,26 +49,20 @@ function fixture() {
     },
   };
 }
-function tick() {
-  const [id, callback] = pending.entries().next().value!;
-  pending.delete(id);
-  callback();
-}
-it('keeps open context and text in the DOM, yields between offscreen cells, and pauses for input', () => {
+it('keeps open context, text, and links in the DOM without speculatively laying out offscreen cells', () => {
+  const schedule = vi.fn();
+  vi.stubGlobal('scheduler', { postTask: schedule });
+  vi.stubGlobal('requestIdleCallback', schedule);
   const { details, nodes, cells } = fixture();
   const cancel = deferContextCells(details, cells);
   expect(details.open).toBe(true);
   expect(details.textContent).toContain('Second link');
   expect(nodes.every((node) => node.getAttribute('hidden') === 'until-found')).toBe(true);
-  input = true;
-  tick();
+  intersect();
   expect(nodes.every((node) => node.hasAttribute('hidden'))).toBe(true);
-  input = false;
-  tick();
-  expect(nodes[0].hasAttribute('hidden')).toBe(false);
-  expect(nodes[1].hasAttribute('hidden')).toBe(true);
+  expect(details.querySelectorAll('a[href]')).toHaveLength(2);
+  expect(schedule).not.toHaveBeenCalled();
   cancel();
-  expect(pending.size).toBe(0);
   expect(nodes.some((node) => node.hasAttribute('hidden'))).toBe(false);
 });
 it('reveals browser Find results, and the next native Tab link, before those actions finish', () => {
@@ -102,10 +84,8 @@ it('reveals scrolled cells synchronously, and cancels callbacks when the context
   // The document is the scroll owner in the narrow layout.
   document.dispatchEvent(new Event('scroll'));
   expect(nodes.every((node) => !node.hasAttribute('hidden'))).toBe(true);
-  const callback = pending.values().next().value!;
   cancel();
   const reads = vi.mocked(nodes[0].getBoundingClientRect).mock.calls.length;
-  callback();
   intersect();
   expect(vi.mocked(nodes[0].getBoundingClientRect)).toHaveBeenCalledTimes(reads);
 });

@@ -121,6 +121,29 @@ it('cancels preparation when the review workspace unmounts', async () => {
   }
 });
 
+it('defers computed-style reads beyond navigation, and keeps them paused while input is pending', async () => {
+  const source = guidedFixture().source;
+  const styles = vi.spyOn(window, 'getComputedStyle');
+  function Review() {
+    const article = useRef<HTMLElement>(null);
+    useReviewFontMetrics(article, source);
+    return <article ref={article}>Review</article>;
+  }
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(<Review />));
+    expect(styles).not.toHaveBeenCalled();
+    input = true;
+    tick();
+    expect(styles).not.toHaveBeenCalled();
+    input = false;
+    await act(async () => tick());
+    expect(styles).toHaveBeenCalledTimes(2);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 it('uses cancellable background tasks between frames, and switches to idle waiting for input', async () => {
   let serial = 10000;
   const postTask = vi.fn(

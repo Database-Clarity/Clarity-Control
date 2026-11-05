@@ -2,7 +2,7 @@ import type { CompendiumCell } from '@clarity/core';
 
 const heights = new WeakMap<CompendiumCell, Map<string, number>>();
 
-/** Keep physical cells searchable, but lay out offscreen cells one at a time. */
+/** Keep physical cells searchable, and lay them out as they approach the viewport. */
 export function deferContextCells(
   details: HTMLDetailsElement,
   cells: readonly { cell: CompendiumCell }[],
@@ -20,16 +20,7 @@ export function deferContextCells(
     const height = heights.get(cells[index].cell)?.get(key);
     node.style.containIntrinsicBlockSize = height === undefined ? '5rem' : `${height}px`;
   }
-  const controller = new AbortController();
   let cancelled = false;
-  let idle: number | undefined;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const inputPending = () =>
-    (
-      navigator as Navigator & {
-        scheduling?: { isInputPending(options: { includeContinuous: boolean }): boolean };
-      }
-    ).scheduling?.isInputPending({ includeContinuous: true }) ?? false;
   function reveal(node: HTMLElement) {
     if (!pending.delete(node)) return;
     node.removeAttribute('hidden');
@@ -86,39 +77,9 @@ export function deferContextCells(
   document.addEventListener('scroll', revealVisible, { capture: true, passive: true });
   window.addEventListener('resize', revealVisible);
   revealVisible();
-  function prepare() {
-    if (cancelled) return;
-    if (!inputPending()) {
-      const next = pending.values().next().value;
-      if (next) reveal(next);
-    }
-    if (pending.size) schedule();
-  }
-  function schedule() {
-    const tasks = (
-      globalThis as typeof globalThis & {
-        scheduler?: {
-          postTask(
-            callback: () => void,
-            options: { priority: 'background'; signal: AbortSignal },
-          ): Promise<unknown>;
-        };
-      }
-    ).scheduler;
-    if (tasks && !inputPending())
-      void tasks
-        .postTask(prepare, { priority: 'background', signal: controller.signal })
-        .catch(() => {});
-    else if (typeof requestIdleCallback === 'function') idle = requestIdleCallback(prepare);
-    else timer = setTimeout(prepare, 16);
-  }
-  if (pending.size) schedule();
   return () => {
     cancelled = true;
-    controller.abort();
     observer.disconnect();
-    if (idle !== undefined) cancelIdleCallback(idle);
-    if (timer !== undefined) clearTimeout(timer);
     details.removeEventListener('beforematch', beforeMatch);
     details.removeEventListener('keydown', keyboard);
     document.removeEventListener('scroll', revealVisible, true);
