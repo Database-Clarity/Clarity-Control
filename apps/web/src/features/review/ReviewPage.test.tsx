@@ -417,6 +417,42 @@ it('commits two ArrowDown selections without waiting for any live GET', async ()
   }
 });
 
+it('retains both arrow intents before React effects flush, and resets them for an external URL', async () => {
+  const { router, requests } = await mountDelayedReview();
+  const down = () =>
+    document.body.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
+    );
+  try {
+    await act(async () => {
+      // Both events use the same committed keydown handler. Neither a router
+      // commit nor React's effects may be needed to retain the second intent.
+      down();
+      down();
+    });
+    expect(router.state.location.search).toBe('?hash=30');
+    expect(host.querySelector('[aria-label="Selected change"] h2')?.textContent).toBe('Abacus 30');
+    expect(requests.at(-1)!.hash).toBe(30);
+    await act(async () => router.navigate('/review?hash=10&query=Abacus'));
+    await act(async () => {
+      down();
+      down();
+    });
+    expect(router.state.location.search).toBe('?hash=30&query=Abacus');
+    await act(async () => router.navigate(-1));
+    expect(router.state.location.search).toBe('?hash=30');
+    await act(async () => {
+      document.body.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }),
+      );
+    });
+    expect(router.state.location.search).toBe('?hash=20');
+    expect(post).not.toHaveBeenCalled();
+  } finally {
+    router.dispose();
+  }
+});
+
 it('discards older same-item search responses, and aborts the comparison on unmount', async () => {
   const { router, requests } = await mountDelayedReview();
   try {

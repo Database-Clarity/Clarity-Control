@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { apiUrl } from '../../services/api';
 import { errorMessage } from '../../services/http';
 import { useAuthStore } from '../../stores/auth';
@@ -98,6 +98,17 @@ export function ReviewPage() {
     };
   }, [opening, openingToken]);
   const [searchParams, setSearchParams] = useSearchParams();
+  const routeLocation = useLocation();
+  const selectionIntent = useRef<{ params: URLSearchParams; targets: Set<string> }>();
+  useLayoutEffect(() => {
+    const intent = selectionIntent.current;
+    if (!intent) return;
+    const committed = searchParams.toString();
+    // An older queued selection can commit before the latest one. Retain the
+    // latest intent until it commits, or an external URL/Back navigation wins.
+    if (committed === intent.params.toString() || !intent.targets.delete(committed))
+      selectionIntent.current = undefined;
+  }, [searchParams, routeLocation.key]);
   const data = useDataStore((state) => state.data);
   const load = useDataStore((state) => state.load);
   const user = useAuthStore((state) => state.user);
@@ -205,11 +216,19 @@ export function ReviewPage() {
   const selectIndex = useCallback(
     (next: number | ((current: number) => number)) => {
       if (!visibleEntries.length) return;
-      const requested = typeof next === 'function' ? next(index) : next;
+      const intent = selectionIntent.current;
+      const params = new URLSearchParams(intent?.params ?? searchParams);
+      const pendingIndex = intent
+        ? visibleEntries.findIndex(({ tooltip }) => String(tooltip.hash) === params.get('hash'))
+        : -1;
+      const currentIndex = pendingIndex < 0 ? index : pendingIndex;
+      const requested = typeof next === 'function' ? next(currentIndex) : next;
       const entry = visibleEntries[stepIndex(requested, 0, visibleEntries.length)];
-      if (!entry || searchParams.get('hash') === String(entry.tooltip.hash)) return;
-      const params = new URLSearchParams(searchParams);
+      if (!entry || params.get('hash') === String(entry.tooltip.hash)) return;
       params.set('hash', String(entry.tooltip.hash));
+      const targets = intent?.targets ?? new Set<string>();
+      targets.add(params.toString());
+      selectionIntent.current = { params, targets };
       setSearchParams(params, { replace: true });
     },
     [index, searchParams, setSearchParams, visibleEntries],
@@ -236,7 +255,7 @@ export function ReviewPage() {
     setSidebarChanges(sidebarChanges(entries));
   }, [entries, loading, setSidebarChanges]);
   useEffect(() => {
-    if (loading) return;
+    if (loading || selectionIntent.current) return;
     const current = visibleEntries[index];
     const params = new URLSearchParams(searchParams);
     if (!current) {
@@ -278,7 +297,8 @@ export function ReviewPage() {
   const groups = [...new Set(page.map((entry) => entry.categoryId))];
 
   function updateFilters(queryValue: string, categoryValue: string) {
-    const params = new URLSearchParams(searchParams);
+    const params = new URLSearchParams(selectionIntent.current?.params ?? searchParams);
+    selectionIntent.current = undefined;
     if (queryValue) params.set('query', queryValue);
     else params.delete('query');
     if (categoryValue) params.set('category', categoryValue);
