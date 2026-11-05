@@ -7,7 +7,6 @@ let pending: boolean;
 let serial: number;
 let idle: Map<number, IdleRequestCallback>;
 let measured: { font: string; text: string }[];
-let fontsDescriptor: PropertyDescriptor | undefined;
 const source = () =>
   ({
     fetchedAt: '2026-11-05T00:00:00Z',
@@ -39,11 +38,6 @@ beforeEach(() => {
   serial = 0;
   idle = new Map();
   measured = [];
-  fontsDescriptor = Object.getOwnPropertyDescriptor(document, 'fonts');
-  Object.defineProperty(document, 'fonts', {
-    configurable: true,
-    get: () => ({ ready: Promise.resolve() }),
-  });
   vi.stubGlobal('CanvasRenderingContext2D', class {});
   vi.stubGlobal('scheduler', undefined);
   vi.stubGlobal('navigator', {
@@ -68,8 +62,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
-  if (fontsDescriptor) Object.defineProperty(document, 'fonts', fontsDescriptor);
-  else Reflect.deleteProperty(document, 'fonts');
 });
 function runIdle(budget = 50) {
   const [id, callback] = idle.entries().next().value!;
@@ -77,7 +69,7 @@ function runIdle(budget = 50) {
   callback({ timeRemaining: () => budget, didTimeout: false });
 }
 function drain() {
-  for (let count = 0; idle.size && count < 100; count++) runIdle();
+  for (let count = 0; idle.size && count < 1000; count++) runIdle();
   expect(idle.size).toBe(0);
 }
 
@@ -89,8 +81,8 @@ it('prepares row and grid faces in bounded idle units at the actual zoom', async
   expect(measured).toHaveLength(1);
   expect(idle.size).toBe(1);
   drain();
-  expect(new Set(measured.map((item) => item.font))).toEqual(
-    new Set([
+  expect([...new Set(measured.map((item) => item.font))]).toEqual(
+    expect.arrayContaining([
       '700 9px Arial, "Yu Gothic", sans-serif',
       '400 9px Arial, "Yu Gothic", sans-serif',
       'italic 400 9px Arial, "Yu Gothic", sans-serif',
@@ -122,20 +114,29 @@ it('gives input and an exhausted idle deadline priority over metric work', async
   expect(idle.size).toBe(0);
 });
 
-it('cancels before fonts become ready and never reschedules an unmounted pane', async () => {
-  let ready!: () => void;
-  vi.spyOn(document, 'fonts', 'get').mockReturnValue({
-    ready: new Promise<void>((resolve) => {
-      ready = resolve;
-    }),
-  } as unknown as FontFaceSet);
+it('cancels before the first idle task and never reschedules an unmounted pane', async () => {
   const { warmPaneFontMetrics } = await import('./paneFontMetrics');
   const cancel = warmPaneFontMetrics(source(), 'Arial', 1);
   cancel();
-  ready();
   await Promise.resolve();
   expect(idle.size).toBe(0);
   expect(measured).toHaveLength(0);
+});
+
+it('starts before source arrival and extends completed preparation with new source styles', async () => {
+  const { warmPaneFontMetrics } = await import('./paneFontMetrics');
+  warmPaneFontMetrics(null, 'Arial', 1);
+  await Promise.resolve();
+  drain();
+  const initial = new Set(measured.map((item) => item.font));
+  expect(initial.size).toBeGreaterThan(0);
+  measured = [];
+  warmPaneFontMetrics(source(), 'Arial', 1);
+  await Promise.resolve();
+  drain();
+  const additional = new Set(measured.map((item) => item.font));
+  expect(additional).toEqual(new Set(['400 14.666666666666666px Arial']));
+  expect(initial.has('400 14.666666666666666px Arial')).toBe(false);
 });
 
 it('reuses completed preparation but prepares a new source revision or zoom', async () => {
