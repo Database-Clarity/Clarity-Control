@@ -20,6 +20,8 @@
   }
   summary::marker {
     font-family: 'Segoe UI Symbol', sans-serif;
+    // Keep the text font's line box, rather than the symbol font's taller strut.
+    line-height: 0;
   }
   button,
   select,
