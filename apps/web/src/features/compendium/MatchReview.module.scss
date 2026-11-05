@@ -18,6 +18,9 @@
   h3 {
     font-size: 0.95rem;
   }
+  summary::marker {
+    font-family: 'Segoe UI Symbol', sans-serif;
+  }
   button,
   select,
   input {
@@ -70,6 +73,10 @@
     padding: 0 0.25rem;
     font-size: 0.75rem;
   }
+}
+.symbol {
+  // Match this glyph's existing fallback directly, without scanning text faces.
+  font-family: 'Segoe UI Symbol', sans-serif;
 }
 .entryReview {
   padding-bottom: 0;

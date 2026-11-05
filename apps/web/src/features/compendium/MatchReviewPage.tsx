@@ -989,7 +989,9 @@ export function ReviewQueue({
                   {() => <pre>{context}</pre>}
                 </ReviewDetails>
               ))}
-              <Link to={`/t/${selected.hash}`}>Inspect tooltip / draft ↗</Link>
+              <Link to={`/t/${selected.hash}`}>
+                Inspect tooltip / draft <span className={styles.symbol}>↗</span>
+              </Link>
             </section>
             <section className={styles.card} aria-label="Proposed source">
               <p className={styles.eyebrow}>
