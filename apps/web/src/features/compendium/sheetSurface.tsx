@@ -96,12 +96,13 @@ export function SheetCell({
 }
 
 /** Pane-header switch: the sheet's cell colours, or the editor surface (pressed = sheet colours). */
-export function SheetColoursToggle() {
+export function SheetColoursToggle({ disabled = false }: { disabled?: boolean } = {}) {
   const [surface, setSurface] = useCompendiumSurface();
   const sheet = surface === 'sheet';
   return (
     <button
       type="button"
+      disabled={disabled || undefined}
       className={styles.surfaceToggle}
       aria-pressed={sheet}
       aria-label="Sheet colours"

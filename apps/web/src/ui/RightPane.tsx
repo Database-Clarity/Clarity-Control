@@ -50,11 +50,13 @@ export function Segmented<T extends string>({
   value,
   options,
   onChange,
+  disabled,
 }: {
   label: string;
   value: T;
   options: readonly { value: T; label: string }[];
   onChange(value: T): void;
+  disabled?: boolean;
 }) {
   return (
     <span className={styles.segmented} role="group" aria-label={label}>
@@ -62,6 +64,7 @@ export function Segmented<T extends string>({
         <button
           key={option.value}
           type="button"
+          disabled={disabled || undefined}
           aria-pressed={value === option.value}
           onClick={() => onChange(option.value)}
         >

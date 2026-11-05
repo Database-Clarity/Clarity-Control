@@ -24,9 +24,11 @@ export function useCompendiumDiffMode(): [CompendiumDiffMode, (mode: CompendiumD
 export function CompendiumDiffModeToggle({
   mode,
   onChange,
+  disabled,
 }: {
   mode: CompendiumDiffMode;
   onChange(mode: CompendiumDiffMode): void;
+  disabled?: boolean;
 }) {
   return (
     <Segmented
@@ -34,6 +36,7 @@ export function CompendiumDiffModeToggle({
       value={mode}
       options={diffModeOptions}
       onChange={onChange}
+      disabled={disabled}
     />
   );
 }

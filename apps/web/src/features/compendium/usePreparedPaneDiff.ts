@@ -8,12 +8,15 @@ export function usePreparedPaneDiff(
   before: CompendiumCell | undefined,
   after: CompendiumCell | undefined,
   mode: CompendiumDiffMode,
+  paused = false,
 ) {
   const pair = useMemo(() => (before && after ? { before, after } : undefined), [before, after]);
   const [previous, setPrevious] = useState<typeof pair>();
   const [failure, setFailure] = useState<{ pair: typeof pair; error: unknown }>();
-  const pending = !!pair && mode === 'changes' && !hasPreparedDiff(pair.before, pair.after);
+  const pending =
+    !!pair && mode === 'changes' && (paused || !hasPreparedDiff(pair.before, pair.after));
   useEffect(() => {
+    if (paused) return;
     if (!pair) {
       setPrevious(undefined);
       return;
@@ -35,9 +38,9 @@ export function usePreparedPaneDiff(
       });
     else ready();
     return () => controller.abort();
-  }, [pair, pending]);
+  }, [pair, pending, paused]);
   const retained =
-    previous && hasPreparedDiff(previous.before, previous.after) ? previous : undefined;
+    previous && !paused && hasPreparedDiff(previous.before, previous.after) ? previous : undefined;
   if (mode === 'changes' && failure && failure.pair === pair) throw failure.error;
   return { pending, pair: pending ? retained : pair };
 }
