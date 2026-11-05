@@ -12,6 +12,7 @@ import { flushSync } from 'react-dom';
 import { resolveCompendiumLink, snapshotCompendium, sameCell, type Tooltip } from '@clarity/core';
 import { approvalEvidence } from './approvalEvidence';
 import { usePreparedPaneDiff } from './usePreparedPaneDiff';
+import { usePaneFontMetrics } from './paneFontMetrics';
 import { initializeCompendiumDiffWorker, prepareCompendiumDiff } from './compendiumDiffCache';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
@@ -248,6 +249,7 @@ const PaneContents = memo(function PaneContents({
   const [diffMode, setDiffMode] = useCompendiumDiffMode();
   const bodyRef = useRef<HTMLDivElement>(null);
   const width = useElementWidth(bodyRef);
+  usePaneFontMetrics(bodyRef, compendium, scale);
   // Unmeasured (no layout) counts as roomy; a narrow pane puts the switch above the diff instead.
   // Touch-sized controls (phone, coarse pointer) are wider than the measure below allows for.
   const phone = useMedia(phoneQuery);
