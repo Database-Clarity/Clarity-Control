@@ -18,6 +18,9 @@ const source = () =>
             cell: {
               runs: [
                 { text: 'Ordinary text', bold: true, sizePt: 9 },
+                { text: 'Same size, regular', sizePt: 9 },
+                { text: 'Same size, italic', italic: true, sizePt: 9 },
+                { text: 'Same size, both', bold: true, italic: true, sizePt: 9 },
                 { text: 'ツ 🛸', italic: true, sizePt: 7 },
                 { text: '' },
               ],
@@ -89,6 +92,9 @@ it('prepares row and grid faces in bounded idle units at the actual zoom', async
   expect(new Set(measured.map((item) => item.font))).toEqual(
     new Set([
       '700 9px Arial, "Yu Gothic", sans-serif',
+      '400 9px Arial, "Yu Gothic", sans-serif',
+      'italic 400 9px Arial, "Yu Gothic", sans-serif',
+      'italic 700 9px Arial, "Yu Gothic", sans-serif',
       'italic 400 7px Arial, "Yu Gothic", sans-serif',
       '400 10px Arial, "Yu Gothic", sans-serif',
       '400 11px Arial, "Yu Gothic", sans-serif',
