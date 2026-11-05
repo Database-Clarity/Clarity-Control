@@ -9,6 +9,7 @@ import { Layout } from './Layout';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
+import { useSteppingActivity } from './steppingActivity';
 
 vi.mock('../../services/save/SavePanel', () => ({
   SavePanel: () => null,
@@ -159,7 +160,7 @@ afterEach(async () => {
 
 describe('mounted Editor navigation interaction ownership', () => {
   it.each(['ArrowDown', 'Shift+wheel'])(
-    'keeps a burst suspended while %s continues at the category boundary',
+    'keeps stepping active and the document visible while %s continues at the category boundary',
     async (gesture) => {
       vi.useFakeTimers();
       try {
@@ -181,24 +182,27 @@ describe('mounted Editor navigation interaction ownership', () => {
           await vi.advanceTimersByTimeAsync(25);
         });
         expect(route()).toContain('/t/101');
-        expect(host.querySelector('article[aria-busy="true"]')).not.toBeNull();
+        expect(useSteppingActivity.getState().active).toBe(true);
+        expect(document.querySelector('[data-preview]')?.textContent).toBe('Deutsch 101');
         if (gesture === 'ArrowDown') {
           await act(async () => {
             await vi.advanceTimersByTimeAsync(600);
           });
-          expect(host.querySelector('article[aria-busy="true"]')).not.toBeNull();
+          expect(useSteppingActivity.getState().active).toBe(true);
+          expect(document.querySelector('[data-preview]')?.textContent).toBe('Deutsch 101');
         }
         await act(async () => {
           down();
           await vi.advanceTimersByTimeAsync(25);
         });
-        expect(host.querySelector('article[aria-busy="true"]')).not.toBeNull();
+        expect(useSteppingActivity.getState().active).toBe(true);
+        expect(document.querySelector('[data-preview]')?.textContent).toBe('Deutsch 101');
         await act(async () => {
           if (gesture === 'ArrowDown')
             field.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowDown', bubbles: true }));
           await vi.advanceTimersByTimeAsync(50);
         });
-        expect(host.querySelector('article[aria-busy="true"]')).toBeNull();
+        expect(useSteppingActivity.getState().active).toBe(false);
         expect(document.querySelector('[data-preview]')?.textContent).toBe('Deutsch 101');
       } finally {
         vi.useRealTimers();
