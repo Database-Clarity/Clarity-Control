@@ -1,4 +1,5 @@
 import { Component, Suspense, lazy, useState, type ComponentType, type ReactNode } from 'react';
+import { loadedWorkspacePage } from './workspacePreload';
 
 class LoadBoundary extends Component<{ children: ReactNode; retry(): void }, { failed: boolean }> {
   state = { failed: false };
@@ -22,12 +23,12 @@ class LoadBoundary extends Component<{ children: ReactNode; retry(): void }, { f
 
 export function AppLazyPage({ load }: { load: () => Promise<{ default: ComponentType }> }) {
   const [attempt, setAttempt] = useState(0);
-  const [Page, setPage] = useState(() => lazy(load));
+  const [Page, setPage] = useState(() => loadedWorkspacePage(load) ?? lazy(load));
   return (
     <LoadBoundary
       key={attempt}
       retry={() => {
-        setPage(() => lazy(load));
+        setPage(() => loadedWorkspacePage(load) ?? lazy(load));
         setAttempt((value) => value + 1);
       }}
     >

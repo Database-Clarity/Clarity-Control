@@ -18,8 +18,9 @@ import {
   type WorklistFilter,
 } from './worklist';
 import styles from '../drift/Status.module.scss';
+import landing from './TranslationsPage.module.scss';
 
-const pageSize = 50;
+const pageSize = 15;
 const filterLabels: Record<WorklistFilter, string> = {
   missing: 'Missing',
   outdated: 'Outdated',
@@ -40,7 +41,10 @@ function Cards({
         {entries.slice(0, limit).map((entry) => {
           const { tooltip, language, state } = entry;
           return (
-            <li key={`${tooltip.hash}:${language}`} className={`${styles.card} ${styles.workCard}`}>
+            <li
+              key={`${tooltip.hash}:${language}`}
+              className={`${styles.card} ${styles.workCard} ${landing.entry}`}
+            >
               <h2>
                 <Link className={styles.cardLink} to={entryPath(entry)}>
                   {nameOf(tooltip)}
@@ -49,7 +53,11 @@ function Cards({
               </h2>
               <p>
                 <span className={styles.badge}>{languageLabel(language)}</span>{' '}
-                <span className={state === 'missing' ? styles.warning : undefined}>
+                <span
+                  className={
+                    state === 'missing' ? `${styles.warning} ${landing.warning}` : undefined
+                  }
+                >
                   {state === 'missing' && 'Not translated yet'}
                   {state === 'current' && 'Up to date'}
                   {state === 'outdated' &&
@@ -73,7 +81,11 @@ function Cards({
         })}
       </ul>
       {entries.length > limit && (
-        <button type="button" onClick={() => setLimit(limit + pageSize)}>
+        <button
+          type="button"
+          data-perf-navigation="true"
+          onClick={() => setLimit(limit + pageSize)}
+        >
           Show more ({entries.length - limit} remaining)
         </button>
       )}
@@ -146,6 +158,7 @@ export function TranslationsPage() {
             <button
               key={filter}
               type="button"
+              data-perf-navigation="true"
               aria-pressed={status === filter}
               onClick={() => update({ status: filter === 'missing' ? null : filter })}
             >
@@ -157,6 +170,7 @@ export function TranslationsPage() {
         <label>
           Language
           <select
+            data-perf-navigation="true"
             value={language}
             onChange={(event) =>
               update({ lang: event.target.value === 'all' ? null : event.target.value })
