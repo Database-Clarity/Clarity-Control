@@ -332,9 +332,9 @@ it('reuses static category navigation while resetting inactive search and sample
   expect(guidance.querySelector('[aria-label^="Resolve sample "]')).toBeNull();
   expect(guidance.querySelector('input')).toBeNull();
   expect(list.querySelector('button')).toBe(category);
-  expect(list.scrollTop).toBe(0);
   await click('Back to category guidance');
   expect(guidance.hidden).toBe(false);
+  expect(list.scrollTop).toBe(0);
   expect(list.querySelector('button')).toBe(category);
   expect(categorySearch()).not.toBe(search);
   expect(guidance.querySelector('[aria-label^="Resolve sample "]')).not.toBe(sample);

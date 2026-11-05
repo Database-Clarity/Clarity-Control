@@ -109,11 +109,17 @@ export const CategoryReview = memo(
       categoryId: string;
       groups: GuidedCategory[];
     }>();
+    const previousActive = useRef(active);
     useLayoutEffect(() => {
+      const wasActive = previousActive.current;
+      previousActive.current = active;
+      if (wasActive === active) return;
       // Only static navigation nodes survive an entry visit. Reset the same local
-    // state and scroll position that a fresh category view previously received,
-    // including any late status from an asynchronous action while inactive.
-      if (categoryButtons.current) categoryButtons.current.scrollTop = 0;
+      // state and scroll position that a fresh category view previously received,
+      // including any late status from an asynchronous action while inactive.
+      // A fresh mount already starts at zero. Avoid forcing its initial layout
+      // during the commit; restore retained scroll only when showing it again.
+      if (active && categoryButtons.current) categoryButtons.current.scrollTop = 0;
       setDeliveryStatus(null);
       setLocalQuery('');
       setLocalCategoryId('');
