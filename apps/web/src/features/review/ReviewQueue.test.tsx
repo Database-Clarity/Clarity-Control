@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { MemoryRouter, useLocation, useNavigationType } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import { ReviewQueue } from './ReviewQueue';
+import { advanceReviewOpening, beginReviewOpening, useReviewOpening } from './opening';
 
 it('bounds a long queue, reveals deep URL selections, and keeps keyboard access across windows', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -338,5 +339,97 @@ it('preserves native link modifiers and current-route replacement with one queue
   } finally {
     await act(async () => root.unmount());
     host.remove();
+  }
+});
+
+it('retains a keyboard activation and wheel delta during the readonly opening', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  let serial = 0;
+  const frames = new Map<number, FrameRequestCallback>();
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    frames.set(++serial, callback);
+    return serial;
+  });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+  const height = vi.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(400);
+  const bounds = vi
+    .spyOn(Element.prototype, 'getBoundingClientRect')
+    .mockReturnValue({ height: 64 } as DOMRect);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  let changes = Array.from({ length: 1000 }, (_, hash) => ({
+    hash,
+    name: `Tooltip ${hash}`,
+    category: 'Perk',
+  }));
+  function Queue() {
+    const location = useLocation();
+    return (
+      <>
+        <ReviewQueue
+          changes={changes}
+          selectedHash={new URLSearchParams(location.search).get('hash')}
+        />
+        <output>{location.pathname + location.search}</output>
+      </>
+    );
+  }
+  try {
+    beginReviewOpening();
+    const token = useReviewOpening.getState().token;
+    await act(async () =>
+      root.render(
+        <MemoryRouter initialEntries={['/review?hash=0']}>
+          <Queue />
+        </MemoryRouter>,
+      ),
+    );
+    const scroller = host.querySelector<HTMLElement>(
+      '[aria-label="Scroll pending saved changes"]',
+    )!;
+    await act(async () => scroller.focus());
+    await act(async () =>
+      scroller.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true }),
+      ),
+    );
+    await act(async () =>
+      scroller.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      ),
+    );
+    expect(host.querySelector('output')?.textContent).toBe('/review?hash=0');
+    changes = [...changes].reverse();
+    await act(async () =>
+      root.render(
+        <MemoryRouter initialEntries={['/review?hash=0']}>
+          <Queue />
+        </MemoryRouter>,
+      ),
+    );
+    const top = scroller.scrollTop;
+    await act(async () =>
+      scroller.dispatchEvent(
+        new WheelEvent('wheel', { deltaY: -128, bubbles: true, cancelable: true }),
+      ),
+    );
+    const batch = [...frames];
+    frames.clear();
+    await act(async () => batch.forEach(([, callback]) => callback(performance.now())));
+    expect(scroller.scrollTop).toBe(top - 128);
+    while (useReviewOpening.getState().warming)
+      await act(async () => {
+        advanceReviewOpening(token);
+      });
+    expect(host.querySelector('output')?.textContent).toBe('/review?hash=999');
+    expect(document.activeElement?.getAttribute('data-review-hash')).toBe('999');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    useReviewOpening.setState({ warming: false, limit: Infinity, required: 0 });
+    height.mockRestore();
+    bounds.mockRestore();
+    vi.unstubAllGlobals();
   }
 });

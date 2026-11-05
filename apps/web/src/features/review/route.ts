@@ -5,6 +5,7 @@ import { acknowledgedMarkers } from './session';
 import { startReviewLiveRequest } from './liveRequest';
 import { useAuthStore } from '../../stores/auth';
 import { apiUrl } from '../../services/api';
+import { beginReviewOpening } from './opening';
 
 export function initialReviewParams(
   params: URLSearchParams,
@@ -54,5 +55,6 @@ export async function reviewRoute({ request }: LoaderFunctionArgs) {
     // The detail consumes this same promise and presents failures with Retry.
     await startReviewLiveRequest(Number(hash), request.signal).catch(() => {});
   }
+  if (!request.signal.aborted) beginReviewOpening();
   return null;
 }

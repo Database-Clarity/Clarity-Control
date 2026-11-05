@@ -63,6 +63,7 @@ async function waitForReview() {
   await waitFor(() => {
     expect(useDataStore.getState().status).toBe('ready');
     expect(host.textContent).not.toContain('Comparing publishable content...');
+    expect(host.querySelector('article[aria-busy=true]')).toBeNull();
     expect(button('Refresh saved changes')).toBeDefined();
   });
 }
@@ -241,6 +242,55 @@ it('canonicalizes a plain data-router open with one live request and preserves B
     await waitFor(() => expect(router.state.location.search).toBe('?hash=10'));
     expect(liveRequests()).toHaveLength(2);
     expect(mountedSearches).toEqual(['?hash=10', '?hash=10']);
+  } finally {
+    router.dispose();
+  }
+});
+
+it('keeps the opening readonly and applies queued row navigation when it becomes interactive', async () => {
+  bundle.tooltips[20] = { ...structuredClone(tooltip), hash: 20 };
+  await useDataStore.getState().load();
+  await pendingTooltips(useDataStore.getState().data!);
+  let serial = 0;
+  const frames = new Map<number, FrameRequestCallback>();
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    frames.set(++serial, callback);
+    return serial;
+  });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+  const router = createMemoryRouter(
+    [
+      { path: '/other', element: <p>Other workspace</p> },
+      { path: '/review', element: <ReviewPage />, loader: reviewRoute },
+    ],
+    { initialEntries: ['/other'] },
+  );
+  try {
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await act(async () => router.navigate('/review'));
+    const fieldset = host.querySelector('fieldset')!;
+    expect(fieldset.disabled).toBe(true);
+    expect(host.querySelector<HTMLElement>('article')!.inert).toBe(true);
+    await act(async () => host.querySelector<HTMLInputElement>('input[type=checkbox]')!.click());
+    expect(host.textContent).toContain('0 selected');
+    await act(async () =>
+      document.body.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
+      ),
+    );
+    expect(router.state.location.search).toBe('?hash=10');
+    for (let round = 0; round < 12 && frames.size; round++) {
+      const batch = [...frames];
+      frames.clear();
+      await act(async () => {
+        batch.forEach(([, callback]) => callback(performance.now()));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    }
+    await waitFor(() => expect(router.state.location.search).toBe('?hash=20'));
+    expect(fieldset.disabled).toBe(false);
+    expect(host.querySelector<HTMLElement>('article')!.inert).toBe(false);
+    expect(host.textContent).toContain('0 selected');
   } finally {
     router.dispose();
   }

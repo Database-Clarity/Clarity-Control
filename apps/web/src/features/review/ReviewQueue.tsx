@@ -3,6 +3,7 @@ import { flushSync } from 'react-dom';
 import { useHref, useLocation, useNavigate } from 'react-router-dom';
 import type { SidebarPendingChange } from '../navigation/sidebarQueue';
 import styles from './ReviewQueue.module.scss';
+import { requireReviewRows, useReviewOpening } from './opening';
 
 const defaultRowHeight = 64;
 const overscan = 1;
@@ -48,6 +49,17 @@ export function ReviewQueue({
   const currentHash =
     selectedHash ?? (!location.search && changes[0] ? String(changes[0].hash) : null);
   const [focusIndex, setFocusIndex] = useState<number>();
+  const warming = useReviewOpening((state) => state.warming);
+  const openingLimit = useReviewOpening((state) => state.limit);
+  const openingToken = useReviewOpening((state) => state.token);
+  const pendingOpen = useRef<number>();
+  const restoringOpen = useRef<number>();
+  const pendingReveal = useRef<number>();
+  const previousChanges = useRef(changes);
+  useLayoutEffect(() => {
+    if (previousChanges.current !== changes && warming) useReviewOpening.setState({ limit: 0 });
+    previousChanges.current = changes;
+  }, [changes, warming]);
   // Start from the CSS viewport's default 37px header + 7rem allowance, avoiding
   // an oversized provisional window at the ordinary scale. Native observation
   // corrects other font sizes and viewport bounds before paint, without reads.
@@ -134,26 +146,54 @@ export function ReviewQueue({
     observer.observe(sizer.current!);
     return () => observer.disconnect();
   }, []);
-  useEffect(() => {
+  useLayoutEffect(() => {
     cancelWheel();
     const index = changes.findIndex((entry) => String(entry.hash) === selectedHash);
-    const element = host.current!;
     if (index < 0) return;
     const top = index * rowHeight;
     // ResizeObserver and scroll events already supply these bounds. Reading DOM
     // geometry here flushes the entire newly mounted workspace's layout.
     const viewport = observedViewport.current;
     if (top < viewport.top || top + rowHeight > viewport.top + viewport.height) {
-      element.scrollTop = top;
-      setViewport((previous) => ({ ...previous, top }));
+      const destination = Math.max(0, Math.min(changes.length * rowHeight - viewport.height, top));
+      if (destination === viewport.top) return;
+      pendingReveal.current = destination;
+      setViewport((previous) => ({ ...previous, top: destination }));
     }
   }, [cancelWheel, changes, selectedHash, rowHeight, viewport.height]);
+  useLayoutEffect(() => {
+    if (pendingReveal.current !== viewport.top) return;
+    pendingReveal.current = undefined;
+    host.current!.scrollTop = viewport.top;
+  }, [viewport.top]);
   useEffect(() => {
-    if (focusIndex !== undefined)
+    if (warming || pendingOpen.current !== undefined) return;
+    if (restoringOpen.current !== undefined) {
+      if (selectedHash !== String(restoringOpen.current)) return;
+      const link = host.current?.querySelector<HTMLAnchorElement>(
+        `[data-review-hash="${restoringOpen.current}"]`,
+      );
+      if (link) {
+        restoringOpen.current = undefined;
+        link.focus({ preventScroll: true });
+      }
+      return;
+    }
+    if (!warming && focusIndex !== undefined)
       host.current
         ?.querySelector<HTMLAnchorElement>(`[data-index="${focusIndex}"] a`)
         ?.focus({ preventScroll: true });
-  }, [focusIndex]);
+  }, [focusIndex, warming, selectedHash, viewport.top]);
+  useEffect(() => {
+    if (warming || pendingOpen.current === undefined) return;
+    const hash = pendingOpen.current;
+    pendingOpen.current = undefined;
+    if (changes.some((change) => change.hash === hash)) {
+      restoringOpen.current = hash;
+      setFocusIndex(undefined);
+      void navigate(`${href}?hash=${hash}`);
+    }
+  }, [warming, changes, navigate, href]);
   const start = Math.max(
     0,
     Math.min(changes.length - 1, Math.floor(viewport.top / rowHeight)) - overscan,
@@ -166,6 +206,8 @@ export function ReviewQueue({
   // A wheel scroll must not unmount the focused anchor and silently move focus to <body>.
   if (focusIndex !== undefined && focusIndex < changes.length && !indices.includes(focusIndex))
     indices.push(focusIndex);
+  useLayoutEffect(() => requireReviewRows(indices.length), [indices.length, openingToken]);
+  const renderedIndices = warming ? indices.slice(0, openingLimit) : indices;
   return (
     <div
       ref={host}
@@ -173,6 +215,7 @@ export function ReviewQueue({
       style={{ height: changes.length * rowHeight }}
       tabIndex={0}
       aria-label="Scroll pending saved changes"
+      aria-busy={warming || undefined}
       onClick={(event) => {
         if (
           event.defaultPrevented ||
@@ -208,19 +251,28 @@ export function ReviewQueue({
         if (row) setFocusIndex(Number(row.dataset.index));
       }}
       onBlurCapture={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          pendingOpen.current = undefined;
+          restoringOpen.current = undefined;
           setFocusIndex(undefined);
+        }
       }}
       onKeyDown={(event) => {
+        if (warming && event.key === 'Enter' && focusIndex !== undefined) {
+          event.preventDefault();
+          pendingOpen.current = changes[focusIndex]?.hash;
+          return;
+        }
         const row = (event.target as Element).closest<HTMLElement>('[data-index]');
         if (event.altKey || event.ctrlKey || event.metaKey) return;
         if (!row && (event.target !== event.currentTarget || event.key === 'Tab')) return;
         const index = row
           ? Number(row.dataset.index)
-          : Math.max(
+          : (focusIndex ??
+            Math.max(
               0,
               changes.findIndex((change) => String(change.hash) === currentHash),
-            );
+            ));
         let next: number;
         if (event.key === 'ArrowDown') next = Math.min(changes.length - 1, index + 1);
         else if (event.key === 'ArrowUp') next = Math.max(0, index - 1);
@@ -268,11 +320,36 @@ export function ReviewQueue({
     >
       <span ref={sizer} className={styles.rowSizer} aria-hidden="true" data-review-row-size="" />
       <div style={{ height: changes.length * rowHeight }} aria-hidden="true" />
+      {warming && (
+        <div
+          className={styles.openingRows}
+          aria-hidden="true"
+          style={{ top: start * rowHeight, height: (end - start) * rowHeight }}
+        >
+          {indices
+            .filter((index) => index >= start && index < end)
+            .map((index) => (
+              <div
+                key={index}
+                className={styles.openingRow}
+                style={{ top: (index - start) * rowHeight, height: rowHeight }}
+              >
+                <span />
+                <span />
+              </div>
+            ))}
+        </div>
+      )}
       <ul
         className={styles.list}
-        style={{ top: start * rowHeight, height: (end - start) * rowHeight }}
+        aria-hidden={warming || undefined}
+        style={{
+          top: start * rowHeight,
+          height: (end - start) * rowHeight,
+          visibility: warming ? 'hidden' : undefined,
+        }}
       >
-        {indices.map((index) => {
+        {renderedIndices.map((index) => {
           const change = changes[index]!;
           return (
             <li
