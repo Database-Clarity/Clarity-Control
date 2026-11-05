@@ -5,6 +5,7 @@ import { createMemoryRouter, RouterProvider, useLocation, useNavigate } from 're
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import { TooltipPage } from '../tooltip/TooltipPage';
+import { TooltipPreview } from '../preview/TooltipPreview';
 import { Layout } from './Layout';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
@@ -42,7 +43,19 @@ vi.mock('../editor', () => ({
 }));
 vi.mock('../preview', () => ({
   PreviewColumn: ({ baseText }: { baseText: string }) =>
-    createElement('div', { 'data-preview': '' }, baseText),
+    createElement(
+      Fragment,
+      null,
+      createElement('div', { 'data-preview': '' }, baseText),
+      liveHeader &&
+        createElement(TooltipPreview, {
+          name: 'Retained document',
+          text: baseText,
+          lang: 'de',
+          globals: { variables: '', titles: '' },
+          fill: true,
+        }),
+    ),
   TooltipPreview: () => null,
 }));
 vi.mock('../compendium/CompendiumPanel', () => ({ CompendiumPanel: () => null }));
@@ -86,6 +99,7 @@ let host: HTMLDivElement;
 let root: Root | undefined;
 let router: ReturnType<typeof createMemoryRouter> | undefined;
 let navigate: ReturnType<typeof useNavigate>;
+let liveHeader = false;
 
 function RouteState() {
   const location = useLocation();
@@ -134,6 +148,7 @@ async function shiftWheel() {
 }
 
 beforeEach(() => {
+  liveHeader = false;
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   useDataStore.setState({ data, status: 'ready', error: null, load: async () => {} });
   useDraftStore.setState({
@@ -169,6 +184,84 @@ afterEach(async () => {
 });
 
 describe('mounted Editor navigation interaction ownership', () => {
+  it('retains the latest header through history consolidation during a held boundary', async () => {
+    vi.useFakeTimers();
+    const scheduling = Object.getOwnPropertyDescriptor(navigator, 'scheduling');
+    Object.defineProperty(navigator, 'scheduling', {
+      configurable: true,
+      value: { isInputPending: () => true },
+    });
+    try {
+      liveHeader = true;
+      await mount();
+      const field = host.querySelector<HTMLInputElement>('input[aria-label="Tooltip"]')!;
+      await act(async () => {
+        field.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+        await vi.advanceTimersByTimeAsync(25);
+      });
+      expect(host.querySelector('[data-preview]')?.textContent).toBe('Deutsch 100');
+      expect(host.querySelector('[data-shell-slot="left"] header')?.textContent).toContain(
+        'Sample 101',
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(1100));
+      expect(useSteppingActivity.getState().active).toBe(true);
+      expect(host.querySelector('[data-preview]')?.textContent).toBe('Deutsch 100');
+      expect(host.querySelector('[data-shell-slot="left"] header')?.textContent).toContain(
+        'Sample 101',
+      );
+      await act(async () => {
+        const editor = host.querySelector<HTMLElement>('.cm-editor')!;
+        editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }));
+        expect(editor.dataset.documentHash).toBe('101');
+      });
+    } finally {
+      if (scheduling) Object.defineProperty(navigator, 'scheduling', scheduling);
+      else Reflect.deleteProperty(navigator, 'scheduling');
+      window.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowDown' }));
+      vi.useRealTimers();
+    }
+  });
+  it('lands the URL synchronously on the first free frame while retaining the document', async () => {
+    vi.useFakeTimers();
+    let pending = true;
+    const scheduling = Object.getOwnPropertyDescriptor(navigator, 'scheduling');
+    Object.defineProperty(navigator, 'scheduling', {
+      configurable: true,
+      value: { isInputPending: () => pending },
+    });
+    const callbacks = new Map<number, FrameRequestCallback>();
+    let next = 0;
+    try {
+      await mount();
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation((run) => {
+        callbacks.set(++next, run);
+        return next;
+      });
+      vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => callbacks.delete(id));
+      await act(async () => {
+        host.dispatchEvent(
+          new WheelEvent('wheel', { bubbles: true, cancelable: true, shiftKey: true, deltaY: 100 }),
+        );
+        const [id, frame] = callbacks.entries().next().value!;
+        callbacks.delete(id);
+        frame(0);
+      });
+      expect(route()).toBe('/t/100?lang=de');
+      pending = false;
+      await act(async () => {
+        vi.advanceTimersByTime(2);
+        const [id, frame] = callbacks.entries().next().value!;
+        callbacks.delete(id);
+        frame(2);
+        expect(route()).toBe('/t/101?lang=de');
+        expect(host.querySelector('[data-preview]')?.textContent).toBe('Deutsch 100');
+      });
+    } finally {
+      if (scheduling) Object.defineProperty(navigator, 'scheduling', scheduling);
+      else Reflect.deleteProperty(navigator, 'scheduling');
+      vi.useRealTimers();
+    }
+  });
   it('keeps one burst history entry and restores the origin on Back after a Shift flick', async () => {
     vi.useFakeTimers();
     try {

@@ -163,7 +163,7 @@ export function createStepping(
     request(run: () => void): number;
     cancel(id: number): void;
     allow?(): boolean;
-    end?(): void;
+    end?(committed: boolean): void;
   },
 ) {
   let origin: string | undefined;
@@ -173,7 +173,7 @@ export function createStepping(
   let frame: number | undefined;
   let frameGeneration = 0;
   let landed: string | undefined;
-  function cancel() {
+  function cancel(committed = false) {
     frameGeneration++;
     if (frame !== undefined) frames?.cancel(frame);
     frame = undefined;
@@ -182,7 +182,7 @@ export function createStepping(
     destination = undefined;
     landed = undefined;
     permittedAt = undefined;
-    frames?.end?.();
+    frames?.end?.(committed);
   }
   function land(landNavigate: NavigateTo) {
     if ((frames?.allow && !frames.allow()) || (guard && permittedAt !== guard.epoch())) {
@@ -205,7 +205,8 @@ export function createStepping(
     // The two navigations restore the history shape of one gesture that was already allowed. If an
     // edit or a navigation happened since, that allowance is spent: leave history as it is.
     const valid = !guard || permittedAt === guard.epoch();
-    if (valid && origin && destination && origin !== destination) {
+    const committed = Boolean(valid && origin && destination && origin !== destination);
+    if (committed && origin && destination) {
       const [from, to] = [origin, destination];
       const run = () => {
         navigate(from, { replace: true });
@@ -214,7 +215,7 @@ export function createStepping(
       if (guard) guard.authorized(run);
       else run();
     }
-    cancel();
+    cancel(committed);
   }
   return {
     get target() {
@@ -250,6 +251,6 @@ export function createStepping(
     },
     commit,
     flush,
-    cancel,
+    cancel: () => cancel(),
   };
 }

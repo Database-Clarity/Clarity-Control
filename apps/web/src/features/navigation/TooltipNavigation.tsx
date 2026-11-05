@@ -404,21 +404,26 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     ),
   );
   const landNewest = useCallback(() => {
-    stepping.flush((target, options) => {
+    const land = (target: string, options: { replace: boolean; flushSync?: boolean }) => {
       if (`${current.current.pathname}${current.current.search}` !== target)
         navigateRef.current(target, options);
-    });
+    };
+    if (stepping.target) stepping.flush(land);
+    else {
+      const target = useSteppingActivity.getState().target;
+      if (target) land(target, { replace: true, flushSync: true });
+    }
   }, [stepping]);
   const resumeNewest = useCallback(() => {
-    const target = stepping.target;
+    const target = stepping.target ?? useSteppingActivity.getState().target;
     if (target && `${current.current.pathname}${current.current.search}` !== target)
-      navigateRef.current(target, { replace: true });
+      navigateRef.current(target, { replace: true, flushSync: true });
   }, [stepping]);
   const [wheelStepper] = useState(createWheelStepper);
   const step = useRef<(direction: number) => boolean>(() => false);
   const canStep = useRef<(direction: number) => boolean>(() => false);
   const stepLocation = () => {
-    const pending = stepping.target?.split('?');
+    const pending = (stepping.target ?? useSteppingActivity.getState().target)?.split('?');
     return pending
       ? { pathname: pending[0], search: pending[1] ? `?${pending[1]}` : '' }
       : current.current;

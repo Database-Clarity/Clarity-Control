@@ -28,6 +28,7 @@ const interactionEvents = [
   'focusin',
   'copy',
   'contextmenu',
+  'change',
 ];
 function catchEditorInteraction(event: Event) {
   // Repeated closed-finder arrows are the stepping gesture itself. Every other
@@ -54,7 +55,10 @@ export function publishSteppingTarget(target: string, land: () => void, resume?:
   useSteppingActivity.setState({ target });
 }
 
-export function clearSteppingTarget() {
+export function clearSteppingTarget(committed = false) {
+  // The history timer can finish while a key is still held at a boundary.
+  // Its final target remains the live identity until the physical burst ends.
+  if (committed && useSteppingActivity.getState().active) return;
   landLatest = undefined;
   resumeLatest = undefined;
   if (useSteppingActivity.getState().target !== undefined)
@@ -94,12 +98,12 @@ export function recordSteppingWorkspaceWork(duration: number) {
 function catchUp() {
   const state = useSteppingActivity.getState();
   if (!state.active || !state.deferWorkspace) return;
-  if (inputPending() || performance.now() - lastInputAt < 8) {
+  if (inputPending()) {
     scheduleCatchUp();
     return;
   }
-  // The address can catch up on the first frame without new input, even when
-  // the document still needs a larger gap. New packets cancel this handoff.
+  // The address catches up on the first frame without new input. Only document
+  // admission waits for a quiet gap; new packets cancel this handoff.
   resumeLatest?.();
   if (performance.now() - lastInputAt < admissionGap()) {
     scheduleCatchUp();
