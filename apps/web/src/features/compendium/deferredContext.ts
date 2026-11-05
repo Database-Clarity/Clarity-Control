@@ -52,11 +52,14 @@ export function deferContextCells(
   function revealVisible() {
     if (cancelled || !pending.size) return;
     const bounds = root!.getBoundingClientRect();
+    const top = Math.max(0, bounds.top);
+    const bottom = Math.min(window.innerHeight, bounds.bottom);
+    if (bottom <= top) return;
     for (const node of pending) {
       // Re-read after revealing an earlier cell: its natural height can move
       // later cells out of the viewport. Never activate stale estimated boxes.
       const box = node.getBoundingClientRect();
-      if (box.top < bounds.bottom + 128 && box.bottom > bounds.top - 128) reveal(node);
+      if (box.top < bottom + 128 && box.bottom > top - 128) reveal(node);
     }
   }
   const observer = new IntersectionObserver(revealVisible, { root, rootMargin: '128px 0px' });
@@ -77,7 +80,10 @@ export function deferContextCells(
   };
   details.addEventListener('beforematch', beforeMatch);
   details.addEventListener('keydown', keyboard);
-  root.addEventListener('scroll', revealVisible, { passive: true });
+  // Phone layouts can scroll the document or an outer review region instead
+  // of the card. Capture every ancestor's native scroll before its next paint.
+  document.addEventListener('scroll', revealVisible, { capture: true, passive: true });
+  window.addEventListener('resize', revealVisible);
   revealVisible();
   function prepare() {
     if (cancelled) return;
@@ -114,7 +120,8 @@ export function deferContextCells(
     if (timer !== undefined) clearTimeout(timer);
     details.removeEventListener('beforematch', beforeMatch);
     details.removeEventListener('keydown', keyboard);
-    root.removeEventListener('scroll', revealVisible);
+    document.removeEventListener('scroll', revealVisible, true);
+    window.removeEventListener('resize', revealVisible);
     for (const node of pending) node.removeAttribute('hidden');
   };
 }

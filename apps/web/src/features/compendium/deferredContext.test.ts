@@ -98,7 +98,8 @@ it('reveals scrolled cells synchronously, and cancels callbacks when the context
   const { root, details, nodes, cells, scrollToCells } = fixture();
   const cancel = deferContextCells(details, cells);
   scrollToCells();
-  root.dispatchEvent(new Event('scroll'));
+  // The document is the scroll owner in the narrow layout.
+  document.dispatchEvent(new Event('scroll'));
   expect(nodes.every((node) => !node.hasAttribute('hidden'))).toBe(true);
   const callback = pending.values().next().value!;
   cancel();
