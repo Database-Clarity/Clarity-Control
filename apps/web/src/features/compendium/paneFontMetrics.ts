@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { useEffect, type RefObject } from 'react';
 import type { CompendiumCell, CompendiumData } from '@clarity/core';
 
 const prepared = new WeakMap<CompendiumData, Set<string>>();
@@ -50,6 +50,20 @@ const initialStyles = [
   [15, 3],
 ] as const;
 const faces = new Map<string, { variants: Map<number, number>; count: number }>();
+const families = new WeakMap<Document, Map<string, string>>();
+
+function sheetFamily(zoom: HTMLElement) {
+  let styles = families.get(zoom.ownerDocument);
+  if (!styles) families.set(zoom.ownerDocument, (styles = new Map()));
+  const key = JSON.stringify([zoom.className, zoom.style.fontFamily]);
+  let family = styles.get(key);
+  if (family === undefined) {
+    family = getComputedStyle(zoom).fontFamily;
+    if (styles.size >= 8) styles.delete(styles.keys().next().value!);
+    styles.set(key, family);
+  }
+  return family;
+}
 
 /** Prepare native sheet faces without borrowing time from input or pane commits. */
 export function warmPaneFontMetrics(source: CompendiumData | null, family: string, zoom: number) {
@@ -179,14 +193,11 @@ export function usePaneFontMetrics(
   source: CompendiumData | null,
   scale: number,
 ) {
-  const sheet = useRef<{ element: HTMLElement; family: string }>();
   useEffect(() => {
     const zoom = body.current?.querySelector<HTMLElement>('[data-scale]');
     if (!zoom) return;
-    // Source arrival and zoom change the metrics to prepare, but not this node's
-    // sheet font stack. Reading it again after those renders forces dirty layout.
-    if (sheet.current?.element !== zoom)
-      sheet.current = { element: zoom, family: getComputedStyle(zoom).fontFamily };
-    return warmPaneFontMetrics(source, sheet.current.family, scale / 100);
+    // This CSS class has one sheet font stack across source, scale, and pane
+    // remounts. Re-reading it after a switch would force dirty document layout.
+    return warmPaneFontMetrics(source, sheetFamily(zoom), scale / 100);
   }, [body, source, scale]);
 }

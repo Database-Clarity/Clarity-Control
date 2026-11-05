@@ -175,7 +175,7 @@ it('does not read dirty sheet styles again when source data or zoom changes', as
     usePaneFontMetrics(bodyRef, data, scale);
     return null;
   }
-  const root = createRoot(host);
+  let root = createRoot(host);
   try {
     await act(async () => root.render(createElement(Pane, { data: null, scale: 100 })));
     expect(style).toHaveBeenCalledTimes(1);
@@ -183,8 +183,12 @@ it('does not read dirty sheet styles again when source data or zoom changes', as
     await act(async () => root.render(createElement(Pane, { data: revision, scale: 100 })));
     await act(async () => root.render(createElement(Pane, { data: revision, scale: 80 })));
     expect(style).toHaveBeenCalledTimes(1);
-    body.innerHTML = '<div data-scale="80"></div>';
+    body.innerHTML = '<div data-scale="80" class="different-sheet-font-stack"></div>';
     await act(async () => root.render(createElement(Pane, { data: source(), scale: 80 })));
+    expect(style).toHaveBeenCalledTimes(2);
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await act(async () => root.render(createElement(Pane, { data: revision, scale: 100 })));
     expect(style).toHaveBeenCalledTimes(2);
   } finally {
     await act(async () => root.unmount());
