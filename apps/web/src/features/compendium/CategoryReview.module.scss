@@ -38,6 +38,9 @@
     min-height: max(44px, 2.75rem);
   }
 }
+.categories[hidden] {
+  display: none;
+}
 .intro {
   display: flex;
   justify-content: space-between;

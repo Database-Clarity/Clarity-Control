@@ -948,22 +948,22 @@ export function ReviewQueue({
           {matching ? 'Finding proposals…' : `Bulk preview (${bulkEntries.length})`}
         </button>
       </div>
-      {categoryView ? (
-        <CategoryReview
-          fingerprint={fingerprint}
-          includedHashes={inScope}
-          canEdit={canEdit}
-          onAccept={acceptGuided}
-          onRestore={restoreScope}
-          categories={categories}
-          editor={editor}
-          source={source}
-          proposals={proposals}
-          guidance={guidance}
-          routeState={categoryRouteState}
-          onReview={reviewCategory}
-        />
-      ) : (
+      <CategoryReview
+        active={categoryView}
+        fingerprint={fingerprint}
+        includedHashes={inScope}
+        canEdit={canEdit}
+        onAccept={acceptGuided}
+        onRestore={restoreScope}
+        categories={categories}
+        editor={editor}
+        source={source}
+        proposals={proposals}
+        guidance={guidance}
+        routeState={categoryRouteState}
+        onReview={reviewCategory}
+      />
+      {!categoryView && (
         <>
           <div className={styles.notice} role="status">
             {message ||

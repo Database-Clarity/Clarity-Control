@@ -317,6 +317,30 @@ it('retains the active category state across entry review and workspace leave/re
   expect(categorySearch()?.value).toBe('trait');
 });
 
+it('reuses static category navigation while resetting inactive search and sample controls', async () => {
+  await mount('/compendium');
+  const guidance = host.querySelector<HTMLElement>('[aria-label="Category guidance"]')!;
+  const list = guidance.querySelector<HTMLElement>('[class*="categoryButtons"]')!;
+  const category = list.querySelector('button')!;
+  const search = categorySearch();
+  const sample = guidance.querySelector('[aria-label^="Resolve sample "]');
+  list.scrollTop = 80;
+  const details = guidance.querySelector('details')!;
+  details.open = true;
+  await click('Review all one by one');
+  expect(guidance.hidden).toBe(true);
+  expect(guidance.querySelector('[aria-label^="Resolve sample "]')).toBeNull();
+  expect(guidance.querySelector('input')).toBeNull();
+  expect(list.querySelector('button')).toBe(category);
+  expect(list.scrollTop).toBe(0);
+  await click('Back to category guidance');
+  expect(guidance.hidden).toBe(false);
+  expect(list.querySelector('button')).toBe(category);
+  expect(categorySearch()).not.toBe(search);
+  expect(guidance.querySelector('[aria-label^="Resolve sample "]')).not.toBe(sample);
+  expect(guidance.querySelector('details')!.open).toBe(false);
+});
+
 it('keeps linked filters active and does not retain an interactive review queue', async () => {
   fixture.editor.bundle.tooltips[103] = {
     hash: 103,
