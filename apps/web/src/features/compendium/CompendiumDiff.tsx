@@ -75,6 +75,94 @@ function changes(before: CompendiumCell, after: CompendiumCell): string[] {
         ];
   });
 }
+const descriptionCache = new Map<string, string>();
+function styleDescription(before: CompendiumCell, after: CompendiumCell) {
+  // A paragraph often repeats the same formatting change on every word. The
+  // description depends on styles, not text; avoid rebuilding sixteen Sets for
+  // each of those controls. Keep the cache bounded across source revisions.
+  const signature = (cell: CompendiumCell) =>
+    cell.runs.map((run) => [
+      run.color,
+      run.bold,
+      run.italic,
+      run.underline,
+      run.strike,
+      run.sizePt,
+      run.href,
+      run.textAlign,
+    ]);
+  const key = JSON.stringify([signature(before), signature(after)]);
+  const cached = descriptionCache.get(key);
+  if (cached !== undefined) return cached;
+  const description = changes(before, after).join('; ') || 'Styling changed within this word';
+  if (descriptionCache.size >= 256) descriptionCache.delete(descriptionCache.keys().next().value!);
+  descriptionCache.set(key, description);
+  return description;
+}
+
+/** Mount positioning state and listeners only for the popup the user opens. */
+function StylePopover({
+  id,
+  description,
+  before,
+  after,
+}: {
+  id: string;
+  description: string;
+  before: CompendiumCell;
+  after: CompendiumCell;
+}) {
+  const [offset, setOffset] = useState(0);
+  const popover = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const position = () => {
+      const element = popover.current;
+      const anchor = element?.parentElement;
+      if (!element || !anchor) return;
+      const left = anchor.getBoundingClientRect().left;
+      const width = element.getBoundingClientRect().width;
+      const limit = document.documentElement.clientWidth - width - 8;
+      setOffset(Math.max(8, Math.min(left, limit)) - left);
+    };
+    position();
+    window.addEventListener('resize', position);
+    window.addEventListener('scroll', position, true);
+    return () => {
+      window.removeEventListener('resize', position);
+      window.removeEventListener('scroll', position, true);
+    };
+  }, [before, after]);
+  return (
+    <span
+      ref={popover}
+      id={id}
+      className={styles.stylePopover}
+      role="tooltip"
+      style={{ insetInlineStart: offset }}
+    >
+      <span>{description}</span>
+      <span className={styles.swatches}>
+        {[before, after].map((cell, index) => (
+          <span key={index}>
+            {index ? 'Current' : 'Snapshot'}{' '}
+            {[...new Set(cell.runs.map((run) => run.color).filter(Boolean))].map((color) => (
+              <span
+                key={color}
+                className={styles.swatch}
+                style={{ backgroundColor: color }}
+                title={color}
+              />
+            ))}
+          </span>
+        ))}
+      </span>
+      <span>
+        Snapshot: <RichCell cell={before} />
+      </span>
+    </span>
+  );
+}
+
 const StyleChange = memo(function StyleChange({
   before,
   after,
@@ -87,32 +175,11 @@ const StyleChange = memo(function StyleChange({
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
-  const [offset, setOffset] = useState(0);
-  const anchor = useRef<HTMLSpanElement>(null);
-  const popover = useRef<HTMLSpanElement>(null);
   const visible = open || hovered || focused;
   const id = useId();
-  const description = changes(before, after).join('; ') || 'Styling changed within this word';
-  useLayoutEffect(() => {
-    if (!visible) return;
-    const position = () => {
-      if (!anchor.current || !popover.current) return;
-      const left = anchor.current.getBoundingClientRect().left;
-      const width = popover.current.getBoundingClientRect().width;
-      const limit = document.documentElement.clientWidth - width - 8;
-      setOffset(Math.max(8, Math.min(left, limit)) - left);
-    };
-    position();
-    window.addEventListener('resize', position);
-    window.addEventListener('scroll', position, true);
-    return () => {
-      window.removeEventListener('resize', position);
-      window.removeEventListener('scroll', position, true);
-    };
-  }, [visible]);
+  const description = styleDescription(before, after);
   return (
     <span
-      ref={anchor}
       className={styles.styleChange}
       data-open={visible}
       onMouseEnter={() => setHovered(true)}
@@ -148,41 +215,14 @@ const StyleChange = memo(function StyleChange({
       >
         {singleRun ? singleRun.text : <RichCell cell={after} links={false} inline />}
       </button>
-      <span
-        ref={popover}
-        id={id}
-        className={styles.stylePopover}
-        role="tooltip"
-        style={{ insetInlineStart: offset }}
-      >
-        {visible ? (
-          <>
-            <span>{description}</span>
-            <span className={styles.swatches}>
-              {[before, after].map((cell, index) => (
-                <span key={index}>
-                  {index ? 'Current' : 'Snapshot'}{' '}
-                  {[...new Set(cell.runs.map((run) => run.color).filter(Boolean))].map((color) => (
-                    <span
-                      key={color}
-                      className={styles.swatch}
-                      style={{ backgroundColor: color }}
-                      title={color}
-                    />
-                  ))}
-                </span>
-              ))}
-            </span>
-            <span>
-              Snapshot: <RichCell cell={before} />
-            </span>
-          </>
-        ) : (
-          // Retain the full accessible description while CSS hides the popup.
-          // Its formatting and swatches are built synchronously on any open path.
-          `${description}Snapshot Current Snapshot: ${before.plain}`
-        )}
-      </span>
+      {visible ? (
+        <StylePopover id={id} description={description} before={before} after={after} />
+      ) : (
+        <span id={id} className={styles.stylePopover} role="tooltip" style={{ insetInlineStart: 0 }}>
+          {/* Retain the full accessible description while the popup is hidden. */}
+          {`${description}Snapshot Current Snapshot: ${before.plain}`}
+        </span>
+      )}
     </span>
   );
 });

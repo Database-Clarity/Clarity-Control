@@ -425,3 +425,15 @@
   display: block;
   min-height: 1lh;
 }
+
+// Long styled diffs otherwise paint every word's dotted outline into the same
+// sheet layer. Separate lines let the compositor clip and reuse their paint
+// independently, including lines below the pane's scrollport.
+.pane .diffLine {
+  transform: translateZ(0);
+  // A style popup must remain above later lines' independent stacking contexts.
+  &:has([data-open='true']) {
+    position: relative;
+    z-index: 1;
+  }
+}
