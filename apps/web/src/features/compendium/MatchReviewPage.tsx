@@ -2,7 +2,16 @@ import { confirmCompendiumSelection } from './selection';
 import { guidedDecisions, guidedRevision, type GuidedDecision } from './guidedDecisions';
 import { importContext } from './importContext';
 import { researchSuggestions, warmResearchSuggestions } from './researchSuggestions';
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import type { CompendiumData, Tooltip } from '@clarity/core';
 import { groupManifestItems } from './manifestItems';
@@ -72,6 +81,45 @@ type Undo = {
   links: { base: Tooltip; before: Tooltip['compendium']; after: Tooltip['compendium'] }[];
   revision: string;
 };
+
+const RetainedEntryBody = memo(
+  function RetainedEntryBody({ active, children }: { active: boolean; children: ReactNode }) {
+    const root = useRef<HTMLDivElement>(null);
+    const scrolled = useRef(new Set<HTMLElement>());
+    useLayoutEffect(() => {
+      for (const node of scrolled.current) {
+        if (!root.current?.contains(node)) scrolled.current.delete(node);
+        else if (active) {
+          node.scrollTop = 0;
+          node.scrollLeft = 0;
+        }
+      }
+      if (active) scrolled.current.clear();
+      else if (root.current?.contains(document.activeElement)) {
+        (document.activeElement as HTMLElement).blur();
+        // A control disabled in this commit may no longer accept blur(). Keep
+        // focus in the visible review region if the browser still retains it.
+        if (root.current.contains(document.activeElement))
+          root.current.closest<HTMLElement>('article')?.focus({ preventScroll: true });
+      }
+    }, [active]);
+    return (
+      <div
+        ref={root}
+        className={styles.entryBody}
+        hidden={!active}
+        onScrollCapture={(event) => {
+          if (!active || !(event.target instanceof HTMLElement)) return;
+          if (event.target.scrollTop || event.target.scrollLeft) scrolled.current.add(event.target);
+          else scrolled.current.delete(event.target);
+        }}
+      >
+        {children}
+      </div>
+    );
+  },
+  (previous, next) => !previous.active && !next.active,
+);
 
 export function MatchReviewPage() {
   const article = useRef<HTMLElement>(null);
@@ -968,203 +1016,194 @@ export function ReviewQueue({
           onReview={reviewCategory}
         />
       )}
-      {!categoryView && (
-        <>
-          <div className={styles.notice} role="status">
-            {message ||
-              (canEdit
-                ? 'Accept creates a local draft. Save when ready.'
-                : 'Browsing only · linking requires a configured API and signed-in editor, trial or maintainer.')}
-          </div>
-          {error && <p role="alert">{error}</p>}
-          {selected ? (
-            <>
-              <div className={styles.entryNav}>
-                <button disabled={index <= 0} onClick={() => choose(filtered[index - 1].hash)}>
-                  ← Previous
-                </button>
-                <span>
-                  {index + 1} / {filtered.length} in filter
-                </span>
-                <button
-                  disabled={index >= filtered.length - 1}
-                  onClick={() => choose(filtered[index + 1].hash)}
-                >
-                  Next →
-                </button>
-                <span>{labels[selected.status]}</span>
-                {(selected.status === 'skipped' || selected.status === 'no-equivalent') && (
-                  <button
-                    onClick={() => {
-                      snapshot();
-                      update((state) =>
-                        recordDecision(
-                          state,
-                          selected.hash,
-                          selected.evidence,
-                          'open',
-                          selected.hash,
-                        ),
-                      );
-                      setParams(selectionParams(selected.hash), { replace: true });
-                    }}
-                  >
-                    Reopen decision
-                  </button>
+      <RetainedEntryBody active={!categoryView}>
+        <div className={styles.notice} role="status">
+          {message ||
+            (canEdit
+              ? 'Accept creates a local draft. Save when ready.'
+              : 'Browsing only · linking requires a configured API and signed-in editor, trial or maintainer.')}
+        </div>
+        {error && <p role="alert">{error}</p>}
+        <div className={styles.entryNav} hidden={!selected}>
+          <button disabled={index <= 0} onClick={() => choose(filtered[index - 1].hash)}>
+            ← Previous
+          </button>
+          <span>
+            {index + 1} / {filtered.length} in filter
+          </span>
+          <button
+            disabled={index >= filtered.length - 1}
+            onClick={() => choose(filtered[index + 1].hash)}
+          >
+            Next →
+          </button>
+          <span>{selected && labels[selected.status]}</span>
+          {selected && (selected.status === 'skipped' || selected.status === 'no-equivalent') && (
+            <button
+              onClick={() => {
+                snapshot();
+                update((state) =>
+                  recordDecision(state, selected.hash, selected.evidence, 'open', selected.hash),
+                );
+                setParams(selectionParams(selected.hash), { replace: true });
+              }}
+            >
+              Reopen decision
+            </button>
+          )}
+        </div>
+        <div className={styles.workspace} hidden={!selected}>
+          <section className={styles.card} aria-label="Entry to review">
+            {selected && (
+              <>
+                <p className={styles.eyebrow}>
+                  {selected.category} · {selected.hash}
+                </p>
+                <h2>{selected.name}</h2>
+                {selected.stale && <p>Source evidence changed; review again.</p>}
+                <h3>Current English</h3>
+                <pre>{selected.next.text.en?.text || 'No English text yet.'}</pre>
+                <h3>Manifest</h3>
+                {(manifest.get(selected.hash) ?? []).length ? (
+                  manifest.get(selected.hash)!.map((item) => (
+                    <div key={item.hash} className={styles.manifestItem}>
+                      <strong>{item.name || 'Unnamed item'}</strong> <small>· {item.hash}</small>
+                      <pre>{item.inGameDescription || 'No manifest description available.'}</pre>
+                    </div>
+                  ))
+                ) : (
+                  <p>No manifest item available.</p>
                 )}
-              </div>
-              <div className={styles.workspace}>
-                <section className={styles.card} aria-label="Entry to review">
-                  <p className={styles.eyebrow}>
-                    {selected.category} · {selected.hash}
-                  </p>
-                  <h2>{selected.name}</h2>
-                  {selected.stale && <p>Source evidence changed; review again.</p>}
-                  <h3>Current English</h3>
-                  <pre>{selected.next.text.en?.text || 'No English text yet.'}</pre>
-                  <h3>Manifest</h3>
-                  {(manifest.get(selected.hash) ?? []).length ? (
-                    manifest.get(selected.hash)!.map((item) => (
-                      <div key={item.hash} className={styles.manifestItem}>
-                        <strong>{item.name || 'Unnamed item'}</strong> <small>· {item.hash}</small>
-                        <pre>{item.inGameDescription || 'No manifest description available.'}</pre>
-                      </div>
-                    ))
-                  ) : (
-                    <p>No manifest item available.</p>
-                  )}
-                  {importContext(
-                    selected.next.text.en?.text ?? '',
-                    editor.bundle.tooltips,
-                    editor.aliases,
-                  ).map((context, i) => (
-                    <ReviewDetails key={i} summary="Authored import context">
-                      {() => <pre>{context}</pre>}
-                    </ReviewDetails>
-                  ))}
-                  <Link to={`/t/${selected.hash}`}>
-                    Inspect tooltip / draft <span className={styles.symbol}>↗</span>
-                  </Link>
-                </section>
-                <section className={styles.card} aria-label="Proposed source">
-                  <p className={styles.eyebrow}>
-                    {proposal?.link
-                      ? 'Validated proposal · check scope'
-                      : proposal?.suggested
-                        ? 'Suggested relink · confirmation required'
-                        : 'Candidate locations · manual selection required'}
-                  </p>
-                  {matches.length > 1 && (
-                    <label>
-                      Compare candidate
-                      <select
-                        value={candidate}
-                        onChange={(e) => setCandidate(Number(e.target.value))}
-                      >
-                        {matches.map((m, i) => (
-                          <option key={i} value={i}>
-                            {m.tab.name} / {m.row.name} / row {m.row.rowIndex}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  <ProposalContext match={match} source={source} />
-                  {!proposal?.link && hint && (
-                    <details>
-                      <summary>Why this location?</summary>
-                      <p>{hint.rationale}</p>
-                    </details>
-                  )}
-                </section>
-              </div>
-              <PickerStage open={picker} onBack={() => setPicker(false)}>
-                <LinkPicker
-                  key={selected.hash}
-                  base={selected.base}
-                  name={selected.name}
-                  category={selected.category}
-                  suggestions={hints}
-                  readOnly={!canEdit}
-                  onBeforeLinked={(link) =>
-                    snapshot([
-                      { base: selected.base, before: selected.next.compendium, after: link },
-                    ])
-                  }
-                  onLinked={() => {
-                    update((state) =>
-                      recordDecision(state, selected.hash, selected.evidence, 'open', nextHash),
-                    );
-                    setParams(selectionParams(nextHash), { replace: true });
-                    setPicker(false);
-                    setCandidate(0);
-                    setMessage(`${selected.name}: link drafted, not saved.`);
-                    keepEntryVisible();
-                  }}
-                />
-              </PickerStage>
-            </>
-          ) : (
-            <section className={styles.empty}>
-              <h2>Filter complete</h2>
-              <p>Change filters to revisit decisions or find more entries.</p>
-              <button
-                onClick={() => {
-                  reviewCategory();
-                }}
-              >
-                Show all unresolved
-              </button>
-            </section>
-          )}
-          {bulk && (
-            <BulkPreview
-              preview={bulk}
-              page={bulkPage}
-              canEdit={canEdit}
-              current={bulkCurrent}
-              onPage={setBulkPage}
-              onCancel={() => setBulk(undefined)}
-              onAccept={acceptBulk}
-            />
-          )}
-          <footer className={styles.actionBar} aria-label="Review actions">
-            <p className={styles.actionConsequence}>
-              {canEdit
-                ? 'Links create local drafts, not saves · Skip/No equivalent stay in browser.'
-                : 'Browsing only · linking unavailable · Pick other previews sources; Skip/No equivalent stay in browser.'}
-            </p>
-            <button
-              className={styles.primary}
-              disabled={
-                !canEdit || !acceptedLink || selected?.status !== 'open' || picker || !!bulk
+                {importContext(
+                  selected.next.text.en?.text ?? '',
+                  editor.bundle.tooltips,
+                  editor.aliases,
+                ).map((context, i) => (
+                  <ReviewDetails key={i} summary="Authored import context">
+                    {() => <pre>{context}</pre>}
+                  </ReviewDetails>
+                ))}
+                <Link to={`/t/${selected.hash}`}>
+                  Inspect tooltip / draft <span className={styles.symbol}>↗</span>
+                </Link>
+              </>
+            )}
+          </section>
+          <section className={styles.card} aria-label="Proposed source">
+            {selected && (
+              <>
+                <p className={styles.eyebrow}>
+                  {proposal?.link
+                    ? 'Validated proposal · check scope'
+                    : proposal?.suggested
+                      ? 'Suggested relink · confirmation required'
+                      : 'Candidate locations · manual selection required'}
+                </p>
+                {matches.length > 1 && (
+                  <label>
+                    Compare candidate
+                    <select
+                      value={candidate}
+                      onChange={(e) => setCandidate(Number(e.target.value))}
+                    >
+                      {matches.map((m, i) => (
+                        <option key={i} value={i}>
+                          {m.tab.name} / {m.row.name} / row {m.row.rowIndex}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                <ProposalContext match={match} source={source} />
+                {!proposal?.link && hint && (
+                  <details>
+                    <summary>Why this location?</summary>
+                    <p>{hint.rationale}</p>
+                  </details>
+                )}
+              </>
+            )}
+          </section>
+        </div>
+        {!categoryView && selected && (
+          <PickerStage open={picker} onBack={() => setPicker(false)}>
+            <LinkPicker
+              key={selected.hash}
+              base={selected.base}
+              name={selected.name}
+              category={selected.category}
+              suggestions={hints}
+              readOnly={!canEdit}
+              onBeforeLinked={(link) =>
+                snapshot([{ base: selected.base, before: selected.next.compendium, after: link }])
               }
-              onClick={accept}
-            >
-              {proposal?.suggested ? 'Confirm suggested relink' : 'Accept proposed link'}{' '}
-              <kbd>A</kbd>
-            </button>
-            <button disabled={!selected || !!bulk} onClick={() => setPicker(!picker)}>
-              Pick other <kbd>P</kbd>
-            </button>
+              onLinked={() => {
+                update((state) =>
+                  recordDecision(state, selected.hash, selected.evidence, 'open', nextHash),
+                );
+                setParams(selectionParams(nextHash), { replace: true });
+                setPicker(false);
+                setCandidate(0);
+                setMessage(`${selected.name}: link drafted, not saved.`);
+                keepEntryVisible();
+              }}
+            />
+          </PickerStage>
+        )}
+        {!categoryView && !selected && (
+          <section className={styles.empty}>
+            <h2>Filter complete</h2>
+            <p>Change filters to revisit decisions or find more entries.</p>
             <button
-              disabled={!selected || picker || !!bulk}
-              onClick={() => decide('no-equivalent')}
+              onClick={() => {
+                reviewCategory();
+              }}
             >
-              No equivalent <kbd>N</kbd>
+              Show all unresolved
             </button>
-            <button disabled={!selected || picker || !!bulk} onClick={() => decide('skipped')}>
-              Skip <kbd>S</kbd>
-            </button>
-            <button
-              disabled={!undo || locked || (undo.links.length > 0 && !canEdit) || picker || !!bulk}
-              onClick={undoLast}
-            >
-              Undo last <kbd>U</kbd>
-            </button>
-          </footer>
-        </>
-      )}
+          </section>
+        )}
+        {!categoryView && bulk && (
+          <BulkPreview
+            preview={bulk}
+            page={bulkPage}
+            canEdit={canEdit}
+            current={bulkCurrent}
+            onPage={setBulkPage}
+            onCancel={() => setBulk(undefined)}
+            onAccept={acceptBulk}
+          />
+        )}
+        <footer className={styles.actionBar} aria-label="Review actions">
+          <p className={styles.actionConsequence}>
+            {canEdit
+              ? 'Links create local drafts, not saves · Skip/No equivalent stay in browser.'
+              : 'Browsing only · linking unavailable · Pick other previews sources; Skip/No equivalent stay in browser.'}
+          </p>
+          <button
+            className={styles.primary}
+            disabled={!canEdit || !acceptedLink || selected?.status !== 'open' || picker || !!bulk}
+            onClick={accept}
+          >
+            {proposal?.suggested ? 'Confirm suggested relink' : 'Accept proposed link'} <kbd>A</kbd>
+          </button>
+          <button disabled={!selected || !!bulk} onClick={() => setPicker(!picker)}>
+            Pick other <kbd>P</kbd>
+          </button>
+          <button disabled={!selected || picker || !!bulk} onClick={() => decide('no-equivalent')}>
+            No equivalent <kbd>N</kbd>
+          </button>
+          <button disabled={!selected || picker || !!bulk} onClick={() => decide('skipped')}>
+            Skip <kbd>S</kbd>
+          </button>
+          <button
+            disabled={!undo || locked || (undo.links.length > 0 && !canEdit) || picker || !!bulk}
+            onClick={undoLast}
+          >
+            Undo last <kbd>U</kbd>
+          </button>
+        </footer>
+      </RetainedEntryBody>
     </>
   );
 }

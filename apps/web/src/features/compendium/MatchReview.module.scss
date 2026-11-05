@@ -93,6 +93,16 @@
     flex-shrink: 0;
   }
 }
+.entryBody {
+  display: contents;
+  &[hidden],
+  > [hidden] {
+    display: none;
+  }
+}
+.entryReview .entryBody > * {
+  flex-shrink: 0;
+}
 .categoryReview {
   display: flex;
   flex-direction: column;

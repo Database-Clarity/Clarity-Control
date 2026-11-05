@@ -152,7 +152,10 @@ async function click(text: string) {
 }
 
 const page = () => host.querySelector('article')!;
-const footer = () => host.querySelector('footer[aria-label="Review actions"]')!;
+const footer = () => {
+  const node = host.querySelector('footer[aria-label="Review actions"]');
+  return node?.closest('[hidden]') ? null : node;
+};
 
 describe.each([true, false])('in-flow footer with ResizeObserver=%s', (observed) => {
   it('keeps actions in document flow across routes and overlays without layout reads', async () => {
@@ -164,7 +167,7 @@ describe.each([true, false])('in-flow footer with ResizeObserver=%s', (observed)
     expect(footer()).toBeNull();
     expect(observers).toHaveLength(0);
     await click('Review all one by one');
-    const first = footer();
+    const first = footer()!;
     expect(page().style.getPropertyValue(property)).toBe('17px');
     expect(observers).toHaveLength(0);
     await click('Pick other');
@@ -180,11 +183,12 @@ describe.each([true, false])('in-flow footer with ResizeObserver=%s', (observed)
     expect(host.querySelector('[aria-label="Bulk accept preview"]')).not.toBeNull();
     await click('Cancel');
     await click('Back to category guidance');
-    expect(first.isConnected).toBe(false);
+    expect(first.isConnected).toBe(true);
+    expect(footer()).toBeNull();
     expect(page().style.getPropertyValue(property)).toBe('17px');
     expect(page().style.getPropertyPriority(property)).toBe(priority);
     await click('Review all one by one');
-    expect(footer()).not.toBe(first);
+    expect(footer()).toBe(first);
     expect(page().style.getPropertyValue(property)).toBe('17px');
     window.dispatchEvent(new Event('resize'));
     expect(page().style.getPropertyValue(property)).toBe('17px');
@@ -206,14 +210,16 @@ describe.each([true, false])('in-flow footer with ResizeObserver=%s', (observed)
   });
 });
 
-it('replaces a direct-entry footer without adding a height reservation or observer', async () => {
+it('reuses a direct-entry footer without adding a height reservation or observer', async () => {
   await mount('/compendium/review?view=entries&hash=100');
   expect(page().style.getPropertyValue(property)).toBe('');
-  const old = footer();
+  const old = footer()!;
   await click('Back to category guidance');
+  expect(old.isConnected).toBe(true);
+  expect(footer()).toBeNull();
   expect(page().style.getPropertyValue(property)).toBe('');
   await click('Review all one by one');
-  expect(footer()).not.toBe(old);
+  expect(footer()).toBe(old);
   expect(observers).toHaveLength(0);
   expect(page().style.getPropertyValue(property)).toBe('');
   const article = page();

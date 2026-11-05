@@ -354,6 +354,50 @@ it('creates retained category navigation only after category guidance is visited
   expect(guidance.hidden).toBe(true);
 });
 
+it('retains an empty entry shell and resets scroll, disclosures, and focus after guidance', async () => {
+  await mount('/compendium');
+  const body = host.querySelector<HTMLElement>('[class*="entryBody"]')!;
+  const card = body.querySelector<HTMLElement>('[aria-label="Entry to review"]')!;
+  expect(body.hidden).toBe(true);
+  expect(card.childElementCount).toBe(0);
+  expect(body.querySelector('[data-multiline]')).toBeNull();
+  await click('Review all one by one');
+  expect(body.hidden).toBe(false);
+  expect(card.querySelector('h2')?.textContent).toBe('Sample 100');
+  const context = body.querySelector<HTMLDetailsElement>('[class*="context"]')!;
+  await act(async () => {
+    context.open = true;
+    context.dispatchEvent(new Event('toggle'));
+    card.scrollTop = 80;
+    card.scrollLeft = 20;
+    card.dispatchEvent(new Event('scroll', { bubbles: true }));
+  });
+  const footer = body.querySelector('footer')!;
+  button('Skip', footer).focus();
+  expect(body.contains(document.activeElement)).toBe(true);
+  await go('/compendium');
+  expect(body.hidden).toBe(true);
+  expect(body.contains(document.activeElement)).toBe(false);
+  expect(body.querySelector('[aria-label="Entry to review"]')).toBe(card);
+  expect(card.childElementCount).toBe(0);
+  expect(body.querySelector('details')).toBeNull();
+  await go('/compendium/review?view=entries&group=catalog%3Aweapon-trait&hash=101');
+  expect(body.hidden).toBe(false);
+  expect(card.querySelector('h2')?.textContent).toBe('Sample 101');
+  expect(card.scrollTop).toBe(0);
+  expect(card.scrollLeft).toBe(0);
+  const returnedContext = body.querySelector<HTMLDetailsElement>('[class*="context"]')!;
+  expect(returnedContext.open).toBe(false);
+  await act(async () => {
+    returnedContext.open = true;
+    returnedContext.dispatchEvent(new Event('toggle'));
+  });
+  await go('/compendium/review?view=entries&group=catalog%3Aweapon-trait&hash=100');
+  expect(card.querySelector('h2')?.textContent).toBe('Sample 100');
+  expect(body.querySelector('[class*="context"]')).toBe(returnedContext);
+  expect(returnedContext.open).toBe(true);
+});
+
 it('keeps linked filters active and does not retain an interactive review queue', async () => {
   fixture.editor.bundle.tooltips[103] = {
     hash: 103,
