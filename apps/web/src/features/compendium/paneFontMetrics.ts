@@ -2,6 +2,7 @@ import { useEffect, type RefObject } from 'react';
 import type { CompendiumData } from '@clarity/core';
 
 const prepared = new WeakMap<CompendiumData, Set<string>>();
+const latin = Array.from({ length: 95 }, (_, index) => String.fromCharCode(32 + index)).join('');
 
 /** Prepare native sheet faces without borrowing time from input or pane commits. */
 export function warmPaneFontMetrics(source: CompendiumData, family: string, zoom: number) {
@@ -18,9 +19,11 @@ export function warmPaneFontMetrics(source: CompendiumData, family: string, zoom
           let glyphs = fonts.get(font);
           if (!glyphs) {
             fonts.set(font, (glyphs = new Set()));
-            // Establish every face as it is discovered, before enumerating all
-            // source glyphs. This ordering is independent of the current item.
-            yield { font, text: 'Aa' };
+            // Establish each face's common metrics before scanning the rest of
+            // the source. Waiting for the full glyph census was too late for
+            // the first navigation. Every descriptor uses the same alphabet.
+            for (let index = 0; index < latin.length; index += 8)
+              yield { font, text: latin.slice(index, index + 8) };
           }
           for (const glyph of run.text) {
             if (glyph >= ' ') glyphs.add(glyph);
