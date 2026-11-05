@@ -142,7 +142,9 @@
 
   button > span {
     display: block;
-    overflow-wrap: anywhere;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   li > div {

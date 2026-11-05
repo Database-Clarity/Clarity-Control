@@ -93,6 +93,13 @@ export function ReviewRow({
           onClick={onOpen}
           aria-current={active ? 'true' : undefined}
           aria-label={`Open ${entry.name}, ${entry.category}, ${entry.tooltip.hash}`}
+          title={[
+            `${entry.name} #${entry.tooltip.hash}`,
+            entry.unpublishable && `Unpublishable: ${entry.unpublishable}`,
+            publishing && 'Publishing…',
+          ]
+            .filter(Boolean)
+            .join(' · ')}
         >
           <span className={styles.rowIdentity}>
             {entry.name} <small>#{entry.tooltip.hash}</small>

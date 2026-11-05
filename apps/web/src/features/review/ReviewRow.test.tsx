@@ -29,10 +29,11 @@ it('loads latest-change metadata on proximity without changing row selection', a
     open = vi.fn();
   const entry = {
     tooltip: { hash: 42, text: {}, associated: [] },
-    name: 'Perk',
+    name: 'Perk with a long descriptive name that still identifies the complete saved change',
     category: 'Perks',
     categoryId: 'perk',
     categoryOrder: 1,
+    unpublishable: 'No generator entry for this tooltip, so it cannot be pushed.',
   } as PendingTooltip;
   try {
     await act(async () =>
@@ -69,6 +70,15 @@ it('loads latest-change metadata on proximity without changing row selection', a
     expect(host.textContent).toContain('No history available');
     expect(toggle).not.toHaveBeenCalled();
     expect(open).not.toHaveBeenCalled();
+    const button = host.querySelector('button')!;
+    expect(button.getAttribute('aria-label')).toContain(entry.name);
+    expect(button.getAttribute('aria-label')).toContain('42');
+    expect(button.title).toContain(entry.name);
+    expect(button.title).toContain(entry.unpublishable);
+    expect(host.querySelector('input')?.disabled).toBe(true);
+    await act(async () => button.click());
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(toggle).not.toHaveBeenCalled();
   } finally {
     await act(async () => root.unmount());
     expect(vi.mocked(getHistory).mock.calls[0]?.[2]?.aborted).toBe(true);
