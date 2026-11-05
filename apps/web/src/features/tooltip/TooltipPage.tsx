@@ -214,10 +214,9 @@ function TooltipWorkspace({
   ) {
     return <h1>Invalid tooltip hash</h1>;
   }
-  const hash = hashOverride ?? Number(parameter);
-  const canonical = canonicalHash(hash, data);
-  if (!readOnly && hash !== canonical)
-    return <Navigate to={tooltipPath(canonical, search.toString())} replace />;
+  const requestedHash = hashOverride ?? Number(parameter);
+  const canonical = canonicalHash(requestedHash, data);
+  const hash = readOnly ? requestedHash : canonical;
   const item = archivedItemFor(hash, data);
   if (!item && !data.bundle.tooltips[hash]) return <h1>Tooltip {hash} not found</h1>;
   const primaryBase = tooltipFor(hash, data);
@@ -266,7 +265,8 @@ function TooltipWorkspace({
   const overrides = readOnly ? [] : editableOverrides(hash, data);
   const storedForms =
     !readOnly && user?.role === 'maintainer' ? storedFormVariants(hash, data) : [];
-  const requested = Number(search.get('variant'));
+  // A canonical redirect drops line/variant highlights, just like tooltipPath.
+  const requested = requestedHash === hash ? Number(search.get('variant')) : NaN;
   const activeVariant =
     picked?.hash === hash ? picked.variant : overrides.includes(requested) ? requested : null;
   const activeHash = activeVariant ?? hash;
@@ -381,7 +381,7 @@ function TooltipWorkspace({
       onOpenTooltip={openDefinition}
       markupRow={markupRow.open}
       conflictSource={conflictSourceOf(variant)}
-      highlightLine={variant === activeHash ? highlightLine : undefined}
+      highlightLine={requestedHash === hash && variant === activeHash ? highlightLine : undefined}
       onChange={(text) => edit(base, lang, text, user?.login ?? 'local draft')}
     />
   );
@@ -446,6 +446,12 @@ function TooltipWorkspace({
 
   return (
     <article className={styles.page}>
+      {/* Correct the URL without tearing down the live editor during the redirect.
+        Remounting CodeMirror reads the DOM selection while sibling panes are dirty,
+        forcing the whole workspace to lay out before its ordinary paint. */}
+      {!readOnly && requestedHash !== canonical && (
+        <Navigate to={tooltipPath(canonical, search.toString())} replace />
+      )}
       <h1 className={styles.srOnly}>{heading}</h1>
       <VariantWorkspace
         suspended={suspended}

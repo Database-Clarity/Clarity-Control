@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, createElement, Fragment } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import { TooltipPage } from './TooltipPage';
@@ -115,8 +115,10 @@ const originals = {
 };
 
 let navigateRoute: ReturnType<typeof useNavigate>;
+let currentLocation: ReturnType<typeof useLocation>;
 function PageHarness() {
   navigateRoute = useNavigate();
+  currentLocation = useLocation();
   return <TooltipPage />;
 }
 async function render(path = '/t/10') {
@@ -175,7 +177,33 @@ afterEach(async () => {
   useSteppingActivity.setState({ active: false });
 });
 
-it('freezes skipped workspace work, cancels side panels and reuses the editor after a burst', async () => {
+it('keeps the editor mounted while replacing an alias URL with its canonical route', async () => {
+  useDataStore.setState({
+    data: {
+      ...data,
+      aliases: { 21: { to: 20, kind: 'frame' } },
+      items: { ...data.items, 20: item(20, 'Next perk', 'trait') },
+      bundle: { ...data.bundle, tooltips: { ...data.bundle.tooltips, 20: tip(20, 'Next text') } },
+    },
+  });
+  await render();
+  const editor = editors()[0];
+  vi.mocked(ClarityEditor).mockClear();
+  await act(async () => navigateRoute('/t/21?lang=en&line=1'));
+  expect(currentLocation.pathname).toBe('/t/20');
+  expect(currentLocation.search).toBe('?lang=en');
+  expect(vi.mocked(ClarityEditor).mock.calls.some(([props]) => props.highlightLine === 1)).toBe(false);
+  expect(editors()[0]).toBe(editor);
+  expect(editor.textContent).toBe('Next text');
+  expect(editor.dataset.editor).toBe('20');
+  expect(host.querySelector('[data-compendium]')?.getAttribute('data-compendium')).toBe('20');
+  await act(async () => navigateRoute('/t/21?lang=en&line=1'));
+  expect(editors()[0]).toBe(editor);
+  expect(currentLocation.pathname).toBe('/t/20');
+  expect(useDraftStore.getState().edit).not.toHaveBeenCalled();
+});
+
+it('freezes skipped workspace work, cancels side panels, and reuses the editor after a burst', async () => {
   useDataStore.setState({
     data: {
       ...data,
