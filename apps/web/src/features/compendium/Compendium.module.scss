@@ -1,6 +1,21 @@
 @use '../../data/variables' as theme;
 @use '../../ui/controls';
 
+// Keep Kana on the same installed face Chromium chooses for these sheet glyphs,
+// with an explicit range so Latin text retains the sheet's Arial metrics.
+@font-face {
+  font-family: 'Compendium Kana';
+  src: local('YuGothic-Regular');
+  font-weight: 400;
+  unicode-range: U+3040-30FF;
+}
+@font-face {
+  font-family: 'Compendium Kana';
+  src: local('YuGothic-Bold');
+  font-weight: 700;
+  unicode-range: U+3040-30FF;
+}
+
 // ---- the editor page's Compendium pane (header and scroll live in ui/RightPane) ----
 .pane {
   contain: layout style;
@@ -23,7 +38,8 @@
   // Name the fonts Chromium already uses for the sheet's emoji and Katakana,
   // so their first appearance does not search the system font catalogue.
   font-family:
-    Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', 'Segoe UI Emoji', 'Yu Gothic', sans-serif;
+    'Compendium Kana', Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', 'Segoe UI Emoji',
+    'Yu Gothic', sans-serif;
   contain: content;
   // Keep the scaled sheet on its own clipped layer instead of repainting it
   // together with the editor whenever either side changes.
@@ -190,7 +206,8 @@
   // Sheet cells also appear outside the zoomed editor body (comparisons and
   // review excerpts). Keep the same explicit fallback faces on those surfaces.
   font-family:
-    Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', 'Segoe UI Emoji', 'Yu Gothic', sans-serif;
+    'Compendium Kana', Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', 'Segoe UI Emoji',
+    'Yu Gothic', sans-serif;
   background: var(--sheet-bg);
   color: var(--sheet-text);
   padding: 0.8rem;
