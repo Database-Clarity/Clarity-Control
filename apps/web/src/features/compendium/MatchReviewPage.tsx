@@ -56,6 +56,7 @@ import { ReviewDetails } from './ReviewDetails';
 import { useDisplayMatches } from './useDisplayMatches';
 import { rememberReviewPage } from './reviewPageComponent';
 import type { displayMatches } from './displayMatches';
+import { useReviewFontMetrics } from './reviewFontMetrics';
 
 const labels = {
   open: 'Unresolved',
@@ -72,6 +73,7 @@ type Undo = {
 };
 
 export function MatchReviewPage() {
+  const article = useRef<HTMLElement>(null);
   const [params] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -93,6 +95,7 @@ export function MatchReviewPage() {
   }
   const editor = useDataStore((state) => state.data);
   const { data, load, loading, error } = useCompendiumStore();
+  useReviewFontMetrics(article, data);
   const { user, loading: authLoading } = useAuthStore();
   const linkedTab = params.get('tab') === 'linked';
   const matchedTab = params.get('tab') === 'matched';
@@ -135,6 +138,7 @@ export function MatchReviewPage() {
   const linkedTarget = `${location.pathname}${linkedSearch ? `?${linkedSearch}` : ''}${location.hash}`;
   return (
     <article
+      ref={article}
       className={`${styles.review} ${linkedTab ? styles.linkedReview : params.get('view') === 'entries' ? styles.entryReview : styles.categoryReview}`}
       data-category-review={categoryViewport ? '' : undefined}
       data-entry-review={entryViewport ? '' : undefined}
