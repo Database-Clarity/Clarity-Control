@@ -16,6 +16,12 @@
     flex: 1 1 auto;
     flex-direction: column;
     min-height: 0;
+    contain: layout;
+    :global(#shell-root[data-fixed]) & {
+      // The desktop shell supplies this flex slot's size. Document measurement
+      // must not make the surrounding workspace depend on the editor's content.
+      contain: size layout;
+    }
   }
   :global(.cm-editor) {
     flex: 1 1 auto;
@@ -35,6 +41,9 @@
     }
   }
   :global(.cm-scroller) {
+    // The scroller already clips its contents. Isolate its layout and paint from
+    // live preview updates; CodeMirror tooltips live outside this scroller.
+    contain: layout paint;
     font-family: var(--editor-font, Consolas, monospace);
     font-variant-ligatures: none;
     font-feature-settings:

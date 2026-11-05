@@ -4,8 +4,17 @@ import { resolveAlias, type Tooltip, type CompendiumData } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import type { Category, Item } from '../../services/generator';
 
+const canonicalIndexes = new WeakMap<EditorData, Map<number, number>>();
 export function canonicalHash(hash: number, data: EditorData): number {
+  let index = canonicalIndexes.get(data);
+  if (!index) canonicalIndexes.set(data, (index = new Map()));
+  const cached = index.get(hash);
+  if (cached !== undefined) return cached;
   const seen = new Set<number>();
+  const remember = (canonical: number) => {
+    for (const member of seen) index.set(member, canonical);
+    return canonical;
+  };
   while (!seen.has(hash)) {
     seen.add(hash);
     const resolved = resolveAlias(hash, data.aliases);
@@ -15,9 +24,9 @@ export function canonicalHash(hash: number, data: EditorData): number {
     }
     const item = data.items[hash];
     // A grouped frame owns one editor even if manifest pairing points elsewhere.
-    if (frameGroupSize(hash, data) > 1) return hash;
+    if (frameGroupSize(hash, data) > 1) return remember(hash);
     const target = item?.baseHash;
-    if (target === undefined) return hash;
+    if (target === undefined) return remember(hash);
     hash = target;
   }
   throw new Error(`Cyclic tooltip alias at ${hash}`);

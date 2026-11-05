@@ -27,7 +27,12 @@ vi.mock('../compendium/CompendiumBadge', () => ({
 }));
 vi.mock('../editor', () => ({ ClarityEditor: () => <textarea aria-label="Editor" /> }));
 vi.mock('../preview', () => ({
-  PreviewColumn: ({ baseText }: { baseText: string }) => <div data-preview>{baseText}</div>,
+  PreviewColumn: ({ baseText, acknowledgement }: { baseText: string; acknowledgement?: ReactNode }) => (
+    <>
+      <div data-preview>{baseText}</div>
+      {acknowledgement}
+    </>
+  ),
 }));
 vi.mock('../compendium/CompendiumPanel', () => ({
   CompendiumPanel: () => <div data-compendium />,
@@ -214,6 +219,21 @@ describe('the preview column', () => {
     // Showing the preview clears it.
     await act(async () => usePreviewReviewStore.getState().host?.show());
     expect(usePreviewReviewStore.getState().unreviewed(100)).toEqual([]);
+  });
+
+  it('acknowledges an edit only after that text has committed in the preview', async () => {
+    await mount();
+    const seen: (string | null | undefined)[] = [];
+    const unsubscribe = usePreviewReviewStore.subscribe((state, previous) => {
+      if ((state.entries[100]?.reviewed ?? 0) > (previous.entries[100]?.reviewed ?? 0))
+        seen.push(host.querySelector('[data-preview]')?.textContent);
+    });
+    try {
+      await act(async () => useDraftStore.setState({ drafts: draftOf('changed text') }));
+      expect(seen).toEqual(['changed text']);
+    } finally {
+      unsubscribe();
+    }
   });
 
   it('starts collapsed in compact windows without saving that as a choice', async () => {

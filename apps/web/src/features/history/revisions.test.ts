@@ -49,7 +49,7 @@ it('fetches the previous page boundary only on demand and shares adjacent revisi
   expect(getHistory).not.toHaveBeenCalled();
   getHistory.mockResolvedValueOnce({ commits: [{ commit: 'c' }] });
   await cache.load(commits, 1, 1, true);
-  expect(getHistory).toHaveBeenCalledWith(10, 2);
+  expect(getHistory).toHaveBeenCalledWith(10, 2, expect.any(AbortSignal));
   expect(getVersion).toHaveBeenCalledTimes(3);
 });
 
@@ -105,4 +105,32 @@ it('caches explicit missing revisions while preserving other errors for retry', 
     await expect(retryCache.version('retry')).rejects.toThrow(message);
     await expect(retryCache.version('retry')).resolves.toEqual({ commit: 'retry' });
   }
+});
+
+it('cancels pending page and revision loads without discarding completed cache entries', async () => {
+  const cache = createRevisionCache(10);
+  await cache.page(2);
+  await cache.version('kept');
+  const abortable = (_hash: number, _key: unknown, signal: AbortSignal) =>
+    new Promise<never>((_resolve, reject) =>
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+    );
+  getHistory.mockImplementationOnce(abortable);
+  getVersion.mockImplementationOnce(abortable);
+  const page = cache.page(1),
+    version = cache.version('pending');
+  const pageSignal = getHistory.mock.calls.at(-1)![2] as AbortSignal;
+  const versionSignal = getVersion.mock.calls.at(-1)![2] as AbortSignal;
+  cache.cancelPending();
+  expect(pageSignal.aborted).toBe(true);
+  expect(versionSignal.aborted).toBe(true);
+  await expect(page).rejects.toMatchObject({ name: 'AbortError' });
+  await expect(version).rejects.toMatchObject({ name: 'AbortError' });
+  expect(cache.peekPage(2)).toBe(commits);
+  await cache.version('kept');
+  expect(getVersion).toHaveBeenCalledTimes(2);
+  await cache.page(1);
+  await cache.version('pending');
+  expect(getHistory).toHaveBeenCalledTimes(3);
+  expect(getVersion).toHaveBeenCalledTimes(3);
 });

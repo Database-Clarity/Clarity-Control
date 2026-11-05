@@ -40,10 +40,12 @@ const coverSelector = '[data-editor-overlay], [data-notice-strip]';
 /** Keeps the caret clear of the editor's own overlays and of the shell's notice strip. */
 export function editorScrollMargins() {
   return EditorView.scrollMargins.of((view) => {
+    const overlays = [...document.querySelectorAll<HTMLElement>(coverSelector)].filter(
+      (element) => !element.hasAttribute('data-editor-overlay') || isOver(element, view),
+    );
+    if (!overlays.length) return null;
     const scroller = view.scrollDOM.getBoundingClientRect();
-    const covers = [...document.querySelectorAll<HTMLElement>(coverSelector)]
-      // A closed overlay is not rendered; an overlay belongs to the editor it opens over.
-      .filter((element) => !element.hasAttribute('data-editor-overlay') || isOver(element, view))
+    const covers = overlays
       .map((element) => element.getBoundingClientRect())
       .filter((rect) => rect.width > 0 && rect.height > 0);
     const margins = coverMargins(scroller, covers);

@@ -6,6 +6,10 @@
 const OWNERS =
   'dialog[open], [aria-modal="true"], [data-shell-overlay], [role="combobox"][aria-expanded="true"]';
 
+export function workspaceShortcutOwners() {
+  return document.querySelectorAll(OWNERS);
+}
+
 export function workspaceShortcutsBlocked(event: Event) {
   return event.defaultPrevented || !!document.querySelector(OWNERS);
 }

@@ -127,6 +127,8 @@ export function legacyRevisionCache(lane: LegacyLane): RevisionCache {
   );
   return {
     identity: -lane.sourceHash,
+    // This adapter reads already-loaded immutable values; no request is pending.
+    cancelPending: () => undefined,
     version: async (commit) => versions.get(commit) ?? null,
     page: async () => commits,
     peekPage: () => commits,

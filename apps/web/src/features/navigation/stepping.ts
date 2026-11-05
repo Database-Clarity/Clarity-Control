@@ -148,15 +148,24 @@ export interface SteppingGuard {
 }
 
 // Keep the pre-gesture route in history, not every intermediate wheel tick.
-export function createStepping(navigate: NavigateTo, guard?: SteppingGuard) {
+export function createStepping(
+  navigate: NavigateTo,
+  guard?: SteppingGuard,
+  frames?: { request(run: () => void): number; cancel(id: number): void; allow?(): boolean },
+) {
   let origin: string | undefined;
   let destination: string | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let permittedAt: number | undefined;
+  let frame: number | undefined;
+  let landed: string | undefined;
   function cancel() {
+    if (frame !== undefined) frames?.cancel(frame);
+    frame = undefined;
     clearTimeout(timer);
     origin = undefined;
     destination = undefined;
+    landed = undefined;
     permittedAt = undefined;
   }
   function commit() {
@@ -175,6 +184,9 @@ export function createStepping(navigate: NavigateTo, guard?: SteppingGuard) {
     cancel();
   }
   return {
+    get target() {
+      return destination;
+    },
     /** Returns false, having changed nothing, when the guard refuses or there is nothing to step to. */
     step(from: string, to: string): boolean {
       if (guard && !guard.allow(from, to)) {
@@ -186,7 +198,24 @@ export function createStepping(navigate: NavigateTo, guard?: SteppingGuard) {
       origin ??= from;
       destination = to;
       permittedAt = guard?.epoch();
-      navigate(to, { replace: true });
+      if (!frames) {
+        navigate(to, { replace: true });
+        landed = to;
+      } else if (frame === undefined)
+        frame = frames.request(() => {
+          frame = undefined;
+          if ((frames.allow && !frames.allow()) || (guard && permittedAt !== guard.epoch())) {
+            // A dialog/list may have opened since the wheel packet was accepted. Keep
+            // the last landed route and never move the workspace behind its new owner.
+            destination = landed;
+            if (!destination) cancel();
+            return;
+          }
+          if (destination) {
+            navigate(destination, { replace: true });
+            landed = destination;
+          }
+        });
       clearTimeout(timer);
       timer = setTimeout(commit, 1000);
       return true;

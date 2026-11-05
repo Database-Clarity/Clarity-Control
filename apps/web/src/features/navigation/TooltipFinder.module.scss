@@ -85,6 +85,7 @@
 
 // The list floats under the field in the header; in the sheet it flows in place.
 .popup {
+  contain: layout paint;
   position: absolute;
   top: calc(100% + 2px);
   left: 0;
@@ -117,12 +118,19 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   list-style: none;
+
+  &[data-windowed] {
+    // Large lists already fill this bounded surface. Isolate changing row
+    // contents from workspace size/layout without deferring their paint.
+    height: min(60dvh, 26rem);
+    contain: strict;
+  }
 }
 
 .option {
   display: grid;
   // The name wins the width; the right-hand text yields (a long perk truncates, never the piece).
-  grid-template-columns: 0.625rem auto minmax(0, 1fr);
+  grid-template-columns: 0.625rem minmax(0, 1fr) fit-content(55%);
   align-items: center;
   gap: 0.375rem;
   min-height: 1.75rem;
@@ -133,6 +141,23 @@
   content-visibility: auto;
   contain-intrinsic-size: auto 28px;
 
+  .listbox[data-windowed] & {
+    // Every mounted row is laid out immediately, including overscan and jumps.
+    height: var(--finder-row-height);
+    content-visibility: visible;
+    contain-intrinsic-size: auto var(--finder-row-height);
+    contain: size layout style paint;
+  }
+
+  .listbox[data-eager-rows] & {
+    // Bounded lists also jump on opening/Home/End. Keep their cheap contents
+    // ready from the first paint rather than waiting for skipped content to
+    // become visible after a programmatic scroll.
+    content-visibility: visible;
+    height: var(--finder-row-height);
+    contain: size layout style paint;
+  }
+
   @include theme.mobile-or-coarse {
     min-height: max(44px, 2.75rem);
   }
@@ -142,6 +167,7 @@
     justify-content: flex-end;
     align-items: center;
     min-width: 0;
+    overflow: hidden;
     color: var(--text2);
     font-size: 0.75rem;
     white-space: nowrap;
@@ -190,7 +216,10 @@
 }
 
 .tail {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: pre;
 }
 
@@ -221,13 +250,17 @@
 .sheetBar {
   flex: none;
   display: flex;
+  flex-direction: column;
   align-items: center;
+  min-width: 0;
   gap: 0.5rem;
 
   .category {
-    flex: 1 1 0;
-    width: auto;
     max-width: none;
+  }
+
+  .stepper {
+    align-self: flex-end;
   }
 }
 

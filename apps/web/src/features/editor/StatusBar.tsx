@@ -1,8 +1,24 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import {
+  memo,
+  useEffect,
+  useRef,
+  useSyncExternalStore,
+  type ComponentProps,
+  type ReactNode,
+} from 'react';
 import { canReplaceGlyph, type GlyphWarning, type ValidationIssue } from '@clarity/core';
 import styles from './StatusBar.module.scss';
+import type { CursorPositionStore } from './cursorPosition';
 
 export type StatusPanel = 'help' | 'glyphs' | 'conflicts';
+
+export const CursorStatusBar = memo(function CursorStatusBar({
+  cursor,
+  ...props
+}: Omit<ComponentProps<typeof StatusBar>, 'line' | 'column'> & { cursor: CursorPositionStore }) {
+  const position = useSyncExternalStore(cursor.subscribe, cursor.getSnapshot, cursor.getSnapshot);
+  return <StatusBar {...props} line={position.line} column={position.column} />;
+});
 
 /** Unresolved conflict blocks in the text: the bar counts them and jumps to the next. */
 export interface ConflictStatus {
@@ -36,6 +52,7 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 export function StatusBar({
   readOnlyReason,
   issues,
+  validating = false,
   glyphCount,
   line,
   column,
@@ -49,6 +66,7 @@ export function StatusBar({
 }: {
   readOnlyReason: string | null;
   issues: readonly ValidationIssue[];
+  validating?: boolean;
   glyphCount: number;
   line: number;
   column: number;
@@ -65,7 +83,13 @@ export function StatusBar({
   const errors = issues.filter((issue) => issue.severity === 'error').length;
   const toggle = (next: StatusPanel) => onPanel(panel === next ? null : next);
   return (
-    <div className={styles.bar} data-editor-status aria-label="Editor status" role="group">
+    <div
+      className={styles.bar}
+      data-editor-status
+      aria-label="Editor status"
+      role="group"
+      aria-busy={validating || undefined}
+    >
       {readOnlyReason && (
         <span className={styles.reason} title={readOnlyReason} data-status-reason>
           {readOnlyReason}
@@ -78,7 +102,13 @@ export function StatusBar({
         aria-expanded={panel === 'help'}
         aria-controls="editor-panel-help"
         title="Markup issues and editor help"
-        aria-label={issues.length ? plural(issues.length, 'markup issue') : 'Markup help'}
+        aria-label={
+          validating
+            ? 'Checking markup'
+            : issues.length
+              ? plural(issues.length, 'markup issue')
+              : 'Markup help'
+        }
         onClick={() => toggle('help')}
       >
         {issues.length ? (

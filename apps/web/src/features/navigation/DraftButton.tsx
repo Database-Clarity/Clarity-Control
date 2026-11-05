@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { resolveAlias, type Lang, type Tooltip } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
@@ -16,10 +17,11 @@ import styles from './DraftButton.module.scss';
 
 /** Drafts whose hash now shares another tooltip: kept, never deleted, until the user decides. */
 export function staleDraftHashes(drafts: Record<string, unknown>, data: EditorData | null) {
+  return staleDraftKeys(Object.keys(drafts), data);
+}
+function staleDraftKeys(hashes: readonly string[], data: EditorData | null) {
   return data
-    ? Object.keys(drafts).filter(
-        (hash) => resolveAlias(Number(hash), data.aliases) !== Number(hash),
-      )
+    ? hashes.filter((hash) => resolveAlias(Number(hash), data.aliases) !== Number(hash))
     : [];
 }
 
@@ -196,7 +198,7 @@ export function DraftsContent({ onClose }: { onClose(): void }) {
 
 /** Header button: the draft count, a dot while anything needs attention. */
 export function DraftButton({ iconOnly = false }: { iconOnly?: boolean }) {
-  const drafts = useDraftStore((state) => state.drafts);
+  const hashes = useDraftStore(useShallow((state) => Object.keys(state.drafts)));
   const draftError = useDraftStore((state) => state.error);
   const data = useDataStore((state) => state.data);
   const reviewing = useSaveState((state) => state.review !== null);
@@ -205,10 +207,10 @@ export function DraftButton({ iconOnly = false }: { iconOnly?: boolean }) {
   const { pathname, search } = useLocation();
   // Back/Forward or any navigation moves the page behind a modal popover: close it.
   useEffect(() => setOpen(false), [pathname, search]);
-  const count = Object.keys(drafts).length;
+  const count = hashes.length;
+  const stale = useMemo(() => staleDraftKeys(hashes, data).length > 0, [hashes, data]);
   const conflicts = useOpenConflicts();
-  const attention =
-    Boolean(draftError) || staleDraftHashes(drafts, data).length > 0 || conflicts.length > 0;
+  const attention = Boolean(draftError) || stale || conflicts.length > 0;
   // A review in progress belongs to the native dialog, not to this popover.
   useEffect(() => {
     if (reviewing) setOpen(false);

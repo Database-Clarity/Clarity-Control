@@ -1,4 +1,12 @@
-import { useMemo } from 'react';
+import {
+  memo,
+  startTransition,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
 import { parseMarkup, type Lang, type MarkupGlobals, type MarkupSpan } from '@clarity/core';
 import { compareRenders, type CompareLine, type Comparison } from './compare';
 import { classNames, Lines, PreviewSpan, TooltipPreview } from './TooltipPreview';
@@ -35,6 +43,8 @@ export interface PreviewColumnProps {
   /** Which enhanced version is shown, when there are several. */
   variant: number | undefined;
   onVariant(hash: number): void;
+  /** Effects that acknowledge the current text, after its deferred render commits. */
+  acknowledgement?: ReactNode;
 }
 
 const labels: Record<PreviewMode, string> = {
@@ -48,7 +58,36 @@ const labels: Record<PreviewMode, string> = {
  * enhanced version), then one body. Base and Enhanced are the renders a consumer sees; Compare is
  * a working view of the two, so only Base and Enhanced ever count as "previewed".
  */
-export function PreviewColumn({
+export function PreviewColumn(props: PreviewColumnProps) {
+  const [settled, setSettled] = useState(props);
+  const changedDocument = settled.hash !== props.hash || settled.lang !== props.lang;
+  // A route change starts with the correct document immediately. Live edits wait
+  // for a short input pause, so skipped text snapshots never parse or relayout.
+  if (changedDocument) setSettled(props);
+  useEffect(() => {
+    if (settled === props) return;
+    const timer = setTimeout(() => startTransition(() => setSettled(props)), 40);
+    return () => clearTimeout(timer);
+  }, [props, settled]);
+  const deferred = useDeferredValue(settled);
+  // A different document/language must never display the previous one's contents.
+  // Same-document typing can let the editor paint before parsing its live preview.
+  const content = deferred.hash === props.hash && deferred.lang === props.lang ? deferred : props;
+  return (
+    <>
+      <PreviewColumnBody
+        {...content}
+        mode={props.mode}
+        variant={props.variant}
+        onMode={props.onMode}
+        onVariant={props.onVariant}
+      />
+      {content === props && props.acknowledgement}
+    </>
+  );
+}
+
+const PreviewColumnBody = memo(function PreviewColumnBody({
   hash,
   lang,
   name,
@@ -152,7 +191,7 @@ export function PreviewColumn({
       </TooltipPreview>
     </section>
   );
-}
+});
 
 /**
  * One changed value: struck base value, arrow, enhanced value. The arrow stays with the words on
@@ -186,36 +225,40 @@ function ChangeRun({ was, now }: { was: MarkupSpan[]; now: MarkupSpan[] }) {
   );
 }
 
-function CompareRow({ entry }: { entry: CompareLine }) {
-  // Tables are retired from the markup row but still render in older text.
-  if (entry.line.table) return <Lines lines={[entry.line]} />;
-  if (entry.kind === 'changed' && entry.segments) {
+const CompareRow = memo(
+  function CompareRow({ entry }: { entry: CompareLine }) {
+    // Tables are retired from the markup row but still render in older text.
+    if (entry.line.table) return <Lines lines={[entry.line]} />;
+    if (entry.kind === 'changed' && entry.segments) {
+      return (
+        <div className={classNames(entry.line.classNames)} data-kind="changed">
+          {entry.segments.map((segment, index) =>
+            segment.kind === 'same' ? (
+              segment.spans.map((part, partIndex) => (
+                <PreviewSpan key={`${index}.${partIndex}`} part={part} />
+              ))
+            ) : (
+              <ChangeRun key={index} was={segment.was} now={segment.now} />
+            ),
+          )}
+        </div>
+      );
+    }
+    const className = [
+      classNames(entry.line.classNames),
+      entry.kind === 'added' ? previewStyles.added : '',
+      entry.kind === 'removed' ? previewStyles.removed : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
     return (
-      <div className={classNames(entry.line.classNames)} data-kind="changed">
-        {entry.segments.map((segment, index) =>
-          segment.kind === 'same' ? (
-            segment.spans.map((part, partIndex) => (
-              <PreviewSpan key={`${index}.${partIndex}`} part={part} />
-            ))
-          ) : (
-            <ChangeRun key={index} was={segment.was} now={segment.now} />
-          ),
-        )}
+      <div className={className || undefined} data-kind={entry.kind}>
+        {entry.line.linesContent?.map((part, index) => (
+          <PreviewSpan key={index} part={part} />
+        ))}
       </div>
     );
-  }
-  const className = [
-    classNames(entry.line.classNames),
-    entry.kind === 'added' ? previewStyles.added : '',
-    entry.kind === 'removed' ? previewStyles.removed : '',
-  ]
-    .filter(Boolean)
-    .join(' ');
-  return (
-    <div className={className || undefined} data-kind={entry.kind}>
-      {entry.line.linesContent?.map((part, index) => (
-        <PreviewSpan key={index} part={part} />
-      ))}
-    </div>
-  );
-}
+  },
+  (previous, next) =>
+    previous.entry === next.entry || JSON.stringify(previous.entry) === JSON.stringify(next.entry),
+);

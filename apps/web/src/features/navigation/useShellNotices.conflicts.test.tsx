@@ -21,6 +21,7 @@ const tooltip = (text: string): Tooltip => ({
 const marked = '<<<<<<< mine\nm\n=======\nt\n>>>>>>> theirs';
 
 function Probe() {
+  renders++;
   const notices = useShellNotices();
   return createElement(
     'ul',
@@ -40,6 +41,7 @@ function Probe() {
 
 let host: HTMLDivElement;
 let root: Root;
+let renders = 0;
 const original = useDraftStore.getState();
 const ids = () => [...host.querySelectorAll('li')].map((li) => li.getAttribute('data-id'));
 const render = () =>
@@ -47,7 +49,8 @@ const render = () =>
 
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-  useDraftStore.setState({ drafts: {}, hydrated: true, external: false, error: null });
+  renders = 0;
+  useDraftStore.setState({ drafts: {}, hydrated: true, external: false, error: null, pending: 0 });
   useConflictStore.setState({ scope: '1', sessions: {} });
   host = document.createElement('div');
   document.body.append(host);
@@ -58,9 +61,33 @@ afterEach(() => {
   host.remove();
   useDraftStore.setState(original);
   useConflictStore.setState({ scope: null, sessions: {} });
+  vi.useRealTimers();
 });
 
 describe('conflict notices', () => {
+  it('keeps brief draft writes out of shell renders and preserves slow-write and error notices', () => {
+    vi.useFakeTimers();
+    render();
+    const initial = renders;
+    for (let i = 0; i < 3; i++) {
+      act(() => useDraftStore.setState({ pending: 1 }));
+      act(() => vi.advanceTimersByTime(100));
+      act(() => useDraftStore.setState({ pending: 0 }));
+    }
+    expect(renders).toBe(initial);
+    expect(ids()).toEqual([]);
+    act(() => useDraftStore.setState({ pending: 1 }));
+    act(() => vi.advanceTimersByTime(799));
+    expect(renders).toBe(initial);
+    act(() => vi.advanceTimersByTime(1));
+    expect(ids()).toEqual(['draft-saving']);
+    act(() => useDraftStore.setState({ pending: 0 }));
+    expect(ids()).toEqual([]);
+    act(() => useDraftStore.setState({ pending: 1, error: 'Storage failed' }));
+    expect(ids()).toEqual(['draft-storage']);
+    expect(host.textContent).toContain('Storage failed');
+  });
+
   it('says nothing about text blocks (the editor shows those)', () => {
     useDraftStore.setState({ drafts: { 10: { base: tooltip('a'), next: tooltip(marked) } } });
     render();
