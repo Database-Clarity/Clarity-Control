@@ -50,8 +50,8 @@ import {
 } from './BulkPreview';
 import { useSidebarQueueStore } from '../navigation/sidebarQueue';
 import { workspaceShortcutsBlocked } from '../../ui/interaction';
-import { CompendiumPage } from './CompendiumPage';
-import { MatchedSources } from './MatchedSources';
+import { CompendiumPage, compendiumLists } from './CompendiumPage';
+import { MatchedSources, matchedSourceRows } from './MatchedSources';
 import { ReviewDetails } from './ReviewDetails';
 import { useDisplayMatches } from './useDisplayMatches';
 import { rememberReviewPage } from './reviewPageComponent';
@@ -85,6 +85,18 @@ export function MatchReviewPage() {
   const draftCount = Object.keys(drafts).length;
   const display = useDisplayMatches(editor, data, drafts, user?.id);
   const reviewPrepared = display.reviewPrepared;
+  // Every tab in the visible navigation gets its data projection when the
+  // review workspace opens. Switching tabs then only mounts the visible rows.
+  const browseViews = useMemo(
+    () =>
+      editor && data && reviewPrepared
+        ? {
+            linked: compendiumLists(editor, data),
+            matched: display.matches ? matchedSourceRows(editor, display.matches) : undefined,
+          }
+        : undefined,
+    [editor, data, reviewPrepared, display.matches],
+  );
   const saveLocked = useSaveState((state) => state.locked);
   useEffect(() => {
     void load();
@@ -171,9 +183,9 @@ export function MatchReviewPage() {
       {error && <p role="alert">{error}</p>}
       {!matchedTab && display.error && <p role="alert">{display.error}</p>}
       {matchedTab ? (
-        <MatchedSources />
+        <MatchedSources preparedRows={browseViews?.matched} />
       ) : linkedTab ? (
-        editor && data && <CompendiumPage />
+        editor && data && <CompendiumPage prepared={browseViews?.linked} />
       ) : (
         <>
           {(loading || authLoading || (!reviewPrepared && display.loading)) && (

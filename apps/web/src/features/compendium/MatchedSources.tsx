@@ -202,7 +202,7 @@ export function MatchedSourceList({ rows }: { rows: SourceRow[] }) {
   );
 }
 
-export function MatchedSources() {
+export function MatchedSources({ preparedRows }: { preparedRows?: SourceRow[] } = {}) {
   const editor = useDataStore((s) => s.data);
   const drafts = useDraftStore((s) => s.drafts);
   const userId = useAuthStore((s) => s.user?.id);
@@ -216,8 +216,10 @@ export function MatchedSources() {
     void load();
   }, [load]);
   const rows = useMemo(
-    () => (editor && result.matches ? matchedSourceRows(editor, result.matches) : noRows),
-    [editor, result.matches],
+    () =>
+      preparedRows ??
+      (editor && result.matches ? matchedSourceRows(editor, result.matches) : noRows),
+    [preparedRows, editor, result.matches],
   );
   const search = query.trim().toLowerCase();
   const filtered = useMemo(

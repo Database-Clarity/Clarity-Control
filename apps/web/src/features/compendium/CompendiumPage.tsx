@@ -1,15 +1,56 @@
 import { isSetSelector } from './itemClassification';
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { resolveAlias } from '@clarity/core';
-import { useDataStore } from '../../stores/data';
+import { resolveAlias, type CompendiumData } from '@clarity/core';
+import { useDataStore, type EditorData } from '../../stores/data';
 import { canonicalHash, itemFor } from '../navigation/catalog';
 import { compendiumChanges } from './tracking';
 import { useCompendiumStore } from './store';
 import { CompendiumFreshness } from './CompendiumFreshness';
 import styles from './Compendium.module.scss';
 
-export function CompendiumPage() {
+const changesByEditor = new WeakMap<
+  EditorData,
+  WeakMap<CompendiumData, ReturnType<typeof compendiumChanges>>
+>();
+const missingByEditor = new WeakMap<EditorData, NonNullable<ReturnType<typeof itemFor>>[]>();
+
+/** Catalog revisions outlive a tab mount; navigation does not change these lists. */
+export function compendiumLists(editor: EditorData, source?: CompendiumData | null) {
+  let revisions = changesByEditor.get(editor);
+  if (!revisions) changesByEditor.set(editor, (revisions = new WeakMap()));
+  let changes = source && revisions.get(source);
+  if (!changes) {
+    changes = source ? compendiumChanges(editor.bundle.tooltips, source) : [];
+    if (source) revisions.set(source, changes);
+  }
+  let missing = missingByEditor.get(editor);
+  if (!missing) {
+    const hashes = new Set([
+      ...Object.values(editor.items).map((item) => item.hash),
+      ...Object.values(editor.bundle.tooltips).map((tooltip) => tooltip.hash),
+    ]);
+    missing = [...hashes]
+      .filter(
+        (hash) =>
+          hash > 3 &&
+          resolveAlias(hash, editor.aliases) === hash &&
+          !editor.bundle.tooltips[hash]?.compendium,
+      )
+      .map((hash) => itemFor(hash, editor))
+      .filter((item) => !!item)
+      .filter((item) => !isSetSelector(item))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    missingByEditor.set(editor, missing);
+  }
+  return { changes, missing };
+}
+
+export function CompendiumPage({
+  prepared,
+}: {
+  prepared?: ReturnType<typeof compendiumLists>;
+} = {}) {
   const editor = useDataStore((state) => state.data);
   const { data, error, loading, load } = useCompendiumStore();
   const [params, setParams] = useSearchParams();
@@ -24,28 +65,12 @@ export function CompendiumPage() {
     else next.delete(key);
     setParams(next, { replace: true });
   };
-  const changes = useMemo(
-    () => (editor && data ? compendiumChanges(editor.bundle.tooltips, data) : []),
-    [editor, data],
+  const lists = useMemo(
+    () => prepared ?? (editor ? compendiumLists(editor, data) : undefined),
+    [prepared, editor, data],
   );
-  const missing = useMemo(() => {
-    if (!editor) return [];
-    const hashes = new Set([
-      ...Object.values(editor.items).map((item) => item.hash),
-      ...Object.values(editor.bundle.tooltips).map((tooltip) => tooltip.hash),
-    ]);
-    return [...hashes]
-      .filter(
-        (hash) =>
-          hash > 3 &&
-          resolveAlias(hash, editor.aliases) === hash &&
-          !editor.bundle.tooltips[hash]?.compendium,
-      )
-      .map((hash) => itemFor(hash, editor))
-      .filter((item) => !!item)
-      .filter((item) => !isSetSelector(item))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [editor]);
+  const changes = lists?.changes ?? [];
+  const missing = lists?.missing ?? [];
   if (!editor) return null;
   const search = query.trim().toLowerCase();
   const matches = (hash: number) => {
