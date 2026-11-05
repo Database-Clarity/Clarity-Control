@@ -113,6 +113,12 @@ it('publishes selected review evidence before assets/full proposals, and reprior
   const worker = {
     onmessage: null as null | ((event: { data: unknown }) => void),
     postMessage(reply: WorkerReply) {
+      // Selected replies must bypass the graph codec entirely.
+      if (reply.id === 2 || reply.id === 3 || reply.id === 5) {
+        expect(Object.hasOwn(reply, 'value')).toBe(true);
+        expect(reply.buffer).toBeUndefined();
+        expect(reply.nodes).toBeUndefined();
+      }
       const job = pending.get(reply.id);
       if (!job) return;
       if (reply.error) {
@@ -158,6 +164,13 @@ it('publishes selected review evidence before assets/full proposals, and reprior
   const next = await request<Priority>(3, { priority: { token: 17, hash: 102, input } });
   expect(finished).toBe(false);
   expect(next.entry?.hash).toBe(102);
+  const pane = await request<Priority['matches']>(5, {
+    priority: { token: 17, hash: 100, input, matchesOnly: true },
+  });
+  expect([...pane.keys()]).toEqual([100]);
+  expect(pane).toEqual(first.matches);
+  expect(pane.get(100)?.tab.grid).toBeUndefined();
+  expect(pane.get(100)?.tab.rows).toEqual([]);
   release();
   await initialized;
   const full = await request<ReturnType<typeof import('./displayMatches').displayMatches>>(4, {

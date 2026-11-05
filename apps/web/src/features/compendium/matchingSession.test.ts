@@ -4,6 +4,49 @@ import { emptyProgress } from './reviewProgress';
 import { sendWorkerResult } from './workerReplies';
 
 afterEach(() => vi.unstubAllGlobals());
+it('requests only pane matches, caches selection, and keeps the review API complete', async () => {
+  vi.resetModules();
+  const f = guidedFixture();
+  const requests: { priority?: { hash: number; matchesOnly?: boolean } }[] = [];
+  const matches = new Map([[100, { row: { name: 'Selected' } }]]);
+  const review = { hash: 100, matches, entry: { hash: 100 }, fingerprint: 'source' };
+  class FakeWorker {
+    onmessage?: (event: MessageEvent) => void;
+    terminate = vi.fn();
+    postMessage(data: { id?: number; priority?: { hash: number; matchesOnly?: boolean } }) {
+      if (!data.id) return;
+      requests.push(data);
+      queueMicrotask(() =>
+        this.onmessage?.({
+          data: {
+            id: data.id,
+            value: data.priority ? (data.priority.matchesOnly ? matches : review) : new Map(),
+          },
+        } as MessageEvent),
+      );
+    }
+  }
+  vi.stubGlobal('Worker', FakeWorker);
+  const { matchingSession } = await import('./matchingSession');
+  const session = matchingSession(f.editor, f.source);
+  const input = { drafts: {}, progress: emptyProgress(), scope: f.scope };
+  const first = session.prioritize(input, 100);
+  expect(session.prioritize(input, 100)).toBe(first);
+  expect(await first).toEqual(matches);
+  expect(requests.filter((request) => request.priority)).toEqual([
+    expect.objectContaining({
+      priority: expect.objectContaining({ hash: 100, matchesOnly: true }),
+    }),
+  ]);
+  expect(await session.prioritizeReview(input, 100)).toEqual(review);
+  const count = requests.length;
+  expect(await session.prioritize(input, 100)).toEqual(matches);
+  expect(requests).toHaveLength(count);
+  await session.prioritize({ ...input, scope: 'changed-source-scope' }, 100);
+  expect(requests).toHaveLength(count + 1);
+  session.dispose();
+});
+
 it('shares a worker across views and avoids resending results for empty guidance or selection changes', async () => {
   vi.resetModules();
   const requests: Record<string, unknown>[] = [];

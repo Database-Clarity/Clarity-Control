@@ -64,7 +64,9 @@ it('preempts a partially decoded catalog for the selected entry, then resumes it
     order.push('pane');
     return value;
   });
-  emit(2, new Map([[100, cell]]));
+  worker.onmessage!.call(worker, {
+    data: structuredClone({ id: 2, value: new Map([[100, cell]]) }),
+  } as MessageEvent);
   for (let i = 0; idle.length && i < 10000; i++) {
     idle.shift()!(deadline);
     await Promise.resolve();

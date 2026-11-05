@@ -44,7 +44,7 @@ type Request = {
   cancelInit?: { token: number };
   initialize?: { token: number };
   input?: DisplayInput;
-  priority?: { token: number; hash: number; input: DisplayInput };
+  priority?: { token: number; hash: number; input: DisplayInput; matchesOnly?: boolean };
   guide?: {
     document: GuidanceDocument;
     baseline: string;
@@ -132,6 +132,12 @@ async function servePriority() {
         while (!next.done) next = steps.next();
         return next.value;
       });
+      const matches = new Map(
+        [...selected.matches].map(([hash, match]) => [hash, compactMatch(match)]),
+      );
+      // The pane needs just this tooltip's validated match, not review evidence,
+      // candidates, or a second copy of the catalog's encoded value table.
+      if (request.matchesOnly) return matches;
       return {
         hash: request.hash,
         fingerprint: priorityPlan.plan.fingerprint,
@@ -143,10 +149,13 @@ async function servePriority() {
           ? compactProposal(priorityProposals.get(request.hash)!)
           : undefined,
         decision: selected.decisions.find((decision) => decision.hash === request.hash),
-        matches: new Map([...selected.matches].map(([hash, match]) => [hash, compactMatch(match)])),
+        matches,
       };
     });
-    sendWorkerResult(emit, request.id, result);
+    // Native clone preserves Map/undefined/shared cells without a JS graph decoder.
+    // Only selected-entry results use it; large background results stay transferable
+    // and are decoded in yielding slices by the bridge.
+    self.postMessage({ id: request.id, value: result });
   } catch (error) {
     self.postMessage({
       id: request.id,
