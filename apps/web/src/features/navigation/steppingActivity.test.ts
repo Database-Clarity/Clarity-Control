@@ -34,6 +34,32 @@ it('gives a costly frame and pending physical input room without extending the b
   expect(useSteppingActivity.getState()).toMatchObject({ active: false, deferWorkspace: false });
 });
 
+it('catches up on the next free frame and cancels obsolete handoffs on new input', () => {
+  vi.useFakeTimers();
+  let pending = true;
+  let nextId = 0;
+  const callbacks = new Map<number, FrameRequestCallback>();
+  const cancelled = vi.fn();
+  vi.stubGlobal('navigator', { scheduling: { isInputPending: () => pending } });
+  vi.stubGlobal('requestAnimationFrame', (run: FrameRequestCallback) => {
+    callbacks.set(++nextId, run);
+    return nextId;
+  });
+  vi.stubGlobal('cancelAnimationFrame', cancelled);
+  pulseStepping();
+  beginSteppingFrame()();
+  const obsolete = nextId;
+  vi.advanceTimersByTime(4);
+  pulseStepping();
+  expect(cancelled).toHaveBeenCalledWith(obsolete);
+  callbacks.get(obsolete)!(0);
+  expect(useSteppingActivity.getState().deferWorkspace).toBe(true);
+  pending = false;
+  vi.advanceTimersByTime(8);
+  callbacks.get(nextId)!(0);
+  expect(useSteppingActivity.getState()).toMatchObject({ active: true, deferWorkspace: false });
+});
+
 describe('physical navigation key holds', () => {
   it('stays suspended through the initial delay and slow or irregular repeats', () => {
     vi.useFakeTimers();

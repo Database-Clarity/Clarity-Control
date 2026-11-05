@@ -138,10 +138,10 @@ export function TooltipPage({
       <article
         className={styles.page}
         aria-busy={route !== current || undefined}
-        onPointerDownCapture={(event) => catchUp(event.target)}
-        onKeyDownCapture={(event) => catchUp(event.target)}
-        onBeforeInputCapture={(event) => catchUp(event.target)}
-        onCompositionStartCapture={(event) => catchUp(event.target)}
+        onPointerDownCapture={active ? (event) => catchUp(event.target) : undefined}
+        onKeyDownCapture={active ? (event) => catchUp(event.target) : undefined}
+        onBeforeInputCapture={active ? (event) => catchUp(event.target) : undefined}
+        onCompositionStartCapture={active ? (event) => catchUp(event.target) : undefined}
       >
         <StableWorkspace
           hashOverride={hashOverride}
