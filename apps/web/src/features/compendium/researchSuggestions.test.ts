@@ -1,10 +1,15 @@
-import { expect, it } from 'vitest';
-import { researchSuggestions } from './researchSuggestions';
+import { afterEach, expect, it, vi } from 'vitest';
+import { researchSuggestions, warmResearchSuggestions } from './researchSuggestions';
+import * as progress from './reviewProgress';
 import { suggestionAnchor } from './suggestions';
 import hints from './research-hints.json';
 import { compendiumDataSchema, type CompendiumData } from '@clarity/core';
 import capturedWindow from './fixtures/research-window.json';
 const cell = (plain: string) => ({ plain, runs: [{ text: plain }] });
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 const data: CompendiumData = {
   fetchedAt: '2026-10-31T00:00:00Z',
   tabs: [
@@ -92,4 +97,56 @@ it('keeps captured evidence current through schema loading but detects actual te
   if (run.bold) delete run.bold;
   else run.bold = true;
   expect(hint(styleChange).stale).toBe(true);
+});
+
+it('reuses source proofs without sharing mutable caller results, and refreshes a new source revision', () => {
+  const source = structuredClone(capturedWindow) as CompendiumData;
+  const fingerprint = vi.spyOn(progress, 'sourceFingerprint');
+  const first = researchSuggestions(299264772, source, 'weapon-mod', 'Adept Range')[0];
+  const count = fingerprint.mock.calls.length;
+  expect(count).toBeGreaterThan(0);
+  first.rationale = 'Caller edit';
+  first.anchor!.row += 100;
+  const second = researchSuggestions(299264772, source, 'weapon-mod', 'Adept Range')[0];
+  expect(second.rationale).not.toBe('Caller edit');
+  expect(second.anchor!.row).toBe(first.anchor!.row - 100);
+  expect(fingerprint).toHaveBeenCalledTimes(count);
+  const changed = structuredClone(source);
+  changed.tabs[0].grid![0].cell.runs[0].text += ' changed';
+  expect(researchSuggestions(299264772, changed, 'weapon-mod', 'Adept Range')[0].stale).toBe(true);
+  expect(fingerprint.mock.calls.length).toBeGreaterThan(count);
+});
+
+it('pauses source-proof preparation for input, cancels pending work, and preserves foreground results', () => {
+  let serial = 0,
+    input = true;
+  const pending = new Map<number, IdleRequestCallback>();
+  vi.stubGlobal('scheduler', undefined);
+  vi.stubGlobal('navigator', { scheduling: { isInputPending: () => input } });
+  vi.stubGlobal('requestIdleCallback', (callback: IdleRequestCallback) => {
+    pending.set(++serial, callback);
+    return serial;
+  });
+  vi.stubGlobal('cancelIdleCallback', (id: number) => pending.delete(id));
+  const source = structuredClone(capturedWindow) as CompendiumData;
+  const fingerprint = vi.spyOn(progress, 'sourceFingerprint');
+  const tick = () => {
+    const [id, callback] = pending.entries().next().value!;
+    pending.delete(id);
+    callback({ didTimeout: false, timeRemaining: () => 20 });
+  };
+  const cancel = warmResearchSuggestions(source);
+  tick();
+  expect(fingerprint).not.toHaveBeenCalled();
+  cancel();
+  expect(pending.size).toBe(0);
+  input = false;
+  warmResearchSuggestions(source);
+  let ticks = 0;
+  while (pending.size && ++ticks < 100) tick();
+  expect(pending.size).toBe(0);
+  const count = fingerprint.mock.calls.length;
+  expect(count).toBeGreaterThan(0);
+  expect(researchSuggestions(299264772, source, 'weapon-mod', 'Adept Range')[0].stale).toBe(false);
+  expect(fingerprint).toHaveBeenCalledTimes(count);
 });

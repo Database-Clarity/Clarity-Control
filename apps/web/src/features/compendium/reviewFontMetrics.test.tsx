@@ -23,6 +23,7 @@ beforeEach(() => {
   });
   vi.stubGlobal('cancelIdleCallback', (id: number) => pending.delete(id));
   vi.stubGlobal('navigator', { scheduling: { isInputPending: () => input } });
+  vi.stubGlobal('scheduler', undefined);
   vi.spyOn(performance, 'now').mockImplementation(() => now);
   const context = {
     font: '',
@@ -107,4 +108,43 @@ it('cancels preparation when the review workspace unmounts', async () => {
   } finally {
     await act(async () => root.unmount());
   }
+});
+
+it('uses cancellable background tasks between frames, and switches to idle waiting for input', async () => {
+  let serial = 10000;
+  const postTask = vi.fn(
+    (callback: () => void, options: { priority: string; signal: AbortSignal }) =>
+      new Promise<void>((resolve, reject) => {
+        const id = ++serial;
+        pending.set(id, () => {
+          callback();
+          resolve();
+        });
+        options.signal.addEventListener(
+          'abort',
+          () => {
+            pending.delete(id);
+            reject(new DOMException('Cancelled', 'AbortError'));
+          },
+          { once: true },
+        );
+      }),
+  );
+  vi.stubGlobal('scheduler', { postTask });
+  const cancel = warmReviewFontMetrics(guidedFixture().source, family, 16);
+  await Promise.resolve();
+  expect(postTask.mock.calls[0][1].priority).toBe('background');
+  tick();
+  expect(calls).toHaveLength(1);
+  const scheduled = postTask.mock.calls.length;
+  input = true;
+  tick();
+  expect(calls).toHaveLength(1);
+  expect(postTask).toHaveBeenCalledTimes(scheduled);
+  // Input waiting does not create a chain of runnable background tasks.
+  tick();
+  expect(postTask).toHaveBeenCalledTimes(scheduled);
+  cancel();
+  await Promise.resolve();
+  expect(pending.size).toBe(0);
 });

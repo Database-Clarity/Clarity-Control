@@ -11,6 +11,8 @@ export function warmReviewFontMetrics(source: CompendiumData, family: string, re
   let context: CanvasRenderingContext2D | null | undefined;
   function* units() {
     const fonts = new Set<string>();
+    const sourceStyles = new Set<string>();
+    let scanned = 0;
     for (const size of [0.75, 0.8, 0.85, 0.9, 0.95, 1, 1.45, 1.65])
       for (const weight of [400, 700]) fonts.add(`${weight} ${size * rem}px ${family}`);
     // Enumerate every source style, independently of the selected category,
@@ -18,15 +20,18 @@ export function warmReviewFontMetrics(source: CompendiumData, family: string, re
     for (const tab of source.tabs)
       for (const row of tab.rows)
         for (const run of row.cell.runs) {
-          fonts.add(
-            `${run.italic ? 'italic ' : ''}${run.bold ? 700 : 400} ${run.sizePt === undefined ? `${0.95 * rem}px` : `${run.sizePt}pt`} ${family}`,
-          );
-          yield;
+          const style = `${+!!run.bold}${+!!run.italic}:${run.sizePt ?? 'default'}`;
+          if (!sourceStyles.has(style)) {
+            sourceStyles.add(style);
+            fonts.add(
+              `${run.italic ? 'italic ' : ''}${run.bold ? 700 : 400} ${run.sizePt === undefined ? `${0.95 * rem}px` : `${run.sizePt}pt`} ${family}`,
+            );
+          }
+          if (++scanned % 64 === 0) yield;
         }
     for (let pass = 0; pass < 2; pass++)
-      for (const font of fonts)
-        for (let start = 0; start < latin.length; start += 8)
-          yield { font, text: latin.slice(start, start + 8) };
+      for (let start = 0; start < latin.length; start += 8)
+        for (const font of fonts) yield { font, text: latin.slice(start, start + 8) };
   }
   const work = units();
   const started = performance.now();
@@ -35,6 +40,17 @@ export function warmReviewFontMetrics(source: CompendiumData, family: string, re
   let timer: ReturnType<typeof setTimeout> | undefined;
   let maxUnitMs = 0;
   let maxSliceMs = 0;
+  const tasks = (
+    globalThis as typeof globalThis & {
+      scheduler?: {
+        postTask(
+          callback: () => void,
+          options: { priority: 'background'; signal: AbortSignal },
+        ): Promise<unknown>;
+      };
+    }
+  ).scheduler;
+  const controller = new AbortController();
   const inputPending = () =>
     (
       navigator as Navigator & {
@@ -44,7 +60,17 @@ export function warmReviewFontMetrics(source: CompendiumData, family: string, re
   function schedule() {
     if (cancelled) return;
     // No timeout: this optional preparation never takes priority over input.
-    if (typeof requestIdleCallback === 'function') idle = requestIdleCallback(run);
+    if (tasks && !inputPending()) {
+      void tasks
+        .postTask(() => run(), { priority: 'background', signal: controller.signal })
+        .catch(() => {
+          // An unsupported scheduler falls back to idle work. Cancellation does
+          // not schedule another task, including after a workspace unmount.
+          if (!cancelled && typeof requestIdleCallback === 'function')
+            idle = requestIdleCallback(run);
+          else if (!cancelled) timer = setTimeout(() => run(), 16);
+        });
+    } else if (typeof requestIdleCallback === 'function') idle = requestIdleCallback(run);
     else timer = setTimeout(() => run(), 16);
   }
   function run(deadline?: IdleDeadline) {
@@ -90,6 +116,7 @@ export function warmReviewFontMetrics(source: CompendiumData, family: string, re
   void (document.fonts?.ready ?? Promise.resolve()).then(schedule);
   return () => {
     cancelled = true;
+    controller.abort();
     if (idle !== undefined) cancelIdleCallback(idle);
     if (timer !== undefined) clearTimeout(timer);
   };

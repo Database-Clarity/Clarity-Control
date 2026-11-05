@@ -1,7 +1,7 @@
 import { confirmCompendiumSelection } from './selection';
 import { guidedDecisions, guidedRevision, type GuidedDecision } from './guidedDecisions';
 import { importContext } from './importContext';
-import { researchSuggestions } from './researchSuggestions';
+import { researchSuggestions, warmResearchSuggestions } from './researchSuggestions';
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import type { CompendiumData, Tooltip } from '@clarity/core';
@@ -96,6 +96,7 @@ export function MatchReviewPage() {
   const editor = useDataStore((state) => state.data);
   const { data, load, loading, error } = useCompendiumStore();
   useReviewFontMetrics(article, data);
+  useEffect(() => (data ? warmResearchSuggestions(data) : undefined), [data]);
   const { user, loading: authLoading } = useAuthStore();
   const linkedTab = params.get('tab') === 'linked';
   const matchedTab = params.get('tab') === 'matched';
