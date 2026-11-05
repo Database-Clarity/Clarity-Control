@@ -74,9 +74,12 @@ function InlineLinkPicker({ children, onStep }: { children: ReactNode; onStep():
     // swaps, and its focus handler lands the newest route before more input.
     queueMicrotask(() => {
       if (owner.activeElement !== owner.body && owner.activeElement?.isConnected) return;
-      owner
-        .querySelector<HTMLInputElement>('input[aria-label="Tooltip"]')
-        ?.focus({ preventScroll: true });
+      const finder = owner.querySelector<HTMLInputElement>('input[aria-label="Tooltip"]');
+      const target =
+        finder && !finder.disabled && !finder.closest('[hidden], [inert]')
+          ? finder
+          : owner.querySelector<HTMLButtonElement>('[data-tooltip-finder]');
+      target?.focus({ preventScroll: true });
     });
   }, []);
   useLayoutEffect(() => {

@@ -69,6 +69,7 @@ export function PhoneHeader({
       {hasFinder ? (
         <button
           ref={finderButton}
+          data-tooltip-finder
           type="button"
           className={styles.title}
           aria-haspopup="dialog"

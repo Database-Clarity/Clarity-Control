@@ -140,49 +140,58 @@ const diffViews = (host: ParentNode) =>
   host.querySelectorAll('[aria-label="Compendium diff view"]');
 
 describe('Compendium pane', () => {
-  it('discards the inline picker on stepping while retaining its pane and source', async () => {
-    const frames = new Map<number, FrameRequestCallback>();
-    let serial = 0;
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
-      frames.set(++serial, callback);
-      return serial;
-    });
-    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
-    const host = await mount();
-    const root = roots.at(-1)!;
-    const finder = document.createElement('input');
-    finder.setAttribute('aria-label', 'Tooltip');
-    document.body.prepend(finder);
-    await act(async () => button(host, 'Pick other row')!.click());
-    const pane = host.querySelector('aside');
-    const source = host.querySelector('[data-scale]');
-    const query = host.querySelector<HTMLInputElement>('[aria-label="Picker query"]')!;
-    query.value = 'Old picker state';
-    query.focus();
-    await act(async () => {
-      useSteppingActivity.setState({ active: true });
-      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 6 }, stepping: true }));
-    });
-    expect(host.querySelector('[data-picker]')).toBeNull();
-    expect(host.querySelector('[data-inline-link-picker]')).toBeNull();
-    expect(query.isConnected).toBe(false);
-    expect(host.querySelector('aside')).toBe(pane);
-    expect(host.querySelector('[data-scale]')).toBe(source);
-    expect(document.activeElement).toBe(finder);
-    await act(async () => {
-      useSteppingActivity.setState({ active: false });
-      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 6 } }));
-    });
-    expect(host.querySelector('[data-picker]')).toBeNull();
-    await act(async () => {
-      for (const callback of frames.values()) callback(0);
-      frames.clear();
-    });
-    await act(async () => button(host, 'Pick other row')!.click());
-    expect(host.querySelector<HTMLInputElement>('[aria-label="Picker query"]')?.value).toBe(
-      'Initial search',
-    );
-  });
+  it.each(['desktop', 'phone'])(
+    'discards the inline picker on stepping while retaining its pane and source on %s',
+    async (mode) => {
+      const frames = new Map<number, FrameRequestCallback>();
+      let serial = 0;
+      vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+        frames.set(++serial, callback);
+        return serial;
+      });
+      vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+      const host = await mount();
+      const root = roots.at(-1)!;
+      const finder = document.createElement('input');
+      finder.setAttribute('aria-label', 'Tooltip');
+      document.body.prepend(finder);
+      const trigger = document.createElement('button');
+      trigger.setAttribute('data-tooltip-finder', '');
+      document.body.prepend(trigger);
+      if (mode === 'phone') finder.hidden = true;
+      await act(async () => button(host, 'Pick other row')!.click());
+      const pane = host.querySelector('aside');
+      const source = host.querySelector('[data-scale]');
+      const query = host.querySelector<HTMLInputElement>('[aria-label="Picker query"]')!;
+      query.value = 'Old picker state';
+      query.focus();
+      await act(async () => {
+        useSteppingActivity.setState({ active: true });
+        root.render(
+          createElement(CompendiumPanel, { base: { ...linked, hash: 6 }, stepping: true }),
+        );
+      });
+      expect(host.querySelector('[data-picker]')).toBeNull();
+      expect(host.querySelector('[data-inline-link-picker]')).toBeNull();
+      expect(query.isConnected).toBe(false);
+      expect(host.querySelector('aside')).toBe(pane);
+      expect(host.querySelector('[data-scale]')).toBe(source);
+      expect(document.activeElement).toBe(mode === 'phone' ? trigger : finder);
+      await act(async () => {
+        useSteppingActivity.setState({ active: false });
+        root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 6 } }));
+      });
+      expect(host.querySelector('[data-picker]')).toBeNull();
+      await act(async () => {
+        for (const callback of frames.values()) callback(0);
+        frames.clear();
+      });
+      await act(async () => button(host, 'Pick other row')!.click());
+      expect(host.querySelector<HTMLInputElement>('[aria-label="Picker query"]')?.value).toBe(
+        'Initial search',
+      );
+    },
+  );
   it('reveals data-sized skeletons after two frames and reuses their shimmer regions', async () => {
     skeletonTiming.enabled = true;
     const frames = new Map<number, FrameRequestCallback>();
