@@ -107,6 +107,56 @@ const diffViews = (host: ParentNode) =>
   host.querySelectorAll('[aria-label="Compendium diff view"]');
 
 describe('Compendium pane', () => {
+  it('commits only the latest frame target and pauses actions while older content is visible', async () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++nextFrame, callback);
+      return nextFrame;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    const intermediate: Tooltip = {
+      ...linked,
+      hash: 6,
+      compendium: { ...linked.compendium!, snapshot: cell('Intermediate snapshot') },
+    };
+    const latest: Tooltip = {
+      ...linked,
+      hash: 7,
+      compendium: { ...linked.compendium!, snapshot: cell('Latest snapshot') },
+    };
+    const original = useDraftStore.getState().updateDraft;
+    const updateDraft = vi.fn();
+    useDraftStore.setState({ updateDraft });
+    try {
+      const host = await mount();
+      const root = roots.at(-1)!;
+      await act(async () => root.render(createElement(CompendiumPanel, { base: intermediate })));
+      expect(host.textContent).toContain('Old text');
+      expect(button(host, 'Unlink (local draft)')).toBeUndefined();
+      const pending = [...frames.values()][0];
+      frames.clear();
+      // The first callback has fired, but a newer switch reaches React before
+      // it commits. Cancellation alone cannot remove that queued state update.
+      await act(async () => {
+        pending(0);
+        root.render(createElement(CompendiumPanel, { base: latest }));
+      });
+      expect(host.textContent).toContain('Old text');
+      expect(host.textContent).not.toContain('Intermediate snapshot');
+      expect(button(host, 'Unlink (local draft)')).toBeUndefined();
+      const finalFrame = [...frames.values()][0];
+      frames.clear();
+      await act(async () => finalFrame(16));
+      expect(host.textContent).toContain('Latest snapshot');
+      expect(host.textContent).not.toContain('Intermediate snapshot');
+      await act(async () => button(host, 'Unlink (local draft)')!.click());
+      expect(updateDraft.mock.calls[0][0]).toBe(latest);
+    } finally {
+      act(() => useDraftStore.setState({ updateDraft: original }));
+    }
+  });
+
   it('does not remeasure the root or resolve an unchanged source while English drafts are typed', async () => {
     useCompendiumStore.setState({ data: { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] } });
     const resolve = vi.spyOn(core, 'resolveCompendiumLink');

@@ -1,4 +1,4 @@
-import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { resolveCompendiumLink, snapshotCompendium, sameCell, type Tooltip } from '@clarity/core';
 import { approvalEvidence } from './approvalEvidence';
 import { useAuthStore } from '../../stores/auth';
@@ -58,8 +58,26 @@ function ScaleControl() {
   );
 }
 
+/** Let the editor finish its frame's DOM reads before replacing the rich pane. */
+function usePaneFrame(base: Tooltip) {
+  const [ready, setReady] = useState(base);
+  const committed = useRef(base);
+  // A frame callback can fire just before a newer navigation render. Its queued
+  // update must not make that superseded tooltip visible, even for one commit.
+  const displayed = ready === base ? base : committed.current;
+  useLayoutEffect(() => {
+    committed.current = displayed;
+  }, [displayed]);
+  useLayoutEffect(() => {
+    if (displayed === base) return;
+    const frame = requestAnimationFrame(() => setReady(base));
+    return () => cancelAnimationFrame(frame);
+  }, [base, displayed]);
+  return displayed;
+}
+
 export function CompendiumPanel({ base }: { base: Tooltip }) {
-  const displayed = useDeferredValue(base);
+  const displayed = usePaneFrame(base);
   const editor = useDataStore((state) => state.data);
   const source = useCompendiumStore((state) => state.data);
   const drafts = useDraftStore((state) => state.drafts);
