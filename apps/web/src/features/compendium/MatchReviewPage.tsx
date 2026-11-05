@@ -52,6 +52,7 @@ import { useSidebarQueueStore } from '../navigation/sidebarQueue';
 import { workspaceShortcutsBlocked } from '../../ui/interaction';
 import { CompendiumPage } from './CompendiumPage';
 import { MatchedSources } from './MatchedSources';
+import { ReviewDetails } from './ReviewDetails';
 import { useDisplayMatches } from './useDisplayMatches';
 import { rememberReviewPage } from './reviewPageComponent';
 import type { displayMatches } from './displayMatches';
@@ -712,7 +713,22 @@ export function ReviewQueue({
     next.set('view', 'entries');
     if (category) next.set('group', category.id);
     else next.delete('group');
-    setParams(selectionParams(hash, state, next));
+    // The destination's first selection is already indexed. Include it in the
+    // navigation instead of committing the page, then replacing its URL in an
+    // effect with a second render. Preserve the existing proposal filter.
+    const candidates = category
+      ? preparedEntryProjection.index.byGroup.get(category.id)
+      : preparedEntryProjection.index.byStatus.get('open');
+    const first =
+      hash === undefined
+        ? candidates?.find(
+            (entry) =>
+              entry.status === 'open' &&
+              (proposalFilter === 'all' ||
+                (proposalFilter === 'yes') === !!proposals.get(entry.hash)?.link),
+          )
+        : undefined;
+    setParams(selectionParams(hash ?? first?.hash, state, next));
   }
   if (categoryView)
     return (
@@ -905,10 +921,9 @@ export function ReviewQueue({
                 editor.bundle.tooltips,
                 editor.aliases,
               ).map((context, i) => (
-                <details key={i}>
-                  <summary>Authored import context</summary>
-                  <pre>{context}</pre>
-                </details>
+                <ReviewDetails key={i} summary="Authored import context">
+                  {() => <pre>{context}</pre>}
+                </ReviewDetails>
               ))}
               <Link to={`/t/${selected.hash}`}>Inspect tooltip / draft ↗</Link>
             </section>
