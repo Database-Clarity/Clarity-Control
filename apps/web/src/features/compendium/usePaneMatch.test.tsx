@@ -38,6 +38,13 @@ it('keeps Matched visible across text edits and focus refreshes without rematchi
   }));
   vi.mocked(matchingSession).mockReturnValue({
     display,
+    prioritize: async () => new Map(),
+    prioritizeReview: async (_input, hash) => ({
+      hash,
+      baseline: '',
+      fingerprint: '',
+      matches: new Map(),
+    }),
     proposals: Promise.resolve(new Map()),
     currentProposals: undefined,
     guided: async () => [],
@@ -141,6 +148,13 @@ it('paints validated matches before review metadata and rejects a superseded acc
   });
   vi.mocked(matchingSession).mockReturnValue({
     display,
+    prioritize: async () => new Map(),
+    prioritizeReview: async (_input, hash) => ({
+      hash,
+      baseline: '',
+      fingerprint: '',
+      matches: new Map(),
+    }),
     proposals: Promise.resolve(new Map()),
     currentProposals: undefined,
     guided: async () => [],

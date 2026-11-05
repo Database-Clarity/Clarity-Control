@@ -8,6 +8,7 @@ import type { displayMatches } from './displayMatches';
 import type { ReviewCategory } from './reviewCategories';
 import type { GuidedCategory } from './guidedDecisions';
 import { createWorkerBridge, sourceWorkerFor } from './workerBridge';
+import type { PriorityReview } from './matchingSessionPlanning';
 import { streamInputs } from './streamInputs';
 type Display = ReturnType<typeof displayMatches>;
 export interface DisplayInput {
@@ -66,8 +67,49 @@ function createSession(
         listeners: Set<(matches: Matches) => void>;
       }
     | undefined;
+  let priorityKey: string | undefined;
+  const priorities = new Map<number, Promise<PriorityReview>>();
+  const panePriorities = new Map<number, Promise<Matches>>();
+  function priorityInputs(input: DisplayInput) {
+    const key = displayInputKey(input);
+    if (key !== priorityKey) {
+      priorities.clear();
+      panePriorities.clear();
+      priorityKey = key;
+    }
+  }
   return {
     proposals,
+    prioritize(input: DisplayInput, hash: number) {
+      priorityInputs(input);
+      const review = priorities.get(hash);
+      if (review) return review.then((value) => value.matches);
+      const existing = panePriorities.get(hash);
+      if (existing) return existing;
+      const result = initialized.then(() =>
+        request<Matches>({ priority: { token, input, hash, matchesOnly: true } }),
+      );
+      panePriorities.set(hash, result);
+      void result.catch(() => {
+        if (panePriorities.get(hash) === result) panePriorities.delete(hash);
+      });
+      if (panePriorities.size > 64) panePriorities.delete(panePriorities.keys().next().value!);
+      return result;
+    },
+    prioritizeReview(input: DisplayInput, hash: number) {
+      priorityInputs(input);
+      const existing = priorities.get(hash);
+      if (existing) return existing;
+      const result = initialized.then(() =>
+        request<PriorityReview>({ priority: { token, input, hash } }),
+      );
+      priorities.set(hash, result);
+      void result.catch(() => {
+        if (priorities.get(hash) === result) priorities.delete(hash);
+      });
+      if (priorities.size > 64) priorities.delete(priorities.keys().next().value!);
+      return result;
+    },
     get currentProposals() {
       return currentProposals;
     },
@@ -166,11 +208,13 @@ export function prewarmMatchingSession(editor: EditorData, bridge: Bridge) {
   if (bridge.disposed) return;
   let byBridge = warming.get(editor);
   if (!byBridge) warming.set(editor, (byBridge = new WeakMap()));
-  if (byBridge.has(bridge)) return;
+  const existing = byBridge.get(bridge);
+  if (existing) return existing;
   const cache = byBridge;
   const session = createSession(editor, undefined, bridge, () => cache.delete(bridge));
   cache.set(bridge, session);
   void session.proposals.catch(() => cache.delete(bridge));
+  return session;
 }
 
 export function peekMatchingSession(editor: EditorData, source: CompendiumData) {
