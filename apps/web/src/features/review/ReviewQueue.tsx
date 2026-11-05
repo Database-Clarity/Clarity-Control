@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useHref, useLinkClickHandler } from 'react-router-dom';
 import type { SidebarPendingChange } from '../navigation/sidebarQueue';
@@ -53,6 +53,44 @@ export function ReviewQueue({
   }));
   const observedViewport = useRef(viewport);
   observedViewport.current = viewport;
+  const wheelFrame = useRef<number>();
+  const wheelTarget = useRef(0);
+  const cancelWheel = useCallback(() => {
+    if (wheelFrame.current !== undefined) cancelAnimationFrame(wheelFrame.current);
+    wheelFrame.current = undefined;
+  }, []);
+  useLayoutEffect(() => {
+    const element = host.current!;
+    const wheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.shiftKey || !event.deltaY) return;
+      const current = observedViewport.current;
+      const top = wheelFrame.current === undefined ? current.top : wheelTarget.current;
+      const unit = event.deltaMode === 1 ? rowHeight : event.deltaMode === 2 ? current.height : 1;
+      const next = Math.max(
+        0,
+        Math.min(changes.length * rowHeight - current.height, top + event.deltaY * unit),
+      );
+      // Retain ordinary scroll chaining only once this pane is already at its edge.
+      if (next === top && wheelFrame.current === undefined) return;
+      event.preventDefault();
+      wheelTarget.current = next;
+      if (wheelFrame.current !== undefined) return;
+      wheelFrame.current = requestAnimationFrame(() => {
+        wheelFrame.current = undefined;
+        const top = wheelTarget.current;
+        // Render the destination before moving the native viewport: compositor
+        // scrolling must not run ahead of a bounded React window and expose blanks.
+        flushSync(() => setViewport((previous) => ({ ...previous, top })));
+        element.scrollTop = top;
+      });
+    };
+    element.addEventListener('wheel', wheel, { passive: false });
+    return () => {
+      element.removeEventListener('wheel', wheel);
+      if (wheelFrame.current !== undefined) cancelAnimationFrame(wheelFrame.current);
+      wheelFrame.current = undefined;
+    };
+  }, [changes.length, rowHeight]);
   useLayoutEffect(() => {
     if (typeof ResizeObserver !== 'undefined') return;
     // Older browsers without an observer still need exact scaled row bounds.
@@ -87,6 +125,7 @@ export function ReviewQueue({
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
+    cancelWheel();
     const index = changes.findIndex((entry) => String(entry.hash) === selectedHash);
     const element = host.current!;
     if (index < 0) return;
@@ -98,7 +137,7 @@ export function ReviewQueue({
       element.scrollTop = top;
       setViewport((previous) => ({ ...previous, top }));
     }
-  }, [changes, selectedHash, rowHeight, viewport.height]);
+  }, [cancelWheel, changes, selectedHash, rowHeight, viewport.height]);
   useEffect(() => {
     if (focusIndex !== undefined)
       host.current
@@ -124,6 +163,7 @@ export function ReviewQueue({
       style={{ height: changes.length * rowHeight }}
       tabIndex={0}
       aria-label="Scroll pending saved changes"
+      onPointerDownCapture={cancelWheel}
       onFocusCapture={(event) => {
         const row = (event.target as Element).closest<HTMLElement>('[data-index]');
         if (row) setFocusIndex(Number(row.dataset.index));
@@ -145,6 +185,7 @@ export function ReviewQueue({
           next = index + (event.shiftKey ? -1 : 1);
           if (next < 0 || next >= changes.length) return;
         } else return;
+        cancelWheel();
         event.preventDefault();
         const element = event.currentTarget;
         const top = next * rowHeight;
@@ -158,7 +199,9 @@ export function ReviewQueue({
         const top = event.currentTarget.scrollTop;
         // Commit the small window in this scroll turn, before the browser paints
         // its new position. This needs only one buffer row in either direction.
-        flushSync(() => setViewport((previous) => ({ ...previous, top })));
+        flushSync(() =>
+          setViewport((previous) => (previous.top === top ? previous : { ...previous, top })),
+        );
       }}
     >
       <span ref={sizer} className={styles.rowSizer} aria-hidden="true" data-review-row-size="" />

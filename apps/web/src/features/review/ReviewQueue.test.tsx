@@ -128,3 +128,117 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
     rowBounds.mockRestore();
   }
 });
+
+it('coalesces wheel deltas before scrolling, preserves zoom/chaining, and cancels superseded input', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const frames = new Map<number, FrameRequestCallback>();
+  let sequence = 0;
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    frames.set(++sequence, callback);
+    return sequence;
+  });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+  vi.stubGlobal('ResizeObserver', undefined);
+  const height = vi.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(400);
+  const bounds = vi
+    .spyOn(Element.prototype, 'getBoundingClientRect')
+    .mockReturnValue({ height: 64 } as DOMRect);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const changes = Array.from({ length: 1000 }, (_, hash) => ({
+    hash,
+    name: `Tooltip ${hash}`,
+    category: 'Perk',
+  }));
+  let unmounted = false;
+  try {
+    await act(async () =>
+      root.render(
+        <MemoryRouter>
+          <ReviewQueue changes={changes} selectedHash="0" />
+        </MemoryRouter>,
+      ),
+    );
+    const scroller = host.querySelector<HTMLElement>(
+      '[aria-label="Scroll pending saved changes"]',
+    )!;
+    let physicalTop = 0;
+    let inspectMove = true;
+    const movedWindows: { first: number; last: number; top: number }[] = [];
+    Object.defineProperty(scroller, 'scrollTop', {
+      get: () => physicalTop,
+      set: (top: number) => {
+        if (inspectMove) {
+          const rows = [...scroller.querySelectorAll<HTMLElement>('li')];
+          movedWindows.push({
+            first: Math.min(...rows.map((row) => Number.parseFloat(row.style.top))),
+            last: Math.max(
+              ...rows.map(
+                (row) => Number.parseFloat(row.style.top) + Number.parseFloat(row.style.height),
+              ),
+            ),
+            top,
+          });
+        }
+        physicalTop = top;
+      },
+    });
+    const wheel = (deltaY: number, ctrlKey = false) => {
+      const event = new WheelEvent('wheel', { deltaY, ctrlKey, bubbles: true, cancelable: true });
+      scroller.dispatchEvent(event);
+      return event;
+    };
+    expect(wheel(200).defaultPrevented).toBe(true);
+    wheel(300);
+    wheel(-100);
+    expect(frames.size).toBe(1);
+    expect(scroller.scrollTop).toBe(0);
+    await act(async () => {
+      const [id, callback] = [...frames][0];
+      frames.delete(id);
+      callback(1);
+    });
+    expect(scroller.scrollTop).toBe(400);
+    expect(movedWindows).toHaveLength(1);
+    expect(movedWindows[0].first).toBeLessThanOrEqual(400);
+    expect(movedWindows[0].last).toBeGreaterThanOrEqual(800);
+    inspectMove = false;
+    expect(host.querySelector('li')?.getAttribute('data-index')).toBe('5');
+    expect(wheel(100, true).defaultPrevented).toBe(false);
+    const horizontal = new WheelEvent('wheel', {
+      deltaY: 100,
+      shiftKey: true,
+      cancelable: true,
+    });
+    scroller.dispatchEvent(horizontal);
+    expect(horizontal.defaultPrevented).toBe(false);
+    expect(frames.size).toBe(0);
+    const anchor = host.querySelector<HTMLAnchorElement>('li a')!;
+    await act(async () => anchor.focus());
+    wheel(100);
+    expect(frames.size).toBe(1);
+    await act(async () =>
+      anchor.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })),
+    );
+    expect(frames.size).toBe(0);
+    expect(document.activeElement?.getAttribute('href')).toBe('/review?hash=999');
+    await act(async () => {
+      scroller.scrollTop = 0;
+      scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
+    });
+    expect(wheel(-100).defaultPrevented).toBe(false);
+    expect(frames.size).toBe(0);
+    wheel(100);
+    expect(frames.size).toBe(1);
+    await act(async () => root.unmount());
+    unmounted = true;
+    expect(frames.size).toBe(0);
+  } finally {
+    if (!unmounted) await act(async () => root.unmount());
+    host.remove();
+    height.mockRestore();
+    bounds.mockRestore();
+    vi.unstubAllGlobals();
+  }
+});
