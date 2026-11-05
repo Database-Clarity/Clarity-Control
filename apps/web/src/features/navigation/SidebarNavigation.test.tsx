@@ -139,6 +139,21 @@ afterEach(async () => {
 });
 
 describe('context-aware navigation', () => {
+  it('keeps native Compendium category hrefs inside the router basename', async () => {
+    const router = createMemoryRouter(
+      [{ path: '*', element: createElement(CompendiumSidebarNavigation) }],
+      { basename: '/workspace', initialEntries: ['/workspace/compendium/review'] },
+    );
+    await act(async () => root.render(createElement(RouterProvider, { router })));
+    const link = host.querySelector<HTMLAnchorElement>('li a')!;
+    expect(link.getAttribute('href')).toBe(
+      '/workspace/compendium/review?view=entries&group=catalog%3Aarmor',
+    );
+    await click(link);
+    expect(router.state.location.pathname).toBe('/workspace/compendium/review');
+    expect(router.state.location.search).toBe('?view=entries&group=catalog%3Aarmor');
+  });
+
   it('commits a Compendium link immediately, while retaining modified clicks and history', async () => {
     const start = '/compendium/review';
     const target = '/compendium/review?view=entries&group=catalog%3Aweapons';

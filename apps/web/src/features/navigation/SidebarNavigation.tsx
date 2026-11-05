@@ -1,8 +1,34 @@
-import type { MouseEvent } from 'react';
-import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { memo, useCallback, useRef, type MouseEvent } from 'react';
+import { Link, useHref, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useSidebarQueueStore } from './sidebarQueue';
 import styles from './Layout.module.scss';
 import compendiumStyles from './CompendiumSidebarNavigation.module.scss';
+
+const CompendiumCategoryRow = memo(function CompendiumCategoryRow({
+  name,
+  target,
+  href,
+  selected,
+  open,
+}: {
+  name: string;
+  target: string;
+  href: string;
+  selected: boolean;
+  open: (event: MouseEvent<HTMLAnchorElement>, target: string) => void;
+}) {
+  return (
+    <li className={compendiumStyles.row}>
+      <a
+        href={href}
+        onClick={(event) => open(event, target)}
+        aria-current={selected ? 'page' : undefined}
+      >
+        {name}
+      </a>
+    </li>
+  );
+});
 
 export function CompendiumSidebarNavigation() {
   const categories = useSidebarQueueStore((state) => state.compendiumCategories);
@@ -10,22 +36,30 @@ export function CompendiumSidebarNavigation() {
   const group = params.get('group');
   const location = useLocation();
   const navigate = useNavigate();
-  function openEntry(event: MouseEvent<HTMLAnchorElement>, target: string) {
-    if (
-      event.defaultPrevented ||
-      event.button !== 0 ||
-      event.metaKey ||
-      event.altKey ||
-      event.ctrlKey ||
-      event.shiftKey
-    )
-      return;
-    event.preventDefault();
-    void navigate(target, {
-      flushSync: true,
-      replace: target === `${location.pathname}${location.search}${location.hash}`,
-    });
-  }
+  // Resolve the router's basename/hash prefix once. Rows retain normal native
+  // anchors without each subscribing to every unrelated location change.
+  const rootHref = useHref('/').replace(/\/?$/, '/');
+  const currentPath = useRef('');
+  currentPath.current = `${location.pathname}${location.search}${location.hash}`;
+  const openEntry = useCallback(
+    (event: MouseEvent<HTMLAnchorElement>, target: string) => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.shiftKey
+      )
+        return;
+      event.preventDefault();
+      void navigate(target, {
+        flushSync: true,
+        replace: target === currentPath.current,
+      });
+    },
+    [navigate],
+  );
   return (
     <nav
       aria-label="Compendium category queue"
@@ -41,15 +75,14 @@ export function CompendiumSidebarNavigation() {
               category.entryTarget ??
               `/compendium/review?view=entries&group=${encodeURIComponent(category.id)}`;
             return (
-              <li key={category.id} className={compendiumStyles.row}>
-                <Link
-                  to={target}
-                  onClick={(event) => openEntry(event, target)}
-                  aria-current={group === category.id ? 'page' : undefined}
-                >
-                  {category.name}
-                </Link>
-              </li>
+              <CompendiumCategoryRow
+                key={category.id}
+                name={category.name}
+                target={target}
+                href={`${rootHref}${target.slice(1)}`}
+                selected={group === category.id}
+                open={openEntry}
+              />
             );
           })}
         </ul>

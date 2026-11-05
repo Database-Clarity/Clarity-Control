@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import type { CompendiumMatch } from '@clarity/core';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -22,6 +22,28 @@ const sourceRows = new WeakMap<
   WeakMap<ReadonlyMap<number, CompendiumMatch>, SourceRow[]>
 >();
 const noRows: SourceRow[] = [];
+
+const MatchedSourceRow = memo(function MatchedSourceRow({
+  row,
+  index,
+  total,
+  rowRef,
+}: {
+  row: SourceRow;
+  index: number;
+  total: number;
+  rowRef: (node: HTMLLIElement | null) => void;
+}) {
+  return (
+    <li ref={rowRef} data-matched-hash={row.hash} aria-posinset={index + 1} aria-setsize={total}>
+      <Link to={`/t/${row.hash}`}>{row.item?.name ?? row.hash}</Link>{' '}
+      <span className={styles.matched}>Matched</span>{' '}
+      <small>
+        {row.match.tab.name} / {row.match.row.name}
+      </small>
+    </li>
+  );
+});
 
 /** Immutable match revisions share their sorted catalog projection across mounts. */
 export function matchedSourceRows(
@@ -122,7 +144,7 @@ export function MatchedSourceList({ rows }: { rows: SourceRow[] }) {
   const after = offsets.findIndex((offset) => offset >= top + viewport.height * 2);
   const end = after < 0 ? rows.length : Math.min(rows.length, after + 1);
   const indices = new Set(Array.from({ length: Math.max(0, end - first) }, (_, i) => first + i));
-  const byHash = new Map(rows.map((row, index) => [row.hash, index]));
+  const byHash = useMemo(() => new Map(rows.map((row, index) => [row.hash, index])), [rows]);
   for (const hash of [focused, forced]) {
     const index = hash === undefined ? undefined : byHash.get(hash);
     if (index !== undefined) indices.add(index);
@@ -143,19 +165,13 @@ export function MatchedSourceList({ rows }: { rows: SourceRow[] }) {
         />,
       );
     children.push(
-      <li
+      <MatchedSourceRow
         key={row.hash}
-        ref={rowRef(row.heightKey)}
-        data-matched-hash={row.hash}
-        aria-posinset={index + 1}
-        aria-setsize={rows.length}
-      >
-        <Link to={`/t/${row.hash}`}>{row.item?.name ?? row.hash}</Link>{' '}
-        <span className={styles.matched}>Matched</span>{' '}
-        <small>
-          {row.match.tab.name} / {row.match.row.name}
-        </small>
-      </li>,
+        row={row}
+        index={index}
+        total={rows.length}
+        rowRef={rowRef(row.heightKey)}
+      />,
     );
     previousEnd = offsets[index + 1];
   }

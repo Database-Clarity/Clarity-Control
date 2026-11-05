@@ -255,6 +255,15 @@ export function ReviewQueue({
   const { progress, update, error } = useReviewProgress(storageKey);
   const setSidebarCategories = useSidebarQueueStore((state) => state.setCompendiumCategories);
   const [params, setParams] = useSearchParams();
+  const categoryOptions = useMemo(
+    () =>
+      editor.categories.map((category) => (
+        <option key={category.id} value={category.id}>
+          {category.label}
+        </option>
+      )),
+    [editor.categories],
+  );
   const categoryRouteParams = useRef(new URLSearchParams(params));
   categoryRouteParams.current = new URLSearchParams(params);
   const categoryView = params.get('view') !== 'entries';
@@ -877,11 +886,7 @@ export function ReviewQueue({
             }}
           >
             <option value="">All categories</option>
-            {editor.categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.label}
-              </option>
-            ))}
+            {categoryOptions}
           </select>
         </label>
         <label>
