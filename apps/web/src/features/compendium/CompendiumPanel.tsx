@@ -19,7 +19,7 @@ import { useDraftStore } from '../../stores/drafts';
 import { compendiumScales, useSettingsStore } from '../../stores/settings';
 import { apiUrl } from '../../services/api';
 import { reviewSaveChanges, useSaveState } from '../../services/save/state';
-import { itemFor } from '../navigation/catalog';
+import { canonicalHash, itemFor } from '../navigation/catalog';
 import { CompendiumDiff, CompendiumDiffModeToggle, useCompendiumDiffMode } from './CompendiumDiff';
 import { RichCell } from './RichCell';
 import { SheetCell, SheetColoursToggle } from './sheetSurface';
@@ -34,6 +34,7 @@ import styles from './Compendium.module.scss';
 import { confirmCompendiumSelection } from './selection';
 import { usePaneMatch } from './usePaneMatch';
 import { useDisplayMatches } from './useDisplayMatches';
+import { createPaneDecodeGuard } from './paneDecodeActivity';
 import { openDraftSaveReview } from '../../services/save/openReview';
 
 /**
@@ -128,6 +129,27 @@ function usePaneFrame(
 export function CompendiumPanel({ base }: { base: Tooltip }) {
   const editor = useDataStore((state) => state.data);
   const source = useCompendiumStore((state) => state.data);
+  const sourceReady = !!source;
+  const decodeGuard = useMemo(createPaneDecodeGuard, []);
+  useLayoutEffect(() => {
+    if (sourceReady) decodeGuard.begin(base.hash);
+    else decodeGuard.dispose();
+  }, [base.hash, sourceReady, decodeGuard]);
+  useLayoutEffect(() => {
+    if (!sourceReady) return;
+    const navigation = () => {
+      const hash = /^#\/t\/(\d+)/.exec(window.location.hash)?.[1];
+      const data = useDataStore.getState().data;
+      if (hash) decodeGuard.begin(data ? canonicalHash(Number(hash), data) : Number(hash));
+    };
+    window.addEventListener('hashchange', navigation, true);
+    window.addEventListener('popstate', navigation, true);
+    return () => {
+      window.removeEventListener('hashchange', navigation, true);
+      window.removeEventListener('popstate', navigation, true);
+      decodeGuard.dispose();
+    };
+  }, [sourceReady, decodeGuard]);
   const drafts = useDraftStore((state) => state.drafts);
   const userId = useAuthStore((state) => state.user?.id);
   const diffMode = useSettingsStore((state) => state.device.remembered.compendiumDiff);
@@ -214,6 +236,7 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
       matched={matched}
       matching={matching}
       matchError={matchError}
+      onCommitted={decodeGuard.committed}
     />
   );
 }
@@ -228,6 +251,7 @@ const PaneContents = memo(function PaneContents({
   matched,
   matching,
   matchError,
+  onCommitted,
 }: {
   base: Tooltip;
   pending: boolean;
@@ -236,6 +260,7 @@ const PaneContents = memo(function PaneContents({
   matched: ReturnType<typeof usePaneMatch>;
   matching: boolean;
   matchError?: string;
+  onCommitted(hash: number): void;
 }) {
   const { data: compendium, loading, error, load } = useCompendiumStore();
   const data = useDataStore((state) => state.data);
@@ -295,6 +320,10 @@ const PaneContents = memo(function PaneContents({
   const comparisonAfter = link && match ? match.row.cell : !link ? matched?.row.cell : undefined;
   const preparedDiff = usePreparedPaneDiff(comparisonBefore, comparisonAfter, diffMode);
   const pending = navigating || preparedDiff.pending;
+  useEffect(() => {
+    if (!pending && !loading && (link || matched || !matching || matchError))
+      onCommitted(base.hash);
+  }, [base.hash, pending, loading, link, matched, matching, matchError, onCommitted]);
 
   const diffToggle = <CompendiumDiffModeToggle mode={diffMode} onChange={setDiffMode} />;
   return (

@@ -15,6 +15,7 @@ import { useCompendiumStore } from './store';
 import { CompendiumPanel } from './CompendiumPanel';
 import * as diffCache from './compendiumDiffCache';
 import { useDisplayMatches } from './useDisplayMatches';
+import { backgroundDecodePaused } from './paneDecodeActivity';
 
 const paneMatch = vi.hoisted(() => vi.fn());
 const matchState = vi.hoisted(() => ({
@@ -102,6 +103,7 @@ afterEach(() => {
   document.body.replaceChildren();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 async function mount(base: Tooltip = linked) {
@@ -122,6 +124,32 @@ const diffViews = (host: ParentNode) =>
   host.querySelectorAll('[aria-label="Compendium diff view"]');
 
 describe('Compendium pane', () => {
+  it('lets cold source bootstrap finish, then releases background decode after the pane paints', async () => {
+    vi.useFakeTimers();
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    useCompendiumStore.setState({ data: null, loading: true });
+    await mount({ hash: 6, text: {}, associated: [] } as unknown as Tooltip);
+    expect(backgroundDecodePaused()).toBe(false);
+    await act(async () =>
+      useCompendiumStore.setState({
+        data: { fetchedAt: '2026-11-01T00:00:00Z', tabs: [] },
+        loading: false,
+      }),
+    );
+    expect(backgroundDecodePaused()).toBe(true);
+    expect(frames.size).toBe(1);
+    await act(async () => [...frames.values()][0](16));
+    expect(backgroundDecodePaused()).toBe(true);
+    await act(async () => vi.runOnlyPendingTimers());
+    expect(backgroundDecodePaused()).toBe(false);
+  });
+
   it('waits for an incoming match before scheduling the pane handoff', async () => {
     const frames = new Map<number, FrameRequestCallback>();
     let serial = 0;

@@ -1,10 +1,79 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { createWorkerBridge } from './workerBridge';
 import { sendWorkerResult } from './workerReplies';
+import { createPaneDecodeGuard } from './paneDecodeActivity';
 
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+});
+
+it('pauses an active background graph while a pane opens, without blocking its priority reply', async () => {
+  const idle: IdleRequestCallback[] = [];
+  vi.stubGlobal('scheduler', undefined);
+  vi.stubGlobal('navigator', { scheduling: { isInputPending: () => false } });
+  vi.stubGlobal('requestIdleCallback', (callback: IdleRequestCallback) => {
+    idle.push(callback);
+    return idle.length;
+  });
+  let clock = 0;
+  vi.spyOn(performance, 'now').mockImplementation(() => (clock += 0.5));
+  const worker = { postMessage: vi.fn(), terminate: vi.fn() } as unknown as Worker;
+  const bridge = createWorkerBridge(worker),
+    guard = createPaneDecodeGuard();
+  const shared = { text: 'shared' };
+  const catalog = {
+    rows: Array.from({ length: 4000 }, (_, hash) => ({ hash, cell: shared })),
+    shared,
+  };
+  const background = bridge.request<typeof catalog>({ input: {} });
+  const published = vi.fn();
+  void background.then(published);
+  sendWorkerResult((data) => worker.onmessage!.call(worker, { data } as MessageEvent), 1, catalog);
+  const deadline = { timeRemaining: () => 50, didTimeout: false };
+  idle.shift()!(deadline);
+  await Promise.resolve();
+  expect(published).not.toHaveBeenCalled();
+  guard.begin(5);
+  try {
+    while (idle.length) idle.shift()!(deadline);
+    expect(published).not.toHaveBeenCalled();
+    const priority = bridge.request({ priority: { hash: 5 } });
+    worker.onmessage!.call(worker, { data: { id: 2, value: 'pane' } } as MessageEvent);
+    while (idle.length) idle.shift()!(deadline);
+    expect(await priority).toBe('pane');
+    expect(published).not.toHaveBeenCalled();
+    guard.dispose();
+    while (idle.length) idle.shift()!(deadline);
+    const result = await background;
+    expect(result).toEqual(catalog);
+    expect(result.rows[3999].cell).toBe(result.shared);
+  } finally {
+    guard.dispose();
+    bridge.dispose();
+  }
+});
+
+it('does not emit per-chunk instrumentation in production', async () => {
+  vi.stubEnv('DEV', false);
+  const idle: IdleRequestCallback[] = [];
+  vi.stubGlobal('scheduler', undefined);
+  vi.stubGlobal('requestIdleCallback', (callback: IdleRequestCallback) => {
+    idle.push(callback);
+    return idle.length;
+  });
+  const mark = vi.spyOn(performance, 'mark'),
+    measure = vi.spyOn(performance, 'measure');
+  const worker = { postMessage: vi.fn(), terminate: vi.fn() } as unknown as Worker;
+  const bridge = createWorkerBridge(worker);
+  const pending = bridge.request({ priority: { hash: 5 } });
+  worker.onmessage!.call(worker, { data: { id: 1, value: 'pane' } } as MessageEvent);
+  while (idle.length) idle.shift()!({ timeRemaining: () => 50, didTimeout: false });
+  expect(await pending).toBe('pane');
+  expect(mark).not.toHaveBeenCalled();
+  expect(measure).not.toHaveBeenCalled();
+  bridge.dispose();
 });
 
 it('queues transferred results without decoding on message delivery or during input', async () => {
