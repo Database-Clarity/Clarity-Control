@@ -135,14 +135,11 @@ export function pickerGridHtml(
       if (separator) {
         const start = Math.max(windowFirst, entry.row),
           end = Math.min(windowLast, entry.row + (entry.rowSpan ?? 1) - 1);
-        const background = /^#[\da-f]{6}$/i.test(entry.cell.background ?? '')
-          ? ` style="background:${entry.cell.background}"`
-          : '';
         const text =
           row === pickerSeparatorLabelRow(entry, windowFirst, windowLast)
             ? pickerCellHtml(entry.cell)
             : '';
-        html += `<td class="${gridStyles.separator}" colspan="${entry.colSpan ?? 1}" data-cell="${entry.row}:${entry.col}" data-separator="true" data-start="${row === start}" data-end="${row === end}"${background}><button type="button" class="${gridStyles.contents}" data-row="${entry.row}" data-col="${entry.col}" aria-pressed="false" data-separator-label="${row === pickerSeparatorLabelRow(entry, windowFirst, windowLast)}" aria-label="${escape(`Row ${entry.row}, column ${col + 1}: ${entry.cell.plain}`)}">${text}</button></td>`;
+        html += `<td class="${gridStyles.separator}" colspan="${entry.colSpan ?? 1}" data-cell="${entry.row}:${entry.col}" data-separator="true" data-start="${row === start}" data-end="${row === end}"><button type="button" class="${gridStyles.contents}" data-row="${entry.row}" data-col="${entry.col}" aria-pressed="false" data-separator-label="${row === pickerSeparatorLabelRow(entry, windowFirst, windowLast)}" aria-label="${escape(`Row ${entry.row}, column ${col + 1}: ${entry.cell.plain}`)}">${text}</button></td>`;
         continue;
       }
       const span = Math.min(entry.row + (entry.rowSpan ?? 1) - row, lastRow - row + 1);

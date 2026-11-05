@@ -57,7 +57,7 @@ describe('separator spans do not couple row layout', () => {
           (piece) =>
             piece.rowSpan === 1 &&
             piece.colSpan === 1 &&
-            piece.style.backgroundColor === 'rgb(18, 52, 86)',
+            piece.style.backgroundColor === '',
         ),
       ).toBe(true);
       expect(pieces.filter((piece) => piece.dataset.start === 'true')).toHaveLength(1);
