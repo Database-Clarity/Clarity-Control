@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { memo, useEffect, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import type { Tooltip } from '@clarity/core';
-import { getPushedVersion } from '../../services/history';
+import { preparedReviewLiveValue, takeReviewLiveRequest } from './liveRequest';
 import { errorMessage } from '../../services/http';
 import { useAuthStore } from '../../stores/auth';
 import { useDraftStore } from '../../stores/drafts';
@@ -12,10 +12,14 @@ import { revertDraft } from '../history/revert';
 import { itemFor } from '../navigation/catalog';
 import { TooltipDiff } from '../history/TooltipDiff';
 import type { PendingTooltip } from './model';
+import { useReviewOpening } from './opening';
 import styles from './Review.module.scss';
 
-export function ReviewDetail({ entry }: { entry: PendingTooltip }) {
-  const [live, setLive] = useState<{ tooltip: Tooltip | null; pushedHash: string | null }>();
+export const ReviewDetail = memo(function ReviewDetail({ entry }: { entry: PendingTooltip }) {
+  const location = useLocation();
+  const [live, setLive] = useState<
+    { tooltip: Tooltip | null; pushedHash: string | null } | undefined
+  >(() => preparedReviewLiveValue(entry.tooltip.hash));
   const [error, setError] = useState<string>();
   const [attempt, setAttempt] = useState(0);
   const [confirm, setConfirm] = useState(false);
@@ -62,19 +66,36 @@ export function ReviewDetail({ entry }: { entry: PendingTooltip }) {
     }
   }
   useEffect(() => {
-    const controller = new AbortController();
-    setLive(undefined);
+    const { controller, pending, value } = takeReviewLiveRequest(entry.tooltip.hash);
+    let stopWaiting: (() => void) | undefined;
+    setLive(value);
     setError(undefined);
-    void getPushedVersion(entry.tooltip.hash, controller.signal).then(
+    void pending.then(
       (result) => {
-        if (!controller.signal.aborted) setLive(result);
+        if (controller.signal.aborted) return;
+        const opening = useReviewOpening.getState();
+        if (!opening.warming || opening.limit > 0) setLive(result);
+        else {
+          // A fast response must not add another comparison render before the
+          // local workspace's first paint. Input and the GET remain independent.
+          stopWaiting = useReviewOpening.subscribe((state) => {
+            if (state.warming && state.limit === 0) return;
+            stopWaiting?.();
+            if (!controller.signal.aborted) setLive(result);
+          });
+        }
       },
       (reason: unknown) => {
         if (!controller.signal.aborted) setError(errorMessage(reason));
       },
     );
-    return () => controller.abort();
-  }, [entry.tooltip.hash, attempt]);
+    // A filter navigation can stage a new request for the same hash.
+    // Consume it after that route commits, and cancel the previous consumer.
+    return () => {
+      stopWaiting?.();
+      controller.abort();
+    };
+  }, [entry.tooltip.hash, location.key, user, attempt]);
   return (
     <section aria-label="Selected change">
       <p className={styles.detailIdentity}>
@@ -93,7 +114,16 @@ export function ReviewDetail({ entry }: { entry: PendingTooltip }) {
           </button>
         </p>
       )}
-      {!live && !error && <p role="status">Loading last pushed text...</p>}
+      {!live && !error && (
+        <div role="status" aria-label="Loading last pushed text" className={styles.liveSkeleton}>
+          <span className={styles.readyStatus}>Loading last pushed text...</span>
+          <div aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+        </div>
+      )}
       {live && (
         <>
           {!live.pushedHash && <p>No recorded live version. All saved text is new.</p>}
@@ -124,4 +154,4 @@ export function ReviewDetail({ entry }: { entry: PendingTooltip }) {
       )}
     </section>
   );
-}
+});

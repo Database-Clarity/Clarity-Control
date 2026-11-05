@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
-import { act, createElement } from 'react';
+import { act, createElement, useEffect, useLayoutEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import {
+  MemoryRouter,
+  Routes,
+  Route,
+  createMemoryRouter,
+  RouterProvider,
+  useLocation,
+} from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { merge3, publishableHash, type Tooltip } from '@clarity/core';
 import { Layout } from '../navigation/Layout';
@@ -12,6 +19,8 @@ import { useDraftStore } from '../../stores/drafts';
 import { loadGenerator } from '../../services/generator';
 import { loadBundle, type Bundle } from '../../services/bundle';
 import { useReviewSession } from './session';
+import { pendingTooltips } from './model';
+import { reviewRoute } from './route';
 
 vi.mock('../../services/generator', () => ({ loadGenerator: vi.fn() }));
 vi.mock('../../services/bundle', () => ({ loadBundle: vi.fn() }));
@@ -61,6 +70,7 @@ async function waitForReview() {
   await waitFor(() => {
     expect(useDataStore.getState().status).toBe('ready');
     expect(host.textContent).not.toContain('Comparing publishable content...');
+    expect(host.querySelector('article[aria-busy=true]')).toBeNull();
     expect(button('Refresh saved changes')).toBeDefined();
   });
 }
@@ -195,6 +205,407 @@ afterEach(async () => {
   host.remove();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+});
+
+it('canonicalizes a plain data-router open with one live request and preserves Back and fresh revisits', async () => {
+  await useDataStore.getState().load();
+  await pendingTooltips(useDataStore.getState().data!);
+  const mountedSearches: string[] = [];
+  function ObservedReview() {
+    useEffect(() => {
+      mountedSearches.push(router.state.location.search);
+    }, []);
+    return <ReviewPage />;
+  }
+  const router = createMemoryRouter(
+    [
+      { path: '/other', element: <p>Other workspace</p> },
+      {
+        path: '/review',
+        element: <ObservedReview />,
+        loader: reviewRoute,
+      },
+    ],
+    { initialEntries: ['/other'] },
+  );
+  const liveRequests = () =>
+    vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes('live=1'));
+  try {
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await act(async () => router.navigate('/review'));
+    await waitForReview();
+    await waitFor(() => {
+      expect(router.state.location.search).toBe('?hash=10');
+      expect(router.state.navigation.state).toBe('idle');
+    });
+    expect(router.state.historyAction).toBe('PUSH');
+    expect(mountedSearches).toEqual(['?hash=10']);
+    expect(liveRequests()).toHaveLength(1);
+    expect(host.textContent).not.toContain('Loading last pushed text...');
+    await act(async () => router.navigate(-1));
+    expect(router.state.location.pathname).toBe('/other');
+    await act(async () => router.navigate('/review'));
+    await waitForReview();
+    await waitFor(() => expect(router.state.location.search).toBe('?hash=10'));
+    expect(liveRequests()).toHaveLength(2);
+    expect(mountedSearches).toEqual(['?hash=10', '?hash=10']);
+  } finally {
+    router.dispose();
+  }
+});
+
+it('keeps main controls usable while the sidebar links warm', async () => {
+  bundle.tooltips[20] = { ...structuredClone(tooltip), hash: 20 };
+  await useDataStore.getState().load();
+  await pendingTooltips(useDataStore.getState().data!);
+  let serial = 0;
+  const frames = new Map<number, FrameRequestCallback>();
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    frames.set(++serial, callback);
+    return serial;
+  });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+  const router = createMemoryRouter(
+    [
+      { path: '/other', element: <p>Other workspace</p> },
+      { path: '/review', element: <ReviewPage />, loader: reviewRoute },
+    ],
+    { initialEntries: ['/other'] },
+  );
+  try {
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await act(async () => router.navigate('/review'));
+    expect(host.querySelector('article')!.getAttribute('aria-busy')).toBe('false');
+    expect(host.querySelector('fieldset')).toBeNull();
+    expect(host.textContent).toContain('Loading sidebar…');
+    await act(async () => host.querySelector<HTMLInputElement>('input[type=checkbox]')!.click());
+    expect(host.textContent).toContain('1 selected');
+    await act(async () =>
+      document.body.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
+      ),
+    );
+    expect(router.state.location.search).toBe('?hash=20');
+    for (let round = 0; round < 12 && frames.size; round++) {
+      const batch = [...frames];
+      frames.clear();
+      await act(async () => {
+        batch.forEach(([, callback]) => callback(performance.now()));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    }
+    expect(host.textContent).toContain('Review ready.');
+    expect(host.textContent).toContain('1 selected');
+    expect(post).not.toHaveBeenCalled();
+  } finally {
+    router.dispose();
+  }
+});
+
+async function mountDelayedReview(review = <ReviewPage />) {
+  for (const hash of [20, 30]) bundle.tooltips[hash] = { ...structuredClone(tooltip), hash };
+  vi.mocked(loadGenerator).mockResolvedValue({
+    categories: [],
+    items: Object.fromEntries(
+      [10, 20, 30].map((hash) => [
+        hash,
+        { hash, name: `Abacus ${hash}`, categoryId: 'other', icon: '', inGameDescription: '' },
+      ]),
+    ) as never,
+    aliases: {},
+  });
+  await useDataStore.getState().load();
+  await pendingTooltips(useDataStore.getState().data!);
+  const requests: { hash: number; signal: AbortSignal; resolve: (text: string) => void }[] = [];
+  const fallback = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation((url, init) => {
+    const match = String(url).match(/\/history\/(\d+)\?live=1$/);
+    if (!match) return fallback(url, init);
+    // Deliberately allow even aborted requests to finish: freshness must not
+    // depend on the transport honoring cancellation.
+    return new Promise<Response>((resolve) => {
+      const hash = Number(match[1]);
+      requests.push({
+        hash,
+        signal: init!.signal as AbortSignal,
+        resolve: (text) =>
+          resolve(
+            Response.json({
+              pushedHash: 'published',
+              tooltip: {
+                ...structuredClone(tooltip),
+                hash,
+                text: { en: { ...tooltip.text.en!, text } },
+              },
+            }),
+          ),
+      });
+    });
+  });
+  const router = createMemoryRouter(
+    [
+      { path: '/other', element: <p>Other workspace</p> },
+      { path: '/review', element: review, loader: reviewRoute },
+    ],
+    { initialEntries: ['/other'] },
+  );
+  await act(async () => root.render(<RouterProvider router={router} />));
+  await act(async () => {
+    void router.navigate('/review?hash=10');
+  });
+  return { router, requests };
+}
+
+async function typeSearch(letter: string) {
+  const input = host.querySelector<HTMLInputElement>('input[type=search]')!;
+  input.focus();
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+      input,
+      input.value + letter,
+    );
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+  return input;
+}
+
+it('commits the Review heading and preserves both search letters while live GETs are pending', async () => {
+  const { router, requests } = await mountDelayedReview();
+  try {
+    expect(router.state.location.search).toBe('?hash=10');
+    expect(router.state.navigation.state).toBe('idle');
+    expect(host.querySelector('h1')?.textContent).toBe('Review changes');
+    expect(host.querySelector('[aria-label="Selected change"] h2')?.textContent).toBe('Abacus 10');
+    expect(requests).toHaveLength(1);
+    expect(
+      host.querySelector('[role=status][aria-label="Loading last pushed text"]'),
+    ).not.toBeNull();
+    await typeSearch('A');
+    const input = await typeSearch('b');
+    expect(input.value).toBe('Ab');
+    expect(document.activeElement).toBe(input);
+    expect(new URLSearchParams(router.state.location.search).get('query')).toBe('Ab');
+    expect(requests).toHaveLength(3);
+    expect(requests.slice(0, -1).every(({ signal }) => signal.aborted)).toBe(true);
+    expect(requests.at(-1)!.signal.aborted).toBe(false);
+    expect(post).not.toHaveBeenCalled();
+  } finally {
+    router.dispose();
+  }
+});
+
+it('commits two ArrowDown selections without waiting for any live GET', async () => {
+  const { router, requests } = await mountDelayedReview();
+  try {
+    for (const hash of [20, 30]) {
+      await act(async () => {
+        document.body.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
+        );
+      });
+      expect(new URLSearchParams(router.state.location.search).get('hash')).toBe(String(hash));
+    }
+    expect(host.querySelector('[aria-label="Selected change"] h2')?.textContent).toBe('Abacus 30');
+    expect(requests.map(({ hash }) => hash)).toEqual([10, 20, 30]);
+    expect(requests.slice(0, -1).every(({ signal }) => signal.aborted)).toBe(true);
+    await act(async () => requests[2].resolve('Newest comparison'));
+    await act(async () => requests[0].resolve('Stale first item'));
+    await act(async () => requests[1].resolve('Stale second item'));
+    await waitFor(() =>
+      expect(host.querySelector('[aria-label="Selected change"]')?.textContent).toContain(
+        'Newest comparison',
+      ),
+    );
+    expect(host.textContent).not.toContain('Stale first item');
+    expect(host.textContent).not.toContain('Stale second item');
+  } finally {
+    router.dispose();
+  }
+});
+
+it('retains both arrow intents before React effects flush, and resets them for an external URL', async () => {
+  const { router, requests } = await mountDelayedReview();
+  const down = () =>
+    document.body.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
+    );
+  try {
+    await act(async () => {
+      // Both events use the same committed keydown handler. Neither a router
+      // commit nor React's effects may be needed to retain the second intent.
+      down();
+      down();
+    });
+    expect(router.state.location.search).toBe('?hash=30');
+    expect(host.querySelector('[aria-label="Selected change"] h2')?.textContent).toBe('Abacus 30');
+    expect(requests.at(-1)!.hash).toBe(30);
+    await act(async () => router.navigate('/review?hash=10&query=Abacus'));
+    await act(async () => {
+      down();
+      down();
+    });
+    expect(router.state.location.search).toBe('?hash=30&query=Abacus');
+    await act(async () => router.navigate(-1));
+    expect(router.state.location.search).toBe('?hash=30');
+    await act(async () => {
+      document.body.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }),
+      );
+    });
+    expect(router.state.location.search).toBe('?hash=20');
+    expect(post).not.toHaveBeenCalled();
+  } finally {
+    router.dispose();
+  }
+});
+
+it('handles the second arrow between a router commit and passive listener effects', async () => {
+  function KeyDuringCommit() {
+    const location = useLocation();
+    useLayoutEffect(() => {
+      if (new URLSearchParams(location.search).get('hash') !== '20') return;
+      document.body.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
+      );
+    }, [location.search]);
+    return <ReviewPage />;
+  }
+  const { router, requests } = await mountDelayedReview(<KeyDuringCommit />);
+  try {
+    await act(async () => {
+      document.body.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
+      );
+    });
+    expect(router.state.location.search).toBe('?hash=30');
+    expect(host.querySelector('[aria-label="Selected change"] h2')?.textContent).toBe('Abacus 30');
+    expect(requests.at(-1)!.hash).toBe(30);
+  } finally {
+    router.dispose();
+  }
+});
+
+it('discards older same-item search responses, and aborts the comparison on unmount', async () => {
+  const { router, requests } = await mountDelayedReview();
+  try {
+    await typeSearch('A');
+    await typeSearch('b');
+    expect(requests.map(({ hash }) => hash)).toEqual([10, 10, 10]);
+    await act(async () => requests[2].resolve('Current search comparison'));
+    await act(async () => requests[1].resolve('Older search comparison'));
+    await act(async () => requests[0].resolve('Original comparison'));
+    const detail = host.querySelector('[aria-label="Selected change"]')!;
+    expect(detail.textContent).toContain('Current search comparison');
+    expect(detail.textContent).not.toContain('Older search comparison');
+    expect(detail.textContent).not.toContain('Original comparison');
+    await act(async () => router.navigate('/review?hash=20'));
+    const pending = requests.at(-1)!;
+    expect(pending.signal.aborted).toBe(false);
+    await act(async () => router.navigate('/other'));
+    expect(pending.signal.aborted).toBe(true);
+    await act(async () => pending.resolve('After unmount'));
+    expect(host.textContent).toBe('Other workspace');
+    await act(async () => router.navigate(-1));
+    expect(host.querySelector('[aria-label="Selected change"] h2')?.textContent).toBe('Abacus 20');
+    expect(requests.at(-1)).not.toBe(pending);
+    expect(host.textContent).not.toContain('After unmount');
+  } finally {
+    router.dispose();
+  }
+});
+
+it('keeps pending comparisons and keyboard navigation from mutating behind the push dialog', async () => {
+  const { router, requests } = await mountDelayedReview();
+  try {
+    await click('Select page');
+    await click('Push selected');
+    expect(host.querySelector('dialog[open]')).not.toBeNull();
+    const focused = document.activeElement;
+    await act(async () => {
+      document.body.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
+      );
+      requests[0].resolve('Live text arriving behind the dialog');
+    });
+    expect(router.state.location.search).toBe('?hash=10');
+    expect(document.activeElement).toBe(focused);
+    expect(useDraftStore.getState().drafts).toEqual({});
+    expect(post).not.toHaveBeenCalled();
+    await click('Cancel');
+    expect(host.textContent).toContain('3 pending / 3 selected');
+  } finally {
+    router.dispose();
+  }
+});
+
+it('lets the local workspace paint before presenting a fast background comparison', async () => {
+  let serial = 0;
+  const frames = new Map<number, FrameRequestCallback>();
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    frames.set(++serial, callback);
+    return serial;
+  });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+  const { router, requests } = await mountDelayedReview();
+  try {
+    expect(host.querySelector('h1')?.textContent).toBe('Review changes');
+    expect(host.textContent).toContain('Loading sidebar…');
+    await act(async () => requests[0].resolve('Fast background comparison'));
+    expect(host.querySelector('[aria-label="Selected change"]')?.textContent).not.toContain(
+      'Fast background comparison',
+    );
+    for (let round = 0; round < 12 && frames.size; round++) {
+      const batch = [...frames];
+      frames.clear();
+      await act(async () => {
+        batch.forEach(([, callback]) => callback(performance.now()));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    }
+    expect(host.textContent).toContain('Review ready.');
+    expect(host.querySelector('[aria-label="Selected change"]')?.textContent).toContain(
+      'Fast background comparison',
+    );
+  } finally {
+    router.dispose();
+  }
+});
+
+it('keeps current filters when a retained row opens after the URL changes', async () => {
+  bundle.tooltips[20] = { ...structuredClone(tooltip), hash: 20 };
+  await useDataStore.getState().load();
+  await pendingTooltips(useDataStore.getState().data!);
+  const router = createMemoryRouter(
+    [
+      {
+        path: '/review',
+        element: <ReviewPage />,
+        loader: reviewRoute,
+      },
+    ],
+    { initialEntries: ['/review?hash=10'] },
+  );
+  try {
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await waitForReview();
+    const row = host.querySelector<HTMLButtonElement>('button[aria-label^="Open Tooltip 20,"]')!;
+    expect(row).not.toBeNull();
+    await act(async () => router.navigate('/review?hash=10&query=Tooltip'));
+    await waitForReview();
+    expect(host.querySelector('button[aria-label^="Open Tooltip 20,"]')).toBe(row);
+    await act(async () => row.click());
+    await waitFor(() => {
+      const params = new URLSearchParams(router.state.location.search);
+      expect(params.get('query')).toBe('Tooltip');
+      expect(params.get('hash')).toBe('20');
+      expect(host.querySelector('[aria-label="Selected change"] h2')?.textContent).toBe(
+        'Tooltip 20',
+      );
+    });
+  } finally {
+    router.dispose();
+  }
 });
 
 it('keeps the acknowledgment without reloading the bundle, then follows manual refreshes', async () => {
@@ -655,6 +1066,46 @@ it('confirms once: a double-click or held Enter cannot send a second push', asyn
   expect(post).toHaveBeenCalledTimes(1);
 });
 
+it('keeps fifteen complete changes in each selection and confirmation page', async () => {
+  const hashes = [10, ...Array.from({ length: 15 }, (_, index) => index + 20)];
+  for (const hash of hashes) bundle.tooltips[hash] = { ...structuredClone(tooltip), hash };
+  vi.mocked(loadGenerator).mockResolvedValue({
+    categories: [],
+    items: Object.fromEntries(
+      hashes.map((hash) => [
+        hash,
+        {
+          hash,
+          name: `A complete pending tooltip name with several words ${hash}`,
+          categoryId: 'other',
+          icon: '',
+          inGameDescription: '',
+        },
+      ]),
+    ) as never,
+    aliases: {},
+  });
+  await mount();
+  await waitFor(() => expect(host.textContent).toContain('16 pending'));
+  const list = host.querySelector('[aria-label="Pending changes"]')!;
+  expect(list.querySelectorAll('input[type="checkbox"]')).toHaveLength(15);
+  for (const identity of list.querySelectorAll('li button[data-perf-navigation]')) {
+    expect(identity.textContent).toMatch(
+      /A complete pending tooltip name with several words \d+ #\d+/,
+    );
+  }
+  await click('Select page');
+  expect(host.textContent).toContain('16 pending / 15 selected');
+  await click('Push selected');
+  expect(host.querySelectorAll('dialog li')).toHaveLength(15);
+  expect(button('Push 15 live')).toBeDefined();
+  await click('Cancel');
+  await click('Next page');
+  expect(list.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
+  await click('Select page');
+  expect(host.textContent).toContain('16 pending / 16 selected');
+});
+
 it('does not cap the selection at 100', async () => {
   for (let hash = 20; hash < 140; hash++) {
     bundle.tooltips[hash] = { ...structuredClone(tooltip), hash };
@@ -681,10 +1132,11 @@ it('does not cap the selection at 100', async () => {
   await mount();
   await waitFor(() => expect(host.textContent).toContain('121 pending'));
   // Select every page, then push all of them.
-  for (let page = 0; page < 9; page++) {
+  while (!button('Next page').disabled) {
     await click('Select page');
-    if (page < 8) await click('Next page');
+    await click('Next page');
   }
+  await click('Select page');
   expect(host.textContent).toContain('121 pending / 121 selected');
   expect(host.textContent).not.toContain('at most 100');
   expect(button('Push selected').disabled).toBe(false);

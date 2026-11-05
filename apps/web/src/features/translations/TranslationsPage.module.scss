@@ -1,0 +1,10 @@
+.entry {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 220px;
+  background: var(--col);
+  color: var(--text);
+}
+
+.warning {
+  color: var(--danger);
+}
