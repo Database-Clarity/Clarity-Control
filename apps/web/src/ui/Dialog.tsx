@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import styles from './Dialog.module.scss';
+import { useNativeDialogShortcutOwner } from './interaction';
 
 export function Dialog({
   title,
@@ -19,6 +20,7 @@ export function Dialog({
   compact?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  useNativeDialogShortcutOwner(ref);
   useEffect(() => {
     const dialog = ref.current;
     const opener = document.activeElement;

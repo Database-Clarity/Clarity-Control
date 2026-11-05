@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, createElement, Fragment, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { createMemoryRouter, RouterProvider, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,6 +13,7 @@ import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { publishSteppingTarget, settleStepping, useSteppingActivity } from './steppingActivity';
 import type { ClarityEditorProps } from '../editor';
+import { observeNativeDialogShortcutOwner, workspaceShortcutsBlocked } from '../../ui/interaction';
 
 vi.mock('../../services/save/SavePanel', () => ({
   SavePanel: () => null,
@@ -184,6 +186,56 @@ afterEach(async () => {
 });
 
 describe('mounted Editor navigation interaction ownership', () => {
+  it.each(['popover', 'combobox'])(
+    'blocks wheel and shortcuts in the opening event and resumes after Escape from a %s',
+    async (kind) => {
+      await mount();
+      await act(async () => {
+        flushSync(() => {
+          if (kind === 'popover')
+            host.querySelector<HTMLButtonElement>('[data-drafts-button]')!.click();
+          else host.querySelector<HTMLInputElement>('input[role="combobox"]')!.click();
+        });
+        expect(workspaceShortcutsBlocked(new KeyboardEvent('keydown', { key: 'a' }))).toBe(true);
+        const wheel = new WheelEvent('wheel', {
+          bubbles: true,
+          cancelable: true,
+          shiftKey: true,
+          deltaY: 100,
+        });
+        host.dispatchEvent(wheel);
+        expect(wheel.defaultPrevented).toBe(false);
+        flushSync(() => {
+          const target =
+            kind === 'popover'
+              ? document.activeElement!
+              : host.querySelector('input[role="combobox"]')!;
+          target.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+          );
+        });
+        expect(workspaceShortcutsBlocked(new KeyboardEvent('keydown', { key: 'a' }))).toBe(false);
+        const next = new WheelEvent('wheel', {
+          bubbles: true,
+          cancelable: true,
+          shiftKey: true,
+          deltaY: 100,
+        });
+        host.dispatchEvent(next);
+        expect(next.defaultPrevented).toBe(true);
+      });
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+      expect(route()).toBe('/t/101?lang=de');
+    },
+  );
+  it('releases an expanded finder on unmount without closing its list', async () => {
+    await mount();
+    await click(host.querySelector<HTMLInputElement>('input[role="combobox"]')!);
+    expect(workspaceShortcutsBlocked(new Event('wheel'))).toBe(true);
+    await act(async () => root?.unmount());
+    root = undefined;
+    expect(workspaceShortcutsBlocked(new Event('wheel'))).toBe(false);
+  });
   it('retains the latest header through history consolidation during a held boundary', async () => {
     vi.useFakeTimers();
     const scheduling = Object.getOwnPropertyDescriptor(navigator, 'scheduling');
@@ -539,6 +591,7 @@ describe('mounted Editor navigation interaction ownership', () => {
     const dialog = document.createElement('dialog');
     dialog.setAttribute('open', '');
     document.body.append(dialog);
+    const release = observeNativeDialogShortcutOwner(dialog);
 
     const whileOpen = await shiftWheel();
     expect(whileOpen.defaultPrevented).toBe(false);
@@ -550,6 +603,7 @@ describe('mounted Editor navigation interaction ownership', () => {
     expect(afterClose.defaultPrevented).toBe(true);
     expect(route()).toBe('/t/101?lang=de');
     expect(selectedItem()).toBe('Sample 101');
+    release();
   });
 
   it('suspends Shift+wheel while the finder list is open, and the wheel scrolls the list', async () => {

@@ -20,7 +20,11 @@ import { flushSync } from 'react-dom';
 import type { EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { usePreviewReviewStore } from '../../stores/previewReview';
-import { workspaceShortcutOwners, workspaceShortcutsBlocked } from '../../ui/interaction';
+import {
+  useWorkspaceShortcutOwner,
+  workspaceShortcutOwners,
+  workspaceShortcutsBlocked,
+} from '../../ui/interaction';
 import {
   frameGroupSize,
   itemFor,
@@ -348,6 +352,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   const current = useRef({ pathname: location.pathname, search: location.search });
   current.current = { pathname: location.pathname, search: location.search };
   const field = useRef<HTMLInputElement>(null);
+  useWorkspaceShortcutOwner(field, open && (variant !== 'sheet' || sheetOpen));
   const list = useRef<HTMLUListElement>(null);
   const listObserver = useRef<ResizeObserver | null>(null);
   const revealedActive = useRef<number | null>(null);

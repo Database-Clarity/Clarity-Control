@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import styles from './PickerStage.module.scss';
+import { useNativeDialogShortcutOwner } from '../../ui/interaction';
 
 // Retain the user's picker state, without rebuilding its hidden sheets for every entry
 // visited after the dialog has closed. Reopening reconciles the current entry before focus.
@@ -26,6 +27,7 @@ export function PickerStage({
     if (open) setMounted(true);
   }, [open]);
   const ref = useRef<HTMLDialogElement>(null);
+  useNativeDialogShortcutOwner(ref, mounted);
   const back = useRef(onBack);
   back.current = onBack;
   useEffect(() => {
