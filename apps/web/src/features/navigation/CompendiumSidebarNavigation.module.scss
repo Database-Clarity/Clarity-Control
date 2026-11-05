@@ -6,6 +6,9 @@
 
 :global(aside[data-list]):has(> .navigation) {
   scrollbar-gutter: stable;
+  // Its grid track and viewport height already fix both dimensions. Keep row
+  // selection and painting inside that independently scrolling column.
+  contain: strict;
 }
 
 .list {
