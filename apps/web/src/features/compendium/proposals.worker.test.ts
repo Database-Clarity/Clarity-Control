@@ -188,3 +188,90 @@ it('publishes selected review evidence before assets/full proposals, and reprior
     expect(review.matches.get(review.hash)?.row).toEqual(full.matches.get(review.hash)?.row);
   }
 });
+
+it.each([false, true])(
+  'reuses a prepared fingerprint only for identical matching inputs (style changed: %s)',
+  async (styleChanged) => {
+    vi.resetModules();
+    const f = guidedFixture();
+    const { contentHash } = await import('./workerCache');
+    const { matchingInputs } = await import('./matchingInputs');
+    const { displayMatches } = await import('./displayMatches');
+    const { encodePrecomputed } = await import('./precomputedCodec');
+    const input = { drafts: {}, progress: emptyProgress(), scope: approved.scope };
+    const display = displayMatches(
+      f.editor,
+      f.source,
+      {},
+      input.progress,
+      undefined,
+      input.scope,
+      f.proposals,
+    );
+    const encoded = encodePrecomputed({
+      key: await contentHash(matchingInputs(f.editor, f.source)),
+      proposals: [...f.proposals],
+      display: { ...display, matches: [...display.matches] },
+    });
+    const source = structuredClone(f.source);
+    if (styleChanged) source.tabs[0].rows[0].cell.runs[0].bold = true;
+    const expected = displayMatches(
+      f.editor,
+      source,
+      {},
+      input.progress,
+      undefined,
+      input.scope,
+      f.proposals,
+    );
+    const fingerprint = vi.spyOn(
+      await import('./matchingSessionFingerprint'),
+      'matchingSessionFingerprint',
+    );
+    vi.stubGlobal('indexedDB', undefined);
+    vi.stubGlobal('DecompressionStream', undefined);
+    vi.stubGlobal('fetch', async () => Response.json(encoded));
+    const pending = new Map<
+      number,
+      {
+        receive: ReturnType<typeof receiveWorkerResult>;
+        resolve(value: unknown): void;
+        reject(error: Error): void;
+      }
+    >();
+    const worker = {
+      onmessage: null as null | ((event: { data: unknown }) => void),
+      postMessage(reply: WorkerReply) {
+        const job = pending.get(reply.id);
+        if (!job) return;
+        if (reply.error) return job.reject(Error(reply.error));
+        const result = job.receive(reply);
+        if (result.done) job.resolve(result.value);
+      },
+    };
+    vi.stubGlobal('self', worker);
+    await import('./proposals.worker');
+    const request = <T>(id: number, data: object) =>
+      new Promise<T>((resolve, reject) => {
+        pending.set(id, {
+          receive: receiveWorkerResult(),
+          resolve: (value) => resolve(value as T),
+          reject,
+        });
+        worker.onmessage!({ data: { id, ...data } });
+      });
+    const bytes = new TextEncoder().encode(JSON.stringify({ editor: f.editor, source }));
+    worker.onmessage!({ data: { initialChunk: { token: 1, bytes: bytes.buffer } } });
+    const initialized = request(1, { initialize: { token: 1 } });
+    const review = await request<import('./matchingSessionPlanning').PriorityReview>(2, {
+      priority: { token: 1, hash: 100, input },
+    });
+    expect(review.fingerprint).toBe(expected.fingerprint);
+    expect(review.entry).toEqual(
+      expected.categories.flatMap((c) => c.entries).find((e) => e.hash === 100),
+    );
+    expect(fingerprint.mock.calls.length > 0).toBe(styleChanged);
+    await initialized;
+    fingerprint.mockRestore();
+  },
+);

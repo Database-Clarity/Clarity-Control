@@ -38,19 +38,35 @@ let priority: (NonNullable<Request['priority']> & { id: number }) | undefined;
 let priorityPlan: { key: string; plan: ReturnType<typeof prepareMatchingPlan> } | undefined;
 const priorityProposals = new Map<number, ReviewProposal>();
 let loadingAsset: ReturnType<typeof loadPreparedAsset> | undefined;
+type PreparedAsset = {
+  key: string;
+  proposals: [number, ReviewProposal][];
+  display: Omit<ReturnType<typeof displayMatches>, 'matches'> & {
+    matches: [number, NonNullable<ReviewProposal['match']> & { status: 'ok'; changed: boolean }][];
+  };
+};
 
 function loadPreparedAsset() {
   const compressed = typeof DecompressionStream !== 'undefined';
-  return fetch(compressed ? compressedUrl : precomputedUrl, { priority: 'low' })
-    .then(async (response) => ({
-      encoded: response.ok
-        ? ((await (compressed ? compressedJson(response) : response.json())) as {
-            nodes: unknown[];
-            root: number;
-          })
-        : undefined,
-    }))
+  let prepared: PreparedAsset | undefined;
+  const response = fetch(compressed ? compressedUrl : precomputedUrl, { priority: 'low' })
+    .then(async (response) => {
+      if (response.ok) {
+        const encoded = (await (compressed ? compressedJson(response) : response.json())) as {
+          nodes: unknown[];
+          root: number;
+        };
+        prepared = decodePrecomputed(encoded.nodes, encoded.root) as PreparedAsset;
+      }
+      return { prepared };
+    })
     .catch((error: unknown) => ({ error }));
+  return {
+    response,
+    get prepared() {
+      return prepared;
+    },
+  };
 }
 type Request = {
   id?: number;
@@ -206,8 +222,7 @@ async function process(data: Request) {
       loadingAsset = loadPreparedAsset();
       source = await fetchingSource;
       sendWorkerResult(emit, id, source);
-      // Fingerprinting is independent of UI inputs; overlap it with source hydration.
-      fingerprint = measured('source-fingerprint', () => matchingSessionFingerprint(source.tabs));
+      fingerprint = undefined;
     } else if (data.initialize) {
       initialized = false;
       failedToken = undefined;
@@ -235,6 +250,12 @@ async function process(data: Request) {
       priorityPlan = undefined;
       priorityProposals.clear();
       if (input.source) fingerprint = undefined;
+      // The prepared asset already contains the exact review fingerprint. Reuse it
+      // only after validating every matching input, including styled source cells.
+      // Never wait for the asset here: an uncached/changed source keeps the same
+      // independent current-tooltip path while background preparation continues.
+      dataKey = await contentHash(matchingInputs(editor, source));
+      if (asset.prepared?.key === dataKey) fingerprint = asset.prepared.display.fingerprint;
       modelToken = data.initialize.token;
       // Install the message handler before loading modules with top-level await.
       // Otherwise a worker can drop the source request during module initialization.
@@ -245,30 +266,19 @@ async function process(data: Request) {
         end: performance.now(),
       });
       performance.clearMeasures('compendium:planner-wait');
-      // Let the current pane run before hashing, assets, caches, and the full catalog.
+      // Let the current pane run before cache reads and the full catalog.
       await matchingYield();
       await servePriority();
-      dataKey = await contentHash(matchingInputs(editor, source));
       const prepared = await cachedComputation<{
         proposals: Map<number, ReviewProposal>;
         display?: ReturnType<typeof displayMatches>;
       }>(`${import.meta.url}:prepared:${dataKey}`, async () => {
-        const preparedAsset = await asset;
+        const preparedAsset = await asset.response;
         // A cache hit needs no asset; preserve the original failure behaviour on
         // a miss without leaving an early prefetch rejection unhandled.
         if ('error' in preparedAsset) throw preparedAsset.error;
-        const { encoded } = preparedAsset;
-        if (encoded) {
-          const precomputed = decodePrecomputed(encoded.nodes, encoded.root) as {
-            key: string;
-            proposals: [number, ReviewProposal][];
-            display: Omit<ReturnType<typeof displayMatches>, 'matches'> & {
-              matches: [
-                number,
-                NonNullable<ReviewProposal['match']> & { status: 'ok'; changed: boolean },
-              ][];
-            };
-          };
+        const { prepared: precomputed } = preparedAsset;
+        if (precomputed) {
           if (precomputed.key === dataKey) {
             const display = {
               ...precomputed.display,
