@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { MemoryRouter, useLocation, useNavigationType } from 'react-router-dom';
+import { HashRouter, MemoryRouter, useLocation, useNavigationType } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import { ReviewQueue } from './ReviewQueue';
 import { advanceReviewOpening, beginReviewOpening, useReviewOpening } from './opening';
@@ -375,14 +375,16 @@ it('retains a keyboard activation and wheel delta during the readonly opening', 
       </>
     );
   }
+  const previousURL = window.location.href;
+  window.history.replaceState(null, '', '/#/review?hash=0');
   try {
     beginReviewOpening();
     const token = useReviewOpening.getState().token;
     await act(async () =>
       root.render(
-        <MemoryRouter initialEntries={['/review?hash=0']}>
+        <HashRouter>
           <Queue />
-        </MemoryRouter>,
+        </HashRouter>,
       ),
     );
     const scroller = host.querySelector<HTMLElement>(
@@ -403,9 +405,9 @@ it('retains a keyboard activation and wheel delta during the readonly opening', 
     changes = [...changes].reverse();
     await act(async () =>
       root.render(
-        <MemoryRouter initialEntries={['/review?hash=0']}>
+        <HashRouter>
           <Queue />
-        </MemoryRouter>,
+        </HashRouter>,
       ),
     );
     const top = scroller.scrollTop;
@@ -427,6 +429,7 @@ it('retains a keyboard activation and wheel delta during the readonly opening', 
   } finally {
     await act(async () => root.unmount());
     host.remove();
+    window.history.replaceState(null, '', previousURL);
     useReviewOpening.setState({ warming: false, limit: Infinity, required: 0 });
     height.mockRestore();
     bounds.mockRestore();

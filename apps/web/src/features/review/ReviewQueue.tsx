@@ -191,9 +191,9 @@ export function ReviewQueue({
     if (changes.some((change) => change.hash === hash)) {
       restoringOpen.current = hash;
       setFocusIndex(undefined);
-      void navigate(`${href}?hash=${hash}`);
+      void navigate(`/review?hash=${hash}`);
     }
-  }, [warming, changes, navigate, href]);
+  }, [warming, changes, navigate]);
   const start = Math.max(
     0,
     Math.min(changes.length - 1, Math.floor(viewport.top / rowHeight)) - overscan,
