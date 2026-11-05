@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation, useNavigationType } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import { ReviewQueue } from './ReviewQueue';
 
@@ -240,5 +240,81 @@ it('coalesces wheel deltas before scrolling, preserves zoom/chaining, and cancel
     height.mockRestore();
     bounds.mockRestore();
     vi.unstubAllGlobals();
+  }
+});
+
+it('preserves native link modifiers and current-route replacement with one queue handler', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  function Location() {
+    const location = useLocation();
+    const type = useNavigationType();
+    return (
+      <output>
+        {type}:{location.pathname}
+        {location.search}
+      </output>
+    );
+  }
+  const changes = Array.from({ length: 3 }, (_, hash) => ({
+    hash,
+    name: `Tooltip ${hash}`,
+    category: 'Perk',
+  }));
+  try {
+    await act(async () =>
+      root.render(
+        <MemoryRouter basename="/app" initialEntries={['/app/review?hash=0']}>
+          <ReviewQueue changes={changes} selectedHash="0" />
+          <Location />
+        </MemoryRouter>,
+      ),
+    );
+    const first = host.querySelector<HTMLAnchorElement>('[data-index="1"] a')!;
+    const second = host.querySelector<HTMLAnchorElement>('[data-index="2"] a')!;
+    expect(first.getAttribute('href')).toBe('/app/review?hash=1');
+    const prevented: boolean[] = [];
+    // Observe after React's delegated handler, then prevent jsdom's unsupported
+    // document navigation for links deliberately left to the browser.
+    host.addEventListener('click', (event) => {
+      prevented.push(event.defaultPrevented);
+      event.preventDefault();
+    });
+    const click = async (anchor: HTMLAnchorElement, options: MouseEventInit = {}) =>
+      act(async () =>
+        anchor.dispatchEvent(
+          new MouseEvent('click', { button: 0, bubbles: true, cancelable: true, ...options }),
+        ),
+      );
+    await click(first);
+    expect(host.querySelector('output')?.textContent).toBe('PUSH:/review?hash=1');
+    expect(prevented.at(-1)).toBe(true);
+    await click(first);
+    expect(host.querySelector('output')?.textContent).toBe('REPLACE:/review?hash=1');
+    for (const options of [
+      { ctrlKey: true },
+      { metaKey: true },
+      { shiftKey: true },
+      { altKey: true },
+      { button: 1 },
+    ]) {
+      await click(second, options);
+      expect(prevented.at(-1)).toBe(false);
+      expect(host.querySelector('output')?.textContent).toBe('REPLACE:/review?hash=1');
+    }
+    second.target = '_blank';
+    await click(second);
+    expect(prevented.at(-1)).toBe(false);
+    second.removeAttribute('target');
+    second.addEventListener('click', (event) => event.preventDefault(), { once: true });
+    await click(second);
+    expect(host.querySelector('output')?.textContent).toBe('REPLACE:/review?hash=1');
+    await click(second);
+    expect(host.querySelector('output')?.textContent).toBe('PUSH:/review?hash=2');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
   }
 });

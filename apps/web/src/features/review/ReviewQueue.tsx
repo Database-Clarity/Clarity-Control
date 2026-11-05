@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { useHref, useLinkClickHandler } from 'react-router-dom';
+import { useHref, useLocation, useNavigate } from 'react-router-dom';
 import type { SidebarPendingChange } from '../navigation/sidebarQueue';
 import styles from './ReviewQueue.module.scss';
 
@@ -15,12 +15,10 @@ const QueueLink = memo(function QueueLink({
   href: string;
   current: boolean;
 }) {
-  const to = `/review?hash=${change.hash}`;
-  const onClick = useLinkClickHandler(to);
   return (
     <a
       href={`${href}?hash=${change.hash}`}
-      onClick={onClick}
+      data-review-hash={change.hash}
       title={`${change.name} · ${change.hash}`}
       aria-current={current ? 'page' : undefined}
     >
@@ -43,6 +41,8 @@ export function ReviewQueue({
   const [rowHeight, setRowHeight] = useState(defaultRowHeight);
   // Resolve the router/base href once per window, rather than querying <base> per row.
   const href = useHref('/review');
+  const navigate = useNavigate();
+  const location = useLocation();
   const [focusIndex, setFocusIndex] = useState<number>();
   // Start from the CSS viewport's default 37px header + 7rem allowance, avoiding
   // an oversized provisional window at the ordinary scale. Native observation
@@ -163,6 +163,35 @@ export function ReviewQueue({
       style={{ height: changes.length * rowHeight }}
       tabIndex={0}
       aria-label="Scroll pending saved changes"
+      onClick={(event) => {
+        if (
+          event.defaultPrevented ||
+          event.button !== 0 ||
+          event.metaKey ||
+          event.altKey ||
+          event.ctrlKey ||
+          event.shiftKey
+        )
+          return;
+        const link =
+          event.target instanceof Element
+            ? event.target.closest<HTMLAnchorElement>('a[data-review-hash]')
+            : null;
+        if (
+          !link ||
+          !event.currentTarget.contains(link) ||
+          link.hasAttribute('download') ||
+          (link.target && link.target !== '_self')
+        )
+          return;
+        event.preventDefault();
+        const to = `/review?hash=${link.dataset.reviewHash}`;
+        // One router subscription/handler for the queue: memoized rows keep
+        // their native anchor behavior without mounting routing hooks per row.
+        void navigate(to, {
+          replace: `${location.pathname}${location.search}${location.hash}` === to,
+        });
+      }}
       onPointerDownCapture={cancelWheel}
       onFocusCapture={(event) => {
         const row = (event.target as Element).closest<HTMLElement>('[data-index]');
