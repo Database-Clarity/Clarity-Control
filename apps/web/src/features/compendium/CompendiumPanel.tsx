@@ -73,7 +73,7 @@ function ScaleControl() {
 /** Let the editor finish its frame's DOM reads before replacing the rich pane. */
 function usePaneFrame(
   base: Tooltip,
-  prepare: (signal: AbortSignal) => Promise<void> | undefined,
+  prepare: (signal: AbortSignal) => Promise<void> | false | undefined,
   concurrent: boolean,
 ) {
   const [ready, setReady] = useState(base);
@@ -115,7 +115,7 @@ function usePaneFrame(
     };
     const preparation = prepare(controller.signal);
     if (preparation) void preparation.then(schedule, schedule);
-    else schedule();
+    else if (preparation !== false) schedule();
     return () => {
       controller.abort();
       if (scheduled !== undefined) cancelAnimationFrame(scheduled);
@@ -140,6 +140,8 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
   } = useDisplayMatches(editor, source, drafts, userId);
   const incomingMatch =
     base.compendium || drafts[base.hash]?.next.compendium ? undefined : matches?.get(base.hash);
+  const awaitingMatch =
+    !base.compendium && !drafts[base.hash]?.next.compendium && !incomingMatch && matching;
   const incomingDraft = drafts[base.hash];
   const rawIncomingLink = incomingDraft ? incomingDraft.next.compendium : base.compendium;
   const incomingKey = JSON.stringify(rawIncomingLink);
@@ -162,6 +164,10 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
   }, [base, incomingLink, source, incomingMatch, editor]);
   const prepare = useCallback(
     (signal: AbortSignal) => {
+      // Keep the old pane until the incoming row can be prepared. Committing an
+      // empty pane first would paint its plain cell and then replace it again
+      // when the worker projection arrives.
+      if (awaitingMatch) return false;
       if (!comparison) return;
       const preparation = prepareCompendiumDiff(comparison.before, comparison.after, signal);
       if (diffMode === 'before-after') {
@@ -170,7 +176,7 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
       }
       return preparation;
     },
-    [comparison, diffMode],
+    [awaitingMatch, comparison, diffMode],
   );
   const displayed = usePaneFrame(
     base,

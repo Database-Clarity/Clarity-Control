@@ -120,6 +120,35 @@ const diffViews = (host: ParentNode) =>
   host.querySelectorAll('[aria-label="Compendium diff view"]');
 
 describe('Compendium pane', () => {
+  it('waits for an incoming match before scheduling the pane handoff', async () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    const oldBase = { ...linked, compendium: undefined };
+    const nextBase = { ...oldBase, hash: 6 };
+    const oldMatch = { status: 'ok', changed: false, tab, row };
+    matchState.rows = new Map([[5, oldMatch]]);
+    const host = await mount(oldBase);
+    matchState.loading = true;
+    await act(async () => roots.at(-1)!.render(createElement(CompendiumPanel, { base: nextBase })));
+    expect(frames.size).toBe(0);
+    expect(host.textContent).toContain('New text');
+    expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe('Compendium for 5');
+    expect(host.querySelector('aside')?.getAttribute('aria-busy')).toBe('true');
+    expect(button(host, 'Accept match (local draft)')?.disabled).toBe(true);
+    matchState.rows = new Map([[6, { ...oldMatch, row: { ...row, cell: cell('Incoming row') } }]]);
+    matchState.loading = false;
+    await act(async () => roots.at(-1)!.render(createElement(CompendiumPanel, { base: nextBase })));
+    expect(frames.size).toBe(1);
+    await act(async () => [...frames.values()][0](0));
+    expect(host.textContent).toContain('Incoming row');
+    expect(host.querySelector('aside')?.hasAttribute('aria-busy')).toBe(false);
+  });
+
   it('retains the displayed match while a priority reply contains only the next tooltip', async () => {
     const frames = new Map<number, FrameRequestCallback>();
     let serial = 0;
