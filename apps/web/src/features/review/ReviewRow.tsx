@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { getHistory, type HistoryCommit } from '../../services/history';
 import { errorMessage } from '../../services/http';
 import { CommitAuthor } from '../history/CommitAuthor';
 import type { PendingTooltip } from './model';
 import styles from './Review.module.scss';
 
-export function ReviewRow({
+export const ReviewRow = memo(function ReviewRow({
   entry,
   checked,
   active,
@@ -18,8 +18,8 @@ export function ReviewRow({
   entry: PendingTooltip;
   checked: boolean;
   active: boolean;
-  onToggle(): void;
-  onOpen(): void;
+  onToggle(hash: number): void;
+  onOpen(hash: number): void;
   disabled: boolean;
   /** Part of a publish that is still queued or being sent: cannot be selected again. */
   publishing?: boolean;
@@ -82,7 +82,7 @@ export function ReviewRow({
         <input
           type="checkbox"
           checked={checked}
-          onChange={onToggle}
+          onChange={() => onToggle(entry.tooltip.hash)}
           disabled={disabled || publishing || Boolean(entry.unpublishable)}
           title={entry.unpublishable ?? (publishing ? 'Publishing…' : undefined)}
           aria-label={`Select ${entry.name}, ${entry.category}, ${entry.tooltip.hash}`}
@@ -90,7 +90,7 @@ export function ReviewRow({
         <button
           type="button"
           data-perf-navigation="true"
-          onClick={onOpen}
+          onClick={() => onOpen(entry.tooltip.hash)}
           aria-current={active ? 'true' : undefined}
           aria-label={`Open ${entry.name}, ${entry.category}, ${entry.tooltip.hash}`}
           title={[
@@ -121,4 +121,4 @@ export function ReviewRow({
       )}
     </li>
   );
-}
+});

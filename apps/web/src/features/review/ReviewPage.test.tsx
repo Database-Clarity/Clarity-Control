@@ -238,6 +238,43 @@ it('canonicalizes a plain data-router open with one live request and preserves B
   }
 });
 
+it('keeps current filters when a retained row opens after the URL changes', async () => {
+  bundle.tooltips[20] = { ...structuredClone(tooltip), hash: 20 };
+  await useDataStore.getState().load();
+  await pendingTooltips(useDataStore.getState().data!);
+  const router = createMemoryRouter(
+    [
+      {
+        path: '/review',
+        element: <ReviewPage />,
+        loader: reviewRoute,
+        shouldRevalidate: shouldRevalidateReview,
+      },
+    ],
+    { initialEntries: ['/review?hash=10'] },
+  );
+  try {
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await waitForReview();
+    const row = host.querySelector<HTMLButtonElement>('button[aria-label^="Open Tooltip 20,"]')!;
+    expect(row).not.toBeNull();
+    await act(async () => router.navigate('/review?hash=10&query=Tooltip'));
+    await waitForReview();
+    expect(host.querySelector('button[aria-label^="Open Tooltip 20,"]')).toBe(row);
+    await act(async () => row.click());
+    await waitFor(() => {
+      const params = new URLSearchParams(router.state.location.search);
+      expect(params.get('query')).toBe('Tooltip');
+      expect(params.get('hash')).toBe('20');
+      expect(host.querySelector('[aria-label="Selected change"] h2')?.textContent).toBe(
+        'Tooltip 20',
+      );
+    });
+  } finally {
+    router.dispose();
+  }
+});
+
 it('keeps the acknowledgment without reloading the bundle, then follows manual refreshes', async () => {
   await mount();
   expect(host.textContent).toContain('1 pending / 0 selected');

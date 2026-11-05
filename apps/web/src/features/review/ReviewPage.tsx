@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { apiUrl } from '../../services/api';
 import { errorMessage } from '../../services/http';
@@ -108,14 +108,16 @@ export function ReviewPage() {
   }, [data, acknowledgments, prepared]);
   const visibleEntries = useMemo(
     () =>
-      entries.filter(
-        ({ name, category, categoryId, tooltip }) =>
-          (!categoryFilter || categoryId === categoryFilter) &&
-          (!query ||
-            `${name} ${category} ${categoryId} ${tooltip.hash}`
-              .toLowerCase()
-              .includes(query.toLowerCase())),
-      ),
+      !categoryFilter && !query
+        ? entries
+        : entries.filter(
+            ({ name, category, categoryId, tooltip }) =>
+              (!categoryFilter || categoryId === categoryFilter) &&
+              (!query ||
+                `${name} ${category} ${categoryId} ${tooltip.hash}`
+                  .toLowerCase()
+                  .includes(query.toLowerCase())),
+          ),
     [entries, categoryFilter, query],
   );
   const categories = useMemo(
@@ -130,9 +132,11 @@ export function ReviewPage() {
       ].sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id)),
     [entries],
   );
-  const routedIndex = visibleEntries.findIndex(
-    ({ tooltip }) => String(tooltip.hash) === searchParams.get('hash'),
-  );
+  const routedHash = searchParams.get('hash');
+  const routedIndex =
+    routedHash === null
+      ? -1
+      : visibleEntries.findIndex(({ tooltip }) => String(tooltip.hash) === routedHash);
   const index = routedIndex < 0 ? 0 : routedIndex;
   const selectIndex = useCallback(
     (next: number | ((current: number) => number)) => {
@@ -145,6 +149,23 @@ export function ReviewPage() {
       setSearchParams(params, { replace: true });
     },
     [index, searchParams, setSearchParams, visibleEntries],
+  );
+  const openCurrentRow = useCallback(
+    (hash: number) => {
+      const next = visibleEntries.findIndex((entry) => entry.tooltip.hash === hash);
+      if (next >= 0) selectIndex(next);
+    },
+    [selectIndex, visibleEntries],
+  );
+  const committedRowOpen = useRef(openCurrentRow);
+  useLayoutEffect(() => {
+    // Retained row handlers must use the filters and URL from the committed UI.
+    committedRowOpen.current = openCurrentRow;
+  }, [openCurrentRow]);
+  const openRow = useCallback((hash: number) => committedRowOpen.current(hash), []);
+  const toggleRow = useCallback(
+    (hash: number) => setSelected((previous) => toggleSelection(previous, hash)),
+    [],
   );
   useEffect(() => {
     if (loading) return;
@@ -185,7 +206,9 @@ export function ReviewPage() {
     window.addEventListener('keydown', keydown);
     return () => window.removeEventListener('keydown', keydown);
   }, [pushing, selectIndex, visibleEntries.length]);
-  const hashes = selectedPending(selected, entries).filter((hash) => !inFlight.has(hash));
+  const hashes = selected.size
+    ? selectedPending(selected, entries).filter((hash) => !inFlight.has(hash))
+    : [];
   const start = Math.floor(index / pageSize) * pageSize;
   const page = visibleEntries.slice(start, start + pageSize);
   const groups = [...new Set(page.map((entry) => entry.categoryId))];
@@ -394,12 +417,8 @@ export function ReviewPage() {
                             disabled={pushing}
                             publishing={inFlight.has(entry.tooltip.hash)}
                             historyAvailable={Boolean(apiUrl && user?.role)}
-                            onToggle={() =>
-                              setSelected((previous) =>
-                                toggleSelection(previous, entry.tooltip.hash),
-                              )
-                            }
-                            onOpen={() => selectIndex(visibleEntries.indexOf(entry))}
+                            onToggle={toggleRow}
+                            onOpen={openRow}
                           />
                         ))}
                     </ul>

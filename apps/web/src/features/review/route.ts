@@ -51,16 +51,22 @@ export function initialReviewParams(
 ): URLSearchParams {
   const category = params.get('category') ?? '';
   const query = (params.get('query') ?? '').toLowerCase();
-  const visible = entries.filter(
-    (entry) =>
-      (!category || entry.categoryId === category) &&
-      (!query ||
-        `${entry.name} ${entry.category} ${entry.categoryId} ${entry.tooltip.hash}`
-          .toLowerCase()
-          .includes(query)),
-  );
+  const visible =
+    category || query
+      ? entries.filter(
+          (entry) =>
+            (!category || entry.categoryId === category) &&
+            (!query ||
+              `${entry.name} ${entry.category} ${entry.categoryId} ${entry.tooltip.hash}`
+                .toLowerCase()
+                .includes(query)),
+        )
+      : entries;
+  const requestedHash = params.get('hash');
   const selected =
-    visible.find((entry) => String(entry.tooltip.hash) === params.get('hash')) ?? visible[0];
+    (requestedHash === null
+      ? undefined
+      : visible.find((entry) => String(entry.tooltip.hash) === requestedHash)) ?? visible[0];
   const next = new URLSearchParams(params);
   if (selected) next.set('hash', String(selected.tooltip.hash));
   else next.delete('hash');
