@@ -28,8 +28,15 @@ export function stepTarget(
   location: { pathname: string; search: string },
   direction: number,
   hashes: readonly number[],
+  indexes?: ReadonlyMap<number, number>,
 ): StepTarget | undefined {
-  const next = stepWithinCategory(Number(location.pathname.split('/')[2]), direction, hashes);
+  const current = Number(location.pathname.split('/')[2]);
+  const index = indexes?.get(current);
+  const next = indexes
+    ? index === undefined
+      ? undefined
+      : hashes[index + direction]
+    : stepWithinCategory(current, direction, hashes);
   if (next === undefined) return undefined;
   const path = tooltipPath(next, location.search);
   const [pathname, search = ''] = path.split('?');

@@ -116,6 +116,8 @@ export function TooltipPage({
       ? canonicalHash(hashOverride ?? Number(parameter), data)
       : (hashOverride ?? Number(parameter));
   const item = data && archivedItemFor(hash, data);
+  const archived =
+    readOnly || Boolean(data && hash > 3 && !data.items[hash] && !tooltipFor(hash, data).custom);
   const identity = useMemo(() => {
     const category = data?.categories.find((entry) => entry.id === item?.categoryId);
     return {
@@ -123,16 +125,16 @@ export function TooltipPage({
       piece: (item && exoticPiece(item)) || undefined,
       icon: item?.icon || undefined,
       categoryLabel: [
-        readOnly && item && data
+        archived && item && data
           ? archiveCategoryLabel(item.categoryId, data)
           : (category?.label ?? item?.categoryId),
         hash,
       ]
         .filter(Boolean)
         .join(' · '),
-      archiveIcon: readOnly,
+      archiveIcon: archived,
     };
-  }, [data, item, hash, readOnly]);
+  }, [data, item, hash, archived]);
   return (
     <LivePreviewIdentity.Provider value={identity}>
       <article

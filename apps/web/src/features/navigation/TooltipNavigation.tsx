@@ -339,6 +339,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     sections.find((category) => category.id === itemFor(hash, data)?.categoryId) ?? sections[0];
   const items = selectedCategory?.items ?? noItems;
   const hashes = useMemo(() => items.map((item) => item.hash), [items]);
+  const indexes = useMemo(() => new Map(hashes.map((value, index) => [value, index])), [hashes]);
   const position = categoryPosition(hash, hashes);
   const current = useRef({ pathname: location.pathname, search: location.search });
   current.current = { pathname: location.pathname, search: location.search };
@@ -400,7 +401,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       : current.current;
   };
   step.current = (direction) => {
-    const target = stepTarget(stepLocation(), direction, hashes);
+    const target = stepTarget(stepLocation(), direction, hashes, indexes);
     if (!target) {
       // A free-spin gesture can reach the category boundary long before its wheel
       // packets stop. Keep pending panel work cancelled until the input rests.
@@ -412,7 +413,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     pulseStepping();
     return true;
   };
-  canStep.current = (direction) => Boolean(stepTarget(stepLocation(), direction, hashes));
+  canStep.current = (direction) => Boolean(stepTarget(stepLocation(), direction, hashes, indexes));
 
   // The list: the current category by default, every category on request.
   const scoped: CategorySection[] = useMemo(() => {
@@ -669,7 +670,10 @@ export const TooltipNavigation = memo(function TooltipNavigation({
         event.preventDefault();
         if (!event.shiftKey) {
           const moved = step.current(event.key === 'ArrowDown' ? 1 : -1);
-          if (moved || useSteppingActivity.getState().active) {
+          if (
+            (moved || useSteppingActivity.getState().active) &&
+            (!event.repeat || heldKey.current?.key !== event.key)
+          ) {
             // Replace even an old, already released latch: keyup/blur may have
             // ended it without another React render.
             const previous = heldKey.current;

@@ -23,14 +23,18 @@ it('gives a costly frame and pending physical input room without extending the b
   expect(useSteppingActivity.getState().deferWorkspace).toBe(false);
   vi.advanceTimersByTime(17);
   finish();
+  pulseStepping();
   beginSteppingFrame()();
   expect(useSteppingActivity.getState().deferWorkspace).toBe(true);
+  beginSteppingFrame()();
+  expect(useSteppingActivity.getState().deferWorkspace).toBe(true);
+  vi.advanceTimersByTime(25);
   beginSteppingFrame()();
   expect(useSteppingActivity.getState().deferWorkspace).toBe(false);
   pending = true;
   beginSteppingFrame()();
   expect(useSteppingActivity.getState().deferWorkspace).toBe(true);
-  vi.advanceTimersByTime(23);
+  vi.advanceTimersByTime(15);
   expect(useSteppingActivity.getState()).toMatchObject({ active: false, deferWorkspace: false });
 });
 
@@ -54,10 +58,23 @@ it('catches up on the next free frame and cancels obsolete handoffs on new input
   expect(cancelled).toHaveBeenCalledWith(obsolete);
   callbacks.get(obsolete)!(0);
   expect(useSteppingActivity.getState().deferWorkspace).toBe(true);
+  beginSteppingFrame()();
   pending = false;
   vi.advanceTimersByTime(8);
   callbacks.get(nextId)!(0);
   expect(useSteppingActivity.getState()).toMatchObject({ active: true, deferWorkspace: false });
+});
+
+it('coalesces input activity without notifying React until the route frame', () => {
+  vi.useFakeTimers();
+  const changed = vi.fn();
+  const unsubscribe = useSteppingActivity.subscribe(changed);
+  for (let packet = 0; packet < 300; packet++) pulseStepping();
+  expect(changed).not.toHaveBeenCalled();
+  beginSteppingFrame()();
+  expect(changed).toHaveBeenCalledTimes(1);
+  expect(useSteppingActivity.getState()).toMatchObject({ active: true, deferWorkspace: true });
+  unsubscribe();
 });
 
 describe('physical navigation key holds', () => {
