@@ -325,6 +325,7 @@ it('reuses static category navigation while resetting inactive search and sample
   const search = categorySearch();
   const sample = guidance.querySelector('[aria-label^="Resolve sample "]');
   list.scrollTop = 80;
+  list.dispatchEvent(new Event('scroll', { bubbles: true }));
   const details = guidance.querySelector('details')!;
   details.open = true;
   await click('Review all one by one');

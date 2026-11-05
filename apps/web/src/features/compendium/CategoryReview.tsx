@@ -1,5 +1,5 @@
 import { guidanceDiagnostic } from './guidanceDiagnostic';
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { matchingSession } from './matchingSession';
 import type { GuidedCategory } from './guidedDecisions';
 import type { CompendiumData } from '@clarity/core';
@@ -72,6 +72,15 @@ export const CategoryReview = memo(
     const [browsing, setBrowsing] = useState(20);
     const [importError, setImportError] = useState<string | null>(null);
     const categoryButtons = useRef<HTMLDivElement>(null);
+    const categoryScroll = useRef(0);
+    const currentRouteState = useRef(routeState);
+    currentRouteState.current = routeState;
+    const selectCategory = useCallback((id: string) => {
+      const route = currentRouteState.current;
+      if (route) route.onCategorySelect(id);
+      else setLocalCategoryId(id);
+      setBrowsing(20);
+    }, []);
     const query = routeState?.query ?? localQuery;
     const categoryId = routeState?.categoryId ?? localCategoryId;
     const scopedCategories = useMemo(
@@ -119,7 +128,10 @@ export const CategoryReview = memo(
       // including any late status from an asynchronous action while inactive.
       // A fresh mount already starts at zero. Avoid forcing its initial layout
       // during the commit; restore retained scroll only when showing it again.
-      if (active && categoryButtons.current) categoryButtons.current.scrollTop = 0;
+      if (active && categoryScroll.current !== 0 && categoryButtons.current) {
+        categoryButtons.current.scrollTop = 0;
+        categoryScroll.current = 0;
+      }
       setDeliveryStatus(null);
       setLocalQuery('');
       setLocalCategoryId('');
@@ -186,6 +198,23 @@ export const CategoryReview = memo(
       [scopedCategories, guidance.document, source],
     );
     const entries = category ? sampleIndex.get(category.id)!.entries : [];
+    const categoryNavigation = useMemo(
+      () =>
+        filtered.map((group) => (
+          <button
+            key={group.id}
+            aria-current={group.id === activeCategoryId ? 'true' : undefined}
+            onClick={() => selectCategory(group.id)}
+          >
+            <strong>{group.name}</strong>
+            <small>
+              {sampleIndex.get(group.id)!.resolved}/{sampleIndex.get(group.id)!.entries.length}{' '}
+              samples resolved · {group.entries.length} entries
+            </small>
+          </button>
+        )),
+      [filtered, activeCategoryId, sampleIndex, selectCategory],
+    );
     const selectedHash = routeState
       ? category && routeState.selectedSamples[category.id]
       : selected[category?.id ?? ''];
@@ -345,25 +374,14 @@ export const CategoryReview = memo(
             )}
             {!categories.length && <p>No entries need category guidance.</p>}
             {categories.length > 0 && !filtered.length && <p>No categories match your search.</p>}
-            <div className={styles.categoryButtons} ref={categoryButtons}>
-              {filtered.map((group) => (
-                <button
-                  key={group.id}
-                  aria-current={group.id === category?.id ? 'true' : undefined}
-                  onClick={() => {
-                    if (routeState) routeState.onCategorySelect(group.id);
-                    else setLocalCategoryId(group.id);
-                    setBrowsing(20);
-                  }}
-                >
-                  <strong>{group.name}</strong>
-                  <small>
-                    {sampleIndex.get(group.id)!.resolved}/
-                    {sampleIndex.get(group.id)!.entries.length} samples resolved ·{' '}
-                    {group.entries.length} entries
-                  </small>
-                </button>
-              ))}
+            <div
+              className={styles.categoryButtons}
+              ref={categoryButtons}
+              onScroll={(event) => {
+                if (active) categoryScroll.current = event.currentTarget.scrollTop;
+              }}
+            >
+              {categoryNavigation}
             </div>
           </nav>
           {active && category && (
