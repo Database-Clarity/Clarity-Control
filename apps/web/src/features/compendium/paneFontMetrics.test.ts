@@ -24,6 +24,7 @@ const source = () =>
             },
           },
         ],
+        grid: [{ cell: { runs: [{ text: 'A grid-only face', sizePt: 11 }] } }],
       },
     ],
   }) as unknown as CompendiumData;
@@ -77,7 +78,7 @@ function drain() {
   expect(idle.size).toBe(0);
 }
 
-it('prepares every source face and actual glyph in bounded idle units, including zoom', async () => {
+it('prepares row and grid faces in bounded idle units at the actual zoom', async () => {
   const { warmPaneFontMetrics } = await import('./paneFontMetrics');
   warmPaneFontMetrics(source(), 'Arial, "Yu Gothic", sans-serif', 0.75);
   await Promise.resolve();
@@ -90,11 +91,13 @@ it('prepares every source face and actual glyph in bounded idle units, including
       '700 9px Arial, "Yu Gothic", sans-serif',
       'italic 400 7px Arial, "Yu Gothic", sans-serif',
       '400 10px Arial, "Yu Gothic", sans-serif',
+      '400 11px Arial, "Yu Gothic", sans-serif',
     ]),
   );
   const text = measured.map((item) => item.text).join('');
-  expect(text).toContain('ツ');
-  expect(text).toContain('🛸');
+  expect(text).toContain('ABCDEFGHIJKLMNOPQRSTUVWXYZ');
+  expect(text).not.toContain('ツ');
+  expect(text).not.toContain('🛸');
 });
 
 it('gives input and an exhausted idle deadline priority over metric work', async () => {

@@ -1,5 +1,5 @@
 import { useEffect, type RefObject } from 'react';
-import type { CompendiumData } from '@clarity/core';
+import type { CompendiumCell, CompendiumData } from '@clarity/core';
 
 const prepared = new WeakMap<CompendiumData, Set<string>>();
 const latin = Array.from({ length: 95 }, (_, index) => String.fromCharCode(32 + index)).join('');
@@ -9,33 +9,31 @@ export function warmPaneFontMetrics(source: CompendiumData, family: string, zoom
   const key = `${family}|${zoom}`;
   if (typeof CanvasRenderingContext2D === 'undefined' || prepared.get(source)?.has(key))
     return () => {};
+  let fontCount = 0;
+  function* cells(): Generator<CompendiumCell> {
+    for (const tab of source.tabs) {
+      for (const row of tab.rows) yield row.cell;
+      for (const entry of tab.grid ?? []) yield entry.cell;
+    }
+  }
   function* units() {
-    const fonts = new Map<string, Set<string>>();
+    const fonts = new Map<string, number>();
     let scanned = 0;
-    for (const tab of source.tabs)
-      for (const row of tab.rows)
-        for (const run of row.cell.runs) {
-          const font = `${run.italic ? 'italic ' : ''}${run.bold ? 700 : 400} ${((run.sizePt ?? 10) * 4 * zoom) / 3}px ${family}`;
-          let glyphs = fonts.get(font);
-          if (!glyphs) {
-            fonts.set(font, (glyphs = new Set()));
-            // Establish each face's common metrics before scanning the rest of
-            // the source. Waiting for the full glyph census was too late for
-            // the first navigation. Every descriptor uses the same alphabet.
-            for (let index = 0; index < latin.length; index += 8)
-              yield { font, text: latin.slice(index, index + 8) };
-          }
-          for (const glyph of run.text) {
-            if (glyph >= ' ') glyphs.add(glyph);
-            if (++scanned % 128 === 0) yield;
-          }
-        }
-    for (let pass = 0; pass < 2; pass++)
-      for (const [font, glyphs] of fonts) {
-        const text = [...glyphs];
-        for (let index = 0; index < text.length; index += 8)
-          yield { font, text: text.slice(index, index + 8).join('') };
+    for (const cell of cells())
+      for (const run of cell.runs) {
+        const font = `${run.italic ? 'italic ' : ''}${run.bold ? 700 : 400} ${((run.sizePt ?? 10) * 4 * zoom) / 3}px ${family}`;
+        fonts.set(font, (fonts.get(font) ?? 0) + 1);
+        if (++scanned % 64 === 0) yield;
       }
+    // Cover every row and grid face. Common source styles come first, without
+    // consulting the current tooltip or its navigation path. Latin metrics
+    // avoid an uninterruptible OS fallback search for unusual source glyphs.
+    const ordered = [...fonts].sort((left, right) => right[1] - left[1]);
+    fontCount = ordered.length;
+    for (let pass = 0; pass < 2; pass++)
+      for (const [font] of ordered)
+        for (let index = 0; index < latin.length; index += 8)
+          yield { font, text: latin.slice(index, index + 8) };
   }
   const work = units();
   const controller = new AbortController();
@@ -88,7 +86,7 @@ export function warmPaneFontMetrics(source: CompendiumData, family: string, zoom
         if (!keys) prepared.set(source, (keys = new Set()));
         keys.add(key);
         performance.mark('compendium:pane-fonts-prepared', {
-          detail: { zoom, maxUnitMs, maxSliceMs },
+          detail: { zoom, fontCount, maxUnitMs, maxSliceMs },
         });
         return;
       }
