@@ -21,10 +21,7 @@ export type CompendiumCount =
 export function useCompendiumCount(): CompendiumCount {
   const editor = useDataStore((state) => state.data);
   const tooltips = editor?.bundle.tooltips;
-  const drafts = useDraftStore((state) => state.drafts);
-  const userId = useAuthStore((state) => state.user?.id);
   const { data, error, load } = useCompendiumStore();
-  const { prepared } = useDisplayMatches(editor, data, drafts, userId);
   useEffect(() => {
     if (!editor || data) return;
     void load();
@@ -36,6 +33,37 @@ export function useCompendiumCount(): CompendiumCount {
     // Row text depends on the source revision, not the current tooltip/proposals.
     return warmPickerRowIndexes(data.tabs);
   }, [data]);
+
+  useEffect(() => {
+    const start = () => {
+      void load();
+      void import('./MatchReviewPage');
+      // Any source can contain sheet glyphs. Load their shared face during idle prefetch,
+      // rather than fetching it on the first entry that happens to use one.
+      void document.fonts?.load('16px DestinySymbols').catch(() => undefined);
+    };
+    if ('requestIdleCallback' in window) {
+      const id = window.requestIdleCallback(start, { timeout: 1500 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = setTimeout(start, 0);
+    return () => clearTimeout(id);
+  }, [load]);
+  const count = useMemo(
+    () => (tooltips && data ? compendiumChanges(tooltips, data).length : null),
+    [tooltips, data],
+  );
+  if (error) return { state: 'error' };
+  return count === null ? { state: 'loading' } : { state: 'ready', count };
+}
+
+/** Keep speculative matching subscriptions below the app/header render boundary. */
+function CompendiumWarmup() {
+  const editor = useDataStore((state) => state.data);
+  const data = useCompendiumStore((state) => state.data);
+  const drafts = useDraftStore((state) => state.drafts);
+  const userId = useAuthStore((state) => state.user?.id);
+  const { prepared } = useDisplayMatches(editor, data, drafts, userId);
   useEffect(() => {
     if (!editor || !data || !prepared) return;
     // Prepare the entire review model fairly, regardless of viewport, selection or route.
@@ -72,27 +100,7 @@ export function useCompendiumCount(): CompendiumCount {
       idle.cancel();
     };
   }, [editor, data, prepared, userId]);
-  useEffect(() => {
-    const start = () => {
-      void load();
-      void import('./MatchReviewPage');
-      // Any source can contain sheet glyphs. Load their shared face during idle prefetch,
-      // rather than fetching it on the first entry that happens to use one.
-      void document.fonts?.load('16px DestinySymbols').catch(() => undefined);
-    };
-    if ('requestIdleCallback' in window) {
-      const id = window.requestIdleCallback(start, { timeout: 1500 });
-      return () => window.cancelIdleCallback(id);
-    }
-    const id = setTimeout(start, 0);
-    return () => clearTimeout(id);
-  }, [load]);
-  const count = useMemo(
-    () => (tooltips && data ? compendiumChanges(tooltips, data).length : null),
-    [tooltips, data],
-  );
-  if (error) return { state: 'error' };
-  return count === null ? { state: 'loading' } : { state: 'ready', count };
+  return null;
 }
 
 /**
@@ -106,17 +114,22 @@ export function CompendiumBadge({
   count: CompendiumCount;
   className?: string;
 }) {
-  if (count.state === 'loading') return <span className="sr-only">Compendium changes loading</span>;
-  if (count.state === 'error')
-    return (
+  const label =
+    count.state === 'loading' ? (
+      <span className="sr-only">Compendium changes loading</span>
+    ) : count.state === 'error' ? (
       <span className={className} role="img" aria-label="Compendium unavailable">
         !
       </span>
+    ) : count.count === 0 ? null : (
+      <span className={className} role="img" aria-label={`${count.count} Compendium changes`}>
+        {count.count}
+      </span>
     );
-  if (count.count === 0) return null;
   return (
-    <span className={className} role="img" aria-label={`${count.count} Compendium changes`}>
-      {count.count}
-    </span>
+    <>
+      <CompendiumWarmup />
+      {label}
+    </>
   );
 }

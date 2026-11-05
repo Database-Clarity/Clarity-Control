@@ -11,6 +11,7 @@ import { errorMessage } from '../../services/http';
 import { useCompendiumStore } from './store';
 import { When } from '../../ui/When';
 import styles from './Compendium.module.scss';
+import gridStyles from './PickerGrid.module.scss';
 import { CellPicker } from './CellPicker';
 import { PickerRowList } from './PickerRowList';
 import { confirmCompendiumSelection } from './selection';
@@ -156,7 +157,7 @@ export function LinkPicker({
   if (!data) return null;
   const tab = data.tabs.find((tab) => tab.gid === gid);
   return (
-    <section aria-label="Link a Compendium row">
+    <section className={gridStyles.picker} aria-label="Link a Compendium row">
       <h3>Choose tab and row</h3>
       <label>
         Compendium tab{' '}

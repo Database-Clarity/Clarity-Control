@@ -127,11 +127,14 @@ it('does not normalize unused fields when showing an unfiltered tab', () => {
 });
 
 it('uses real idle callbacks, yields through a message task, and respects a short deadline', () => {
+  vi.useFakeTimers();
   const queue = idleQueue();
   const work = vi.fn();
   const idle = pickerIdleScheduler(work);
   idle.schedule();
   expect(work).not.toHaveBeenCalled();
+  queue.run();
+  vi.advanceTimersByTime(250);
   queue.run(() => 1);
   expect(work).not.toHaveBeenCalled();
   queue.run();
@@ -185,6 +188,7 @@ it('cancels idle work and keeps an on-demand fallback when workers are unavailab
 });
 
 it('transfers bounded worker batches, installs off-thread fields during idle, and terminates on cancel', () => {
+  vi.useFakeTimers();
   const queue = idleQueue();
   const posts: { name: string; section?: string }[][] = [];
   const instances: FakeWorker[] = [];
@@ -201,9 +205,13 @@ it('transfers bounded worker batches, installs off-thread fields during idle, an
   }
   vi.stubGlobal('Worker', FakeWorker);
   let clock = 0;
-  vi.spyOn(performance, 'now').mockImplementation(() => (clock += 0.05));
+  vi.spyOn(performance, 'now').mockImplementation(
+    () => vi.getMockedSystemTime()!.getTime() + (clock += 0.05),
+  );
   const rows = Array.from({ length: 35 }, (_, i) => row(`Name ${i}`, i));
   const cancel = warmPickerRowIndexes([{ ...tab, rows }]);
+  queue.run();
+  vi.advanceTimersByTime(250);
   queue.drain();
   expect(posts).toHaveLength(1);
   expect(posts[0]).toHaveLength(16);

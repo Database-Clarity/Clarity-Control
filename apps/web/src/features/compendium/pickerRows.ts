@@ -56,7 +56,8 @@ export function pickerRowIndex(tab: CompendiumSheet) {
 export function pickerIdleScheduler(run: (deadline?: IdleDeadline) => void) {
   let cancelled = false;
   let queued = false;
-  let inputSeen = false;
+  // A job created by a worker reply must also wait for the current input/render to settle.
+  let inputSeen = true;
   let quietUntil = 0;
   let idle: number | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
