@@ -152,15 +152,15 @@ const PaneContents = memo(function PaneContents({
     return () => window.removeEventListener('clarity-ui-scale', measure);
   }, []);
   const roomy = !touch && (width === undefined || width >= headerMin);
+  // Disable pending actions in place. Removing them would dirty the old pane's
+  // layout during the editor's read frame, defeating the content handoff.
   const canEdit =
-    !pending &&
     !!apiUrl &&
     hydrated &&
     !saving &&
     !!user?.role &&
     ['maintainer', 'editor', 'trial'].includes(user.role);
   const canReview =
-    !pending &&
     !!apiUrl &&
     hydrated &&
     !saving &&
@@ -190,6 +190,7 @@ const PaneContents = memo(function PaneContents({
   return (
     <RightPane
       className={styles.pane}
+      busy={pending}
       label={`Compendium for ${item?.name ?? base.hash}`}
       bodyRef={bodyRef}
       header={
@@ -199,6 +200,7 @@ const PaneContents = memo(function PaneContents({
             <button
               type="button"
               className={styles.headerButton}
+              disabled={pending}
               aria-pressed={picking}
               aria-label={picking ? 'Close picker' : link ? 'Pick other row' : 'Link a row'}
               onClick={() => setPicking(!picking)}
@@ -218,6 +220,7 @@ const PaneContents = memo(function PaneContents({
               base={base}
               name={item?.name ?? base.custom?.name ?? ''}
               category={item?.categoryId ?? 'other'}
+              readOnly={pending}
               onLinked={() => setPicking(false)}
             />
           </div>
@@ -278,6 +281,7 @@ const PaneContents = memo(function PaneContents({
               <div className={styles.actions}>
                 <button
                   type="button"
+                  disabled={pending}
                   onClick={() => {
                     if (!compendium) return;
                     const confirmed = confirmCompendiumSelection(matched, compendium);
@@ -335,7 +339,7 @@ const PaneContents = memo(function PaneContents({
                   <div className={styles.actions}>
                     <button
                       type="button"
-                      disabled={!!draft || match.status === 'ok'}
+                      disabled={pending || !!draft || match.status === 'ok'}
                       onClick={() => {
                         reviewSaveChanges([
                           {
@@ -382,7 +386,7 @@ const PaneContents = memo(function PaneContents({
                         <button
                           type="button"
                           disabled={
-                            !compendium || !confirmCompendiumSelection(candidate, compendium)
+                            pending || !compendium || !confirmCompendiumSelection(candidate, compendium)
                           }
                           onClick={() => {
                             if (!compendium) return;
@@ -404,7 +408,7 @@ const PaneContents = memo(function PaneContents({
                   ))}
                 </ul>
                 {resolution.status === 'relink-suggested' && canEdit && (
-                  <button type="button" onClick={() => setPicking(true)}>
+                  <button type="button" disabled={pending} onClick={() => setPicking(true)}>
                     Choose another
                   </button>
                 )}
@@ -425,12 +429,13 @@ const PaneContents = memo(function PaneContents({
         {canEdit && link && (
           <div className={styles.actions}>
             {draft && (
-              <button type="button" onClick={openDraftSaveReview}>
+              <button type="button" disabled={pending} onClick={openDraftSaveReview}>
                 Review &amp; save draft
               </button>
             )}
             <button
               type="button"
+              disabled={pending}
               onClick={() =>
                 updateDraft(base, (tooltip) => {
                   const next = { ...tooltip };

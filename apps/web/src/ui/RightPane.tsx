@@ -12,15 +12,21 @@ export function RightPane({
   children,
   bodyRef,
   className,
+  busy,
 }: {
   label: string;
   header: ReactNode;
   children: ReactNode;
   bodyRef?: Ref<HTMLDivElement>;
   className?: string;
+  busy?: boolean;
 }) {
   return (
-    <aside className={className ? `${styles.pane} ${className}` : styles.pane} aria-label={label}>
+    <aside
+      className={className ? `${styles.pane} ${className}` : styles.pane}
+      aria-label={label}
+      aria-busy={busy || undefined}
+    >
       {header}
       <div className={styles.body} ref={bodyRef}>
         {children}

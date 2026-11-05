@@ -19,7 +19,8 @@ vi.mock('./usePaneMatch', () => ({ usePaneMatch: vi.fn() }));
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 vi.mock('../../services/api', () => ({ apiUrl: 'https://api.test' }));
 vi.mock('./LinkPicker', () => ({
-  LinkPicker: () => createElement('div', { 'data-picker': true }),
+  LinkPicker: ({ readOnly }: { readOnly?: boolean }) =>
+    createElement('div', { 'data-picker': true, 'data-readonly': String(!!readOnly) }),
 }));
 
 const cell = (text: string): CompendiumCell => ({ plain: text, runs: [{ text }] });
@@ -131,9 +132,18 @@ describe('Compendium pane', () => {
     try {
       const host = await mount();
       const root = roots.at(-1)!;
+      expect(host.querySelector('aside')!.hasAttribute('aria-busy')).toBe(false);
+      await act(async () => button(host, 'Pick other row')!.click());
+      const picker = host.querySelector('[data-picker]')!;
+      expect(picker.getAttribute('data-readonly')).toBe('false');
       await act(async () => root.render(createElement(CompendiumPanel, { base: intermediate })));
       expect(host.textContent).toContain('Old text');
-      expect(button(host, 'Unlink (local draft)')).toBeUndefined();
+      expect(host.querySelector('aside')!.getAttribute('aria-busy')).toBe('true');
+      expect(host.querySelector('[data-picker]')).toBe(picker);
+      expect(picker.getAttribute('data-readonly')).toBe('true');
+      expect((button(host, 'Unlink (local draft)') as HTMLButtonElement).disabled).toBe(true);
+      await act(async () => button(host, 'Unlink (local draft)')!.click());
+      expect(updateDraft).not.toHaveBeenCalled();
       const pending = [...frames.values()][0];
       frames.clear();
       // The first callback has fired, but a newer switch reaches React before
@@ -144,11 +154,13 @@ describe('Compendium pane', () => {
       });
       expect(host.textContent).toContain('Old text');
       expect(host.textContent).not.toContain('Intermediate snapshot');
-      expect(button(host, 'Unlink (local draft)')).toBeUndefined();
+      expect((button(host, 'Unlink (local draft)') as HTMLButtonElement).disabled).toBe(true);
       const finalFrame = [...frames.values()][0];
       frames.clear();
       await act(async () => finalFrame(16));
       expect(host.textContent).toContain('Latest snapshot');
+      expect(host.querySelector('aside')!.hasAttribute('aria-busy')).toBe(false);
+      expect(picker.getAttribute('data-readonly')).toBe('false');
       expect(host.textContent).not.toContain('Intermediate snapshot');
       await act(async () => button(host, 'Unlink (local draft)')!.click());
       expect(updateDraft.mock.calls[0][0]).toBe(latest);
