@@ -1,0 +1,1 @@
+const e={en:"English",de:"German",es:"Spanish","es-mx":"Spanish (Mexico)",fr:"French",it:"Italian",ja:"Japanese",ko:"Korean",pl:"Polish","pt-br":"Portuguese (Brazil)",ru:"Russian","zh-chs":"Chinese (Simplified)","zh-cht":"Chinese (Traditional)"};function a(n){return Object.hasOwn(e,n)?e[n]:n||"Unknown language"}export{a as l};

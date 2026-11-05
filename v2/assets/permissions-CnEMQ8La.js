@@ -1,0 +1,1 @@
+function t(n){return n?.role==="maintainer"||n?.role==="editor"||n?.role==="trial"}function i(n,a){return t(n)||n?.role==="translator"&&n.languages?.includes(a)===!0}function r(n){return n?.role==="maintainer"||n?.role==="editor"}export{i as a,r as b,t as c};
