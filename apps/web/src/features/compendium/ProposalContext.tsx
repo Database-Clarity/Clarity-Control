@@ -78,10 +78,19 @@ const ContextCell = memo(function ContextCell({
 }) {
   return (
     <div data-context-cell>
-      <small>
-        R{cell.row} C{cell.col + 1}
-      </small>
-      <Multiline>{rich ? prepareReviewCell(cell.cell) : searchableCell(cell.cell)}</Multiline>
+      {rich ? (
+        <>
+          <small>
+            R{cell.row} C{cell.col + 1}
+          </small>
+          <Multiline>{prepareReviewCell(cell.cell)}</Multiline>
+        </>
+      ) : (
+        <>
+          {`R${cell.row} C${cell.col + 1}`}
+          {searchableCell(cell.cell)}
+        </>
+      )}
     </div>
   );
 });

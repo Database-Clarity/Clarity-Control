@@ -60,7 +60,7 @@ it('keeps deferred text and native links, and formats before Tab or beforematch 
     expect(cells).toHaveLength(2);
     for (const cell of cells) {
       expect(cell.getAttribute('hidden')).toBe('until-found');
-      expect(cell.querySelector('[data-multiline]')!.textContent).toBe(text);
+      expect(cell.textContent!.endsWith(text)).toBe(true);
       expect(cell.querySelector('a')?.target).toBe('_blank');
       expect(cell.querySelectorAll('a')).toHaveLength(1);
       expect(cell.querySelector('[style]')).toBeNull();

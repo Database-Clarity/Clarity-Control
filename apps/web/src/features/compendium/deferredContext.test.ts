@@ -103,3 +103,42 @@ it('waits for formatted content to commit before measuring and exposing a cell',
   expect(nodes.every((node) => !node.hasAttribute('hidden'))).toBe(true);
   cancel();
 });
+
+it('uses delivered content sizes without forcing layout during native revelation, and cancels late measurements', () => {
+  let resize: ResizeObserverCallback;
+  const disconnect = vi.fn();
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(callback: ResizeObserverCallback) {
+        resize = callback;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect = disconnect;
+    },
+  );
+  const { details, nodes, cells } = fixture();
+  const cancel = deferContextCells(details, cells);
+  const reads = vi.mocked(nodes[0].getBoundingClientRect).mock.calls.length;
+  nodes[0].dispatchEvent(new Event('beforematch', { bubbles: true }));
+  expect(nodes[0].hasAttribute('hidden')).toBe(false);
+  expect(vi.mocked(nodes[0].getBoundingClientRect)).toHaveBeenCalledTimes(reads);
+  const entry = {
+    target: nodes[0],
+    contentBoxSize: [{ blockSize: 80, inlineSize: 100 }],
+  } as unknown as ResizeObserverEntry;
+  resize!([entry], {} as ResizeObserver);
+  expect(nodes[0].style.containIntrinsicBlockSize).toBe('80px');
+  expect(nodes[0].style.contentVisibility).toBe('');
+  nodes[1].dispatchEvent(new Event('beforematch', { bubbles: true }));
+  expect(nodes[1].style.contentVisibility).toBe('visible');
+  cancel();
+  expect(nodes[1].style.contentVisibility).toBe('');
+  expect(disconnect).toHaveBeenCalledOnce();
+  resize!(
+    [{ ...entry, contentBoxSize: [{ blockSize: 90, inlineSize: 100 }] } as ResizeObserverEntry],
+    {} as ResizeObserver,
+  );
+  expect(nodes[0].style.containIntrinsicBlockSize).toBe('80px');
+});

@@ -29,25 +29,48 @@ export function deferContextCells(
       node.style.removeProperty('contain-intrinsic-block-size');
   }
   let cancelled = false;
-  function reveal(node: HTMLElement) {
-    if (!pending.has(node) || (prepare && !prepare(node, indices.get(node)!))) return;
-    if (!pending.delete(node)) return;
-    node.removeAttribute('hidden');
-    node.style.contentVisibility = 'visible';
-    const height = node.getBoundingClientRect().height;
-    const style = getComputedStyle(node);
-    const contentHeight =
-      height -
-      [style.paddingTop, style.paddingBottom, style.borderTopWidth, style.borderBottomWidth].reduce(
-        (sum, value) => sum + (parseFloat(value) || 0),
-        0,
-      );
+  function rememberHeight(node: HTMLElement, contentHeight: number) {
+    if (cancelled || contentHeight <= 0) return;
     let sizes = heights.get(cells[indices.get(node)!].cell);
     if (!sizes) heights.set(cells[indices.get(node)!].cell, (sizes = new Map()));
     if (sizes.size >= 4 && !sizes.has(key)) sizes.delete(sizes.keys().next().value!);
     sizes.set(key, contentHeight);
     node.style.containIntrinsicBlockSize = `${contentHeight}px`;
     node.style.contentVisibility = '';
+    measurements?.unobserve(node);
+  }
+  // The browser already knows each visible content box after layout. Reusing
+  // that observation avoids forcing another layout just to populate a cache.
+  const measurements =
+    typeof ResizeObserver === 'undefined'
+      ? undefined
+      : new ResizeObserver((entries) => {
+          for (const entry of entries)
+            rememberHeight(
+              entry.target as HTMLElement,
+              entry.contentBoxSize?.[0]?.blockSize ?? entry.contentRect.height,
+            );
+        });
+  function reveal(node: HTMLElement) {
+    if (!pending.has(node) || (prepare && !prepare(node, indices.get(node)!))) return;
+    if (!pending.delete(node)) return;
+    node.removeAttribute('hidden');
+    node.style.contentVisibility = 'visible';
+    if (measurements) measurements.observe(node);
+    else {
+      const height = node.getBoundingClientRect().height;
+      const style = getComputedStyle(node);
+      rememberHeight(
+        node,
+        height -
+          [
+            style.paddingTop,
+            style.paddingBottom,
+            style.borderTopWidth,
+            style.borderBottomWidth,
+          ].reduce((sum, value) => sum + (parseFloat(value) || 0), 0),
+      );
+    }
     observer.unobserve(node);
   }
   let refreshing = false;
@@ -99,10 +122,13 @@ export function deferContextCells(
   const cancel = () => {
     cancelled = true;
     observer.disconnect();
+    measurements?.disconnect();
     details.removeEventListener('beforematch', beforeMatch);
     details.removeEventListener('keydown', keyboard);
     document.removeEventListener('scroll', revealVisible, true);
     window.removeEventListener('resize', revealVisible);
+    for (const node of nodes)
+      if (node.style.contentVisibility) node.style.contentVisibility = '';
     for (const node of pending) node.removeAttribute('hidden');
   };
   return Object.assign(cancel, { refresh: revealVisible });
