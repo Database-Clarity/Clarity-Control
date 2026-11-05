@@ -2,6 +2,8 @@ import { decodeValueNode, encodePrecomputed } from './precomputedCodec';
 
 export interface WorkerReply {
   id: number;
+  // Selected-entry replies contain no catalog and can use native structured clone.
+  value?: unknown;
   nodes?: unknown[];
   buffer?: ArrayBuffer;
   sizes?: number[];
@@ -90,6 +92,7 @@ export function receiveWorkerResult() {
   const decoder = new TextDecoder();
   const read = (id: number) => values[id];
   function* steps(reply: WorkerReply): Generator<void, Result> {
+    if ('value' in reply) return { done: true, value: reply.value };
     function* nodes() {
       if (reply.nodes) yield* reply.nodes;
       if (reply.buffer) {

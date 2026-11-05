@@ -1,6 +1,21 @@
 import { expect, it } from 'vitest';
 import { receiveWorkerResult, sendWorkerResult, type WorkerReply } from './workerReplies';
 
+it('accepts a selected native-clone value without entering the graph decoder', () => {
+  const cell = { plain: 'Selected', runs: [{ text: 'Selected', bold: true }] };
+  const value = { matches: new Map([[123, cell]]), snapshot: cell, optional: undefined };
+  const receive = receiveWorkerResult();
+  const steps = receive.steps(structuredClone({ id: 1, value }));
+  const result = steps.next();
+  expect(result.done).toBe(true);
+  expect(result.value).toEqual({ done: true, value });
+  if (!result.done || !result.value.done) throw Error('Selected value was not ready');
+  const selected = result.value.value as typeof value;
+  expect(selected.matches.get(123)).toBe(selected.snapshot);
+  expect(Object.hasOwn(selected, 'optional')).toBe(true);
+  expect(receive({ id: 2, value: undefined })).toEqual({ done: true, value: undefined });
+});
+
 it('batches rich results while preserving maps, undefined values and shared cell identity', () => {
   const cell = { plain: 'Styled\ncell', runs: [{ text: 'Styled\ncell', bold: true }] };
   const original = {

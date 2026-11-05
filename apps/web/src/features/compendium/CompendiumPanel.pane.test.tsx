@@ -6,6 +6,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CompendiumCell, Tooltip } from '@clarity/core';
 import * as core from '@clarity/core';
+import * as dates from '../../services/format/date';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
@@ -13,6 +14,7 @@ import { useSettingsStore } from '../../stores/settings';
 import { useCompendiumStore } from './store';
 import { CompendiumPanel } from './CompendiumPanel';
 import * as diffCache from './compendiumDiffCache';
+import { useDisplayMatches } from './useDisplayMatches';
 
 const paneMatch = vi.hoisted(() => vi.fn());
 const matchState = vi.hoisted(() => ({
@@ -20,10 +22,10 @@ const matchState = vi.hoisted(() => ({
   rows: undefined as Map<number, unknown> | undefined,
 }));
 vi.mock('./useDisplayMatches', () => ({
-  useDisplayMatches: () => ({
+  useDisplayMatches: vi.fn(() => ({
     loading: matchState.loading,
     matches: { get: (hash: number) => (matchState.rows ? matchState.rows.get(hash) : paneMatch()) },
-  }),
+  })),
 }));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -277,6 +279,27 @@ describe('Compendium pane', () => {
     }
   });
 
+  it('reuses the status row for a priority match without waiting for full catalog metadata', async () => {
+    const base = { hash: 6, text: {}, associated: [] } as unknown as Tooltip;
+    matchState.loading = true;
+    const host = await mount(base);
+    const status = host.querySelector('[role="status"]')!;
+    expect(status.textContent).toBe('Matching Compendium…');
+    expect(vi.mocked(useDisplayMatches).mock.calls.at(-1)?.[4]).toBe(base.hash);
+    paneMatch.mockReturnValue({ status: 'ok', changed: false, tab, row });
+    // The pane must also tolerate a late loading subscriber: the match is authoritative.
+    await act(async () => useDraftStore.setState({ drafts: { 6: { base, next: base } } }));
+    expect(host.contains(status)).toBe(true);
+    expect(status.textContent).toContain('Matched');
+    expect(status.getAttribute('role')).toBeNull();
+    expect(host.textContent).not.toContain('Matching Compendium…');
+    const cell = host.querySelector('[data-multiline]');
+    matchState.loading = false;
+    await act(async () => useDraftStore.setState({ drafts: {} }));
+    expect(host.contains(status)).toBe(true);
+    expect(host.querySelector('[data-multiline]')).toBe(cell);
+  });
+
   it('does not remeasure the root or resolve an unchanged source while English drafts are typed', async () => {
     useCompendiumStore.setState({ data: { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] } });
     const resolve = vi.spyOn(core, 'resolveCompendiumLink');
@@ -295,6 +318,22 @@ describe('Compendium pane', () => {
     }
     expect(resolve.mock.calls).toHaveLength(resolutions);
     expect(rootReads()).toBe(measured);
+  });
+
+  it('keeps the unlinked loading body unchanged when the first text draft is created', async () => {
+    const base = { hash: 6, text: {}, associated: [] } as unknown as Tooltip;
+    matchState.loading = true;
+    const format = vi.spyOn(dates, 'formatDate');
+    const host = await mount(base);
+    const formatted = format.mock.calls.length;
+    const status = host.querySelector('[role="status"]');
+    for (const text of ['A', 'Ab', 'Abc']) {
+      const next = { ...base, text: { en: { text } } } as Tooltip;
+      await act(async () => useDraftStore.setState({ drafts: { 6: { base, next } } }));
+    }
+    expect(format.mock.calls).toHaveLength(formatted);
+    expect(host.querySelector('[role="status"]')).toBe(status);
+    expect(status?.textContent).toBe('Matching Compendium…');
   });
 
   it('labels an unsaved match honestly, then accepts only its link into the existing draft', async () => {
