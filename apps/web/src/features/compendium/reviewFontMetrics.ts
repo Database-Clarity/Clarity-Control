@@ -6,6 +6,7 @@ const prepared = new WeakMap<CompendiumData, Set<string>>();
 const latin = Array.from({ length: 95 }, (_, index) => String.fromCharCode(32 + index)).join('');
 const reviewFamily =
   'Arial, Helvetica, DestinySymbols, "Segoe UI Symbol", "Segoe UI Emoji", "Yu Gothic", sans-serif';
+const sidebarFamily = 'Arial, Helvetica, DestinySymbols, sans-serif';
 
 /** The review module is prefetched during idle time, before its first navigation. */
 export function preloadReviewFontMetrics(source: CompendiumData) {
@@ -44,7 +45,7 @@ export function preloadReviewFontMetrics(source: CompendiumData) {
   };
 }
 
-/** Populate text-face metrics only; uncommon glyphs can block in the OS font service. */
+/** Prepare ASCII text faces; uncommon glyphs can block in the OS font service. */
 export function warmReviewFontMetrics(source: CompendiumData, family: string, rem: number) {
   const key = `${family}|${rem}`;
   if (prepared.get(source)?.has(key)) return () => {};
@@ -56,6 +57,9 @@ export function warmReviewFontMetrics(source: CompendiumData, family: string, re
     let scanned = 0;
     for (const size of [0.75, 0.8, 0.85, 0.9, 0.95, 1, 1.45, 1.65])
       for (const weight of [400, 700]) fonts.add(`${weight} ${size * rem}px ${family}`);
+    // Sidebar selection changes the link's weight. Its shorter existing font
+    // stack needs the same preparation as the review text, at the current scale.
+    for (const weight of [400, 700]) fonts.add(`${weight} ${rem}px ${sidebarFamily}`);
     // Enumerate every source style, independently of the selected category,
     // entry, or navigation sequence. Enumeration itself must yield as well.
     for (const tab of source.tabs)
@@ -151,6 +155,7 @@ export function warmReviewFontMetrics(source: CompendiumData, family: string, re
             maxSliceMs,
             durationMs: performance.now() - started,
             latinOnly: true,
+            rasterPrepared: true,
             preparedCells,
             maxProjectionMs,
           },
@@ -164,10 +169,18 @@ export function warmReviewFontMetrics(source: CompendiumData, family: string, re
           preparedCells++;
           maxProjectionMs = Math.max(maxProjectionMs, performance.now() - at);
         } else {
-          if (context === undefined) context = document.createElement('canvas').getContext('2d');
+          if (context === undefined) {
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = 128;
+            context = canvas.getContext('2d');
+          }
           if (!context) return;
           context.font = next.value.font;
-          context.measureText(next.value.text);
+          // Measuring alone leaves the first paint to build the glyph raster.
+          // Each detached-canvas draw retains the same eight-character bound,
+          // idle budget, input checks, and cancellation as metric preparation.
+          context.clearRect(0, 0, 128, 128);
+          context.fillText(next.value.text, 0, 64);
         }
         maxUnitMs = Math.max(maxUnitMs, performance.now() - at);
       }

@@ -32,10 +32,10 @@ beforeEach(() => {
   vi.spyOn(performance, 'now').mockImplementation(() => now);
   const context = {
     font: '',
-    measureText(text: string) {
+    clearRect: vi.fn(),
+    fillText(text: string) {
       calls.push({ font: this.font, text });
       now += 2; // A slow native call exhausts this slice's wall-clock budget.
-      return {} as TextMetrics;
     },
   };
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
@@ -130,6 +130,9 @@ it('prepares every source style with Latin text only, and invalidates for source
   expect(pending.size).toBe(0);
   expect(calls.some(({ font }) => font === `italic 700 11pt ${family}`)).toBe(true);
   expect(calls.some(({ font }) => font === `italic 400 10pt ${family}`)).toBe(true);
+  expect(
+    calls.some(({ font }) => font === '700 16px Arial, Helvetica, DestinySymbols, sans-serif'),
+  ).toBe(true);
   expect(calls.every(({ text }) => /^[\x20-\x7e]{1,8}$/.test(text))).toBe(true);
   const count = calls.length;
   warmReviewFontMetrics(source, family, 16);
