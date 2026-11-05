@@ -39,6 +39,8 @@ export function ReviewQueue({
   const host = useRef<HTMLDivElement>(null);
   const sizer = useRef<HTMLSpanElement>(null);
   const [rowHeight, setRowHeight] = useState(defaultRowHeight);
+  const observedRowHeight = useRef(rowHeight);
+  observedRowHeight.current = rowHeight;
   // Resolve the router/base href once per window, rather than querying <base> per row.
   const href = useHref('/review');
   const navigate = useNavigate();
@@ -107,19 +109,24 @@ export function ReviewQueue({
     // Register before the first paint so native layout supplies the initial
     // window, rather than painting the provisional rows and shrinking later.
     const observer = new ResizeObserver((entries) => {
+      let height = observedViewport.current.height;
+      let measuredRow = observedRowHeight.current;
+      for (const entry of entries) {
+        if (entry.target === sizer.current)
+          measuredRow = entry.contentRect.height || defaultRowHeight;
+        else height = entry.contentRect.height;
+      }
+      // A native observation of the provisional sizes needs no commit. Even a
+      // no-op flushSync may drain unrelated pending work before this paint.
+      if (height === observedViewport.current.height && measuredRow === observedRowHeight.current)
+        return;
       // Native notifications arrive after layout and before paint. Commit the
       // correctly scaled window now without a synchronous geometry read.
       flushSync(() => {
-        for (const entry of entries) {
-          if (entry.target === sizer.current)
-            setRowHeight(entry.contentRect.height || defaultRowHeight);
-          else
-            setViewport((previous) =>
-              previous.height === entry.contentRect.height
-                ? previous
-                : { ...previous, height: entry.contentRect.height },
-            );
-        }
+        setRowHeight(measuredRow);
+        setViewport((previous) =>
+          previous.height === height ? previous : { ...previous, height },
+        );
       });
     });
     observer.observe(element);
