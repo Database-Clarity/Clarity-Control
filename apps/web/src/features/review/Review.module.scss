@@ -1,10 +1,3 @@
-// Reserve the route's scrollbar width before its first layout. Without this,
-// overflow can shrink the viewport and repeat the newly mounted page's layout.
-// Keep the rule inactive during idle code preloading and in other workspaces.
-:global(html):has(.page) {
-  scrollbar-gutter: stable;
-}
-
 .page {
   // The shell assigns this width. Keep the route out of ancestor inline sizing.
   contain: inline-size layout;
