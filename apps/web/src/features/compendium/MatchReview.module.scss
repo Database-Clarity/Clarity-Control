@@ -177,6 +177,9 @@
     flex: 1 1 12rem;
   }
 }
+.filters[hidden] {
+  display: none;
+}
 .notice {
   min-height: 1.2rem;
   margin: 0.8rem 0;
