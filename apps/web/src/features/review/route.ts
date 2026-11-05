@@ -53,10 +53,9 @@ export async function reviewRoute({ request }: LoaderFunctionArgs) {
     return redirect(`/review${next.size ? `?${next}` : ''}`);
   const hash = next.get('hash');
   if (hash && apiUrl && useAuthStore.getState().user?.role) {
-    // Mount the selected comparison with its validated live value in the first
-    // render, rather than painting a loading detail and replacing it next frame.
-    // The detail consumes this same promise and presents failures with Retry.
-    await startReviewLiveRequest(Number(hash), request.signal).catch(() => {});
+    // Hand off the comparison without delaying the local route commit. Search
+    // input and repeated keyboard moves must never wait for the live API.
+    void startReviewLiveRequest(Number(hash), request.signal).catch(() => {});
   }
   if (!request.signal.aborted) beginReviewOpening();
   return null;

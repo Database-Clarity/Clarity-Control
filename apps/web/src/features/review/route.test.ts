@@ -113,7 +113,7 @@ it.each(['account', 'snapshot', 'canceled', 'other hash', 'filter', 'revisit'])(
   },
 );
 
-it('finishes loading only when the selected live value is ready for the first render', async () => {
+it('commits local routing before the selected live value is ready', async () => {
   let resolve!: (value: { tooltip: null; pushedHash: string }) => void;
   vi.mocked(getPushedVersion).mockImplementationOnce(
     () =>
@@ -127,7 +127,7 @@ it('finishes loading only when the selected live value is ready for the first re
     return value;
   });
   await Promise.resolve();
-  expect(finished).toBe(false);
+  expect(finished).toBe(true);
   expect(getPushedVersion).toHaveBeenCalledTimes(1);
   expect(preparedReviewLiveValue(1)).toBeUndefined();
   const value = { tooltip: null, pushedHash: 'published' };

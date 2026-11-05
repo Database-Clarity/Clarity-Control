@@ -1,5 +1,5 @@
 import { memo, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import type { Tooltip } from '@clarity/core';
 import { preparedReviewLiveValue, takeReviewLiveRequest } from './liveRequest';
 import { errorMessage } from '../../services/http';
@@ -15,6 +15,7 @@ import type { PendingTooltip } from './model';
 import styles from './Review.module.scss';
 
 export const ReviewDetail = memo(function ReviewDetail({ entry }: { entry: PendingTooltip }) {
+  const location = useLocation();
   const [live, setLive] = useState<
     { tooltip: Tooltip | null; pushedHash: string | null } | undefined
   >(() => preparedReviewLiveValue(entry.tooltip.hash));
@@ -75,8 +76,10 @@ export const ReviewDetail = memo(function ReviewDetail({ entry }: { entry: Pendi
         if (!controller.signal.aborted) setError(errorMessage(reason));
       },
     );
+    // A filter navigation can stage a new request for the same hash.
+    // Consume it after that route commits, and cancel the previous consumer.
     return () => controller.abort();
-  }, [entry.tooltip.hash, attempt]);
+  }, [entry.tooltip.hash, location.key, user, attempt]);
   return (
     <section aria-label="Selected change">
       <p className={styles.detailIdentity}>
@@ -95,7 +98,16 @@ export const ReviewDetail = memo(function ReviewDetail({ entry }: { entry: Pendi
           </button>
         </p>
       )}
-      {!live && !error && <p role="status">Loading last pushed text...</p>}
+      {!live && !error && (
+        <div role="status" aria-label="Loading last pushed text" className={styles.liveSkeleton}>
+          <span className={styles.readyStatus}>Loading last pushed text...</span>
+          <div aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+        </div>
+      )}
       {live && (
         <>
           {!live.pushedHash && <p>No recorded live version. All saved text is new.</p>}
