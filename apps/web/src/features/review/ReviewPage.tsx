@@ -35,9 +35,7 @@ import {
   useReviewOpening,
 } from './opening';
 
-// Keep the first page close to one viewport; every row is fully rendered, and
-// the existing page controls expose the rest without offscreen layout on open.
-const pageSize = 5;
+const pageSize = 15;
 
 export function ReviewPage() {
   const opening = useReviewOpening((state) => state.warming);

@@ -789,6 +789,46 @@ it('confirms once: a double-click or held Enter cannot send a second push', asyn
   expect(post).toHaveBeenCalledTimes(1);
 });
 
+it('keeps fifteen complete changes in each selection and confirmation page', async () => {
+  const hashes = [10, ...Array.from({ length: 15 }, (_, index) => index + 20)];
+  for (const hash of hashes) bundle.tooltips[hash] = { ...structuredClone(tooltip), hash };
+  vi.mocked(loadGenerator).mockResolvedValue({
+    categories: [],
+    items: Object.fromEntries(
+      hashes.map((hash) => [
+        hash,
+        {
+          hash,
+          name: `A complete pending tooltip name with several words ${hash}`,
+          categoryId: 'other',
+          icon: '',
+          inGameDescription: '',
+        },
+      ]),
+    ) as never,
+    aliases: {},
+  });
+  await mount();
+  await waitFor(() => expect(host.textContent).toContain('16 pending'));
+  const list = host.querySelector('[aria-label="Pending changes"]')!;
+  expect(list.querySelectorAll('input[type="checkbox"]')).toHaveLength(15);
+  for (const identity of list.querySelectorAll('li button[data-perf-navigation]')) {
+    expect(identity.textContent).toMatch(
+      /A complete pending tooltip name with several words \d+ #\d+/,
+    );
+  }
+  await click('Select page');
+  expect(host.textContent).toContain('16 pending / 15 selected');
+  await click('Push selected');
+  expect(host.querySelectorAll('dialog li')).toHaveLength(15);
+  expect(button('Push 15 live')).toBeDefined();
+  await click('Cancel');
+  await click('Next page');
+  expect(list.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
+  await click('Select page');
+  expect(host.textContent).toContain('16 pending / 16 selected');
+});
+
 it('does not cap the selection at 100', async () => {
   for (let hash = 20; hash < 140; hash++) {
     bundle.tooltips[hash] = { ...structuredClone(tooltip), hash };

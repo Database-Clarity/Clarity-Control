@@ -147,6 +147,10 @@
 
   li {
     contain: inline-size layout;
+    // Preserve the complete 15-row page while the browser skips offscreen
+    // descendants; focus, find-in-page, and scrolling reveal their full content.
+    content-visibility: auto;
+    contain-intrinsic-block-size: auto 5rem;
     padding: 0.65rem;
     border: 1px solid var(--line);
     border-radius: 0.4rem;
@@ -165,6 +169,7 @@
   }
 
   button {
+    flex: 1;
     min-width: 0;
     max-width: 100%;
     text-align: left;
@@ -172,9 +177,12 @@
 
   button > span {
     display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
+
+    small {
+      display: block;
+    }
   }
 
   li > div {

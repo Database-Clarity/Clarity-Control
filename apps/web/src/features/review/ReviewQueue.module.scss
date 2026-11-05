@@ -9,7 +9,7 @@
 
 .rowSizer {
   position: absolute;
-  height: 4rem;
+  height: 2rem;
   width: 0;
   visibility: hidden;
   pointer-events: none;
@@ -62,10 +62,9 @@
   li a {
     box-sizing: border-box;
     height: 100%;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    align-content: center;
-    align-items: stretch;
+    display: flex;
+    align-items: baseline;
+    gap: 0.35rem;
 
     &:focus-visible {
       // Keep the complete focus ring within the row's allocated bounds.
@@ -73,11 +72,17 @@
     }
   }
 
-  span,
-  small {
+  span {
+    flex: 1;
+    min-width: 0;
     display: block;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  small {
+    flex: none;
     white-space: nowrap;
   }
 }

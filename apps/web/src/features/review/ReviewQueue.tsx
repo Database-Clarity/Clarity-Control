@@ -5,7 +5,7 @@ import type { SidebarPendingChange } from '../navigation/sidebarQueue';
 import styles from './ReviewQueue.module.scss';
 import { requireReviewRows, useReviewOpening } from './opening';
 
-const defaultRowHeight = 64;
+const defaultRowHeight = 32;
 const overscan = 1;
 const QueueLink = memo(function QueueLink({
   change,
@@ -23,8 +23,7 @@ const QueueLink = memo(function QueueLink({
       title={`${change.name} · ${change.hash}`}
       aria-current={current ? 'page' : undefined}
     >
-      <span>{change.name}</span>
-      <small>{change.hash}</small>
+      <span>{change.name}</span> <small>{change.hash}</small>
     </a>
   );
 });
@@ -66,7 +65,7 @@ export function ReviewQueue({
   // corrects other font sizes and viewport bounds before paint, without reads.
   const [viewport, setViewport] = useState(() => ({
     top: 0,
-    height: Math.max(defaultRowHeight, window.innerHeight - 37 - 7 * (defaultRowHeight / 4)),
+    height: Math.max(defaultRowHeight, window.innerHeight - 37 - 7 * (defaultRowHeight / 2)),
   }));
   const observedViewport = useRef(viewport);
   observedViewport.current = viewport;
@@ -335,8 +334,8 @@ export function ReviewQueue({
                 height={rowHeight}
                 patternUnits="userSpaceOnUse"
               >
-                <rect y="1.1rem" width="80%" height="0.7rem" rx="0.15rem" />
-                <rect y="2.2rem" width="42%" height="0.55rem" rx="0.15rem" />
+                <rect y="0.65rem" width="68%" height="0.7rem" rx="0.15rem" />
+                <rect x="75%" y="0.75rem" width="23%" height="0.55rem" rx="0.15rem" />
               </pattern>
             </defs>
             <rect width="100%" height="100%" fill={`url(#${placeholderPattern})`} />
