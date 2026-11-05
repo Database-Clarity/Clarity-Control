@@ -2,7 +2,7 @@ import { redirect, type LoaderFunctionArgs } from 'react-router-dom';
 import { useDataStore } from '../../stores/data';
 import { preparedPending, type PendingTooltip } from './model';
 import { acknowledgedMarkers } from './session';
-import { startReviewLiveRequest } from './liveRequest';
+import { stageReviewRedirectLiveRequest, startReviewLiveRequest } from './liveRequest';
 import { useAuthStore } from '../../stores/auth';
 import { apiUrl } from '../../services/api';
 
@@ -36,10 +36,12 @@ export function reviewRoute({ request }: LoaderFunctionArgs) {
   if (!entries) return null;
   const params = new URL(request.url).searchParams;
   const next = initialReviewParams(params, entries);
-  if (next.toString() !== params.toString())
-    return redirect(`/review${next.size ? `?${next}` : ''}`);
   const hash = next.get('hash');
-  if (hash && apiUrl && useAuthStore.getState().user?.role)
-    startReviewLiveRequest(Number(hash), request.signal);
+  const compare = hash && apiUrl && useAuthStore.getState().user?.role && !request.signal.aborted;
+  if (next.toString() !== params.toString()) {
+    if (compare) stageReviewRedirectLiveRequest(Number(hash));
+    return redirect(`/review${next.size ? `?${next}` : ''}`);
+  }
+  if (compare) startReviewLiveRequest(Number(hash), request.signal);
   return null;
 }
