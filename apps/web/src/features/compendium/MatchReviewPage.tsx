@@ -79,6 +79,7 @@ export function MatchReviewPage() {
   const linkedTab = params.get('tab') === 'linked';
   const matchedTab = params.get('tab') === 'matched';
   const categoryViewport = !linkedTab && !matchedTab && params.get('view') !== 'entries';
+  const entryViewport = !linkedTab && !matchedTab && params.get('view') === 'entries';
   const drafts = useDraftStore((state) => state.drafts);
   const draftCount = Object.keys(drafts).length;
   const display = useDisplayMatches(editor, data, drafts, user?.id);
@@ -106,8 +107,15 @@ export function MatchReviewPage() {
     <article
       className={`${styles.review} ${linkedTab ? styles.linkedReview : params.get('view') === 'entries' ? styles.entryReview : styles.categoryReview}`}
       data-category-review={categoryViewport ? '' : undefined}
-      tabIndex={categoryViewport ? 0 : undefined}
-      aria-label={categoryViewport ? 'Category match review' : undefined}
+      data-entry-review={entryViewport ? '' : undefined}
+      tabIndex={categoryViewport || entryViewport ? 0 : undefined}
+      aria-label={
+        categoryViewport
+          ? 'Category match review'
+          : entryViewport
+            ? 'Entry match review'
+            : undefined
+      }
     >
       <header className={styles.heading}>
         <div>
@@ -341,10 +349,14 @@ export function ReviewQueue({
       ),
     [categories, prepared, scopeState.hashes, entries],
   );
-  const entryProjection = useMemo(
-    () => (categoryView ? undefined : reviewEntryProjection(entries, inScope, proposals)),
-    [entries, inScope, proposals, categoryView],
+  // Prepare all entry filters together when evidence arrives. Entering the queue
+  // or switching a category then reuses the same index instead of building it
+  // during that navigation; no entry or category gets preferential preparation.
+  const preparedEntryProjection = useMemo(
+    () => reviewEntryProjection(entries, inScope, proposals),
+    [entries, inScope, proposals],
   );
+  const entryProjection = categoryView ? undefined : preparedEntryProjection;
   const scopedEntries = useMemo(() => entryProjection?.entries ?? [], [entryProjection]);
   const routeFilter = progressSchema.shape.filter.safeParse(params.get('status'));
   // New category links reset stale filters; normalized URLs retain each history entry's filters.
