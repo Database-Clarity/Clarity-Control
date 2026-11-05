@@ -341,6 +341,18 @@ it('reuses static category navigation while resetting inactive search and sample
   expect(guidance.querySelector('details')!.open).toBe(false);
 });
 
+it('creates retained category navigation only after category guidance is visited', async () => {
+  await mount('/compendium/review?view=entries&group=catalog%3Aweapon-trait&hash=100');
+  expect(host.querySelector('[aria-label="Entry to review"]')).not.toBeNull();
+  expect(host.querySelector('[aria-label="Category guidance"]')).toBeNull();
+  await click('Back to category guidance');
+  const guidance = host.querySelector<HTMLElement>('[aria-label="Category guidance"]')!;
+  expect(guidance.hidden).toBe(false);
+  await click('Review all one by one');
+  expect(host.querySelector('[aria-label="Category guidance"]')).toBe(guidance);
+  expect(guidance.hidden).toBe(true);
+});
+
 it('keeps linked filters active and does not retain an interactive review queue', async () => {
   fixture.editor.bundle.tooltips[103] = {
     hash: 103,

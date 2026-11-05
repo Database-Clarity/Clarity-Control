@@ -295,6 +295,9 @@ export function ReviewQueue({
   const categoryRouteParams = useRef(new URLSearchParams(params));
   categoryRouteParams.current = new URLSearchParams(params);
   const categoryView = params.get('view') !== 'entries';
+  // Retain a visited view, without building hidden controls on direct entry routes.
+  const [categoryRetained, setCategoryRetained] = useState(categoryView);
+  if (categoryView && !categoryRetained) setCategoryRetained(true);
   const groupId = params.get('group');
   const scopeKey = `review-scope-restored:${bundleUrl}|${compendiumDataUrl}`;
   const [scopeState, setScopeState] = useState(() => {
@@ -948,21 +951,23 @@ export function ReviewQueue({
           {matching ? 'Finding proposals…' : `Bulk preview (${bulkEntries.length})`}
         </button>
       </div>
-      <CategoryReview
-        active={categoryView}
-        fingerprint={fingerprint}
-        includedHashes={inScope}
-        canEdit={canEdit}
-        onAccept={acceptGuided}
-        onRestore={restoreScope}
-        categories={categories}
-        editor={editor}
-        source={source}
-        proposals={proposals}
-        guidance={guidance}
-        routeState={categoryRouteState}
-        onReview={reviewCategory}
-      />
+      {categoryRetained && (
+        <CategoryReview
+          active={categoryView}
+          fingerprint={fingerprint}
+          includedHashes={inScope}
+          canEdit={canEdit}
+          onAccept={acceptGuided}
+          onRestore={restoreScope}
+          categories={categories}
+          editor={editor}
+          source={source}
+          proposals={proposals}
+          guidance={guidance}
+          routeState={categoryRouteState}
+          onReview={reviewCategory}
+        />
+      )}
       {!categoryView && (
         <>
           <div className={styles.notice} role="status">
