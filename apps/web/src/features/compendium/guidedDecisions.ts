@@ -6,6 +6,7 @@ import {
   compendiumIdentifiers,
   compendiumNameVariants,
   compendiumPreferredTabs,
+  compendiumCategoryTabs,
   sameCell,
   normaliseCompendiumName,
   type CompendiumData,
@@ -183,6 +184,35 @@ export function* guidedDecisionSteps(
     }
     const extra = category?.entries.filter((entry) => !record.hashes.includes(entry.hash)) ?? [];
     if (extra.length) issues.push(`${extra.length} new entries excluded from recorded scope.`);
+    const configuredTabs = new Set(
+      compendiumCategoryTabs[record.id.slice('catalog:'.length)] ?? [],
+    );
+    const elementTabs = new Set(compendiumCategoryTabs['subclass-super']);
+    // Only current, exact-name, whole-row approvals teach a sibling element convention.
+    // A picked rename or selected-cell example still teaches its own tab, not this rule.
+    const exactElementTabs = new Set(
+      [...usable.values()].flatMap((reference) => {
+        const link = reference.link;
+        if (
+          !link ||
+          link.cells ||
+          link.parts ||
+          !configuredTabs.has(link.gid) ||
+          !elementTabs.has(link.gid)
+        )
+          return [];
+        const names = new Set([normaliseCompendiumName(reference.name)]);
+        const fragment = /^(?:Facet|Whisper|Ember|Spark|Echo|Thread) of (.+)$/i.exec(
+          reference.name,
+        );
+        if (record.id === 'catalog:subclass-fragment' && fragment)
+          names.add(normaliseCompendiumName(fragment[1]));
+        return names.has(normaliseCompendiumName(link.rowKey)) ||
+          names.has(normaliseCompendiumName(link.rowKey.split(/\r?\n/)[0]))
+          ? [link.gid]
+          : [];
+      }),
+    );
     const decide = (hash: number): GuidedDecision => {
       const entry: ReviewSample | undefined = entries.get(hash);
       const result: GuidedDecision = {
@@ -563,7 +593,7 @@ export function* guidedDecisionSteps(
                 .join('; '),
           };
         }
-        // An uncovered elemental tab is a review candidate, never inferred high.
+        // Owner-approved sibling evidence can establish an exact-name convention.
         if (record.id.startsWith('catalog:subclass-') || record.id === 'catalog:verbs') {
           const outside = source.tabs
             .filter((tab) => !tabs.has(tab.gid))
@@ -574,16 +604,27 @@ export function* guidedDecisionSteps(
             );
           if (outside.length === 1) {
             const link = stableSelection(outside[0], source);
-            if (link)
+            if (link) {
+              const siblingConvention =
+                exactElementTabs.size >= 3 &&
+                configuredTabs.has(outside[0].tab.gid) &&
+                elementTabs.has(outside[0].tab.gid) &&
+                !link.parts &&
+                !link.cells;
               return {
                 ...result,
                 action: 'link',
-                confidence: 'medium',
+                confidence: siblingConvention ? 'high' : 'medium',
                 link,
-                ruleId: 'uncovered-element-tab',
+                ruleId: siblingConvention
+                  ? 'exact-name-in-sibling-element-tab'
+                  : 'uncovered-element-tab',
                 references: support,
-                reason: `Unique exact name in uncovered tab ${outside[0].tab.name}, row ${outside[0].row.rowIndex}; confirm tab convention.`,
+                reason: siblingConvention
+                  ? `Unique exact name in configured sibling tab ${outside[0].tab.name}, row ${outside[0].row.rowIndex}; convention established on ${exactElementTabs.size} element tabs.`
+                  : `Unique exact name in uncovered tab ${outside[0].tab.name}, row ${outside[0].row.rowIndex}; confirm tab convention.`,
               };
+            }
           }
         }
       }
