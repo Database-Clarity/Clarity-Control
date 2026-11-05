@@ -53,6 +53,8 @@ function tick(remaining = 10) {
 }
 
 it('waits for idle time, pauses for pending input, yields after a slow unit, and cancels', async () => {
+  const background = vi.fn();
+  vi.stubGlobal('scheduler', { postTask: background });
   const cancel = warmReviewFontMetrics(guidedFixture().source, family, 16);
   await Promise.resolve();
   tick(0);
@@ -66,6 +68,7 @@ it('waits for idle time, pauses for pending input, yields after a slow unit, and
   expect(pending.size).toBe(1);
   cancel();
   expect(pending.size).toBe(0);
+  expect(background).not.toHaveBeenCalled();
 });
 
 it('yields after a slow source projection, and pauses projection work for pending input', async () => {
@@ -190,6 +193,12 @@ it('defers computed-style reads beyond navigation, and keeps them paused while i
 
 it('uses cancellable background tasks between frames, and switches to idle waiting for input', async () => {
   let serial = 10000;
+  vi.stubGlobal('requestIdleCallback', undefined);
+  vi.stubGlobal('setTimeout', (callback: () => void) => {
+    pending.set(++serial, callback);
+    return serial;
+  });
+  vi.stubGlobal('clearTimeout', (id: number) => pending.delete(id));
   const postTask = vi.fn(
     (callback: () => void, options: { priority: string; signal: AbortSignal }) =>
       new Promise<void>((resolve, reject) => {

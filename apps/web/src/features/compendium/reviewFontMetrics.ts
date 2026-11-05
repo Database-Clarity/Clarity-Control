@@ -112,7 +112,10 @@ export function warmReviewFontMetrics(source: CompendiumData, family: string, re
   function schedule() {
     if (cancelled) return;
     // No timeout: this optional preparation never takes priority over input.
-    if (tasks && !inputPending()) {
+    // Let the browser present a pending frame before this optional work. A
+    // stream of background postTasks can otherwise occupy the gaps between keys.
+    if (typeof requestIdleCallback === 'function') idle = requestIdleCallback(run);
+    else if (tasks && !inputPending()) {
       void tasks
         .postTask(() => run(), { priority: 'background', signal: controller.signal })
         .catch(() => {
@@ -122,8 +125,7 @@ export function warmReviewFontMetrics(source: CompendiumData, family: string, re
             idle = requestIdleCallback(run);
           else if (!cancelled) timer = setTimeout(() => run(), 16);
         });
-    } else if (typeof requestIdleCallback === 'function') idle = requestIdleCallback(run);
-    else timer = setTimeout(() => run(), 16);
+    } else timer = setTimeout(() => run(), 16);
   }
   function run(deadline?: IdleDeadline) {
     if (cancelled || prepared.get(source)?.has(key)) return;

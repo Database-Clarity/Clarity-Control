@@ -1,10 +1,43 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { CompendiumMatch, CompendiumData } from '@clarity/core';
-import { RichCell } from './RichCell';
+import {
+  memo,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import { flushSync } from 'react-dom';
+import type { CompendiumCell, CompendiumMatch, CompendiumData } from '@clarity/core';
+import { Multiline, prepareReviewCell, RichCell } from './RichCell';
 import { deferContextCells } from './deferredContext';
 import styles from './MatchReview.module.scss';
 
-export function ProposalContext({
+const searchable = new WeakMap<CompendiumCell, ReactNode>();
+function searchableCell(cell: CompendiumCell) {
+  if (searchable.has(cell)) return searchable.get(cell);
+  // Offscreen text and native links remain searchable and in focus order.
+  // Formatting is mounted before proximity, Tab, or beforematch exposes a cell.
+  const parts: { text: string; href?: string }[] = [];
+  for (const run of cell.runs) {
+    const previous = parts.at(-1);
+    if (previous && previous.href === run.href) previous.text += run.text;
+    else parts.push({ text: run.text, href: run.href });
+  }
+  const content = parts.map(({ text, href }, index) =>
+    href ? (
+      <a key={index} href={href} target="_blank" rel="noreferrer">
+        {text}
+      </a>
+    ) : (
+      text
+    ),
+  );
+  searchable.set(cell, content);
+  return content;
+}
+
+export const ProposalContext = memo(function ProposalContext({
   match,
   source,
 }: {
@@ -12,6 +45,7 @@ export function ProposalContext({
   source: CompendiumData;
 }) {
   const [contextOpen, setContextOpen] = useState(false);
+  const [, renderCells] = useReducer((version: number) => version + 1, 0);
   const details = useRef<HTMLDetailsElement>(null);
   const grid = source.tabs.find((tab) => tab.gid === match?.tab.gid)?.grid ?? match?.tab.grid;
   const cells = useMemo(
@@ -25,9 +59,41 @@ export function ProposalContext({
         : undefined,
     [match, contextOpen, grid],
   );
+  const visibility = useMemo(
+    () => ({
+      cells,
+      wanted: new Set<number>(),
+      committed: new Set<number>(),
+      inLayout: false,
+      controller: undefined as ReturnType<typeof deferContextCells> | undefined,
+    }),
+    [cells],
+  );
   useLayoutEffect(() => {
-    if (details.current && cells?.length) return deferContextCells(details.current, cells);
-  }, [cells]);
+    visibility.inLayout = true;
+    visibility.committed = new Set(visibility.wanted);
+    visibility.controller?.refresh();
+    visibility.inLayout = false;
+  });
+  useLayoutEffect(() => {
+    if (!details.current || !visibility.cells?.length) return;
+    visibility.inLayout = true;
+    const controller = deferContextCells(details.current, visibility.cells, (_node, index) => {
+      if (visibility.committed.has(index)) return true;
+      visibility.wanted.add(index);
+      // A layout-effect update commits before paint. Native scroll, Tab, and
+      // beforematch need the same update before their default action resumes.
+      if (visibility.inLayout) renderCells();
+      else flushSync(renderCells);
+      return visibility.committed.has(index);
+    });
+    visibility.controller = controller;
+    visibility.inLayout = false;
+    return () => {
+      visibility.controller = undefined;
+      controller();
+    };
+  }, [visibility]);
   if (!match) return <p>No source location established. Use Pick other to search all tabs.</p>;
   return (
     <>
@@ -52,11 +118,15 @@ export function ProposalContext({
             <small>
               R{cell.row} C{cell.col + 1}
             </small>
-            <RichCell cell={cell.cell} emojiFace />
+            <Multiline>
+              {visibility.wanted.has(index)
+                ? prepareReviewCell(cell.cell)
+                : searchableCell(cell.cell)}
+            </Multiline>
           </div>
         ))}
         {contextOpen && !cells?.length && <p>No grid context available.</p>}
       </details>
     </>
   );
-}
+});

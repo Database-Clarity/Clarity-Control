@@ -89,3 +89,17 @@ it('reveals scrolled cells synchronously, and cancels callbacks when the context
   intersect();
   expect(vi.mocked(nodes[0].getBoundingClientRect)).toHaveBeenCalledTimes(reads);
 });
+
+it('waits for formatted content to commit before measuring and exposing a cell', () => {
+  const { details, nodes, cells, scrollToCells } = fixture();
+  let committed = false;
+  const prepare = vi.fn(() => committed);
+  const cancel = deferContextCells(details, cells, prepare);
+  scrollToCells();
+  document.dispatchEvent(new Event('scroll'));
+  expect(nodes.every((node) => node.hasAttribute('hidden'))).toBe(true);
+  committed = true;
+  cancel.refresh();
+  expect(nodes.every((node) => !node.hasAttribute('hidden'))).toBe(true);
+  cancel();
+});
