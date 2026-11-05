@@ -24,7 +24,6 @@
   li {
     position: absolute;
     inset-inline: 0;
-    contain: layout paint;
   }
 
   li a {
@@ -36,7 +35,7 @@
     align-items: stretch;
 
     &:focus-visible {
-      // Keep the complete focus ring inside each row's paint containment.
+      // Keep the complete focus ring within the row's allocated bounds.
       outline-offset: -2px;
     }
   }
