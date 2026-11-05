@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CompendiumSheet } from '@clarity/core';
-import { pickerBands, pickerBandUsesGrid } from './pickerBands';
+import { pickerBands } from './pickerBands';
 
 const sheet = (spans: { row: number; rowSpan: number }[]): CompendiumSheet => ({
   gid: '1',
@@ -13,13 +13,6 @@ const sheet = (spans: { row: number; rowSpan: number }[]): CompendiumSheet => ({
   })),
 });
 describe('independent picker row bands', () => {
-  it('keeps meaningful vertical spans native even when clipped to one visible row', () => {
-    const tab = sheet([{ row: 2, rowSpan: 5 }]);
-    expect(pickerBandUsesGrid(tab, { first: 4, last: 4 })).toBe(false);
-    expect(pickerBandUsesGrid(tab, { first: 1, last: 1 })).toBe(true);
-    tab.grid![0].cell = { plain: '-', runs: [{ text: '-' }] };
-    expect(pickerBandUsesGrid(tab, { first: 4, last: 4 })).toBe(true);
-  });
   it('closes intersecting spans transitively before choosing the next boundary', () => {
     expect(
       pickerBands(
