@@ -187,6 +187,10 @@
   }
 }
 .cell {
+  // Sheet cells also appear outside the zoomed editor body (comparisons and
+  // review excerpts). Keep the same explicit fallback faces on those surfaces.
+  font-family:
+    Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', 'Segoe UI Emoji', 'Yu Gothic', sans-serif;
   background: var(--sheet-bg);
   color: var(--sheet-text);
   padding: 0.8rem;

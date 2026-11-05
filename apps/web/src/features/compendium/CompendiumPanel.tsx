@@ -33,6 +33,39 @@ import { openDraftSaveReview } from '../../services/save/openReview';
 const HEADER_TOGGLE_MIN = 381;
 const ApprovalDiff = memo(CompendiumDiff);
 
+// Resolve the installed fallback faces once, while the pane is idle. The first
+// uncommon sheet glyph must not synchronously load a large system font during
+// a switch. Keep these resources alive without registering replacement faces
+// on document.fonts: the sheet continues to use its original native faces.
+const sheetFonts: FontFace[] = [];
+let resolvingSheetFonts = false;
+function useSheetFonts() {
+  useEffect(() => {
+    if (resolvingSheetFonts || typeof FontFace === 'undefined') return;
+    const resolve = () => {
+      if (resolvingSheetFonts) return;
+      resolvingSheetFonts = true;
+      for (const [family, face, weight] of [
+        ['Segoe UI Symbol', 'SegoeUISymbol', '400'],
+        ['Segoe UI Emoji', 'SegoeUIEmoji', '400'],
+        ['Yu Gothic', 'YuGothic-Regular', '400'],
+        ['Yu Gothic', 'YuGothic-Bold', '700'],
+      ]) {
+        const resource = new FontFace(family, `local("${face}")`, { weight });
+        sheetFonts.push(resource);
+        // Other platforms keep their existing fallback when a face is absent.
+        void resource.load().catch(() => undefined);
+      }
+    };
+    if (typeof requestIdleCallback === 'function') {
+      const idle = requestIdleCallback(resolve);
+      return () => cancelIdleCallback(idle);
+    }
+    const timer = setTimeout(resolve, 0);
+    return () => clearTimeout(timer);
+  }, []);
+}
+
 /** Compendium zoom (70–100 %), kept on this device: − / value / +. */
 function ScaleControl() {
   const scale = useSettingsStore((state) => state.device.compendiumScale);
@@ -77,6 +110,7 @@ function usePaneFrame(base: Tooltip) {
 }
 
 export function CompendiumPanel({ base }: { base: Tooltip }) {
+  useSheetFonts();
   const displayed = usePaneFrame(base);
   const editor = useDataStore((state) => state.data);
   const source = useCompendiumStore((state) => state.data);
