@@ -18,7 +18,7 @@ import { mayDraftLink } from './reviewQueue';
 import { useAuthStore } from '../../stores/auth';
 import { useSaveState } from '../../services/save/state';
 import { apiUrl } from '../../services/api';
-import { pickerRowIndex, pickerRows } from './pickerRows';
+import { pickerRowDetail, pickerRows } from './pickerRows';
 
 export function LinkPicker({
   base,
@@ -65,9 +65,7 @@ export function LinkPicker({
       })
       .find((tab) =>
         tab.rows.some((row) =>
-          pickerRowIndex(tab)
-            .details.get(row)!
-            .identifiers.some((identifier) => names.includes(identifier)),
+          pickerRowDetail(row).identifiers.some((identifier) => names.includes(identifier)),
         ),
       );
     const initialGid =
@@ -80,9 +78,7 @@ export function LinkPicker({
     const initialSection = categorySuggestions(data, category, name).find(
       (hint) => hint.gid === initialGid,
     )?.section;
-    const exactRow = initialTab?.rows.find((row) =>
-      names.includes(pickerRowIndex(initialTab!).details.get(row)!.name),
-    );
+    const exactRow = initialTab?.rows.find((row) => names.includes(pickerRowDetail(row).name));
     return {
       gid: initialGid,
       section: exactRow ? '' : (initialSection ?? ''),

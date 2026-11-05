@@ -1,0 +1,58 @@
+.contents {
+  // Fixed table columns already bound inline size. Keep each cell's rich text
+  // layout and paint local, without size containment or estimated row heights.
+  contain: layout style paint;
+}
+
+.band {
+  // Appending a band must not invalidate the previous tables' rich layout.
+  // A block wrapper supports layout containment; a native table does not.
+  contain: layout style;
+  & + & {
+    margin-top: -1px;
+  }
+}
+
+// Each piece keeps the source width and identity, with only the merged cell's
+// outer border. Its hit target must not contribute a new minimum row height.
+table td.separator {
+  position: relative;
+  border-top-width: 0;
+  border-bottom-width: 0;
+  padding-block: 0;
+  &[data-start='true'] {
+    border-top-width: 1px;
+  }
+  &[data-end='true'] {
+    border-bottom-width: 1px;
+  }
+  button {
+    position: absolute;
+    inset-block-start: 0.3rem;
+    inset-inline-start: 0.3rem;
+    min-height: 0;
+  }
+}
+
+table td.separator {
+  button[data-separator-label='false'][aria-pressed='true'] {
+    outline: none;
+    background: transparent;
+  }
+  &[data-anchor='true'] {
+    outline: none;
+    &::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      border-inline: 3px solid #ffd98b;
+    }
+    &[data-start='true']::after {
+      border-top: 3px solid #ffd98b;
+    }
+    &[data-end='true']::after {
+      border-bottom: 3px solid #ffd98b;
+    }
+  }
+}
