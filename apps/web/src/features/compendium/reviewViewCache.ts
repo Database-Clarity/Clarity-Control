@@ -91,3 +91,75 @@ export function preparedProposals(prepared: Prepared, core: Map<number, ReviewPr
   byCore.set(core, shown);
   return shown;
 }
+
+/** Prepare the same proposal projection without occupying an editor input task. */
+export function warmPreparedProposals(prepared: Prepared, core: Map<number, ReviewProposal>) {
+  let byCore = proposals.get(prepared);
+  if (!byCore) proposals.set(prepared, (byCore = new WeakMap()));
+  if (byCore.has(core)) return () => {};
+
+  // Keep partial results private. Foreground callers can still build the complete
+  // projection synchronously, and cancelling never exposes incomplete matches.
+  function* build() {
+    const shown = new Map<number, ReviewProposal>();
+    for (const [hash, proposal] of core) {
+      shown.set(hash, proposal);
+      yield;
+    }
+    const decisions = new Map<number, Prepared['decisions'][number]>();
+    for (const decision of prepared.decisions) {
+      decisions.set(decision.hash, decision);
+      yield;
+    }
+    for (const [hash, match] of prepared.matches) {
+      shown.set(hash, {
+        match,
+        link: decisions.get(hash)?.link,
+        candidates: core.get(hash)?.candidates ?? [],
+      });
+      yield;
+    }
+    return shown;
+  }
+  const work = build();
+  let cancelled = false;
+  let idle: number | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const inputPending = () =>
+    (
+      globalThis.navigator as
+        | (Navigator & {
+            scheduling?: { isInputPending(options: { includeContinuous: boolean }): boolean };
+          })
+        | undefined
+    )?.scheduling?.isInputPending({ includeContinuous: true }) ?? false;
+  function schedule() {
+    // No deadline timeout: speculative work must wait when there is no idle time.
+    if (typeof requestIdleCallback === 'function') idle = requestIdleCallback(run);
+    else timer = setTimeout(() => run(), 16);
+  }
+  function run(deadline?: IdleDeadline) {
+    if (cancelled || byCore!.has(core)) return;
+    const started = performance.now();
+    for (let count = 0; count < 64; count++) {
+      if (
+        inputPending() ||
+        performance.now() - started >= 1 ||
+        (deadline && deadline.timeRemaining() <= 1)
+      )
+        break;
+      const next = work.next();
+      if (next.done) {
+        byCore!.set(core, next.value);
+        return;
+      }
+    }
+    schedule();
+  }
+  schedule();
+  return () => {
+    cancelled = true;
+    if (idle !== undefined) cancelIdleCallback(idle);
+    if (timer !== undefined) clearTimeout(timer);
+  };
+}

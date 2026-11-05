@@ -6,13 +6,13 @@ import { useDisplayMatches } from './useDisplayMatches';
 import { useDraftStore } from '../../stores/drafts';
 import { useAuthStore } from '../../stores/auth';
 import { groupManifestItems } from './manifestItems';
-import { preparedEvidence, preparedProposals, reviewedEntries } from './reviewViewCache';
+import { preparedEvidence, warmPreparedProposals, reviewedEntries } from './reviewViewCache';
 import { peekMatchingSession, prewarmMatchingSession } from './matchingSession';
 import { readProgress, reviewStorageKey } from './reviewProgress';
 import { bundleUrl } from '../../services/bundle';
 import { compendiumDataUrl, pendingCompendiumWorker } from '../../services/compendium';
 import { apiUrl } from '../../services/api';
-import { warmPickerRowIndexes } from './pickerRows';
+import { pickerIdleScheduler, warmPickerRowIndexes } from './pickerRows';
 
 export type CompendiumCount =
   { state: 'loading' } | { state: 'error' } | { state: 'ready'; count: number };
@@ -38,6 +38,7 @@ export function useCompendiumCount(): CompendiumCount {
     const evidence = () =>
       preparedEvidence(prepared, useDraftStore.getState().drafts, editor, data);
     const cancelIndexWarmup = warmPickerRowIndexes(data.tabs);
+    let cancelProposals: (() => void) | undefined;
     const jobs = [
       () => groupManifestItems(editor.items, editor.aliases),
       () => {
@@ -53,27 +54,19 @@ export function useCompendiumCount(): CompendiumCount {
       },
       () => {
         const core = peekMatchingSession(editor, data)?.currentProposals;
-        if (core) preparedProposals(prepared, core);
+        if (core) cancelProposals = warmPreparedProposals(prepared, core);
       },
     ];
-    let cancelled = false;
-    let idle: number | undefined;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const schedule = () => {
-      const next = () => {
-        if (cancelled) return;
-        jobs.shift()?.();
-        if (jobs.length) schedule();
-      };
-      if ('requestIdleCallback' in window) idle = window.requestIdleCallback(next);
-      else timer = setTimeout(next, 0);
-    };
-    schedule();
+    const idle = pickerIdleScheduler(() => {
+      jobs.shift()?.();
+      if (jobs.length) idle.schedule();
+      else idle.cancel();
+    });
+    idle.schedule();
     return () => {
-      cancelled = true;
       cancelIndexWarmup();
-      if (idle !== undefined) window.cancelIdleCallback(idle);
-      if (timer !== undefined) clearTimeout(timer);
+      cancelProposals?.();
+      idle.cancel();
     };
   }, [editor, data, prepared, userId]);
   useEffect(() => {
