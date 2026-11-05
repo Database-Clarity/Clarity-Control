@@ -82,6 +82,7 @@ export function ReviewQueue({
       wheelFrame.current = requestAnimationFrame(() => {
         wheelFrame.current = undefined;
         const top = wheelTarget.current;
+        if (top === observedViewport.current.top) return;
         // Render the destination before moving the native viewport: compositor
         // scrolling must not run ahead of a bounded React window and expose blanks.
         flushSync(() => setViewport((previous) => ({ ...previous, top })));
@@ -235,6 +236,9 @@ export function ReviewQueue({
       }}
       onScroll={(event) => {
         const top = event.currentTarget.scrollTop;
+        // Controlled wheel frames already committed this position. A no-op
+        // flushSync can still drain unrelated updates during an input burst.
+        if (top === observedViewport.current.top) return;
         // Commit the small window in this scroll turn, before the browser paints
         // its new position. This needs only one buffer row in either direction.
         flushSync(() =>
