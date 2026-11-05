@@ -13,16 +13,26 @@ import { useDraftStore } from '../../stores/drafts';
 import { useSettingsStore } from '../../stores/settings';
 import { useCompendiumStore } from './store';
 import { CompendiumPanel } from './CompendiumPanel';
-import { usePaneMatch } from './usePaneMatch';
+import * as diffCache from './compendiumDiffCache';
 import { useDisplayMatches } from './useDisplayMatches';
 
-vi.mock('./usePaneMatch', () => ({ usePaneMatch: vi.fn() }));
-vi.mock('./useDisplayMatches', () => ({ useDisplayMatches: vi.fn() }));
+const paneMatch = vi.hoisted(() => vi.fn());
+const matchState = vi.hoisted(() => ({
+  loading: false,
+  rows: undefined as Map<number, unknown> | undefined,
+}));
+vi.mock('./useDisplayMatches', () => ({
+  useDisplayMatches: vi.fn(() => ({
+    loading: matchState.loading,
+    matches: { get: (hash: number) => (matchState.rows ? matchState.rows.get(hash) : paneMatch()) },
+  })),
+}));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 vi.mock('../../services/api', () => ({ apiUrl: 'https://api.test' }));
 vi.mock('./LinkPicker', () => ({
-  LinkPicker: () => createElement('div', { 'data-picker': true }),
+  LinkPicker: ({ readOnly }: { readOnly?: boolean }) =>
+    createElement('div', { 'data-picker': true, 'data-readonly': String(!!readOnly) }),
 }));
 
 const cell = (text: string): CompendiumCell => ({ plain: text, runs: [{ text }] });
@@ -44,15 +54,9 @@ const roots: Root[] = [];
 let width: number | undefined;
 
 beforeEach(() => {
-  vi.mocked(usePaneMatch).mockReturnValue(undefined);
-  vi.mocked(useDisplayMatches).mockReturnValue({
-    prepared: undefined,
-    reviewPrepared: undefined,
-    matches: undefined,
-    decisions: undefined,
-    loading: false,
-    error: undefined,
-  });
+  paneMatch.mockReturnValue(undefined);
+  matchState.loading = false;
+  matchState.rows = undefined;
   const values = new Map<string, string>();
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => values.get(key) ?? null,
@@ -118,18 +122,171 @@ const diffViews = (host: ParentNode) =>
   host.querySelectorAll('[aria-label="Compendium diff view"]');
 
 describe('Compendium pane', () => {
+  it('waits for an incoming match before scheduling the pane handoff', async () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    const oldBase = { ...linked, compendium: undefined };
+    const nextBase = { ...oldBase, hash: 6 };
+    const oldMatch = { status: 'ok', changed: false, tab, row };
+    matchState.rows = new Map([[5, oldMatch]]);
+    const host = await mount(oldBase);
+    matchState.loading = true;
+    await act(async () => roots.at(-1)!.render(createElement(CompendiumPanel, { base: nextBase })));
+    expect(frames.size).toBe(0);
+    expect(host.textContent).toContain('New text');
+    expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe('Compendium for 5');
+    expect(host.querySelector('aside')?.getAttribute('aria-busy')).toBe('true');
+    expect(button(host, 'Accept match (local draft)')?.disabled).toBe(true);
+    matchState.rows = new Map([[6, { ...oldMatch, row: { ...row, cell: cell('Incoming row') } }]]);
+    matchState.loading = false;
+    await act(async () => roots.at(-1)!.render(createElement(CompendiumPanel, { base: nextBase })));
+    expect(frames.size).toBe(1);
+    await act(async () => [...frames.values()][0](0));
+    expect(host.textContent).toContain('Incoming row');
+    expect(host.querySelector('aside')?.hasAttribute('aria-busy')).toBe(false);
+  });
+
+  it('retains the displayed match while a priority reply contains only the next tooltip', async () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    const oldBase = { ...linked, compendium: undefined };
+    const nextBase = { ...oldBase, hash: 6 };
+    const oldMatch = { status: 'ok', changed: false, tab, row };
+    const nextMatch = { ...oldMatch, row: { ...row, cell: cell('Next source row') } };
+    matchState.rows = new Map([[5, oldMatch]]);
+    const host = await mount(oldBase);
+    expect(host.textContent).toContain('New text');
+    matchState.rows = new Map([[6, nextMatch]]);
+    await act(async () => roots.at(-1)!.render(createElement(CompendiumPanel, { base: nextBase })));
+    expect(host.querySelector('aside')?.getAttribute('aria-busy')).toBe('true');
+    expect(host.textContent).toContain('New text');
+    expect(host.textContent).not.toContain('Next source row');
+    expect(button(host, 'Accept match (local draft)')?.disabled).toBe(true);
+    await act(async () => [...frames.values()][0](0));
+    expect(host.textContent).toContain('Next source row');
+    expect(host.querySelector('aside')?.hasAttribute('aria-busy')).toBe(false);
+  });
+
+  it('ignores late diff preparation for a superseded tooltip', async () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    let resolveFirst!: () => void;
+    let resolveLatest!: () => void;
+    vi.spyOn(diffCache, 'prepareCompendiumDiff')
+      .mockReturnValueOnce(
+        new Promise<void>((resolve) => {
+          resolveFirst = resolve;
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise<void>((resolve) => {
+          resolveLatest = resolve;
+        }),
+      );
+    useCompendiumStore.setState({
+      data: { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] },
+    } as never);
+    const host = await mount();
+    const root = roots.at(-1)!;
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 6 } })),
+    );
+    expect(frames.size).toBe(0);
+    expect(host.querySelector('aside')?.getAttribute('aria-busy')).toBe('true');
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 7 } })),
+    );
+    await act(async () => resolveFirst());
+    expect(frames.size).toBe(0);
+    await act(async () => resolveLatest());
+    expect(frames.size).toBe(1);
+    await act(async () => [...frames.values()][0](0));
+    expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe('Compendium for 7');
+    expect(host.querySelector('aside')?.hasAttribute('aria-busy')).toBe(false);
+  });
+
+  it('commits only the latest frame target and pauses actions while older content is visible', async () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++nextFrame, callback);
+      return nextFrame;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    const intermediate: Tooltip = {
+      ...linked,
+      hash: 6,
+      compendium: { ...linked.compendium!, snapshot: cell('Intermediate snapshot') },
+    };
+    const latest: Tooltip = {
+      ...linked,
+      hash: 7,
+      compendium: { ...linked.compendium!, snapshot: cell('Latest snapshot') },
+    };
+    const original = useDraftStore.getState().updateDraft;
+    const updateDraft = vi.fn();
+    useDraftStore.setState({ updateDraft });
+    try {
+      const host = await mount();
+      const root = roots.at(-1)!;
+      expect(host.querySelector('aside')!.hasAttribute('aria-busy')).toBe(false);
+      await act(async () => button(host, 'Pick other row')!.click());
+      const picker = host.querySelector('[data-picker]')!;
+      expect(picker.getAttribute('data-readonly')).toBe('false');
+      await act(async () => root.render(createElement(CompendiumPanel, { base: intermediate })));
+      expect(host.textContent).toContain('Old text');
+      expect(host.querySelector('aside')!.getAttribute('aria-busy')).toBe('true');
+      expect(host.querySelector('[data-picker]')).toBe(picker);
+      expect(picker.getAttribute('data-readonly')).toBe('true');
+      expect((button(host, 'Unlink (local draft)') as HTMLButtonElement).disabled).toBe(true);
+      await act(async () => button(host, 'Unlink (local draft)')!.click());
+      expect(updateDraft).not.toHaveBeenCalled();
+      const pending = [...frames.values()][0];
+      frames.clear();
+      await act(async () => root.render(createElement(CompendiumPanel, { base: latest })));
+      // Even a callback already dispatched by the browser must reject its
+      // superseded target, without clearing the newer frame's cancellation.
+      await act(async () => pending(0));
+      expect(host.textContent).toContain('Old text');
+      expect(host.textContent).not.toContain('Intermediate snapshot');
+      expect((button(host, 'Unlink (local draft)') as HTMLButtonElement).disabled).toBe(true);
+      const finalFrame = [...frames.values()][0];
+      frames.clear();
+      await act(async () => finalFrame(16));
+      expect(host.textContent).toContain('Latest snapshot');
+      expect(host.querySelector('aside')!.hasAttribute('aria-busy')).toBe(false);
+      expect(picker.getAttribute('data-readonly')).toBe('false');
+      expect(host.textContent).not.toContain('Intermediate snapshot');
+      await act(async () => button(host, 'Unlink (local draft)')!.click());
+      expect(updateDraft.mock.calls[0][0]).toBe(latest);
+    } finally {
+      act(() => useDraftStore.setState({ updateDraft: original }));
+    }
+  });
+
   it('reuses the status row for a priority match without waiting for full catalog metadata', async () => {
     const base = { hash: 6, text: {}, associated: [] } as unknown as Tooltip;
-    const initial = vi.mocked(useDisplayMatches).getMockImplementation()!;
-    vi.mocked(useDisplayMatches).mockImplementation((...args) => ({
-      ...initial(...args),
-      loading: true,
-    }));
+    matchState.loading = true;
     const host = await mount(base);
     const status = host.querySelector('[role="status"]')!;
     expect(status.textContent).toBe('Matching Compendium…');
     expect(vi.mocked(useDisplayMatches).mock.calls.at(-1)?.[4]).toBe(base.hash);
-    vi.mocked(usePaneMatch).mockReturnValue({ status: 'ok', changed: false, tab, row });
+    paneMatch.mockReturnValue({ status: 'ok', changed: false, tab, row });
     // The pane must also tolerate a late loading subscriber: the match is authoritative.
     await act(async () => useDraftStore.setState({ drafts: { 6: { base, next: base } } }));
     expect(host.contains(status)).toBe(true);
@@ -137,7 +294,7 @@ describe('Compendium pane', () => {
     expect(status.getAttribute('role')).toBeNull();
     expect(host.textContent).not.toContain('Matching Compendium…');
     const cell = host.querySelector('[data-multiline]');
-    vi.mocked(useDisplayMatches).mockImplementation(initial);
+    matchState.loading = false;
     await act(async () => useDraftStore.setState({ drafts: {} }));
     expect(host.contains(status)).toBe(true);
     expect(host.querySelector('[data-multiline]')).toBe(cell);
@@ -165,11 +322,7 @@ describe('Compendium pane', () => {
 
   it('keeps the unlinked loading body unchanged when the first text draft is created', async () => {
     const base = { hash: 6, text: {}, associated: [] } as unknown as Tooltip;
-    const initial = vi.mocked(useDisplayMatches).getMockImplementation()!;
-    vi.mocked(useDisplayMatches).mockImplementation((...args) => ({
-      ...initial(...args),
-      loading: true,
-    }));
+    matchState.loading = true;
     const format = vi.spyOn(dates, 'formatDate');
     const host = await mount(base);
     const formatted = format.mock.calls.length;
@@ -190,7 +343,7 @@ describe('Compendium pane', () => {
     const original = useDraftStore.getState().updateDraft;
     useCompendiumStore.setState({ data: { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] } });
     useDraftStore.setState({ drafts: { 6: { base, next } }, updateDraft });
-    vi.mocked(usePaneMatch).mockReturnValue({ status: 'ok', changed: false, tab, row });
+    paneMatch.mockReturnValue({ status: 'ok', changed: false, tab, row });
     try {
       const host = await mount(base);
       expect(host.querySelector('[title="Matched automatically — not saved"]')?.textContent).toBe(
@@ -210,7 +363,7 @@ describe('Compendium pane', () => {
   });
 
   it('saved and draft links hide matcher provenance and expose draft review', async () => {
-    vi.mocked(usePaneMatch).mockReturnValue({ status: 'ok', changed: false, tab, row });
+    paneMatch.mockReturnValue({ status: 'ok', changed: false, tab, row });
     const host = await mount();
     expect(host.textContent).not.toContain('Accept match');
     expect(host.querySelector('[title="Matched automatically — not saved"]')).toBeNull();
@@ -391,7 +544,7 @@ it.each([4019266109, 2613226185, 1888882410, 3684445958])(
     expect(resolved.row.anchor?.row).toBe(item.name === 'Collective Demolition' ? 52 : 53);
     useDataStore.setState({ data: f.editor });
     useCompendiumStore.setState({ data: source });
-    vi.mocked(usePaneMatch).mockReturnValue(resolved);
+    paneMatch.mockReturnValue(resolved);
     const before = JSON.stringify([f.editor, source]);
     const host = await mount(base);
     expect(host.textContent).toContain('Compendium sheet changed since approval.');

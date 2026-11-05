@@ -1,11 +1,51 @@
 @use '../../data/variables' as theme;
 @use '../../ui/controls';
 
+// Keep Kana on the same installed face Chromium chooses for these sheet glyphs,
+// with an explicit range so Latin text retains the sheet's Arial metrics.
+@font-face {
+  font-family: 'Compendium Kana';
+  src: local('YuGothic-Regular');
+  font-weight: 400;
+  unicode-range: U+3040-30FF;
+}
+@font-face {
+  font-family: 'Compendium Kana';
+  src: local('YuGothic-Bold');
+  font-weight: 700;
+  unicode-range: U+3040-30FF;
+}
+
 // ---- the editor page's Compendium pane (header and scroll live in ui/RightPane) ----
+.pane {
+  contain: layout style;
+}
+// The fixed desktop workspace supplies the pane's size. Its scroll contents must
+// not participate in flex/grid intrinsic sizing when a different entry arrives.
+// Phone panes keep their natural height and page scrolling.
+:global([data-fixed]) .pane {
+  contain: strict;
+  flex-basis: 0;
+  height: 100%;
+  > :last-child {
+    contain: strict;
+    flex-basis: 0;
+  }
+}
+
 // CSS zoom on the pane body is the device's Compendium scale; the header never scales.
 .zoom {
-  font-family: Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', sans-serif;
+  // Name the fonts Chromium already uses for the sheet's emoji and Katakana,
+  // so their first appearance does not search the system font catalogue.
+  font-family:
+    'Compendium Kana', Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', 'Segoe UI Emoji',
+    'Yu Gothic', sans-serif;
   contain: content;
+  // Keep the scaled sheet on its own clipped layer instead of repainting it
+  // together with the editor whenever either side changes.
+  transform: translateZ(0);
+  // Preserve subpixel text smoothing on the pane's composited layer.
+  background: var(--page);
   min-width: 0;
   padding-bottom: 0.5rem;
   font-size: 0.8125rem;
@@ -165,6 +205,11 @@
   }
 }
 .cell {
+  // Sheet cells also appear outside the zoomed editor body (comparisons and
+  // review excerpts). Keep the same explicit fallback faces on those surfaces.
+  font-family:
+    'Compendium Kana', Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', 'Segoe UI Emoji',
+    'Yu Gothic', sans-serif;
   background: var(--sheet-bg);
   color: var(--sheet-text);
   padding: 0.8rem;

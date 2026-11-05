@@ -1,10 +1,6 @@
-import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import {
-  diffCompendium,
-  styleKey,
-  type CompendiumCell,
-  type CompendiumDiffPart,
-} from '@clarity/core';
+import { memo, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { CompendiumCell } from '@clarity/core';
+import { preparedLines } from './compendiumDiffCache';
 import { Multiline, RichCell, runStyle } from './RichCell';
 import { SheetCell, useLegibleOn } from './sheetSurface';
 import { useSettingsStore } from '../../stores/settings';
@@ -42,57 +38,27 @@ export function CompendiumDiffModeToggle({
   );
 }
 
-function changes(before: CompendiumCell, after: CompendiumCell): string[] {
-  const values = (
-    cell: CompendiumCell,
-    key: 'color' | 'bold' | 'italic' | 'underline' | 'strike' | 'sizePt' | 'href' | 'textAlign',
-  ) =>
-    [
-      ...new Set(
-        cell.runs.map((run) =>
-          String(
-            run[key] ??
-              (key === 'sizePt'
-                ? 'default'
-                : key === 'color'
-                  ? 'default'
-                  : key === 'textAlign'
-                    ? 'inherited'
-                    : false),
-          ),
-        ),
-      ),
-    ].join(', ');
-  return (
-    ['color', 'bold', 'italic', 'underline', 'strike', 'sizePt', 'href', 'textAlign'] as const
-  ).flatMap((key) => {
-    const old = values(before, key);
-    const current = values(after, key);
-    return old === current
-      ? []
-      : [
-          `${key === 'color' ? 'colour' : key === 'textAlign' ? 'alignment' : key}: ${old} \u2192 ${current}`,
-        ];
-  });
-}
-function StyleChange({ before, after }: { before: CompendiumCell; after: CompendiumCell }) {
-  const legibleOn = useLegibleOn();
-  const singleRun = after.runs.length === 1 ? after.runs[0] : undefined;
-  const [open, setOpen] = useState(false);
-  const [hovered, setHovered] = useState(false);
-  const [focused, setFocused] = useState(false);
+/** Mount positioning state and listeners only for the popup the user opens. */
+function StylePopover({
+  id,
+  description,
+  before,
+  after,
+}: {
+  id: string;
+  description: string;
+  before: CompendiumCell;
+  after: CompendiumCell;
+}) {
   const [offset, setOffset] = useState(0);
-  const anchor = useRef<HTMLSpanElement>(null);
   const popover = useRef<HTMLSpanElement>(null);
-  const visible = open || hovered || focused;
-  const id = useId();
-  const description = changes(before, after).join('; ') || 'Styling changed within this word';
   useLayoutEffect(() => {
-    if (!visible) return;
     const position = () => {
-      if (!anchor.current || !popover.current) return;
-      const left = anchor.current.getBoundingClientRect().left;
-      const width = popover.current.getBoundingClientRect().width;
+      const element = popover.current;
+      const anchor = element?.parentElement;
+      if (!element || !anchor) return;
+      const left = anchor.getBoundingClientRect().left;
+      const width = element.getBoundingClientRect().width;
       const limit = document.documentElement.clientWidth - width - 8;
       setOffset(Math.max(8, Math.min(left, limit)) - left);
     };
@@ -103,10 +69,56 @@ function StyleChange({ before, after }: { before: CompendiumCell; after: Compend
       window.removeEventListener('resize', position);
       window.removeEventListener('scroll', position, true);
     };
-  }, [visible]);
+  }, [before, after]);
   return (
     <span
-      ref={anchor}
+      ref={popover}
+      id={id}
+      className={styles.stylePopover}
+      role="tooltip"
+      style={{ insetInlineStart: offset }}
+    >
+      <span>{description}</span>
+      <span className={styles.swatches}>
+        {[before, after].map((cell, index) => (
+          <span key={index}>
+            {index ? 'Current' : 'Snapshot'}{' '}
+            {[...new Set(cell.runs.map((run) => run.color).filter(Boolean))].map((color) => (
+              <span
+                key={color}
+                className={styles.swatch}
+                style={{ backgroundColor: color }}
+                title={color}
+              />
+            ))}
+          </span>
+        ))}
+      </span>
+      <span>
+        Snapshot: <RichCell cell={before} />
+      </span>
+    </span>
+  );
+}
+
+const StyleChange = memo(function StyleChange({
+  before,
+  after,
+  description,
+}: {
+  before: CompendiumCell;
+  after: CompendiumCell;
+  description: string;
+}) {
+  const legibleOn = useLegibleOn();
+  const singleRun = after.runs.length === 1 ? after.runs[0] : undefined;
+  const [open, setOpen] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const visible = open || hovered || focused;
+  const id = useId();
+  return (
+    <span
       className={styles.styleChange}
       data-open={visible}
       onMouseEnter={() => setHovered(true)}
@@ -142,44 +154,22 @@ function StyleChange({ before, after }: { before: CompendiumCell; after: Compend
       >
         {singleRun ? singleRun.text : <RichCell cell={after} links={false} inline />}
       </button>
-      <span
-        ref={popover}
-        id={id}
-        className={styles.stylePopover}
-        role="tooltip"
-        style={{ insetInlineStart: offset }}
-      >
-        {visible ? (
-          <>
-            <span>{description}</span>
-            <span className={styles.swatches}>
-              {[before, after].map((cell, index) => (
-                <span key={index}>
-                  {index ? 'Current' : 'Snapshot'}{' '}
-                  {[...new Set(cell.runs.map((run) => run.color).filter(Boolean))].map((color) => (
-                    <span
-                      key={color}
-                      className={styles.swatch}
-                      style={{ backgroundColor: color }}
-                      title={color}
-                    />
-                  ))}
-                </span>
-              ))}
-            </span>
-            <span>
-              Snapshot: <RichCell cell={before} />
-            </span>
-          </>
-        ) : (
-          // Retain the full accessible description while CSS hides the popup.
-          // Its formatting and swatches are built synchronously on any open path.
-          `${description}Snapshot Current Snapshot: ${before.plain}`
-        )}
-      </span>
+      {visible ? (
+        <StylePopover id={id} description={description} before={before} after={after} />
+      ) : (
+        <span
+          id={id}
+          className={styles.stylePopover}
+          role="tooltip"
+          style={{ insetInlineStart: 0 }}
+        >
+          {/* Retain the full accessible description while the popup is hidden. */}
+          {`${description}Snapshot Current Snapshot: ${before.plain}`}
+        </span>
+      )}
     </span>
   );
-}
+});
 export function CompendiumDiff({
   before,
   after,
@@ -195,7 +185,10 @@ export function CompendiumDiff({
   const sideBySide = mode === 'before-after';
   // Links store no background; both sides sit on the row's current one.
   const background = after.background ?? before.background;
-  const lines = useMemo(() => preparedLines(before, after), [before, after]);
+  const lines = useMemo(
+    () => (sideBySide ? [] : preparedLines(before, after)),
+    [before, after, sideBySide],
+  );
   return (
     <section aria-label="Styled Compendium diff">
       {given === undefined && (
@@ -239,7 +232,12 @@ export function CompendiumDiff({
                 >
                   {line.map((part, index) =>
                     part.kind === 'style' ? (
-                      <StyleChange key={index} before={part.before!} after={part.after!} />
+                      <StyleChange
+                        key={index}
+                        before={part.before!}
+                        after={part.after!}
+                        description={part.description!}
+                      />
                     ) : part.kind === 'removed' ? (
                       <del key={index} className={styles.removed}>
                         <RichCell cell={part.before!} inline />
@@ -260,72 +258,4 @@ export function CompendiumDiff({
       )}
     </section>
   );
-}
-
-// Base/enhanced tooltips and return navigation can compare the same immutable
-// source content in different cell objects. Keep a small, content-keyed cache.
-const lineCache = new Map<string, CompendiumDiffPart[][]>();
-function preparedLines(before: CompendiumCell, after: CompendiumCell) {
-  const key = JSON.stringify([before, after]);
-  const cached = lineCache.get(key);
-  if (cached) return cached;
-  const lines = diffLines(diffCompendium(before, after));
-  if (lineCache.size >= 32) lineCache.delete(lineCache.keys().next().value!);
-  lineCache.set(key, lines);
-  return lines;
-}
-
-// Split fragments at line breaks before laying them out; each highlighted word
-// remains inline within its source line, including for mixed-alignment selections.
-function diffLines(parts: CompendiumDiffPart[]): CompendiumDiffPart[][] {
-  const lines: CompendiumDiffPart[][] = [[]];
-  let previousKey: string | undefined;
-  for (const part of parts) {
-    const source = part.after ?? part.before!;
-    let offset = 0;
-    source.plain.split(/(?<=\n)/).forEach((text) => {
-      const slice = (cell: CompendiumCell): CompendiumCell => {
-        let position = 0;
-        return {
-          plain: text,
-          runs: cell.runs.flatMap((run) => {
-            const start = Math.max(0, offset - position);
-            const end = Math.min(run.text.length, offset + text.length - position);
-            position += run.text.length;
-            return end > start ? [{ ...run, text: run.text.slice(start, end) }] : [];
-          }),
-        };
-      };
-      const fragment: CompendiumDiffPart = {
-        kind: part.kind,
-        ...(part.before ? { before: slice(part.before) } : {}),
-        ...(part.after ? { after: slice(part.after) } : {}),
-      };
-      // Coalesce plain, identically styled neighbours instead of rendering one
-      // RichCell and highlight wrapper per word. Links and style-change controls
-      // keep their individual targets, and alignment never crosses a line break.
-      const cells = [fragment.before, fragment.after].filter((cell) => cell !== undefined);
-      const key =
-        part.kind !== 'style' && cells.every((cell) => cell.runs.length === 1 && !cell.runs[0].href)
-          ? JSON.stringify([part.kind, ...cells.map((cell) => styleKey(cell.runs[0]))])
-          : undefined;
-      const line = lines.at(-1)!;
-      const previous = line.at(-1);
-      if (key !== undefined && key === previousKey && previous) {
-        for (const side of ['before', 'after'] as const) {
-          if (previous[side] && fragment[side]) {
-            previous[side].plain += fragment[side].plain;
-            previous[side].runs[0].text += fragment[side].plain;
-          }
-        }
-      } else line.push(fragment);
-      previousKey = key;
-      offset += text.length;
-      if (text.endsWith('\n')) {
-        lines.push([]);
-        previousKey = undefined;
-      }
-    });
-  }
-  return lines;
 }
