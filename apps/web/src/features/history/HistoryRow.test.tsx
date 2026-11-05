@@ -257,3 +257,24 @@ it('refreshes the first page when saving advances bundle head after paging', asy
   expect(host.textContent).toContain('NEW HEAD REVISION');
   expect(getHistory.mock.calls.filter(([, p]) => p === 2)).toHaveLength(1);
 });
+
+it('keeps an expanded history row open while cancelling suspended requests', async () => {
+  getHistory.mockResolvedValue({ page: 1, commits: [commit(1)] });
+  getHistory.mockImplementationOnce(
+    (_hash: number, _page: number, signal: AbortSignal) =>
+      new Promise<never>((_resolve, reject) =>
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+      ),
+  );
+  await act(async () => root.render(<HistoryPanel hash={10} />));
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  const signal = getHistory.mock.calls[0][2] as AbortSignal;
+  getHistory.mockClear();
+  await act(async () => root.render(<HistoryPanel hash={10} suspended />));
+  expect(host.querySelector('button[aria-expanded=true]')).not.toBeNull();
+  expect(signal.aborted).toBe(true);
+  expect(getHistory).not.toHaveBeenCalled();
+  await act(async () => root.render(<HistoryPanel hash={10} />));
+  expect(host.querySelector('button[aria-expanded=true]')).not.toBeNull();
+  expect(host.querySelectorAll('ol li')).toHaveLength(1);
+});

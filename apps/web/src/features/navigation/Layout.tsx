@@ -8,6 +8,7 @@ import {
   type CSSProperties,
 } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
+import { useShallow } from 'zustand/react/shallow';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { useAuthStore } from '../../stores/auth';
@@ -43,6 +44,11 @@ export function Layout() {
   );
 }
 
+function ShellNotices() {
+  const notices = useShellNotices();
+  return <NoticeStrip notices={notices} />;
+}
+
 /** Left column limits: it sizes 280–480 and the page beside it keeps at least 480. */
 const COLUMN_MIN = 280;
 const COLUMN_MAX = 480;
@@ -61,8 +67,17 @@ function LayoutContent() {
   const { data, status, error, load } = useDataStore();
   const authLoading = useAuthStore((state) => state.loading);
   const userId = user?.id;
-  const { hydrated, pending, error: draftError, activate } = useDraftStore();
-  const notices = useShellNotices();
+  const {
+    hydrated,
+    error: draftError,
+    activate,
+  } = useDraftStore(
+    useShallow((state) => ({
+      hydrated: state.hydrated,
+      error: state.error,
+      activate: state.activate,
+    })),
+  );
   const isEditor = location.pathname.startsWith('/t/');
   const isCompendium = location.pathname.startsWith('/compendium');
   const isReview = location.pathname === '/review';
@@ -94,14 +109,15 @@ function LayoutContent() {
   }, [location.pathname, location.search]);
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
-      if (pending || draftError) {
+      const { pending, error } = useDraftStore.getState();
+      if (pending || error) {
         event.preventDefault();
         event.returnValue = '';
       }
     };
     window.addEventListener('beforeunload', beforeUnload);
     return () => window.removeEventListener('beforeunload', beforeUnload);
-  }, [pending, draftError]);
+  }, []);
   // Sticky page columns sit under the header, whatever height it has at this width.
   useEffect(() => {
     const element = layout.current;
@@ -188,12 +204,12 @@ function LayoutContent() {
   const unreviewed = usePreviewReviewStore(
     useCallback(
       (state) =>
-        canonical === undefined
+        canonical === undefined || !columnCollapsed
           ? 0
           : Object.values(state.entries).filter(
               (entry) => entry.canonical === canonical && entry.dirty > entry.reviewed,
             ).length,
-      [canonical],
+      [canonical, columnCollapsed],
     ),
   );
 
@@ -211,7 +227,7 @@ function LayoutContent() {
       <ShellSlotHost name="finder" className={styles.slotHost} />
     </>
   );
-  const overlay = <NoticeStrip notices={notices} />;
+  const overlay = <ShellNotices />;
   const collapseLabel = columnCollapsed
     ? `Show preview column${unreviewed ? `, ${count(unreviewed, 'change')} not reviewed` : ''}`
     : 'Collapse preview column';
@@ -239,7 +255,9 @@ function LayoutContent() {
             user={user}
             pathname={location.pathname}
             routeFor={routeFor}
-            title={(openItem && exoticPiece(openItem) ? openItem.name : pageName) ?? 'Clarity Control'}
+            title={
+              (openItem && exoticPiece(openItem) ? openItem.name : pageName) ?? 'Clarity Control'
+            }
             kicker={openItem && exoticPiece(openItem)}
             finder={finder}
             hasFinder={isEditor || contextual}

@@ -1,7 +1,7 @@
 import { archiveCategoryLabel, archivedItemFor } from '../archive/archive';
 import { AttachmentCategoryControl } from './AttachmentCategoryControl';
 import { useCompendiumStore } from '../compendium/store';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { translationQueue, type Lang, type MarkupGlobals, type Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
@@ -55,6 +55,15 @@ import {
   storedFormVariants,
 } from './variants';
 import styles from './TooltipPage.module.scss';
+import { useSteppingActivity } from '../navigation/steppingActivity';
+
+interface WorkspaceRoute {
+  parameter?: string;
+  search: URLSearchParams;
+  setSearch: ReturnType<typeof useSearchParams>[1];
+  navigate: ReturnType<typeof useNavigate>;
+}
+const StableWorkspace = memo(TooltipWorkspace);
 
 /**
  * The editor page (variant model D): ONE base editor per item, whatever the role. Enhanced
@@ -69,9 +78,57 @@ export function TooltipPage({
   hashOverride?: number;
   readOnly?: boolean;
 }) {
-  const compendiumSource = useCompendiumStore((state) => state.data);
+  const active = useSteppingActivity((state) => state.active);
   const { hash: parameter } = useParams();
   const [search, setSearch] = useSearchParams();
+  const navigate = useNavigate();
+  const data = useDataStore((state) => state.data);
+  const busy = active && hashOverride === undefined;
+  const hasSettled = useRef(!busy);
+  if (!busy) hasSettled.current = true;
+  const settled = useRef<WorkspaceRoute>({ parameter, search, setSearch, navigate });
+  if (!busy) settled.current = { parameter, search, setSearch, navigate };
+  const hash = Number(parameter);
+  const item = data && archivedItemFor(hash, data);
+  const pending = <>Opening {item ? editorName(item) : `tooltip ${hash}`}…</>;
+  return (
+    <>
+      {/* Keep the expensive editor view alive, with its last settled route, through a burst.
+        display:contents adds no layout box in the ordinary workspace. */}
+      {hasSettled.current && (
+        <div style={{ display: busy ? 'none' : 'contents' }}>
+          <StableWorkspace
+            hashOverride={hashOverride}
+            readOnly={readOnly}
+            route={settled.current}
+            suspended={busy}
+          />
+        </div>
+      )}
+      {busy && (
+        <>
+          <article className={styles.page} aria-busy="true">
+            <p role="status">{pending}</p>
+          </article>
+        </>
+      )}
+    </>
+  );
+}
+
+function TooltipWorkspace({
+  hashOverride,
+  readOnly = false,
+  route,
+  suspended,
+}: {
+  hashOverride?: number;
+  readOnly?: boolean;
+  route: WorkspaceRoute;
+  suspended: boolean;
+}) {
+  const compendiumSource = useCompendiumStore((state) => state.data);
+  const { parameter, search, setSearch, navigate } = route;
   const data = useDataStore((state) => state.data);
   const [remembered, setRemembered] = useState<Lang>();
   // The enhanced version whose own text is open in the editor (null: the base). Keyed by item, so
@@ -81,6 +138,10 @@ export function TooltipPage({
   // has several enhanced versions, which one. Both are working choices, never saved.
   const [previewMode, setPreviewMode] = useState<PreviewMode | null>(null);
   const [previewPick, setPreviewPick] = useState<{ hash: number; variant: number }>();
+  const onPreviewVariant = useCallback(
+    (variant: number) => setPreviewPick({ hash: hashOverride ?? Number(parameter), variant }),
+    [hashOverride, parameter],
+  );
   const phone = useMedia(phoneQuery);
   const markupRow = useMarkupRow();
   const user = useAuthStore((state) => state.user);
@@ -118,7 +179,6 @@ export function TooltipPage({
   );
   // Saved text only, so the suggestion menu's usage counts do not change as you type.
   const usage = useMemo(() => corpusUsage(data?.bundle.tooltips ?? {}), [data?.bundle.tooltips]);
-  const navigate = useNavigate();
   function openDefinition(target: TooltipTarget) {
     // Ordinary navigation (a pushed history entry), the same route a Globals page link takes.
     const canonical = data ? canonicalHash(target.hash, data) : target.hash;
@@ -128,7 +188,13 @@ export function TooltipPage({
   // shown there; without one (a phone, or the page on its own) they stay inline in the page.
   const column = useShellColumn();
   const showPreview = column?.show;
-  const reviewEntries = usePreviewReviewStore((state) => state.entries);
+  const reviewCanonical = data ? canonicalHash(hashOverride ?? Number(parameter), data) : undefined;
+  const unpreviewed = usePreviewReviewStore(
+    (state) =>
+      Object.values(state.entries).filter(
+        (entry) => entry.canonical === reviewCanonical && entry.dirty > entry.reviewed,
+      ).length,
+  );
   // "Show preview" from the leave guard opens the column on a render that counts as seen: Base, or
   // Enhanced for an override with unseen edits. Compare never does, so it is left.
   const reveal = useRef<() => void>(undefined);
@@ -235,7 +301,13 @@ export function TooltipPage({
       setPreviewMode('enhanced');
     } else setPreviewMode('base');
   };
-  const previews = (
+  // A deferred preview acknowledges text only after that version actually commits.
+  const seen = column
+    ? previewedHashes(mode, hash, selectedView).map((variant) => (
+        <PreviewAck key={variant} variant={variant} visible={!column.collapsed && !suspended} />
+      ))
+    : null;
+  const previews = suspended ? null : (
     <PreviewColumn
       hash={hash}
       lang={lang}
@@ -254,15 +326,10 @@ export function TooltipPage({
       mode={mode}
       onMode={setPreviewMode}
       variant={selectedView?.hash}
-      onVariant={(variant) => setPreviewPick({ hash, variant })}
+      onVariant={onPreviewVariant}
+      acknowledgement={seen}
     />
   );
-  // Reviewed means a Base or Enhanced render of the current text is on screen (never Compare).
-  const seen = column
-    ? previewedHashes(mode, hash, selectedView).map((variant) => (
-        <PreviewAck key={variant} variant={variant} visible={!column.collapsed} />
-      ))
-    : null;
 
   const owner = singleOwnerLabel(hash, data);
   const shared = sharedPerkLabel(hash, data, compendiumSource);
@@ -279,17 +346,15 @@ export function TooltipPage({
       {!readOnly && item && <AttachmentCategoryControl base={primaryBase} item={item} />}
       {owner && <NoteRow text={owner} />}
       {shared && <NoteRow text={shared} />}
-      {!readOnly && <AssociationsPanel hash={activeHash} />}
-      <HistoryPanel hash={activeHash} readOnly={readOnly} />
+      {!readOnly && <AssociationsPanel hash={activeHash} suspended={suspended} />}
+      <HistoryPanel hash={activeHash} readOnly={readOnly} suspended={suspended} />
     </div>
   );
 
   // The editor's status bar tells how many edits the preview has not shown yet, and offers it.
   const previewStatus = column
     ? {
-        unpreviewed: Object.values(reviewEntries).filter(
-          (entry) => entry.canonical === canonical && entry.dirty > entry.reviewed,
-        ).length,
+        unpreviewed,
         collapsed: column.collapsed,
         onShow: () => {
           const host = usePreviewReviewStore.getState().host;
@@ -302,7 +367,7 @@ export function TooltipPage({
   const overrideTargets = overrides.map((variant) => ({ hash: variant, name: nameOf(variant) }));
   const editing = (variant: number, base: Tooltip) => (
     <ClarityEditor
-      key={`${variant}:${lang}`}
+      suspended={suspended}
       value={textOf(variant)}
       lang={lang}
       globals={globalsFor(variant)}
@@ -363,6 +428,7 @@ export function TooltipPage({
         target: { hash: variant, name: nameOf(variant) },
         node: (
           <ClarityEditor
+            suspended={suspended}
             value={tooltipFor(variant, data).text[lang]?.text ?? ''}
             lang={lang}
             globals={globalsFor(variant)}
@@ -382,6 +448,7 @@ export function TooltipPage({
     <article className={styles.page}>
       <h1 className={styles.srOnly}>{heading}</h1>
       <VariantWorkspace
+        suspended={suspended}
         header={header}
         initialPanel={readOnly ? 'preview' : undefined}
         source={
@@ -426,16 +493,20 @@ export function TooltipPage({
           )
         }
         compendium={
-          !readOnly && user?.role !== 'translator' ? <CompendiumPanel base={activeBase} /> : null
+          !readOnly && user?.role !== 'translator' ? (
+            suspended ? (
+              <div aria-busy="true" />
+            ) : (
+              <CompendiumPanel base={activeBase} />
+            )
+          ) : null
         }
       />
       {hosted && (
         <ShellSlot name="left">
-          <div className={styles.leftStack}>
-            <div className={styles.previewBody}>
-              {previews}
-              {seen}
-            </div>
+          {suspended && <p role="status">Opening tooltip…</p>}
+          <div className={styles.leftStack} style={{ display: suspended ? 'none' : undefined }}>
+            <div className={styles.previewBody}>{previews}</div>
             {rows}
           </div>
         </ShellSlot>

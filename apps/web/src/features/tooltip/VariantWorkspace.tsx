@@ -23,6 +23,8 @@ interface VariantWorkspaceProps {
   compendium?: ReactNode;
   /** Panel shown first on a phone, or in the swapped slot; defaults to the editor. */
   initialPanel?: Panel;
+  /** Keep pane measurement/tab state stable while a navigation burst hides the workspace. */
+  suspended?: boolean;
 }
 
 const present = (node: ReactNode) => node !== null && node !== undefined && node !== false;
@@ -43,10 +45,11 @@ export function VariantWorkspace({
   preview,
   compendium,
   initialPanel = 'translation',
+  suspended = false,
 }: VariantWorkspaceProps) {
   const phone = useMedia(phoneQuery);
   const hasSide = present(preview) || present(compendium) || present(source);
-  const { container, separator, style, split } = useWorkspaceDivider(hasSide);
+  const { container, separator, style, split } = useWorkspaceDivider(hasSide, suspended);
   const mode = phone ? 'phone' : split ? 'split' : 'toggle';
   const prefix = useId();
   const [active, setActive] = useState<Panel>(initialPanel);

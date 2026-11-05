@@ -24,7 +24,11 @@ vi.mock('../compendium/CompendiumBadge', () => ({
   useCompendiumCount: () => ({ state: 'ready', count: 0 }),
 }));
 vi.mock('../editor', () => ({ ClarityEditor: () => null }));
-vi.mock('../preview', () => ({ PreviewColumn: () => null, TooltipPreview: () => null }));
+vi.mock('../preview', () => ({
+  PreviewColumn: ({ baseText }: { baseText: string }) =>
+    createElement('div', { 'data-preview': '' }, baseText),
+  TooltipPreview: () => null,
+}));
 vi.mock('../compendium/CompendiumPanel', () => ({ CompendiumPanel: () => null }));
 vi.mock('../history/HistoryPanel', () => ({ HistoryPanel: () => null }));
 vi.mock('../associations/AssociationsPanel', () => ({ AssociationsPanel: () => null }));
@@ -118,6 +122,7 @@ async function shiftWheel() {
     deltaY: 100,
   });
   await act(async () => host.dispatchEvent(event));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
   return event;
 }
 
@@ -153,6 +158,78 @@ afterEach(async () => {
 });
 
 describe('mounted Editor navigation interaction ownership', () => {
+  it.each(['ArrowDown', 'Shift+wheel'])(
+    'keeps a burst suspended while %s continues at the category boundary',
+    async (gesture) => {
+      vi.useFakeTimers();
+      try {
+        await mount();
+        const field = host.querySelector<HTMLInputElement>('input[aria-label="Tooltip"]')!;
+        const down = () =>
+          gesture === 'ArrowDown'
+            ? field.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+            : host.dispatchEvent(
+                new WheelEvent('wheel', {
+                  bubbles: true,
+                  cancelable: true,
+                  shiftKey: true,
+                  deltaY: 100,
+                }),
+              );
+        await act(async () => {
+          down();
+          await vi.advanceTimersByTimeAsync(25);
+        });
+        expect(route()).toContain('/t/101');
+        expect(host.querySelector('article[aria-busy="true"]')).not.toBeNull();
+        if (gesture === 'ArrowDown') {
+          await act(async () => {
+            await vi.advanceTimersByTimeAsync(600);
+          });
+          expect(host.querySelector('article[aria-busy="true"]')).not.toBeNull();
+        }
+        await act(async () => {
+          down();
+          await vi.advanceTimersByTimeAsync(25);
+        });
+        expect(host.querySelector('article[aria-busy="true"]')).not.toBeNull();
+        await act(async () => {
+          if (gesture === 'ArrowDown')
+            field.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowDown', bubbles: true }));
+          await vi.advanceTimersByTimeAsync(50);
+        });
+        expect(host.querySelector('article[aria-busy="true"]')).toBeNull();
+        expect(document.querySelector('[data-preview]')?.textContent).toBe('Deutsch 101');
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it('does not land a queued wheel step behind a newly opened sheet', async () => {
+    await mount();
+    await act(async () => {
+      host.dispatchEvent(
+        new WheelEvent('wheel', { bubbles: true, cancelable: true, shiftKey: true, deltaY: 100 }),
+      );
+      draftsButton().click();
+    });
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(overlay()).not.toBeNull();
+    expect(route()).toBe('/t/100?lang=de');
+    expect(selectedItem()).toBe('Sample 100');
+  });
+  it('restores the settled preview into the same shell slot after stepping', async () => {
+    await mount();
+    expect(host.querySelector('[data-shell-slot="left"] [data-preview]')?.textContent).toBe(
+      'Deutsch 100',
+    );
+    await shiftWheel();
+    expect(route()).toBe('/t/101?lang=de');
+    expect(host.querySelector('[data-shell-slot="left"] [data-preview]')?.textContent).toBe(
+      'Deutsch 101',
+    );
+  });
   const draftsButton = () => host.querySelector<HTMLButtonElement>('[data-drafts-button]')!;
   const overlay = () => document.querySelector('[data-shell-overlay]');
   const escape = () =>

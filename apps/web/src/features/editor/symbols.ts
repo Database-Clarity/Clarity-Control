@@ -1,4 +1,11 @@
-import { EditorState, StateEffect, StateField, type Extension } from '@codemirror/state';
+import {
+  EditorState,
+  StateEffect,
+  StateField,
+  type Extension,
+  type Range,
+  type Transaction,
+} from '@codemirror/state';
 import {
   Decoration,
   EditorView,
@@ -155,14 +162,20 @@ const editing = StateField.define<boolean>({
 function selectedSymbol(state: EditorState): SymbolRange | null {
   const { from, to } = state.selection.main;
   if (from === to) return null;
-  return findSymbols(state.doc.toString()).find((s) => s.from === from && s.to === to) ?? null;
+  return (
+    findSymbols(state.doc.sliceString(from, to), from).find(
+      (s) => s.from === from && s.to === to,
+    ) ?? null
+  );
 }
 
 /** The colour tag whose whole range, or whose enclosed text, is exactly the selection (Alt+click). */
 function selectedTag(state: EditorState): TagRange | null {
   const { from, to } = state.selection.main;
   if (from === to) return null;
-  const matching = findTags(state.doc.toString()).filter(
+  const line = state.doc.lineAt(from);
+  if (to > line.to) return null;
+  const matching = findTags(line.text, line.from).filter(
     (t) => (t.from === from && t.to === to) || (t.openTo === from && t.closeFrom === to),
   );
   return matching.pop() ?? null;
@@ -170,24 +183,24 @@ function selectedTag(state: EditorState): TagRange | null {
 
 /** The innermost colour tag whose enclosed text contains the position. */
 function tagAt(state: EditorState, pos: number): TagRange | null {
-  const around = findTags(state.doc.toString()).filter(
+  const line = state.doc.lineAt(pos);
+  const around = findTags(line.text, line.from).filter(
     (t) => t.openTo <= pos && pos <= t.closeFrom,
   );
   return around.pop() ?? null;
 }
 
-function build(state: EditorState): DecorationSet {
-  if (state.field(rawMode)) return Decoration.none;
-  const text = state.doc.toString();
+function symbolRanges(state: EditorState, from = 0, to = state.doc.length): Range<Decoration>[] {
+  const text = state.doc.sliceString(from, to);
   const caret = state.field(reveal) === 'caret';
   const touched = (from: number, to: number) =>
     caret && state.selection.ranges.some((r) => r.from <= to && r.to >= from);
-  const ranges = findSymbols(text)
+  const ranges = findSymbols(text, from)
     .filter((symbol) => !touched(symbol.from, symbol.to))
     .map((symbol) =>
       Decoration.replace({ widget: new SymbolWidget(symbol.name) }).range(symbol.from, symbol.to),
     );
-  for (const tag of findTags(text)) {
+  for (const tag of findTags(text, from)) {
     ranges.push(
       Decoration.mark({ class: `cm-tint cm-tint-${tag.name}` }).range(tag.openTo, tag.closeFrom),
     );
@@ -197,18 +210,60 @@ function build(state: EditorState): DecorationSet {
       ranges.push(Decoration.replace({}).range(tag.closeFrom, tag.to));
     }
   }
-  return Decoration.set(ranges, true);
+  return ranges;
+}
+
+function build(state: EditorState): DecorationSet {
+  return state.field(rawMode) ? Decoration.none : Decoration.set(symbolRanges(state), true);
+}
+
+/** Icons and colour tags are line-local. Rebuild only the lines an edit can change. */
+function changedLines(transaction: Transaction) {
+  const lines: { from: number; to: number }[] = [];
+  const add = (from: number, to: number) =>
+    lines.push({
+      from: transaction.state.doc.lineAt(from).from,
+      to: transaction.state.doc.lineAt(to).to,
+    });
+  transaction.changes.iterChangedRanges((_from, _to, from, to) => add(from, to));
+  if (transaction.state.field(reveal) === 'caret' && transaction.selection) {
+    // Moving a caret can reveal its new tag and hide its previous one, including
+    // edits that move a selection somewhere outside the edited lines.
+    for (const range of transaction.startState.selection.ranges)
+      add(transaction.changes.mapPos(range.from, -1), transaction.changes.mapPos(range.to, 1));
+    for (const range of transaction.state.selection.ranges) add(range.from, range.to);
+  }
+  lines.sort((a, b) => a.from - b.from);
+  const merged: typeof lines = [];
+  for (const line of lines) {
+    const previous = merged.at(-1);
+    if (previous && line.from <= previous.to) previous.to = Math.max(previous.to, line.to);
+    else merged.push(line);
+  }
+  return merged;
 }
 
 const symbolDecorations = StateField.define<DecorationSet>({
   create: build,
   update(value, transaction) {
-    const changed =
-      transaction.docChanged ||
+    const modeChanged =
       transaction.startState.field(rawMode) !== transaction.state.field(rawMode) ||
-      transaction.startState.field(reveal) !== transaction.state.field(reveal) ||
-      (transaction.state.field(reveal) === 'caret' && transaction.selection !== undefined);
-    return changed ? build(transaction.state) : value;
+      transaction.startState.field(reveal) !== transaction.state.field(reveal);
+    if (modeChanged) return build(transaction.state);
+    if (
+      !transaction.docChanged &&
+      !(transaction.state.field(reveal) === 'caret' && transaction.selection)
+    )
+      return value;
+    if (transaction.state.field(rawMode)) return Decoration.none;
+    const lines = changedLines(transaction);
+    return value.map(transaction.changes).update({
+      filterFrom: lines[0].from,
+      filterTo: lines.at(-1)!.to,
+      filter: (from, to) => !lines.some((line) => from <= line.to && to >= line.from),
+      add: lines.flatMap((line) => symbolRanges(transaction.state, line.from, line.to)),
+      sort: true,
+    });
   },
   provide: (field) => [
     EditorView.decorations.from(field),
@@ -246,9 +301,10 @@ function popoverDom(view: EditorView, popover: Popover) {
   const tag =
     popover.at === undefined
       ? null
-      : (findTags(view.state.doc.toString()).find(
-          (t) => t.from === popover.from && t.to === popover.to,
-        ) ?? null);
+      : (findTags(
+          view.state.doc.lineAt(popover.from).text,
+          view.state.doc.lineAt(popover.from).from,
+        ).find((t) => t.from === popover.from && t.to === popover.to) ?? null);
   // An icon is edited whole; a colour tag shows as `<yellow … />` and its opening markup is edited.
   const edited = tag ? { from: tag.from, to: tag.openTo } : { from: popover.from, to: popover.to };
   const markup = view.state.sliceDoc(edited.from, edited.to);

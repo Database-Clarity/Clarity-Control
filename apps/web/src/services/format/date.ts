@@ -12,6 +12,18 @@ export const unknownTime = 'unknown time';
 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const zone = (timeZone: string) => (timeZone === 'auto' ? undefined : timeZone);
 
+const dateFormats = new Map<string, Intl.DateTimeFormat>();
+function dateFormat(locale: string | undefined, options: Intl.DateTimeFormatOptions) {
+  const key = JSON.stringify([locale, options]);
+  let format = dateFormats.get(key);
+  if (!format) {
+    format = new Intl.DateTimeFormat(locale, options);
+    if (dateFormats.size >= 32) dateFormats.delete(dateFormats.keys().next().value!);
+    dateFormats.set(key, format);
+  }
+  return format;
+}
+
 export function browserTimeZone(): string {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown';
@@ -27,7 +39,7 @@ export function parseDate(value: string | number | Date | null | undefined): Dat
 }
 
 function calendar(date: Date, timeZone: string) {
-  const parts = new Intl.DateTimeFormat('en-US', {
+  const parts = dateFormat('en-US', {
     timeZone: zone(timeZone),
     year: 'numeric',
     month: 'numeric',
@@ -59,7 +71,7 @@ export function exactDate(
   if (!date) return unknownTime;
   const withTime = settings.timeDisplay !== 'date';
   if (settings.dateFormat === 'auto') {
-    return new Intl.DateTimeFormat(options.locale, {
+    return dateFormat(options.locale, {
       dateStyle: 'medium',
       ...(withTime ? { timeStyle: 'short' } : {}),
       timeZone: zone(settings.timeZone),

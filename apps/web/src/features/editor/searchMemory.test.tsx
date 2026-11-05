@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, useLayoutEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { EditorView } from '@codemirror/view';
+import { undoDepth } from '@codemirror/commands';
 import {
   closeSearchPanel,
   getSearchQuery,
@@ -33,16 +34,157 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function render(value: string) {
+function render(value: string, tooltipHash?: number, definitions = globals) {
   act(() =>
     root.render(
-      <ClarityEditor value={value} lang="en" globals={globals} onChange={() => {}} />,
+      <ClarityEditor
+        value={value}
+        lang="en"
+        tooltipHash={tooltipHash}
+        globals={definitions}
+        onChange={() => {}}
+      />,
     ),
   );
   return EditorView.findFromDOM(host.querySelector<HTMLElement>('.cm-editor')!)!;
 }
 
 describe('find and replace persistence', () => {
+  it('commits the landed document before layout observers can see the resumed editor', () => {
+    const snapshots: string[] = [];
+    const changed = vi.fn();
+    function Probe({
+      hash,
+      value,
+      suspended = false,
+    }: {
+      hash: number;
+      value: string;
+      suspended?: boolean;
+    }) {
+      useLayoutEffect(() => {
+        if (!suspended) snapshots.push(host.querySelector('.cm-content')?.textContent ?? '');
+      }, [hash, suspended]);
+      return (
+        <ClarityEditor
+          value={value}
+          lang="en"
+          tooltipHash={hash}
+          globals={globals}
+          onChange={changed}
+          suspended={suspended}
+        />
+      );
+    }
+    act(() => root.render(<Probe hash={10} value="Previous item" />));
+    act(() => root.render(<Probe hash={10} value="Previous item" suspended />));
+    snapshots.length = 0;
+    act(() => root.render(<Probe hash={20} value="Landed item" />));
+    expect(snapshots).toEqual(['Landed item']);
+    expect(changed).not.toHaveBeenCalled();
+  });
+  it('does not take focus back from another control after a burst', () => {
+    const view = render('one', 10);
+    const show = (suspended: boolean) =>
+      act(() =>
+        root.render(
+          <ClarityEditor
+            value="one"
+            lang="en"
+            tooltipHash={10}
+            globals={globals}
+            onChange={() => {}}
+            suspended={suspended}
+          />,
+        ),
+      );
+    act(() => view.focus());
+    show(true);
+    const control = document.createElement('button');
+    document.body.append(control);
+    control.focus();
+    show(false);
+    expect(document.activeElement).toBe(control);
+    control.remove();
+  });
+
+  it('does not create an editor for an initially suspended route', () => {
+    const show = (suspended: boolean, value: string) =>
+      act(() =>
+        root.render(
+          <ClarityEditor
+            value={value}
+            lang="en"
+            tooltipHash={20}
+            globals={globals}
+            onChange={() => {}}
+            suspended={suspended}
+          />,
+        ),
+      );
+    show(true, 'Skipped');
+    expect(host.querySelector('.cm-editor')).toBeNull();
+    show(false, 'Landed');
+    const view = EditorView.findFromDOM(host.querySelector<HTMLElement>('.cm-editor')!)!;
+    expect(view.state.doc.toString()).toBe('Landed');
+    expect(undoDepth(view.state)).toBe(0);
+  });
+
+  it('detaches the editor through a selection burst without losing its state', () => {
+    const view = render('one', 10);
+    act(() => view.dispatch({ changes: { from: 3, insert: ' cat' }, selection: { anchor: 7 } }));
+    const show = (suspended: boolean) =>
+      act(() =>
+        root.render(
+          <ClarityEditor
+            value="one cat"
+            lang="en"
+            tooltipHash={10}
+            globals={globals}
+            onChange={() => {}}
+            suspended={suspended}
+          />,
+        ),
+      );
+    show(true);
+    expect(host.querySelector('.cm-editor')).toBeNull();
+    expect(view.dom.isConnected).toBe(false);
+    show(false);
+    expect(EditorView.findFromDOM(host.querySelector<HTMLElement>('.cm-editor')!)).toBe(view);
+    expect(view.state.doc.toString()).toBe('one cat');
+    expect(view.state.selection.main.head).toBe(7);
+    expect(undoDepth(view.state)).toBe(1);
+  });
+
+  it('uses fresh import diagnostics when typing an import after unrelated snapshot edits', () => {
+    const first = { ...globals, imports: { 42: '#missing' } };
+    const next = { ...globals, imports: { 42: 'resolved' } };
+    const view = render('plain', 10, first);
+    render('plain', 10, next);
+    act(() => view.dispatch({ changes: { from: 0, to: 5, insert: 'import main from 42' } }));
+    render('import main from 42', 10, next);
+    expect(view.dom.querySelector('.clarity-validation-warning')).toBeNull();
+  });
+
+  it('updates imported title diagnostics even while the document itself has no import', () => {
+    const titles = 'title Detail (\nimport main from 42\n)';
+    const first = { variables: '', titles, imports: { 42: '#missing' } };
+    const next = { variables: '', titles, imports: { 42: 'resolved' } };
+    const view = render('<title Label [Detail] />', 10, first);
+    expect(view.dom.querySelector('.clarity-validation-warning')).not.toBeNull();
+    render('<title Label [Detail] />', 10, next);
+    expect(view.dom.querySelector('.clarity-validation-warning')).toBeNull();
+  });
+  it('reuses the view but resets undo and selection when another tooltip has identical text', () => {
+    const view = render('one', 10);
+    act(() => view.dispatch({ changes: { from: 3, insert: ' cat' }, selection: { anchor: 7 } }));
+    expect(undoDepth(view.state)).toBe(1);
+    const next = render('one cat', 20);
+    expect(next).toBe(view);
+    expect(next.state.doc.toString()).toBe('one cat');
+    expect(next.state.selection.main.head).toBe(0);
+    expect(undoDepth(next.state)).toBe(0);
+  });
   it('opens at the top of the editor', () => {
     const view = render('one');
     act(() => void openSearchPanel(view));
@@ -65,9 +207,13 @@ describe('find and replace persistence', () => {
     expect(next.state.doc.toString()).toBe('two cat cat');
     expect(searchPanelOpen(next.state)).toBe(true);
     const query = getSearchQuery(next.state);
-    expect([query.search, query.replace, query.caseSensitive, query.wholeWord, query.regexp]).toEqual(
-      ['cat', 'dog', true, true, false],
-    );
+    expect([
+      query.search,
+      query.replace,
+      query.caseSensitive,
+      query.wholeWord,
+      query.regexp,
+    ]).toEqual(['cat', 'dog', true, true, false]);
     expect(host.querySelector<HTMLInputElement>('input[name=search]')!.value).toBe('cat');
     expect(host.querySelector<HTMLInputElement>('input[name=replace]')!.value).toBe('dog');
   });
@@ -85,7 +231,9 @@ describe('find and replace persistence', () => {
 
   it('keeps the caret in the editor when the same editor is rebuilt', () => {
     // Browsers focus a field on select(), which the panel calls when it opens; jsdom does not.
-    vi.spyOn(HTMLInputElement.prototype, 'select').mockImplementation(function (this: HTMLInputElement) {
+    vi.spyOn(HTMLInputElement.prototype, 'select').mockImplementation(function (
+      this: HTMLInputElement,
+    ) {
       this.focus();
     });
     const view = render('one');
@@ -109,7 +257,14 @@ describe('find and replace persistence', () => {
     const otherRoot = createRoot(other);
     act(() =>
       otherRoot.render(
-        <ClarityEditor value="stored" lang="en" globals={globals} readOnly findMemory={false} onChange={() => {}} />,
+        <ClarityEditor
+          value="stored"
+          lang="en"
+          globals={globals}
+          readOnly
+          findMemory={false}
+          onChange={() => {}}
+        />,
       ),
     );
     const second = EditorView.findFromDOM(other.querySelector<HTMLElement>('.cm-editor')!)!;
