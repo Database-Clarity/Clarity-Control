@@ -241,9 +241,11 @@ export function CompendiumPanel({
       stepping={stepping}
       pendingBase={incomingBase}
       pendingLink={
-        drafts[incomingBase.hash]
-          ? drafts[incomingBase.hash].next.compendium
-          : incomingBase.compendium
+        stepping
+          ? drafts[incomingBase.hash]
+            ? drafts[incomingBase.hash].next.compendium
+            : incomingBase.compendium
+          : incomingLink
       }
       pendingDraft={!!drafts[incomingBase.hash]?.next.compendium}
       pendingCell={!stepping ? (comparison?.after ?? incomingMatch?.row.cell) : undefined}
