@@ -2,7 +2,8 @@
   // Windows' implicit fallback search for Supplemental Arrows-C can take an
   // entire frame per glyph. Name the same symbol fallback explicitly, after
   // the existing text and Destiny fonts; other platforms ignore it if absent.
-  font-family: Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', sans-serif;
+  font-family:
+    Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', 'Segoe UI Emoji', 'Yu Gothic', sans-serif;
   min-width: 0;
   color: var(--text);
   padding-bottom: 6rem;
