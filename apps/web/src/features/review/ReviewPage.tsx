@@ -1,12 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type SyntheticEvent,
-} from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { apiUrl } from '../../services/api';
 import { errorMessage } from '../../services/http';
@@ -42,20 +34,11 @@ import { advanceReviewOpening, retainReviewPage, useReviewOpening } from './open
 // the existing page controls expose the rest without offscreen layout on open.
 const pageSize = 5;
 
-function blockOpeningInteraction(event: SyntheticEvent) {
-  event.preventDefault();
-  event.stopPropagation();
-}
-
 export function ReviewPage() {
   const opening = useReviewOpening((state) => state.warming);
   const openingToken = useReviewOpening((state) => state.token);
   const article = useRef<HTMLElement>(null);
-  const queuedSteps = useRef(0);
   useLayoutEffect(retainReviewPage, []);
-  useLayoutEffect(() => {
-    if (article.current) article.current.inert = opening;
-  }, [opening]);
   useLayoutEffect(() => {
     const state = useReviewOpening.getState();
     if (!state.warming || state.token !== openingToken || !window.requestAnimationFrame) return;
@@ -276,25 +259,13 @@ export function ReviewPage() {
         return;
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
       event.preventDefault();
-      if (opening) {
-        queuedSteps.current += event.key === 'ArrowDown' ? 1 : -1;
-        return;
-      }
       selectIndex((value) =>
         stepIndex(value, event.key === 'ArrowDown' ? 1 : -1, visibleEntries.length),
       );
     }
     window.addEventListener('keydown', keydown);
     return () => window.removeEventListener('keydown', keydown);
-  }, [opening, pushing, selectIndex, visibleEntries.length]);
-  useEffect(() => {
-    if (opening || pushing || !queuedSteps.current) return;
-    const steps = queuedSteps.current;
-    queuedSteps.current = 0;
-    const focus = document.activeElement;
-    if (focus && focus !== document.body && !article.current?.contains(focus)) return;
-    selectIndex((value) => stepIndex(value, steps, visibleEntries.length));
-  }, [opening, pushing, selectIndex, visibleEntries.length]);
+  }, [pushing, selectIndex, visibleEntries.length]);
   const hashes = selected.size
     ? selectedPending(selected, entries).filter((hash) => !inFlight.has(hash))
     : [];
@@ -344,234 +315,210 @@ export function ReviewPage() {
   return (
     <>
       <p role="status" className={opening ? styles.openingStatus : styles.readyStatus}>
-        {opening ? 'Opening Review…' : 'Review ready.'}
+        {opening ? 'Loading sidebar…' : 'Review ready.'}
       </p>
-      <article
-        ref={article}
-        aria-busy={loading || opening}
-        onClickCapture={opening ? blockOpeningInteraction : undefined}
-        onChangeCapture={opening ? blockOpeningInteraction : undefined}
-        className={opening ? styles.opening : undefined}
-      >
-        <fieldset
-          className={styles.openingControls}
-          // Native inert keeps the presentation visually identical at activation.
-          // Older browsers still get disabled controls plus the capture guards.
-          disabled={opening && !('inert' in HTMLElement.prototype)}
-          aria-hidden={opening || undefined}
-        >
-          <header className={styles.heading}>
-            <h1>Review changes</h1>
-            <p>
-              Saved changes waiting to go live, grouped by category. Use Up/Down outside controls,
-              or Previous/Next, to walk through them.
-            </p>
-          </header>
-          {Object.keys(drafts).length > 0 && (
-            <p>Local drafts are not included. Save them through the tooltip editor first.</p>
-          )}
-          {(!apiUrl || !user?.role) && (
-            <p className={styles.authNotice} role="note">
-              {apiUrl
-                ? 'Sign in as a configured member to compare live versions and browse history. Only editors and maintainers may push.'
-                : 'Live comparison and history need a configured API. Saved changes remain local.'}
-            </p>
-          )}
-          {confirming && (
-            <PushConfirm
-              entries={confirming.entries}
-              background={publisher}
-              onConfirm={() => void publish(confirming)}
-              onCancel={() => setConfirming(undefined)}
-            />
-          )}
-          {error && <p role="alert">{error}</p>}
-          {pushError && <p role="alert">{pushError}</p>}
-          {notice && <p role="status">{notice}</p>}
-          {publisher && canPush(user) && <PublishActivity queue={data?.bundle.publishQueue} />}
-          <div className={styles.toolbar}>
-            <button type="button" disabled={pushing || loading} onClick={() => void load()}>
-              Refresh saved changes
+      <article ref={article} aria-busy={loading} className={styles.page}>
+        <header className={styles.heading}>
+          <h1>Review changes</h1>
+          <p>
+            Saved changes waiting to go live, grouped by category. Use Up/Down outside controls, or
+            Previous/Next, to walk through them.
+          </p>
+        </header>
+        {Object.keys(drafts).length > 0 && (
+          <p>Local drafts are not included. Save them through the tooltip editor first.</p>
+        )}
+        {(!apiUrl || !user?.role) && (
+          <p className={styles.authNotice} role="note">
+            {apiUrl
+              ? 'Sign in as a configured member to compare live versions and browse history. Only editors and maintainers may push.'
+              : 'Live comparison and history need a configured API. Saved changes remain local.'}
+          </p>
+        )}
+        {confirming && (
+          <PushConfirm
+            entries={confirming.entries}
+            background={publisher}
+            onConfirm={() => void publish(confirming)}
+            onCancel={() => setConfirming(undefined)}
+          />
+        )}
+        {error && <p role="alert">{error}</p>}
+        {pushError && <p role="alert">{pushError}</p>}
+        {notice && <p role="status">{notice}</p>}
+        {publisher && canPush(user) && <PublishActivity queue={data?.bundle.publishQueue} />}
+        <div className={styles.toolbar}>
+          <button type="button" disabled={pushing || loading} onClick={() => void load()}>
+            Refresh saved changes
+          </button>
+          <span>
+            {entries.length} pending / {hashes.length} selected
+          </span>
+          {canPush(user) && (
+            <button
+              type="button"
+              disabled={pushing || loading || !hashes.length}
+              onClick={askToPublish}
+            >
+              {publisher
+                ? pushing
+                  ? 'Starting...'
+                  : 'Publish selected'
+                : pushing
+                  ? 'Pushing...'
+                  : 'Push selected'}
             </button>
-            <span>
-              {entries.length} pending / {hashes.length} selected
-            </span>
-            {canPush(user) && (
-              <button
-                type="button"
-                disabled={pushing || loading || !hashes.length}
-                onClick={askToPublish}
-              >
-                {publisher
-                  ? pushing
-                    ? 'Starting...'
-                    : 'Publish selected'
-                  : pushing
-                    ? 'Pushing...'
-                    : 'Push selected'}
-              </button>
-            )}
-          </div>
-          {!!entries.length && (
-            <div className={styles.filters}>
-              <label>
-                Find saved changes
-                <input
-                  type="search"
-                  aria-label="Find saved changes"
-                  value={query}
-                  onChange={(event) => updateFilters(event.target.value, categoryFilter)}
-                  placeholder="Name, category or hash"
-                />
-              </label>
-              <label>
-                Category
-                <select
-                  data-perf-navigation="true"
-                  aria-label="Category"
-                  value={categoryFilter}
-                  onChange={(event) => updateFilters(query, event.target.value)}
-                >
-                  <option value="">All categories</option>
-                  {categories.map(({ id, label }) => (
-                    <option key={id} value={id}>
-                      {label} · {id}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <span>
-                Showing {visibleEntries.length} of {entries.length}
-              </span>
-            </div>
           )}
-          {loading ? (
-            <p role="status">Comparing publishable content...</p>
-          ) : !entries.length ? (
-            <p>No saved changes are waiting to go live.</p>
-          ) : !visibleEntries.length ? (
-            <section className={styles.empty}>
-              <p>No saved changes match these filters.</p>
+        </div>
+        {!!entries.length && (
+          <div className={styles.filters}>
+            <label>
+              Find saved changes
+              <input
+                type="search"
+                aria-label="Find saved changes"
+                value={query}
+                onChange={(event) => updateFilters(event.target.value, categoryFilter)}
+                placeholder="Name, category or hash"
+              />
+            </label>
+            <label>
+              Category
+              <select
+                data-perf-navigation="true"
+                aria-label="Category"
+                value={categoryFilter}
+                onChange={(event) => updateFilters(query, event.target.value)}
+              >
+                <option value="">All categories</option>
+                {categories.map(({ id, label }) => (
+                  <option key={id} value={id}>
+                    {label} · {id}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span>
+              Showing {visibleEntries.length} of {entries.length}
+            </span>
+          </div>
+        )}
+        {loading ? (
+          <p role="status">Comparing publishable content...</p>
+        ) : !entries.length ? (
+          <p>No saved changes are waiting to go live.</p>
+        ) : !visibleEntries.length ? (
+          <section className={styles.empty}>
+            <p>No saved changes match these filters.</p>
+            <button type="button" data-perf-navigation="true" onClick={() => updateFilters('', '')}>
+              Clear filters
+            </button>
+          </section>
+        ) : (
+          <>
+            <div className={styles.toolbar}>
               <button
                 type="button"
+                disabled={!index || pushing}
                 data-perf-navigation="true"
-                onClick={() => updateFilters('', '')}
+                onClick={() => selectIndex((value) => stepIndex(value, -1, visibleEntries.length))}
               >
-                Clear filters
+                Previous
               </button>
-            </section>
-          ) : (
-            <>
-              <div className={styles.toolbar}>
-                <button
-                  type="button"
-                  disabled={!index || pushing}
-                  data-perf-navigation="true"
-                  onClick={() =>
-                    selectIndex((value) => stepIndex(value, -1, visibleEntries.length))
-                  }
-                >
-                  Previous
-                </button>
-                <span>
-                  {index + 1} of {visibleEntries.length}
-                </span>
-                <button
-                  type="button"
-                  disabled={index >= visibleEntries.length - 1 || pushing}
-                  data-perf-navigation="true"
-                  onClick={() => selectIndex((value) => stepIndex(value, 1, visibleEntries.length))}
-                >
-                  Next
-                </button>
-              </div>
-              <div className={styles.workspace}>
-                <section className={styles.card} aria-label="Pending changes">
-                  <header className={styles.listHeading}>
-                    <h2>Pending changes</h2>
-                    <div className={styles.toolbar}>
-                      <button
-                        type="button"
-                        disabled={pushing}
-                        onClick={() =>
-                          setSelected(
-                            (previous) =>
-                              new Set([
-                                ...previous,
-                                ...publishableHashes(page).filter((hash) => !inFlight.has(hash)),
-                              ]),
-                          )
-                        }
-                      >
-                        Select page
-                      </button>
-                      <button
-                        type="button"
-                        disabled={pushing}
-                        onClick={() => setSelected(new Set())}
-                      >
-                        Clear selection
-                      </button>
-                    </div>
-                  </header>
-                  {groups.map((categoryId) => {
-                    const category = page.find((entry) => entry.categoryId === categoryId)!;
-                    return (
-                      <section key={categoryId} aria-label={`${category.category} (${categoryId})`}>
-                        <h3 className={styles.categoryHeading}>
-                          {category.category} <small>· {categoryId}</small>
-                        </h3>
-                        <ul className={styles.list}>
-                          {page
-                            .filter((entry) => entry.categoryId === categoryId)
-                            .map((entry) => (
-                              <ReviewRow
-                                key={entry.tooltip.hash}
-                                entry={entry}
-                                checked={selected.has(entry.tooltip.hash)}
-                                active={visibleEntries[index]?.tooltip.hash === entry.tooltip.hash}
-                                disabled={pushing}
-                                publishing={inFlight.has(entry.tooltip.hash)}
-                                historyAvailable={Boolean(apiUrl && user?.role)}
-                                onToggle={toggleRow}
-                                onOpen={openRow}
-                              />
-                            ))}
-                        </ul>
-                      </section>
-                    );
-                  })}
+              <span>
+                {index + 1} of {visibleEntries.length}
+              </span>
+              <button
+                type="button"
+                disabled={index >= visibleEntries.length - 1 || pushing}
+                data-perf-navigation="true"
+                onClick={() => selectIndex((value) => stepIndex(value, 1, visibleEntries.length))}
+              >
+                Next
+              </button>
+            </div>
+            <div className={styles.workspace}>
+              <section className={styles.card} aria-label="Pending changes">
+                <header className={styles.listHeading}>
+                  <h2>Pending changes</h2>
                   <div className={styles.toolbar}>
                     <button
                       type="button"
-                      disabled={!start || pushing}
-                      data-perf-navigation="true"
-                      onClick={() => selectIndex(start - pageSize)}
+                      disabled={pushing}
+                      onClick={() =>
+                        setSelected(
+                          (previous) =>
+                            new Set([
+                              ...previous,
+                              ...publishableHashes(page).filter((hash) => !inFlight.has(hash)),
+                            ]),
+                        )
+                      }
                     >
-                      Previous page
+                      Select page
                     </button>
-                    <button
-                      type="button"
-                      disabled={start + pageSize >= visibleEntries.length || pushing}
-                      data-perf-navigation="true"
-                      onClick={() => selectIndex(start + pageSize)}
-                    >
-                      Next page
+                    <button type="button" disabled={pushing} onClick={() => setSelected(new Set())}>
+                      Clear selection
                     </button>
                   </div>
-                </section>
-                {visibleEntries[index] && user?.role && apiUrl && (
-                  <div className={styles.card}>
-                    <ReviewDetail
-                      key={visibleEntries[index].tooltip.hash}
-                      entry={visibleEntries[index]}
-                    />
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-        </fieldset>
+                </header>
+                {groups.map((categoryId) => {
+                  const category = page.find((entry) => entry.categoryId === categoryId)!;
+                  return (
+                    <section key={categoryId} aria-label={`${category.category} (${categoryId})`}>
+                      <h3 className={styles.categoryHeading}>
+                        {category.category} <small>· {categoryId}</small>
+                      </h3>
+                      <ul className={styles.list}>
+                        {page
+                          .filter((entry) => entry.categoryId === categoryId)
+                          .map((entry) => (
+                            <ReviewRow
+                              key={entry.tooltip.hash}
+                              entry={entry}
+                              checked={selected.has(entry.tooltip.hash)}
+                              active={visibleEntries[index]?.tooltip.hash === entry.tooltip.hash}
+                              disabled={pushing}
+                              publishing={inFlight.has(entry.tooltip.hash)}
+                              historyAvailable={Boolean(apiUrl && user?.role)}
+                              onToggle={toggleRow}
+                              onOpen={openRow}
+                            />
+                          ))}
+                      </ul>
+                    </section>
+                  );
+                })}
+                <div className={styles.toolbar}>
+                  <button
+                    type="button"
+                    disabled={!start || pushing}
+                    data-perf-navigation="true"
+                    onClick={() => selectIndex(start - pageSize)}
+                  >
+                    Previous page
+                  </button>
+                  <button
+                    type="button"
+                    disabled={start + pageSize >= visibleEntries.length || pushing}
+                    data-perf-navigation="true"
+                    onClick={() => selectIndex(start + pageSize)}
+                  >
+                    Next page
+                  </button>
+                </div>
+              </section>
+              {visibleEntries[index] && user?.role && apiUrl && (
+                <div className={styles.card}>
+                  <ReviewDetail
+                    key={visibleEntries[index].tooltip.hash}
+                    entry={visibleEntries[index]}
+                  />
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </article>
     </>
   );
