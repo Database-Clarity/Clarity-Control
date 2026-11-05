@@ -1,12 +1,12 @@
-import { startTransition, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { startTransition, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { CompendiumData } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import type { Drafts } from '../../services/draftStorage';
 import { apiUrl } from '../../services/api';
 import { bundleUrl } from '../../services/bundle';
-import { compendiumDataUrl } from '../../services/compendium';
+import { pendingCompendiumWorker, compendiumDataUrl } from '../../services/compendium';
 import { guidanceResponseSchema } from './guidanceSchema';
-import { matchingSession } from './matchingSession';
+import { matchingSession, prewarmMatchingSession } from './matchingSession';
 import type { displayMatches } from './displayMatches';
 import { storedInputs, type StoredInputs } from './storedInputs';
 
@@ -24,16 +24,21 @@ function remember(editor: EditorData, source: CompendiumData, entry: Remembered)
   sources.set(source, entry);
 }
 
-const evidenceByDrafts = new WeakMap<Drafts, string>();
-const evidenceByEntry = new WeakMap<Drafts[string], string>();
-function draftEvidence(drafts: Drafts) {
-  const existing = evidenceByDrafts.get(drafts);
+const evidenceByDrafts = new WeakMap<EditorData, WeakMap<Drafts, string>>();
+const evidenceByEntry = new WeakMap<EditorData, WeakMap<Drafts[string], string>>();
+function draftEvidence(editor: EditorData | null, drafts: Drafts) {
+  if (!editor) return '[]';
+  let byDrafts = evidenceByDrafts.get(editor);
+  if (!byDrafts) evidenceByDrafts.set(editor, (byDrafts = new WeakMap()));
+  let byEntry = evidenceByEntry.get(editor);
+  if (!byEntry) evidenceByEntry.set(editor, (byEntry = new WeakMap()));
+  const existing = byDrafts.get(drafts);
   if (existing !== undefined) return existing;
   const parts: string[] = [];
   for (const [hash, draft] of Object.entries(drafts)) {
     if (!(draft.base.compendium || draft.next.compendium || draft.base.custom || draft.next.custom))
       continue;
-    let part = evidenceByEntry.get(draft);
+    let part = byEntry.get(draft);
     if (part === undefined) {
       // Only link/classification metadata affects matching. In particular, never serialize
       // all saved translations/snapshots from every unchanged draft on each keystroke.
@@ -44,13 +49,22 @@ function draftEvidence(drafts: Drafts) {
         compendium: value.compendium,
         custom: value.custom,
       });
-      part = JSON.stringify([hash, { base: project(draft.base), next: project(draft.next) }]);
-      evidenceByEntry.set(draft, part);
+      const current = editor.bundle.tooltips[hash];
+      // A first text edit of a saved custom/linked tooltip adds a draft, but
+      // changes no matching inputs. Compare both ends with the current editor
+      // revision: a refreshed baseline may have a different saved link.
+      const metadata = JSON.stringify([current?.compendium, current?.custom]);
+      part =
+        metadata === JSON.stringify([draft.base.compendium, draft.base.custom]) &&
+        metadata === JSON.stringify([draft.next.compendium, draft.next.custom])
+          ? ''
+          : JSON.stringify([hash, { base: project(draft.base), next: project(draft.next) }]);
+      byEntry.set(draft, part);
     }
-    parts.push(part);
+    if (part) parts.push(part);
   }
   const value = `[${parts.join(',')}]`;
-  evidenceByDrafts.set(drafts, value);
+  byDrafts.set(drafts, value);
   return value;
 }
 
@@ -59,8 +73,22 @@ export function useDisplayMatches(
   source: CompendiumData | null,
   drafts: Drafts,
   userId?: string | number,
+  priorityHash?: number,
 ) {
-  const evidence = draftEvidence(drafts);
+  const typingUntil = useRef(0);
+  useEffect(() => {
+    const input = (event: Event) => {
+      if (event.target instanceof Element && event.target.closest('.cm-content'))
+        typingUntil.current = performance.now() + 300;
+    };
+    document.addEventListener('beforeinput', input, true);
+    document.addEventListener('input', input, true);
+    return () => {
+      document.removeEventListener('beforeinput', input, true);
+      document.removeEventListener('input', input, true);
+    };
+  }, []);
+  const evidence = draftEvidence(editor, drafts);
   const matchingDrafts = useMemo(
     () => Object.fromEntries(JSON.parse(evidence)) as Drafts,
     [evidence],
@@ -89,6 +117,7 @@ export function useDisplayMatches(
     inputs: StoredInputs;
     revision: number;
     matches: Value['matches'];
+    priorityHash?: number;
   }>();
   const [result, setResult] = useState<{
     editor: EditorData;
@@ -111,8 +140,10 @@ export function useDisplayMatches(
     };
   }, []);
   useEffect(() => {
-    if (!editor || !source) return;
-    const previous = memory.get(editor)?.get(source);
+    if (!editor) return;
+    const bridge = !source ? pendingCompendiumWorker() : undefined;
+    if (!source && (!bridge || priorityHash === undefined)) return;
+    const previous = source ? memory.get(editor)?.get(source) : undefined;
     if (
       !import.meta.env.DEV &&
       previous?.evidence === evidence &&
@@ -121,6 +152,38 @@ export function useDisplayMatches(
     )
       return;
     let cancelled = false;
+    let idlePublication: number | undefined;
+    let quietPublication: ReturnType<typeof setTimeout> | undefined;
+    const publishWhenQuiet = (update: () => void) => {
+      if (cancelled) return;
+      if (idlePublication !== undefined) cancelIdleCallback(idlePublication);
+      if (quietPublication !== undefined) clearTimeout(quietPublication);
+      const commit = () => {
+        idlePublication = undefined;
+        if (cancelled) return;
+        const remaining = typingUntil.current - performance.now();
+        const pending = (
+          navigator as Navigator & { scheduling?: { isInputPending(): boolean } }
+        ).scheduling?.isInputPending();
+        if (remaining > 0 || pending) {
+          quietPublication = setTimeout(schedule, Math.max(16, remaining));
+          return;
+        }
+        startTransition(update);
+      };
+      const schedule = () => {
+        quietPublication = undefined;
+        if (cancelled) return;
+        const remaining = typingUntil.current - performance.now();
+        // Publishing ready matches also triggers text layout. Keep that work
+        // after a pause in real editor input, uniformly for every tooltip.
+        if (remaining > 0) quietPublication = setTimeout(schedule, remaining);
+        else if (typeof requestIdleCallback === 'function')
+          idlePublication = requestIdleCallback(commit, { timeout: 50 });
+        else commit();
+      };
+      schedule();
+    };
     void (async () => {
       if (inputs.error) throw new Error(inputs.error);
       const cached = inputs.cached;
@@ -135,27 +198,45 @@ export function useDisplayMatches(
           throw new Error('Local Compendium guidance conflicts with disk.');
         local = cached?.pending ? local : (disk.document ?? local);
       }
-      const value = await matchingSession(editor, source).display(
-        {
-          drafts: matchingDrafts,
-          progress: inputs.progress,
-          local,
-          scope,
-        },
-        (matches) => {
-          if (!cancelled)
-            startTransition(() =>
-              setEarlyMatches({ editor, source, evidence, userId, inputs, revision, matches }),
-            );
-        },
-      );
-      remember(editor, source, { evidence, userId, inputs, value });
-      if (!cancelled)
-        startTransition(() =>
-          setResult({ editor, source, evidence, userId, inputs, revision, value }),
+      const session = source
+        ? matchingSession(editor, source)
+        : bridge && prewarmMatchingSession(editor, bridge);
+      if (!session) return;
+      const input = { drafts: matchingDrafts, progress: inputs.progress, local, scope };
+      // Queue intent while the source is still hydrating on the main thread.
+      // The retained worker already owns the complete source and editor inputs.
+      if (!source) {
+        if (priorityHash !== undefined)
+          void session.prioritize(input, priorityHash).catch(() => undefined);
+        return;
+      }
+      const publish = (matches: Value['matches']) =>
+        publishWhenQuiet(() =>
+          setEarlyMatches({
+            editor,
+            source,
+            evidence,
+            userId,
+            inputs,
+            revision,
+            matches,
+            priorityHash,
+          }),
         );
+      if (priorityHash !== undefined)
+        void session
+          .prioritize(input, priorityHash)
+          .then(publish)
+          .catch(() => {
+            // The full request owns errors; superseded priority requests are expected.
+          });
+      const value = await session.display(input, publish);
+      publishWhenQuiet(() => {
+        remember(editor, source, { evidence, userId, inputs, value });
+        setResult({ editor, source, evidence, userId, inputs, revision, value });
+      });
     })().catch((error: unknown) => {
-      if (!cancelled)
+      if (!cancelled && source)
         setResult({
           editor,
           source,
@@ -168,8 +249,10 @@ export function useDisplayMatches(
     });
     return () => {
       cancelled = true;
+      if (idlePublication !== undefined) cancelIdleCallback(idlePublication);
+      if (quietPublication !== undefined) clearTimeout(quietPublication);
     };
-  }, [editor, source, matchingDrafts, evidence, userId, revision, inputs, scope]);
+  }, [editor, source, matchingDrafts, evidence, userId, revision, inputs, scope, priorityHash]);
   const current =
     result?.editor === editor &&
     result?.source === source &&
@@ -192,22 +275,23 @@ export function useDisplayMatches(
       : remembered?.userId === userId
         ? remembered?.value
         : undefined);
+  const partial =
+    !current?.error &&
+    earlyMatches?.editor === editor &&
+    earlyMatches.source === source &&
+    earlyMatches.evidence === evidence &&
+    earlyMatches.userId === userId &&
+    earlyMatches.inputs.key === inputs.key &&
+    earlyMatches.revision === revision &&
+    earlyMatches.priorityHash === priorityHash
+      ? earlyMatches.matches
+      : undefined;
   return {
     prepared: value,
     reviewPrepared,
-    matches:
-      value?.matches ??
-      (!current?.error &&
-      earlyMatches?.editor === editor &&
-      earlyMatches.source === source &&
-      earlyMatches.evidence === evidence &&
-      earlyMatches.userId === userId &&
-      earlyMatches.inputs.key === inputs.key &&
-      earlyMatches.revision === revision
-        ? earlyMatches.matches
-        : undefined),
+    matches: value?.matches ?? partial,
     decisions: value?.decisions,
-    loading: !!editor && !!source && !current && !value,
+    loading: !!editor && !!source && !current && !value && (priorityHash === undefined || !partial),
     error: current?.error,
   };
 }

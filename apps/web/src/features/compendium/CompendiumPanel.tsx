@@ -77,13 +77,14 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
     source,
     drafts,
     userId,
+    displayed.hash,
   );
   return (
     <PaneContents
       base={displayed}
       pending={displayed !== base}
       link={retainedLink.current.value}
-      draft={!!draft}
+      draft={!!draft && !!link}
       matched={matched}
       matching={matching}
       matchError={matchError}
@@ -192,7 +193,15 @@ const PaneContents = memo(function PaneContents({
         </RightPaneHeader>
       }
     >
-      <div className={styles.zoom} style={{ zoom: scale / 100 }} data-scale={scale}>
+      <div
+        className={styles.zoom}
+        style={{ zoom: scale / 100 }}
+        data-scale={scale}
+        data-match-hash={base.hash}
+        data-match-state={
+          matchError ? 'error' : loading || (!link && matching && !matched) ? 'loading' : 'ready'
+        }
+      >
         {picking && canEdit && (
           <div className={styles.picker}>
             <LinkPicker
@@ -212,23 +221,33 @@ const PaneContents = memo(function PaneContents({
             </button>
           </p>
         )}
-        {!link && matching && <p role="status">Matching Compendium…</p>}
-        {!link && matchError && <p role="alert">{matchError}</p>}
-        {!link && !matched && !matching && !loading && !matchError && (
-          <p>No Compendium row linked yet.</p>
+        {!link && (
+          <p
+            role={matching && !matched ? 'status' : undefined}
+            className={styles.meta}
+            style={{ minHeight: '1lh' }}
+          >
+            {matched ? (
+              <>
+                <span
+                  className={styles.matched}
+                  title="Matched automatically — not saved"
+                  tabIndex={0}
+                >
+                  Matched
+                </span>{' '}
+                {matched.tab.name} / {matched.row.name}
+              </>
+            ) : matching ? (
+              'Matching Compendium…'
+            ) : !loading && !matchError ? (
+              'No Compendium row linked yet.'
+            ) : null}
+          </p>
         )}
+        {!link && matchError && <p role="alert">{matchError}</p>}
         {!link && matched && (
           <>
-            <p className={styles.meta}>
-              <span
-                className={styles.matched}
-                title="Matched automatically — not saved"
-                tabIndex={0}
-              >
-                Matched
-              </span>{' '}
-              {matched.tab.name} / {matched.row.name}
-            </p>
             <p className={approvalChanged ? styles.warning : undefined}>
               {approved
                 ? approvalChanged

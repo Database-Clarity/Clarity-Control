@@ -9,16 +9,238 @@ import { compendiumDataUrl } from '../../services/compendium';
 import { emptyProgress, reviewStorageKey } from './reviewProgress';
 import { notifyCompendiumInputs } from './inputEvents';
 import { useDisplayMatches } from './useDisplayMatches';
+import * as sourceService from '../../services/compendium';
 
-const calls = vi.hoisted(() => ({ display: vi.fn() }));
+const calls = vi.hoisted(() => ({ display: vi.fn(), prioritize: vi.fn(), prewarm: vi.fn() }));
 vi.mock('./matchingSession', async (original) => ({
   ...(await original<typeof import('./matchingSession')>()),
-  matchingSession: () => ({ display: calls.display }),
+  matchingSession: () => ({ display: calls.display, prioritize: calls.prioritize }),
+  prewarmMatchingSession: calls.prewarm,
 }));
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
+
+it.each(['linked', 'custom'] as const)(
+  'keeps first %s text edits out of matching inputs and invalidates refreshed metadata',
+  async (kind) => {
+    vi.stubEnv('DEV', false);
+    vi.stubGlobal('localStorage', { getItem: () => null });
+    const f = guidedFixture();
+    const original = f.categories[0].entries[0].base;
+    const base = {
+      ...original,
+      ...(kind === 'custom'
+        ? { custom: { name: 'Saved custom tooltip', categoryId: 'weapon-perk' } }
+        : {
+            compendium: {
+              gid: 'g1',
+              rowKey: 'Saved row',
+              snapshotAt: '2026-11-04T00:00:00Z',
+              snapshot: { plain: 'Saved', runs: [{ text: 'Saved' }] },
+            },
+          }),
+    };
+    const editor = {
+      ...f.editor,
+      bundle: { ...f.editor.bundle, tooltips: { ...f.editor.bundle.tooltips, [base.hash]: base } },
+    };
+    const next = {
+      ...base,
+      text: {
+        en: {
+          text: 'First text edit',
+          updatedAt: '2026-11-05T00:00:00Z',
+          updatedBy: 'fixture-editor',
+        },
+      },
+    };
+    const drafts = { [base.hash]: { base, next } };
+    calls.display.mockReset().mockReturnValue(new Promise(() => undefined));
+    function Probe({ data, drafts }: { data: typeof editor; drafts: Drafts }) {
+      useDisplayMatches(data, f.source, drafts, `first-metadata-${kind}`);
+      return null;
+    }
+    const root = createRoot(document.createElement('div'));
+    try {
+      await act(async () => root.render(<Probe data={editor} drafts={{}} />));
+      await act(async () => root.render(<Probe data={editor} drafts={drafts} />));
+      expect(calls.display).toHaveBeenCalledTimes(1);
+      // Reusing a draft after a remote baseline changes must retain its older
+      // link/classification as an actual overlay, rather than reuse this cache.
+      const refreshed = {
+        ...editor,
+        bundle: {
+          ...editor.bundle,
+          tooltips: {
+            ...editor.bundle.tooltips,
+            [base.hash]: { ...original },
+          },
+        },
+      };
+      await act(async () => root.render(<Probe data={refreshed} drafts={drafts} />));
+      expect(calls.display).toHaveBeenCalledTimes(2);
+      const projected = calls.display.mock.calls[1][0].drafts[base.hash].next;
+      expect(projected.compendium).toEqual(base.compendium);
+      expect(projected.custom).toEqual(base.custom);
+      expect(projected.text).toEqual({});
+    } finally {
+      await act(async () => root.unmount());
+    }
+  },
+);
+
+it('publishes a priority reply from idle and cancels stale queued publications', async () => {
+  vi.stubEnv('DEV', false);
+  vi.stubGlobal('localStorage', { getItem: () => null });
+  const idle = new Map<number, IdleRequestCallback>();
+  let serial = 0;
+  vi.stubGlobal(
+    'requestIdleCallback',
+    vi.fn((callback: IdleRequestCallback) => {
+      idle.set(++serial, callback);
+      return serial;
+    }),
+  );
+  vi.stubGlobal(
+    'cancelIdleCallback',
+    vi.fn((id: number) => idle.delete(id)),
+  );
+  const f = guidedFixture();
+  const matches = new Map();
+  calls.prioritize.mockReset().mockResolvedValue(matches);
+  calls.display.mockReset().mockReturnValue(new Promise(() => undefined));
+  let latest: ReturnType<typeof useDisplayMatches>;
+  function Probe({ hash }: { hash: number }) {
+    latest = useDisplayMatches(f.editor, f.source, {}, 'idle-priority', hash);
+    return null;
+  }
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(<Probe hash={100} />));
+    expect(latest!.matches).toBeUndefined();
+    expect(latest!.loading).toBe(true);
+    expect(requestIdleCallback).toHaveBeenCalledWith(expect.any(Function), { timeout: 50 });
+    const stale = [...idle.values()][0];
+    await act(async () => root.render(<Probe hash={200} />));
+    expect(cancelIdleCallback).toHaveBeenCalledWith(1);
+    await act(async () => stale({ didTimeout: false, timeRemaining: () => 5 }));
+    expect(latest!.matches).toBeUndefined();
+    await act(async () => [...idle.values()][0]({ didTimeout: false, timeRemaining: () => 5 }));
+    expect(latest!.matches).toBe(matches);
+    expect(latest!.loading).toBe(false);
+    expect(latest!.prepared).toBeUndefined();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it('holds priority and full results through editor input until a quiet idle gap', async () => {
+  vi.stubEnv('DEV', false);
+  vi.stubGlobal('localStorage', { getItem: () => null });
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+  const idle: IdleRequestCallback[] = [];
+  vi.stubGlobal(
+    'requestIdleCallback',
+    vi.fn((callback: IdleRequestCallback) => idle.push(callback)),
+  );
+  vi.stubGlobal('cancelIdleCallback', vi.fn());
+  let pending = false;
+  vi.stubGlobal('navigator', { scheduling: { isInputPending: () => pending } });
+  const f = guidedFixture();
+  const matches = new Map();
+  const value = { matches, decisions: [] };
+  let finish!: (value: unknown) => void;
+  calls.prioritize.mockReset().mockResolvedValue(matches);
+  calls.display.mockReset().mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  let latest: ReturnType<typeof useDisplayMatches>;
+  function Probe() {
+    latest = useDisplayMatches(f.editor, f.source, {}, 'typing-quiet', 100);
+    return null;
+  }
+  const editor = document.createElement('div');
+  editor.className = 'cm-content';
+  document.body.append(editor);
+  const root = createRoot(document.createElement('div'));
+  const deadline = { didTimeout: false, timeRemaining: () => 5 };
+  try {
+    await act(async () => root.render(<Probe />));
+    editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    await act(async () => idle.shift()!(deadline));
+    expect(latest!.loading).toBe(true);
+    await act(async () => vi.advanceTimersByTimeAsync(299));
+    editor.dispatchEvent(new InputEvent('beforeinput', { bubbles: true }));
+    await act(async () => finish(value));
+    // A complete result must not escape the quiet gate through the memory cache.
+    await act(async () => root.render(<Probe />));
+    expect(latest!.prepared).toBeUndefined();
+    expect(latest!.matches).toBeUndefined();
+    await act(async () => vi.advanceTimersByTimeAsync(299));
+    expect(idle).toHaveLength(0);
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    pending = true;
+    await act(async () => idle.shift()!(deadline));
+    expect(latest!.loading).toBe(true);
+    pending = false;
+    await act(async () => vi.advanceTimersByTimeAsync(16));
+    await act(async () => idle.shift()!(deadline));
+    expect(latest!.prepared).toBe(value);
+    expect(latest!.matches).toBe(matches);
+    expect(latest!.loading).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+    editor.remove();
+    vi.useRealTimers();
+  }
+});
+
+it('queues the current tooltip before source hydration and publishes only after the source is bound', async () => {
+  vi.stubEnv('DEV', false);
+  vi.stubGlobal('localStorage', { getItem: () => null });
+  const f = guidedFixture();
+  const bridge = {} as NonNullable<ReturnType<typeof sourceService.pendingCompendiumWorker>>;
+  vi.spyOn(sourceService, 'pendingCompendiumWorker').mockReturnValue(bridge);
+  const matches = new Map([
+    [
+      100,
+      {
+        status: 'ok' as const,
+        changed: false,
+        tab: f.source.tabs[0],
+        row: f.source.tabs[0].rows[0],
+      },
+    ],
+  ]);
+  calls.prioritize.mockReset().mockResolvedValue(matches);
+  calls.prewarm.mockReset().mockReturnValue({ prioritize: calls.prioritize });
+  calls.display.mockReset().mockReturnValue(new Promise(() => undefined));
+  let latest: ReturnType<typeof useDisplayMatches>;
+  function Probe({ source }: { source: typeof f.source | null }) {
+    latest = useDisplayMatches(f.editor, source, {}, 'early-intent', 100);
+    return null;
+  }
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<Probe source={null} />));
+    expect(calls.prewarm).toHaveBeenCalledWith(f.editor, bridge);
+    expect(calls.prioritize).toHaveBeenCalledTimes(1);
+    expect(latest!.matches).toBeUndefined();
+    expect(calls.display).not.toHaveBeenCalled();
+    await act(async () => root.render(<Probe source={f.source} />));
+    expect(latest!.matches).toBe(matches);
+    expect(latest!.loading).toBe(false);
+    expect(latest!.prepared).toBeUndefined();
+  } finally {
+    await act(async () => root.unmount());
+  }
 });
 
 it('reuses content through typing/focus and withholds old matches when local decisions change', async () => {
