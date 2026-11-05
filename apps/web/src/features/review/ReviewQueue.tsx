@@ -43,6 +43,8 @@ export function ReviewQueue({
   const href = useHref('/review');
   const navigate = useNavigate();
   const location = useLocation();
+  const currentHash =
+    selectedHash ?? (!location.search && changes[0] ? String(changes[0].hash) : null);
   const [focusIndex, setFocusIndex] = useState<number>();
   // Start from the CSS viewport's default 37px header + 7rem allowance, avoiding
   // an oversized provisional window at the ordinary scale. Native observation
@@ -248,7 +250,7 @@ export function ReviewQueue({
               <QueueLink
                 change={change}
                 href={href}
-                current={selectedHash === String(change.hash)}
+                current={currentHash === String(change.hash)}
               />
             </li>
           );

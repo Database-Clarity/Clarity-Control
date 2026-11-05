@@ -11,7 +11,7 @@ import { useAuthStore } from './stores/auth';
 import { useEffect } from 'react';
 import { visibleLinks } from './features/navigation/links';
 import { preloadWorkspaces, workspacePage } from './workspacePreload';
-import { reviewRoute } from './features/review/route';
+import { reviewRoute, shouldRevalidateReview } from './features/review/route';
 
 import { AppLazyPage } from './AppLazyPage';
 const loadTooltipPage = workspacePage(() =>
@@ -90,6 +90,7 @@ export const routes: RouteObject[] = [
         path: 'review',
         element: <ReviewPage />,
         loader: reviewRoute,
+        shouldRevalidate: shouldRevalidateReview,
         handle: { preload: loadReviewPage },
       },
       { path: 'compendium/review', element: <MatchReviewPage /> },

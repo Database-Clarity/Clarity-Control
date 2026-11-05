@@ -266,14 +266,17 @@ it('preserves native link modifiers and current-route replacement with one queue
   try {
     await act(async () =>
       root.render(
-        <MemoryRouter basename="/app" initialEntries={['/app/review?hash=0']}>
-          <ReviewQueue changes={changes} selectedHash="0" />
+        <MemoryRouter basename="/app" initialEntries={['/app/review']}>
+          <ReviewQueue changes={changes} selectedHash={null} />
           <Location />
         </MemoryRouter>,
       ),
     );
     const first = host.querySelector<HTMLAnchorElement>('[data-index="1"] a')!;
     const second = host.querySelector<HTMLAnchorElement>('[data-index="2"] a')!;
+    expect(host.querySelector('a[aria-current="page"]')?.getAttribute('href')).toBe(
+      '/app/review?hash=0',
+    );
     expect(first.getAttribute('href')).toBe('/app/review?hash=1');
     const prevented: boolean[] = [];
     // Observe after React's delegated handler, then prevent jsdom's unsupported

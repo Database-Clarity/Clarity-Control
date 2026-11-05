@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { LoaderFunctionArgs } from 'react-router-dom';
-import { initialReviewParams, reviewRoute } from './route';
+import type { LoaderFunctionArgs, ShouldRevalidateFunctionArgs } from 'react-router-dom';
+import { initialReviewParams, reviewRoute, shouldRevalidateReview } from './route';
 import { preparedPending, type PendingTooltip } from './model';
 import { getPushedVersion } from '../../services/history';
 import { useAuthStore } from '../../stores/auth';
@@ -56,13 +56,68 @@ it('keeps the prepared selection in the same filtered URL without a second page 
   );
 });
 
-function open(signal?: AbortSignal) {
+function open(signal?: AbortSignal, search = '?hash=1') {
   return reviewRoute({
-    request: new Request('https://app.invalid/review?hash=1', { signal }),
+    request: new Request(`https://app.invalid/review${search}`, { signal }),
     params: {},
     context: {},
   } as LoaderFunctionArgs);
 }
+
+function canonicalize(overrides: Partial<ShouldRevalidateFunctionArgs> = {}) {
+  return shouldRevalidateReview({
+    currentUrl: new URL('https://app.invalid/app/review'),
+    nextUrl: new URL('https://app.invalid/app/review?hash=1'),
+    defaultShouldRevalidate: true,
+    ...overrides,
+  } as ShouldRevalidateFunctionArgs);
+}
+
+it('loads the implicit default once and skips only its one matching URL replacement', async () => {
+  await expect(open(undefined, '')).resolves.toBeNull();
+  expect(getPushedVersion).toHaveBeenCalledTimes(1);
+  expect(preparedReviewLiveValue(1)).toEqual({ tooltip: null, pushedHash: null });
+  expect(canonicalize()).toBe(false);
+  expect(canonicalize()).toBe(true);
+});
+
+it('keeps filtered or invalid selections on the canonical redirect path', async () => {
+  const result = await open(undefined, '?category=weapon&hash=1');
+  expect(result).toBeInstanceOf(Response);
+  expect((result as Response).headers.get('Location')).toBe('/review?category=weapon&hash=2');
+  expect(getPushedVersion).not.toHaveBeenCalled();
+});
+
+it('keeps the canonical redirect for a trailing-slash URL', async () => {
+  const result = await reviewRoute({
+    request: new Request('https://app.invalid/review/'),
+    params: {},
+    context: {},
+  } as LoaderFunctionArgs);
+  expect(result).toBeInstanceOf(Response);
+  expect((result as Response).headers.get('Location')).toBe('/review?hash=1');
+  expect(getPushedVersion).not.toHaveBeenCalled();
+});
+
+it.each(['account', 'snapshot', 'canceled', 'other hash', 'filter', 'submission'])(
+  'does not skip a fresh comparison after %s changes',
+  async (change) => {
+    const controller = new AbortController();
+    await open(controller.signal, '');
+    const overrides: Partial<ShouldRevalidateFunctionArgs> = {};
+    if (change === 'account')
+      useAuthStore.setState({ user: { id: 2, login: 'other', role: 'editor' } });
+    if (change === 'snapshot')
+      useDataStore.setState({ data: { ...useDataStore.getState().data! } });
+    if (change === 'canceled') controller.abort();
+    if (change === 'other hash')
+      overrides.nextUrl = new URL('https://app.invalid/app/review?hash=2');
+    if (change === 'filter')
+      overrides.nextUrl = new URL('https://app.invalid/app/review?hash=1&query=A');
+    if (change === 'submission') overrides.formMethod = 'GET';
+    expect(canonicalize(overrides)).toBe(true);
+  },
+);
 
 it('finishes loading only when the selected live value is ready for the first render', async () => {
   let resolve!: (value: { tooltip: null; pushedHash: string }) => void;

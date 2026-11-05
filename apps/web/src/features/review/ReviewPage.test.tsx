@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { merge3, publishableHash, type Tooltip } from '@clarity/core';
 import { Layout } from '../navigation/Layout';
@@ -12,6 +12,8 @@ import { useDraftStore } from '../../stores/drafts';
 import { loadGenerator } from '../../services/generator';
 import { loadBundle, type Bundle } from '../../services/bundle';
 import { useReviewSession } from './session';
+import { pendingTooltips } from './model';
+import { reviewRoute, shouldRevalidateReview } from './route';
 
 vi.mock('../../services/generator', () => ({ loadGenerator: vi.fn() }));
 vi.mock('../../services/bundle', () => ({ loadBundle: vi.fn() }));
@@ -195,6 +197,45 @@ afterEach(async () => {
   host.remove();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+});
+
+it('canonicalizes a plain data-router open with one live request and preserves Back and fresh revisits', async () => {
+  await useDataStore.getState().load();
+  await pendingTooltips(useDataStore.getState().data!);
+  const router = createMemoryRouter(
+    [
+      { path: '/other', element: <p>Other workspace</p> },
+      {
+        path: '/review',
+        element: <ReviewPage />,
+        loader: reviewRoute,
+        shouldRevalidate: shouldRevalidateReview,
+      },
+    ],
+    { initialEntries: ['/other'] },
+  );
+  const liveRequests = () =>
+    vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes('live=1'));
+  try {
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await act(async () => router.navigate('/review'));
+    await waitForReview();
+    await waitFor(() => {
+      expect(router.state.location.search).toBe('?hash=10');
+      expect(router.state.navigation.state).toBe('idle');
+    });
+    expect(router.state.historyAction).toBe('REPLACE');
+    expect(liveRequests()).toHaveLength(1);
+    expect(host.textContent).not.toContain('Loading last pushed text...');
+    await act(async () => router.navigate(-1));
+    expect(router.state.location.pathname).toBe('/other');
+    await act(async () => router.navigate('/review'));
+    await waitForReview();
+    await waitFor(() => expect(router.state.location.search).toBe('?hash=10'));
+    expect(liveRequests()).toHaveLength(2);
+  } finally {
+    router.dispose();
+  }
 });
 
 it('keeps the acknowledgment without reloading the bundle, then follows manual refreshes', async () => {
