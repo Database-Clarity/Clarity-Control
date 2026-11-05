@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type SyntheticEvent,
+} from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { apiUrl } from '../../services/api';
 import { errorMessage } from '../../services/http';
@@ -33,6 +41,11 @@ import { advanceReviewOpening, retainReviewPage, useReviewOpening } from './open
 // Keep the first page close to one viewport; every row is fully rendered, and
 // the existing page controls expose the rest without offscreen layout on open.
 const pageSize = 5;
+
+function blockOpeningInteraction(event: SyntheticEvent) {
+  event.preventDefault();
+  event.stopPropagation();
+}
 
 export function ReviewPage() {
   const opening = useReviewOpening((state) => state.warming);
@@ -336,11 +349,15 @@ export function ReviewPage() {
       <article
         ref={article}
         aria-busy={loading || opening}
+        onClickCapture={opening ? blockOpeningInteraction : undefined}
+        onChangeCapture={opening ? blockOpeningInteraction : undefined}
         className={opening ? styles.opening : undefined}
       >
         <fieldset
           className={styles.openingControls}
-          disabled={opening}
+          // Native inert keeps the presentation visually identical at activation.
+          // Older browsers still get disabled controls plus the capture guards.
+          disabled={opening && !('inert' in HTMLElement.prototype)}
           aria-hidden={opening || undefined}
         >
           <header className={styles.heading}>
