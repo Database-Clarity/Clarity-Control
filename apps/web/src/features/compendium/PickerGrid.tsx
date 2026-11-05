@@ -37,6 +37,7 @@ export const PickerGrid = memo(function PickerGrid({
   offsets,
   onToggle,
   onReady,
+  immediate = false,
 }: {
   tab: CompendiumSheet;
   firstRow: number;
@@ -46,6 +47,7 @@ export const PickerGrid = memo(function PickerGrid({
   offsets: CompendiumCellOffset[];
   onToggle(offset: CompendiumCellOffset): void;
   onReady?(): void;
+  immediate?: boolean;
 }) {
   const body = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
@@ -53,11 +55,12 @@ export const PickerGrid = memo(function PickerGrid({
   ready.current = onReady;
   const staged = !!onReady;
   const bands = useMemo(() => pickerBands(tab, firstRow, lastRow), [tab, firstRow, lastRow]);
-  const [state, setState] = useState({ bands, count: 1 });
-  if (state.bands !== bands) setState({ bands, count: 1 });
-  const count = state.bands === bands ? state.count : 1;
+  const firstCount = immediate ? bands.length : 1;
+  const [state, setState] = useState({ bands, count: firstCount });
+  if (state.bands !== bands) setState({ bands, count: firstCount });
+  const count = immediate ? bands.length : state.bands === bands ? state.count : 1;
   useLayoutEffect(() => {
-    if (bands.length < 2 || typeof ResizeObserver === 'undefined') {
+    if (immediate || bands.length < 2 || typeof ResizeObserver === 'undefined') {
       setState({ bands, count: bands.length });
       ready.current?.();
       return;
@@ -134,7 +137,7 @@ export const PickerGrid = memo(function PickerGrid({
       channel.port1.close();
       channel.port2.close();
     };
-  }, [bands, staged]);
+  }, [bands, staged, immediate]);
   const previousSelection = useRef<{ row: number; col: number }[]>([]);
   const previousLimit = useRef(false);
   useLayoutEffect(() => {

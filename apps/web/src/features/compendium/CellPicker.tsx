@@ -46,6 +46,7 @@ export const CellPicker = memo(function CellPicker({
         ?.focus();
   }, [detail, phone]);
   const [anchor, setAnchor] = useState<CompendiumPosition | undefined>(initial?.anchor);
+  const [immediateGrid, setImmediateGrid] = useState(false);
   useEffect(() => {
     if (phone || !anchor || !tab.grid) onReady?.();
   }, [phone, anchor, tab, onReady]);
@@ -84,6 +85,9 @@ export const CellPicker = memo(function CellPicker({
       )
     : [];
   function pickAnchor(position: CompendiumPosition) {
+    // This grid is already visible. Complete its replacement in one commit,
+    // retaining unchanged rows, rather than exposing hidden-preparation bands.
+    setImmediateGrid(true);
     setAnchor(position);
     setOffsets([]);
   }
@@ -179,6 +183,7 @@ export const CellPicker = memo(function CellPicker({
           )}
           {!phone && (
             <PickerGrid
+              immediate={immediateGrid}
               onReady={onReady}
               tab={tab}
               firstRow={firstRow}
