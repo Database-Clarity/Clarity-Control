@@ -35,34 +35,57 @@ function remember<K, V>(map: Map<K, Promise<V>>, key: K, limit: number, make: ()
 export function createRevisionCache(hash: number) {
   const versions = new Map<string, Promise<Tooltip | null>>();
   const pages = new Map<number, Promise<HistoryCommit[]>>();
+  const pending = new Map<AbortController, () => void>();
+  const loadPending = async <T>(
+    evict: () => void,
+    load: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> => {
+    const controller = new AbortController();
+    pending.set(controller, evict);
+    try {
+      const value = await load(controller.signal);
+      if (controller.signal.aborted) throw controller.signal.reason;
+      return value;
+    } finally {
+      pending.delete(controller);
+    }
+  };
   const snapshots = new Map<
     number,
     { commits: HistoryCommit[]; at: number; request: Promise<HistoryCommit[]> }
   >();
   const version = (commit: string) =>
-    remember(versions, commit, MAX_VERSIONS, async () => {
-      try {
-        return (await getVersion(hash, commit)).tooltip;
-      } catch (error) {
-        // Only the Worker's explicit immutable file-absence response means a deletion.
-        // Auth, routing, upstream and network failures must remain retryable errors.
-        const prefix = 'API HTTP 404: ';
-        if (error instanceof Error && error.message.startsWith(prefix)) {
+    remember(versions, commit, MAX_VERSIONS, () => {
+      const request = loadPending(
+        () => {
+          if (versions.get(commit) === request) versions.delete(commit);
+        },
+        async (signal) => {
           try {
-            const body: unknown = JSON.parse(error.message.slice(prefix.length));
-            if (
-              typeof body === 'object' &&
-              body !== null &&
-              'error' in body &&
-              body.error === 'Tooltip did not exist at that commit'
-            )
-              return null;
-          } catch {
-            /* A malformed error body is not a recorded deletion. */
+            return (await getVersion(hash, commit, signal)).tooltip;
+          } catch (error) {
+            // Only the Worker's explicit immutable file-absence response means a deletion.
+            // Auth, routing, upstream and network failures must remain retryable errors.
+            const prefix = 'API HTTP 404: ';
+            if (error instanceof Error && error.message.startsWith(prefix)) {
+              try {
+                const body: unknown = JSON.parse(error.message.slice(prefix.length));
+                if (
+                  typeof body === 'object' &&
+                  body !== null &&
+                  'error' in body &&
+                  body.error === 'Tooltip did not exist at that commit'
+                )
+                  return null;
+              } catch {
+                /* A malformed error body is not a recorded deletion. */
+              }
+            }
+            throw error;
           }
-        }
-        throw error;
-      }
+        },
+      );
+      return request;
     });
   const page = (number: number) => {
     const snapshot = snapshots.get(number);
@@ -74,18 +97,25 @@ export function createRevisionCache(hash: number) {
       // Keep stale rows visible while replacing the expired request.
       pages.delete(number);
     }
-    const request = remember(pages, number, MAX_PAGES, async () => {
-      const commits = (await getHistory(hash, number)).commits;
-      if (number === 1 && snapshots.get(1)?.commits[0]?.commit !== commits[0]?.commit) {
-        // A new list head shifts every page boundary; bodies remain immutable.
-        for (const oldPage of pages.keys()) if (oldPage !== 1) pages.delete(oldPage);
-        for (const oldPage of snapshots.keys()) if (oldPage !== 1) snapshots.delete(oldPage);
-      }
-      if (pages.get(number) !== request) return commits;
-      snapshots.set(number, { commits, at: Date.now(), request });
-      while (snapshots.size > MAX_PAGES) snapshots.delete(snapshots.keys().next().value!);
-      return commits;
-    });
+    const request = remember(pages, number, MAX_PAGES, () =>
+      loadPending(
+        () => {
+          if (pages.get(number) === request) pages.delete(number);
+        },
+        async (signal) => {
+          const commits = (await getHistory(hash, number, signal)).commits;
+          if (number === 1 && snapshots.get(1)?.commits[0]?.commit !== commits[0]?.commit) {
+            // A new list head shifts every page boundary; bodies remain immutable.
+            for (const oldPage of pages.keys()) if (oldPage !== 1) pages.delete(oldPage);
+            for (const oldPage of snapshots.keys()) if (oldPage !== 1) snapshots.delete(oldPage);
+          }
+          if (pages.get(number) !== request) return commits;
+          snapshots.set(number, { commits, at: Date.now(), request });
+          while (snapshots.size > MAX_PAGES) snapshots.delete(snapshots.keys().next().value!);
+          return commits;
+        },
+      ),
+    );
     return request;
   };
   const predecessor = async (
@@ -101,6 +131,13 @@ export function createRevisionCache(hash: number) {
   };
   return {
     identity: ++cacheIdentity,
+    cancelPending() {
+      for (const [controller, evict] of [...pending]) {
+        pending.delete(controller);
+        evict();
+        controller.abort();
+      }
+    },
     version,
     page,
     peekPage: (number: number) => snapshots.get(number)?.commits,

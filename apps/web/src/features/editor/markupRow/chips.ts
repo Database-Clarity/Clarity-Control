@@ -76,10 +76,12 @@ const hideEffect = StateEffect.define<null>();
 
 const typedTags = ['pve', 'pvp'] as const;
 const iconByName = new Map(markupIcons.map((name) => [name.toLowerCase(), name]));
+const longestWord = Math.max(
+  ...markupIcons.map((name) => name.length),
+  ...typedTags.map((tag) => tag.length),
+);
 /** A long selection is not a number or a short phrase; transforms never apply to it. */
 const longestSelection = 2000;
-
-const wordBefore = /(?<![\w<#$/{|])([A-Za-z]+)$/;
 
 function itemFor(
   partial: Omit<SuggestItem, 'category' | 'about' | 'preview' | 'keys' | 'stops'> & {
@@ -102,13 +104,29 @@ function wordChip(state: EditorState, globals: MarkupGlobals): Chip | null {
   const main = state.selection.main;
   if (!main.empty) return null;
   const line = state.doc.lineAt(main.head);
-  const before = state.doc.sliceString(line.from, main.head);
-  const found = before.match(wordBefore);
-  if (!found) return null;
+  // Only a known icon/tag can become a chip. Inspect its maximum length plus
+  // one boundary character instead of matching every word on the edited line.
+  const before = state.doc.sliceString(Math.max(line.from, main.head - longestWord - 1), main.head);
+  let start = before.length;
+  while (start > 0) {
+    const code = before.charCodeAt(start - 1);
+    if (!((code >= 65 && code <= 90) || (code >= 97 && code <= 122))) break;
+    start--;
+  }
+  if (start === before.length || before.length - start > longestWord) return null;
+  if (start > 0) {
+    const previous = before.charCodeAt(start - 1);
+    if (
+      (previous >= 48 && previous <= 57) ||
+      previous === 95 ||
+      '<#$/{|'.includes(before[start - 1]!)
+    )
+      return null;
+  }
   // Only at the end of the word: more letters after the caret means the author is mid-word.
   const next = state.doc.sliceString(main.head, Math.min(line.to, main.head + 1));
   if (/[\w]/.test(next)) return null;
-  const word = found[1]!;
+  const word = before.slice(start);
   const from = main.head - word.length;
   const icon = iconByName.get(word.toLowerCase());
   if (icon && word.length >= 3) {

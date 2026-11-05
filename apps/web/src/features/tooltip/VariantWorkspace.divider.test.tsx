@@ -77,6 +77,45 @@ afterEach(() => {
 });
 
 describe('workspace divider', () => {
+  it('reuses measured scale during content edits and follows scale changes', () => {
+    let rootPx = 16;
+    const getStyle = vi
+      .spyOn(window, 'getComputedStyle')
+      .mockImplementation(() => ({ fontSize: `${rootPx}px` }) as CSSStyleDeclaration);
+    render(true);
+    expect(host.querySelector('[data-mode]')?.getAttribute('data-mode')).toBe('split');
+    getStyle.mockClear();
+    render(true);
+    expect(getStyle).not.toHaveBeenCalled();
+    rootPx = 24;
+    act(() => window.dispatchEvent(new Event('clarity-ui-scale')));
+    expect(host.querySelector('[data-mode]')?.getAttribute('data-mode')).toBe('toggle');
+  });
+
+  it('retains split measurements and the selected pane while a navigation burst suspends work', () => {
+    const show = (suspended: boolean) =>
+      act(() =>
+        root.render(
+          <VariantWorkspace
+            suspended={suspended}
+            initialPanel="compendium"
+            editor={<div>Editor</div>}
+            compendium={suspended ? <div aria-busy="true" /> : <div>Compendium</div>}
+          />,
+        ),
+      );
+    show(false);
+    const editor = host.querySelector('[data-panel="translation"]');
+    expect(host.querySelector('[data-mode]')?.getAttribute('data-mode')).toBe('split');
+    width = 0;
+    show(true);
+    expect(host.querySelector('[data-mode]')?.getAttribute('data-mode')).toBe('split');
+    expect(host.querySelector('[data-view]')?.getAttribute('data-view')).toBe('compendium');
+    width = 1016;
+    show(false);
+    expect(host.querySelector('[data-panel="translation"]')).toBe(editor);
+    expect(host.querySelector('[data-view]')?.getAttribute('data-view')).toBe('compendium');
+  });
   it('switches English panels with keyboard while retaining the editor', () => {
     render();
     const tabs = host.querySelectorAll<HTMLButtonElement>('[role="tab"]');
