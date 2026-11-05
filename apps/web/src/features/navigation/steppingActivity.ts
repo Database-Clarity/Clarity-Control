@@ -15,6 +15,7 @@ let workspaceWork = 0;
 let lastInputAt = -Infinity;
 let fastInput = false;
 let burst = false;
+let firstFrame = false;
 let activityFrame: number | undefined;
 let catchUpFrame: number | undefined;
 let landLatest: (() => void) | undefined;
@@ -129,6 +130,7 @@ const holds = new Set<symbol>();
 export function pulseStepping(land?: () => void, resume?: () => void) {
   const continuing = burst;
   if (!continuing) {
+    firstFrame = true;
     workspaceWork = previousFrameWork = 0;
     // This temporary capture also covers interaction before the first route
     // frame. Ordinary typing has no listener once the burst has settled.
@@ -179,6 +181,7 @@ export function beginSteppingFrame() {
   cancelActivityFrame();
   const started = performance.now();
   const deferWorkspace =
+    firstFrame ||
     inputPending() ||
     ((previousFrameWork > 16 || workspaceWork > 16 || fastInput) &&
       started - lastInputAt < admissionGap());
@@ -187,6 +190,7 @@ export function beginSteppingFrame() {
     deferWorkspace,
   });
   return () => {
+    firstFrame = false;
     previousFrameWork = performance.now() - started;
     if (useSteppingActivity.getState().deferWorkspace) scheduleCatchUp();
   };

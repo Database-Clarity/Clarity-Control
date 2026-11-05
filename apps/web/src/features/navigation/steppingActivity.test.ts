@@ -21,7 +21,7 @@ it('gives a costly frame and pending physical input room without extending the b
   vi.stubGlobal('navigator', { scheduling: { isInputPending: () => pending } });
   pulseStepping();
   const finish = beginSteppingFrame();
-  expect(useSteppingActivity.getState().deferWorkspace).toBe(false);
+  expect(useSteppingActivity.getState().deferWorkspace).toBe(true);
   vi.advanceTimersByTime(17);
   finish();
   recordSteppingWorkspaceWork(17);

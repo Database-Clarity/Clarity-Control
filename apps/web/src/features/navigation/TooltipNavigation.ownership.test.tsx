@@ -499,7 +499,11 @@ describe('mounted Editor navigation interaction ownership', () => {
               );
         await act(async () => {
           down();
-          await vi.advanceTimersByTimeAsync(25);
+          await vi.advanceTimersByTimeAsync(17);
+        });
+        expect(document.querySelector('[data-preview]')?.textContent).toBe('Deutsch 100');
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(16);
         });
         expect(route()).toContain('/t/101');
         expect(useSteppingActivity.getState().active).toBe(true);
