@@ -87,7 +87,9 @@ describe('find and replace persistence', () => {
     expect(view.state.doc.toString()).toBe('Newest item');
     expect(view.hasFocus).toBe(true);
     expect(changed).not.toHaveBeenCalled();
+    const dispatch = vi.spyOn(view, 'dispatch');
     show('Newest item', 20, false);
+    expect(dispatch).not.toHaveBeenCalled();
     expect(view.state.selection.main.head).toBe(0);
     expect(view.hasFocus).toBe(true);
     expect(changed).not.toHaveBeenCalled();

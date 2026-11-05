@@ -158,15 +158,22 @@ export interface SteppingGuard {
 export function createStepping(
   navigate: NavigateTo,
   guard?: SteppingGuard,
-  frames?: { request(run: () => void): number; cancel(id: number): void; allow?(): boolean },
+  frames?: {
+    request(run: () => void): number;
+    cancel(id: number): void;
+    allow?(): boolean;
+    end?(): void;
+  },
 ) {
   let origin: string | undefined;
   let destination: string | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let permittedAt: number | undefined;
   let frame: number | undefined;
+  let frameGeneration = 0;
   let landed: string | undefined;
   function cancel() {
+    frameGeneration++;
     if (frame !== undefined) frames?.cancel(frame);
     frame = undefined;
     clearTimeout(timer);
@@ -174,6 +181,24 @@ export function createStepping(
     destination = undefined;
     landed = undefined;
     permittedAt = undefined;
+    frames?.end?.();
+  }
+  function land(landNavigate: NavigateTo) {
+    if ((frames?.allow && !frames.allow()) || (guard && permittedAt !== guard.epoch())) {
+      destination = landed;
+      if (!destination) cancel();
+      return;
+    }
+    if (destination) {
+      landNavigate(destination, { replace: true, flushSync: true });
+      landed = destination;
+    }
+  }
+  function flush(landNavigate: NavigateTo = navigate) {
+    frameGeneration++;
+    if (frame !== undefined) frames?.cancel(frame);
+    frame = undefined;
+    land(landNavigate);
   }
   function commit() {
     // The two navigations restore the history shape of one gesture that was already allowed. If an
@@ -208,29 +233,22 @@ export function createStepping(
       if (!frames) {
         navigate(to, { replace: true });
         landed = to;
-      } else if (frame === undefined)
+      } else if (frame === undefined) {
+        const generation = frameGeneration;
         frame = frames.request(() => {
+          if (generation !== frameGeneration) return;
           frame = undefined;
-          if ((frames.allow && !frames.allow()) || (guard && permittedAt !== guard.epoch())) {
-            // A dialog/list may have opened since the wheel packet was accepted. Keep
-            // the last landed route and never move the workspace behind its new owner.
-            destination = landed;
-            if (!destination) cancel();
-            return;
-          }
-          if (destination) {
-            // The frame already chose the newest input. Commit the data-router
-            // route in this frame too, rather than starting another transition
-            // that can leave the visible editor one selection behind the URL.
-            navigate(destination, { replace: true, flushSync: true });
-            landed = destination;
-          }
+          // The adapter publishes identity synchronously while the router can
+          // coalesce document work. A newly opened overlay still owns input.
+          land(navigate);
         });
+      }
       clearTimeout(timer);
       timer = setTimeout(commit, 1000);
       return true;
     },
     commit,
+    flush,
     cancel,
   };
 }

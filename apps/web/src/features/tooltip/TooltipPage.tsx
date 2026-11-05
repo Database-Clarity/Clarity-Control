@@ -91,30 +91,44 @@ export function TooltipPage({
 }) {
   const active = useSteppingActivity((state) => state.active);
   const deferWorkspace = useSteppingActivity((state) => state.deferWorkspace);
+  const urgentTarget = useSteppingActivity((state) => state.target);
   const { hash: parameter } = useParams();
   const [search, setSearch] = useSearchParams();
   const navigate = useNavigate();
   const data = useDataStore((state) => state.data);
   const stepping = active && hashOverride === undefined;
+  const targetHash =
+    hashOverride === undefined && urgentTarget
+      ? Number(urgentTarget.split('/')[2].split('?')[0])
+      : undefined;
   const current = useMemo(
     () => ({ parameter, search, setSearch, navigate }),
     [parameter, search, setSearch, navigate],
   );
   const paintedRoute = useRef(current);
-  const route = stepping && deferWorkspace ? paintedRoute.current : current;
+  const route =
+    (stepping && deferWorkspace) || (targetHash !== undefined && targetHash !== Number(parameter))
+      ? paintedRoute.current
+      : current;
   useLayoutEffect(() => {
     paintedRoute.current = route;
   }, [route]);
   const catchUp = (target: EventTarget) => {
-    if (active && target instanceof Element && target.closest('.cm-editor'))
+    if (
+      (active || urgentTarget) &&
+      target instanceof Element &&
+      target.closest(
+        '.cm-editor, section[aria-label*=" editor ("], section[aria-label^="Associations for "]',
+      )
+    )
       flushSync(settleStepping);
   };
-  // Navigation coalesces packets to the newest route each frame. The editor and
-  // identity share this urgent render; only preview and sheet work may trail it.
+  // Identity lands each frame. Route and document work can coalesce behind it,
+  // and interaction synchronously catches up before the editor handles input.
   const hash =
     data && !readOnly
-      ? canonicalHash(hashOverride ?? Number(parameter), data)
-      : (hashOverride ?? Number(parameter));
+      ? canonicalHash(hashOverride ?? targetHash ?? Number(parameter), data)
+      : (hashOverride ?? targetHash ?? Number(parameter));
   const item = data && archivedItemFor(hash, data);
   const archived =
     readOnly || Boolean(data && hash > 3 && !data.items[hash] && !tooltipFor(hash, data).custom);
@@ -140,10 +154,13 @@ export function TooltipPage({
       <article
         className={styles.page}
         aria-busy={route !== current || undefined}
-        onPointerDownCapture={active ? (event) => catchUp(event.target) : undefined}
-        onKeyDownCapture={active ? (event) => catchUp(event.target) : undefined}
-        onBeforeInputCapture={active ? (event) => catchUp(event.target) : undefined}
-        onCompositionStartCapture={active ? (event) => catchUp(event.target) : undefined}
+        onFocusCapture={active || urgentTarget ? (event) => catchUp(event.target) : undefined}
+        onPointerDownCapture={active || urgentTarget ? (event) => catchUp(event.target) : undefined}
+        onKeyDownCapture={active || urgentTarget ? (event) => catchUp(event.target) : undefined}
+        onBeforeInputCapture={active || urgentTarget ? (event) => catchUp(event.target) : undefined}
+        onCompositionStartCapture={
+          active || urgentTarget ? (event) => catchUp(event.target) : undefined
+        }
       >
         <StableWorkspace
           hashOverride={hashOverride}

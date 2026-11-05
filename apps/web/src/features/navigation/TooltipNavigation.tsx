@@ -16,6 +16,7 @@ import {
   type MutableRefObject,
 } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { flushSync } from 'react-dom';
 import type { EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { usePreviewReviewStore } from '../../stores/previewReview';
@@ -44,8 +45,10 @@ import {
 import { FinderSheetContext } from './FinderSheetContext';
 import {
   beginSteppingFrame,
+  clearSteppingTarget,
   holdSteppingKey,
   pulseStepping,
+  publishSteppingTarget,
   useSteppingActivity,
 } from './steppingActivity';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
@@ -333,7 +336,8 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
   const location = useLocation();
-  const hash = Number(location.pathname.split('/')[2]);
+  const urgentTarget = useSteppingActivity((state) => state.target);
+  const hash = Number(pathname(urgentTarget ?? location.pathname).split('/')[2]);
   const sections = useMemo(() => groups.flatMap((group) => group.sections), [groups]);
   const selectedCategory =
     sections.find((category) => category.id === itemFor(hash, data)?.categoryId) ?? sections[0];
@@ -363,7 +367,14 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   openRef.current = open;
   const [stepping] = useState(() =>
     createStepping(
-      (target, options) => navigateRef.current(target, options),
+      (target, options) => {
+        if (!options.flushSync) return navigateRef.current(target, options);
+        flushSync(() => publishSteppingTarget(target, landNewest));
+        // React may discard older route renders while identity and the browser
+        // URL keep landing on the newest frame target. History still replaces
+        // each intermediate entry and pushes exactly once at gesture commit.
+        navigateRef.current(target, { replace: true });
+      },
       steppingGuard,
       typeof requestAnimationFrame === 'function'
         ? {
@@ -377,6 +388,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
                 }
               }),
             cancel: (id) => cancelAnimationFrame(id),
+            end: clearSteppingTarget,
             allow: () => {
               if (!workspaceShortcutsBlocked(new Event('stepping'))) return true;
               // Phone Previous/Next deliberately belong to the finder sheet itself.
@@ -391,6 +403,12 @@ export const TooltipNavigation = memo(function TooltipNavigation({
         : undefined,
     ),
   );
+  const landNewest = useCallback(() => {
+    stepping.flush((target, options) => {
+      if (`${current.current.pathname}${current.current.search}` !== target)
+        navigateRef.current(target, options);
+    });
+  }, [stepping]);
   const [wheelStepper] = useState(createWheelStepper);
   const step = useRef<(direction: number) => boolean>(() => false);
   const canStep = useRef<(direction: number) => boolean>(() => false);
@@ -410,7 +428,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     }
     // Refused before anything moves: the selection, the pending history entry and the timer stay.
     if (!stepping.step(target.from, target.to.path)) return false;
-    pulseStepping();
+    pulseStepping(landNewest);
     return true;
   };
   canStep.current = (direction) => Boolean(stepTarget(stepLocation(), direction, hashes, indexes));
@@ -634,6 +652,8 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   }
   const commitRef = useRef(commit);
   commitRef.current = commit;
+  const chooseRef = useRef(choose);
+  chooseRef.current = choose;
   const heldKey = useRef<{ key: string; release(): void }>();
   const releaseKey = useCallback(() => {
     heldKey.current?.release();
@@ -805,28 +825,31 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     </div>
   );
   const sheet = variant === 'sheet';
-  const categoryNode = (
-    <select
-      aria-label="Category"
-      className={styles.category}
-      value={selectedCategory?.id ?? ''}
-      disabled={!sections.length}
-      onChange={(event) => {
-        const first = sections.find((category) => category.id === event.target.value)?.items[0];
-        if (first) choose(first.hash);
-      }}
-    >
-      {!sections.length && <option value="">No matching categories</option>}
-      {groups.map((group) => (
-        <optgroup key={group.name} label={group.name}>
-          {group.sections.map((category) => (
-            <option key={category.id} value={category.id}>
-              {category.label} ({category.items.length})
-            </option>
-          ))}
-        </optgroup>
-      ))}
-    </select>
+  const categoryNode = useMemo(
+    () => (
+      <select
+        aria-label="Category"
+        className={styles.category}
+        value={selectedCategory?.id ?? ''}
+        disabled={!sections.length}
+        onChange={(event) => {
+          const first = sections.find((category) => category.id === event.target.value)?.items[0];
+          if (first) chooseRef.current(first.hash);
+        }}
+      >
+        {!sections.length && <option value="">No matching categories</option>}
+        {groups.map((group) => (
+          <optgroup key={group.name} label={group.name}>
+            {group.sections.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.label} ({category.items.length})
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+    ),
+    [groups, sections, selectedCategory?.id],
   );
   const positionNode = (
     <span className={styles.position} role="status">

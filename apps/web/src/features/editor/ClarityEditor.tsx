@@ -448,7 +448,12 @@ export function ClarityEditor({
     const endingStep = !stepping && wasStepping.current;
     if (endingStep) wasStepping.current = false;
     if (!switched && editor.state.doc.toString() === value) {
-      if (endingStep)
+      if (
+        endingStep &&
+        (editor.state.selection.main.anchor !== 0 ||
+          editor.state.selection.main.head !== 0 ||
+          editor.scrollDOM.scrollTop !== 0)
+      )
         editor.dispatch({
           selection: { anchor: 0 },
           effects: EditorView.scrollIntoView(0, { y: 'start' }),

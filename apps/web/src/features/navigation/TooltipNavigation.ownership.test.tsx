@@ -9,7 +9,7 @@ import { Layout } from './Layout';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
-import { useSteppingActivity } from './steppingActivity';
+import { publishSteppingTarget, settleStepping, useSteppingActivity } from './steppingActivity';
 import type { ClarityEditorProps } from '../editor';
 
 vi.mock('../../services/save/SavePanel', () => ({
@@ -100,13 +100,13 @@ function selectedItem() {
   return host.querySelector('article > h1')?.textContent;
 }
 
-async function mount() {
+async function mount(initialEntries = ['/t/100?lang=de']) {
   root = createRoot(host);
   await act(async () => {
     root!.render(
       createElement(
         MemoryRouter,
-        { initialEntries: ['/t/100?lang=de'] },
+        { initialEntries },
         createElement(
           Fragment,
           null,
@@ -171,10 +171,110 @@ afterEach(async () => {
   useDraftStore.setState(originalDrafts);
   useAuthStore.setState(originalAuth);
   useSteppingActivity.setState({ active: false, deferWorkspace: false });
+  settleStepping();
   vi.restoreAllMocks();
 });
 
 describe('mounted Editor navigation interaction ownership', () => {
+  it('keeps one burst history entry and restores the origin on Back after a Shift flick', async () => {
+    vi.useFakeTimers();
+    try {
+      await mount(['/t/99', '/t/100?lang=de']);
+      await act(async () => {
+        for (let packet = 0; packet < 300; packet++)
+          host.dispatchEvent(
+            new WheelEvent('wheel', {
+              bubbles: true,
+              cancelable: true,
+              shiftKey: true,
+              deltaY: 100,
+            }),
+          );
+        await vi.advanceTimersByTimeAsync(1050);
+      });
+      expect(route()).toBe('/t/101?lang=de');
+      await act(async () => navigate(-1));
+      expect(route()).toBe('/t/100?lang=de');
+      await act(async () => navigate(-1));
+      expect(route()).toBe('/t/99');
+      await act(async () => navigate(2));
+      expect(route()).toBe('/t/101?lang=de');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('lands the newest document before typing immediately after a Shift flick stops', async () => {
+    vi.useFakeTimers();
+    try {
+      await mount();
+      const edit = vi.fn();
+      useDraftStore.setState({ edit });
+      await act(async () => {
+        for (let packet = 0; packet < 300; packet++)
+          host.dispatchEvent(
+            new WheelEvent('wheel', {
+              bubbles: true,
+              cancelable: true,
+              shiftKey: true,
+              deltaY: 100,
+            }),
+          );
+        await vi.advanceTimersByTimeAsync(17);
+      });
+      const editor = host.querySelector<HTMLElement>('.cm-editor')!;
+      await act(async () =>
+        editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true })),
+      );
+      expect(route()).toBe('/t/101?lang=de');
+      expect(editor.dataset.documentHash).toBe('101');
+      await act(async () => {
+        editor.textContent += 'x';
+        editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+      });
+      expect(edit).toHaveBeenCalledWith(
+        data.bundle.tooltips[101],
+        'de',
+        'Deutsch 101x',
+        'local draft',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('synchronously lands a pending router target when the editor receives focus', async () => {
+    await mount();
+    await act(async () => {
+      useSteppingActivity.setState({ active: true, deferWorkspace: true });
+      publishSteppingTarget('/t/101?lang=de', () => navigate('/t/101?lang=de'));
+    });
+    expect(route()).toBe('/t/100?lang=de');
+    const editor = host.querySelector<HTMLElement>('.cm-editor')!;
+    await act(async () => editor.dispatchEvent(new FocusEvent('focusin', { bubbles: true })));
+    expect(route()).toBe('/t/101?lang=de');
+    expect(editor.dataset.documentHash).toBe('101');
+  });
+
+  it('lands an accepted wheel target before editor input even before its first frame', async () => {
+    vi.useFakeTimers();
+    try {
+      await mount();
+      const editor = host.querySelector<HTMLElement>('.cm-editor')!;
+      await act(async () => {
+        host.dispatchEvent(
+          new WheelEvent('wheel', { bubbles: true, cancelable: true, shiftKey: true, deltaY: 100 }),
+        );
+        editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }));
+      });
+      expect(route()).toBe('/t/101?lang=de');
+      expect(editor.dataset.documentHash).toBe('101');
+      await act(async () => vi.advanceTimersByTimeAsync(25));
+      expect(useSteppingActivity.getState().active).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('catches up before editing a retained document, so the new item owns the input', async () => {
     await mount();
     const edit = vi.fn();

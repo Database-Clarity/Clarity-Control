@@ -2,7 +2,11 @@ import { create } from 'zustand';
 import { flushSync } from 'react-dom';
 
 /** Lower-priority sheet/history work waits while editor and preview step live. */
-export const useSteppingActivity = create<{ active: boolean; deferWorkspace: boolean }>(() => ({
+export const useSteppingActivity = create<{
+  active: boolean;
+  deferWorkspace: boolean;
+  target?: string;
+}>(() => ({
   active: false,
   deferWorkspace: false,
 }));
@@ -13,6 +17,29 @@ let fastInput = false;
 let burst = false;
 let activityFrame: number | undefined;
 let catchUpFrame: number | undefined;
+let landLatest: (() => void) | undefined;
+const interactionEvents = ['pointerdown', 'keydown', 'beforeinput', 'compositionstart', 'focusin'];
+function catchEditorInteraction(event: Event) {
+  if (
+    event.target instanceof Element &&
+    event.target.closest(
+      '.cm-editor, section[aria-label*=" editor ("], section[aria-label^="Associations for "]',
+    )
+  )
+    flushSync(settleStepping);
+}
+
+/** The frame publishes identity independently of the router's coalesced document render. */
+export function publishSteppingTarget(target: string, land: () => void) {
+  landLatest = land;
+  useSteppingActivity.setState({ target });
+}
+
+export function clearSteppingTarget() {
+  landLatest = undefined;
+  if (useSteppingActivity.getState().target !== undefined)
+    useSteppingActivity.setState({ target: undefined });
+}
 
 function cancelActivityFrame() {
   if (activityFrame !== undefined) cancelAnimationFrame(activityFrame);
@@ -59,9 +86,16 @@ function scheduleCatchUp() {
 }
 let quiet: ReturnType<typeof setTimeout> | undefined;
 const holds = new Set<symbol>();
-export function pulseStepping() {
+export function pulseStepping(land?: () => void) {
   const continuing = burst;
-  if (!continuing) workspaceWork = previousFrameWork = 0;
+  if (!continuing) {
+    workspaceWork = previousFrameWork = 0;
+    // This temporary capture also covers interaction before the first route
+    // frame. Ordinary typing has no listener once the burst has settled.
+    for (const type of interactionEvents)
+      window.addEventListener(type, catchEditorInteraction, true);
+  }
+  if (land) landLatest = land;
   burst = true;
   const now = performance.now();
   fastInput = continuing && now - lastInputAt < 12;
@@ -86,10 +120,16 @@ export function pulseStepping() {
 
 export function settleStepping() {
   burst = false;
+  for (const type of interactionEvents)
+    window.removeEventListener(type, catchEditorInteraction, true);
   clearTimeout(quiet);
   cancelActivityFrame();
   cancelCatchUp();
+  const land = landLatest;
+  landLatest = undefined;
   useSteppingActivity.setState({ active: false, deferWorkspace: false });
+  land?.();
+  clearSteppingTarget();
 }
 
 /** Keep input ahead of optional document work, using actual previous-frame cost. */
