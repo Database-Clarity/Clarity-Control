@@ -1,7 +1,7 @@
 import { archiveCategoryLabel, archivedItemFor } from '../archive/archive';
 import { AttachmentCategoryControl } from './AttachmentCategoryControl';
 import { useCompendiumStore } from '../compendium/store';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { translationQueue, type Lang, type MarkupGlobals, type Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
@@ -56,6 +56,7 @@ import {
 } from './variants';
 import styles from './TooltipPage.module.scss';
 import { useSteppingActivity } from '../navigation/steppingActivity';
+import { LivePreviewIdentity } from '../preview/LivePreviewIdentity';
 
 interface WorkspaceRoute {
   parameter?: string;
@@ -83,36 +84,46 @@ export function TooltipPage({
   const [search, setSearch] = useSearchParams();
   const navigate = useNavigate();
   const data = useDataStore((state) => state.data);
-  const busy = active && hashOverride === undefined;
-  const hasSettled = useRef(!busy);
-  if (!busy) hasSettled.current = true;
-  const settled = useRef<WorkspaceRoute>({ parameter, search, setSearch, navigate });
-  if (!busy) settled.current = { parameter, search, setSearch, navigate };
-  const hash = Number(parameter);
+  const stepping = active && hashOverride === undefined;
+  const current = useMemo(
+    () => ({ parameter, search, setSearch, navigate }),
+    [parameter, search, setSearch, navigate],
+  );
+  // Navigation coalesces packets to the newest route each frame. The editor and
+  // identity share this urgent render; only preview and sheet work may trail it.
+  const hash =
+    data && !readOnly
+      ? canonicalHash(hashOverride ?? Number(parameter), data)
+      : (hashOverride ?? Number(parameter));
   const item = data && archivedItemFor(hash, data);
-  const pending = <>Opening {item ? editorName(item) : `tooltip ${hash}`}…</>;
+  const identity = useMemo(() => {
+    const category = data?.categories.find((entry) => entry.id === item?.categoryId);
+    return {
+      name: item?.name ?? `Tooltip ${hash}`,
+      piece: (item && exoticPiece(item)) || undefined,
+      icon: item?.icon || undefined,
+      categoryLabel: [
+        readOnly && item && data
+          ? archiveCategoryLabel(item.categoryId, data)
+          : (category?.label ?? item?.categoryId),
+        hash,
+      ]
+        .filter(Boolean)
+        .join(' · '),
+      archiveIcon: readOnly,
+    };
+  }, [data, item, hash, readOnly]);
   return (
-    <>
-      {/* Keep the expensive editor view alive, with its last settled route, through a burst.
-        display:contents adds no layout box in the ordinary workspace. */}
-      {hasSettled.current && (
-        <div style={{ display: busy ? 'none' : 'contents' }}>
-          <StableWorkspace
-            hashOverride={hashOverride}
-            readOnly={readOnly}
-            route={settled.current}
-            suspended={busy}
-          />
-        </div>
-      )}
-      {busy && (
-        <>
-          <article className={styles.page} aria-busy="true">
-            <p role="status">{pending}</p>
-          </article>
-        </>
-      )}
-    </>
+    <LivePreviewIdentity.Provider value={identity}>
+      <article className={styles.page}>
+        <StableWorkspace
+          hashOverride={hashOverride}
+          readOnly={readOnly}
+          route={current}
+          suspended={stepping}
+        />
+      </article>
+    </LivePreviewIdentity.Provider>
   );
 }
 
@@ -138,6 +149,7 @@ function TooltipWorkspace({
   // has several enhanced versions, which one. Both are working choices, never saved.
   const [previewMode, setPreviewMode] = useState<PreviewMode | null>(null);
   const [previewPick, setPreviewPick] = useState<{ hash: number; variant: number }>();
+  const [previewPainted, setPreviewPainted] = useState(hashOverride ?? Number(parameter));
   const onPreviewVariant = useCallback(
     (variant: number) => setPreviewPick({ hash: hashOverride ?? Number(parameter), variant }),
     [hashOverride, parameter],
@@ -307,7 +319,7 @@ function TooltipWorkspace({
         <PreviewAck key={variant} variant={variant} visible={!column.collapsed && !suspended} />
       ))
     : null;
-  const previews = suspended ? null : (
+  const previews = (
     <PreviewColumn
       hash={hash}
       lang={lang}
@@ -328,6 +340,8 @@ function TooltipWorkspace({
       variant={selectedView?.hash}
       onVariant={onPreviewVariant}
       acknowledgement={seen}
+      stepping={suspended}
+      onDocumentPaint={setPreviewPainted}
     />
   );
 
@@ -367,7 +381,6 @@ function TooltipWorkspace({
   const overrideTargets = overrides.map((variant) => ({ hash: variant, name: nameOf(variant) }));
   const editing = (variant: number, base: Tooltip) => (
     <ClarityEditor
-      suspended={suspended}
       value={textOf(variant)}
       lang={lang}
       globals={globalsFor(variant)}
@@ -428,7 +441,6 @@ function TooltipWorkspace({
         target: { hash: variant, name: nameOf(variant) },
         node: (
           <ClarityEditor
-            suspended={suspended}
             value={tooltipFor(variant, data).text[lang]?.text ?? ''}
             lang={lang}
             globals={globalsFor(variant)}
@@ -445,7 +457,7 @@ function TooltipWorkspace({
   );
 
   return (
-    <article className={styles.page}>
+    <>
       {/* Correct the URL without tearing down the live editor during the redirect.
         Remounting CodeMirror reads the DOM selection while sibling panes are dirty,
         forcing the whole workspace to lay out before its ordinary paint. */}
@@ -454,7 +466,6 @@ function TooltipWorkspace({
       )}
       <h1 className={styles.srOnly}>{heading}</h1>
       <VariantWorkspace
-        suspended={suspended}
         header={header}
         initialPanel={readOnly ? 'preview' : undefined}
         source={
@@ -500,25 +511,49 @@ function TooltipWorkspace({
         }
         compendium={
           !readOnly && user?.role !== 'translator' ? (
-            suspended ? (
-              <div aria-busy="true" />
-            ) : (
-              <CompendiumPanel base={activeBase} />
-            )
+            <SteppingCompendium
+              base={activeBase}
+              active={suspended}
+              ready={previewPainted === hash}
+            />
           ) : null
         }
       />
       {hosted && (
         <ShellSlot name="left">
-          {suspended && <p role="status">Opening tooltip…</p>}
-          <div className={styles.leftStack} style={{ display: suspended ? 'none' : undefined }}>
+          <div className={styles.leftStack}>
             <div className={styles.previewBody}>{previews}</div>
             {rows}
           </div>
         </ShellSlot>
       )}
-    </article>
+    </>
   );
+}
+
+/** Lower-priority sheet work starts only after the newest editor/preview paint. */
+function SteppingCompendium({
+  base,
+  active,
+  ready,
+}: {
+  base: Tooltip;
+  active: boolean;
+  ready: boolean;
+}) {
+  const [painted, setPainted] = useState(base);
+  useEffect(() => {
+    if (!ready || painted === base) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const frame = requestAnimationFrame(() => {
+      timer = setTimeout(() => startTransition(() => setPainted(base)), 0);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  }, [base, painted, ready]);
+  return <CompendiumPanel base={painted} stepping={active || !ready || painted !== base} />;
 }
 
 /** One line of context under the preview; the full text is the tooltip. */

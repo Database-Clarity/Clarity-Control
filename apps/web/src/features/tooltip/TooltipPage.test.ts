@@ -14,6 +14,19 @@ import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { useAuthStore } from '../../stores/auth';
 import { apiUrl } from '../../services/api';
+import { useSteppingActivity } from '../navigation/steppingActivity';
+
+vi.mock('../navigation/steppingActivity', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../navigation/steppingActivity')>();
+  return {
+    ...actual,
+    useSteppingActivity: Object.assign(
+      (selector: (state: ReturnType<typeof actual.useSteppingActivity.getState>) => unknown) =>
+        selector(actual.useSteppingActivity.getState()),
+      actual.useSteppingActivity,
+    ),
+  };
+});
 
 vi.mock('../compendium/store', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../compendium/store')>();
@@ -225,6 +238,23 @@ describe('tooltip screen composition', () => {
       expect(vi.mocked(CompendiumPanel).mock.calls.map(([props]) => props.base)).toEqual([base]);
       expect(markup).toContain('data-compendium-hash="10"');
       expect(markup).not.toContain('data-compendium-hash="11"');
+    }
+  });
+  it('keeps the editor and preview visible during a physical navigation hold', () => {
+    useSteppingActivity.setState({ active: true });
+    try {
+      const markup = render();
+      expect(markup).not.toContain('Opening');
+      expect(markup).not.toContain('display:none');
+      expect(markup).toContain('Raw base markup');
+      expect(vi.mocked(ClarityEditor).mock.calls[0][0].suspended).not.toBe(true);
+      expect(vi.mocked(PreviewColumn)).toHaveBeenCalledOnce();
+      expect(vi.mocked(CompendiumPanel).mock.calls[0][0]).toMatchObject({
+        base,
+        stepping: true,
+      });
+    } finally {
+      useSteppingActivity.setState({ active: false });
     }
   });
   it('hides Compendium from translators and shows changes only for outdated translations', () => {

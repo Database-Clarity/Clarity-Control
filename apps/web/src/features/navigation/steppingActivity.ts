@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-/** Expensive workspace panels mount only after a wheel/key burst stops. */
+/** Lower-priority sheet/history work waits while editor and preview step live. */
 export const useSteppingActivity = create<{ active: boolean }>(() => ({ active: false }));
 let quiet: ReturnType<typeof setTimeout> | undefined;
 const holds = new Set<symbol>();

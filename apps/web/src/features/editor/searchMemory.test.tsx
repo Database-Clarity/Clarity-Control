@@ -2,7 +2,7 @@
 import { act, useLayoutEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { EditorView } from '@codemirror/view';
-import { undoDepth } from '@codemirror/commands';
+import { redo, redoDepth, undo, undoDepth } from '@codemirror/commands';
 import {
   closeSearchPanel,
   getSearchQuery,
@@ -184,6 +184,44 @@ describe('find and replace persistence', () => {
     expect(next.state.doc.toString()).toBe('one cat');
     expect(next.state.selection.main.head).toBe(0);
     expect(undoDepth(next.state)).toBe(0);
+  });
+  it('loads a document in place without authoring it or undoing deletions from another item', () => {
+    const changed = vi.fn();
+    const show = (value: string, tooltipHash: number) =>
+      act(() =>
+        root.render(
+          <ClarityEditor
+            value={value}
+            tooltipHash={tooltipHash}
+            lang="en"
+            globals={globals}
+            onChange={changed}
+          />,
+        ),
+      );
+    show('previous document', 10);
+    const view = EditorView.findFromDOM(host.querySelector<HTMLElement>('.cm-editor')!)!;
+    const editorDOM = view.dom;
+    act(() => view.dispatch({ changes: { from: 0, to: 9 }, userEvent: 'delete' }));
+    changed.mockClear();
+    const update = vi.spyOn(view, 'update');
+    const rebuild = vi.spyOn(view, 'setState');
+    show('new document', 20);
+    expect(view.dom).toBe(editorDOM);
+    expect(update).toHaveBeenCalledOnce();
+    expect(rebuild).not.toHaveBeenCalled();
+    expect(changed).not.toHaveBeenCalled();
+    expect(undoDepth(view.state)).toBe(0);
+    expect(redoDepth(view.state)).toBe(0);
+    expect(undo(view)).toBe(false);
+    expect(redo(view)).toBe(false);
+    expect(view.state.doc.toString()).toBe('new document');
+    act(() => view.dispatch({ changes: { from: 12, insert: '!' }, userEvent: 'input.type' }));
+    act(() => {
+      expect(undo(view)).toBe(true);
+    });
+    expect(view.state.doc.toString()).toBe('new document');
+    expect(changed).toHaveBeenLastCalledWith('new document');
   });
   it('opens at the top of the editor', () => {
     const view = render('one');

@@ -8,7 +8,13 @@ import {
 } from '@codemirror/commands';
 import { bracketMatching, indentOnInput } from '@codemirror/language';
 import { search, searchKeymap } from '@codemirror/search';
-import { Compartment, EditorState, type Extension } from '@codemirror/state';
+import {
+  Annotation,
+  Compartment,
+  EditorState,
+  Transaction,
+  type Extension,
+} from '@codemirror/state';
 import {
   EditorView,
   keymap,
@@ -28,7 +34,7 @@ import { clarityHighlighting, clarityLanguage } from './language';
 import { tableFormattingTransaction } from './formatTable';
 import { editorScrollMargins } from './scrollMargins';
 import { rememberSearch, restoreSearch } from './searchMemory';
-import { rawMode, setSymbolReveal, symbolExtensions, toggleRawView } from './symbols';
+import { rawMode, setSymbolReveal, symbolExtensions, toggleRaw, toggleRawView } from './symbols';
 import { hasImportDependencies, validationDiagnostics } from './diagnostics';
 import { useEditorDiagnostics } from './useEditorDiagnostics';
 import { createCursorPosition } from './cursorPosition';
@@ -64,6 +70,9 @@ import {
 import type { UsageCorpus } from './suggest/usage';
 import type { ReferenceSources } from './references';
 import styles from './ClarityEditor.module.scss';
+
+// Loading another saved/draft document must never call the authoring callback.
+const documentLoad = Annotation.define<boolean>();
 
 export interface ClarityEditorProps {
   value: string;
@@ -187,9 +196,8 @@ export function ClarityEditor({
   initial.current = { value, lang, globals, readOnly, requireEnglish };
   const document = useRef({ tooltipHash, lang });
   const config = useRef(new Compartment());
+  const undo = useRef(new Compartment());
   const extensions = useRef<Extension[]>([]);
-  const configurationSlot = useRef(0);
-  const conflictSlot = useRef(0);
   const configured = useRef({ lang, globals, readOnly, requireEnglish });
   // Conflict blocks are checked as "mine" only (same offsets), so markers raise no markup errors.
   const diagnostics = useEditorDiagnostics(
@@ -316,7 +324,7 @@ export function ClarityEditor({
       editorScrollMargins(),
       conflictExtensions(),
       initialConflicts,
-      history(),
+      undo.current.of(history()),
       search({ top: true }),
       indentOnInput(),
       bracketMatching(),
@@ -353,7 +361,8 @@ export function ClarityEditor({
           setRawView(raw);
         }
         if (remembersFind.current) rememberSearch(update);
-        if (update.docChanged) callback.current(update.state.doc.toString());
+        if (update.docChanged && !update.transactions.some((tr) => tr.annotation(documentLoad)))
+          callback.current(update.state.doc.toString());
         if (update.docChanged || update.selectionSet) {
           const head = update.state.selection.main.head;
           const line = update.state.doc.lineAt(head);
@@ -361,13 +370,12 @@ export function ClarityEditor({
         }
       }),
     ];
-    configurationSlot.current = extensions.current.indexOf(initialConfiguration);
-    conflictSlot.current = extensions.current.indexOf(initialConflicts);
     const editor = new EditorView({
       parent: host.current,
       state: EditorState.create({ doc: initial.current.value, extensions: extensions.current }),
     });
     view.current = editor;
+    editor.dom.dataset.tooltipHash = String(referenceLive.current.tooltipHash ?? '');
     document.current = {
       tooltipHash: referenceLive.current.tooltipHash,
       lang: initial.current.lang,
@@ -425,26 +433,35 @@ export function ClarityEditor({
       rawRef.current = false;
       setRawView(false);
     }
-    // A different tooltip/language must never undo into the previous document.
-    const nextExtensions = [...extensions.current];
-    nextExtensions[configurationSlot.current] = config.current.of(
-      configuration(
-        lang,
-        globals,
-        readOnly,
-        requireEnglish,
-        references.current,
-        onSuggest.current,
-        chipHooks.current,
-      ),
+    const nextConfiguration = configuration(
+      lang,
+      globals,
+      readOnly,
+      requireEnglish,
+      references.current,
+      onSuggest.current,
+      chipHooks.current,
     );
-    nextExtensions[conflictSlot.current] = conflictConfig.current.of(conflictHostExtension());
     configured.current = { lang, globals, readOnly, requireEnglish };
-    // Install the live compartments at creation: do not parse/decorate the new document
-    // with the first tooltip's globals and then repeat that work in a reconfiguration.
-    editor.setState(EditorState.create({ doc: value, extensions: nextExtensions }));
-    // The rebuilt state starts with find closed: bring back what was open.
-    if (remembersFind.current) restoreSearch(editor);
+    // Reset only the history field, then replace the document and configuration in
+    // one view update. Plugins, extensions, search UI, focus, and the DOM survive.
+    // Removing/readding history is necessary: mapping a full replacement through
+    // old undo events can otherwise resurrect deleted text from another tooltip.
+    const reset = editor.state.update({ effects: undo.current.reconfigure([]) });
+    const load = reset.state.update({
+      changes: { from: 0, to: reset.state.doc.length, insert: value },
+      selection: { anchor: 0 },
+      effects: [
+        undo.current.reconfigure(history()),
+        config.current.reconfigure(nextConfiguration),
+        conflictConfig.current.reconfigure(conflictHostExtension()),
+        ...(switched ? [toggleRaw.of(false)] : []),
+        EditorView.scrollIntoView(0, { y: 'start' }),
+      ],
+      annotations: [documentLoad.of(true), Transaction.addToHistory.of(false)],
+    });
+    editor.update([reset, load]);
+    editor.dom.dataset.tooltipHash = String(tooltipHash ?? '');
   }, [value, lang, globals, readOnly, requireEnglish, tooltipHash, suspended, cursor]);
 
   useLayoutEffect(() => {
