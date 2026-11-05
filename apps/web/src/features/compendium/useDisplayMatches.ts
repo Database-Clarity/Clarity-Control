@@ -24,16 +24,21 @@ function remember(editor: EditorData, source: CompendiumData, entry: Remembered)
   sources.set(source, entry);
 }
 
-const evidenceByDrafts = new WeakMap<Drafts, string>();
-const evidenceByEntry = new WeakMap<Drafts[string], string>();
-function draftEvidence(drafts: Drafts) {
-  const existing = evidenceByDrafts.get(drafts);
+const evidenceByDrafts = new WeakMap<EditorData, WeakMap<Drafts, string>>();
+const evidenceByEntry = new WeakMap<EditorData, WeakMap<Drafts[string], string>>();
+function draftEvidence(editor: EditorData | null, drafts: Drafts) {
+  if (!editor) return '[]';
+  let byDrafts = evidenceByDrafts.get(editor);
+  if (!byDrafts) evidenceByDrafts.set(editor, (byDrafts = new WeakMap()));
+  let byEntry = evidenceByEntry.get(editor);
+  if (!byEntry) evidenceByEntry.set(editor, (byEntry = new WeakMap()));
+  const existing = byDrafts.get(drafts);
   if (existing !== undefined) return existing;
   const parts: string[] = [];
   for (const [hash, draft] of Object.entries(drafts)) {
     if (!(draft.base.compendium || draft.next.compendium || draft.base.custom || draft.next.custom))
       continue;
-    let part = evidenceByEntry.get(draft);
+    let part = byEntry.get(draft);
     if (part === undefined) {
       // Only link/classification metadata affects matching. In particular, never serialize
       // all saved translations/snapshots from every unchanged draft on each keystroke.
@@ -44,13 +49,22 @@ function draftEvidence(drafts: Drafts) {
         compendium: value.compendium,
         custom: value.custom,
       });
-      part = JSON.stringify([hash, { base: project(draft.base), next: project(draft.next) }]);
-      evidenceByEntry.set(draft, part);
+      const current = editor.bundle.tooltips[hash];
+      // A first text edit of a saved custom/linked tooltip adds a draft, but
+      // changes no matching inputs. Compare both ends with the current editor
+      // revision: a refreshed baseline may have a different saved link.
+      const metadata = JSON.stringify([current?.compendium, current?.custom]);
+      part =
+        metadata === JSON.stringify([draft.base.compendium, draft.base.custom]) &&
+        metadata === JSON.stringify([draft.next.compendium, draft.next.custom])
+          ? ''
+          : JSON.stringify([hash, { base: project(draft.base), next: project(draft.next) }]);
+      byEntry.set(draft, part);
     }
-    parts.push(part);
+    if (part) parts.push(part);
   }
   const value = `[${parts.join(',')}]`;
-  evidenceByDrafts.set(drafts, value);
+  byDrafts.set(drafts, value);
   return value;
 }
 
@@ -74,7 +88,7 @@ export function useDisplayMatches(
       document.removeEventListener('input', input, true);
     };
   }, []);
-  const evidence = draftEvidence(drafts);
+  const evidence = draftEvidence(editor, drafts);
   const matchingDrafts = useMemo(
     () => Object.fromEntries(JSON.parse(evidence)) as Drafts,
     [evidence],

@@ -24,6 +24,75 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+it.each(['linked', 'custom'] as const)(
+  'keeps first %s text edits out of matching inputs and invalidates refreshed metadata',
+  async (kind) => {
+    vi.stubEnv('DEV', false);
+    vi.stubGlobal('localStorage', { getItem: () => null });
+    const f = guidedFixture();
+    const original = f.categories[0].entries[0].base;
+    const base = {
+      ...original,
+      ...(kind === 'custom'
+        ? { custom: { name: 'Saved custom tooltip', categoryId: 'weapon-perk' } }
+        : {
+            compendium: {
+              gid: 'g1',
+              rowKey: 'Saved row',
+              snapshotAt: '2026-11-04T00:00:00Z',
+              snapshot: { plain: 'Saved', runs: [{ text: 'Saved' }] },
+            },
+          }),
+    };
+    const editor = {
+      ...f.editor,
+      bundle: { ...f.editor.bundle, tooltips: { ...f.editor.bundle.tooltips, [base.hash]: base } },
+    };
+    const next = {
+      ...base,
+      text: {
+        en: {
+          text: 'First text edit',
+          updatedAt: '2026-11-05T00:00:00Z',
+          updatedBy: 'fixture-editor',
+        },
+      },
+    };
+    const drafts = { [base.hash]: { base, next } };
+    calls.display.mockReset().mockReturnValue(new Promise(() => undefined));
+    function Probe({ data, drafts }: { data: typeof editor; drafts: Drafts }) {
+      useDisplayMatches(data, f.source, drafts, `first-metadata-${kind}`);
+      return null;
+    }
+    const root = createRoot(document.createElement('div'));
+    try {
+      await act(async () => root.render(<Probe data={editor} drafts={{}} />));
+      await act(async () => root.render(<Probe data={editor} drafts={drafts} />));
+      expect(calls.display).toHaveBeenCalledTimes(1);
+      // Reusing a draft after a remote baseline changes must retain its older
+      // link/classification as an actual overlay, rather than reuse this cache.
+      const refreshed = {
+        ...editor,
+        bundle: {
+          ...editor.bundle,
+          tooltips: {
+            ...editor.bundle.tooltips,
+            [base.hash]: { ...original },
+          },
+        },
+      };
+      await act(async () => root.render(<Probe data={refreshed} drafts={drafts} />));
+      expect(calls.display).toHaveBeenCalledTimes(2);
+      const projected = calls.display.mock.calls[1][0].drafts[base.hash].next;
+      expect(projected.compendium).toEqual(base.compendium);
+      expect(projected.custom).toEqual(base.custom);
+      expect(projected.text).toEqual({});
+    } finally {
+      await act(async () => root.unmount());
+    }
+  },
+);
+
 it('publishes a priority reply from idle and cancels stale queued publications', async () => {
   vi.stubEnv('DEV', false);
   vi.stubGlobal('localStorage', { getItem: () => null });
