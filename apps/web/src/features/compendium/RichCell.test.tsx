@@ -6,7 +6,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { CompendiumCell } from '@clarity/core';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { Multiline, RichCell } from './RichCell';
+import { Multiline, prepareReviewCell, RichCell } from './RichCell';
+import { SheetCell } from './sheetSurface';
 import { createSettingsStore, useSettingsStore, deviceKey } from '../../stores/settings';
 import { memoryStorage } from '../../stores/settings.testSupport';
 import { CompendiumDiff } from './CompendiumDiff';
@@ -26,6 +27,32 @@ function render(node: React.ReactElement) {
 }
 
 describe('compendium newlines', () => {
+  it('keeps link and surface modes independent of a prepared review projection', () => {
+    const value: CompendiumCell = {
+      plain: 'Prepared source',
+      runs: [{ text: 'Prepared source', color: '#101010', href: 'https://example.com/source' }],
+    };
+    prepareReviewCell(value);
+    const linked = render(createElement(RichCell, { cell: value, emojiFace: true }));
+    const unlinked = render(
+      createElement(RichCell, { cell: value, emojiFace: true, links: false }),
+    );
+    expect(linked.querySelector('a')?.getAttribute('href')).toBe('https://example.com/source');
+    expect(unlinked.querySelector('a')).toBeNull();
+    expect(unlinked.textContent).toBe(value.plain);
+    const surface = render(
+      createElement(SheetCell, null, createElement(RichCell, { cell: value, emojiFace: true })),
+    );
+    const uncachedSurface = render(
+      createElement(SheetCell, null, createElement(RichCell, { cell: value })),
+    );
+    expect(surface.querySelector<HTMLElement>('a > span')?.style.color).toBe(
+      uncachedSurface.querySelector<HTMLElement>('a > span')?.style.color,
+    );
+    expect(surface.querySelector<HTMLElement>('a > span')?.style.color).not.toBe(
+      linked.querySelector<HTMLElement>('a > span')?.style.color,
+    );
+  });
   it('selects an explicit emoji face only for requested emoji-presentation clusters', () => {
     const value: CompendiumCell = {
       plain: 'Damage [☠️] 📁 ☠︎',

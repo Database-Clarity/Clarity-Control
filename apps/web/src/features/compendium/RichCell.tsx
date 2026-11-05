@@ -132,6 +132,31 @@ function richRuns(
     ),
   );
 }
+function cellContent(
+  cell: CompendiumCell,
+  links: boolean,
+  legibleOn: string | undefined,
+  emojiFace: boolean,
+) {
+  return cell.runs.some((run) => run.textAlign)
+    ? alignedBlocks(cell).map((block, index) => (
+        <span key={index} className={styles.line} style={{ textAlign: block.align }}>
+          {richRuns(block.parts, links, legibleOn, emojiFace)}
+          {block.emptyLastLine && <br />}
+        </span>
+      ))
+    : richRuns(cell.runs, links, legibleOn, emojiFace);
+}
+
+const reviewContent = new WeakMap<CompendiumCell, ReactNode>();
+/** Immutable review cells share their escaped React projection across mounts. */
+export function prepareReviewCell(cell: CompendiumCell): ReactNode {
+  if (reviewContent.has(cell)) return reviewContent.get(cell);
+  const content = cellContent(cell, true, undefined, true);
+  reviewContent.set(cell, content);
+  return content;
+}
+
 export const RichCell = memo(function RichCell({
   cell,
   links = true,
@@ -152,14 +177,9 @@ export const RichCell = memo(function RichCell({
   // Runs remain React-escaped text and retain the original styles and links.
   return (
     <Multiline>
-      {!inline && cell.runs.some((run) => run.textAlign)
-        ? alignedBlocks(cell).map((block, index) => (
-            <span key={index} className={styles.line} style={{ textAlign: block.align }}>
-              {richRuns(block.parts, links, legibleOn, emojiFace)}
-              {block.emptyLastLine && <br />}
-            </span>
-          ))
-        : richRuns(cell.runs, links, legibleOn, emojiFace)}
+      {emojiFace && links && legibleOn === undefined
+        ? prepareReviewCell(cell)
+        : cellContent(cell, links, legibleOn, emojiFace)}
     </Multiline>
   );
 });

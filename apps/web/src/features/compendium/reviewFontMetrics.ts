@@ -1,5 +1,6 @@
 import { useEffect, type RefObject } from 'react';
 import type { CompendiumData } from '@clarity/core';
+import { prepareReviewCell } from './RichCell';
 
 const prepared = new WeakMap<CompendiumData, Set<string>>();
 const latin = Array.from({ length: 95 }, (_, index) => String.fromCharCode(32 + index)).join('');
@@ -51,6 +52,7 @@ export function warmReviewFontMetrics(source: CompendiumData, family: string, re
   function* units() {
     const fonts = new Set<string>();
     const sourceStyles = new Set<string>();
+    const cells = new WeakSet<object>();
     let scanned = 0;
     for (const size of [0.75, 0.8, 0.85, 0.9, 0.95, 1, 1.45, 1.65])
       for (const weight of [400, 700]) fonts.add(`${weight} ${size * rem}px ${family}`);
@@ -59,8 +61,12 @@ export function warmReviewFontMetrics(source: CompendiumData, family: string, re
     for (const tab of source.tabs)
       // Nearby context uses the physical grid, including heading/caption styles
       // that never appear in the extracted matching rows.
-      for (const cells of [tab.rows, tab.grid ?? []])
-        for (const row of cells)
+      for (const rows of [tab.rows, tab.grid ?? []])
+        for (const row of rows) {
+          if (!cells.has(row.cell)) {
+            cells.add(row.cell);
+            yield { kind: 'cell' as const, cell: row.cell };
+          }
           for (const run of row.cell.runs) {
             const style = `${+!!run.bold}${+!!run.italic}:${run.sizePt ?? 'default'}`;
             if (!sourceStyles.has(style)) {
@@ -71,9 +77,11 @@ export function warmReviewFontMetrics(source: CompendiumData, family: string, re
             }
             if (++scanned % 64 === 0) yield;
           }
+        }
     for (let pass = 0; pass < 2; pass++)
       for (let start = 0; start < latin.length; start += 8)
-        for (const font of fonts) yield { font, text: latin.slice(start, start + 8) };
+        for (const font of fonts)
+          yield { kind: 'font' as const, font, text: latin.slice(start, start + 8) };
   }
   const work = units();
   const started = performance.now();
@@ -82,6 +90,8 @@ export function warmReviewFontMetrics(source: CompendiumData, family: string, re
   let timer: ReturnType<typeof setTimeout> | undefined;
   let maxUnitMs = 0;
   let maxSliceMs = 0;
+  let maxProjectionMs = 0;
+  let preparedCells = 0;
   const tasks = (
     globalThis as typeof globalThis & {
       scheduler?: {
@@ -139,16 +149,24 @@ export function warmReviewFontMetrics(source: CompendiumData, family: string, re
             maxSliceMs,
             durationMs: performance.now() - started,
             latinOnly: true,
+            preparedCells,
+            maxProjectionMs,
           },
         });
         return;
       }
       if (next.value) {
         const at = performance.now();
-        if (context === undefined) context = document.createElement('canvas').getContext('2d');
-        if (!context) return;
-        context.font = next.value.font;
-        context.measureText(next.value.text);
+        if (next.value.kind === 'cell') {
+          prepareReviewCell(next.value.cell);
+          preparedCells++;
+          maxProjectionMs = Math.max(maxProjectionMs, performance.now() - at);
+        } else {
+          if (context === undefined) context = document.createElement('canvas').getContext('2d');
+          if (!context) return;
+          context.font = next.value.font;
+          context.measureText(next.value.text);
+        }
         maxUnitMs = Math.max(maxUnitMs, performance.now() - at);
       }
     }

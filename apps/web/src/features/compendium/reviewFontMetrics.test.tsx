@@ -3,6 +3,7 @@ import { act, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { guidedFixture } from '../../../test/guided-fixture';
+import * as cellRendering from './RichCell';
 import {
   preloadReviewFontMetrics,
   useReviewFontMetrics,
@@ -63,6 +64,23 @@ it('waits for idle time, pauses for pending input, yields after a slow unit, and
   tick();
   expect(calls).toHaveLength(1);
   expect(pending.size).toBe(1);
+  cancel();
+  expect(pending.size).toBe(0);
+});
+
+it('yields after a slow source projection, and pauses projection work for pending input', async () => {
+  const projection = vi.spyOn(cellRendering, 'prepareReviewCell').mockImplementation(() => {
+    now += 2;
+    return [];
+  });
+  const cancel = warmReviewFontMetrics(guidedFixture().source, family, 16);
+  await Promise.resolve();
+  tick();
+  expect(projection).toHaveBeenCalledTimes(1);
+  expect(calls).toHaveLength(0);
+  input = true;
+  tick();
+  expect(projection).toHaveBeenCalledTimes(1);
   cancel();
   expect(pending.size).toBe(0);
 });
