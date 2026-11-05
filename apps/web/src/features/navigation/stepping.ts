@@ -1,6 +1,6 @@
 import { langSchema } from '@clarity/core';
 
-export type NavigateTo = (path: string, options: { replace: boolean }) => void;
+export type NavigateTo = (path: string, options: { replace: boolean; flushSync?: boolean }) => void;
 
 export function stepWithinCategory(
   current: number,
@@ -212,7 +212,10 @@ export function createStepping(
             return;
           }
           if (destination) {
-            navigate(destination, { replace: true });
+            // The frame already chose the newest input. Commit the data-router
+            // route in this frame too, rather than starting another transition
+            // that can leave the visible editor one selection behind the URL.
+            navigate(destination, { replace: true, flushSync: true });
             landed = destination;
           }
         });

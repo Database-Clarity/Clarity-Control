@@ -23,7 +23,7 @@ it('cancels a queued step when an overlay opens before paint, retaining the last
   allowed = false;
   paint!();
   expect(stepping.target).toBe('/t/11');
-  expect(navigate.mock.calls).toEqual([['/t/11', { replace: true }]]);
+  expect(navigate.mock.calls).toEqual([['/t/11', { replace: true, flushSync: true }]]);
   vi.advanceTimersByTime(1000);
   expect(navigate.mock.calls.slice(1)).toEqual([
     ['/t/10', { replace: true }],
@@ -47,7 +47,7 @@ it('lands only the final wheel target in a frame and preserves the gesture back 
   expect(navigate).not.toHaveBeenCalled();
   expect(stepping.target).toBe('/t/310');
   paint!();
-  expect(navigate.mock.calls).toEqual([['/t/310', { replace: true }]]);
+  expect(navigate.mock.calls).toEqual([['/t/310', { replace: true, flushSync: true }]]);
   vi.advanceTimersByTime(1000);
   expect(navigate.mock.calls.slice(1)).toEqual([
     ['/t/10', { replace: true }],
