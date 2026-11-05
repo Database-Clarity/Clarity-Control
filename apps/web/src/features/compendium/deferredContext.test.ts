@@ -95,7 +95,7 @@ it('reveals browser Find results, and the next native Tab link, before those act
   cancel();
 });
 it('reveals scrolled cells synchronously, and cancels callbacks when the context changes', () => {
-  const { root, details, nodes, cells, scrollToCells } = fixture();
+  const { details, nodes, cells, scrollToCells } = fixture();
   const cancel = deferContextCells(details, cells);
   scrollToCells();
   // The document is the scroll owner in the narrow layout.
