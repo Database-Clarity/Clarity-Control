@@ -15,7 +15,7 @@ import precomputedUrl from './precomputed.v1.json?url';
 import compressedUrl from './precomputed.v1.json.gz?url';
 import { compressedJson } from './compressedJson';
 import { compactDisplay, compactProposal } from './compactMatches';
-import { decodePrecomputed } from './precomputedCodec';
+import { decodePrecomputed, decodeValueNode } from './precomputedCodec';
 import type { GuidanceDocument } from './guidanceSchema';
 import { matchingInputs } from './matchingInputs';
 import { sendWorkerResult, type WorkerReply } from './workerReplies';
@@ -48,7 +48,8 @@ type PreparedAsset = {
 
 function loadPreparedAsset() {
   const compressed = typeof DecompressionStream !== 'undefined';
-  let prepared: PreparedAsset | undefined;
+  let prepared:
+    { encoded: { nodes: unknown[]; root: number }; key: string; fingerprint: string } | undefined;
   const response = fetch(compressed ? compressedUrl : precomputedUrl, { priority: 'low' })
     .then(async (response) => {
       if (response.ok) {
@@ -56,7 +57,15 @@ function loadPreparedAsset() {
           nodes: unknown[];
           root: number;
         };
-        prepared = decodePrecomputed(encoded.nodes, encoded.root) as PreparedAsset;
+        // Read only the two metadata records while source loading is pending.
+        // Expanding the complete catalog here delayed source delivery itself.
+        const read = (id: number) => encoded.nodes[id];
+        const fields = decodeValueNode(read(encoded.root), read) as {
+          key: string;
+          display: unknown;
+        };
+        const display = decodeValueNode(fields.display, read) as { fingerprint: string };
+        prepared = { encoded, key: fields.key, fingerprint: display.fingerprint };
       }
       return { prepared };
     })
@@ -255,7 +264,7 @@ async function process(data: Request) {
       // Never wait for the asset here: an uncached/changed source keeps the same
       // independent current-tooltip path while background preparation continues.
       dataKey = await contentHash(matchingInputs(editor, source));
-      if (asset.prepared?.key === dataKey) fingerprint = asset.prepared.display.fingerprint;
+      if (asset.prepared?.key === dataKey) fingerprint = asset.prepared.fingerprint;
       modelToken = data.initialize.token;
       // Install the message handler before loading modules with top-level await.
       // Otherwise a worker can drop the source request during module initialization.
@@ -277,18 +286,20 @@ async function process(data: Request) {
         // A cache hit needs no asset; preserve the original failure behaviour on
         // a miss without leaving an early prefetch rejection unhandled.
         if ('error' in preparedAsset) throw preparedAsset.error;
-        const { prepared: precomputed } = preparedAsset;
-        if (precomputed) {
-          if (precomputed.key === dataKey) {
-            const display = {
-              ...precomputed.display,
-              matches: new Map(precomputed.display.matches),
-            };
-            return {
-              display,
-              proposals: new Map(precomputed.proposals),
-            };
-          }
+        const { prepared: metadata } = preparedAsset;
+        if (metadata?.key === dataKey) {
+          const precomputed = decodePrecomputed(
+            metadata.encoded.nodes,
+            metadata.encoded.root,
+          ) as PreparedAsset;
+          const display = {
+            ...precomputed.display,
+            matches: new Map(precomputed.display.matches),
+          };
+          return {
+            display,
+            proposals: new Map(precomputed.proposals),
+          };
         }
         const [{ reviewEvidence }, { proposalFor }, { withCompendiumMatchingIndex }] =
           await Promise.all([

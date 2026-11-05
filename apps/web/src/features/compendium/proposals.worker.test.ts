@@ -224,6 +224,7 @@ it.each([false, true])(
       input.scope,
       f.proposals,
     );
+    const catalogDecode = vi.spyOn(await import('./precomputedCodec'), 'decodePrecomputed');
     const fingerprint = vi.spyOn(
       await import('./matchingSessionFingerprint'),
       'matchingSessionFingerprint',
@@ -242,6 +243,7 @@ it.each([false, true])(
     const worker = {
       onmessage: null as null | ((event: { data: unknown }) => void),
       postMessage(reply: WorkerReply) {
+        if (reply.id === 2) expect(catalogDecode).not.toHaveBeenCalled();
         const job = pending.get(reply.id);
         if (!job) return;
         if (reply.error) return job.reject(Error(reply.error));
@@ -272,6 +274,8 @@ it.each([false, true])(
     );
     expect(fingerprint.mock.calls.length > 0).toBe(styleChanged);
     await initialized;
+    expect(catalogDecode).toHaveBeenCalledTimes(styleChanged ? 0 : 1);
+    catalogDecode.mockRestore();
     fingerprint.mockRestore();
   },
 );
