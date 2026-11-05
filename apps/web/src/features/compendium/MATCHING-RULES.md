@@ -83,7 +83,7 @@ Calibration: `relink-calibration.test.ts` evaluates the 2026-10-30 reviewed-sour
 
 ### Shipped display approvals and computed cache (2026-11-04)
 
-`approved-guidance.v1.json` is an immutable copy of the 117 references and frozen category
+`approved-guidance.v1.json` started as an immutable copy of the 117 references and frozen category
 membership from the read-only 2026-11-02 audit input
 `ccov-audit-42488/renewed-guidance.json`. It is an app asset, never editor-data, a saved link,
 or a new approval. `guidanceSchema` validates it; the existing `rebaselineGuidance` validator
@@ -92,9 +92,19 @@ layer over their recorded categories, retaining baseline, membership and unresol
 gates. No owner browser or live guidance store is used to generate the shipped snapshot.
 The pinned original is `C:/Users/Seleo/AppData/Local/Temp/ccov-audit-42488/renewed-guidance.json`
 (SHA-256 `2cbb42830f8fbfcbb2304319f093358f4fafeae47da3cbf3ba599796fecadb86`).
-The committed JSON has identical parsed content; formatting changes its file hash.
+The initial committed JSON had identical parsed content; formatting changes its file hash.
 The audit editor/catalog input is `ccov-sol-high-20261102/inputs.json`; the refreshed audit
 source is `.agents/reports/compendium-baseline/compendium-8602377.json` in the coordination checkout.
+
+Owner approval, 2026-11-05, ask dialog: “Approve all 3 but we gotta figure out why these weren't automatically linked up.”
+This adds the 118th reference through `sampleReference`: Glacial Quake (2021620139), Stasis
+(gid 1088259962), row 77, name B77, body D77:M77, and cooldown N77. Its recorded baseline,
+entry evidence, source fingerprint, and styled snapshot establish the Stasis Supers convention
+without changing frozen category membership. The existing `unique-name-in-learned-tab` rule
+then covers Silence and Squall (2625980631), row 55, and Winter's Wrath (3683904166), row 99.
+Previously, Supers references covered Arc, Solar, Void, and Strand only; all three Stasis
+proposals were `uncovered-element-tab`/medium, which the display gate withholds. Other
+categories' uncovered-tab proposals retain their current confidence; no generic rule is approved.
 
 Both the pane and Matched sources tab consume the same read-only worker results. Only
 `action=link` with `confidence=high` or the existing explicit out-of-scope parent-link exceptions

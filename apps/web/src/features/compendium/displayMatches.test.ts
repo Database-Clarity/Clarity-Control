@@ -6,11 +6,11 @@ import { emptyProgress } from './reviewProgress';
 import approved from './approved-guidance.v1.json';
 import { guidanceSchema } from './guidanceSchema';
 
-it('ships the pinned approval snapshot with all 117 references, independently of browser storage', () => {
+it('ships the pinned approval snapshot with all 118 references, independently of browser storage', () => {
   const input = guidanceSchema.parse(approved);
   expect(
     Object.values(input.categories).reduce((n, c) => n + Object.keys(c.references ?? {}).length, 0),
-  ).toBe(117);
+  ).toBe(118);
 });
 it('displays current high links, withholds uncertain links, and never mutates inputs', () => {
   const f = guidedFixture();
