@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   compendiumNameVariants,
   compendiumPreferredTabs,
@@ -34,7 +34,7 @@ export function LinkPicker({
   retainPrevious = false,
 }: LinkPickerProps) {
   const [started, setStarted] = useState(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!retainPrevious) return;
     const channel = new MessageChannel();
     channel.port1.onmessage = () => setStarted(true);
@@ -168,6 +168,7 @@ function PreparedLinkPicker({
     readySheets.current.clear();
   }
   const openReady = !retainPrevious || (readyInitial === initial && !!shownCellKey);
+  const currentReady = openReady && (!retainPrevious || cellKey === shownCellKey);
   const currentCellKey = useRef(cellKey);
   currentCellKey.current = cellKey;
   useEffect(() => {
@@ -223,7 +224,8 @@ function PreparedLinkPicker({
     <section
       className={`${gridStyles.picker}${openReady ? '' : ` ${gridStyles.pendingOpen}`}`}
       aria-label="Link a Compendium row"
-      data-picker-ready={openReady}
+      aria-busy={!currentReady}
+      data-picker-ready={currentReady}
     >
       <h3>Choose tab and row</h3>
       <label>

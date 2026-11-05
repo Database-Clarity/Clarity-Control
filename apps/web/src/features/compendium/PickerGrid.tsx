@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { compendiumCellAt } from '@clarity/core';
 import type { CompendiumCellOffset, CompendiumPosition, CompendiumSheet } from '@clarity/core';
@@ -76,7 +76,7 @@ export const PickerGrid = memo(function PickerGrid({
   const [state, setState] = useState({ bands, count: 1 });
   if (state.bands !== bands) setState({ bands, count: 1 });
   const count = state.bands === bands ? state.count : 1;
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (bands.length < 2 || typeof ResizeObserver === 'undefined') {
       setState({ bands, count: bands.length });
       ready.current?.();
