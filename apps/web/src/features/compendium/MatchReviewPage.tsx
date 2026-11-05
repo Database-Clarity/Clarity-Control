@@ -140,6 +140,7 @@ export function MatchReviewPage() {
   return (
     <article
       ref={article}
+      data-review-location={`${location.pathname}${location.search}${location.hash}`}
       className={`${styles.review} ${linkedTab ? styles.linkedReview : params.get('view') === 'entries' ? styles.entryReview : styles.categoryReview}`}
       data-category-review={categoryViewport ? '' : undefined}
       data-entry-review={entryViewport ? '' : undefined}
