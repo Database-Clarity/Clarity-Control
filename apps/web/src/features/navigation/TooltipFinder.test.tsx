@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { FinderSheetContext } from './FinderSheetContext';
@@ -82,6 +82,7 @@ async function press(name: string, init: KeyboardEventInit = {}) {
     ...init,
   });
   await act(async () => void field().dispatchEvent(event));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
   return event;
 }
 const open = () => act(async () => field().click());
@@ -100,6 +101,261 @@ afterEach(async () => {
 });
 
 describe('tooltip finder combobox', () => {
+  it('opens and sizes from observer entries without forcing list geometry', async () => {
+    let resize: ResizeObserverCallback | undefined;
+    let observed = false;
+    let scrollPosition = 0;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          resize = callback;
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const height = vi
+      .spyOn(HTMLElement.prototype, 'clientHeight', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.getAttribute('role') === 'listbox') throw Error('Forced finder layout');
+        return 0;
+      });
+    const scrollRead = vi.spyOn(Element.prototype, 'scrollTop', 'get').mockImplementation(function (
+      this: Element,
+    ) {
+      if (this.getAttribute('role') === 'listbox' && !observed)
+        throw Error('Premature scroll geometry');
+      return scrollPosition;
+    });
+    const scrollWrite = vi
+      .spyOn(Element.prototype, 'scrollTop', 'set')
+      .mockImplementation((value) => {
+        scrollPosition = value;
+      });
+    try {
+      await mount();
+      await open();
+      const list = host.querySelector<HTMLElement>('[role="listbox"]')!;
+      observed = true;
+      await act(async () => {
+        resize!(
+          [
+            {
+              target: list,
+              contentRect: new DOMRectReadOnly(0, 0, 100, 28),
+              borderBoxSize: [],
+              contentBoxSize: [],
+              devicePixelContentBoxSize: [],
+            },
+          ],
+          {} as ResizeObserver,
+        );
+      });
+      await press('End');
+      await act(async () => {
+        resize!(
+          [
+            {
+              target: list,
+              contentRect: new DOMRectReadOnly(0, 0, 100, 28),
+              borderBoxSize: [],
+              contentBoxSize: [],
+              devicePixelContentBoxSize: [],
+            },
+          ],
+          {} as ResizeObserver,
+        );
+      });
+      expect(list.scrollTop).toBe(56);
+      expect(field().getAttribute('aria-activedescendant')).toBe(options().at(-1)!.id);
+    } finally {
+      height.mockRestore();
+      scrollRead.mockRestore();
+      scrollWrite.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('lets the phone sheet step itself but blocks an unrelated modal before landing', async () => {
+    await act(async () =>
+      root.render(
+        <MemoryRouter initialEntries={['/t/10']}>
+          <div data-shell-overlay="Find" role="dialog" aria-modal="true">
+            <FinderSheetContext.Provider value={true}>
+              <TooltipNavigation data={data} variant="sheet" />
+            </FinderSheetContext.Provider>
+          </div>
+          <Echo />
+        </MemoryRouter>,
+      ),
+    );
+    const next = () => host.querySelector<HTMLButtonElement>('[aria-label="Next tooltip"]')!;
+    await act(async () => next().click());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(route()).toBe('/t/11');
+    const modal = document.createElement('dialog');
+    modal.setAttribute('open', '');
+    document.body.append(modal);
+    try {
+      await act(async () => next().click());
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+      expect(route()).toBe('/t/11');
+    } finally {
+      modal.remove();
+    }
+  });
+  it('windows a large category while keeping End and its active descendant usable', async () => {
+    const many = {
+      ...data,
+      items: Object.fromEntries(
+        Array.from({ length: 800 }, (_, i) => [
+          1000 + i,
+          item(1000 + i, `Armor ${String(i).padStart(3, '0')}`, 'armor'),
+        ]),
+      ),
+    } as EditorData;
+    await mount('/t/1000', many);
+    await open();
+    expect(options().length).toBeLessThan(220);
+    await press('End');
+    const active = host.querySelector(`[id="${field().getAttribute('aria-activedescendant')}"]`);
+    expect(active?.textContent).toContain('Armor 799');
+    expect(active?.getAttribute('aria-posinset')).toBe('800');
+    expect(active?.getAttribute('aria-setsize')).toBe('800');
+    // Fill the destination viewport before paint, not only the active row
+    // isolated after a spacer while waiting for the next scroll event.
+    expect(options().some((row) => row.textContent?.includes('Armor 798'))).toBe(true);
+    expect(host.querySelector<HTMLElement>('[role="listbox"]')!.scrollTop).toBeGreaterThan(0);
+    await press('Home');
+    expect(host.querySelector<HTMLElement>('[role="listbox"]')!.scrollTop).toBe(0);
+    await press('PageDown');
+    expect(
+      host.querySelector(`[id="${field().getAttribute('aria-activedescendant')}"]`)?.textContent,
+    ).toContain('Armor 014');
+    expect(route()).toBe('/t/1000');
+    await press('PageUp');
+    expect(
+      host.querySelector(`[id="${field().getAttribute('aria-activedescendant')}"]`)?.textContent,
+    ).toContain('Armor 000');
+    await press('End');
+    await press('Enter');
+    expect(route()).toBe('/t/1799');
+  });
+  it.each(['pointerup', 'pointercancel'])(
+    'fills the thumb destination before paint and keeps it through %s',
+    async (release) => {
+      const many = {
+        ...data,
+        items: Object.fromEntries(
+          Array.from({ length: 400 }, (_, i) => [
+            1000 + i,
+            item(1000 + i, `Armor ${String(i).padStart(3, '0')}`, 'armor'),
+          ]),
+        ),
+      } as EditorData;
+      await mount('/t/1000', many);
+      await open();
+      const list = host.querySelector<HTMLElement>('[role="listbox"]')!;
+      expect(list.hasAttribute('data-windowed')).toBe(true);
+      Object.defineProperties(list, {
+        clientWidth: { value: 200 },
+        clientHeight: { value: 416 },
+      });
+      const down = new MouseEvent('pointerdown', { button: 0, bubbles: true });
+      Object.defineProperty(down, 'offsetX', { value: 207 });
+      await act(async () => void list.dispatchEvent(down));
+      expect(options().length).toBeLessThan(160);
+      // One native scroll notification fills the jumped-to viewport synchronously.
+      list.scrollTop = 9800;
+      await act(async () => void list.dispatchEvent(new Event('scroll')));
+      expect(options().length).toBeLessThan(160);
+      expect(options().some((row) => row.textContent?.includes('Armor 350'))).toBe(true);
+      const lastRow = options().find((row) => row.textContent?.includes('Armor 364'));
+      expect(lastRow).toBeDefined();
+      await act(async () => void window.dispatchEvent(new Event(release)));
+      expect(options().length).toBeLessThan(160);
+      expect(options().find((row) => row.textContent?.includes('Armor 364'))).toBe(lastRow);
+      expect(list.hasAttribute('data-scrollbar-drag')).toBe(false);
+      expect(list.hasAttribute('data-windowed')).toBe(true);
+      expect(route()).toBe('/t/1000');
+      await press('Escape');
+      await open();
+      expect(host.querySelector('[role="listbox"]')!.hasAttribute('data-windowed')).toBe(true);
+    },
+  );
+  it('fills scroll windows without reconciling the category picker', async () => {
+    const many = {
+      ...data,
+      items: Object.fromEntries(
+        Array.from({ length: 800 }, (_, i) => [
+          1000 + i,
+          item(1000 + i, `Armor ${String(i).padStart(3, '0')}`, 'armor'),
+        ]),
+      ),
+    } as EditorData;
+    await mount('/t/1000', many);
+    await open();
+    const selected = vi.spyOn(HTMLOptionElement.prototype, 'selected', 'set');
+    try {
+      const list = host.querySelector<HTMLElement>('[role="listbox"]')!;
+      for (const top of [5600, 11200, 16800, 2813, 0]) {
+        list.scrollTop = top;
+        await act(async () => void list.dispatchEvent(new Event('scroll')));
+        const index = Math.floor(top / 28);
+        expect(options().some((row) => row.getAttribute('aria-posinset') === `${index + 1}`)).toBe(
+          true,
+        );
+        // Every visible row is filled even after a jump much larger than
+        // overscan; offscreen rows must not inflate every scroll commit.
+        for (let visible = index; visible < index + (top % 28 ? 16 : 15); visible++) {
+          expect(
+            options().some((row) => row.getAttribute('aria-posinset') === `${visible + 1}`),
+          ).toBe(true);
+        }
+        expect(options().length).toBeLessThan(36);
+      }
+      expect(selected).not.toHaveBeenCalled();
+      expect(route()).toBe('/t/1000');
+      expect(field().getAttribute('aria-activedescendant')).toBe(options()[0].id);
+    } finally {
+      selected.mockRestore();
+    }
+  });
+  it('fills a large thumb destination and commits the landed row', async () => {
+    const many = {
+      ...data,
+      items: Object.fromEntries(
+        Array.from({ length: 800 }, (_, i) => [
+          1000 + i,
+          item(1000 + i, `Armor ${String(i).padStart(3, '0')}`, 'armor'),
+        ]),
+      ),
+    } as EditorData;
+    await mount('/t/1000', many);
+    await open();
+    const list = host.querySelector<HTMLElement>('[role="listbox"]')!;
+    Object.defineProperties(list, { clientWidth: { value: 200 }, clientHeight: { value: 416 } });
+    const down = new MouseEvent('pointerdown', { button: 0, bubbles: true });
+    Object.defineProperty(down, 'offsetX', { value: 207 });
+    await act(async () => void list.dispatchEvent(down));
+    expect(options().length).toBeLessThan(160);
+    list.scrollTop = 19600;
+    await act(async () => void list.dispatchEvent(new Event('scroll')));
+    expect(options().some((row) => row.textContent?.includes('Armor 700'))).toBe(true);
+    for (let index = 700; index < 715; index++) {
+      expect(options().some((row) => row.textContent?.includes(`Armor ${index}`))).toBe(true);
+    }
+    expect(options().length).toBeLessThan(160);
+    expect(list.querySelector<HTMLElement>('[role="presentation"]')!.style.height).toBe('22400px');
+    await act(async () => void window.dispatchEvent(new Event('pointerup')));
+    expect(options().length).toBeLessThan(220);
+    expect(options().some((row) => row.textContent?.includes('Armor 700'))).toBe(true);
+    const landed = options().find((row) => row.textContent?.includes('Armor 700'))!;
+    expect(landed.getAttribute('aria-posinset')).toBe('701');
+    await act(async () => landed.click());
+    expect(route()).toBe('/t/1700');
+  });
   it('marks only a real base -> enhanced pair with the gold arrow, and a search for the variant lands on the base', async () => {
     const variants = {
       ...data,
@@ -379,6 +635,7 @@ describe('finder wheel stepping', () => {
     const wheel = async (target: Element) => {
       const event = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 100 });
       await act(async () => void target.dispatchEvent(event));
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
       return event;
     };
     const closed = await wheel(field());

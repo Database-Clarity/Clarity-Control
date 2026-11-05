@@ -34,6 +34,8 @@ export interface PaneDividerOptions {
   defaultCollapsed?: boolean;
   /** false (phone): the size lives in memory only and nothing is read from or written to the device. */
   persist?: boolean;
+  /** Retain the last measurement while the containing workspace is temporarily hidden. */
+  paused?: boolean;
 }
 
 export interface PaneDividerHandle {
@@ -44,6 +46,8 @@ export interface PaneDividerHandle {
   collapsed: boolean;
   dragging: boolean;
   containerWidth: number;
+  /** Current root font scale, already measured when the scale setting changes. */
+  scale: number;
   /** The size the user chose, if any; a viewport clamp never changes it. */
   saved: PaneState | undefined;
   /** Sets the intended width (and expands). Used by compatibility adapters; the divider itself calls it too. */
@@ -75,7 +79,7 @@ const clamp = (value: number, low: number, high: number) => Math.max(low, Math.m
  * The interface scale as a factor (1 at 100 %): the root font size over 16. Pane limits, defaults and
  * saved sizes are design pixels, so a pane keeps its share of the window at every scale.
  */
-function useScaleFactor(): number {
+export function useScaleFactor(): number {
   const [factor, setFactor] = useState(() => scaledPx(1));
   useEffect(() => {
     const update = () => setFactor(scaledPx(1));
@@ -99,7 +103,9 @@ export function usePaneDivider(options: PaneDividerOptions): PaneDividerHandle {
   const reserve = (options.reserve ?? 0) * k;
   const track = DIVIDER_TRACK * k;
   const persist = options.persist ?? true;
+  const paused = options.paused ?? false;
   const containerRef = useRef<HTMLDivElement>(null);
+  const measuredElement = useRef<HTMLDivElement>();
   const [containerWidth, setContainerWidth] = useState(0);
   const savedPane = useSettingsStore((state) => state.device.panes[storeKey]);
   const [memory, setMemory] = useState<PaneState | undefined>();
@@ -114,15 +120,26 @@ export function usePaneDivider(options: PaneDividerOptions): PaneDividerHandle {
 
   // Measured before the first paint, so a saved size never shows unclamped for a frame.
   useLayoutEffect(() => {
+    if (paused) return;
     const element = containerRef.current;
     if (!element) return;
-    const measure = () => setContainerWidth(element.getBoundingClientRect().width);
-    measure();
+    const measure = () => {
+      measuredElement.current = element;
+      setContainerWidth(element.getBoundingClientRect().width);
+    };
+    // The first mount still clamps before paint. Resuming the same workspace
+    // keeps its known width until the observer delivers the current layout;
+    // reading geometry here would flush every newly restored panel's layout.
+    if (measuredElement.current !== element || typeof ResizeObserver === 'undefined') measure();
     if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
+    const observer = new ResizeObserver(([entry] = []) => {
+      const size = entry?.borderBoxSize?.[0];
+      if (size) setContainerWidth(size.inlineSize);
+      else measure();
+    });
+    observer.observe(element, { box: 'border-box' });
     return () => observer.disconnect();
-  }, []);
+  }, [paused]);
 
   const fallback =
     (typeof defaultWidth === 'function' ? defaultWidth(containerWidth) : defaultWidth) * k;
@@ -268,6 +285,7 @@ export function usePaneDivider(options: PaneDividerOptions): PaneDividerHandle {
     collapsed,
     dragging: dragWidth !== null,
     containerWidth,
+    scale: k,
     saved,
     setWidth,
     collapse,

@@ -13,7 +13,13 @@ import { associationCandidates, moveAssociation } from './associations';
 import { PanelRow } from '../../ui/PanelRow';
 import styles from './AssociationsPanel.module.scss';
 
-export function AssociationsPanel({ hash }: { hash: number }) {
+export function AssociationsPanel({
+  hash,
+  suspended = false,
+}: {
+  hash: number;
+  suspended?: boolean;
+}) {
   const data = useDataStore((state) => state.data);
   const draft = useDraftStore((state) => state.drafts[hash]);
   const hydrated = useDraftStore((state) => state.hydrated);
@@ -24,12 +30,22 @@ export function AssociationsPanel({ hash }: { hash: number }) {
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const tooltip = data ? (draft?.next ?? tooltipFor(hash, data)) : undefined;
+  const membership = tooltip?.associated.join(',') ?? '';
+  const associated = useMemo(
+    () => (membership ? membership.split(',').map(Number) : []),
+    [membership],
+  );
+  const editable = Boolean(apiUrl && hydrated && !saving && canEditTooltipFields(user));
   const candidates = useMemo(
-    () => (data && tooltip ? associationCandidates(data, query, hash, tooltip.associated) : []),
-    [data, tooltip, query, hash],
+    // PanelRow does not mount its body while collapsed. Do not scan and sort the entire
+    // catalogue on every item switch or keystroke for a picker that is not being shown.
+    () =>
+      !suspended && open && adding && editable && data
+        ? associationCandidates(data, query, hash, associated)
+        : [],
+    [suspended, open, adding, editable, data, associated, query, hash],
   );
   if (!data || !tooltip) return null;
-  const editable = Boolean(apiUrl && hydrated && !saving && canEditTooltipFields(user));
   function change(associated: number[]) {
     if (!editable || !data) return;
     updateDraft(tooltipFor(hash, data), (next) => ({ ...next, associated }));

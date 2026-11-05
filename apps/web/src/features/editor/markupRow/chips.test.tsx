@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { EditorView, runScopeHandlers } from '@codemirror/view';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { MarkupGlobals } from '@clarity/core';
+import { markupIcons, type MarkupGlobals } from '@clarity/core';
 import { ClarityEditor } from '../ClarityEditor';
 import { useSettingsStore } from '../../../stores/settings';
 import { chipState, type Chip } from './chips';
@@ -79,6 +79,25 @@ function press(view: EditorView, key: string, init: KeyboardEventInit = {}) {
 }
 
 describe('suggestion chips for a typed tag word', () => {
+  it('finds the longest icon after a long paragraph and preserves word boundaries', () => {
+    const icon = [...markupIcons]
+      .filter((name) => /^[A-Za-z]{3,}$/.test(name))
+      .sort((a, b) => b.length - a.length)[0]!;
+    const view = mount(`${'ordinary prose '.repeat(200)}${icon.slice(0, -1)}`);
+    type(view, icon.at(-1)!);
+    expect(chipState(view.state)?.markup).toBe(`<${icon}/>`);
+    for (const prefix of ['x'.repeat(1000), '_', '9', '<', '#', '$', '/', '{', '|']) {
+      act(() =>
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: `${prefix}${icon.slice(0, -1)}` },
+          selection: { anchor: prefix.length + icon.length - 1 },
+        }),
+      );
+      type(view, icon.at(-1)!);
+      expect(chipState(view.state)).toBeNull();
+    }
+  });
+
   it('offers the icon for “Kinetic” and inserts it before the word on Enter, keeping the caret after it', () => {
     const view = mount('Deals ');
     type(view, 'Kinetic');

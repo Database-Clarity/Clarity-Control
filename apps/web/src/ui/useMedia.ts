@@ -30,29 +30,33 @@ function resolve(query: string): string {
 export function useMedia(query: string): boolean {
   // One subscribe per query: a new function every render would make React unsubscribe and
   // resubscribe the listener each time the component renders.
-  const subscribe = useMemo(
-    () => (notify: () => void) => {
-      if (!hasMatchMedia()) return () => {};
-      let list = window.matchMedia(resolve(query));
-      list.addEventListener?.('change', notify);
+  const source = useMemo(() => {
+    let resolved = resolve(query);
+    let list: MediaQueryList | undefined;
+    const current = () => {
+      if (!hasMatchMedia()) return undefined;
+      return (list ??= window.matchMedia(resolved));
+    };
+    const subscribe = (notify: () => void) => {
+      if (!current()) return () => {};
+      list?.addEventListener?.('change', notify);
       // A new interface scale moves the thresholds: listen for the new query and re-read.
       const rescale = () => {
-        list.removeEventListener?.('change', notify);
-        list = window.matchMedia(resolve(query));
+        const next = resolve(query);
+        if (next === resolved) return;
+        list?.removeEventListener?.('change', notify);
+        resolved = next;
+        list = window.matchMedia(resolved);
         list.addEventListener?.('change', notify);
         notify();
       };
       window.addEventListener(uiScaleEvent, rescale);
       return () => {
-        list.removeEventListener?.('change', notify);
+        list?.removeEventListener?.('change', notify);
         window.removeEventListener(uiScaleEvent, rescale);
       };
-    },
-    [query],
-  );
-  return useSyncExternalStore(
-    subscribe,
-    () => hasMatchMedia() && window.matchMedia(resolve(query)).matches,
-    () => false,
-  );
+    };
+    return { subscribe, snapshot: () => current()?.matches ?? false };
+  }, [query]);
+  return useSyncExternalStore(source.subscribe, source.snapshot, () => false);
 }

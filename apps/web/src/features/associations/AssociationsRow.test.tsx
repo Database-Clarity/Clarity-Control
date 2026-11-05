@@ -8,6 +8,12 @@ import { AssociationsPanel } from './AssociationsPanel';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
+import { associationCandidates } from './associations';
+
+vi.mock('./associations', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./associations')>();
+  return { ...actual, associationCandidates: vi.fn(actual.associationCandidates) };
+});
 
 vi.mock('../../services/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../services/api')>()),
@@ -33,6 +39,7 @@ const originals = {
   drafts: useDraftStore.getState(),
 };
 beforeEach(() => {
+  vi.mocked(associationCandidates).mockClear();
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   useDataStore.setState({
     data: {
@@ -87,4 +94,48 @@ it('Add opens the row with the search; signed out hides Add and nothing else', a
   expect(host.textContent).toContain('Associated tooltips (2)');
   expect(host.textContent).toContain('Beta · Gamma');
   expect(host.querySelector('button[aria-expanded]')).not.toBeNull();
+});
+
+it('scans candidates only while the add picker is visible, including after draft updates', async () => {
+  await render();
+  await act(async () =>
+    useDraftStore.setState({ drafts: { 10: { base: tip(10), next: tip(10, [20]) } } }),
+  );
+  expect(associationCandidates).not.toHaveBeenCalled();
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  expect(associationCandidates).not.toHaveBeenCalled();
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[aria-label="Add associated tooltip"]')!.click(),
+  );
+  expect(associationCandidates).toHaveBeenCalledTimes(1);
+  expect(host.textContent).toContain('Add Gamma');
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  vi.mocked(associationCandidates).mockClear();
+  await act(async () =>
+    useDraftStore.setState({ drafts: { 10: { base: tip(10), next: tip(10) } } }),
+  );
+  expect(associationCandidates).not.toHaveBeenCalled();
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  expect(host.textContent).toContain('Add Beta');
+  expect(associationCandidates).toHaveBeenCalledTimes(1);
+});
+
+it('keeps open picker results through text edits and refreshes changed membership', async () => {
+  await render();
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[aria-label="Add associated tooltip"]')!.click(),
+  );
+  vi.mocked(associationCandidates).mockClear();
+  const base = tip(10, [20, 21]);
+  const next = {
+    ...tip(10, [20, 21]),
+    text: { en: { text: 'Typed text', updatedAt: '2026-11-04T00:00:00Z', updatedBy: 'ann' } },
+  };
+  await act(async () => useDraftStore.setState({ drafts: { 10: { base, next } } }));
+  expect(associationCandidates).not.toHaveBeenCalled();
+  await act(async () =>
+    useDraftStore.setState({ drafts: { 10: { base, next: { ...next, associated: [20] } } } }),
+  );
+  expect(associationCandidates).toHaveBeenCalledTimes(1);
+  expect(host.textContent).toContain('Add Gamma');
 });
