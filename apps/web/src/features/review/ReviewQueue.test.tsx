@@ -120,6 +120,18 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
       ),
     );
     expect(document.activeElement?.getAttribute('href')).toBe('/review?hash=1');
+    await act(async () => scroller.focus());
+    await act(async () =>
+      scroller.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })),
+    );
+    expect(document.activeElement?.getAttribute('href')).toBe('/review?hash=2499');
+    expect(scroller.scrollTop).toBe(2500 * 96 - 1600);
+    await act(async () =>
+      document.activeElement!.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }),
+      ),
+    );
+    expect(document.activeElement?.getAttribute('href')).toBe('/review?hash=2483');
     // Native observation, selection, and key/scroll updates must not force the
     // workspace layout through synchronous geometry reads.
     expect(heightRead).toHaveBeenCalledTimes(initialHeightReads);

@@ -213,11 +213,24 @@ export function ReviewQueue({
       }}
       onKeyDown={(event) => {
         const row = (event.target as Element).closest<HTMLElement>('[data-index]');
-        if (!row || event.altKey || event.ctrlKey || event.metaKey) return;
-        const index = Number(row.dataset.index);
+        if (event.altKey || event.ctrlKey || event.metaKey) return;
+        if (!row && (event.target !== event.currentTarget || event.key === 'Tab')) return;
+        const index = row
+          ? Number(row.dataset.index)
+          : Math.max(
+              0,
+              changes.findIndex((change) => String(change.hash) === currentHash),
+            );
         let next: number;
         if (event.key === 'ArrowDown') next = Math.min(changes.length - 1, index + 1);
         else if (event.key === 'ArrowUp') next = Math.max(0, index - 1);
+        else if (event.key === 'PageDown')
+          next = Math.min(
+            changes.length - 1,
+            index + Math.max(1, Math.floor(viewport.height / rowHeight)),
+          );
+        else if (event.key === 'PageUp')
+          next = Math.max(0, index - Math.max(1, Math.floor(viewport.height / rowHeight)));
         else if (event.key === 'Home') next = 0;
         else if (event.key === 'End') next = changes.length - 1;
         else if (event.key === 'Tab') {
@@ -229,10 +242,17 @@ export function ReviewQueue({
         const element = event.currentTarget;
         const top = next * rowHeight;
         if (top < viewport.top || top + rowHeight > viewport.top + viewport.height) {
-          element.scrollTop = top;
-          setViewport((previous) => ({ ...previous, top }));
-        }
-        setFocusIndex(next);
+          const destination = Math.max(
+            0,
+            Math.min(changes.length * rowHeight - viewport.height, top),
+          );
+          // Keyboard jumps need the same render-before-scroll ordering as wheels.
+          flushSync(() => {
+            setViewport((previous) => ({ ...previous, top: destination }));
+            setFocusIndex(next);
+          });
+          element.scrollTop = destination;
+        } else setFocusIndex(next);
       }}
       onScroll={(event) => {
         const top = event.currentTarget.scrollTop;
