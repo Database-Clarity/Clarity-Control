@@ -66,12 +66,23 @@ it('waits for idle time, pauses for pending input, yields after a slow unit, and
 it('prepares every source style with Latin text only, and invalidates for source or scale changes', async () => {
   const source = structuredClone(guidedFixture().source);
   source.tabs[0].rows[0].cell.runs.push({ text: '🛸', bold: true, italic: true, sizePt: 11 });
+  source.tabs[0].grid = [
+    {
+      row: 1,
+      col: 0,
+      cell: {
+        plain: 'Nearby caption',
+        runs: [{ text: 'Nearby caption', italic: true, sizePt: 10 }],
+      },
+    },
+  ];
   warmReviewFontMetrics(source, family, 16);
   await Promise.resolve();
   let ticks = 0;
   while (pending.size && ++ticks < 5000) tick();
   expect(pending.size).toBe(0);
   expect(calls.some(({ font }) => font === `italic 700 11pt ${family}`)).toBe(true);
+  expect(calls.some(({ font }) => font === `italic 400 10pt ${family}`)).toBe(true);
   expect(calls.every(({ text }) => /^[\x20-\x7e]{1,8}$/.test(text))).toBe(true);
   const count = calls.length;
   warmReviewFontMetrics(source, family, 16);

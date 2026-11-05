@@ -18,17 +18,20 @@ export function warmReviewFontMetrics(source: CompendiumData, family: string, re
     // Enumerate every source style, independently of the selected category,
     // entry, or navigation sequence. Enumeration itself must yield as well.
     for (const tab of source.tabs)
-      for (const row of tab.rows)
-        for (const run of row.cell.runs) {
-          const style = `${+!!run.bold}${+!!run.italic}:${run.sizePt ?? 'default'}`;
-          if (!sourceStyles.has(style)) {
-            sourceStyles.add(style);
-            fonts.add(
-              `${run.italic ? 'italic ' : ''}${run.bold ? 700 : 400} ${run.sizePt === undefined ? `${0.95 * rem}px` : `${run.sizePt}pt`} ${family}`,
-            );
+      // Nearby context uses the physical grid, including heading/caption styles
+      // that never appear in the extracted matching rows.
+      for (const cells of [tab.rows, tab.grid ?? []])
+        for (const row of cells)
+          for (const run of row.cell.runs) {
+            const style = `${+!!run.bold}${+!!run.italic}:${run.sizePt ?? 'default'}`;
+            if (!sourceStyles.has(style)) {
+              sourceStyles.add(style);
+              fonts.add(
+                `${run.italic ? 'italic ' : ''}${run.bold ? 700 : 400} ${run.sizePt === undefined ? `${0.95 * rem}px` : `${run.sizePt}pt`} ${family}`,
+              );
+            }
+            if (++scanned % 64 === 0) yield;
           }
-          if (++scanned % 64 === 0) yield;
-        }
     for (let pass = 0; pass < 2; pass++)
       for (let start = 0; start < latin.length; start += 8)
         for (const font of fonts) yield { font, text: latin.slice(start, start + 8) };
