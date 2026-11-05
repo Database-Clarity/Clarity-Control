@@ -405,8 +405,10 @@ it('commits two ArrowDown selections without waiting for any live GET', async ()
     await act(async () => requests[2].resolve('Newest comparison'));
     await act(async () => requests[0].resolve('Stale first item'));
     await act(async () => requests[1].resolve('Stale second item'));
-    expect(host.querySelector('[aria-label="Selected change"]')?.textContent).toContain(
-      'Newest comparison',
+    await waitFor(() =>
+      expect(host.querySelector('[aria-label="Selected change"]')?.textContent).toContain(
+        'Newest comparison',
+      ),
     );
     expect(host.textContent).not.toContain('Stale first item');
     expect(host.textContent).not.toContain('Stale second item');
@@ -463,6 +465,39 @@ it('keeps pending comparisons and keyboard navigation from mutating behind the p
     expect(post).not.toHaveBeenCalled();
     await click('Cancel');
     expect(host.textContent).toContain('3 pending / 3 selected');
+  } finally {
+    router.dispose();
+  }
+});
+
+it('lets the local workspace paint before presenting a fast background comparison', async () => {
+  let serial = 0;
+  const frames = new Map<number, FrameRequestCallback>();
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    frames.set(++serial, callback);
+    return serial;
+  });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+  const { router, requests } = await mountDelayedReview();
+  try {
+    expect(host.querySelector('h1')?.textContent).toBe('Review changes');
+    expect(host.textContent).toContain('Loading sidebar…');
+    await act(async () => requests[0].resolve('Fast background comparison'));
+    expect(host.querySelector('[aria-label="Selected change"]')?.textContent).not.toContain(
+      'Fast background comparison',
+    );
+    for (let round = 0; round < 12 && frames.size; round++) {
+      const batch = [...frames];
+      frames.clear();
+      await act(async () => {
+        batch.forEach(([, callback]) => callback(performance.now()));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    }
+    expect(host.textContent).toContain('Review ready.');
+    expect(host.querySelector('[aria-label="Selected change"]')?.textContent).toContain(
+      'Fast background comparison',
+    );
   } finally {
     router.dispose();
   }

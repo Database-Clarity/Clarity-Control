@@ -12,6 +12,7 @@ import { revertDraft } from '../history/revert';
 import { itemFor } from '../navigation/catalog';
 import { TooltipDiff } from '../history/TooltipDiff';
 import type { PendingTooltip } from './model';
+import { useReviewOpening } from './opening';
 import styles from './Review.module.scss';
 
 export const ReviewDetail = memo(function ReviewDetail({ entry }: { entry: PendingTooltip }) {
@@ -66,11 +67,23 @@ export const ReviewDetail = memo(function ReviewDetail({ entry }: { entry: Pendi
   }
   useEffect(() => {
     const { controller, pending, value } = takeReviewLiveRequest(entry.tooltip.hash);
+    let stopWaiting: (() => void) | undefined;
     setLive(value);
     setError(undefined);
     void pending.then(
       (result) => {
-        if (!controller.signal.aborted) setLive(result);
+        if (controller.signal.aborted) return;
+        const opening = useReviewOpening.getState();
+        if (!opening.warming || opening.limit > 0) setLive(result);
+        else {
+          // A fast response must not add another comparison render before the
+          // local workspace's first paint. Input and the GET remain independent.
+          stopWaiting = useReviewOpening.subscribe((state) => {
+            if (state.warming && state.limit === 0) return;
+            stopWaiting?.();
+            if (!controller.signal.aborted) setLive(result);
+          });
+        }
       },
       (reason: unknown) => {
         if (!controller.signal.aborted) setError(errorMessage(reason));
@@ -78,7 +91,10 @@ export const ReviewDetail = memo(function ReviewDetail({ entry }: { entry: Pendi
     );
     // A filter navigation can stage a new request for the same hash.
     // Consume it after that route commits, and cancel the previous consumer.
-    return () => controller.abort();
+    return () => {
+      stopWaiting?.();
+      controller.abort();
+    };
   }, [entry.tooltip.hash, location.key, user, attempt]);
   return (
     <section aria-label="Selected change">
