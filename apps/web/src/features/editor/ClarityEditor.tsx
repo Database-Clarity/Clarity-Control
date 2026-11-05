@@ -107,6 +107,8 @@ export interface ClarityEditorProps {
   findMemory?: boolean;
   /** Detach the expensive editor surface while selection input is still arriving. */
   suspended?: boolean;
+  /** Navigation keeps the text live without moving the DOM selection on each step. */
+  stepping?: boolean;
 }
 
 function configuration(
@@ -155,11 +157,13 @@ export function ClarityEditor({
   symbols = true,
   findMemory = true,
   suspended = false,
+  stepping = false,
 }: ClarityEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const wasSuspended = useRef(false);
   const restoreFocus = useRef(false);
+  const wasStepping = useRef(false);
   if (suspended && !wasSuspended.current) restoreFocus.current = view.current?.hasFocus ?? false;
   wasSuspended.current = suspended;
   /** Fixed for the editor's lifetime: a stored form never joins the tab's find memory. */
@@ -197,6 +201,7 @@ export function ClarityEditor({
   const document = useRef({ tooltipHash, lang });
   const config = useRef(new Compartment());
   const undo = useRef(new Compartment());
+  const historyUsed = useRef(false);
   const extensions = useRef<Extension[]>([]);
   const configured = useRef({ lang, globals, readOnly, requireEnglish });
   // Conflict blocks are checked as "mine" only (same offsets), so markers raise no markup errors.
@@ -267,6 +272,21 @@ export function ClarityEditor({
   useLayoutEffect(() => {
     callback.current = onChange;
   }, [onChange]);
+  useLayoutEffect(() => {
+    const editor = view.current;
+    if (!editor) return;
+    if (stepping) {
+      wasStepping.current = true;
+      if (editor.hasFocus) {
+        restoreFocus.current = true;
+        editor.contentDOM.blur();
+      }
+      const selection = editor.dom.ownerDocument.getSelection();
+      if (selection?.anchorNode && editor.contentDOM.contains(selection.anchorNode))
+        selection.removeAllRanges();
+      if (editor.scrollDOM.scrollTop) editor.scrollDOM.scrollTop = 0;
+    }
+  }, [stepping]);
   useLayoutEffect(() => {
     const editor = view.current;
     const container = host.current;
@@ -355,15 +375,16 @@ export function ClarityEditor({
       ]),
       initialConfiguration,
       EditorView.updateListener.of((update) => {
+        const loaded = update.transactions.some((tr) => tr.annotation(documentLoad));
         const raw = update.state.field(rawMode, false);
         if (raw !== undefined && raw !== rawRef.current) {
           rawRef.current = raw;
           setRawView(raw);
         }
         if (remembersFind.current) rememberSearch(update);
-        if (update.docChanged && !update.transactions.some((tr) => tr.annotation(documentLoad)))
-          callback.current(update.state.doc.toString());
+        if (update.docChanged && !loaded) callback.current(update.state.doc.toString());
         if (update.docChanged || update.selectionSet) {
+          if (!loaded) historyUsed.current = true;
           const head = update.state.selection.main.head;
           const line = update.state.doc.lineAt(head);
           cursor.set(line.number, head - line.from + 1);
@@ -422,7 +443,17 @@ export function ClarityEditor({
     if (!editor) return;
     const switched = document.current.tooltipHash !== tooltipHash || document.current.lang !== lang;
     document.current = { tooltipHash, lang };
-    if (!switched && editor.state.doc.toString() === value) return;
+    const endingStep = !stepping && wasStepping.current;
+    if (endingStep) wasStepping.current = false;
+    if (!switched && editor.state.doc.toString() === value) {
+      if (endingStep)
+        editor.dispatch({
+          selection: { anchor: 0 },
+          effects: EditorView.scrollIntoView(0, { y: 'start' }),
+          annotations: Transaction.addToHistory.of(false),
+        });
+      return;
+    }
     if (switched) {
       setPanel(null);
       setSuggestion(null);
@@ -433,46 +464,59 @@ export function ClarityEditor({
       rawRef.current = false;
       setRawView(false);
     }
-    const nextConfiguration = configuration(
-      lang,
-      globals,
-      readOnly,
-      requireEnglish,
-      references.current,
-      onSuggest.current,
-      chipHooks.current,
-    );
+    const previous = configured.current;
+    const reconfigure =
+      previous.lang !== lang ||
+      previous.globals !== globals ||
+      previous.readOnly !== readOnly ||
+      previous.requireEnglish !== requireEnglish;
     configured.current = { lang, globals, readOnly, requireEnglish };
-    // Reset only the history field, then replace the document and configuration in
-    // one view update. Plugins, extensions, search UI, focus, and the DOM survive.
-    // Removing/readding history is necessary: mapping a full replacement through
-    // old undo events can otherwise resurrect deleted text from another tooltip.
-    const reset = editor.state.update({ effects: undo.current.reconfigure([]) });
-    const load = reset.state.update({
-      changes: { from: 0, to: reset.state.doc.length, insert: value },
-      selection: { anchor: 0 },
+    // Ordinary stepping is a single document transaction and retains the same
+    // plugins and extensions. Only a used history field needs the extra reset:
+    // mapping old undo deletions can resurrect text from another tooltip.
+    const reset = historyUsed.current
+      ? editor.state.update({ effects: undo.current.reconfigure([]) })
+      : undefined;
+    const from = reset?.state ?? editor.state;
+    const load = from.update({
+      changes: { from: 0, to: from.doc.length, insert: value },
+      ...(stepping ? {} : { selection: { anchor: 0 } }),
       effects: [
-        undo.current.reconfigure(history()),
-        config.current.reconfigure(nextConfiguration),
-        conflictConfig.current.reconfigure(conflictHostExtension()),
+        ...(reset ? [undo.current.reconfigure(history())] : []),
+        ...(reconfigure
+          ? [
+              config.current.reconfigure(
+                configuration(
+                  lang,
+                  globals,
+                  readOnly,
+                  requireEnglish,
+                  references.current,
+                  onSuggest.current,
+                  chipHooks.current,
+                ),
+              ),
+            ]
+          : []),
         ...(switched ? [toggleRaw.of(false)] : []),
-        EditorView.scrollIntoView(0, { y: 'start' }),
+        ...(!stepping ? [EditorView.scrollIntoView(0, { y: 'start' })] : []),
       ],
       annotations: [documentLoad.of(true), Transaction.addToHistory.of(false)],
     });
-    editor.update([reset, load]);
+    editor.update(reset ? [reset, load] : [load]);
+    historyUsed.current = false;
     editor.dom.dataset.tooltipHash = String(tooltipHash ?? '');
-  }, [value, lang, globals, readOnly, requireEnglish, tooltipHash, suspended, cursor]);
+  }, [value, lang, globals, readOnly, requireEnglish, tooltipHash, suspended, stepping, cursor]);
 
   useLayoutEffect(() => {
     const editor = view.current;
     const owner = host.current?.ownerDocument;
-    if (suspended || !editor || !owner) return;
+    if (suspended || stepping || !editor || !owner) return;
     // Restore focus only after the landed document is installed. Focusing the
     // previous document first would measure and briefly expose its old caret.
     if (restoreFocus.current && owner.activeElement === owner.body) editor.focus();
     restoreFocus.current = false;
-  }, [suspended, tooltipHash, lang]);
+  }, [suspended, stepping, tooltipHash, lang]);
 
   useEffect(() => {
     if (suspended) return;
@@ -536,7 +580,7 @@ export function ClarityEditor({
       data-validation-pending={diagnostics.pending || undefined}
     >
       {markupRow && !readOnly && (
-        <MarkupRow key={`${tooltipHash}:${lang}`} view={view} globals={globals} usage={usage} />
+        <MarkupRow key={lang} view={view} globals={globals} usage={usage} />
       )}
       <div className={styles.textArea}>
         <div ref={host} className={styles.host} />

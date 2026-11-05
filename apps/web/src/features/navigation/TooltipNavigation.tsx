@@ -42,7 +42,12 @@ import {
   type SteppingGuard,
 } from './stepping';
 import { FinderSheetContext } from './FinderSheetContext';
-import { holdSteppingKey, pulseStepping, useSteppingActivity } from './steppingActivity';
+import {
+  beginSteppingFrame,
+  holdSteppingKey,
+  pulseStepping,
+  useSteppingActivity,
+} from './steppingActivity';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { useScaleFactor } from '../../ui/usePaneDivider';
 import styles from './TooltipFinder.module.scss';
@@ -361,7 +366,15 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       steppingGuard,
       typeof requestAnimationFrame === 'function'
         ? {
-            request: (run) => requestAnimationFrame(run),
+            request: (run) =>
+              requestAnimationFrame(() => {
+                const finish = beginSteppingFrame();
+                try {
+                  run();
+                } finally {
+                  finish();
+                }
+              }),
             cancel: (id) => cancelAnimationFrame(id),
             allow: () => {
               if (!workspaceShortcutsBlocked(new Event('stepping'))) return true;

@@ -10,6 +10,7 @@ import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { useSteppingActivity } from './steppingActivity';
+import type { ClarityEditorProps } from '../editor';
 
 vi.mock('../../services/save/SavePanel', () => ({
   SavePanel: () => null,
@@ -24,7 +25,21 @@ vi.mock('../compendium/CompendiumBadge', () => ({
   CompendiumBadge: () => null,
   useCompendiumCount: () => ({ state: 'ready', count: 0 }),
 }));
-vi.mock('../editor', () => ({ ClarityEditor: () => null }));
+vi.mock('../editor', () => ({
+  ClarityEditor: ({ value, tooltipHash, onChange }: ClarityEditorProps) =>
+    createElement(
+      'div',
+      {
+        className: 'cm-editor',
+        'data-document-hash': tooltipHash,
+        contentEditable: true,
+        suppressContentEditableWarning: true,
+        onInput: (event: { currentTarget: HTMLElement }) =>
+          onChange(event.currentTarget.textContent ?? ''),
+      },
+      value,
+    ),
+}));
 vi.mock('../preview', () => ({
   PreviewColumn: ({ baseText }: { baseText: string }) =>
     createElement('div', { 'data-preview': '' }, baseText),
@@ -155,10 +170,38 @@ afterEach(async () => {
   useDataStore.setState(originalData);
   useDraftStore.setState(originalDrafts);
   useAuthStore.setState(originalAuth);
+  useSteppingActivity.setState({ active: false, deferWorkspace: false });
   vi.restoreAllMocks();
 });
 
 describe('mounted Editor navigation interaction ownership', () => {
+  it('catches up before editing a retained document, so the new item owns the input', async () => {
+    await mount();
+    const edit = vi.fn();
+    useDraftStore.setState({ edit });
+    await act(async () => {
+      useSteppingActivity.setState({ active: true, deferWorkspace: true });
+      navigate('/t/101?lang=de');
+    });
+    const editor = host.querySelector<HTMLElement>('.cm-editor')!;
+    expect(route()).toBe('/t/101?lang=de');
+    expect(editor.dataset.documentHash).toBe('100');
+    expect(editor.textContent).toBe('Deutsch 100');
+    await act(async () => editor.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })));
+    expect(host.querySelector('.cm-editor')).toBe(editor);
+    expect(editor.dataset.documentHash).toBe('101');
+    await act(async () => {
+      editor.textContent = 'Newest item text';
+      editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+    });
+    expect(edit).toHaveBeenCalledWith(
+      data.bundle.tooltips[101],
+      'de',
+      'Newest item text',
+      'local draft',
+    );
+    expect(useSteppingActivity.getState().active).toBe(false);
+  });
   it.each(['ArrowDown', 'Shift+wheel'])(
     'keeps stepping active and the document visible while %s continues at the category boundary',
     async (gesture) => {

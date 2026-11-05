@@ -1,11 +1,37 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { holdSteppingKey, pulseStepping, useSteppingActivity } from './steppingActivity';
+import {
+  beginSteppingFrame,
+  holdSteppingKey,
+  pulseStepping,
+  useSteppingActivity,
+} from './steppingActivity';
 
 afterEach(() => {
   window.dispatchEvent(new Event('blur'));
   vi.runAllTimers();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+it('gives a costly frame and pending physical input room without extending the burst', () => {
+  vi.useFakeTimers();
+  let pending = false;
+  vi.stubGlobal('navigator', { scheduling: { isInputPending: () => pending } });
+  pulseStepping();
+  const finish = beginSteppingFrame();
+  expect(useSteppingActivity.getState().deferWorkspace).toBe(false);
+  vi.advanceTimersByTime(17);
+  finish();
+  beginSteppingFrame()();
+  expect(useSteppingActivity.getState().deferWorkspace).toBe(true);
+  beginSteppingFrame()();
+  expect(useSteppingActivity.getState().deferWorkspace).toBe(false);
+  pending = true;
+  beginSteppingFrame()();
+  expect(useSteppingActivity.getState().deferWorkspace).toBe(true);
+  vi.advanceTimersByTime(23);
+  expect(useSteppingActivity.getState()).toMatchObject({ active: false, deferWorkspace: false });
 });
 
 describe('physical navigation key holds', () => {

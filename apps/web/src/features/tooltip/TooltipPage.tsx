@@ -1,7 +1,17 @@
 import { archiveCategoryLabel, archivedItemFor } from '../archive/archive';
 import { AttachmentCategoryControl } from './AttachmentCategoryControl';
 import { useCompendiumStore } from '../compendium/store';
-import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  memo,
+  startTransition,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { flushSync } from 'react-dom';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { translationQueue, type Lang, type MarkupGlobals, type Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
@@ -55,7 +65,7 @@ import {
   storedFormVariants,
 } from './variants';
 import styles from './TooltipPage.module.scss';
-import { useSteppingActivity } from '../navigation/steppingActivity';
+import { settleStepping, useSteppingActivity } from '../navigation/steppingActivity';
 import { LivePreviewIdentity } from '../preview/LivePreviewIdentity';
 
 interface WorkspaceRoute {
@@ -80,6 +90,7 @@ export function TooltipPage({
   readOnly?: boolean;
 }) {
   const active = useSteppingActivity((state) => state.active);
+  const deferWorkspace = useSteppingActivity((state) => state.deferWorkspace);
   const { hash: parameter } = useParams();
   const [search, setSearch] = useSearchParams();
   const navigate = useNavigate();
@@ -89,6 +100,15 @@ export function TooltipPage({
     () => ({ parameter, search, setSearch, navigate }),
     [parameter, search, setSearch, navigate],
   );
+  const paintedRoute = useRef(current);
+  const route = stepping && deferWorkspace ? paintedRoute.current : current;
+  useLayoutEffect(() => {
+    paintedRoute.current = route;
+  }, [route]);
+  const catchUp = (target: EventTarget) => {
+    if (active && target instanceof Element && target.closest('.cm-editor'))
+      flushSync(settleStepping);
+  };
   // Navigation coalesces packets to the newest route each frame. The editor and
   // identity share this urgent render; only preview and sheet work may trail it.
   const hash =
@@ -115,11 +135,18 @@ export function TooltipPage({
   }, [data, item, hash, readOnly]);
   return (
     <LivePreviewIdentity.Provider value={identity}>
-      <article className={styles.page}>
+      <article
+        className={styles.page}
+        aria-busy={route !== current || undefined}
+        onPointerDownCapture={(event) => catchUp(event.target)}
+        onKeyDownCapture={(event) => catchUp(event.target)}
+        onBeforeInputCapture={(event) => catchUp(event.target)}
+        onCompositionStartCapture={(event) => catchUp(event.target)}
+      >
         <StableWorkspace
           hashOverride={hashOverride}
           readOnly={readOnly}
-          route={current}
+          route={route}
           suspended={stepping}
         />
       </article>
@@ -381,6 +408,7 @@ function TooltipWorkspace({
   const overrideTargets = overrides.map((variant) => ({ hash: variant, name: nameOf(variant) }));
   const editing = (variant: number, base: Tooltip) => (
     <ClarityEditor
+      stepping={suspended}
       value={textOf(variant)}
       lang={lang}
       globals={globalsFor(variant)}
@@ -441,6 +469,7 @@ function TooltipWorkspace({
         target: { hash: variant, name: nameOf(variant) },
         node: (
           <ClarityEditor
+            stepping={suspended}
             value={tooltipFor(variant, data).text[lang]?.text ?? ''}
             lang={lang}
             globals={globalsFor(variant)}
