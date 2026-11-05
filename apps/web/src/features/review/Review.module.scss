@@ -84,6 +84,9 @@
 .workspace {
   contain: layout;
   display: grid;
+  // Keep the cards' block sizing independent, rather than stretching both to
+  // the taller card and laying out their contained descendants a second time.
+  align-items: start;
   // Equivalent one-third/two-thirds split with a definite first track; the
   // new route does not need an intrinsic sizing pass over both cards.
   grid-template-columns: max(15rem, calc((100% - 1.5rem) / 3)) minmax(0, 1fr);
