@@ -9,6 +9,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from 'react';
 import { flushSync } from 'react-dom';
 import {
@@ -44,6 +45,7 @@ import styles from './Compendium.module.scss';
 import { confirmCompendiumSelection } from './selection';
 import { usePaneMatch } from './usePaneMatch';
 import { useDisplayMatches } from './useDisplayMatches';
+import { useSteppingActivity } from '../navigation/steppingActivity';
 import { openDraftSaveReview } from '../../services/save/openReview';
 
 /**
@@ -54,6 +56,41 @@ import { openDraftSaveReview } from '../../services/save/openReview';
  */
 const HEADER_TOGGLE_MIN = 381;
 const ApprovalDiff = memo(CompendiumDiff);
+
+/** The retained source stays mounted; its entry-specific picker does not. */
+function InlineLinkPicker({ children, onStep }: { children: ReactNode; onStep(): void }) {
+  const stepping = useSteppingActivity((state) => state.active);
+  const [closed, setClosed] = useState(false);
+  const element = useRef<HTMLDivElement | null>(null);
+  const steppingRef = useRef(stepping);
+  steppingRef.current = stepping;
+  const attach = useCallback((node: HTMLDivElement | null) => {
+    const previous = element.current;
+    element.current = node;
+    if (node || !steppingRef.current || !previous?.contains(previous.ownerDocument.activeElement))
+      return;
+    const owner = previous.ownerDocument;
+    // Restore focus after the commit. The finder is stable across document
+    // swaps, and its focus handler lands the newest route before more input.
+    queueMicrotask(() => {
+      if (owner.activeElement !== owner.body && owner.activeElement?.isConnected) return;
+      owner
+        .querySelector<HTMLInputElement>('input[aria-label="Tooltip"]')
+        ?.focus({ preventScroll: true });
+    });
+  }, []);
+  useLayoutEffect(() => {
+    if (!stepping) return;
+    setClosed(true);
+    onStep();
+  }, [stepping, onStep]);
+  if (stepping || closed) return null;
+  return (
+    <div ref={attach} className={styles.picker} data-inline-link-picker>
+      {children}
+    </div>
+  );
+}
 
 /** Compendium zoom (70–100 %), kept on this device: − / value / +. */
 function ScaleControl({ disabled = false }: { disabled?: boolean } = {}) {
@@ -294,6 +331,7 @@ const PaneContents = memo(function PaneContents({
   const user = useAuthStore((state) => state.user);
   const saving = useSaveState((state) => state.locked);
   const [picking, setPicking] = useState(false);
+  const closePickerForStep = useCallback(() => setPicking(false), []);
   const scale = useSettingsStore((state) => state.device.compendiumScale);
   const [diffMode, setDiffMode] = useCompendiumDiffMode();
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -403,7 +441,7 @@ const PaneContents = memo(function PaneContents({
         }
       >
         {picking && canEdit && (
-          <div className={styles.picker}>
+          <InlineLinkPicker onStep={closePickerForStep}>
             <LinkPicker
               base={base}
               name={item?.name ?? base.custom?.name ?? ''}
@@ -411,7 +449,7 @@ const PaneContents = memo(function PaneContents({
               readOnly={pending}
               onLinked={() => setPicking(false)}
             />
-          </div>
+          </InlineLinkPicker>
         )}
         {loading && <p role="status">Loading Compendium...</p>}
         {error && (
