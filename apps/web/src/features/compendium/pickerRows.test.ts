@@ -246,3 +246,28 @@ it('the worker returns the same normalized names, identifiers, and section searc
     { name: 'cached', identifiers: ['cached'], search: 'cached search' },
   ]);
 });
+
+it('defers cache work across hash/back navigation until the workspace is ready and quiet', () => {
+  vi.useFakeTimers();
+  const queue = idleQueue();
+  const work = vi.fn();
+  const idle = pickerIdleScheduler(work);
+  idle.schedule();
+  const article = document.createElement('article');
+  article.setAttribute('aria-busy', 'true');
+  document.body.append(article);
+  window.dispatchEvent(new HashChangeEvent('hashchange'));
+  queue.run();
+  vi.advanceTimersByTime(500);
+  queue.run();
+  expect(work).not.toHaveBeenCalled();
+  article.remove();
+  window.dispatchEvent(new PopStateEvent('popstate'));
+  vi.advanceTimersByTime(250);
+  queue.run();
+  expect(work).not.toHaveBeenCalled();
+  vi.advanceTimersByTime(250);
+  queue.run();
+  expect(work).toHaveBeenCalledOnce();
+  idle.cancel();
+});

@@ -15,6 +15,7 @@ import { Multiline, RichCell } from './RichCell';
 import { PickerGrid } from './PickerGrid';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import styles from './Compendium.module.scss';
+import gridStyles from './PickerGrid.module.scss';
 
 export const CellPicker = memo(function CellPicker({
   tab,
@@ -82,7 +83,7 @@ export const CellPicker = memo(function CellPicker({
     setOffsets([]);
   }
   return (
-    <section aria-label="Pick description cells">
+    <section className={gridStyles.fonts} aria-label="Pick description cells">
       <h3>Pick description cells</h3>
       <label>
         Search all sheet text for a name anchor{' '}

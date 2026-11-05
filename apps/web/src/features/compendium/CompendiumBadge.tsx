@@ -32,12 +32,16 @@ export function useCompendiumCount(): CompendiumCount {
     if (bridge) prewarmMatchingSession(editor, bridge);
   }, [editor, data, load]);
   useEffect(() => {
+    if (!data) return;
+    // Row text depends on the source revision, not the current tooltip/proposals.
+    return warmPickerRowIndexes(data.tabs);
+  }, [data]);
+  useEffect(() => {
     if (!editor || !data || !prepared) return;
     // Prepare the entire review model fairly, regardless of viewport, selection or route.
     // Separate idle jobs keep this work out of editor input and foreground navigation.
     const evidence = () =>
       preparedEvidence(prepared, useDraftStore.getState().drafts, editor, data);
-    const cancelIndexWarmup = warmPickerRowIndexes(data.tabs);
     let cancelProposals: (() => void) | undefined;
     const jobs = [
       () => groupManifestItems(editor.items, editor.aliases),
@@ -64,7 +68,6 @@ export function useCompendiumCount(): CompendiumCount {
     });
     idle.schedule();
     return () => {
-      cancelIndexWarmup();
       cancelProposals?.();
       idle.cancel();
     };

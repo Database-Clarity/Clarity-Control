@@ -44,10 +44,7 @@ describe('separator spans do not couple row layout', () => {
       expect(isPickerSeparator(entry(text).cell)).toBe(true);
       const tab = sheet(text);
       expect(pickerBands(tab, 1, 10)).toEqual([
-        { first: 1, last: 3 },
-        { first: 4, last: 6 },
-        { first: 7, last: 9 },
-        { first: 10, last: 10 },
+        ...Array.from({ length: 10 }, (_, i) => ({ first: i + 1, last: i + 1 })),
       ]);
       const host = html(text),
         pieces = [...host.querySelectorAll<HTMLTableCellElement>('td[data-separator]')];
@@ -55,9 +52,7 @@ describe('separator spans do not couple row layout', () => {
       expect(
         pieces.every(
           (piece) =>
-            piece.rowSpan === 1 &&
-            piece.colSpan === 1 &&
-            piece.style.backgroundColor === '',
+            piece.rowSpan === 1 && piece.colSpan === 1 && piece.style.backgroundColor === '',
         ),
       ).toBe(true);
       expect(pieces.filter((piece) => piece.dataset.start === 'true')).toHaveLength(1);

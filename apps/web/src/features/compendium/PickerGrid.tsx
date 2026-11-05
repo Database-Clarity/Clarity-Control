@@ -169,7 +169,7 @@ export const PickerGrid = memo(function PickerGrid({
   return (
     <div
       ref={viewport}
-      className={styles.sheetScroll}
+      className={`${styles.sheetScroll} ${gridStyles.fonts}`}
       onClick={(event) => {
         const target = event.target as HTMLElement;
         const button =

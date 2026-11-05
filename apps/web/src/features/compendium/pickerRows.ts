@@ -68,6 +68,10 @@ export function pickerIdleScheduler(run: (deadline?: IdleDeadline) => void) {
   const events = ['keydown', 'beforeinput', 'input', 'pointerdown', 'wheel', 'focusin'] as const;
   for (const event of events)
     window.addEventListener(event, pause, { capture: true, passive: true });
+  const navigation = ['hashchange', 'popstate'] as const;
+  for (const event of navigation) window.addEventListener(event, pause, true);
+  const rendering = () =>
+    !!document.querySelector('article[aria-busy="true"], aside[aria-busy="true"]');
   const editing = () =>
     !!document.activeElement?.closest('input, textarea, [contenteditable="true"]');
   const pending = () =>
@@ -88,7 +92,7 @@ export function pickerIdleScheduler(run: (deadline?: IdleDeadline) => void) {
       inputSeen = false;
       quietUntil = now + 250;
     }
-    if (editing() || pending() || now < quietUntil) {
+    if (editing() || rendering() || pending() || now < quietUntil) {
       timer = setTimeout(enterIdle, Math.max(250, quietUntil - now));
       return;
     }
@@ -96,7 +100,13 @@ export function pickerIdleScheduler(run: (deadline?: IdleDeadline) => void) {
       idle = undefined;
       queued = false;
       if (cancelled) return;
-      if (inputSeen || editing() || pending() || (deadline && deadline.timeRemaining() < 2)) {
+      if (
+        inputSeen ||
+        editing() ||
+        rendering() ||
+        pending() ||
+        (deadline && deadline.timeRemaining() < 2)
+      ) {
         schedule();
         return;
       }
@@ -112,6 +122,7 @@ export function pickerIdleScheduler(run: (deadline?: IdleDeadline) => void) {
     cancel() {
       cancelled = true;
       for (const event of events) window.removeEventListener(event, pause, true);
+      for (const event of navigation) window.removeEventListener(event, pause, true);
       if (idle !== undefined) window.cancelIdleCallback(idle);
       if (timer !== undefined) clearTimeout(timer);
       channel.port1.close();

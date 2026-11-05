@@ -24,10 +24,9 @@ describe('independent picker row bands', () => {
         20,
       ),
     ).toEqual([
-      { first: 1, last: 12 },
-      { first: 13, last: 15 },
-      { first: 16, last: 18 },
-      { first: 19, last: 20 },
+      { first: 1, last: 1 },
+      { first: 2, last: 12 },
+      ...Array.from({ length: 8 }, (_, i) => ({ first: i + 13, last: i + 13 })),
     ]);
   });
   it('keeps a non-separator 19-row span in one band, including a clipped window start', () => {
@@ -35,6 +34,9 @@ describe('independent picker row bands', () => {
       { first: 5, last: 20 },
       { first: 21, last: 21 },
     ]);
-    expect(pickerBands(sheet([{ row: 2, rowSpan: 19 }]), 1, 10)).toEqual([{ first: 1, last: 10 }]);
+    expect(pickerBands(sheet([{ row: 2, rowSpan: 19 }]), 1, 10)).toEqual([
+      { first: 1, last: 1 },
+      { first: 2, last: 10 },
+    ]);
   });
 });

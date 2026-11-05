@@ -12,6 +12,7 @@ import { useCompendiumStore } from './store';
 import { When } from '../../ui/When';
 import styles from './Compendium.module.scss';
 import { CellPicker } from './CellPicker';
+import { PickerRowList } from './PickerRowList';
 import { confirmCompendiumSelection } from './selection';
 import { categorySuggestions, suggestionAnchor, type CompendiumSuggestion } from './suggestions';
 import { mayDraftLink } from './reviewQueue';
@@ -241,20 +242,15 @@ export function LinkPicker({
           : 'Linking creates a local draft; save it normally.'}
       </p>
       {error && <p role="alert">{error}</p>}
-      <ul className={styles.rows}>
-        {tab &&
-          rows.slice(0, 100).map((row) => (
-            <li key={`${row.rowIndex}:${row.name}`}>
-              <button type="button" disabled={!canEdit} onClick={() => choose({ tab, row })}>
-                {exact.has(row) && 'Exact match: '}
-                {row.name} {row.section && ` / ${row.section}`} <small>(row {row.rowIndex})</small>
-              </button>
-              <button type="button" onClick={() => setAnchorRow(row)}>
-                Pick description cells near this name
-              </button>
-            </li>
-          ))}
-      </ul>
+      <PickerRowList
+        rows={rows}
+        exact={exact}
+        disabled={!canEdit}
+        onChoose={(row) => {
+          if (tab) choose({ tab, row });
+        }}
+        onAnchor={setAnchorRow}
+      />
       {Object.entries(sheets).map(([key, saved]) => {
         const savedTab = data.tabs.find((entry) => entry.gid === saved.gid);
         return (

@@ -56,16 +56,16 @@ it('fills a short first band without synchronously mounting the entire window', 
     act(() =>
       resize!(
         [
-          { target: body, contentRect: { height: 120 } },
-          { target: viewport, contentRect: { height: 120 } },
+          { target: body, contentRect: { height: 40 } },
+          { target: viewport, contentRect: { height: 240 } },
         ] as ResizeObserverEntry[],
         {} as ResizeObserver,
       ),
     );
     expect(viewport.dataset.gridComplete).toBe('false');
-    expect(host.querySelectorAll('tr')).toHaveLength(9);
-    expect(host.querySelector('[data-cell="9:0"]')).not.toBeNull();
-    expect(host.querySelector('[data-cell="10:0"]')).toBeNull();
+    expect(host.querySelectorAll('tr')).toHaveLength(7);
+    expect(host.querySelector('[data-cell="7:0"]')).not.toBeNull();
+    expect(host.querySelector('[data-cell="8:0"]')).toBeNull();
     expect(frames).toHaveBeenCalledOnce();
   } finally {
     act(() => root.unmount());

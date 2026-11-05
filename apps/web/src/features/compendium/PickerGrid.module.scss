@@ -1,3 +1,9 @@
+.fonts {
+  // Name the existing glyph fallbacks instead of searching system fonts in Layout.
+  font-family:
+    Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', 'Segoe UI Emoji', 'Yu Gothic', sans-serif;
+}
+
 .contents {
   // Fixed table columns already bound inline size. Keep each cell's rich text
   // layout and paint local, without size containment or estimated row heights.
