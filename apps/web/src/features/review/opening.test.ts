@@ -4,6 +4,7 @@ import {
   advanceReviewOpening,
   beginReviewOpening,
   requireReviewRows,
+  readyReviewData,
   retainReviewPage,
   useReviewOpening,
 } from './opening';
@@ -45,4 +46,16 @@ it('finishes a phone opening that has no sidebar rows', () => {
   beginReviewOpening();
   expect(advanceReviewOpening(useReviewOpening.getState().token)).toBe(true);
   expect(useReviewOpening.getState().warming).toBe(false);
+});
+
+it('retains a loading sidebar while the opened route awaits pending data', () => {
+  beginReviewOpening(false);
+  const token = useReviewOpening.getState().token;
+  expect(advanceReviewOpening(token)).toBe(false);
+  expect(useReviewOpening.getState().warming).toBe(true);
+  requireReviewRows(3);
+  readyReviewData(true);
+  expect(advanceReviewOpening(token)).toBe(false);
+  expect(useReviewOpening.getState().limit).toBe(3);
+  expect(advanceReviewOpening(token)).toBe(true);
 });

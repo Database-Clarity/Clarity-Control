@@ -40,7 +40,10 @@ export async function reviewRoute({ request }: LoaderFunctionArgs) {
   const data = useDataStore.getState().data;
   if (!data) return null;
   const entries = preparedPending(data, acknowledgedMarkers(data));
-  if (!entries) return null;
+  if (!entries) {
+    if (!request.signal.aborted) beginReviewOpening(false);
+    return null;
+  }
   const url = new URL(request.url);
   const params = url.searchParams;
   const next = initialReviewParams(params, entries);

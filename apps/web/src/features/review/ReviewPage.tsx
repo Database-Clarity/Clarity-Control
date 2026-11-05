@@ -28,7 +28,12 @@ import { activeHashes, usePublishState } from './publishDriver';
 import { useSidebarQueueStore } from '../navigation/sidebarQueue';
 import { workspaceShortcutsBlocked } from '../../ui/interaction';
 import styles from './Review.module.scss';
-import { advanceReviewOpening, retainReviewPage, useReviewOpening } from './opening';
+import {
+  advanceReviewOpening,
+  readyReviewData,
+  retainReviewPage,
+  useReviewOpening,
+} from './opening';
 
 // Keep the first page close to one viewport; every row is fully rendered, and
 // the existing page controls expose the rest without offscreen layout on open.
@@ -110,6 +115,7 @@ export function ReviewPage() {
   // What the confirm dialog lists is exactly what gets pushed, from the snapshot it was opened on.
   const [confirming, setConfirming] = useState<{ entries: PendingTooltip[]; data: EditorData }>();
   const [loading, setLoading] = useState(!prepared);
+  useLayoutEffect(() => readyReviewData(!loading), [loading]);
   const query = searchParams.get('query') ?? '';
   const categoryFilter = searchParams.get('category') ?? '';
   const publisher = publisherEnabled();
