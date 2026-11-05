@@ -36,6 +36,8 @@ export function CompendiumSidebarNavigation() {
   const group = params.get('group');
   const location = useLocation();
   const navigate = useNavigate();
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
   // Resolve the router's basename/hash prefix once. Rows retain normal native
   // anchors without each subscribing to every unrelated location change.
   const rootHref = useHref('/').replace(/\/?$/, '/');
@@ -53,12 +55,12 @@ export function CompendiumSidebarNavigation() {
       )
         return;
       event.preventDefault();
-      void navigate(target, {
+      void navigateRef.current(target, {
         flushSync: true,
         replace: target === currentPath.current,
       });
     },
-    [navigate],
+    [],
   );
   return (
     <nav

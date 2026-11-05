@@ -7,6 +7,7 @@ import type { ReviewProgress } from './reviewProgress';
 import type { ReviewProposal } from './rapidReview';
 import { categoryId } from './reviewCategories';
 import { classifyScope } from './reviewScope';
+import type { SidebarCategory } from '../navigation/sidebarQueue';
 
 type Prepared = ReturnType<typeof displayMatches>;
 type Evidence = ReturnType<typeof reviewEvidence>;
@@ -33,6 +34,10 @@ const proposals = new WeakMap<
   WeakMap<Map<number, ReviewProposal>, Map<number, ReviewProposal>>
 >();
 const emptyRestored: ReadonlySet<number> = new Set();
+const sidebarProjections = new WeakMap<
+  Prepared['categories'],
+  WeakMap<EntryProjection, { base: SidebarCategory[]; selected?: number; rows: SidebarCategory[] }>
+>();
 const categoryProjections = new WeakMap<
   Prepared,
   WeakMap<
@@ -106,6 +111,53 @@ export function reviewEntryProjection(
   const projection = buildEntryProjection(entries, inScope, proposals);
   byProposals.set(proposals, projection);
   return projection;
+}
+
+/** Remounts reuse the same native targets until entry evidence changes. */
+export function reviewSidebarCategories(
+  categories: Prepared['categories'],
+  projection: EntryProjection,
+  selected?: number,
+) {
+  let byProjection = sidebarProjections.get(categories);
+  if (!byProjection) sidebarProjections.set(categories, (byProjection = new WeakMap()));
+  const target = (id: string, hash?: number) => {
+    const params = new URLSearchParams({
+      view: 'entries',
+      group: id,
+      query: '',
+      category: '',
+      status: 'open',
+      proposal: 'all',
+    });
+    if (hash) params.set('hash', String(hash));
+    return `/compendium/review?${params}`;
+  };
+  let previous = byProjection.get(projection);
+  if (!previous) {
+    const base = categories.map(({ id, name }) => ({
+      id,
+      name,
+      entryTarget: target(
+        id,
+        projection.index.byGroup.get(id)?.find((entry) => entry.status === 'open')?.hash,
+      ),
+    }));
+    previous = { base, rows: base };
+    byProjection.set(projection, previous);
+  }
+  if (selected === undefined) return previous.base;
+  if (previous.selected === selected) return previous.rows;
+  const rows = previous.base.map((category) => {
+    const entry = projection.index.byGroup
+      .get(category.id)
+      ?.find((entry) => entry.hash === selected && entry.status === 'open');
+    const entryTarget = entry ? target(category.id, entry.hash) : category.entryTarget;
+    return entryTarget === category.entryTarget ? category : { ...category, entryTarget };
+  });
+  previous.selected = selected;
+  previous.rows = rows.every((row, index) => row === previous.base[index]) ? previous.base : rows;
+  return previous.rows;
 }
 
 export function preparedCategories(

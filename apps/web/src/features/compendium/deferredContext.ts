@@ -22,7 +22,11 @@ export function deferContextCells(
   const key = `${details.clientWidth}|${getComputedStyle(details).font}`;
   for (const [index, node] of nodes.entries()) {
     const height = heights.get(cells[index].cell)?.get(key);
-    node.style.containIntrinsicBlockSize = height === undefined ? '5rem' : `${height}px`;
+    // The stylesheet already supplies 5rem. Avoid dirtying every untouched cell
+    // merely to restate that fallback, and clear a previous display slot's size.
+    if (height !== undefined) node.style.containIntrinsicBlockSize = `${height}px`;
+    else if (node.style.containIntrinsicBlockSize)
+      node.style.removeProperty('contain-intrinsic-block-size');
   }
   let cancelled = false;
   function reveal(node: HTMLElement) {
@@ -60,6 +64,9 @@ export function deferContextCells(
         // Re-read after revealing an earlier cell: its natural height can move
         // later cells out of the viewport. Never activate stale estimated boxes.
         const box = node.getBoundingClientRect();
+        // Physical cells are consecutive blocks in document order. Once a
+        // pending block is below the margin, every later block is offscreen.
+        if (box.top >= bottom + 128) break;
         if (box.top < bottom + 128 && box.bottom > top - 128) reveal(node);
       }
     } finally {

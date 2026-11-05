@@ -69,6 +69,23 @@ function searchableCell(cell: CompendiumCell) {
   return content;
 }
 
+const ContextCell = memo(function ContextCell({
+  cell,
+  rich,
+}: {
+  cell: { row: number; col: number; cell: CompendiumCell };
+  rich: boolean;
+}) {
+  return (
+    <div data-context-cell>
+      <small>
+        R{cell.row} C{cell.col + 1}
+      </small>
+      <Multiline>{rich ? prepareReviewCell(cell.cell) : searchableCell(cell.cell)}</Multiline>
+    </div>
+  );
+});
+
 export const ProposalContext = memo(function ProposalContext({
   match,
   source,
@@ -151,16 +168,7 @@ export const ProposalContext = memo(function ProposalContext({
         {cells?.map((cell, index) => (
           // Reuse each physical display slot across selections. React updates
           // its text, styles, and links without remounting the whole sheet window.
-          <div key={index} data-context-cell>
-            <small>
-              R{cell.row} C{cell.col + 1}
-            </small>
-            <Multiline>
-              {visibility.wanted.has(index)
-                ? prepareReviewCell(cell.cell)
-                : searchableCell(cell.cell)}
-            </Multiline>
-          </div>
+          <ContextCell key={index} cell={cell} rich={visibility.wanted.has(index)} />
         ))}
         {contextOpen && !cells?.length && <p>No grid context available.</p>}
       </details>

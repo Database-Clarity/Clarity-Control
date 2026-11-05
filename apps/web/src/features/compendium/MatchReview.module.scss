@@ -298,6 +298,7 @@
     // Preserve a searchable native until-found box. The card's observer, Tab,
     // and beforematch expose it before its text is needed.
     content-visibility: hidden;
+    contain-intrinsic-block-size: 5rem;
   }
   small {
     color: #a9b9d0;

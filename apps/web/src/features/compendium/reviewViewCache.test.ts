@@ -9,6 +9,7 @@ import {
   reviewEntryProjection,
   reviewedEntries,
   reviewScopeHashes,
+  reviewSidebarCategories,
   warmPreparedProposals,
 } from './reviewViewCache';
 import { recordDecision } from './rapidReview';
@@ -60,6 +61,63 @@ function idleProposalFixture() {
     },
   };
 }
+
+it('retains exact sidebar targets across remounts, selections, and decision revisions', () => {
+  const { editor, source, proposals, scope, document } = guidedFixture();
+  const progress = emptyProgress();
+  const prepared = displayMatches(
+    editor,
+    source,
+    {},
+    progress,
+    undefined,
+    scope,
+    proposals,
+    document,
+  );
+  const evidence = preparedEvidence(prepared, {}, editor, source);
+  const entries = reviewedEntries(evidence, progress);
+  const categories = preparedCategories(prepared, entries, new Set());
+  const projection = reviewEntryProjection(
+    entries,
+    new Set(entries.map((entry) => entry.hash)),
+    proposals,
+  );
+  const expected = (selected?: number, current = projection) =>
+    categories.map(({ id, name }) => {
+      const open = current.index.byGroup.get(id)?.filter((entry) => entry.status === 'open');
+      const entry = open?.find((entry) => entry.hash === selected) ?? open?.[0];
+      const params = new URLSearchParams({
+        view: 'entries',
+        group: id,
+        query: '',
+        category: '',
+        status: 'open',
+        proposal: 'all',
+      });
+      if (entry) params.set('hash', String(entry.hash));
+      return { id, name, entryTarget: `/compendium/review?${params}` };
+    });
+  const first = reviewSidebarCategories(categories, projection);
+  for (const selected of [undefined, ...entries.map((entry) => entry.hash), 999999]) {
+    const rows = reviewSidebarCategories(categories, projection, selected);
+    expect(rows).toEqual(expected(selected));
+    expect(reviewSidebarCategories(categories, projection, selected)).toBe(rows);
+  }
+  expect(reviewSidebarCategories(categories, projection)).toBe(first);
+  expect(first).toEqual(expected());
+  const entry = entries[0];
+  const decided = reviewedEntries(
+    evidence,
+    recordDecision(progress, entry.hash, entry.evidence, 'skipped'),
+  );
+  const next = reviewEntryProjection(
+    decided,
+    new Set(entries.map((entry) => entry.hash)),
+    proposals,
+  );
+  expect(reviewSidebarCategories(categories, next, entry.hash)).toEqual(expected(entry.hash, next));
+});
 
 it('yields proposal warm-up to input and low idle budgets, then publishes the complete projection', () => {
   const { prepared, core, callbacks, tick, pending } = idleProposalFixture();

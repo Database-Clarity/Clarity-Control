@@ -25,6 +25,7 @@ import {
   reviewEntryProjection,
   reviewedEntries,
   reviewScopeHashes,
+  reviewSidebarCategories,
 } from './reviewViewCache';
 import {
   progressSchema,
@@ -437,22 +438,7 @@ export function ReviewQueue({
   );
   const entryProjection = categoryView ? undefined : preparedEntryProjection;
   useEffect(() => {
-    const next = categories.map(({ id, name }) => {
-      const open = preparedEntryProjection.index.byGroup
-        .get(id)
-        ?.filter((entry) => entry.status === 'open');
-      const selected = open?.find((entry) => entry.hash === progress.selected) ?? open?.[0];
-      const target = new URLSearchParams({
-        view: 'entries',
-        group: id,
-        query: '',
-        category: '',
-        status: 'open',
-        proposal: 'all',
-      });
-      if (selected) target.set('hash', String(selected.hash));
-      return { id, name, entryTarget: `/compendium/review?${target}` };
-    });
+    const next = reviewSidebarCategories(categories, preparedEntryProjection, progress.selected);
     const current = useSidebarQueueStore.getState().compendiumCategories;
     if (
       current &&
