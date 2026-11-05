@@ -43,12 +43,14 @@ export function ReviewPage() {
   useLayoutEffect(() => {
     if (article.current) article.current.inert = opening;
   }, [opening]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const state = useReviewOpening.getState();
     if (!state.warming || state.token !== openingToken || !window.requestAnimationFrame) return;
     let frame: number | undefined;
     let timer: number | undefined;
     let alive = true;
+    // Schedule before the first paint; a passive effect can miss its frame
+    // and leave an unnecessary idle frame before the bounded row slices.
     let first = true;
     const next = () => {
       frame = requestAnimationFrame(() => {
@@ -77,13 +79,19 @@ export function ReviewPage() {
       return;
     let timer: number | undefined;
     const frame = requestAnimationFrame(() => {
-      timer = window.setTimeout(
-        () =>
-          performance.mark?.('review:interactive', {
-            detail: { token: openingToken, route: location.hash },
-          }),
-        0,
-      );
+      timer = window.setTimeout(() => {
+        const current = useReviewOpening.getState();
+        if (
+          !article.current?.isConnected ||
+          current.warming ||
+          current.token !== openingToken ||
+          !location.hash.startsWith('#/review')
+        )
+          return;
+        performance.mark?.('review:interactive', {
+          detail: { token: openingToken, route: location.hash },
+        });
+      }, 0);
     });
     return () => {
       cancelAnimationFrame(frame);
