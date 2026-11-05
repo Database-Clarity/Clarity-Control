@@ -10,6 +10,56 @@ vi.mock('../../services/history', () => ({
   getHistory: vi.fn(async () => ({ page: 1, commits: [] })),
 }));
 
+it('keeps row controls live while metadata waits for the sidebar opening', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  vi.mocked(getHistory).mockClear();
+  vi.stubGlobal('IntersectionObserver', undefined);
+  const host = document.createElement('div'),
+    root = createRoot(host);
+  const toggle = vi.fn(),
+    open = vi.fn();
+  const entry = {
+    tooltip: { hash: 41, text: {}, associated: [] },
+    name: 'Complete pending name',
+    category: 'Perks',
+    categoryId: 'perk',
+    categoryOrder: 1,
+  } as PendingTooltip;
+  const render = (historyDeferred: boolean) => (
+    <ul>
+      <ReviewRow
+        entry={entry}
+        checked={false}
+        active={false}
+        disabled={false}
+        historyAvailable
+        historyDeferred={historyDeferred}
+        onToggle={toggle}
+        onOpen={open}
+      />
+    </ul>
+  );
+  try {
+    await act(async () => root.render(render(true)));
+    expect(getHistory).not.toHaveBeenCalled();
+    expect(host.textContent).toContain(entry.name);
+    await act(async () => host.querySelector('input')!.click());
+    await act(async () => host.querySelector('button')!.click());
+    expect(toggle).toHaveBeenCalledExactlyOnceWith(41);
+    expect(open).toHaveBeenCalledExactlyOnceWith(41);
+    await act(async () => root.render(render(false)));
+    expect(getHistory).toHaveBeenCalledExactlyOnceWith(41, 1, expect.any(AbortSignal));
+    expect(host.textContent).toContain('No history available');
+    await act(async () => root.render(render(false)));
+    expect(getHistory).toHaveBeenCalledTimes(1);
+  } finally {
+    await act(async () => root.unmount());
+    expect(vi.mocked(getHistory).mock.calls[0]?.[2]?.aborted).toBe(true);
+    vi.mocked(getHistory).mockClear();
+    vi.unstubAllGlobals();
+  }
+});
+
 it('loads latest-change metadata on proximity without changing row selection', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   let intersect!: IntersectionObserverCallback;

@@ -14,6 +14,7 @@ export const ReviewRow = memo(function ReviewRow({
   disabled,
   publishing = false,
   historyAvailable,
+  historyDeferred = false,
 }: {
   entry: PendingTooltip;
   checked: boolean;
@@ -24,6 +25,8 @@ export const ReviewRow = memo(function ReviewRow({
   /** Part of a publish that is still queued or being sent: cannot be selected again. */
   publishing?: boolean;
   historyAvailable: boolean;
+  /** Keep optional row metadata out of the sidebar's bounded opening work. */
+  historyDeferred?: boolean;
 }) {
   const [latest, setLatest] = useState<HistoryCommit>();
   const [error, setError] = useState<string>();
@@ -31,7 +34,7 @@ export const ReviewRow = memo(function ReviewRow({
   const row = useRef<HTMLLIElement>(null);
   const near = useRef(false);
   useEffect(() => {
-    if (!historyAvailable) return;
+    if (!historyAvailable || historyDeferred) return;
     const controller = new AbortController();
     const load = () => {
       setLatest(undefined);
@@ -75,7 +78,7 @@ export const ReviewRow = memo(function ReviewRow({
       observer.disconnect();
       controller.abort();
     };
-  }, [entry.tooltip, historyAvailable]);
+  }, [entry.tooltip, historyAvailable, historyDeferred]);
   return (
     <li ref={row}>
       <label>

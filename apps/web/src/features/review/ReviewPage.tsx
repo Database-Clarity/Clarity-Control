@@ -485,6 +485,7 @@ export function ReviewPage() {
                               disabled={pushing}
                               publishing={inFlight.has(entry.tooltip.hash)}
                               historyAvailable={Boolean(apiUrl && user?.role)}
+                              historyDeferred={opening}
                               onToggle={toggleRow}
                               onOpen={openRow}
                             />
