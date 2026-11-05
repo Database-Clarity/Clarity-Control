@@ -21,6 +21,7 @@ const QueueLink = memo(function QueueLink({
       href={`${href}?hash=${change.hash}`}
       data-review-hash={change.hash}
       title={`${change.name} · ${change.hash}`}
+      aria-label={`${change.name} ${change.hash}`}
       aria-current={current ? 'page' : undefined}
     >
       <span>{change.name}</span> <small>{change.hash}</small>

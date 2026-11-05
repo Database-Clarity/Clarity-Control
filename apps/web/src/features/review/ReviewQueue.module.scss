@@ -5,6 +5,7 @@
   min-height: 0;
   // A definite height keeps the full virtual track out of ancestor sizing.
   contain: strict;
+  container-type: inline-size;
 }
 
 .rowSizer {
@@ -63,8 +64,8 @@
     box-sizing: border-box;
     height: 100%;
     display: flex;
-    align-items: baseline;
-    gap: 0.35rem;
+    align-items: center;
+    padding-block: 0;
 
     &:focus-visible {
       // Keep the complete focus ring within the row's allocated bounds.
@@ -76,13 +77,22 @@
     flex: 1;
     min-width: 0;
     display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    line-height: 1rem;
+    overflow-wrap: anywhere;
+    white-space: normal;
   }
 
   small {
-    flex: none;
-    white-space: nowrap;
+    // The full hash remains in the accessible link label, title, selected
+    // comparison, and main list. Give the bounded sidebar's width to names.
+    display: none;
+  }
+}
+
+@container (max-width: 12rem) {
+  .rowSizer {
+    // Preserve a fixed native scrolling pitch while allowing narrow names to
+    // wrap. ResizeObserver supplies this same pitch to the window and feedback.
+    height: 3rem;
   }
 }
