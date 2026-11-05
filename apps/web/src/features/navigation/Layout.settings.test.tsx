@@ -26,6 +26,9 @@ vi.mock('../../services/save/SavePanel', () => ({
   SavePanel: () => null,
   SaveController: () => null,
 }));
+// The header prefetches this page during idle time. These settings tests never
+// navigate there, and its module graph must not outlive their jsdom environment.
+vi.mock('../compendium/MatchReviewPage', () => ({ MatchReviewPage: () => null }));
 
 let host: HTMLDivElement;
 let root: Root;
