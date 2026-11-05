@@ -95,7 +95,7 @@ export function SampleReview({
                 {match.tab.name} / {match.row.section || 'Unspecified section'} / {match.row.name} ·
                 row {match.row.rowIndex}
               </p>
-              <RichCell cell={match.row.cell} />
+              <RichCell cell={match.row.cell} emojiFace />
             </>
           ) : (
             <p>No proposed source. Pick other to search every tab, or mark no equivalent.</p>

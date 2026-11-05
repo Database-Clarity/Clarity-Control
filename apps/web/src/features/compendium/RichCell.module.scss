@@ -9,3 +9,9 @@
   display: block;
   min-height: 1lh;
 }
+.emojiFace {
+  // Explicit emoji-presentation clusters use this existing fallback face.
+  // Selecting it directly avoids a cold OS search through the text faces.
+  font-family:
+    'Segoe UI Emoji', Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', 'Yu Gothic', sans-serif;
+}

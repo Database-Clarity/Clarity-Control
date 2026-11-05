@@ -4,6 +4,30 @@ import { readableOn, useLegibleOn } from './sheetSurface';
 import styles from './RichCell.module.scss';
 
 const styleCache = new Map<string, CSSProperties>();
+let segmenter: Intl.Segmenter | undefined;
+function emojiText(text: string, direct: boolean): ReactNode {
+  if (!direct || !text.includes('\uFE0F') || typeof Intl.Segmenter !== 'function') return text;
+  segmenter ??= new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+  const parts: ReactNode[] = [];
+  let plain = '';
+  for (const { segment } of segmenter.segment(text)) {
+    if (
+      segment.includes('\uFE0F') &&
+      !segment.includes('\uFE0E') &&
+      /\p{Extended_Pictographic}/u.test(segment)
+    ) {
+      if (plain) parts.push(plain);
+      plain = '';
+      parts.push(
+        <span key={parts.length} className={styles.emojiFace}>
+          {segment}
+        </span>,
+      );
+    } else plain += segment;
+  }
+  if (plain) parts.push(plain);
+  return parts;
+}
 export function runStyle(run: CompendiumRun, legibleOn?: string): CSSProperties {
   const key = [
     run.color,
@@ -66,7 +90,12 @@ function alignedBlocks(cell: CompendiumCell) {
   blocksByCell.set(cell, blocks);
   return blocks;
 }
-function richRuns(runs: (CompendiumRun | string)[], links: boolean, legibleOn?: string) {
+function richRuns(
+  runs: (CompendiumRun | string)[],
+  links: boolean,
+  legibleOn?: string,
+  emojiFace = false,
+) {
   const parts: (string | { text: string; style: CSSProperties; href?: string })[] = [];
   for (const run of runs) {
     if (typeof run === 'string') {
@@ -94,11 +123,11 @@ function richRuns(runs: (CompendiumRun | string)[], links: boolean, legibleOn?: 
       part
     ) : part.href ? (
       <a key={index} href={part.href} target="_blank" rel="noreferrer">
-        <span style={part.style}>{part.text}</span>
+        <span style={part.style}>{emojiText(part.text, emojiFace)}</span>
       </a>
     ) : (
       <span key={index} style={part.style}>
-        {part.text}
+        {emojiText(part.text, emojiFace)}
       </span>
     ),
   );
@@ -107,15 +136,17 @@ export const RichCell = memo(function RichCell({
   cell,
   links = true,
   inline = false,
+  emojiFace = false,
 }: {
   cell: CompendiumCell;
   links?: boolean;
   inline?: boolean;
+  emojiFace?: boolean;
 }): ReactNode {
   const legibleOn = useLegibleOn();
   // Inline fragments share the enclosing diff cell's whitespace and alignment.
   // A wrapper per word adds layout boxes without adding formatting semantics.
-  if (inline) return richRuns(cell.runs, links, legibleOn);
+  if (inline) return richRuns(cell.runs, links, legibleOn, emojiFace);
   // Adjacent physical lines with the same alignment share one CSS text block.
   // Literal newlines retain wrapping/blank lines without a layout box per line.
   // Runs remain React-escaped text and retain the original styles and links.
@@ -124,11 +155,11 @@ export const RichCell = memo(function RichCell({
       {!inline && cell.runs.some((run) => run.textAlign)
         ? alignedBlocks(cell).map((block, index) => (
             <span key={index} className={styles.line} style={{ textAlign: block.align }}>
-              {richRuns(block.parts, links, legibleOn)}
+              {richRuns(block.parts, links, legibleOn, emojiFace)}
               {block.emptyLastLine && <br />}
             </span>
           ))
-        : richRuns(cell.runs, links, legibleOn)}
+        : richRuns(cell.runs, links, legibleOn, emojiFace)}
     </Multiline>
   );
 });

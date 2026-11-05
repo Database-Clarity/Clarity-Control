@@ -288,11 +288,13 @@
   }
   > div {
     contain: inline-size layout style paint;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 5rem;
     border-top: 1px solid #424e62;
     padding: 0.45rem;
     white-space: pre-wrap;
   }
-  .contextLine[hidden='until-found'] {
+  > div[hidden='until-found'] {
     // Preserve a searchable native until-found box. The card's observer, Tab,
     // and beforematch expose it before its text is needed.
     content-visibility: hidden;
@@ -301,13 +303,6 @@
     color: #a9b9d0;
     margin-right: 0.7rem;
   }
-}
-.contextLine {
-  min-height: 1lh;
-  overflow-wrap: anywhere;
-  contain: inline-size layout style paint;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 1lh;
 }
 .actionBar {
   color: #e2e5ee;

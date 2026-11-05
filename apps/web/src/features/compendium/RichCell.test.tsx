@@ -26,6 +26,24 @@ function render(node: React.ReactElement) {
 }
 
 describe('compendium newlines', () => {
+  it('selects an explicit emoji face only for requested emoji-presentation clusters', () => {
+    const value: CompendiumCell = {
+      plain: 'Damage [☠️] 📁 ☠︎',
+      runs: [
+        { text: 'Damage [☠️] 📁 ☠︎', bold: true, italic: true, href: 'https://example.com/source' },
+      ],
+    };
+    const defaultView = render(createElement(RichCell, { cell: value }));
+    expect(defaultView.querySelector('[class*="emojiFace"]')).toBeNull();
+    const directView = render(createElement(RichCell, { cell: value, emojiFace: true }));
+    expect(directView.textContent).toBe(value.plain);
+    expect(
+      [...directView.querySelectorAll('[class*="emojiFace"]')].map((node) => node.textContent),
+    ).toEqual(['☠️']);
+    expect(directView.querySelectorAll('a')).toHaveLength(1);
+    expect(directView.querySelector('a')?.getAttribute('href')).toBe('https://example.com/source');
+    expect(directView.querySelector<HTMLElement>('a > span')?.style.fontStyle).toBe('italic');
+  });
   it('keeps the multiline white-space rule in the shared stylesheet', () => {
     const css = readFileSync(
       resolve(process.cwd(), 'apps/web/src/features/compendium/RichCell.module.scss'),

@@ -37,11 +37,11 @@ function fixture() {
   const root = document.createElement('section');
   root.setAttribute('aria-label', 'Proposed source');
   root.innerHTML =
-    '<details open><summary>Nearby cells</summary><div data-context-line="block"><a href="#one">First link</a></div><div data-context-line="block"><a href="#two">Second link</a></div></details>';
+    '<details open><summary>Nearby cells</summary><div data-context-cell><a href="#one">First link</a></div><div data-context-cell><a href="#two">Second link</a></div></details>';
   document.body.append(root);
   const details = root.querySelector('details')!;
   Object.defineProperty(details, 'onbeforematch', { value: null });
-  const nodes = [...root.querySelectorAll<HTMLElement>('[data-context-line]')];
+  const nodes = [...root.querySelectorAll<HTMLElement>('[data-context-cell]')];
   let top = 600;
   vi.spyOn(root, 'getBoundingClientRect').mockReturnValue({ top: 0, bottom: 300 } as DOMRect);
   for (const [index, node] of nodes.entries())

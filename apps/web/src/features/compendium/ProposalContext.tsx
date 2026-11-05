@@ -1,8 +1,7 @@
-import { Fragment, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CompendiumMatch, CompendiumData } from '@clarity/core';
 import { RichCell } from './RichCell';
 import { deferContextCells } from './deferredContext';
-import { contextLines } from './contextLines';
 import styles from './MatchReview.module.scss';
 
 export function ProposalContext({
@@ -26,17 +25,9 @@ export function ProposalContext({
         : undefined,
     [match, contextOpen, grid],
   );
-  const context = useMemo(
-    () => cells?.map((cell) => ({ ...cell, lines: contextLines(cell.cell) })),
-    [cells],
-  );
-  const blocks = useMemo(
-    () => context?.flatMap((cell) => cell.lines.filter((line) => line.block)),
-    [context],
-  );
   useLayoutEffect(() => {
-    if (details.current && blocks?.length) return deferContextCells(details.current, blocks);
-  }, [blocks]);
+    if (details.current && cells?.length) return deferContextCells(details.current, cells);
+  }, [cells]);
   if (!match) return <p>No source location established. Use Pick other to search all tabs.</p>;
   return (
     <>
@@ -45,7 +36,7 @@ export function ProposalContext({
       </p>
       <h3>{match.row.name}</h3>
       <div className={styles.sourceText}>
-        <RichCell cell={match.row.cell} />
+        <RichCell cell={match.row.cell} emojiFace />
       </div>
       <details
         ref={details}
@@ -54,33 +45,12 @@ export function ProposalContext({
         className={styles.context}
       >
         <summary>Nearby sheet cells · {source.fetchedAt.slice(0, 10)}</summary>
-        {context?.map((cell) => (
+        {cells?.map((cell) => (
           <div key={`${match.tab.gid}:${cell.row}:${cell.col}`} data-context-cell>
             <small>
               R{cell.row} C{cell.col + 1}
             </small>
-            {cell.lines[0]?.block && '\n'}
-            {cell.lines.map((line, index) => (
-              <Fragment key={index}>
-                <span
-                  data-context-line={line.block ? 'block' : 'inline'}
-                  data-multiline="true"
-                  className={styles.contextLine}
-                  style={{
-                    display: line.block ? 'inline-block' : 'inline',
-                    width: line.block ? '100%' : undefined,
-                    verticalAlign: line.block ? 'top' : undefined,
-                    textAlign: line.align,
-                  }}
-                >
-                  <RichCell cell={line.cell} inline />
-                  {line.block &&
-                    index === cell.lines.length - 1 &&
-                    line.cell.runs.every((run) => !run.text) && <br />}
-                </span>
-                {index < cell.lines.length - 1 && '\n'}
-              </Fragment>
-            ))}
+            <RichCell cell={cell.cell} emojiFace />
           </div>
         ))}
         {contextOpen && !cells?.length && <p>No grid context available.</p>}
