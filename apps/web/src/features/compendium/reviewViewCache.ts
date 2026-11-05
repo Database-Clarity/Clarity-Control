@@ -8,6 +8,7 @@ import type { ReviewProposal } from './rapidReview';
 import { categoryId } from './reviewCategories';
 import { classifyScope } from './reviewScope';
 import type { SidebarCategory } from '../navigation/sidebarQueue';
+import { reviewPreparationInput } from './reviewPreparation';
 
 type Prepared = ReturnType<typeof displayMatches>;
 type Evidence = ReturnType<typeof reviewEvidence>;
@@ -314,24 +315,21 @@ export function warmPreparedProposals(prepared: Prepared, core: Map<number, Revi
     return shown;
   }
   const work = build();
+  const input = reviewPreparationInput();
   let cancelled = false;
   let idle: number | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const inputPending = () =>
-    (
-      globalThis.navigator as
-        | (Navigator & {
-            scheduling?: { isInputPending(options: { includeContinuous: boolean }): boolean };
-          })
-        | undefined
-    )?.scheduling?.isInputPending({ includeContinuous: true }) ?? false;
+  const inputPending = input.pending;
   function schedule() {
     // No deadline timeout: speculative work must wait when there is no idle time.
     if (typeof requestIdleCallback === 'function') idle = requestIdleCallback(run);
     else timer = setTimeout(() => run(), 16);
   }
   function run(deadline?: IdleDeadline) {
-    if (cancelled || byCore!.has(core)) return;
+    if (cancelled || byCore!.has(core)) {
+      input.dispose();
+      return;
+    }
     const started = performance.now();
     for (let count = 0; count < 64; count++) {
       if (
@@ -343,6 +341,7 @@ export function warmPreparedProposals(prepared: Prepared, core: Map<number, Revi
       const next = work.next();
       if (next.done) {
         byCore!.set(core, next.value);
+        input.dispose();
         return;
       }
     }
@@ -351,6 +350,7 @@ export function warmPreparedProposals(prepared: Prepared, core: Map<number, Revi
   schedule();
   return () => {
     cancelled = true;
+    input.dispose();
     if (idle !== undefined) cancelIdleCallback(idle);
     if (timer !== undefined) clearTimeout(timer);
   };

@@ -1,6 +1,7 @@
 import { useEffect, type RefObject } from 'react';
 import type { CompendiumData } from '@clarity/core';
 import { prepareReviewCell } from './RichCell';
+import { reviewPreparationInput } from './reviewPreparation';
 
 const prepared = new WeakMap<CompendiumData, Set<string>>();
 const latin = Array.from({ length: 95 }, (_, index) => String.fromCharCode(32 + index)).join('');
@@ -88,6 +89,7 @@ export function warmReviewFontMetrics(source: CompendiumData, family: string, re
           yield { kind: 'font' as const, font, text: latin.slice(start, start + 8) };
   }
   const work = units();
+  const input = reviewPreparationInput();
   const started = performance.now();
   let cancelled = false;
   let idle: number | undefined;
@@ -107,12 +109,7 @@ export function warmReviewFontMetrics(source: CompendiumData, family: string, re
     }
   ).scheduler;
   const controller = new AbortController();
-  const inputPending = () =>
-    (
-      navigator as Navigator & {
-        scheduling?: { isInputPending(options: { includeContinuous: boolean }): boolean };
-      }
-    ).scheduling?.isInputPending({ includeContinuous: true }) ?? false;
+  const inputPending = input.pending;
   function schedule() {
     if (cancelled) return;
     // No timeout: this optional preparation never takes priority over input.
@@ -132,7 +129,10 @@ export function warmReviewFontMetrics(source: CompendiumData, family: string, re
     } else timer = setTimeout(() => run(), 16);
   }
   function run(deadline?: IdleDeadline) {
-    if (cancelled || prepared.get(source)?.has(key)) return;
+    if (cancelled || prepared.get(source)?.has(key)) {
+      input.dispose();
+      return;
+    }
     const began = performance.now();
     for (let count = 0; count < 4096; count++) {
       if (
@@ -147,6 +147,7 @@ export function warmReviewFontMetrics(source: CompendiumData, family: string, re
         let keys = prepared.get(source);
         if (!keys) prepared.set(source, (keys = new Set()));
         keys.add(key);
+        input.dispose();
         performance.mark('compendium:fonts-prepared', {
           detail: {
             family,
@@ -191,6 +192,7 @@ export function warmReviewFontMetrics(source: CompendiumData, family: string, re
   void (document.fonts?.ready ?? Promise.resolve()).then(schedule);
   return () => {
     cancelled = true;
+    input.dispose();
     controller.abort();
     if (idle !== undefined) cancelIdleCallback(idle);
     if (timer !== undefined) clearTimeout(timer);

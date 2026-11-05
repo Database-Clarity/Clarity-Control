@@ -88,6 +88,26 @@ it('yields after a slow source projection, and pauses projection work for pendin
   expect(pending.size).toBe(0);
 });
 
+it('pauses between consecutive keys until input has been quiet, and removes its listeners', async () => {
+  const remove = vi.spyOn(window, 'removeEventListener');
+  const cancel = warmReviewFontMetrics(guidedFixture().source, family, 16);
+  await Promise.resolve();
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }));
+  tick();
+  expect(calls).toHaveLength(0);
+  now = 140;
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b' }));
+  now = 200;
+  tick();
+  expect(calls).toHaveLength(0);
+  now = 291;
+  tick();
+  expect(calls).toHaveLength(1);
+  cancel();
+  expect(remove).toHaveBeenCalledWith('keydown', expect.any(Function), true);
+  expect(pending.size).toBe(0);
+});
+
 it('preloads the full source fairly while idle, and pauses before even reading the Editor style', async () => {
   const styles = vi
     .spyOn(window, 'getComputedStyle')
