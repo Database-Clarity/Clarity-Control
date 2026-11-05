@@ -111,6 +111,32 @@ describe('reviewSignature', () => {
 });
 
 describe('changedVariants', () => {
+  it('distinguishes an absent language from an empty language, regardless of metadata', () => {
+    const french = tooltip(10, 'Original');
+    french.text.fr = { text: '', updatedAt: '2026-10-01T00:00:00Z', updatedBy: 'owner' };
+    const german = tooltip(10, 'Original');
+    german.text.de = { text: '', updatedAt: '2030-01-01T00:00:00Z', updatedBy: 'bob' };
+    expect(changedVariants({}, { 10: { base, next: french } }, () => base)).toEqual([10]);
+    expect(
+      changedVariants({ 10: { base, next: french } }, { 10: { base, next: german } }, () => base),
+    ).toEqual([10]);
+    expect(changedVariants({ 10: { base, next: french } }, {}, () => german)).toEqual([10]);
+  });
+
+  it('ignores language order and still detects link-only edits and reversions', () => {
+    const french = { text: 'Salut', updatedAt: '2026-10-01T00:00:00Z', updatedBy: 'owner' };
+    const first = { ...base, text: { en: base.text.en!, fr: french } };
+    const reordered = { ...base, text: { fr: { ...french, updatedBy: 'bob' }, en: base.text.en! } };
+    const before = { 10: { base: first, next: first } };
+    expect(changedVariants(before, { 10: { base: first, next: reordered } }, () => first)).toEqual([]);
+    const linked = {
+      ...reordered,
+      compendium: { kind: 'item', hash: 5 } as unknown as Tooltip['compendium'],
+    };
+    expect(changedVariants(before, { 10: { base: first, next: linked } }, () => first)).toEqual([10]);
+    expect(changedVariants({ 10: { base: first, next: linked } }, {}, () => first)).toEqual([10]);
+  });
+
   it('treats a new draft as a change from its base and ignores metadata-only updates', () => {
     const changed = { ...base, text: { en: { ...base.text.en!, text: 'Edited' } } };
     expect(changedVariants({}, { 10: { base, next: changed } }, () => base)).toEqual([10]);
