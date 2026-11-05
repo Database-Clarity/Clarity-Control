@@ -16,7 +16,11 @@
 }
 
 .list {
-  position: relative;
+  position: absolute;
+  inset-inline: 0;
+  // Only the rendered window contributes paint bounds; the separate empty
+  // spacer preserves the complete queue's native scrolling range.
+  contain: layout paint;
   list-style: none;
   margin: 0;
   padding: 0;

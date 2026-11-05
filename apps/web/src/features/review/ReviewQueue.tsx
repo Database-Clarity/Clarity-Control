@@ -247,7 +247,11 @@ export function ReviewQueue({
       }}
     >
       <span ref={sizer} className={styles.rowSizer} aria-hidden="true" data-review-row-size="" />
-      <ul className={styles.list} style={{ height: changes.length * rowHeight }}>
+      <div style={{ height: changes.length * rowHeight }} aria-hidden="true" />
+      <ul
+        className={styles.list}
+        style={{ top: start * rowHeight, height: (end - start) * rowHeight }}
+      >
         {indices.map((index) => {
           const change = changes[index]!;
           return (
@@ -256,7 +260,7 @@ export function ReviewQueue({
               aria-posinset={index + 1}
               aria-setsize={changes.length}
               data-index={index}
-              style={{ top: index * rowHeight, height: rowHeight }}
+              style={{ top: (index - start) * rowHeight, height: rowHeight }}
             >
               <QueueLink
                 change={change}

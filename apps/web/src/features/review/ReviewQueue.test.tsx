@@ -66,11 +66,14 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
       '[aria-label="Scroll pending saved changes"]',
     )!;
     expect(scroller.scrollTop).toBeCloseTo(1800 * 69.12);
-    const renderedBottom = Math.max(
-      ...[...host.querySelectorAll<HTMLElement>('li')].map(
-        (row) => Number.parseFloat(row.style.top) + Number.parseFloat(row.style.height),
-      ),
-    );
+    const windowTop = Number.parseFloat(host.querySelector<HTMLElement>('ul')!.style.top);
+    const renderedBottom =
+      windowTop +
+      Math.max(
+        ...[...host.querySelectorAll<HTMLElement>('li')].map(
+          (row) => Number.parseFloat(row.style.top) + Number.parseFloat(row.style.height),
+        ),
+      );
     expect(renderedBottom).toBeGreaterThanOrEqual(scroller.scrollTop + 1600);
     expect(host.querySelectorAll('li').length).toBeLessThan(30);
     let selected = host.querySelector<HTMLAnchorElement>('[aria-current="page"]')!;
@@ -172,12 +175,16 @@ it('coalesces wheel deltas before scrolling, preserves zoom/chaining, and cancel
         if (inspectMove) {
           const rows = [...scroller.querySelectorAll<HTMLElement>('li')];
           movedWindows.push({
-            first: Math.min(...rows.map((row) => Number.parseFloat(row.style.top))),
-            last: Math.max(
-              ...rows.map(
-                (row) => Number.parseFloat(row.style.top) + Number.parseFloat(row.style.height),
+            first:
+              Number.parseFloat(host.querySelector<HTMLElement>('ul')!.style.top) +
+              Math.min(...rows.map((row) => Number.parseFloat(row.style.top))),
+            last:
+              Number.parseFloat(host.querySelector<HTMLElement>('ul')!.style.top) +
+              Math.max(
+                ...rows.map(
+                  (row) => Number.parseFloat(row.style.top) + Number.parseFloat(row.style.height),
+                ),
               ),
-            ),
             top,
           });
         }
