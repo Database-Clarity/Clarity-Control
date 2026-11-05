@@ -39,14 +39,45 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
-function View({ before, after }: { before?: CompendiumCell; after?: CompendiumCell }) {
-  const prepared = usePreparedPaneDiff(before, after, 'changes');
+function View({
+  before,
+  after,
+  paused,
+}: {
+  before?: CompendiumCell;
+  after?: CompendiumCell;
+  paused?: boolean;
+}) {
+  const prepared = usePreparedPaneDiff(before, after, 'changes', paused);
   return createElement(
     'output',
     { 'aria-busy': prepared.pending },
     prepared.pair?.after.plain ?? 'retained',
   );
 }
+
+it('does not prepare during stepping and resumes only the newest source pair', async () => {
+  vi.stubGlobal('Worker', FakeWorker);
+  const prepare = vi.spyOn(cache, 'prepareCompendiumDiff');
+  const inspect = vi.spyOn(cache, 'hasPreparedDiff');
+  const host = document.createElement('div');
+  root = createRoot(host);
+  const before = cell('Paused snapshot');
+  await act(async () =>
+    root!.render(
+      createElement(View, { before, after: cell('Obsolete paused source'), paused: true }),
+    ),
+  );
+  const after = cell('Newest paused source');
+  await act(async () => root!.render(createElement(View, { before, after, paused: true })));
+  expect(prepare).not.toHaveBeenCalled();
+  expect(inspect).not.toHaveBeenCalled();
+  await act(async () => root!.render(createElement(View, { before, after, paused: false })));
+  expect(prepare).toHaveBeenCalledTimes(1);
+  expect(prepare.mock.calls[0][1]).toBe(after);
+  await act(async () => FakeWorker.instances[0].complete());
+  expect(host.textContent).toBe('Newest paused source');
+});
 
 it('prepares a late source reply without running its projection during render', async () => {
   vi.stubGlobal('Worker', FakeWorker);

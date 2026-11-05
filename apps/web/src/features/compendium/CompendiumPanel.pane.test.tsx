@@ -17,6 +17,15 @@ import * as diffCache from './compendiumDiffCache';
 import { useDisplayMatches } from './useDisplayMatches';
 
 const paneMatch = vi.hoisted(() => vi.fn());
+const skeletonTiming = vi.hoisted(() => ({ enabled: false }));
+vi.mock('../../ui/Skeleton', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../ui/Skeleton')>();
+  return {
+    ...actual,
+    useSkeletonVisible: (...args: Parameters<typeof actual.useSkeletonVisible>) =>
+      actual.useSkeletonVisible(skeletonTiming.enabled && args[0], args[1], args[2]),
+  };
+});
 const matchState = vi.hoisted(() => ({
   loading: false,
   rows: undefined as Map<number, unknown> | undefined,
@@ -54,6 +63,7 @@ const roots: Root[] = [];
 let width: number | undefined;
 
 beforeEach(() => {
+  skeletonTiming.enabled = false;
   paneMatch.mockReturnValue(undefined);
   matchState.loading = false;
   matchState.rows = undefined;
@@ -122,7 +132,62 @@ const diffViews = (host: ParentNode) =>
   host.querySelectorAll('[aria-label="Compendium diff view"]');
 
 describe('Compendium pane', () => {
-  it('retains the mounted pane under an inert loading overlay until stepping stops', async () => {
+  it('reveals data-sized skeletons after two frames and reuses their shimmer regions', async () => {
+    skeletonTiming.enabled = true;
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    const host = await mount();
+    const root = roots.at(-1)!;
+    const content = host.querySelector('[data-scale]');
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 6 }, stepping: true })),
+    );
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+    const tick = async () => {
+      const [id, callback] = frames.entries().next().value!;
+      frames.delete(id);
+      await act(async () => callback(0));
+    };
+    await tick();
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+    await tick();
+    const skeleton = host.querySelector('[data-pane-skeleton]');
+    expect(skeleton).not.toBeNull();
+    expect(host.querySelector('[data-scale]')).toBe(content);
+    expect(content?.hasAttribute('hidden')).toBe(true);
+    expect(skeleton?.textContent).toContain('Name');
+    expect(skeleton?.textContent).toContain('Snapshot');
+    expect(skeleton?.querySelector('button')?.disabled).toBe(true);
+    const region = skeleton?.querySelector('[aria-hidden="true"]');
+    const cellRegion = skeleton?.querySelector('[class*="skeletonCell"]');
+    const newest = {
+      ...linked,
+      hash: 7,
+      compendium: { ...linked.compendium!, rowKey: 'Latest row', gid: 'g2' },
+    };
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: newest, stepping: true })),
+    );
+    expect(host.querySelector('[data-pane-skeleton]')).toBe(skeleton);
+    expect(skeleton?.querySelector('[aria-hidden="true"]')).toBe(region);
+    expect(skeleton?.querySelector('[class*="skeletonCell"]')).toBe(cellRegion);
+    expect(skeleton?.textContent).toContain('Latest row');
+    expect(frames.size).toBe(0);
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: newest, stepping: false })),
+    );
+    await tick();
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+    expect(host.querySelector('[data-match-hash]')?.getAttribute('data-match-hash')).toBe('7');
+    expect(host.querySelector('aside')?.hasAttribute('aria-busy')).toBe(false);
+  });
+
+  it('retains the mounted pane while the skeleton is deferred and commits the latest entry', async () => {
     const frames = new Map<number, FrameRequestCallback>();
     let serial = 0;
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
@@ -147,18 +212,25 @@ describe('Compendium pane', () => {
         root.render(createElement(CompendiumPanel, { base: { ...linked, hash }, stepping: true })),
       );
       expect(host.querySelector('[data-scale]')).toBe(content);
-      expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe('Compendium for 5');
+      expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe(
+        `Compendium for ${hash}`,
+      );
+      expect(content.getAttribute('data-match-hash')).toBe('5');
       expect(host.querySelector('aside')?.getAttribute('aria-busy')).toBe('true');
       expect(content.hasAttribute('inert')).toBe(true);
-      expect(header(host).hasAttribute('inert')).toBe(true);
+      expect(
+        [...header(host).querySelectorAll('button')].every((control) => control.disabled),
+      ).toBe(true);
       expect(host.querySelector('[role="status"]')?.textContent).toBe('Loading Compendium…');
-      expect(host.querySelector('[role="status"] span[aria-hidden="true"]')).not.toBeNull();
+      expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
       expect(vi.mocked(useDisplayMatches).mock.calls.at(-1)?.[4]).toBe(5);
       expect(prepare).not.toHaveBeenCalled();
       expect(frames.size).toBe(0);
     }
     await act(async () =>
-      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 7 }, stepping: false })),
+      root.render(
+        createElement(CompendiumPanel, { base: { ...linked, hash: 7 }, stepping: false }),
+      ),
     );
     expect(prepare).toHaveBeenCalledTimes(1);
     expect(frames.size).toBe(1);
@@ -192,9 +264,11 @@ describe('Compendium pane', () => {
     expect(frames.size).toBe(0);
     await act(async () => superseded(0));
     expect(host.querySelector('[data-scale]')).toBe(content);
-    expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe('Compendium for 5');
+    expect(host.querySelector('[data-match-hash]')?.getAttribute('data-match-hash')).toBe('5');
     await act(async () =>
-      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 8 }, stepping: false })),
+      root.render(
+        createElement(CompendiumPanel, { base: { ...linked, hash: 8 }, stepping: false }),
+      ),
     );
     expect(frames.size).toBe(1);
     await act(async () => [...frames.values()][0](0));
@@ -224,11 +298,13 @@ describe('Compendium pane', () => {
       queued(0);
       root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 7 }, stepping: true }));
     });
-    expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe('Compendium for 5');
+    expect(host.querySelector('[data-match-hash]')?.getAttribute('data-match-hash')).toBe('5');
     await act(async () =>
-      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 8 }, stepping: false })),
+      root.render(
+        createElement(CompendiumPanel, { base: { ...linked, hash: 8 }, stepping: false }),
+      ),
     );
-    expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe('Compendium for 5');
+    expect(host.querySelector('[data-match-hash]')?.getAttribute('data-match-hash')).toBe('5');
     await act(async () => [...frames.values()][0](0));
     expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe('Compendium for 8');
   });

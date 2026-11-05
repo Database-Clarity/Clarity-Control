@@ -1,5 +1,6 @@
 import {
   cloneElement,
+  isValidElement,
   memo,
   startTransition,
   useCallback,
@@ -10,9 +11,16 @@ import {
   useState,
 } from 'react';
 import { flushSync } from 'react-dom';
-import { resolveCompendiumLink, snapshotCompendium, sameCell, type Tooltip } from '@clarity/core';
+import {
+  resolveCompendiumLink,
+  snapshotCompendium,
+  sameCell,
+  type Tooltip,
+  type CompendiumCell,
+} from '@clarity/core';
 import { approvalEvidence } from './approvalEvidence';
 import { usePreparedPaneDiff } from './usePreparedPaneDiff';
+import { CompendiumPaneSkeleton, rememberPaneSkeleton } from './CompendiumPaneSkeleton';
 import { initializeCompendiumDiffWorker, prepareCompendiumDiff } from './compendiumDiffCache';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
@@ -28,6 +36,7 @@ import { LinkPicker } from './LinkPicker';
 import { useCompendiumStore } from './store';
 import { When } from '../../ui/When';
 import { RightPane, RightPaneHeader } from '../../ui/RightPane';
+import { SkeletonStatus, useSkeletonVisible } from '../../ui/Skeleton';
 import { useElementWidth } from '../../ui/useElementWidth';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { scaledPx } from '../../ui/scale';
@@ -47,7 +56,7 @@ const HEADER_TOGGLE_MIN = 381;
 const ApprovalDiff = memo(CompendiumDiff);
 
 /** Compendium zoom (70–100 %), kept on this device: − / value / +. */
-function ScaleControl() {
+function ScaleControl({ disabled = false }: { disabled?: boolean } = {}) {
   const scale = useSettingsStore((state) => state.device.compendiumScale);
   const updateDevice = useSettingsStore((state) => state.updateDevice);
   const index = Math.max(0, compendiumScales.indexOf(scale as (typeof compendiumScales)[number]));
@@ -55,14 +64,19 @@ function ScaleControl() {
     updateDevice({ compendiumScale: compendiumScales[index + by] ?? scale });
   return (
     <span className={styles.scale} role="group" aria-label="Compendium zoom">
-      <button type="button" aria-label="Smaller" disabled={index === 0} onClick={() => step(-1)}>
+      <button
+        type="button"
+        aria-label="Smaller"
+        disabled={disabled || index === 0}
+        onClick={() => step(-1)}
+      >
         −
       </button>
       <output aria-live="polite">{scale}%</output>
       <button
         type="button"
         aria-label="Larger"
-        disabled={index === compendiumScales.length - 1}
+        disabled={disabled || index === compendiumScales.length - 1}
         onClick={() => step(1)}
       >
         +
@@ -225,6 +239,14 @@ export function CompendiumPanel({
       base={displayed}
       pending={displayed !== base}
       stepping={stepping}
+      pendingBase={incomingBase}
+      pendingLink={
+        drafts[incomingBase.hash]
+          ? drafts[incomingBase.hash].next.compendium
+          : incomingBase.compendium
+      }
+      pendingDraft={!!drafts[incomingBase.hash]?.next.compendium}
+      pendingCell={!stepping ? (comparison?.after ?? incomingMatch?.row.cell) : undefined}
       link={retainedLink.current.value}
       draft={!!draft && !!link}
       matched={matched}
@@ -240,6 +262,10 @@ const PaneContents = memo(function PaneContents({
   base,
   pending: navigating,
   stepping,
+  pendingBase,
+  pendingLink,
+  pendingDraft,
+  pendingCell,
   link,
   draft,
   matched,
@@ -249,6 +275,10 @@ const PaneContents = memo(function PaneContents({
   base: Tooltip;
   pending: boolean;
   stepping: boolean;
+  pendingBase: Tooltip;
+  pendingLink: Tooltip['compendium'];
+  pendingDraft: boolean;
+  pendingCell?: CompendiumCell;
   link: Tooltip['compendium'];
   draft: boolean;
   matched: ReturnType<typeof usePaneMatch>;
@@ -265,15 +295,6 @@ const PaneContents = memo(function PaneContents({
   const scale = useSettingsStore((state) => state.device.compendiumScale);
   const [diffMode, setDiffMode] = useCompendiumDiffMode();
   const bodyRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    // The retained source and header must not expose stale actions to pointer
-    // or keyboard input while the separate loading overlay is visible.
-    for (const node of [
-      bodyRef.current?.firstElementChild,
-      bodyRef.current?.previousElementSibling,
-    ])
-      node?.toggleAttribute('inert', stepping);
-  }, [stepping]);
   const width = useElementWidth(bodyRef);
   // Unmeasured (no layout) counts as roomy; a narrow pane puts the switch above the diff instead.
   // Touch-sized controls (phone, coarse pointer) are wider than the measure below allows for.
@@ -320,8 +341,28 @@ const PaneContents = memo(function PaneContents({
   const approvalChanged = approved && matched && !sameCell(approved, matched.row.cell);
   const comparisonBefore = link && match ? link.snapshot : !link ? approved : undefined;
   const comparisonAfter = link && match ? match.row.cell : !link ? matched?.row.cell : undefined;
-  const preparedDiff = usePreparedPaneDiff(comparisonBefore, comparisonAfter, diffMode);
+  const preparedDiff = usePreparedPaneDiff(comparisonBefore, comparisonAfter, diffMode, stepping);
   const pending = navigating || preparedDiff.pending;
+  const waiting = stepping || pending || loading || (!link && matching && !matched);
+  const retainedPane = useRef<ReturnType<typeof RightPane>>();
+  const hasContent = useRef(false);
+  const wasStepping = useRef(false);
+  const showSkeleton = useSkeletonVisible(waiting, pendingBase.hash, hasContent.current);
+  useLayoutEffect(() => {
+    if (stepping) wasStepping.current = true;
+    else if (!waiting) wasStepping.current = false;
+  }, [stepping, waiting]);
+  useLayoutEffect(() => {
+    const previous = bodyRef.current?.querySelector(
+      ':scope > [data-scale]:not([data-pane-skeleton])',
+    );
+    previous?.toggleAttribute('inert', waiting);
+    bodyRef.current?.previousElementSibling?.removeAttribute('inert');
+  }, [waiting, showSkeleton]);
+  useLayoutEffect(() => {
+    if (!waiting)
+      rememberPaneSkeleton(base.hash, compendium?.fetchedAt, comparisonBefore, comparisonAfter);
+  }, [waiting, base.hash, compendium?.fetchedAt, comparisonBefore, comparisonAfter]);
 
   const diffToggle = <CompendiumDiffModeToggle mode={diffMode} onChange={setDiffMode} />;
   const pane = (
@@ -628,22 +669,72 @@ const PaneContents = memo(function PaneContents({
       </div>
     </RightPane>
   );
-  const retainedPane = useRef(pane);
   useLayoutEffect(() => {
-    if (!stepping) retainedPane.current = pane;
+    if (!waiting) {
+      retainedPane.current = pane;
+      hasContent.current = true;
+    }
   });
-  if (!stepping) return pane;
+  if (!waiting) return pane;
+  if (!stepping && !wasStepping.current && !showSkeleton)
+    return cloneElement(pane, {
+      busy: true,
+      children: (
+        <>
+          {pane.props.children}
+          <SkeletonStatus>Loading Compendium…</SkeletonStatus>
+        </>
+      ),
+    });
   const previous = retainedPane.current;
-  return cloneElement(previous, {
+  const oldContent = previous?.props.children;
+  const pendingItem = data && itemFor(pendingBase.hash, data);
+  const loadingHeader = (
+    <RightPaneHeader title="Compendium">
+      {pendingLink && roomy && (
+        <CompendiumDiffModeToggle mode={diffMode} onChange={setDiffMode} disabled />
+      )}
+      {canEdit && (
+        <button type="button" disabled>
+          {pendingLink ? 'Relink' : 'Link row'}
+        </button>
+      )}
+      <SheetColoursToggle disabled />
+      <ScaleControl disabled />
+    </RightPaneHeader>
+  );
+  return cloneElement(previous ?? pane, {
     busy: true,
-    className: `${styles.pane} ${styles.steppingPane}`,
+    label: `Compendium for ${pendingItem?.name ?? pendingBase.hash}`,
+    header: loadingHeader,
     children: (
       <>
-        {previous.props.children}
-        <div className={styles.steppingOverlay} role="status">
-          <span className={styles.spinner} aria-hidden="true" />
-          Loading Compendium…
-        </div>
+        {isValidElement<{ hidden?: boolean; 'aria-hidden'?: boolean }>(oldContent) &&
+          cloneElement(oldContent, {
+            hidden: showSkeleton,
+            'aria-hidden': showSkeleton || undefined,
+          })}
+        <SkeletonStatus>Loading Compendium…</SkeletonStatus>
+        {showSkeleton && (
+          <CompendiumPaneSkeleton
+            base={pendingBase}
+            link={pendingLink}
+            draft={pendingDraft}
+            after={pendingCell}
+            sourceFetchedAt={compendium?.fetchedAt}
+            width={width}
+            scale={scale}
+            remPx={(headerMin / HEADER_TOGGLE_MIN) * 16}
+            mode={diffMode}
+            phone={phone}
+            canEdit={canEdit}
+            canReview={canReview}
+            roomy={roomy}
+            diffControl={
+              <CompendiumDiffModeToggle mode={diffMode} onChange={setDiffMode} disabled />
+            }
+          />
+        )}
       </>
     ),
   });
