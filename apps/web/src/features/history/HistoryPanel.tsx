@@ -21,7 +21,15 @@ import styles from './History.module.scss';
  * One collapsed row: "Edited <date> by <author>, n revisions". Expanding it shows the commit list
  * with compare and Revert. The v2 list supplies the collapsed count; legacy history loads on open.
  */
-export function HistoryPanel({ hash, readOnly = false }: { hash: number; readOnly?: boolean }) {
+export function HistoryPanel({
+  hash,
+  readOnly = false,
+  suspended = false,
+}: {
+  hash: number;
+  readOnly?: boolean;
+  suspended?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [revisions, setRevisions] = useState<{
     cache: RevisionCache;
@@ -35,6 +43,10 @@ export function HistoryPanel({ hash, readOnly = false }: { hash: number; readOnl
   const signedIn = Boolean(apiUrl && user?.role);
   const cache = useRevisionCache(hash);
   useEffect(() => {
+    if (suspended) {
+      cache.cancelPending();
+      return;
+    }
     if (!signedIn) return;
     const controller = new AbortController();
     void cache.page(1).then(
@@ -50,7 +62,7 @@ export function HistoryPanel({ hash, readOnly = false }: { hash: number; readOnl
       () => undefined,
     );
     return () => controller.abort();
-  }, [cache, signedIn, open]);
+  }, [cache, signedIn, open, suspended]);
   const recorded = revisions?.cache === cache ? revisions : undefined;
   const count = recorded
     ? `${recorded.count}${recorded.more ? '+' : ''} revision${recorded.count === 1 && !recorded.more ? '' : 's'}`
@@ -72,13 +84,28 @@ export function HistoryPanel({ hash, readOnly = false }: { hash: number; readOnl
       }
     >
       {!signedIn ? <p>Sign in as a configured member to view v2 history.</p> : null}
-      {signedIn && <HistoryContent key={`v2-${cache.identity}`} hash={hash} readOnly={readOnly} />}
+      {signedIn && (
+        <HistoryContent
+          key={`v2-${cache.identity}`}
+          hash={hash}
+          readOnly={readOnly}
+          suspended={suspended}
+        />
+      )}
       <LegacyHistorySection key="legacy" hash={hash} readOnly={readOnly} />
     </PanelRow>
   );
 }
 
-function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: boolean }) {
+function HistoryContent({
+  hash,
+  readOnly = false,
+  suspended = false,
+}: {
+  hash: number;
+  readOnly?: boolean;
+  suspended?: boolean;
+}) {
   const user = useAuthStore((state) => state.user);
   const base = useDataStore((state) => state.data?.bundle.tooltips[hash]);
   const data = useDataStore((state) => state.data);
@@ -89,12 +116,12 @@ function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: b
   const [commits, setCommits] = useState<HistoryCommit[]>(() => cache.peekPage(1) ?? []);
   const [visibleCount, setVisibleCount] = useState(4);
   useEffect(() => {
-    if (visibleCount >= commits.length) return;
+    if (suspended || visibleCount >= commits.length) return;
     const frame = window.requestAnimationFrame(() =>
       setVisibleCount((count) => Math.min(count + 4, commits.length)),
     );
     return () => window.cancelAnimationFrame(frame);
-  }, [commits.length, visibleCount]);
+  }, [commits.length, visibleCount, suspended]);
   const [page, setPage] = useState(1);
   const [loadedPage, setLoadedPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
@@ -103,6 +130,7 @@ function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: b
   const [notice, setNotice] = useState<string>();
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
+    if (suspended) return;
     const controller = new AbortController();
     setLoading(true);
     setError(undefined);
@@ -129,9 +157,9 @@ function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: b
       },
     );
     return () => controller.abort();
-  }, [cache, page, attempt]);
+  }, [cache, page, attempt, suspended]);
   useEffect(() => {
-    if (loading || !commits.length) return;
+    if (suspended || loading || !commits.length) return;
     let idle: number | undefined;
     const prefetch = () => {
       for (const entry of commits.slice(0, 2))
@@ -145,7 +173,7 @@ function HistoryContent({ hash, readOnly = false }: { hash: number; readOnly?: b
       window.clearTimeout(timer);
       if (idle !== undefined) window.cancelIdleCallback(idle);
     };
-  }, [cache, commits, loading]);
+  }, [cache, commits, loading, suspended]);
   const current = draft?.next ?? base;
   const canRestore = !readOnly && hydrated && Boolean(base);
 

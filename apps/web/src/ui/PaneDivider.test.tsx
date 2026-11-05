@@ -11,7 +11,7 @@ const key = 'editor:left';
 let host: HTMLDivElement;
 let root: Root;
 let containerWidth = 1280;
-let notify: () => void = () => {};
+let notify: (entries?: ResizeObserverEntry[]) => void = () => {};
 let disconnected = 0;
 
 function Harness(options: Options) {
@@ -69,8 +69,8 @@ beforeEach(() => {
   vi.stubGlobal(
     'ResizeObserver',
     class {
-      constructor(callback: () => void) {
-        notify = callback;
+      constructor(callback: (entries: ResizeObserverEntry[]) => void) {
+        notify = (entries = []) => callback(entries);
       }
       observe() {}
       disconnect() {
@@ -110,6 +110,27 @@ describe('PaneDivider', () => {
     useSettingsStore.getState().setPane(key, { width: 400, collapsed: false });
     render();
     expect(shown()).toBe(400);
+  });
+
+  it('resumes at its known width and clamps from observer bounds without forcing layout', () => {
+    useSettingsStore.getState().setPane(key, { width: 440, collapsed: false });
+    render();
+    expect(shown()).toBe(440);
+    render({ paused: true });
+    const geometry = vi.mocked(HTMLElement.prototype.getBoundingClientRect);
+    geometry.mockClear();
+    containerWidth = 900;
+    render({ paused: false });
+    expect(geometry).not.toHaveBeenCalled();
+    expect(shown()).toBe(440);
+    act(() =>
+      notify([
+        { borderBoxSize: [{ inlineSize: 900, blockSize: 500 }] } as unknown as ResizeObserverEntry,
+      ]),
+    );
+    expect(shown()).toBe(404);
+    expect(stored()?.width).toBe(440);
+    expect(geometry).not.toHaveBeenCalled();
   });
 
   it('moves 8px per arrow and 32px with Shift, and stops at the limits', () => {

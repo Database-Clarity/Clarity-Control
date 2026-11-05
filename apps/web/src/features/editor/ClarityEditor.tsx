@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   defaultKeymap,
   history,
@@ -20,9 +20,7 @@ import {
   countConflicts,
   glyphWarnings,
   canReplaceGlyph,
-  maskConflicts,
   markupLanguage,
-  validateText,
   type Lang,
   type MarkupGlobals,
 } from '@clarity/core';
@@ -31,7 +29,9 @@ import { tableFormattingTransaction } from './formatTable';
 import { editorScrollMargins } from './scrollMargins';
 import { rememberSearch, restoreSearch } from './searchMemory';
 import { rawMode, setSymbolReveal, symbolExtensions, toggleRawView } from './symbols';
-import { validationDiagnostics } from './diagnostics';
+import { hasImportDependencies, validationDiagnostics } from './diagnostics';
+import { useEditorDiagnostics } from './useEditorDiagnostics';
+import { createCursorPosition } from './cursorPosition';
 import { MarkupRow } from './markupRow/MarkupRow';
 import { SuggestChip } from './markupRow/SuggestChip';
 import { chipHost, chipsExtension, type Chip } from './markupRow/chips';
@@ -40,7 +40,7 @@ import {
   ConflictPanel,
   GlyphPanel,
   HelpPanel,
-  StatusBar,
+  CursorStatusBar,
   type PreviewStatus,
   type StatusPanel,
 } from './StatusBar';
@@ -96,6 +96,8 @@ export interface ClarityEditorProps {
   symbols?: boolean;
   /** Carries find and replace across tooltips in this tab. Off for stored forms (a second editor). */
   findMemory?: boolean;
+  /** Detach the expensive editor surface while selection input is still arriving. */
+  suspended?: boolean;
 }
 
 function configuration(
@@ -143,9 +145,14 @@ export function ClarityEditor({
   usage,
   symbols = true,
   findMemory = true,
+  suspended = false,
 }: ClarityEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
+  const wasSuspended = useRef(false);
+  const restoreFocus = useRef(false);
+  if (suspended && !wasSuspended.current) restoreFocus.current = view.current?.hasFocus ?? false;
+  wasSuspended.current = suspended;
   /** Fixed for the editor's lifetime: a stored form never joins the tab's find memory. */
   const remembersFind = useRef(findMemory);
   const callback = useRef(onChange);
@@ -169,7 +176,7 @@ export function ClarityEditor({
     acceptKey: () => acceptKeyRef.current,
     onChange: (next: Chip | null) => setChip(next),
   });
-  const [cursor, setCursor] = useState({ line: 1, column: 1 });
+  const [cursor] = useState(createCursorPosition);
   const referenceLive = useRef({ tooltipHash, referenceSources, onOpenTooltip });
   const references = useRef<Omit<ReferenceHost, 'lang' | 'globals'>>({
     sources: () => referenceLive.current.referenceSources,
@@ -177,13 +184,25 @@ export function ClarityEditor({
     navigate: () => referenceLive.current.onOpenTooltip,
   });
   const initial = useRef({ value, lang, globals, readOnly, requireEnglish });
+  initial.current = { value, lang, globals, readOnly, requireEnglish };
+  const document = useRef({ tooltipHash, lang });
   const config = useRef(new Compartment());
   const extensions = useRef<Extension[]>([]);
+  const configurationSlot = useRef(0);
+  const conflictSlot = useRef(0);
+  const configured = useRef({ lang, globals, readOnly, requireEnglish });
   // Conflict blocks are checked as "mine" only (same offsets), so markers raise no markup errors.
-  const issues = useMemo(
-    () => validateText(maskConflicts(value), lang, globals, requireEnglish, tooltipHash),
-    [value, lang, globals, requireEnglish, tooltipHash],
+  const diagnostics = useEditorDiagnostics(
+    {
+      text: value,
+      lang,
+      globals,
+      requireEnglish,
+      selfHash: tooltipHash,
+    },
+    !suspended,
   );
+  const issues = diagnostics.issues;
   const conflictCount = useMemo(() => countConflicts(value), [value]);
   const compact = useMedia(`${phoneQuery}, (pointer: coarse)`);
   const [compare, setCompare] = useState<CompareData | null>(null);
@@ -213,13 +232,13 @@ export function ClarityEditor({
       string,
       { warning: ReturnType<typeof glyphWarnings>[number]; count: number }
     >();
-    for (const warning of glyphWarnings(value)) {
+    for (const warning of diagnostics.glyphs) {
       const group = groups.get(warning.character);
       if (group) group.count++;
       else groups.set(warning.character, { warning, count: 1 });
     }
     return [...groups.values()];
-  }, [value]);
+  }, [diagnostics.glyphs]);
 
   function replaceGlyph(character: string, replacement: string) {
     const editor = view.current;
@@ -237,23 +256,58 @@ export function ClarityEditor({
     editor.focus();
   }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     callback.current = onChange;
   }, [onChange]);
+  useLayoutEffect(() => {
+    const editor = view.current;
+    const container = host.current;
+    if (!editor || !container) return;
+    const owner = container.ownerDocument;
+    if (suspended) {
+      // Keep the view/state (including undo and caret), but take its DOM out of
+      // layout so hidden CodeMirror measurements cannot compete with the finder.
+      editor.dom.remove();
+      const changedFocus = () => {
+        restoreFocus.current = false;
+      };
+      owner.addEventListener('pointerdown', changedFocus, true);
+      return () => owner.removeEventListener('pointerdown', changedFocus, true);
+    }
+    if (editor.dom.parentNode !== container) {
+      container.append(editor.dom);
+      editor.requestMeasure();
+    }
+  }, [suspended]);
   useEffect(() => {
-    if (view.current && symbolsOn.current) setSymbolReveal(view.current, symbolReveal);
-  }, [symbolReveal]);
-  useEffect(() => {
+    if (!suspended && view.current && symbolsOn.current)
+      setSymbolReveal(view.current, symbolReveal);
+  }, [symbolReveal, suspended]);
+  useLayoutEffect(() => {
     referenceLive.current = { tooltipHash, referenceSources, onOpenTooltip };
   }, [tooltipHash, referenceSources, onOpenTooltip]);
   useEffect(() => {
-    if (!host.current) return;
+    if (suspended || view.current || !host.current) return;
     const format = (editor: EditorView) => {
       if (editor.state.readOnly) return false;
       const transaction = tableFormattingTransaction(editor.state);
       if (transaction) editor.dispatch(transaction);
       return true;
     };
+    const initialConfiguration = config.current.of(
+      configuration(
+        initial.current.lang,
+        initial.current.globals,
+        initial.current.readOnly,
+        initial.current.requireEnglish,
+        references.current,
+        onSuggest.current,
+        chipHooks.current,
+      ),
+    );
+    const initialConflicts = conflictConfig.current.of(
+      conflictHost.of({ compact: false, onCompare: () => undefined, onPanel: () => undefined }),
+    );
     extensions.current = [
       lineNumbers(),
       highlightActiveLine(),
@@ -261,9 +315,7 @@ export function ClarityEditor({
       EditorView.lineWrapping,
       editorScrollMargins(),
       conflictExtensions(),
-      conflictConfig.current.of(
-        conflictHost.of({ compact: false, onCompare: () => undefined, onPanel: () => undefined }),
-      ),
+      initialConflicts,
       history(),
       search({ top: true }),
       indentOnInput(),
@@ -293,17 +345,7 @@ export function ClarityEditor({
         ...defaultKeymap,
         indentWithTab,
       ]),
-      config.current.of(
-        configuration(
-          initial.current.lang,
-          initial.current.globals,
-          initial.current.readOnly,
-          initial.current.requireEnglish,
-          references.current,
-          onSuggest.current,
-          chipHooks.current,
-        ),
-      ),
+      initialConfiguration,
       EditorView.updateListener.of((update) => {
         const raw = update.state.field(rawMode, false);
         if (raw !== undefined && raw !== rawRef.current) {
@@ -315,26 +357,37 @@ export function ClarityEditor({
         if (update.docChanged || update.selectionSet) {
           const head = update.state.selection.main.head;
           const line = update.state.doc.lineAt(head);
-          setCursor((previous) =>
-            previous.line === line.number && previous.column === head - line.from + 1
-              ? previous
-              : { line: line.number, column: head - line.from + 1 },
-          );
+          cursor.set(line.number, head - line.from + 1);
         }
       }),
     ];
+    configurationSlot.current = extensions.current.indexOf(initialConfiguration);
+    conflictSlot.current = extensions.current.indexOf(initialConflicts);
     const editor = new EditorView({
       parent: host.current,
       state: EditorState.create({ doc: initial.current.value, extensions: extensions.current }),
     });
     view.current = editor;
+    document.current = {
+      tooltipHash: referenceLive.current.tooltipHash,
+      lang: initial.current.lang,
+    };
+    configured.current = {
+      lang: initial.current.lang,
+      globals: initial.current.globals,
+      readOnly: initial.current.readOnly,
+      requireEnglish: initial.current.requireEnglish,
+    };
     // Find and replace carries over from the previous tooltip (or page) in this tab.
     if (remembersFind.current) restoreSearch(editor);
-    return () => {
+  }, [cursor, suspended]);
+  useEffect(
+    () => () => {
+      view.current?.destroy();
       view.current = null;
-      editor.destroy();
-    };
-  }, []);
+    },
+    [],
+  );
 
   // The conflict actions' host: set again whenever the editor state is rebuilt for a new text.
   const compactRef = useRef(compact);
@@ -349,38 +402,80 @@ export function ClarityEditor({
       },
     });
   useEffect(() => {
+    if (suspended) return;
     view.current?.dispatch({
       effects: conflictConfig.current.reconfigure(conflictHostExtension()),
     });
-  }, [compact]);
+  }, [compact, suspended]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (suspended) return;
     const editor = view.current;
-    if (!editor || editor.state.doc.toString() === value) return;
+    if (!editor) return;
+    const switched = document.current.tooltipHash !== tooltipHash || document.current.lang !== lang;
+    document.current = { tooltipHash, lang };
+    if (!switched && editor.state.doc.toString() === value) return;
+    if (switched) {
+      setPanel(null);
+      setSuggestion(null);
+      setChip(null);
+      setCompare(null);
+      setConflictIndex(0);
+      cursor.set(1, 1);
+      rawRef.current = false;
+      setRawView(false);
+    }
     // A different tooltip/language must never undo into the previous document.
-    editor.setState(EditorState.create({ doc: value, extensions: extensions.current }));
-    editor.dispatch({
-      effects: [
-        config.current.reconfigure(
-          configuration(
-            lang,
-            globals,
-            readOnly,
-            requireEnglish,
-            references.current,
-            onSuggest.current,
-            chipHooks.current,
-          ),
-        ),
-        // A rebuilt state starts from the initial extensions: the compartments need their live values.
-        conflictConfig.current.reconfigure(conflictHostExtension()),
-      ],
-    });
+    const nextExtensions = [...extensions.current];
+    nextExtensions[configurationSlot.current] = config.current.of(
+      configuration(
+        lang,
+        globals,
+        readOnly,
+        requireEnglish,
+        references.current,
+        onSuggest.current,
+        chipHooks.current,
+      ),
+    );
+    nextExtensions[conflictSlot.current] = conflictConfig.current.of(conflictHostExtension());
+    configured.current = { lang, globals, readOnly, requireEnglish };
+    // Install the live compartments at creation: do not parse/decorate the new document
+    // with the first tooltip's globals and then repeat that work in a reconfiguration.
+    editor.setState(EditorState.create({ doc: value, extensions: nextExtensions }));
     // The rebuilt state starts with find closed: bring back what was open.
     if (remembersFind.current) restoreSearch(editor);
-  }, [value, lang, globals, readOnly, requireEnglish]);
+  }, [value, lang, globals, readOnly, requireEnglish, tooltipHash, suspended, cursor]);
+
+  useLayoutEffect(() => {
+    const editor = view.current;
+    const owner = host.current?.ownerDocument;
+    if (suspended || !editor || !owner) return;
+    // Restore focus only after the landed document is installed. Focusing the
+    // previous document first would measure and briefly expose its old caret.
+    if (restoreFocus.current && owner.activeElement === owner.body) editor.focus();
+    restoreFocus.current = false;
+  }, [suspended, tooltipHash, lang]);
 
   useEffect(() => {
+    if (suspended) return;
+    const previous = configured.current;
+    // A draft edit changes the imports snapshot even when this document does not import
+    // anything. Keep its facets/decorations intact in that case. The live reference source
+    // still updates, and typing an import immediately installs the latest snapshot.
+    const sameDefinitions =
+      previous.globals.variables === globals.variables &&
+      previous.globals.titles === globals.titles &&
+      previous.globals.type === globals.type;
+    const importFree = !hasImportDependencies(value, globals);
+    if (
+      previous.lang === lang &&
+      (previous.globals === globals || (sameDefinitions && importFree)) &&
+      previous.readOnly === readOnly &&
+      previous.requireEnglish === requireEnglish
+    )
+      return;
+    configured.current = { lang, globals, readOnly, requireEnglish };
     view.current?.dispatch({
       effects: config.current.reconfigure(
         configuration(
@@ -394,7 +489,7 @@ export function ClarityEditor({
         ),
       ),
     });
-  }, [lang, globals, readOnly, requireEnglish]);
+  }, [lang, globals, readOnly, requireEnglish, value, suspended]);
 
   useEffect(() => {
     const editor = view.current;
@@ -409,7 +504,7 @@ export function ClarityEditor({
     const line = editor.state.doc.line(highlightLine);
     editor.dispatch({ selection: { anchor: line.from, head: line.to }, scrollIntoView: true });
     editor.focus();
-  }, [highlightLine]);
+  }, [highlightLine, tooltipHash, lang]);
 
   const glyphCount = glyphs.reduce((sum, group) => sum + group.count, 0);
   // A panel for something that has gone away closes itself.
@@ -418,8 +513,14 @@ export function ClarityEditor({
       ? null
       : panel;
   return (
-    <div className={styles.editor} data-editor-root>
-      {markupRow && !readOnly && <MarkupRow view={view} globals={globals} usage={usage} />}
+    <div
+      className={styles.editor}
+      data-editor-root
+      data-validation-pending={diagnostics.pending || undefined}
+    >
+      {markupRow && !readOnly && (
+        <MarkupRow key={`${tooltipHash}:${lang}`} view={view} globals={globals} usage={usage} />
+      )}
       <div className={styles.textArea}>
         <div ref={host} className={styles.host} />
         {open === 'glyphs' && (
@@ -477,12 +578,12 @@ export function ClarityEditor({
       {chip && view.current && !suggestion && (
         <SuggestChip chip={chip} view={view.current} acceptKey={acceptKey} />
       )}
-      <StatusBar
+      <CursorStatusBar
+        validating={diagnostics.pending}
         readOnlyReason={readOnlyReason}
         issues={issues}
         glyphCount={glyphCount}
-        line={cursor.line}
-        column={cursor.column}
+        cursor={cursor}
         preview={preview}
         conflicts={
           conflictCount > 0

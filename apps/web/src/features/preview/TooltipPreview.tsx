@@ -1,6 +1,6 @@
 import { ArchiveIcon } from '../archive/ArchiveIcon';
 import { languageLabel } from '../../languageLabels';
-import { useId, useMemo, type ReactNode } from 'react';
+import { memo, useId, useMemo, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   markupLanguage,
@@ -11,7 +11,7 @@ import {
   type MarkupSpan,
   resolveAlias,
 } from '@clarity/core';
-import { useDataStore } from '../../stores/data';
+import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { canonicalHash, itemFor, tooltipFor } from '../navigation/catalog';
 import styles from './TooltipPreview.module.scss';
@@ -67,39 +67,49 @@ export function PreviewSpan({ part }: { part: MarkupSpan }) {
   );
 }
 
+// A keystroke usually changes one line. Parsed lines are plain render data, so retain
+// the unchanged React subtrees even when a fresh parse creates new line objects.
+const PreviewLine = memo(
+  function PreviewLine({ line }: { line: MarkupLine }) {
+    return line.table ? (
+      <table className={classNames(line.classNames)}>
+        <tbody>
+          {line.table.map((row, rowIndex) => (
+            <tr key={rowIndex} className={classNames(row.classNames)}>
+              {row.rowContent?.map((cell, cellIndex) => (
+                <td
+                  key={cellIndex}
+                  colSpan={cell.colSpan}
+                  rowSpan={cell.rowSpan}
+                  className={classNames(cell.classNames)}
+                >
+                  {cell.cellContent.map((part, partIndex) => (
+                    <PreviewSpan key={partIndex} part={part} />
+                  ))}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    ) : (
+      <div className={classNames(line.classNames)}>
+        {line.linesContent?.map((part, partIndex) => (
+          <PreviewSpan key={partIndex} part={part} />
+        ))}
+      </div>
+    );
+  },
+  (previous, next) =>
+    previous.line === next.line || JSON.stringify(previous.line) === JSON.stringify(next.line),
+);
+
 export function Lines({ lines }: { lines: MarkupLine[] }) {
   return (
     <>
-      {lines.map((line, index) => {
-        return line.table ? (
-          <table className={classNames(line.classNames)} key={index}>
-            <tbody>
-              {line.table.map((row, rowIndex) => (
-                <tr key={rowIndex} className={classNames(row.classNames)}>
-                  {row.rowContent?.map((cell, cellIndex) => (
-                    <td
-                      key={cellIndex}
-                      colSpan={cell.colSpan}
-                      rowSpan={cell.rowSpan}
-                      className={classNames(cell.classNames)}
-                    >
-                      {cell.cellContent.map((part, partIndex) => (
-                        <PreviewSpan key={partIndex} part={part} />
-                      ))}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <div key={index} className={classNames(line.classNames)}>
-            {line.linesContent?.map((part, partIndex) => (
-              <PreviewSpan key={partIndex} part={part} />
-            ))}
-          </div>
-        );
-      })}
+      {lines.map((line, index) => (
+        <PreviewLine key={index} line={line} />
+      ))}
     </>
   );
 }
@@ -136,7 +146,13 @@ export function TooltipPreview({
   fill = false,
   children,
 }: TooltipPreviewProps) {
-  const parsed = useMemo(() => parseMarkup(text, globals), [text, globals]);
+  const replaced = Boolean(children);
+  // Compare supplies its already-rendered body and hides these diagnostics. Do not
+  // parse the base a third time only to discard that result on every keystroke.
+  const parsed = useMemo(
+    () => (replaced ? null : parseMarkup(text, globals)),
+    [text, globals, replaced],
+  );
   const iconUrl = icon?.startsWith('/common/') ? `https://www.bungie.net${icon}` : icon;
   return (
     <section
@@ -159,8 +175,8 @@ export function TooltipPreview({
         </header>
         {bar}
       </div>
-      <div className={styles.description}>{children ?? <Lines lines={parsed.lines} />}</div>
-      {!children && parsed.diagnostics.length > 0 && (
+      <div className={styles.description}>{children ?? <Lines lines={parsed?.lines ?? []} />}</div>
+      {!children && parsed && parsed.diagnostics.length > 0 && (
         <details className={styles.diagnostics}>
           <summary>{parsed.diagnostics.length} markup issue(s)</summary>
           <ul>
@@ -189,41 +205,68 @@ function AssociatedTooltips({
   globals: MarkupGlobals;
 }) {
   const data = useDataStore((state) => state.data);
-  const drafts = useDraftStore((state) => state.drafts);
+  const membership = useDraftStore(
+    (state) => (state.drafts[hash]?.next ?? data?.bundle.tooltips[hash])?.associated,
+  );
+  const associated = useMemo(
+    () =>
+      data
+        ? [
+            ...new Set((membership ?? []).map((target) => resolveAlias(target, data.aliases))),
+          ].filter((target) => target !== hash)
+        : [],
+    [membership, hash, data],
+  );
   if (!data) return null;
-  const tooltip = drafts[hash]?.next ?? tooltipFor(hash, data);
-  const associated = [
-    ...new Set(tooltip.associated.map((target) => resolveAlias(target, data.aliases))),
-  ].filter((target) => target !== hash);
   if (!associated.length) return null;
   return (
     <section className={styles.associated} aria-label="Associated tooltip previews">
-      {associated.map((target) => {
-        const item = itemFor(target, data);
-        const next = drafts[target]?.next ?? tooltipFor(target, data);
-        const name = item?.name ?? `Tooltip ${target}`;
-        const category = data.categories.find((entry) => entry.id === item?.categoryId);
-        return (
-          <details key={target}>
-            <summary>
-              {item?.icon && <img src={`https://www.bungie.net${item.icon}`} alt="" />}
-              <Link to={`/t/${canonicalHash(target, data)}`}>{name}</Link>
-            </summary>
-            {next.text[lang] ? (
-              <TooltipPreview
-                text={next.text[lang].text}
-                lang={lang}
-                name={name}
-                icon={item?.icon}
-                categoryLabel={category?.label}
-                globals={{ ...globals, type: category?.legacyType }}
-              />
-            ) : (
-              <p>No {languageLabel(lang)} text yet.</p>
-            )}
-          </details>
-        );
-      })}
+      {associated.map((target) => (
+        <AssociatedTooltip key={target} target={target} data={data} lang={lang} globals={globals} />
+      ))}
     </section>
   );
 }
+
+const AssociatedTooltip = memo(function AssociatedTooltip({
+  target,
+  data,
+  lang,
+  globals,
+}: {
+  target: number;
+  data: EditorData;
+  lang: Lang;
+  globals: MarkupGlobals;
+}) {
+  const text = useDraftStore(
+    (state) => (state.drafts[target]?.next ?? tooltipFor(target, data)).text[lang]?.text,
+  );
+  const item = itemFor(target, data);
+  const name = item?.name ?? `Tooltip ${target}`;
+  const category = data.categories.find((entry) => entry.id === item?.categoryId);
+  const typed = useMemo(
+    () => ({ ...globals, type: category?.legacyType }),
+    [globals, category?.legacyType],
+  );
+  return (
+    <details>
+      <summary>
+        {item?.icon && <img src={`https://www.bungie.net${item.icon}`} alt="" />}
+        <Link to={`/t/${canonicalHash(target, data)}`}>{name}</Link>
+      </summary>
+      {text !== undefined ? (
+        <TooltipPreview
+          text={text}
+          lang={lang}
+          name={name}
+          icon={item?.icon}
+          categoryLabel={category?.label}
+          globals={typed}
+        />
+      ) : (
+        <p>No {languageLabel(lang)} text yet.</p>
+      )}
+    </details>
+  );
+});

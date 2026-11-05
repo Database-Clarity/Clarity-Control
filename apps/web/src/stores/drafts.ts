@@ -273,7 +273,13 @@ export function createDraftStore(storage: DraftStorage) {
         }
         const drafts: Drafts = { ...get().drafts, [base.hash]: { base: draft.base, next } };
         // Returning text to its base value should not create a metadata-only draft.
-        if (JSON.stringify(next) === JSON.stringify(draft.base)) {
+        // A changed edited string already proves inequality. Compare all fields
+        // only on a return to the saved text, rather than serializing every
+        // language and metadata field on each ordinary native keystroke.
+        if (
+          text === (draft.base.text[lang]?.text ?? '') &&
+          JSON.stringify(next) === JSON.stringify(draft.base)
+        ) {
           delete drafts[base.hash];
         }
         set({ drafts });

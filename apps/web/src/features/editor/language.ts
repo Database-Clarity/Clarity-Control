@@ -39,6 +39,9 @@ export const clarityLanguage = StreamLanguage.define({
     if (stream.match(textTag) || stream.match(/< table .*?>|<\$>|\|[bchr\d-]*/)) return 'typeName';
     if (stream.match(emptyTag) || stream.match(/<(?:title|link) |<\/?|\/>|\[[^\]]*\]/))
       return 'tagName';
+    // Plain prose is one unstyled run. Retain every possible markup/comment
+    // boundary, while avoiding all of the token expressions for each letter.
+    if (!state.declaration && stream.match(/^[^<#$[/|]+/)) return null;
     stream.next();
     return null;
   },
