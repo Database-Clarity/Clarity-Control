@@ -44,6 +44,8 @@
   // Keep the scaled sheet on its own clipped layer instead of repainting it
   // together with the editor whenever either side changes.
   transform: translateZ(0);
+  // Preserve subpixel text smoothing on the pane's composited layer.
+  background: var(--page);
   min-width: 0;
   padding-bottom: 0.5rem;
   font-size: 0.8125rem;
