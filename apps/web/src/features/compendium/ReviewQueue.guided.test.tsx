@@ -201,9 +201,9 @@ it('publishes the existing category queue for sidebar navigation', async () => {
   const f = await mount();
   try {
     const categories = (captured.props as Parameters<typeof CategoryReview>[0]).categories;
-    expect(useSidebarQueueStore.getState().compendiumCategories).toEqual(
-      categories.map(({ id, name }) => ({ id, name })),
-    );
+    expect(
+      useSidebarQueueStore.getState().compendiumCategories?.map(({ id, name }) => ({ id, name })),
+    ).toEqual(categories.map(({ id, name }) => ({ id, name })));
   } finally {
     await f.close();
   }

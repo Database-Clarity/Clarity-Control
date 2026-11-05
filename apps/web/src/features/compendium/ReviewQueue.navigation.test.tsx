@@ -466,10 +466,20 @@ describe('category filtering and history', () => {
     await change('Proposal', 'yes');
     const previousRoute = route().pathname + route().search;
 
-    const armorLink = host.querySelector<HTMLAnchorElement>(
-      `[aria-label="Compendium category queue"] a[href="${categoryRoute('armor-perk')}"]`,
+    const armorLink = [
+      ...host.querySelectorAll<HTMLAnchorElement>('[aria-label="Compendium category queue"] a'),
+    ].find(
+      (link) =>
+        new URL(link.getAttribute('href')!, 'https://synthetic.invalid').searchParams.get(
+          'group',
+        ) === categoryId('armor-perk'),
     )!;
     expect(armorLink).not.toBeNull();
+    const target = new URL(armorLink.getAttribute('href')!, 'https://synthetic.invalid');
+    expect(target.searchParams.get('hash')).toBe('200');
+    expect(target.searchParams.get('query')).toBe('');
+    expect(target.searchParams.get('status')).toBe('open');
+    expect(target.searchParams.get('proposal')).toBe('all');
     await act(async () => armorLink.click());
     expect(selected()).toBe('Armor 200');
     expect(control<HTMLInputElement>('Find entry').value).toBe('');

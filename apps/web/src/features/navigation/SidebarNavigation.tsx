@@ -20,7 +20,10 @@ export function CompendiumSidebarNavigation() {
           {categories.map((category) => (
             <li key={category.id} className={compendiumStyles.row}>
               <Link
-                to={`/compendium/review?view=entries&group=${encodeURIComponent(category.id)}`}
+                to={
+                  category.entryTarget ??
+                  `/compendium/review?view=entries&group=${encodeURIComponent(category.id)}`
+                }
                 aria-current={group === category.id ? 'page' : undefined}
               >
                 {category.name}

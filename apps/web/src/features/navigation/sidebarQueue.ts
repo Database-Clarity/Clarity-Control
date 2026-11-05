@@ -3,6 +3,8 @@ import { create } from 'zustand';
 export interface SidebarCategory {
   id: string;
   name: string;
+  /** Optional normalized destination supplied by the Compendium review queue. */
+  entryTarget?: string;
 }
 
 export interface SidebarPendingChange {

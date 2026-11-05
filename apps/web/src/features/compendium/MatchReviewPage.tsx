@@ -308,9 +308,6 @@ export function ReviewQueue({
       },
     );
   }, [entries, editor, proposals, matching, proposalError, scopeState.hashes, source, prepared]);
-  useEffect(() => {
-    setSidebarCategories(categories.map(({ id, name }) => ({ id, name })));
-  }, [categories, setSidebarCategories]);
   const guidance = useGuidance(
     categories,
     `${editor.bundle.sourceCommit}|${fingerprint}`,
@@ -358,6 +355,26 @@ export function ReviewQueue({
     [entries, inScope, proposals],
   );
   const entryProjection = categoryView ? undefined : preparedEntryProjection;
+  useEffect(() => {
+    setSidebarCategories(
+      categories.map(({ id, name }) => {
+        const open = preparedEntryProjection.index.byGroup
+          .get(id)
+          ?.filter((entry) => entry.status === 'open');
+        const selected = open?.find((entry) => entry.hash === progress.selected) ?? open?.[0];
+        const target = new URLSearchParams({
+          view: 'entries',
+          group: id,
+          query: '',
+          category: '',
+          status: 'open',
+          proposal: 'all',
+        });
+        if (selected) target.set('hash', String(selected.hash));
+        return { id, name, entryTarget: `/compendium/review?${target}` };
+      }),
+    );
+  }, [categories, preparedEntryProjection, progress.selected, setSidebarCategories]);
   const scopedEntries = useMemo(() => entryProjection?.entries ?? [], [entryProjection]);
   const routeFilter = progressSchema.shape.filter.safeParse(params.get('status'));
   // New category links reset stale filters; normalized URLs retain each history entry's filters.
