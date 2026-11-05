@@ -44,9 +44,13 @@ export function ReviewQueue({
   // Resolve the router/base href once per window, rather than querying <base> per row.
   const href = useHref('/review');
   const [focusIndex, setFocusIndex] = useState<number>();
-  // Cover even tall viewports until the first native resize notification. Reading
-  // innerHeight does not force layout of the workspace being mounted.
-  const [viewport, setViewport] = useState({ top: 0, height: window.innerHeight });
+  // Start from the CSS viewport's default 37px header + 7rem allowance, avoiding
+  // an oversized provisional window at the ordinary scale. Native observation
+  // corrects other font sizes and viewport bounds before paint, without reads.
+  const [viewport, setViewport] = useState(() => ({
+    top: 0,
+    height: Math.max(defaultRowHeight, window.innerHeight - 37 - 7 * (defaultRowHeight / 4)),
+  }));
   const observedViewport = useRef(viewport);
   observedViewport.current = viewport;
   useLayoutEffect(() => {

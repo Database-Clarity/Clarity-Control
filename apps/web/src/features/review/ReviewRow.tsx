@@ -29,39 +29,53 @@ export function ReviewRow({
   const [error, setError] = useState<string>();
   const [loaded, setLoaded] = useState(false);
   const row = useRef<HTMLLIElement>(null);
-  const [near, setNear] = useState(() => typeof IntersectionObserver === 'undefined');
+  const near = useRef(false);
   useEffect(() => {
-    if (near || !historyAvailable) return;
+    if (!historyAvailable) return;
+    const controller = new AbortController();
+    const load = () => {
+      setLatest(undefined);
+      setError(undefined);
+      setLoaded(false);
+      void getHistory(entry.tooltip.hash, 1, controller.signal).then(
+        (result) => {
+          if (!controller.signal.aborted) {
+            setLatest(result.commits[0]);
+            setLoaded(true);
+          }
+        },
+        (reason: unknown) => {
+          if (!controller.signal.aborted) setError(errorMessage(reason));
+        },
+      );
+    };
+    if (near.current || typeof IntersectionObserver === 'undefined') {
+      near.current = true;
+      load();
+      return () => controller.abort();
+    }
     const observer = new IntersectionObserver(
       (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return;
-        setNear(true);
+        if (
+          near.current ||
+          controller.signal.aborted ||
+          !entries.some((entry) => entry.isIntersecting)
+        )
+          return;
+        near.current = true;
         observer.disconnect();
+        // Proximity starts the request directly; it has no visible state of its
+        // own and does not need an extra React render/effect for every row.
+        load();
       },
       { rootMargin: '200px' },
     );
     observer.observe(row.current!);
-    return () => observer.disconnect();
-  }, [near, historyAvailable]);
-  useEffect(() => {
-    if (!historyAvailable || !near) return;
-    const controller = new AbortController();
-    setLatest(undefined);
-    setError(undefined);
-    setLoaded(false);
-    void getHistory(entry.tooltip.hash, 1, controller.signal).then(
-      (result) => {
-        if (!controller.signal.aborted) {
-          setLatest(result.commits[0]);
-          setLoaded(true);
-        }
-      },
-      (reason: unknown) => {
-        if (!controller.signal.aborted) setError(errorMessage(reason));
-      },
-    );
-    return () => controller.abort();
-  }, [entry.tooltip, historyAvailable, near]);
+    return () => {
+      observer.disconnect();
+      controller.abort();
+    };
+  }, [entry.tooltip, historyAvailable]);
   return (
     <li ref={row}>
       <label>

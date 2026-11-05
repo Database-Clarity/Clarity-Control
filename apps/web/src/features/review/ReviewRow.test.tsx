@@ -58,11 +58,20 @@ it('loads latest-change metadata on proximity without changing row selection', a
       ),
     );
     expect(getHistory).toHaveBeenCalledExactlyOnceWith(42, 1, expect.any(AbortSignal));
+    // Native callbacks already queued before disconnect must not duplicate the GET.
+    await act(async () =>
+      intersect(
+        [{ isIntersecting: true } as IntersectionObserverEntry],
+        {} as IntersectionObserver,
+      ),
+    );
+    expect(getHistory).toHaveBeenCalledTimes(1);
     expect(host.textContent).toContain('No history available');
     expect(toggle).not.toHaveBeenCalled();
     expect(open).not.toHaveBeenCalled();
   } finally {
     await act(async () => root.unmount());
+    expect(vi.mocked(getHistory).mock.calls[0]?.[2]?.aborted).toBe(true);
     vi.unstubAllGlobals();
   }
 });
