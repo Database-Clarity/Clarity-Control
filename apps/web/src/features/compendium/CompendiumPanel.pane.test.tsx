@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CompendiumCell, Tooltip } from '@clarity/core';
 import * as core from '@clarity/core';
 import * as dates from '../../services/format/date';
+import * as paneSkeleton from './CompendiumPaneSkeleton';
+import * as rightPane from '../../ui/RightPane';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
@@ -486,6 +488,44 @@ describe('Compendium pane', () => {
     expect(host.contains(status)).toBe(true);
     expect(host.querySelector('[data-multiline]')).toBe(cell);
   });
+
+  it.each(['linked', 'matched'] as const)(
+    'leaves the settled %s skeleton, pane, and shape cache idle through text edits',
+    async (kind) => {
+      skeletonTiming.enabled = true;
+      const frame = vi.fn();
+      vi.stubGlobal('requestAnimationFrame', frame);
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+      const renderPane = vi.spyOn(rightPane, 'RightPane');
+      const remember = vi.spyOn(paneSkeleton, 'rememberPaneSkeleton');
+      const format = vi.spyOn(dates, 'formatDate');
+      const base = kind === 'linked' ? linked : { ...linked, compendium: undefined };
+      if (kind === 'matched') paneMatch.mockReturnValue({ status: 'ok', changed: false, tab, row });
+      const next = structuredClone(base);
+      next.text = { en: { text: 'Existing draft' } } as Tooltip['text'];
+      useDraftStore.setState({ drafts: { [base.hash]: { base, next } } });
+      const host = await mount(base);
+      const rendered = renderPane.mock.calls.length;
+      const remembered = remember.mock.calls.length;
+      const formatted = format.mock.calls.length;
+      const original = host.innerHTML;
+      frame.mockClear();
+      for (let key = 0; key < 300; key++) {
+        const changed = structuredClone(next);
+        changed.text = { en: { text: `Existing draft ${key}` } } as Tooltip['text'];
+        await act(async () =>
+          useDraftStore.setState({ drafts: { [base.hash]: { base, next: changed } } }),
+        );
+      }
+      expect(renderPane.mock.calls.length).toBe(rendered);
+      expect(remember.mock.calls.length).toBe(remembered);
+      expect(format.mock.calls.length).toBe(formatted);
+      expect(frame).not.toHaveBeenCalled();
+      expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+      expect(host.querySelector('[class*="Skeleton_region"]')).toBeNull();
+      expect(host.innerHTML).toBe(original);
+    },
+  );
 
   it('does not remeasure the root or resolve an unchanged source while English drafts are typed', async () => {
     useCompendiumStore.setState({ data: { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] } });
