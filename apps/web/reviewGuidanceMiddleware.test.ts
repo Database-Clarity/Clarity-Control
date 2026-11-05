@@ -1,4 +1,5 @@
 import { createServer, type Server } from 'node:http';
+import { readdirSync } from 'node:fs';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -28,6 +29,7 @@ async function fixture(file?: string) {
   const origin = `http://127.0.0.1:${address.port}`;
   return {
     file,
+    server,
     origin,
     get: () => fetch(`${origin}/__review-guidance`),
     write: (document: unknown, revision: string | null, requestOrigin = origin) =>
@@ -79,6 +81,26 @@ it('writes readable guidance atomically and reads it from another server without
   const phone = await fixture(first.file);
   expect(await (await phone.get()).json()).toEqual(saved);
   expect(await readdir(directories[0])).toEqual(['review-guidance.json']);
+});
+it('releases the lock before completing a save so an immediate sequential save succeeds', async () => {
+  const first = await fixture();
+  let filesAtCompletion: string[] | undefined;
+  first.server.once('request', (_request, response) => {
+    response.once('finish', () => {
+      // Observe cleanup synchronously: awaiting filesystem work here would hide the race.
+      filesAtCompletion = readdirSync(directories[0]);
+    });
+  });
+  const updated = { ...document, baseline: 'immediate sequential save' };
+  const second = await first.write(document, null).then(async (response) => {
+    expect(response.status).toBe(200);
+    const saved = await response.json();
+    return first.write(updated, saved.revision);
+  });
+  expect(filesAtCompletion).toEqual(['review-guidance.json']);
+  expect(second.status).toBe(200);
+  expect((await second.json()).document).toEqual(updated);
+  expect(JSON.parse(await readFile(first.file, 'utf8'))).toEqual(updated);
 });
 it('atomically extends legacy comments with readable sample decisions without dropping owner guidance', async () => {
   const server = await fixture();
