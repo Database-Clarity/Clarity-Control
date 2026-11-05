@@ -18,25 +18,45 @@ let burst = false;
 let activityFrame: number | undefined;
 let catchUpFrame: number | undefined;
 let landLatest: (() => void) | undefined;
-const interactionEvents = ['pointerdown', 'keydown', 'beforeinput', 'compositionstart', 'focusin'];
+let resumeLatest: (() => void) | undefined;
+const interactionEvents = [
+  'pointerdown',
+  'click',
+  'keydown',
+  'beforeinput',
+  'compositionstart',
+  'focusin',
+  'copy',
+  'contextmenu',
+];
 function catchEditorInteraction(event: Event) {
+  // Repeated closed-finder arrows are the stepping gesture itself. Every other
+  // interaction finishes the pending target before its default action runs.
   if (
+    event instanceof KeyboardEvent &&
+    ['ArrowDown', 'ArrowUp'].includes(event.key) &&
+    !event.shiftKey &&
+    !event.altKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
     event.target instanceof Element &&
-    event.target.closest(
-      '.cm-editor, section[aria-label*=" editor ("], section[aria-label^="Associations for "]',
-    )
+    event.target.getAttribute('aria-label') === 'Tooltip' &&
+    event.target.getAttribute('aria-expanded') === 'false'
   )
-    flushSync(settleStepping);
+    return;
+  flushSync(settleStepping);
 }
 
 /** The frame publishes identity independently of the router's coalesced document render. */
-export function publishSteppingTarget(target: string, land: () => void) {
+export function publishSteppingTarget(target: string, land: () => void, resume?: () => void) {
   landLatest = land;
+  resumeLatest = resume;
   useSteppingActivity.setState({ target });
 }
 
 export function clearSteppingTarget() {
   landLatest = undefined;
+  resumeLatest = undefined;
   if (useSteppingActivity.getState().target !== undefined)
     useSteppingActivity.setState({ target: undefined });
 }
@@ -66,6 +86,11 @@ function admissionGap() {
   return workspaceWork > 16 ? workspaceWork + 8 : 8;
 }
 
+/** Async router commits are outside the urgent frame and still consume its budget. */
+export function recordSteppingWorkspaceWork(duration: number) {
+  if (useSteppingActivity.getState().active) workspaceWork = duration;
+}
+
 /** A fresh packet cancels this handoff, so only the newest route can paint. */
 function scheduleCatchUp() {
   if (catchUpFrame !== undefined || typeof requestAnimationFrame !== 'function') return;
@@ -74,19 +99,26 @@ function scheduleCatchUp() {
     catchUpFrame = undefined;
     const state = useSteppingActivity.getState();
     if (!state.active || !state.deferWorkspace) return;
-    if (inputPending() || performance.now() - lastInputAt < admissionGap()) {
+    if (inputPending()) {
+      scheduleCatchUp();
+      return;
+    }
+    // The address can catch up on the first frame without new input, even when
+    // the document still needs a larger gap. New packets cancel this handoff.
+    resumeLatest?.();
+    if (performance.now() - lastInputAt < admissionGap()) {
       scheduleCatchUp();
       return;
     }
     const started = performance.now();
     flushSync(() => useSteppingActivity.setState({ deferWorkspace: false }));
-    workspaceWork = previousFrameWork = performance.now() - started;
+    previousFrameWork = performance.now() - started;
   });
   catchUpFrame = frame;
 }
 let quiet: ReturnType<typeof setTimeout> | undefined;
 const holds = new Set<symbol>();
-export function pulseStepping(land?: () => void) {
+export function pulseStepping(land?: () => void, resume?: () => void) {
   const continuing = burst;
   if (!continuing) {
     workspaceWork = previousFrameWork = 0;
@@ -96,6 +128,7 @@ export function pulseStepping(land?: () => void) {
       window.addEventListener(type, catchEditorInteraction, true);
   }
   if (land) landLatest = land;
+  if (resume) resumeLatest = resume;
   burst = true;
   const now = performance.now();
   fastInput = continuing && now - lastInputAt < 12;
@@ -127,6 +160,7 @@ export function settleStepping() {
   cancelCatchUp();
   const land = landLatest;
   landLatest = undefined;
+  resumeLatest = undefined;
   useSteppingActivity.setState({ active: false, deferWorkspace: false });
   land?.();
   clearSteppingTarget();
@@ -146,7 +180,6 @@ export function beginSteppingFrame() {
   });
   return () => {
     previousFrameWork = performance.now() - started;
-    if (!deferWorkspace) workspaceWork = previousFrameWork;
     if (useSteppingActivity.getState().deferWorkspace) scheduleCatchUp();
   };
 }

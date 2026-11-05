@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, createElement, Fragment, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { createMemoryRouter, RouterProvider, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import { TooltipPage } from '../tooltip/TooltipPage';
@@ -84,6 +84,7 @@ const originalDrafts = useDraftStore.getState();
 const originalAuth = useAuthStore.getState();
 let host: HTMLDivElement;
 let root: Root | undefined;
+let router: ReturnType<typeof createMemoryRouter> | undefined;
 let navigate: ReturnType<typeof useNavigate>;
 
 function RouteState() {
@@ -102,27 +103,17 @@ function selectedItem() {
 
 async function mount(initialEntries = ['/t/100?lang=de']) {
   root = createRoot(host);
+  router = createMemoryRouter(
+    [
+      {
+        element: createElement(Fragment, null, createElement(RouteState), createElement(Layout)),
+        children: [{ path: '/t/:hash', element: createElement(TooltipPage) }],
+      },
+    ],
+    { initialEntries },
+  );
   await act(async () => {
-    root!.render(
-      createElement(
-        MemoryRouter,
-        { initialEntries },
-        createElement(
-          Fragment,
-          null,
-          createElement(RouteState),
-          createElement(
-            Routes,
-            null,
-            createElement(
-              Route,
-              { element: createElement(Layout) },
-              createElement(Route, { path: '/t/:hash', element: createElement(TooltipPage) }),
-            ),
-          ),
-        ),
-      ),
-    );
+    root!.render(createElement(RouterProvider, { router: router! }));
   });
 }
 
@@ -164,6 +155,8 @@ afterEach(async () => {
     await act(async () => root?.unmount());
     root = undefined;
   }
+  router?.dispose();
+  router = undefined;
   document.querySelectorAll('dialog[open]').forEach((dialog) => dialog.remove());
   host.remove();
   document.body.style.overflow = '';
@@ -247,7 +240,9 @@ describe('mounted Editor navigation interaction ownership', () => {
     await mount();
     await act(async () => {
       useSteppingActivity.setState({ active: true, deferWorkspace: true });
-      publishSteppingTarget('/t/101?lang=de', () => navigate('/t/101?lang=de'));
+      publishSteppingTarget('/t/101?lang=de', () =>
+        navigate('/t/101?lang=de', { replace: true, flushSync: true }),
+      );
     });
     expect(route()).toBe('/t/100?lang=de');
     const editor = host.querySelector<HTMLElement>('.cm-editor')!;
@@ -256,25 +251,39 @@ describe('mounted Editor navigation interaction ownership', () => {
     expect(editor.dataset.documentHash).toBe('101');
   });
 
-  it('lands an accepted wheel target before editor input even before its first frame', async () => {
-    vi.useFakeTimers();
-    try {
-      await mount();
-      const editor = host.querySelector<HTMLElement>('.cm-editor')!;
-      await act(async () => {
-        host.dispatchEvent(
-          new WheelEvent('wheel', { bubbles: true, cancelable: true, shiftKey: true, deltaY: 100 }),
-        );
-        editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }));
-      });
-      expect(route()).toBe('/t/101?lang=de');
-      expect(editor.dataset.documentHash).toBe('101');
-      await act(async () => vi.advanceTimersByTimeAsync(25));
-      expect(useSteppingActivity.getState().active).toBe(false);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+  it.each(['keydown', 'copy', 'contextmenu'])(
+    'lands an accepted wheel target before %s even before its first frame',
+    async (type) => {
+      vi.useFakeTimers();
+      try {
+        await mount();
+        const editor = host.querySelector<HTMLElement>('.cm-editor')!;
+        await act(async () => {
+          host.dispatchEvent(
+            new WheelEvent('wheel', {
+              bubbles: true,
+              cancelable: true,
+              shiftKey: true,
+              deltaY: 100,
+            }),
+          );
+          editor.dispatchEvent(
+            type === 'keydown'
+              ? new KeyboardEvent(type, { key: 'x', bubbles: true })
+              : new Event(type, { bubbles: true }),
+          );
+          expect(route()).toBe('/t/101?lang=de');
+          expect(editor.dataset.documentHash).toBe('101');
+        });
+        expect(route()).toBe('/t/101?lang=de');
+        expect(editor.dataset.documentHash).toBe('101');
+        await act(async () => vi.advanceTimersByTimeAsync(25));
+        expect(useSteppingActivity.getState().active).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
   it('catches up before editing a retained document, so the new item owns the input', async () => {
     await mount();
     const edit = vi.fn();
@@ -376,7 +385,7 @@ describe('mounted Editor navigation interaction ownership', () => {
     },
   );
 
-  it('does not land a queued wheel step behind a newly opened sheet', async () => {
+  it('lands a queued wheel step before a click opens a sheet', async () => {
     await mount();
     await act(async () => {
       host.dispatchEvent(
@@ -386,8 +395,8 @@ describe('mounted Editor navigation interaction ownership', () => {
     });
     await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
     expect(overlay()).not.toBeNull();
-    expect(route()).toBe('/t/100?lang=de');
-    expect(selectedItem()).toBe('Sample 100');
+    expect(route()).toBe('/t/101?lang=de');
+    expect(selectedItem()).toBe('Sample 101');
   });
   it('restores the settled preview into the same shell slot after stepping', async () => {
     await mount();

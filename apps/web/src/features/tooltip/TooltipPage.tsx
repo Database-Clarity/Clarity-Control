@@ -65,7 +65,11 @@ import {
   storedFormVariants,
 } from './variants';
 import styles from './TooltipPage.module.scss';
-import { settleStepping, useSteppingActivity } from '../navigation/steppingActivity';
+import {
+  recordSteppingWorkspaceWork,
+  settleStepping,
+  useSteppingActivity,
+} from '../navigation/steppingActivity';
 import { LivePreviewIdentity } from '../preview/LivePreviewIdentity';
 
 interface WorkspaceRoute {
@@ -153,7 +157,11 @@ export function TooltipPage({
     <LivePreviewIdentity.Provider value={identity}>
       <article
         className={styles.page}
-        aria-busy={route !== current || undefined}
+        aria-busy={
+          route !== current ||
+          (targetHash !== undefined && targetHash !== Number(route.parameter)) ||
+          undefined
+        }
         onFocusCapture={active || urgentTarget ? (event) => catchUp(event.target) : undefined}
         onPointerDownCapture={active || urgentTarget ? (event) => catchUp(event.target) : undefined}
         onKeyDownCapture={active || urgentTarget ? (event) => catchUp(event.target) : undefined}
@@ -184,6 +192,13 @@ function TooltipWorkspace({
   route: WorkspaceRoute;
   suspended: boolean;
 }) {
+  const renderStarted = performance.now();
+  const committedRoute = useRef(route);
+  useLayoutEffect(() => {
+    if (committedRoute.current !== route)
+      recordSteppingWorkspaceWork(performance.now() - renderStarted);
+    committedRoute.current = route;
+  });
   const compendiumSource = useCompendiumStore((state) => state.data);
   const { parameter, search, setSearch, navigate } = route;
   const data = useDataStore((state) => state.data);

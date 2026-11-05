@@ -369,11 +369,11 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     createStepping(
       (target, options) => {
         if (!options.flushSync) return navigateRef.current(target, options);
-        flushSync(() => publishSteppingTarget(target, landNewest));
-        // React may discard older route renders while identity and the browser
-        // URL keep landing on the newest frame target. History still replaces
-        // each intermediate entry and pushes exactly once at gesture commit.
-        navigateRef.current(target, { replace: true });
+        flushSync(() => publishSteppingTarget(target, landNewest, resumeNewest));
+        // Identity lands now; route work waits when the document is deferred.
+        // A free frame resumes only the newest target. History replaces the
+        // intermediate entry and pushes exactly once at gesture commit.
+        if (!useSteppingActivity.getState().deferWorkspace) resumeNewest();
       },
       steppingGuard,
       typeof requestAnimationFrame === 'function'
@@ -409,6 +409,11 @@ export const TooltipNavigation = memo(function TooltipNavigation({
         navigateRef.current(target, options);
     });
   }, [stepping]);
+  const resumeNewest = useCallback(() => {
+    const target = stepping.target;
+    if (target && `${current.current.pathname}${current.current.search}` !== target)
+      navigateRef.current(target, { replace: true });
+  }, [stepping]);
   const [wheelStepper] = useState(createWheelStepper);
   const step = useRef<(direction: number) => boolean>(() => false);
   const canStep = useRef<(direction: number) => boolean>(() => false);
@@ -428,7 +433,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     }
     // Refused before anything moves: the selection, the pending history entry and the timer stay.
     if (!stepping.step(target.from, target.to.path)) return false;
-    pulseStepping(landNewest);
+    pulseStepping(landNewest, resumeNewest);
     return true;
   };
   canStep.current = (direction) => Boolean(stepTarget(stepLocation(), direction, hashes, indexes));
