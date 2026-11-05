@@ -1,18 +1,120 @@
-import { expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { guidedFixture } from '../../../test/guided-fixture';
 import { displayMatches } from './displayMatches';
 import { emptyProgress } from './reviewProgress';
 import {
   preparedCategories,
   preparedEvidence,
+  preparedProposals,
   reviewEntryProjection,
   reviewedEntries,
   reviewScopeHashes,
+  warmPreparedProposals,
 } from './reviewViewCache';
 import { recordDecision } from './rapidReview';
 import { bulkPreviewCurrent, createBulkPreview } from './BulkPreview';
 import { compactDisplay } from './compactMatches';
 import type { Drafts } from '../../services/draftStorage';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+function idleProposalFixture() {
+  const { editor, source, proposals: core, scope, document } = guidedFixture();
+  const prepared = displayMatches(
+    editor,
+    source,
+    {},
+    emptyProgress(),
+    undefined,
+    scope,
+    core,
+    document,
+  );
+  const extra = core.values().next().value!;
+  for (let index = 0; index < 512; index++) core.set(500_000 + index, extra);
+  const callbacks = new Map<number, IdleRequestCallback>();
+  let id = 0;
+  let pending = false;
+  vi.stubGlobal('requestIdleCallback', (callback: IdleRequestCallback) => {
+    callbacks.set(++id, callback);
+    return id;
+  });
+  vi.stubGlobal('cancelIdleCallback', (key: number) => callbacks.delete(key));
+  vi.stubGlobal('navigator', { scheduling: { isInputPending: () => pending } });
+  const tick = (timeRemaining = 50) => {
+    const next = callbacks.entries().next().value;
+    if (!next) throw new Error('Expected queued proposal warm-up');
+    callbacks.delete(next[0]);
+    next[1]({ didTimeout: false, timeRemaining: () => timeRemaining });
+  };
+  return {
+    prepared,
+    core,
+    callbacks,
+    tick,
+    pending: (value: boolean) => {
+      pending = value;
+    },
+  };
+}
+
+it('yields proposal warm-up to input and low idle budgets, then publishes the complete projection', () => {
+  const { prepared, core, callbacks, tick, pending } = idleProposalFixture();
+  const expected = preparedProposals({ ...prepared }, core);
+  const original = core[Symbol.iterator].bind(core);
+  let visited = 0;
+  vi.spyOn(core, Symbol.iterator).mockImplementation(function* () {
+    for (const entry of original()) {
+      visited++;
+      yield entry;
+    }
+    return undefined;
+  });
+  const cancel = warmPreparedProposals(prepared, core);
+  expect(visited).toBe(0);
+  pending(true);
+  tick();
+  expect(visited).toBe(0);
+  pending(false);
+  tick(0);
+  expect(visited).toBe(0);
+  tick();
+  expect(visited).toBeGreaterThan(0);
+  expect(visited).toBeLessThan(core.size);
+  const beforeInput = visited;
+  pending(true);
+  tick();
+  expect(visited).toBe(beforeInput);
+  pending(false);
+  for (let count = 0; callbacks.size && count < 1000; count++) tick();
+  expect(callbacks.size).toBe(0);
+  const complete = preparedProposals(prepared, core);
+  expect(complete).toEqual(expected);
+  expect(preparedProposals(prepared, core)).toBe(complete);
+  cancel();
+});
+
+it('cancels partial proposal warm-up without exposing partial matches or replacing a foreground result', () => {
+  const { prepared, core, callbacks, tick } = idleProposalFixture();
+  const cancel = warmPreparedProposals(prepared, core);
+  tick();
+  cancel();
+  expect(callbacks.size).toBe(0);
+  const foreground = preparedProposals(prepared, core);
+  expect(foreground.size).toBeGreaterThanOrEqual(core.size);
+  for (const [hash, match] of prepared.matches) expect(foreground.get(hash)?.match).toBe(match);
+
+  const other = { ...prepared };
+  warmPreparedProposals(other, core);
+  tick();
+  const openedDuringWarmup = preparedProposals(other, core);
+  tick();
+  expect(callbacks.size).toBe(0);
+  expect(preparedProposals(other, core)).toBe(openedDuringWarmup);
+});
 
 it('keeps bulk acceptance current after a worker clone and preserves real draft text', () => {
   const { editor, source, proposals, scope, document, categories } = guidedFixture();
