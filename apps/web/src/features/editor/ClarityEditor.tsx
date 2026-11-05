@@ -164,6 +164,7 @@ export function ClarityEditor({
   const wasSuspended = useRef(false);
   const restoreFocus = useRef(false);
   const wasStepping = useRef(false);
+  const scrolled = useRef(false);
   if (suspended && !wasSuspended.current) restoreFocus.current = view.current?.hasFocus ?? false;
   wasSuspended.current = suspended;
   /** Fixed for the editor's lifetime: a stored form never joins the tab's find memory. */
@@ -286,7 +287,6 @@ export function ClarityEditor({
         editor.contentDOM.contains(selection.anchorNode)
       )
         selection.removeAllRanges();
-      if (editor.scrollDOM.scrollTop) editor.scrollDOM.scrollTop = 0;
     }
   }, [stepping]);
   useLayoutEffect(() => {
@@ -343,6 +343,11 @@ export function ClarityEditor({
       highlightActiveLine(),
       drawSelection(),
       EditorView.lineWrapping,
+      EditorView.domEventHandlers({
+        scroll(_event, editor) {
+          scrolled.current = editor.scrollDOM.scrollTop !== 0;
+        },
+      }),
       editorScrollMargins(),
       conflictExtensions(),
       initialConflicts,
@@ -452,7 +457,7 @@ export function ClarityEditor({
         endingStep &&
         (editor.state.selection.main.anchor !== 0 ||
           editor.state.selection.main.head !== 0 ||
-          editor.scrollDOM.scrollTop !== 0)
+          scrolled.current)
       )
         editor.dispatch({
           selection: { anchor: 0 },
@@ -506,7 +511,9 @@ export function ClarityEditor({
             ]
           : []),
         ...(switched ? [toggleRaw.of(false)] : []),
-        ...(!stepping ? [EditorView.scrollIntoView(0, { y: 'start' })] : []),
+        // Reading scrollTop during the React commit forces layout of the new
+        // document. Let CodeMirror reset a scrolled view in its measure phase.
+        ...(!stepping || scrolled.current ? [EditorView.scrollIntoView(0, { y: 'start' })] : []),
       ],
       annotations: [documentLoad.of(true), Transaction.addToHistory.of(false)],
     });
