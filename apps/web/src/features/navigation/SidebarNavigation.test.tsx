@@ -1,13 +1,21 @@
 // @vitest-environment jsdom
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import {
+  createMemoryRouter,
+  MemoryRouter,
+  Route,
+  RouterProvider,
+  Routes,
+  useLocation,
+} from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Layout } from './Layout';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { useSidebarQueueStore } from './sidebarQueue';
+import { CompendiumSidebarNavigation } from './SidebarNavigation';
 
 vi.mock('../../services/save/SavePanel', () => ({
   SavePanel: () => null,
@@ -131,6 +139,53 @@ afterEach(async () => {
 });
 
 describe('context-aware navigation', () => {
+  it('commits a Compendium link immediately, while retaining modified clicks and history', async () => {
+    const start = '/compendium/review';
+    const target = '/compendium/review?view=entries&group=catalog%3Aweapons';
+    const router = createMemoryRouter(
+      [
+        {
+          path: '*',
+          element: createElement(
+            'div',
+            null,
+            createElement(CompendiumSidebarNavigation),
+            createElement(RouteContent),
+          ),
+        },
+      ],
+      { initialEntries: [start] },
+    );
+    await act(async () => root.render(createElement(RouterProvider, { router })));
+    const link = host.querySelector<HTMLAnchorElement>(`a[href="${target}"]`)!;
+    expect(link).not.toBeNull();
+    // Suppress jsdom's native navigation after checking that React leaves the
+    // modified click to the browser, with the original native href intact.
+    let intercepted: boolean | undefined;
+    host.addEventListener(
+      'click',
+      (event) => {
+        intercepted = event.defaultPrevented;
+        event.preventDefault();
+      },
+      { once: true },
+    );
+    await act(async () => {
+      link.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }),
+      );
+    });
+    expect(intercepted).toBe(false);
+    expect(location()).toBe(start);
+    await act(async () => {
+      link.click();
+      expect(location()).toBe(target);
+    });
+    await click(link);
+    await act(async () => router.navigate(-1));
+    expect(location()).toBe(start);
+  });
+
   it('switches the context body by workspace without showing Editor controls elsewhere', async () => {
     await mount('/t/10');
     expect(host.querySelector('[aria-label="Tooltip navigation"]')).not.toBeNull();

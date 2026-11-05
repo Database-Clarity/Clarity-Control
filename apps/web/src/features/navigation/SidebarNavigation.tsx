@@ -1,4 +1,5 @@
-import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import type { MouseEvent } from 'react';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useSidebarQueueStore } from './sidebarQueue';
 import styles from './Layout.module.scss';
 import compendiumStyles from './CompendiumSidebarNavigation.module.scss';
@@ -7,6 +8,24 @@ export function CompendiumSidebarNavigation() {
   const categories = useSidebarQueueStore((state) => state.compendiumCategories);
   const [params] = useSearchParams();
   const group = params.get('group');
+  const location = useLocation();
+  const navigate = useNavigate();
+  function openEntry(event: MouseEvent<HTMLAnchorElement>, target: string) {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.shiftKey
+    )
+      return;
+    event.preventDefault();
+    void navigate(target, {
+      flushSync: true,
+      replace: target === `${location.pathname}${location.search}${location.hash}`,
+    });
+  }
   return (
     <nav
       aria-label="Compendium category queue"
@@ -17,24 +36,29 @@ export function CompendiumSidebarNavigation() {
         <p>Open Review matches to load the category queue.</p>
       ) : categories.length ? (
         <ul className={compendiumStyles.list}>
-          {categories.map((category) => (
-            <li key={category.id} className={compendiumStyles.row}>
-              <Link
-                to={
-                  category.entryTarget ??
-                  `/compendium/review?view=entries&group=${encodeURIComponent(category.id)}`
-                }
-                aria-current={group === category.id ? 'page' : undefined}
-              >
-                {category.name}
-              </Link>
-            </li>
-          ))}
+          {categories.map((category) => {
+            const target =
+              category.entryTarget ??
+              `/compendium/review?view=entries&group=${encodeURIComponent(category.id)}`;
+            return (
+              <li key={category.id} className={compendiumStyles.row}>
+                <Link
+                  to={target}
+                  onClick={(event) => openEntry(event, target)}
+                  aria-current={group === category.id ? 'page' : undefined}
+                >
+                  {category.name}
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       ) : (
         <p>No categories are waiting for review.</p>
       )}
-      <Link to="/compendium/review">Review matches</Link>
+      <Link to="/compendium/review" onClick={(event) => openEntry(event, '/compendium/review')}>
+        Review matches
+      </Link>
     </nav>
   );
 }

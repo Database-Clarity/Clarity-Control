@@ -2,8 +2,8 @@ import { confirmCompendiumSelection } from './selection';
 import { guidedDecisions, guidedRevision, type GuidedDecision } from './guidedDecisions';
 import { importContext } from './importContext';
 import { researchSuggestions } from './researchSuggestions';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import type { CompendiumData, Tooltip } from '@clarity/core';
 import { groupManifestItems } from './manifestItems';
 import { apiUrl } from '../../services/api';
@@ -74,6 +74,23 @@ type Undo = {
 export function MatchReviewPage() {
   const [params] = useSearchParams();
   const location = useLocation();
+  const navigate = useNavigate();
+  function openView(event: MouseEvent<HTMLAnchorElement>, target: string) {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.shiftKey
+    )
+      return;
+    event.preventDefault();
+    void navigate(target, {
+      flushSync: true,
+      replace: target === `${location.pathname}${location.search}${location.hash}`,
+    });
+  }
   const editor = useDataStore((state) => state.data);
   const { data, load, loading, error } = useCompendiumStore();
   const { user, loading: authLoading } = useAuthStore();
@@ -132,7 +149,11 @@ export function MatchReviewPage() {
     >
       <header className={styles.heading}>
         <div>
-          {location.pathname !== '/compendium' && <Link to="/compendium">← Compendium</Link>}
+          {location.pathname !== '/compendium' && (
+            <Link to="/compendium" onClick={(event) => openView(event, '/compendium')}>
+              ← Compendium
+            </Link>
+          )}
           <h1>
             {matchedTab
               ? 'Matched sources'
@@ -170,13 +191,25 @@ export function MatchReviewPage() {
         )}
       </header>
       <nav className={styles.tabs} aria-label="Compendium views">
-        <Link to={matchedTarget} aria-current={matchedTab ? 'page' : undefined}>
+        <Link
+          to={matchedTarget}
+          onClick={(event) => openView(event, matchedTarget)}
+          aria-current={matchedTab ? 'page' : undefined}
+        >
           Matched sources
         </Link>
-        <Link to={reviewTarget} aria-current={!linkedTab && !matchedTab ? 'page' : undefined}>
+        <Link
+          to={reviewTarget}
+          onClick={(event) => openView(event, reviewTarget)}
+          aria-current={!linkedTab && !matchedTab ? 'page' : undefined}
+        >
           Review matches
         </Link>
-        <Link to={linkedTarget} aria-current={linkedTab ? 'page' : undefined}>
+        <Link
+          to={linkedTarget}
+          onClick={(event) => openView(event, linkedTarget)}
+          aria-current={linkedTab ? 'page' : undefined}
+        >
           Linked sources changed
         </Link>
       </nav>
@@ -507,9 +540,11 @@ export function ReviewQueue({
   }
   function choose(hash?: number) {
     update((state) => ({ ...state, selected: hash }));
-    setParams(selectionParams(hash));
     setCandidate(0);
     setPicker(false);
+    // Commit the route and the local selection together. A transition otherwise
+    // first renders the old route with the new progress, then renders it again.
+    setParams(selectionParams(hash), { flushSync: true });
   }
   function snapshot(links: Undo['links'] = []) {
     setUndo({
@@ -718,7 +753,7 @@ export function ReviewQueue({
     if (value) next.set(key, value);
     else next.delete(key);
     categoryRouteParams.current = next;
-    setParams(next, { replace: true });
+    setParams(next, { replace: true, flushSync: true });
   }
   const categoryRouteState: CategoryReviewRouteState = {
     query: params.get('guideSearch') ?? '',
@@ -757,7 +792,7 @@ export function ReviewQueue({
                 (proposalFilter === 'yes') === !!proposals.get(entry.hash)?.link),
           )
         : undefined;
-    setParams(selectionParams(hash ?? first?.hash, state, next));
+    setParams(selectionParams(hash ?? first?.hash, state, next), { flushSync: true });
   }
   if (categoryView)
     return (
@@ -795,7 +830,7 @@ export function ReviewQueue({
             const next = new URLSearchParams(params);
             for (const key of ['view', 'group', 'hash', 'query', 'category', 'status', 'proposal'])
               next.delete(key);
-            setParams(next);
+            setParams(next, { flushSync: true });
           }}
         >
           Back to category guidance

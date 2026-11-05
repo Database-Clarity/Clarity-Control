@@ -1,7 +1,15 @@
 // @vitest-environment jsdom
-import { act, createElement, Fragment } from 'react';
+import { act, createElement, Fragment, Profiler } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import {
+  createMemoryRouter,
+  MemoryRouter,
+  Route,
+  RouterProvider,
+  Routes,
+  useLocation,
+  useNavigate,
+} from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { guidedFixture } from '../../../test/guided-fixture';
 import { ReviewQueue } from './MatchReviewPage';
@@ -253,6 +261,48 @@ afterEach(async () => {
 });
 
 describe('reviewed URL/decision reproductions', () => {
+  it('commits Next with its routed selection, without an intermediate old-entry render', async () => {
+    const commits: (string | null | undefined)[] = [];
+    const router = createMemoryRouter(
+      [
+        {
+          path: '*',
+          element: createElement(
+            Fragment,
+            null,
+            createElement(RouteState),
+            createElement(
+              Profiler,
+              { id: 'queue', onRender: () => commits.push(selected()) },
+              createElement(ReviewQueue, {
+                editor: fixture.editor,
+                source: fixture.source,
+                storageKey,
+              }),
+            ),
+          ),
+        },
+      ],
+      {
+        initialEntries: [
+          '/compendium/review?view=entries&query=&category=&status=all&proposal=all&hash=100',
+        ],
+      },
+    );
+    await act(async () => root.render(createElement(RouterProvider, { router })));
+    expect(selected()).toBe('Sample 100');
+    commits.length = 0;
+    await act(async () => {
+      button('Next').click();
+      expect(selected()).toBe('Sample 101');
+      expect(route().searchParams.get('hash')).toBe('101');
+    });
+    expect(commits.length).toBeGreaterThan(0);
+    expect(commits.every((name) => name === 'Sample 101')).toBe(true);
+    await act(async () => router.navigate(-1));
+    expect(selected()).toBe('Sample 100');
+  });
+
   it('states local consequences inside the individual decision bar', async () => {
     await mount();
     const bar = host.querySelector<HTMLElement>('footer[aria-label="Review actions"]')!;
