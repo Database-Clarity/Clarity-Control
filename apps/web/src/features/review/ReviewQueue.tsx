@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useHref, useLocation, useNavigate } from 'react-router-dom';
 import type { SidebarPendingChange } from '../navigation/sidebarQueue';
@@ -37,6 +37,7 @@ export function ReviewQueue({
   changes: SidebarPendingChange[];
   selectedHash: string | null;
 }) {
+  const placeholderPattern = useId();
   const host = useRef<HTMLDivElement>(null);
   const sizer = useRef<HTMLSpanElement>(null);
   const [rowHeight, setRowHeight] = useState(defaultRowHeight);
@@ -326,18 +327,20 @@ export function ReviewQueue({
           aria-hidden="true"
           style={{ top: start * rowHeight, height: (end - start) * rowHeight }}
         >
-          {indices
-            .filter((index) => index >= start && index < end)
-            .map((index) => (
-              <div
-                key={index}
-                className={styles.openingRow}
-                style={{ top: (index - start) * rowHeight, height: rowHeight }}
+          <svg width="100%" height="100%" focusable="false">
+            <defs>
+              <pattern
+                id={placeholderPattern}
+                width="100%"
+                height={rowHeight}
+                patternUnits="userSpaceOnUse"
               >
-                <span />
-                <span />
-              </div>
-            ))}
+                <rect y="1.1rem" width="80%" height="0.7rem" rx="0.15rem" />
+                <rect y="2.2rem" width="42%" height="0.55rem" rx="0.15rem" />
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill={`url(#${placeholderPattern})`} />
+          </svg>
         </div>
       )}
       <ul

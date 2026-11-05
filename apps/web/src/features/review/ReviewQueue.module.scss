@@ -21,27 +21,11 @@
   contain: strict;
   pointer-events: none;
   animation: opening-pulse 0.9s ease-in-out infinite alternate;
-}
 
-.openingRow {
-  position: absolute;
-  inset-inline: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 0.4rem;
-
-  span {
-    height: 0.7rem;
-    width: 80%;
-    border-radius: 0.15rem;
-    background: var(--text2);
+  svg {
+    display: block;
+    fill: var(--text2);
     opacity: 0.25;
-  }
-
-  span + span {
-    width: 42%;
-    height: 0.55rem;
   }
 }
 
