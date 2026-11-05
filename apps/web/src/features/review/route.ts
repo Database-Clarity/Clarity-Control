@@ -2,7 +2,7 @@ import { redirect, type LoaderFunctionArgs } from 'react-router-dom';
 import { useDataStore } from '../../stores/data';
 import { preparedPending, type PendingTooltip } from './model';
 import { acknowledgedMarkers } from './session';
-import { stageReviewRedirectLiveRequest, startReviewLiveRequest } from './liveRequest';
+import { startReviewLiveRequest } from './liveRequest';
 import { useAuthStore } from '../../stores/auth';
 import { apiUrl } from '../../services/api';
 
@@ -29,19 +29,21 @@ export function initialReviewParams(
 }
 
 /** Normalize prepared selection, then start the selected live comparison on open. */
-export function reviewRoute({ request }: LoaderFunctionArgs) {
+export async function reviewRoute({ request }: LoaderFunctionArgs) {
   const data = useDataStore.getState().data;
   if (!data) return null;
   const entries = preparedPending(data, acknowledgedMarkers(data));
   if (!entries) return null;
   const params = new URL(request.url).searchParams;
   const next = initialReviewParams(params, entries);
-  const hash = next.get('hash');
-  const compare = hash && apiUrl && useAuthStore.getState().user?.role && !request.signal.aborted;
-  if (next.toString() !== params.toString()) {
-    if (compare) stageReviewRedirectLiveRequest(Number(hash));
+  if (next.toString() !== params.toString())
     return redirect(`/review${next.size ? `?${next}` : ''}`);
+  const hash = next.get('hash');
+  if (hash && apiUrl && useAuthStore.getState().user?.role) {
+    // Mount the selected comparison with its validated live value in the first
+    // render, rather than painting a loading detail and replacing it next frame.
+    // The detail consumes this same promise and presents failures with Retry.
+    await startReviewLiveRequest(Number(hash), request.signal).catch(() => {});
   }
-  if (compare) startReviewLiveRequest(Number(hash), request.signal);
   return null;
 }
