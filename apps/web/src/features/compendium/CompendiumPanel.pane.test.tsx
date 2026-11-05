@@ -146,12 +146,10 @@ describe('Compendium pane', () => {
       expect(updateDraft).not.toHaveBeenCalled();
       const pending = [...frames.values()][0];
       frames.clear();
-      // The first callback has fired, but a newer switch reaches React before
-      // it commits. Cancellation alone cannot remove that queued state update.
-      await act(async () => {
-        pending(0);
-        root.render(createElement(CompendiumPanel, { base: latest }));
-      });
+      await act(async () => root.render(createElement(CompendiumPanel, { base: latest })));
+      // Even a callback already dispatched by the browser must reject its
+      // superseded target, without clearing the newer frame's cancellation.
+      await act(async () => pending(0));
       expect(host.textContent).toContain('Old text');
       expect(host.textContent).not.toContain('Intermediate snapshot');
       expect((button(host, 'Unlink (local draft)') as HTMLButtonElement).disabled).toBe(true);

@@ -1,4 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { resolveCompendiumLink, snapshotCompendium, sameCell, type Tooltip } from '@clarity/core';
 import { approvalEvidence } from './approvalEvidence';
 import { useAuthStore } from '../../stores/auth';
@@ -95,16 +96,36 @@ function ScaleControl() {
 function usePaneFrame(base: Tooltip) {
   const [ready, setReady] = useState(base);
   const committed = useRef(base);
+  const frame = useRef<number>();
   // A frame callback can fire just before a newer navigation render. Its queued
   // update must not make that superseded tooltip visible, even for one commit.
   const displayed = ready === base ? base : committed.current;
   useLayoutEffect(() => {
     committed.current = displayed;
   }, [displayed]);
-  useLayoutEffect(() => {
+  // Cancel at commit time, before a superseded callback can run. Schedule in
+  // the passive phase below, after the editor has registered its frame reads.
+  useLayoutEffect(
+    () => () => {
+      if (frame.current !== undefined) cancelAnimationFrame(frame.current);
+      frame.current = undefined;
+    },
+    [base],
+  );
+  useEffect(() => {
     if (displayed === base) return;
-    const frame = requestAnimationFrame(() => setReady(base));
-    return () => cancelAnimationFrame(frame);
+    const scheduled = requestAnimationFrame(() => {
+      if (frame.current !== scheduled) return;
+      frame.current = undefined;
+      // Commit in this paint opportunity rather than handing React another
+      // frame after the editor and preview have already finished.
+      flushSync(() => setReady(base));
+    });
+    frame.current = scheduled;
+    return () => {
+      cancelAnimationFrame(scheduled);
+      if (frame.current === scheduled) frame.current = undefined;
+    };
   }, [base, displayed]);
   return displayed;
 }
