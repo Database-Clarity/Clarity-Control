@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, createElement } from 'react';
+import { act, createElement, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Routes, Route, createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -13,7 +13,7 @@ import { loadGenerator } from '../../services/generator';
 import { loadBundle, type Bundle } from '../../services/bundle';
 import { useReviewSession } from './session';
 import { pendingTooltips } from './model';
-import { reviewRoute, shouldRevalidateReview } from './route';
+import { reviewRoute } from './route';
 
 vi.mock('../../services/generator', () => ({ loadGenerator: vi.fn() }));
 vi.mock('../../services/bundle', () => ({ loadBundle: vi.fn() }));
@@ -202,14 +202,20 @@ afterEach(async () => {
 it('canonicalizes a plain data-router open with one live request and preserves Back and fresh revisits', async () => {
   await useDataStore.getState().load();
   await pendingTooltips(useDataStore.getState().data!);
+  const mountedSearches: string[] = [];
+  function ObservedReview() {
+    useEffect(() => {
+      mountedSearches.push(router.state.location.search);
+    }, []);
+    return <ReviewPage />;
+  }
   const router = createMemoryRouter(
     [
       { path: '/other', element: <p>Other workspace</p> },
       {
         path: '/review',
-        element: <ReviewPage />,
+        element: <ObservedReview />,
         loader: reviewRoute,
-        shouldRevalidate: shouldRevalidateReview,
       },
     ],
     { initialEntries: ['/other'] },
@@ -224,7 +230,8 @@ it('canonicalizes a plain data-router open with one live request and preserves B
       expect(router.state.location.search).toBe('?hash=10');
       expect(router.state.navigation.state).toBe('idle');
     });
-    expect(router.state.historyAction).toBe('REPLACE');
+    expect(router.state.historyAction).toBe('PUSH');
+    expect(mountedSearches).toEqual(['?hash=10']);
     expect(liveRequests()).toHaveLength(1);
     expect(host.textContent).not.toContain('Loading last pushed text...');
     await act(async () => router.navigate(-1));
@@ -233,6 +240,7 @@ it('canonicalizes a plain data-router open with one live request and preserves B
     await waitForReview();
     await waitFor(() => expect(router.state.location.search).toBe('?hash=10'));
     expect(liveRequests()).toHaveLength(2);
+    expect(mountedSearches).toEqual(['?hash=10', '?hash=10']);
   } finally {
     router.dispose();
   }
@@ -248,7 +256,6 @@ it('keeps current filters when a retained row opens after the URL changes', asyn
         path: '/review',
         element: <ReviewPage />,
         loader: reviewRoute,
-        shouldRevalidate: shouldRevalidateReview,
       },
     ],
     { initialEntries: ['/review?hash=10'] },

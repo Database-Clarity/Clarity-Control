@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { LoaderFunctionArgs, ShouldRevalidateFunctionArgs } from 'react-router-dom';
-import { initialReviewParams, reviewRoute, shouldRevalidateReview } from './route';
+import type { LoaderFunctionArgs } from 'react-router-dom';
+import { initialReviewParams, reviewRoute } from './route';
 import { preparedPending, type PendingTooltip } from './model';
 import { getPushedVersion } from '../../services/history';
 import { useAuthStore } from '../../stores/auth';
@@ -64,21 +64,14 @@ function open(signal?: AbortSignal, search = '?hash=1') {
   } as LoaderFunctionArgs);
 }
 
-function canonicalize(overrides: Partial<ShouldRevalidateFunctionArgs> = {}) {
-  return shouldRevalidateReview({
-    currentUrl: new URL('https://app.invalid/app/review'),
-    nextUrl: new URL('https://app.invalid/app/review?hash=1'),
-    defaultShouldRevalidate: true,
-    ...overrides,
-  } as ShouldRevalidateFunctionArgs);
-}
-
-it('loads the implicit default once and skips only its one matching URL replacement', async () => {
-  await expect(open(undefined, '')).resolves.toBeNull();
+it('canonicalizes the default selection before requesting or mounting its detail', async () => {
+  const result = await open(undefined, '');
+  expect(result).toBeInstanceOf(Response);
+  expect((result as Response).headers.get('Location')).toBe('/review?hash=1');
+  expect(getPushedVersion).not.toHaveBeenCalled();
+  await expect(open()).resolves.toBeNull();
   expect(getPushedVersion).toHaveBeenCalledTimes(1);
   expect(preparedReviewLiveValue(1)).toEqual({ tooltip: null, pushedHash: null });
-  expect(canonicalize()).toBe(false);
-  expect(canonicalize()).toBe(true);
 });
 
 it('keeps filtered or invalid selections on the canonical redirect path', async () => {
@@ -99,23 +92,24 @@ it('keeps the canonical redirect for a trailing-slash URL', async () => {
   expect(getPushedVersion).not.toHaveBeenCalled();
 });
 
-it.each(['account', 'snapshot', 'canceled', 'other hash', 'filter', 'submission'])(
-  'does not skip a fresh comparison after %s changes',
+it.each(['account', 'snapshot', 'canceled', 'other hash', 'filter', 'revisit'])(
+  'requests a fresh comparison after %s changes',
   async (change) => {
     const controller = new AbortController();
-    await open(controller.signal, '');
-    const overrides: Partial<ShouldRevalidateFunctionArgs> = {};
+    await open(controller.signal);
     if (change === 'account')
       useAuthStore.setState({ user: { id: 2, login: 'other', role: 'editor' } });
     if (change === 'snapshot')
       useDataStore.setState({ data: { ...useDataStore.getState().data! } });
     if (change === 'canceled') controller.abort();
-    if (change === 'other hash')
-      overrides.nextUrl = new URL('https://app.invalid/app/review?hash=2');
-    if (change === 'filter')
-      overrides.nextUrl = new URL('https://app.invalid/app/review?hash=1&query=A');
-    if (change === 'submission') overrides.formMethod = 'GET';
-    expect(canonicalize(overrides)).toBe(true);
+    const search =
+      change === 'other hash' ? '?hash=2' : change === 'filter' ? '?hash=1&query=A' : '?hash=1';
+    await expect(open(undefined, search)).resolves.toBeNull();
+    expect(getPushedVersion).toHaveBeenCalledTimes(2);
+    expect(getPushedVersion).toHaveBeenLastCalledWith(
+      change === 'other hash' ? 2 : 1,
+      expect.any(AbortSignal),
+    );
   },
 );
 
