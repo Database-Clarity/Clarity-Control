@@ -9,6 +9,7 @@
 
 :root {
   scrollbar-gutter: stable;
+  overscroll-behavior-x: none;
   font-family: Arial, Helvetica, DestinySymbols, sans-serif;
   color: var(--text);
   background: var(--page);

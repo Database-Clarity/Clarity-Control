@@ -44,6 +44,7 @@ This is the central reference for matching, scope, category placement and withhe
 | <!-- ruleId: separated-fuzzy-name --> `separated-fuzzy-name` | Similarity >=0.65, margin >=0.08, learned tabs and stable cells; medium confirmation only. | Existing guided separated candidate / close runner-up tests. Similarity or a parent mention never makes this high-confidence approval. |
 | <!-- ruleId: separated-typo-name --> `separated-typo-name` | Full normalized name >=8 chars, edit distance <=2 and runner-up distance gap >=2; medium confirmation. | Precise Jolts/Precise Jolt fixture; short strings and close competing candidates reject. |
 | <!-- ruleId: uncovered-element-tab --> `uncovered-element-tab` | A unique exact subclass/verb name outside a demonstrated tab is medium, requiring tab-convention confirmation. | Existing cross-element guidance tests; several elemental hits/Prismatic variants remain ambiguous. |
+| <!-- ruleId: exact-name-in-sibling-element-tab --> `exact-name-in-sibling-element-tab` | Owner, 2026-11-05, ask dialog at 11:5x: “Approve the rule (Rec.)”. A category's exact-unique-name convention learned from usable positive whole-row references on at least three distinct configured sibling element tabs extends to its remaining configured element tabs; Prismatic counts. Preserve frozen membership, approved fragment-prefix normalization, exact uniqueness, stable source selection, baseline/source-evidence gates, and owner negatives. Renames, selected-cell/multipart samples, and non-element tabs do not teach this convention. | `siblingElementTabs.test.ts`: three distinct tabs including Prismatic, fragment normalization, insufficient/repeated/stale samples, owner negatives, frozen membership, ambiguous names, unconfigured tabs, and source drift. |
 | <!-- ruleId: owner-multipart-source --> `owner-multipart-source` | Unverified duplicate/multipart identity is withheld; raw anchors retained, not resolver-generated neighboring headings. | Unsupported third Armorsmith card and additional Adaptive rows; known owned groups use verified evidence, not this fallback. |
 | <!-- ruleId: owner-no-candidate --> `owner-no-candidate` | Default withheld state, missing/stale samples, comments requiring interpretation, incompatible scope/baseline or no supported identity. Reasons explain which gate failed; not a no-equivalent finding. | Existing preservation, baseline, comments and stale-owner tests; empty authored English alone does not remove an entry. |
 | <!-- ruleId: manifest-weapon-stat --> `manifest-weapon-stat` | Original supported stat-only scope, plus seventeen exact owner-approved exotic parent-link exclusions. Physical members of that explicit set appear in Weapon Attachments and can be editor-promoted; cosmetic Default Ornament retains its original category. Do not infer exclusion from a stat word, authored blank or generic parent card. | Existing manifest/scope predicates and seventeen exact exception tests; conditional/effect perks and unapproved hashes reject; editor promotion takes precedence over default attachment scope. |
@@ -83,7 +84,7 @@ Calibration: `relink-calibration.test.ts` evaluates the 2026-10-30 reviewed-sour
 
 ### Shipped display approvals and computed cache (2026-11-04)
 
-`approved-guidance.v1.json` is an immutable copy of the 117 references and frozen category
+`approved-guidance.v1.json` started as an immutable copy of the 117 references and frozen category
 membership from the read-only 2026-11-02 audit input
 `ccov-audit-42488/renewed-guidance.json`. It is an app asset, never editor-data, a saved link,
 or a new approval. `guidanceSchema` validates it; the existing `rebaselineGuidance` validator
@@ -92,9 +93,21 @@ layer over their recorded categories, retaining baseline, membership and unresol
 gates. No owner browser or live guidance store is used to generate the shipped snapshot.
 The pinned original is `C:/Users/Seleo/AppData/Local/Temp/ccov-audit-42488/renewed-guidance.json`
 (SHA-256 `2cbb42830f8fbfcbb2304319f093358f4fafeae47da3cbf3ba599796fecadb86`).
-The committed JSON has identical parsed content; formatting changes its file hash.
+The initial committed JSON had identical parsed content; formatting changes its file hash.
 The audit editor/catalog input is `ccov-sol-high-20261102/inputs.json`; the refreshed audit
 source is `.agents/reports/compendium-baseline/compendium-8602377.json` in the coordination checkout.
+
+Owner approval, 2026-11-05, ask dialog: “Approve all 3 but we gotta figure out why these weren't automatically linked up.”
+This adds the 118th reference through `sampleReference`: Glacial Quake (2021620139), Stasis
+(gid 1088259962), row 77, name B77, body D77:M77, and cooldown N77. Its recorded baseline,
+entry evidence, source fingerprint, and styled snapshot establish the Stasis Supers convention
+without changing frozen category membership. The existing `unique-name-in-learned-tab` rule
+then covers Silence and Squall (2625980631), row 55, and Winter's Wrath (3683904166), row 99.
+Previously, Supers references covered Arc, Solar, Void, and Strand only; all three Stasis
+proposals were `uncovered-element-tab`/medium, which the display gate withholds. Other
+categories' uncovered-tab proposals retained their confidence in that approval. The subsequent
+owner-approved `exact-name-in-sibling-element-tab` rule above independently governs extension
+to sibling element tabs; it does not promote other medium proposals.
 
 Both the pane and Matched sources tab consume the same read-only worker results. Only
 `action=link` with `confidence=high` or the existing explicit out-of-scope parent-link exceptions
