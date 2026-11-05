@@ -45,7 +45,7 @@ export function advanceReviewOpening(token: number) {
   const state = useReviewOpening.getState();
   if (state.token !== token || !state.warming) return true;
   if (state.limit < state.required) {
-    useReviewOpening.setState({ limit: Math.min(state.required, state.limit + 8) });
+    useReviewOpening.setState({ limit: Math.min(state.required, state.limit + 16) });
     return false;
   }
   useReviewOpening.setState({ warming: false });
