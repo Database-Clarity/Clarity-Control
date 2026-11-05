@@ -122,6 +122,117 @@ const diffViews = (host: ParentNode) =>
   host.querySelectorAll('[aria-label="Compendium diff view"]');
 
 describe('Compendium pane', () => {
+  it('retains the mounted pane under an inert loading overlay until stepping stops', async () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    useCompendiumStore.setState({
+      data: { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] },
+    } as never);
+    const host = await mount();
+    const root = roots.at(-1)!;
+    const original = host.innerHTML;
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: linked, stepping: false })),
+    );
+    expect(host.innerHTML).toBe(original);
+    const content = host.querySelector('[data-scale]')!;
+    const prepare = vi.spyOn(diffCache, 'prepareCompendiumDiff').mockReturnValue(undefined);
+    for (const hash of [6, 7]) {
+      await act(async () =>
+        root.render(createElement(CompendiumPanel, { base: { ...linked, hash }, stepping: true })),
+      );
+      expect(host.querySelector('[data-scale]')).toBe(content);
+      expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe('Compendium for 5');
+      expect(host.querySelector('aside')?.getAttribute('aria-busy')).toBe('true');
+      expect(content.hasAttribute('inert')).toBe(true);
+      expect(header(host).hasAttribute('inert')).toBe(true);
+      expect(host.querySelector('[role="status"]')?.textContent).toBe('Loading Compendium…');
+      expect(host.querySelector('[role="status"] span[aria-hidden="true"]')).not.toBeNull();
+      expect(vi.mocked(useDisplayMatches).mock.calls.at(-1)?.[4]).toBe(5);
+      expect(prepare).not.toHaveBeenCalled();
+      expect(frames.size).toBe(0);
+    }
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 7 }, stepping: false })),
+    );
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(frames.size).toBe(1);
+    await act(async () => [...frames.values()][0](0));
+    expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe('Compendium for 7');
+    expect(host.querySelector('aside')?.hasAttribute('aria-busy')).toBe(false);
+    expect(host.querySelector('[data-scale]')?.hasAttribute('inert')).toBe(false);
+    expect(header(host).hasAttribute('inert')).toBe(false);
+    expect(host.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it('cancels a queued handoff when stepping starts and commits only the latest stop', async () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    const host = await mount();
+    const root = roots.at(-1)!;
+    const content = host.querySelector('[data-scale]');
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 6 } })),
+    );
+    expect(frames.size).toBe(1);
+    const superseded = [...frames.values()][0];
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 7 }, stepping: true })),
+    );
+    expect(frames.size).toBe(0);
+    await act(async () => superseded(0));
+    expect(host.querySelector('[data-scale]')).toBe(content);
+    expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe('Compendium for 5');
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 8 }, stepping: false })),
+    );
+    expect(frames.size).toBe(1);
+    await act(async () => [...frames.values()][0](0));
+    expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe('Compendium for 8');
+    expect(host.querySelector('aside')?.hasAttribute('aria-busy')).toBe(false);
+  });
+
+  it('does not retain a transition queued just before stepping begins', async () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    useCompendiumStore.setState({
+      data: { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] },
+    } as never);
+    const host = await mount();
+    const root = roots.at(-1)!;
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 6 } })),
+    );
+    const queued = [...frames.values()][0];
+    frames.clear();
+    await act(async () => {
+      queued(0);
+      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 7 }, stepping: true }));
+    });
+    expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe('Compendium for 5');
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 8 }, stepping: false })),
+    );
+    expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe('Compendium for 5');
+    await act(async () => [...frames.values()][0](0));
+    expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe('Compendium for 8');
+  });
+
   it('waits for an incoming match before scheduling the pane handoff', async () => {
     const frames = new Map<number, FrameRequestCallback>();
     let serial = 0;
