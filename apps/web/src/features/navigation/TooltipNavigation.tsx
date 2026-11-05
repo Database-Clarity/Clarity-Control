@@ -436,7 +436,10 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     pulseStepping(landNewest, resumeNewest);
     return true;
   };
-  canStep.current = (direction) => Boolean(stepTarget(stepLocation(), direction, hashes, indexes));
+  canStep.current = (direction) => {
+    const index = indexes.get(Number(stepLocation().pathname.split('/')[2]));
+    return index !== undefined && hashes[index + direction] !== undefined;
+  };
 
   // The list: the current category by default, every category on request.
   const scoped: CategorySection[] = useMemo(() => {

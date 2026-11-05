@@ -70,7 +70,7 @@ import {
   settleStepping,
   useSteppingActivity,
 } from '../navigation/steppingActivity';
-import { LivePreviewIdentity } from '../preview/LivePreviewIdentity';
+import { LivePreviewIdentity, previewIdentityFor } from '../preview/LivePreviewIdentity';
 
 interface WorkspaceRoute {
   parameter?: string;
@@ -131,28 +131,11 @@ export function TooltipPage({
   // and interaction synchronously catches up before the editor handles input.
   const hash =
     data && !readOnly
-      ? canonicalHash(hashOverride ?? targetHash ?? Number(parameter), data)
-      : (hashOverride ?? targetHash ?? Number(parameter));
-  const item = data && archivedItemFor(hash, data);
-  const archived =
-    readOnly || Boolean(data && hash > 3 && !data.items[hash] && !tooltipFor(hash, data).custom);
-  const identity = useMemo(() => {
-    const category = data?.categories.find((entry) => entry.id === item?.categoryId);
-    return {
-      name: item?.name ?? `Tooltip ${hash}`,
-      piece: (item && exoticPiece(item)) || undefined,
-      icon: item?.icon || undefined,
-      categoryLabel: [
-        archived && item && data
-          ? archiveCategoryLabel(item.categoryId, data)
-          : (category?.label ?? item?.categoryId),
-        hash,
-      ]
-        .filter(Boolean)
-        .join(' · '),
-      archiveIcon: archived,
-    };
-  }, [data, item, hash, archived]);
+      ? canonicalHash(hashOverride ?? Number(route.parameter), data)
+      : (hashOverride ?? Number(route.parameter));
+  // Keep the workspace context stable while its document is retained. The
+  // header leaf subscribes to urgent targets without propagating through it.
+  const identity = useMemo(() => previewIdentityFor(hash, data, readOnly), [hash, data, readOnly]);
   return (
     <LivePreviewIdentity.Provider value={identity}>
       <article

@@ -104,6 +104,31 @@ it('resumes the URL on a free frame while a costly async document still waits', 
   expect(useSteppingActivity.getState().deferWorkspace).toBe(false);
 });
 
+it('uses the boundary fallback frame directly instead of adding another URL handoff frame', () => {
+  vi.useFakeTimers();
+  let pending = true;
+  let nextId = 0;
+  const callbacks = new Map<number, FrameRequestCallback>();
+  vi.stubGlobal('navigator', { scheduling: { isInputPending: () => pending } });
+  vi.stubGlobal('requestAnimationFrame', (run: FrameRequestCallback) => {
+    callbacks.set(++nextId, run);
+    return nextId;
+  });
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const resume = vi.fn();
+  pulseStepping(undefined, resume);
+  beginSteppingFrame()();
+  recordSteppingWorkspaceWork(30);
+  pending = false;
+  vi.advanceTimersByTime(4);
+  pulseStepping();
+  const fallback = nextId;
+  vi.advanceTimersByTime(8);
+  callbacks.get(fallback)!(0);
+  expect(resume).toHaveBeenCalledOnce();
+  expect(useSteppingActivity.getState().deferWorkspace).toBe(true);
+});
+
 describe('physical navigation key holds', () => {
   it('stays suspended through the initial delay and slow or irregular repeats', () => {
     vi.useFakeTimers();

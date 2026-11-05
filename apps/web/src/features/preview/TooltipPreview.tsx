@@ -1,7 +1,12 @@
 import { ArchiveIcon } from '../archive/ArchiveIcon';
 import { languageLabel } from '../../languageLabels';
 import { memo, useContext, useId, useMemo, type ReactNode } from 'react';
-import { LivePreviewIdentity, type PreviewIdentity } from './LivePreviewIdentity';
+import {
+  LivePreviewIdentity,
+  previewIdentityFor,
+  type PreviewIdentity,
+} from './LivePreviewIdentity';
+import { useSteppingActivity } from '../navigation/steppingActivity';
 import { Link } from 'react-router-dom';
 import {
   markupLanguage,
@@ -193,7 +198,21 @@ export function TooltipPreview({
 
 function PreviewHeader(props: PreviewIdentity & { live: boolean }) {
   const identity = useContext(LivePreviewIdentity);
-  const { name, piece, icon, categoryLabel, archiveIcon } = (props.live && identity) || props;
+  const target = useSteppingActivity((state) => (props.live ? state.target : undefined));
+  const data = useDataStore((state) => (target ? state.data : null));
+  const urgent = useMemo(
+    () =>
+      target && data
+        ? previewIdentityFor(
+            canonicalHash(Number(target.split('/')[2].split('?')[0]), data),
+            data,
+            identity?.archiveIcon,
+          )
+        : undefined,
+    [target, data, identity?.archiveIcon],
+  );
+  const { name, piece, icon, categoryLabel, archiveIcon } =
+    urgent || (props.live && identity) || props;
   const iconUrl = icon?.startsWith('/common/') ? `https://www.bungie.net${icon}` : icon;
   return (
     <header className={styles.header}>

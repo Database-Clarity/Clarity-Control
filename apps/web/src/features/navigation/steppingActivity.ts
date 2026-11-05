@@ -91,28 +91,32 @@ export function recordSteppingWorkspaceWork(duration: number) {
   if (useSteppingActivity.getState().active) workspaceWork = duration;
 }
 
+function catchUp() {
+  const state = useSteppingActivity.getState();
+  if (!state.active || !state.deferWorkspace) return;
+  if (inputPending() || performance.now() - lastInputAt < 8) {
+    scheduleCatchUp();
+    return;
+  }
+  // The address can catch up on the first frame without new input, even when
+  // the document still needs a larger gap. New packets cancel this handoff.
+  resumeLatest?.();
+  if (performance.now() - lastInputAt < admissionGap()) {
+    scheduleCatchUp();
+    return;
+  }
+  const started = performance.now();
+  flushSync(() => useSteppingActivity.setState({ deferWorkspace: false }));
+  previousFrameWork = performance.now() - started;
+}
+
 /** A fresh packet cancels this handoff, so only the newest route can paint. */
 function scheduleCatchUp() {
   if (catchUpFrame !== undefined || typeof requestAnimationFrame !== 'function') return;
   const frame = requestAnimationFrame(() => {
     if (catchUpFrame !== frame) return;
     catchUpFrame = undefined;
-    const state = useSteppingActivity.getState();
-    if (!state.active || !state.deferWorkspace) return;
-    if (inputPending()) {
-      scheduleCatchUp();
-      return;
-    }
-    // The address can catch up on the first frame without new input, even when
-    // the document still needs a larger gap. New packets cancel this handoff.
-    resumeLatest?.();
-    if (performance.now() - lastInputAt < admissionGap()) {
-      scheduleCatchUp();
-      return;
-    }
-    const started = performance.now();
-    flushSync(() => useSteppingActivity.setState({ deferWorkspace: false }));
-    previousFrameWork = performance.now() - started;
+    catchUp();
   });
   catchUpFrame = frame;
 }
@@ -143,7 +147,7 @@ export function pulseStepping(land?: () => void, resume?: () => void) {
       activityFrame = undefined;
       if (!burst) return;
       if (!useSteppingActivity.getState().active) useSteppingActivity.setState({ active: true });
-      if (useSteppingActivity.getState().deferWorkspace) scheduleCatchUp();
+      if (useSteppingActivity.getState().deferWorkspace) catchUp();
     });
     activityFrame = frame;
   }

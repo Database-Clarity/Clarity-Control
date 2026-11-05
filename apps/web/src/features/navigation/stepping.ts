@@ -13,7 +13,8 @@ export function stepWithinCategory(
 
 /** Tooltip route that keeps only a valid `?lang=`; `line`/`variant` highlights never carry over. */
 export function tooltipPath(hash: number, search: string): string {
-  const lang = langSchema.safeParse(new URLSearchParams(search).get('lang')).data;
+  const requested = new URLSearchParams(search).get('lang');
+  const lang = requested === null ? undefined : langSchema.safeParse(requested).data;
   return `/t/${hash}${lang ? `?lang=${lang}` : ''}`;
 }
 
