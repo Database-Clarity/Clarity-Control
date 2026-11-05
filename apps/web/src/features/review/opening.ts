@@ -53,7 +53,10 @@ export function advanceReviewOpening(token: number) {
   if (state.token !== token || !state.warming) return true;
   if (!state.ready) return false;
   if (state.limit < state.required) {
-    useReviewOpening.setState({ limit: Math.min(state.required, state.limit + 16) });
+    // A dense window fits in one bounded mount at ordinary viewport sizes.
+    // Hidden rows still get a layout/paint turn before activation, so showing
+    // them does not also have to mount the final anchors in the same task.
+    useReviewOpening.setState({ limit: Math.min(state.required, state.limit + 32) });
     return false;
   }
   useReviewOpening.setState({ warming: false });
