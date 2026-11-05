@@ -277,12 +277,14 @@ export function ClarityEditor({
     if (!editor) return;
     if (stepping) {
       wasStepping.current = true;
-      if (editor.hasFocus) {
-        restoreFocus.current = true;
-        editor.contentDOM.blur();
-      }
       const selection = editor.dom.ownerDocument.getSelection();
-      if (selection?.anchorNode && editor.contentDOM.contains(selection.anchorNode))
+      // Retire an old DOM range only when another control owns focus. A focused
+      // editor must keep receiving native text/composition input during a burst.
+      if (
+        !editor.hasFocus &&
+        selection?.anchorNode &&
+        editor.contentDOM.contains(selection.anchorNode)
+      )
         selection.removeAllRanges();
       if (editor.scrollDOM.scrollTop) editor.scrollDOM.scrollTop = 0;
     }
