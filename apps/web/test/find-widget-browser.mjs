@@ -215,6 +215,50 @@ try {
               scrolled: window.scrollY,
             };
           });
+          // Stepping back across the whole text (a wrap to the end and back) scrolls the page a long
+          // way: after it settles the selected match is never under the widget.
+          for (const key of ['Shift+Enter', 'Shift+Enter', 'Enter', 'Enter', 'Shift+Enter']) {
+            await page.keyboard.press(key);
+            await page.waitForTimeout(700);
+            const hidden = await page.evaluate(() => {
+              const match = document.querySelector('.cm-searchMatch-selected');
+              const widget = document.querySelector('.cm-search').getBoundingClientRect();
+              if (!match) return 'no selected match';
+              const m = match.getBoundingClientRect();
+              const overlap =
+                m.left < widget.right &&
+                m.right > widget.left &&
+                m.top < widget.bottom &&
+                m.bottom > widget.top;
+              return overlap ? 'match under the widget after the scroll' : '';
+            });
+            if (hidden) failures.push(`${label}: ${key}: ${hidden}`);
+          }
+          // A scroll that lands after the command (the page smooth-scrolling to the match) can leave
+          // the match under the pinned widget: it steps aside again once the scroll has settled.
+          for (const key of ['Enter', 'Shift+Enter', 'Enter']) {
+            await page.keyboard.press(key);
+            await page.waitForTimeout(40);
+            await page.evaluate(() => {
+              const match = document.querySelector('.cm-searchMatch-selected');
+              const widget = document.querySelector('.cm-search').getBoundingClientRect();
+              if (match) window.scrollBy(0, match.getBoundingClientRect().top - (widget.top + 10));
+            });
+            await page.waitForTimeout(700);
+            const late = await page.evaluate(() => {
+              const match = document.querySelector('.cm-searchMatch-selected');
+              const widget = document.querySelector('.cm-search').getBoundingClientRect();
+              if (!match) return 'no selected match';
+              const m = match.getBoundingClientRect();
+              const overlap =
+                m.left < widget.right &&
+                m.right > widget.left &&
+                m.top < widget.bottom &&
+                m.bottom > widget.top;
+              return overlap ? 'match under the widget after a late scroll' : '';
+            });
+            if (late) failures.push(`${label}: ${key}: ${late}`);
+          }
           if (sticky.top < sticky.headerBottom - 1 || sticky.bottom > sticky.height)
             failures.push(
               `${label}: widget left the view while stepping ${JSON.stringify(sticky)}`,

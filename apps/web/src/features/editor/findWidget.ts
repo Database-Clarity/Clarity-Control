@@ -128,6 +128,7 @@ class FindWidget implements Panel {
   private list: MatchList | null = null;
   private quiet: ReturnType<typeof setTimeout> | undefined;
   private run = 0;
+  private settle: ReturnType<typeof setTimeout>[] = [];
 
   constructor(private readonly view: EditorView) {
     this.query = getSearchQuery(view.state);
@@ -251,6 +252,7 @@ class FindWidget implements Panel {
   }
 
   destroy() {
+    for (const timer of this.settle) clearTimeout(timer);
     this.run++;
     clearTimeout(this.quiet);
   }
@@ -391,6 +393,13 @@ class FindWidget implements Panel {
    * text, which never moves. Only commands trigger it, so typing never pays for the measurement.
    */
   private avoid() {
+    this.place();
+    // A scroll the command started (a phone's page) lands a little later: place it again then.
+    for (const timer of this.settle) clearTimeout(timer);
+    this.settle = [120, 400].map((delay) => setTimeout(() => this.place(), delay));
+  }
+
+  private place() {
     const view = this.view;
     view.requestMeasure({
       key: this,
