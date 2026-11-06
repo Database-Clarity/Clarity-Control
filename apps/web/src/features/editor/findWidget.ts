@@ -27,8 +27,13 @@ import {
 
 /** Matches counted before the count reads "1000+". */
 export const maxCounted = 1000;
-/** Quiet time after a document or query change before the matches are recounted. */
-const quietMs = 60;
+/** Quiet time after a query change before the matches are recounted. */
+const queryQuietMs = 60;
+/**
+ * Quiet time after a document change (typing, or stepping to another entry): longer than the gap
+ * between keys or steps, so a count never lands inside either; it follows when they pause.
+ */
+const documentQuietMs = 350;
 /** Longest uninterrupted stretch of one counting slice. */
 const sliceMs = 4;
 
@@ -405,7 +410,7 @@ class FindWidget implements Panel {
       this.avoid();
     if (queryChanged || update.docChanged) {
       this.list = null;
-      this.rescan(quietMs);
+      this.rescan(queryChanged ? queryQuietMs : documentQuietMs);
     } else if (update.selectionSet) this.paint();
   }
 
@@ -498,13 +503,7 @@ class FindWidget implements Panel {
       };
       slice();
     };
-    // After the quiet period the count waits for an idle moment (and runs anyway within 400 ms), so
-    // it never competes with the paint of the item a stepping burst has just landed on.
-    const idle = () =>
-      typeof requestIdleCallback === 'function'
-        ? requestIdleCallback(start, { timeout: 400 })
-        : start();
-    if (delay) this.quiet = setTimeout(idle, delay);
+    if (delay) this.quiet = setTimeout(start, delay);
     else start();
   }
 

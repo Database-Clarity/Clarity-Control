@@ -200,12 +200,12 @@ describe('find widget', () => {
     const now = vi.spyOn(performance, 'now');
     for (let i = 0; i < 5; i++) {
       view.dispatch({ changes: { from: 0, insert: 'cat ' } });
-      vi.advanceTimersByTime(20);
+      vi.advanceTimersByTime(90);
     }
     // Still inside the quiet period after the last change: the old text stays, nothing scanned.
     expect(count()).toBe('? of 1');
     expect(now).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(80);
+    vi.advanceTimersByTime(400);
     expect(count()).toBe('? of 6');
   });
 
