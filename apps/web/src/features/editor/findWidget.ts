@@ -252,6 +252,7 @@ class FindWidget implements Panel {
   }
 
   destroy() {
+    window.removeEventListener('scroll', this.onScroll, true);
     for (const timer of this.settle) clearTimeout(timer);
     this.run++;
     clearTimeout(this.quiet);
@@ -394,10 +395,19 @@ class FindWidget implements Panel {
    */
   private avoid() {
     this.place();
-    // A scroll the command started (a phone's page) lands a little later: place it again then.
+    // A scroll the command started (a phone's page) lands a frame later: place it again on every
+    // scroll event until things settle, so the first frame after the scroll is already clear.
     for (const timer of this.settle) clearTimeout(timer);
-    this.settle = [120, 400].map((delay) => setTimeout(() => this.place(), delay));
+    window.addEventListener('scroll', this.onScroll, { capture: true, passive: true });
+    this.settle = [120, 400, 700].map((delay, index, all) =>
+      setTimeout(() => {
+        this.place();
+        if (index === all.length - 1) window.removeEventListener('scroll', this.onScroll, true);
+      }, delay),
+    );
   }
+
+  private readonly onScroll = () => this.place();
 
   private place() {
     const view = this.view;

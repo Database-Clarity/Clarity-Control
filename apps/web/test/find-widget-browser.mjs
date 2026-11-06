@@ -244,7 +244,22 @@ try {
               const widget = document.querySelector('.cm-search').getBoundingClientRect();
               if (match) window.scrollBy(0, match.getBoundingClientRect().top - (widget.top + 10));
             });
-            await page.waitForTimeout(700);
+            // Within a few frames of the scroll, not only once things have settled.
+            await page.waitForTimeout(60);
+            const soon = await page.evaluate(() => {
+              const match = document.querySelector('.cm-searchMatch-selected');
+              const widget = document.querySelector('.cm-search').getBoundingClientRect();
+              if (!match) return '';
+              const m = match.getBoundingClientRect();
+              return m.left < widget.right &&
+                m.right > widget.left &&
+                m.top < widget.bottom &&
+                m.bottom > widget.top
+                ? 'match under the widget 60 ms after a late scroll'
+                : '';
+            });
+            if (soon) failures.push(`${label}: ${key}: ${soon}`);
+            await page.waitForTimeout(640);
             const late = await page.evaluate(() => {
               const match = document.querySelector('.cm-searchMatch-selected');
               const widget = document.querySelector('.cm-search').getBoundingClientRect();
