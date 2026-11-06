@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { EditorView, runScopeHandlers } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { MarkupGlobals } from '@clarity/core';
+import { parseMarkup, type MarkupGlobals } from '@clarity/core';
 import { ClarityEditor } from './ClarityEditor';
 import { useSettingsStore } from '../../stores/settings';
 import { findSymbols, findTags, pinTag, symbolExtensions } from './symbols';
@@ -82,9 +82,30 @@ describe('findSymbols / findTags', () => {
     expect(tags.map((t) => t.name)).toEqual(['yellow']);
     expect(text.slice(tags[0].openTo, tags[0].closeFrom)).toBe('a <blue b');
     expect(text.slice(tags[0].to)).toBe(' c /> d');
-    // An icon inside a colour tag is part of that tag's text, not a symbol (the preview shows it raw).
-    expect(findSymbols('<yellow 5 <solar/> /> <arc/>').map((s) => s.name)).toEqual(['arc']);
+    // Icons stay symbols wherever they sit, even inside what would be a colour tag.
+    expect(findSymbols('<yellow 5 <solar/> /> <arc/>').map((s) => s.name)).toEqual([
+      'solar',
+      'arc',
+    ]);
+    expect(findTags('<yellow 5 <solar/> /> <arc/>')).toEqual([]);
     expect(findSymbols('<yellow 5 /> <arc/>').map((s) => s.name)).toEqual(['arc']);
+  });
+
+  it('tints exactly the text the preview colours (same renderer rule, nested and stray cases)', () => {
+    const colourClasses = ['yellow', 'blue', 'green', 'purple', 'pve', 'pvp', 'bold'];
+    for (const line of [
+      '<yellow a <blue b /> c /> d',
+      'x <pve 5 /> y <pvp [3] /> z',
+      'a /> b <green g /> c <bold b2 />',
+      '<yellow 1 /><blue 2 /> and <purple 3 />',
+    ]) {
+      const preview = parseMarkup(line)
+        .lines.flatMap((l) => l.linesContent ?? [])
+        .filter((span) => span.classNames?.some((name) => colourClasses.includes(name)))
+        .map((span) => span.text);
+      const editor = findTags(line).map((tag) => line.slice(tag.openTo, tag.closeFrom));
+      expect(editor, line).toEqual(preview);
+    }
   });
 
   it('leaves unpaired tags, stray closings, other tags and empty tags raw', () => {

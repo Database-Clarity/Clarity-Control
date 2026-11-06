@@ -50,9 +50,10 @@ export interface TagRange {
 
 /**
  * The converter's own tokenizer (`<.+?\/>`, per line): a token runs from a `<` to the FIRST `/>`
- * after it, so tags do not nest. `<yellow a <blue b />` is one yellow token whose text is
- * `a <blue b`, and the ` c />` after it is plain text; an icon inside a colour tag is part of that
- * tag's text. The preview renders exactly this, so the editor draws exactly this (UI-FIXES-2B 7).
+ * after it, so colour tags do not nest. `<yellow a <blue b />` is one yellow token whose text is
+ * `a <blue b`, and the ` c />` after it is plain text. The preview renders exactly this, so the
+ * editor tints exactly this (UI-FIXES-2B 7). Icons are separate: they stay symbols wherever they
+ * sit (PRODUCT.md "icons stay symbols"), so they are found on their own, not through these tokens.
  */
 const converterToken = /<.+?\/>/g;
 
@@ -65,13 +66,13 @@ function* lineTokens(text: string, offset: number) {
   }
 }
 
-/** Finds every icon tag in a text. */
+/** Finds every icon tag in a text, including one written inside another tag. */
 export function findSymbols(text: string, offset = 0): SymbolRange[] {
   const found: SymbolRange[] = [];
-  for (const token of lineTokens(text, offset)) {
-    const name = /^<(\w+)\/>$/.exec(token.text)?.[1];
-    if (name === undefined || !icons.has(name)) continue;
-    found.push({ from: token.from, to: token.from + token.text.length, kind: 'icon', name });
+  for (const match of text.matchAll(/<(\w+)\/>/g)) {
+    if (!icons.has(match[1])) continue;
+    const from = offset + (match.index ?? 0);
+    found.push({ from, to: from + match[0].length, kind: 'icon', name: match[1] });
   }
   return found;
 }
