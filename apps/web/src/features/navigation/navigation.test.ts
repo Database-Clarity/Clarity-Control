@@ -106,8 +106,8 @@ describe('tooltip catalog', () => {
       items: { [bolts.hash]: bolts },
     };
     const facts = loadManifestFacts().items[bolts.hash].inventory!;
-    bolts.name = facts.displayName;
-    bolts.inGameDescription = facts.description;
+    bolts.name = facts.displayName ?? bolts.name;
+    bolts.inGameDescription = facts.description ?? bolts.inGameDescription;
     expect(classifiedCategory(bolts, boltData)?.label).toBe('Parts with Effects');
     const sections = navigationGroups(boltData, '').flatMap((group) => group.sections);
     const listed = sections.find((section) =>
