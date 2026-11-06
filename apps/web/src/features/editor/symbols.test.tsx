@@ -101,7 +101,7 @@ describe('findSymbols / findTags', () => {
     ]) {
       const preview = parseMarkup(line)
         .lines.flatMap((l) => l.linesContent ?? [])
-        .filter((span) => span.classNames?.some((name) => colourClasses.includes(name)))
+        .filter((span) => span.classNames?.some((name) => colourClasses.includes(String(name))))
         .map((span) => span.text);
       const editor = findTags(line).map((tag) => line.slice(tag.openTo, tag.closeFrom));
       expect(editor, line).toEqual(preview);
