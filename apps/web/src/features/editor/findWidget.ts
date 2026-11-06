@@ -241,7 +241,7 @@ class FindWidget implements Panel {
     this.dom.addEventListener('click', (event) => this.click(event));
     this.sync(this.query);
     // Building a panel happens inside an update: only the DOM is set here, the state follows.
-    this.setReplaceShown(replaceRowOpen(view.state) || (!readOnly && this.query.replace !== ''));
+    this.setReplaceShown(replaceRowOpen(view.state));
     this.rescan(0);
   }
 

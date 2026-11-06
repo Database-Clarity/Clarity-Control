@@ -325,6 +325,20 @@ describe('find widget', () => {
     expect(openReplace(view)).toBe(true);
   });
 
+  it('honors a collapsed replace row when text is left in the replace field', () => {
+    make('cat');
+    openReplace(view);
+    type('search', 'cat');
+    type('replace', 'dog');
+    button('toggleReplace').click();
+    expect(replaceRowOpen(view.state)).toBe(false);
+    button('closeFind').click();
+    openSearchPanel(view);
+    expect(getSearchQuery(view.state).replace).toBe('dog');
+    expect(parent.querySelector('.cm-search')!.getAttribute('data-replace')).toBe('closed');
+    expect(replaceRowOpen(view.state)).toBe(false);
+  });
+
   it('remembers the replace row with the rest of the find state', () => {
     make('cat');
     openReplace(view);
