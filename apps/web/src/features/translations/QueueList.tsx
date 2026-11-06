@@ -35,7 +35,8 @@ export function QueueList({ rows, label }: { rows: readonly QueueRow[]; label: s
   }));
   const observed = useRef({ rowHeight, viewport });
   observed.current = { rowHeight, viewport };
-  const focusAfterRender = useRef(false);
+  // Coming back from the editor, focus returns to the row that was opened.
+  const focusAfterRender = useRef(!!saved?.selected);
   const scrolled = useRef(saved?.top ?? 0);
 
   useLayoutEffect(() => {

@@ -252,6 +252,7 @@ describe('TranslationsPage queue', () => {
     await act(async () => void navigate(-1));
     expect(location.pathname).toBe('/translations');
     expect(host.querySelector('a[data-selected]')!.textContent).toBe(selected);
+    expect(document.activeElement).toBe(host.querySelector('a[data-selected]'));
     expect(host.querySelector<HTMLElement>('[class*=viewport]')!.scrollTop).toBe(600);
   });
 
