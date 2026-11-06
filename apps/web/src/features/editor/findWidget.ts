@@ -498,7 +498,13 @@ class FindWidget implements Panel {
       };
       slice();
     };
-    if (delay) this.quiet = setTimeout(start, delay);
+    // After the quiet period the count waits for an idle moment (and runs anyway within 400 ms), so
+    // it never competes with the paint of the item a stepping burst has just landed on.
+    const idle = () =>
+      typeof requestIdleCallback === 'function'
+        ? requestIdleCallback(start, { timeout: 400 })
+        : start();
+    if (delay) this.quiet = setTimeout(idle, delay);
     else start();
   }
 
