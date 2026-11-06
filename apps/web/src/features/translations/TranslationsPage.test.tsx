@@ -277,6 +277,16 @@ describe('TranslationsPage queue', () => {
     await act(async () => void navigate(-1));
     expect(location.search).toContain('q=perk');
     expect(input().value).toBe('perk');
+    // A non-first result opened inside the debounce is still the selected row on Back.
+    await type(input(), 'perk');
+    await type(input(), 'mod');
+    await type(input(), '');
+    await type(input(), 'e');
+    const second = rows()[1]!;
+    const label = second.textContent;
+    await act(async () => second.click());
+    await act(async () => void navigate(-1));
+    expect(host.querySelector('a[data-selected]')!.textContent).toBe(label);
   });
 
   it('returns from the editor to the same selection and scroll position', async () => {

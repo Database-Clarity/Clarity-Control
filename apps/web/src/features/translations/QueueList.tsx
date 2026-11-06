@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { flushSync } from 'react-dom';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useNavigationType } from 'react-router-dom';
 import { behindLabel, type QueueRow } from './queue';
 import { entryPath } from './worklist';
 import styles from './TranslationsPage.module.scss';
@@ -8,8 +8,12 @@ import styles from './TranslationsPage.module.scss';
 const defaultRowHeight = 32;
 const overscan = 6;
 
-/** Where each visited queue left off, so Back lands on the same rows. Keyed by history entry. */
-const memory = new Map<string, { top: number; selected: string | null; signature: string }>();
+/**
+ * Where each filtered view was left, so Back lands on the same rows. Keyed by the view itself, not
+ * the history entry: committing the typed filter replaces the entry (new key) just before a row
+ * opens. Only a Back or Forward arrival restores it; a fresh visit starts at the top.
+ */
+const memory = new Map<string, { top: number; selected: string | null }>();
 
 export function stateText(row: QueueRow): string {
   return row.state === 'missing' ? 'Missing' : `Outdated · ${behindLabel(row.ageMs ?? 0)}`;
@@ -29,9 +33,8 @@ export function QueueList({
   /** What the rows are filtered by: a position is only restored for the same view. */
   signature: string;
 }) {
-  const location = useLocation();
-  const remembered = memory.get(location.key);
-  const saved = remembered?.signature === signature ? remembered : undefined;
+  const arrival = useNavigationType();
+  const saved = arrival === 'POP' ? memory.get(signature) : undefined;
   const host = useRef<HTMLDivElement>(null);
   const sizer = useRef<HTMLSpanElement>(null);
   const [selected, setSelected] = useState(() => {
@@ -81,16 +84,16 @@ export function QueueList({
 
   // Remember the position for this history entry; opening a row unmounts the queue.
   const selectedKey = useRef<string | null>(null);
+  const opened = useRef<string | null>(null);
   selectedKey.current = rows[Math.min(selected, rows.length - 1)]?.key ?? null;
-  useLayoutEffect(() => {
-    const key = location.key;
-    return () =>
-      void memory.set(key, {
+  useLayoutEffect(
+    () => () =>
+      void memory.set(signature, {
         top: scrolled.current,
-        selected: selectedKey.current,
-        signature,
-      });
-  }, [location.key, signature]);
+        selected: opened.current ?? selectedKey.current,
+      }),
+    [signature],
+  );
 
   const total = rows.length;
   const start = Math.max(0, Math.floor(viewport.top / rowHeight) - overscan);
@@ -114,6 +117,7 @@ export function QueueList({
     const top = target * rowHeight;
     const view = { top: scrolled.current, height: observed.current.viewport.height };
     focusAfterRender.current = true;
+    opened.current = null;
     if (top < view.top || top + rowHeight > view.top + view.height) {
       const destination = Math.max(
         0,
@@ -187,6 +191,8 @@ export function QueueList({
                 data-perf-navigation="true"
                 title={`${row.name} · ${row.hash}`}
                 onFocus={() => setSelected(index)}
+                // Safari does not focus a link on click; the opened row is still the one to return to.
+                onClick={() => (opened.current = row.key)}
               >
                 <span className={styles.name}>{row.name}</span>
                 <span className={styles.category}>{row.category}</span>
