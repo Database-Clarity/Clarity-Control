@@ -339,6 +339,55 @@ describe('find widget', () => {
     expect(replaceRowOpen(view.state)).toBe(false);
   });
 
+  it('leaves Enter on a button to the button', () => {
+    make('cat cat cat');
+    openSearchPanel(view);
+    type('search', 'cat');
+    vi.advanceTimersByTime(80);
+    key(field('search'), { key: 'Enter' });
+    key(field('search'), { key: 'Enter' });
+    expect(view.state.selection.main.from).toBe(4);
+    // Enter on Previous is not "next": the browser's own click does the stepping.
+    const before = view.state.selection.main.from;
+    const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    button('prev').dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(view.state.selection.main.from).toBe(before);
+    // The combined shortcuts still work from anywhere in the widget.
+    const all = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      altKey: true,
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    button('prev').dispatchEvent(all);
+    expect(all.defaultPrevented).toBe(true);
+  });
+
+  it('restores an open replace row even when both fields are empty', () => {
+    make('cat');
+    openReplace(view);
+    rememberSearch({
+      state: view.state,
+      startState: EditorState.create({ doc: 'cat' }),
+    } as unknown as ViewUpdate);
+    expect(readSearchMemory()).toMatchObject({ open: true, replaceOpen: true, search: '' });
+    button('closeFind').click();
+    rememberSearch({
+      state: view.state,
+      startState: EditorState.create({ doc: 'cat', extensions: [search({ top: true })] }),
+    } as unknown as ViewUpdate);
+    expect(readSearchMemory()).toMatchObject({ open: false, replaceOpen: true });
+    view.destroy();
+    parent.replaceChildren();
+    make('dog');
+    restoreSearch(view);
+    expect(replaceRowOpen(view.state)).toBe(true);
+    openSearchPanel(view);
+    expect(parent.querySelector('.cm-search')!.getAttribute('data-replace')).toBe('open');
+  });
+
   it('remembers the replace row with the rest of the find state', () => {
     make('cat');
     openReplace(view);

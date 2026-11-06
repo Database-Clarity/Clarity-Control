@@ -376,7 +376,9 @@ class FindWidget implements Panel {
       event.preventDefault();
       return;
     }
-    if (key === 'Enter' && !event.isComposing) {
+    // Plain Enter belongs to the two fields; on a button it keeps its own meaning (activate it).
+    const inField = event.target === this.search || event.target === this.replace;
+    if (key === 'Enter' && !event.isComposing && (inField || event.altKey)) {
       event.preventDefault();
       if (mod && event.altKey) replaceAll(view);
       else if (event.altKey) selectMatches(view);

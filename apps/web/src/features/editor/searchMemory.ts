@@ -125,7 +125,7 @@ export function rememberSearch(update: ViewUpdate): void {
  */
 export function restoreSearch(view: EditorView): void {
   const saved = readSearchMemory();
-  if (!saved.open && !saved.search && !saved.replace) return;
+  if (!saved.open && !saved.replaceOpen && !saved.search && !saved.replace) return;
   const query = new SearchQuery({
     search: saved.search,
     replace: saved.replace,
