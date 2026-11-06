@@ -224,7 +224,13 @@ class FindWidget implements Panel {
     }
     this.dom = element(
       'div',
-      { class: 'cm-search', role: 'search', 'aria-label': 'Find and replace' },
+      {
+        class: 'cm-search',
+        role: 'search',
+        'aria-label': 'Find and replace',
+        // The editor keeps the caret and matches clear of its overlays (scrollMargins.ts).
+        'data-editor-overlay': '',
+      },
       [...(this.expand ? [this.expand] : []), element('div', { class: 'fw-rows' }, rows)],
     );
     widgets.set(this.dom, this);
@@ -367,10 +373,54 @@ class FindWidget implements Panel {
           queryChanged = true;
         } else if (effect.is(setReplaceOpen)) this.setReplaceShown(effect.value);
       }
+    if (
+      update.transactions.some(
+        (tr) => tr.isUserEvent('select.search') || tr.isUserEvent('input.replace'),
+      )
+    )
+      this.avoid();
     if (queryChanged || update.docChanged) {
       this.list = null;
       this.rescan(quietMs);
     } else if (update.selectionSet) this.paint();
+  }
+
+  /**
+   * After a find or replace command lands on a match, keep that match in view: if the widget sits
+   * on it, the widget moves (to the other side, or just below the match) instead of the
+   * text, which never moves. Only commands trigger it, so typing never pays for the measurement.
+   */
+  private avoid() {
+    const view = this.view;
+    view.requestMeasure({
+      key: this,
+      read: () => {
+        const selection = view.state.selection.main;
+        const from = view.coordsAtPos(selection.from, 1);
+        const to = view.coordsAtPos(selection.to, -1);
+        if (!from || !to) return null;
+        const editor = view.dom.getBoundingClientRect();
+        const strip = (this.dom.parentElement ?? this.dom).getBoundingClientRect();
+        const box = this.dom.getBoundingClientRect();
+        const root = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+        return {
+          match: placeMatch(from, to, editor),
+          editor,
+          strip,
+          width: box.width,
+          height: box.height,
+          pad: { x: 0.875 * root, left: 0.5 * root, y: 0.25 * root },
+          view: window.innerHeight,
+          now: { side: this.dom.dataset.side === 'left' ? ('left' as const) : ('right' as const) },
+        };
+      },
+      write: (measured) => {
+        if (!measured) return;
+        const choice = chooseSpot(measured);
+        this.dom.dataset.side = choice.side;
+        this.dom.style.setProperty('--fw-y', `${Math.round(choice.offset)}px`);
+      },
+    });
   }
 
   /** Recount after a quiet period; any newer change cancels a count still running. */
@@ -423,6 +473,61 @@ class FindWidget implements Panel {
     if (this.count.textContent !== text) this.count.textContent = text;
     this.count.toggleAttribute('data-empty', text === 'No results' || text === 'Invalid');
   }
+}
+
+interface Box {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+/** The selected match as a box: its own span on one line, the full width when it spans lines. */
+export function placeMatch(from: Box, to: Box, editor: Box): Box {
+  const top = Math.min(from.top, to.top);
+  const bottom = Math.max(from.bottom, to.bottom);
+  return from.top === to.top
+    ? { left: Math.min(from.left, to.left), right: Math.max(from.right, to.right), top, bottom }
+    : { left: editor.left, right: editor.right, top, bottom };
+}
+
+interface Spot {
+  match: Box;
+  editor: Box;
+  strip: Box;
+  width: number;
+  height: number;
+  pad: { x: number; left: number; y: number };
+  view: number;
+  now: { side: 'left' | 'right' };
+}
+
+/**
+ * Where the widget goes so the match stays visible: its current place if that is clear, else the
+ * other side, else just below the match (kept inside the editor and the window).
+ * `offset` is how far below its resting place (the top of the strip) the widget sits.
+ */
+export function chooseSpot(spot: Spot): { side: 'left' | 'right'; offset: number } {
+  const { match, editor, strip, width, height, pad } = spot;
+  const other = spot.now.side === 'left' ? 'right' : 'left';
+  const rest = strip.top + pad.y;
+  const limit = Math.min(editor.bottom, spot.view);
+  const clear = (side: 'left' | 'right', top: number) => {
+    const left = side === 'right' ? editor.right - pad.x - width : editor.left + pad.left;
+    const right = left + width;
+    const inside = top >= strip.top && top + height <= limit;
+    const overlaps =
+      match.left < right + 2 &&
+      match.right > left - 2 &&
+      match.top < top + height + 2 &&
+      match.bottom > top - 2;
+    return inside && !overlaps;
+  };
+  const tops = [rest, match.bottom + pad.y];
+  for (const top of tops)
+    for (const side of [spot.now.side, other] as const)
+      if (clear(side, top)) return { side, offset: top - rest };
+  return { side: 'right', offset: 0 };
 }
 
 /** Ctrl+H: open the find widget with the replace row showing and the replace field focused. */

@@ -11,12 +11,14 @@ import {
   searchPanelOpen,
 } from '@codemirror/search';
 import {
+  chooseSpot,
   countLabel,
   currentMatch,
   findWidgetExtension,
   findWidgetPanel,
   maxCounted,
   openReplace,
+  placeMatch,
   replaceRowOpen,
   type MatchList,
 } from './findWidget';
@@ -47,6 +49,73 @@ describe('count label', () => {
     expect(countLabel(list([1], 1, true), { from: 1, to: 2 }, 'a', true)).toBe(
       `1 of ${maxCounted}+`,
     );
+  });
+});
+
+describe('keeping the match in view', () => {
+  const editor = { left: 0, right: 1000, top: 0, bottom: 600 };
+  const strip = { left: 0, right: 1000, top: 0, bottom: 0 };
+  const spot = (
+    match: Parameters<typeof chooseSpot>[0]['match'],
+    side: 'left' | 'right' = 'right',
+  ) => ({
+    match,
+    editor,
+    strip,
+    width: 400,
+    height: 30,
+    pad: { x: 14, left: 8, y: 4 },
+    view: 800,
+    now: { side },
+  });
+  it('stays put when the match is clear of it', () => {
+    expect(chooseSpot(spot({ left: 20, right: 80, top: 10, bottom: 26 }))).toEqual({
+      side: 'right',
+      offset: 0,
+    });
+  });
+  it('moves to the other side when the match is under it', () => {
+    expect(chooseSpot(spot({ left: 700, right: 760, top: 10, bottom: 26 }))).toEqual({
+      side: 'left',
+      offset: 0,
+    });
+    expect(chooseSpot(spot({ left: 100, right: 160, top: 10, bottom: 26 }, 'left'))).toEqual({
+      side: 'right',
+      offset: 0,
+    });
+  });
+  it('drops below the match when both sides are covered', () => {
+    const choice = chooseSpot(spot({ left: 100, right: 900, top: 10, bottom: 26 }));
+    expect(choice.side).toBe('right');
+    expect(choice.offset).toBe(26 + 4 - 4);
+  });
+  it('rests where it is when nothing fits (no room below the match)', () => {
+    const none = chooseSpot({ ...spot({ left: 0, right: 1000, top: 0, bottom: 20 }), view: 40 });
+    expect(none).toEqual({ side: 'right', offset: 0 });
+  });
+  it('stays below the strip that pins it on a phone', () => {
+    const phone = {
+      ...spot({ left: 0, right: 1000, top: 104, bottom: 120 }),
+      strip: { left: 0, right: 1000, top: 100, bottom: 100 },
+      editor: { ...editor, bottom: 900 },
+      view: 800,
+    };
+    expect(chooseSpot(phone)).toEqual({ side: 'right', offset: 120 + 4 - (100 + 4) });
+  });
+  it('treats a match across lines as the full width', () => {
+    const box = placeMatch(
+      { left: 300, right: 310, top: 10, bottom: 26 },
+      { left: 40, right: 50, top: 26, bottom: 42 },
+      editor,
+    );
+    expect(box).toEqual({ left: 0, right: 1000, top: 10, bottom: 42 });
+    expect(
+      placeMatch(
+        { left: 300, right: 310, top: 10, bottom: 26 },
+        { left: 340, right: 350, top: 10, bottom: 26 },
+        editor,
+      ),
+    ).toEqual({ left: 300, right: 350, top: 10, bottom: 26 });
   });
 });
 

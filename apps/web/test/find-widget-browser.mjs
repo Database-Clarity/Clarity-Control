@@ -173,6 +173,61 @@ try {
         check(facts, 'replace row');
         await page.screenshot({ path: `${shots}/${tag}-3-replace.png` });
 
+        // A match the widget would sit on is scrolled clear of it, even in a short text, and on a
+        // phone the widget stays under the header while the page scrolls to a far match.
+        await page.locator('input[name=search]').fill('extra');
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(250);
+        const clear = await page.evaluate(() => {
+          const match = document.querySelector('.cm-searchMatch-selected');
+          const widget = document.querySelector('.cm-search').getBoundingClientRect();
+          if (!match) return 'no selected match';
+          const m = match.getBoundingClientRect();
+          const overlap =
+            m.left < widget.right &&
+            m.right > widget.left &&
+            m.top < widget.bottom &&
+            m.bottom > widget.top;
+          return overlap
+            ? `match under the widget (${Math.round(m.top)} vs ${Math.round(widget.bottom)})`
+            : '';
+        });
+        if (clear) failures.push(`${label}: ${clear}`);
+        if (phone) {
+          await page.evaluate(() => document.querySelector('.cm-content').focus());
+          await page.keyboard.press('Control+End');
+          await page.keyboard.insertText(`\n${'filler line\n'.repeat(70)}extra at the end`);
+          await page.locator('input[name=search]').focus();
+          await page.keyboard.press('Control+f');
+          await page.locator('input[name=search]').fill('extra');
+          for (let i = 0; i < 3; i++) {
+            await page.keyboard.press('Enter');
+            await page.waitForTimeout(300);
+          }
+          const sticky = await page.evaluate(() => {
+            const widget = document.querySelector('.cm-search').getBoundingClientRect();
+            const header = document.querySelector('header').getBoundingClientRect();
+            return {
+              top: widget.top,
+              headerBottom: header.bottom,
+              bottom: widget.bottom,
+              height: window.innerHeight,
+              scrolled: window.scrollY,
+            };
+          });
+          if (sticky.top < sticky.headerBottom - 1 || sticky.bottom > sticky.height)
+            failures.push(
+              `${label}: widget left the view while stepping ${JSON.stringify(sticky)}`,
+            );
+          await page.screenshot({ path: `${shots}/${tag}-3b-far-match.png` });
+          await page.evaluate(() => window.scrollTo(0, 0));
+          await page.evaluate(() => document.querySelector('.cm-content').focus());
+          await page.keyboard.press('Control+a');
+          await page.keyboard.insertText(
+            'Hammerhead deals <pve 6 /> <pvp [4] /> extra <green damage /> with <blue reload speed />',
+          );
+        }
+
         // Kept across tooltips: the same widget, query and replace row, no remount.
         const mounted = await page.evaluate(() => {
           window.__widget = document.querySelector('.cm-search');
@@ -192,7 +247,7 @@ try {
           rowOpen: document.querySelector('.cm-search').dataset.replace,
         }));
         if (!kept.same) failures.push(`${label}: widget remounted on navigation`);
-        if (kept.search !== 'damage' || kept.replace !== 'DMG' || kept.rowOpen !== 'open')
+        if (kept.search !== 'extra' || kept.replace !== 'DMG' || kept.rowOpen !== 'open')
           failures.push(`${label}: find state lost ${JSON.stringify(kept)}`);
         await page.screenshot({ path: `${shots}/${tag}-4-after-navigation.png` });
 
