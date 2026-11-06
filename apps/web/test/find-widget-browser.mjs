@@ -1,4 +1,4 @@
-/* global document, window, getComputedStyle, PerformanceObserver, performance */
+/* global document, window, getComputedStyle */
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
