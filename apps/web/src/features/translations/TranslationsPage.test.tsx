@@ -223,6 +223,35 @@ describe('TranslationsPage queue', () => {
     expect(location.pathname).toBe('/t/2');
   });
 
+  it('keeps focus and every typed character in the filter while the list refilters', async () => {
+    const many = build(
+      Array.from({ length: 300 }, (_, i) => tooltip(100 + i, `English ${i}`)),
+      Object.fromEntries(
+        Array.from({ length: 300 }, (_, i) => [
+          100 + i,
+          [`Tooltip ${String(i).padStart(3, '0')}`, 'perks'],
+        ]),
+      ),
+    );
+    await mount('/translations', person('translator', ['de']), many);
+    const input = host.querySelector<HTMLInputElement>('input[type=search]')!;
+    act(() => input.focus());
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    let typed = '';
+    for (const character of 'tooltip 02') {
+      typed += character;
+      await act(async () => {
+        setter.call(input, typed);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      expect(document.activeElement).toBe(input);
+      expect(input.value).toBe(typed);
+    }
+    expect(names()[0]).toBe('Tooltip 020');
+    await press(input, 'Enter');
+    expect(location.pathname).toBe('/t/120');
+  });
+
   it('returns from the editor to the same selection and scroll position', async () => {
     const many = build(
       Array.from({ length: 300 }, (_, i) => tooltip(100 + i, `English ${i}`)),

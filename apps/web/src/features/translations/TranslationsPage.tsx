@@ -133,6 +133,7 @@ export function TranslationsPage() {
 
   const translator = user?.role === 'translator';
   const coverage = !translator && available.length > 0;
+  const signature = `${language}|${state}|${category}|${deferredText}`;
   const filtered = !!(state || category || query);
   const unavailable = !!requested && requested !== 'all' && requested !== language;
   const openFirst = (event: KeyboardEvent) => {
@@ -260,7 +261,8 @@ export function TranslationsPage() {
             </p>
           ) : shown.length ? (
             <QueueList
-              key={`${language}|${state}|${category}|${deferredText}`}
+              key={signature}
+              signature={signature}
               rows={shown}
               label={`${languageLabel(language)} tooltips to translate`}
             />

@@ -9,7 +9,7 @@ const defaultRowHeight = 32;
 const overscan = 6;
 
 /** Where each visited queue left off, so Back lands on the same rows. Keyed by history entry. */
-const memory = new Map<string, { top: number; selected: string | null }>();
+const memory = new Map<string, { top: number; selected: string | null; signature: string }>();
 
 export function stateText(row: QueueRow): string {
   return row.state === 'missing' ? 'Missing' : `Outdated · ${behindLabel(row.ageMs ?? 0)}`;
@@ -19,9 +19,19 @@ export function stateText(row: QueueRow): string {
  * Fixed-height rows in a bounded window: a few dozen DOM rows however long the queue. One tab
  * stop; arrows, Home, End and Page keys move the selection, Enter opens it.
  */
-export function QueueList({ rows, label }: { rows: readonly QueueRow[]; label: string }) {
+export function QueueList({
+  rows,
+  label,
+  signature,
+}: {
+  rows: readonly QueueRow[];
+  label: string;
+  /** What the rows are filtered by: a position is only restored for the same view. */
+  signature: string;
+}) {
   const location = useLocation();
-  const saved = memory.get(location.key);
+  const remembered = memory.get(location.key);
+  const saved = remembered?.signature === signature ? remembered : undefined;
   const host = useRef<HTMLDivElement>(null);
   const sizer = useRef<HTMLSpanElement>(null);
   const [selected, setSelected] = useState(() => {
@@ -36,7 +46,7 @@ export function QueueList({ rows, label }: { rows: readonly QueueRow[]; label: s
   const observed = useRef({ rowHeight, viewport });
   observed.current = { rowHeight, viewport };
   // Coming back from the editor, focus returns to the row that was opened.
-  const focusAfterRender = useRef(!!saved?.selected);
+  const focusAfterRender = useRef(!!saved?.selected && document.activeElement === document.body);
   const scrolled = useRef(saved?.top ?? 0);
 
   useLayoutEffect(() => {
@@ -74,8 +84,13 @@ export function QueueList({ rows, label }: { rows: readonly QueueRow[]; label: s
   selectedKey.current = rows[Math.min(selected, rows.length - 1)]?.key ?? null;
   useLayoutEffect(() => {
     const key = location.key;
-    return () => void memory.set(key, { top: scrolled.current, selected: selectedKey.current });
-  }, [location.key]);
+    return () =>
+      void memory.set(key, {
+        top: scrolled.current,
+        selected: selectedKey.current,
+        signature,
+      });
+  }, [location.key, signature]);
 
   const total = rows.length;
   const start = Math.max(0, Math.floor(viewport.top / rowHeight) - overscan);
