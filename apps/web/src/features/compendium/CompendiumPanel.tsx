@@ -29,7 +29,7 @@ import { useDraftStore } from '../../stores/drafts';
 import { compendiumScales, useSettingsStore } from '../../stores/settings';
 import { apiUrl } from '../../services/api';
 import { reviewSaveChanges, useSaveState } from '../../services/save/state';
-import { itemFor } from '../navigation/catalog';
+import { canonicalHash, itemFor } from '../navigation/catalog';
 import { CompendiumDiff, CompendiumDiffModeToggle, useCompendiumDiffMode } from './CompendiumDiff';
 import { RichCell } from './RichCell';
 import { SheetCell, SheetColoursToggle } from './sheetSurface';
@@ -45,6 +45,7 @@ import styles from './Compendium.module.scss';
 import { confirmCompendiumSelection } from './selection';
 import { usePaneMatch } from './usePaneMatch';
 import { useDisplayMatches } from './useDisplayMatches';
+import { createPaneDecodeGuard } from './paneDecodeActivity';
 import { useSteppingActivity } from '../navigation/steppingActivity';
 import { openDraftSaveReview } from '../../services/save/openReview';
 
@@ -218,6 +219,38 @@ export function CompendiumPanel({
   }, [incomingBase, stepping]);
   const editor = useDataStore((state) => state.data);
   const source = useCompendiumStore((state) => state.data);
+  const sourceReady = !!source;
+  const decodeGuard = useMemo(createPaneDecodeGuard, []);
+  useLayoutEffect(() => {
+    if (sourceReady) decodeGuard.begin(incomingBase.hash);
+    else decodeGuard.dispose();
+  }, [incomingBase.hash, sourceReady, decodeGuard]);
+  useLayoutEffect(() => {
+    if (!sourceReady) return;
+    let previousPath = window.location.hash.split('?')[0];
+    const navigation = () => {
+      const path = window.location.hash.split('?')[0];
+      const previous = previousPath;
+      previousPath = path;
+      // Language/variant history can retain an active override whose identity
+      // differs from the route's base. Its incoming prop owns that handoff.
+      if (path === previous) return;
+      const hash = /^#\/t\/(\d+)/.exec(path)?.[1];
+      const oldHash = /^#\/t\/(\d+)/.exec(previous)?.[1];
+      const data = useDataStore.getState().data;
+      const canonical = (value: string) =>
+        data ? canonicalHash(Number(value), data) : Number(value);
+      if (hash && (!oldHash || canonical(hash) !== canonical(oldHash)))
+        decodeGuard.begin(canonical(hash));
+    };
+    window.addEventListener('hashchange', navigation, true);
+    window.addEventListener('popstate', navigation, true);
+    return () => {
+      window.removeEventListener('hashchange', navigation, true);
+      window.removeEventListener('popstate', navigation, true);
+      decodeGuard.dispose();
+    };
+  }, [sourceReady, decodeGuard]);
   const drafts = useDraftStore((state) => state.drafts);
   const userId = useAuthStore((state) => state.user?.id);
   const diffMode = useSettingsStore((state) => state.device.remembered.compendiumDiff);
@@ -317,6 +350,7 @@ export function CompendiumPanel({
       matched={matched}
       matching={matching}
       matchError={matchError}
+      onCommitted={decodeGuard.committed}
     />
   );
 }
@@ -336,6 +370,7 @@ const PaneContents = memo(function PaneContents({
   matched,
   matching,
   matchError,
+  onCommitted,
 }: {
   base: Tooltip;
   pending: boolean;
@@ -349,6 +384,7 @@ const PaneContents = memo(function PaneContents({
   matched: ReturnType<typeof usePaneMatch>;
   matching: boolean;
   matchError?: string;
+  onCommitted(hash: number): void;
 }) {
   const { data: compendium, loading, error, load } = useCompendiumStore();
   const data = useDataStore((state) => state.data);
@@ -410,6 +446,9 @@ const PaneContents = memo(function PaneContents({
   const preparedDiff = usePreparedPaneDiff(comparisonBefore, comparisonAfter, diffMode, stepping);
   const pending = navigating || preparedDiff.pending;
   const waiting = stepping || pending || loading || (!link && matching && !matched);
+  useEffect(() => {
+    if (!waiting) onCommitted(base.hash);
+  }, [base.hash, waiting, onCommitted]);
   const retainedPane = useRef<ReturnType<typeof RightPane>>();
   const hasContent = useRef(false);
   const wasStepping = useRef(false);

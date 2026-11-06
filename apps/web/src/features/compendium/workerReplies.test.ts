@@ -1,5 +1,10 @@
-import { expect, it } from 'vitest';
-import { receiveWorkerResult, sendWorkerResult, type WorkerReply } from './workerReplies';
+import { expect, it, vi } from 'vitest';
+import {
+  receiveWorkerResult,
+  sendWorkerResult,
+  sendWorkerResultYielding,
+  type WorkerReply,
+} from './workerReplies';
 
 it('accepts a selected native-clone value without entering the graph decoder', () => {
   const cell = { plain: 'Selected', runs: [{ text: 'Selected', bold: true }] };
@@ -14,6 +19,40 @@ it('accepts a selected native-clone value without entering the graph decoder', (
   expect(selected.matches.get(123)).toBe(selected.snapshot);
   expect(Object.hasOwn(selected, 'optional')).toBe(true);
   expect(receive({ id: 2, value: undefined })).toEqual({ done: true, value: undefined });
+});
+
+it('yields background encoding without changing partial matches or shared graph identities', async () => {
+  let time = 0;
+  const clock = vi.spyOn(performance, 'now').mockImplementation(() => ++time);
+  const shared = { plain: 'Current row', runs: [{ text: 'Current row', bold: true }] };
+  const matches = new Map([[100, shared]]);
+  const model = { matches, entries: Array.from({ length: 4000 }, (_, hash) => ({ hash, shared })) };
+  const receive = receiveWorkerResult();
+  let partial: unknown,
+    full: typeof model | undefined,
+    yields = 0;
+  try {
+    await sendWorkerResultYielding(
+      (reply) => {
+        const result = receive(structuredClone(reply));
+        if (result.done) full = result.value as typeof model;
+        else if ('partial' in result) partial = result.partial;
+      },
+      1,
+      model,
+      matches,
+      async () => {
+        yields++;
+      },
+    );
+    expect(yields).toBeGreaterThan(1);
+    expect(partial).toEqual(matches);
+    expect(full).toEqual(model);
+    expect(full!.matches).toBe(partial);
+    expect(full!.entries[3999].shared).toBe(full!.matches.get(100));
+  } finally {
+    clock.mockRestore();
+  }
 });
 
 it('batches rich results while preserving maps, undefined values and shared cell identity', () => {

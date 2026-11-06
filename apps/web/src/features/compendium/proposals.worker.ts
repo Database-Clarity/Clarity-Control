@@ -18,7 +18,7 @@ import { compactDisplay, compactProposal } from './compactMatches';
 import { decodePrecomputed, decodeValueNode } from './precomputedCodec';
 import type { GuidanceDocument } from './guidanceSchema';
 import { matchingInputs } from './matchingInputs';
-import { sendWorkerResult, type WorkerReply } from './workerReplies';
+import { sendWorkerResultYielding, type WorkerReply } from './workerReplies';
 const emit = (reply: WorkerReply) =>
   self.postMessage(reply, { transfer: reply.buffer ? [reply.buffer] : [] });
 let editor: EditorData;
@@ -30,6 +30,7 @@ let latestGuide = 0;
 let latestDisplay = 0;
 let latestPriority = 0;
 let lastDisplay: ReturnType<typeof displayMatches> | undefined;
+let lastDisplayInputKey: string | undefined;
 let precomputedDisplay: ReturnType<typeof displayMatches> | undefined;
 let initialized = false;
 let modelToken: number | undefined;
@@ -135,6 +136,20 @@ async function servePriority() {
   if (!request || request.token !== modelToken) return;
   priority = undefined;
   try {
+    if (
+      request.matchesOnly &&
+      lastDisplay &&
+      lastDisplayInputKey === JSON.stringify(request.input)
+    ) {
+      // The complete plan already validated this exact input revision. Publish
+      // its current row before continuing to encode the background catalog.
+      const match = lastDisplay.matches.get(request.hash);
+      self.postMessage({
+        id: request.id,
+        value: new Map(match ? [[request.hash, compactMatch(match)]] : []),
+      });
+      return;
+    }
     const { prepareMatchingPlan, matchingPlanSteps } = await planningModules();
     // A replacement generation may have arrived during module loading.
     if (request.token !== modelToken) throw new Error('Compendium inputs changed.');
@@ -203,6 +218,18 @@ async function servePriority() {
     });
   }
 }
+async function yieldBackgroundReply() {
+  await new Promise<void>((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => {
+      channel.port1.close();
+      channel.port2.close();
+      resolve();
+    };
+    channel.port2.postMessage(null);
+  });
+  await servePriority();
+}
 async function process(data: Request) {
   try {
     if (data.initialChunk) {
@@ -230,7 +257,7 @@ async function process(data: Request) {
       // after priority planning. A selected reply never waits for this asset.
       loadingAsset = loadPreparedAsset();
       source = await fetchingSource;
-      sendWorkerResult(emit, id, source);
+      await sendWorkerResultYielding(emit, id, source, undefined, yieldBackgroundReply);
       fingerprint = undefined;
     } else if (data.initialize) {
       initialized = false;
@@ -256,6 +283,7 @@ async function process(data: Request) {
       loadingAsset = undefined;
       precomputedDisplay = undefined;
       lastDisplay = undefined;
+      lastDisplayInputKey = undefined;
       priorityPlan = undefined;
       priorityProposals.clear();
       if (input.source) fingerprint = undefined;
@@ -348,10 +376,12 @@ async function process(data: Request) {
       );
       for (const [hash, proposal] of proposals) priorityProposals.set(hash, proposal);
       precomputedDisplay = prepared.display;
-      sendWorkerResult(
+      await sendWorkerResultYielding(
         emit,
         id,
         new Map([...proposals].map(([hash, proposal]) => [hash, compactProposal(proposal)])),
+        undefined,
+        yieldBackgroundReply,
       );
       initialized = true;
     } else if (data.guide) {
@@ -390,7 +420,7 @@ async function process(data: Request) {
             )
           ).filter((g) => g.id === categoryId)
         : [];
-      sendWorkerResult(emit, id, groups);
+      await sendWorkerResultYielding(emit, id, groups, undefined, yieldBackgroundReply);
     } else if (data.input) {
       if (!initialized) throw new Error('Compendium initialization has not completed.');
       if (id !== latestDisplay) throw new Error('Superseded Compendium display request.');
@@ -421,10 +451,12 @@ async function process(data: Request) {
         );
       });
       lastDisplay = result;
+      lastDisplayInputKey = JSON.stringify(data.input);
+      await yieldBackgroundReply();
       const compact = compactDisplay(result);
       // The current pane can use the validated match map before review metadata
       // finishes transferring. Every entry in this map has passed the same gates.
-      sendWorkerResult(emit, id, compact, compact.matches);
+      await sendWorkerResultYielding(emit, id, compact, compact.matches, yieldBackgroundReply);
     }
   } catch (error) {
     if (data.initialize || data.load) modelToken = undefined;
