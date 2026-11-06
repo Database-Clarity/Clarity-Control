@@ -128,8 +128,11 @@ export function presentCategory<T extends Category>(category: T): T {
   return { ...category, ...categoryDisplay(category.id) };
 }
 
+/** All categories, presented and in the editor's group and category order (not the generator's). */
 export function presentCategories<T extends Category>(categories: readonly T[]): T[] {
-  return categories.map(presentCategory);
+  return categories
+    .map(presentCategory)
+    .sort((a, b) => groupRank(a.group) - groupRank(b.group) || a.order - b.order);
 }
 
 /** Earlier name of a category, so searches typed from habit still find it. */

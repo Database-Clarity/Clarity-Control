@@ -422,7 +422,7 @@ export function ReviewPage() {
                 <option value="">All categories</option>
                 {categories.map(({ id, label }) => (
                   <option key={id} value={id}>
-                    {label} · {id}
+                    {label}
                   </option>
                 ))}
               </select>

@@ -94,6 +94,21 @@ describe('category registry', () => {
     });
   });
 
+  it('lists presented categories in the editor order, not the generator order', () => {
+    const presented = presentCategories([
+      { id: 'ghost-mod', label: 'Ghost Mod', group: 'Ghost', order: 400 },
+      { id: 'subclass-super', label: 'Subclass Super', group: 'Subclasses', order: 320 },
+      { id: 'armor-mod-general', label: 'Armor Mod General', group: 'Armor', order: 20 },
+      { id: 'weapon-perk', label: 'Weapon Perk', group: 'Weapons', order: 100 },
+    ]);
+    expect(presented.map((entry) => entry.label)).toEqual([
+      'Weapon Parts',
+      'Armor Mods',
+      'Ghost Mods',
+      'Supers',
+    ]);
+  });
+
   it('keeps an unknown id as a visible warning', () => {
     const [presented] = presentCategories([
       { id: 'brand-new', label: 'Brand New', group: 'X', order: 1 },

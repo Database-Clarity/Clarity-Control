@@ -57,7 +57,8 @@
 
 .filters {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  // The category select always has room for the longest label ("Enhanced Origin Traits").
+  grid-template-columns: minmax(0, 1fr) minmax(13rem, 1fr);
   align-items: end;
   gap: 0.75rem;
   margin-block: 1rem;

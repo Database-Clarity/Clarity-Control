@@ -807,7 +807,7 @@ export function ReviewQueue({
             onChange={(e) => filter({ query: e.target.value })}
           />
         </label>
-        <label>
+        <label className={styles.categoryFilter}>
           Category
           <select
             value={
