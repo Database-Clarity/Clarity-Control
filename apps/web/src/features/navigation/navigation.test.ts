@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EditorData } from '../../stores/data';
+import { presentCategories } from '../../services/categoryLabels';
+import { loadManifestFacts } from '../compendium/manifestFacts';
 import {
   canonicalHash,
+  classifiedCategory,
   navigationGroups,
   sharedPerkLabel,
   singleOwnerLabel,
@@ -86,6 +89,34 @@ const data: EditorData = {
 };
 
 describe('tooltip catalog', () => {
+  it('names an item by the category the finder lists it under, not its generator category', () => {
+    // Heavy Bolts: generator weapon-perk, reclassified to Parts with Effects.
+    const bolts = {
+      hash: 1202133695,
+      name: 'Heavy Bolts',
+      icon: '',
+      categoryId: 'weapon-perk',
+      inGameDescription: '',
+    };
+    const boltData: EditorData = {
+      ...data,
+      categories: presentCategories([
+        { id: 'weapon-perk', label: 'Weapon Perk', group: 'Weapons', order: 100 },
+      ]),
+      items: { [bolts.hash]: bolts },
+    };
+    const facts = loadManifestFacts().items[bolts.hash].inventory!;
+    bolts.name = facts.displayName;
+    bolts.inGameDescription = facts.description;
+    expect(classifiedCategory(bolts, boltData)?.label).toBe('Parts with Effects');
+    const sections = navigationGroups(boltData, '').flatMap((group) => group.sections);
+    const listed = sections.find((section) =>
+      section.items.some((item) => item.hash === bolts.hash),
+    );
+    expect(listed?.label).toBe('Parts with Effects');
+    expect(listed?.id).toBe(classifiedCategory(bolts, boltData)?.id);
+  });
+
   it('skips the legacy Default perk placeholder but keeps the other globals', () => {
     const base = { text: {}, associated: [] };
     const withGlobals: EditorData = {

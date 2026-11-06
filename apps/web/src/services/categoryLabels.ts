@@ -88,8 +88,8 @@ export const categorySpecs: Readonly<Record<string, CategorySpec>> = {
   'attachment-effect': spec('Weapons', 155, 'Parts with Effects', 'Attachment Effects'),
 
   'armor-trait-exotic': spec('Armor', 200, 'Exotic Armor Perks', 'Armor Trait Exotic'),
-  'armor-mod-general': spec('Armor', 210, 'Armor Mods', 'Armor Mod General'),
-  'armor-set-bonus': spec('Armor', 220, 'Armor Set Bonuses'),
+  'armor-mod-general': spec('Armor', 220, 'Armor Mods', 'Armor Mod General'),
+  'armor-set-bonus': spec('Armor', 210, 'Armor Set Bonuses'),
   'armor-mod-combat': spec('Armor', 230, 'Combat Mods', 'Armor Mod Combat'),
   'armor-mod-activity': spec('Armor', 240, 'Activity Mods', 'Armor Mod Activity'),
   'armor-mod-seasonal': spec('Armor', 250, 'Artifact Perks', 'Armor Mod Seasonal'),

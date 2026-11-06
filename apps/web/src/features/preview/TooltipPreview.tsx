@@ -19,7 +19,7 @@ import {
 } from '@clarity/core';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
-import { canonicalHash, itemFor, tooltipFor } from '../navigation/catalog';
+import { canonicalHash, classifiedCategory, itemFor, tooltipFor } from '../navigation/catalog';
 import styles from './TooltipPreview.module.scss';
 
 export interface TooltipPreviewProps {
@@ -296,7 +296,7 @@ const AssociatedTooltip = memo(function AssociatedTooltip({
           lang={lang}
           name={name}
           icon={item?.icon}
-          categoryLabel={category?.label}
+          categoryLabel={classifiedCategory(item, data)?.label}
           globals={typed}
         />
       ) : (

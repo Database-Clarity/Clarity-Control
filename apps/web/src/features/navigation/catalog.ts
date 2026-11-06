@@ -33,6 +33,23 @@ export function canonicalHash(hash: number, data: EditorData): number {
   throw new Error(`Cyclic tooltip alias at ${hash}`);
 }
 
+/**
+ * The category the finder lists this item under: the generator's, unless the editor reclassifies
+ * it (Stat-only Parts, Parts with Effects, Inactive & Placeholders). Labels and section choice use
+ * this; the generator category stays the item's identity for matching and export.
+ */
+export function classifiedCategory(
+  item: Item | null | undefined,
+  data: EditorData,
+): Category | undefined {
+  if (!item) return undefined;
+  const id = classifyItem(item, data.bundle.tooltips[item.hash])?.categoryId ?? item.categoryId;
+  return (
+    data.categories.find((category) => category.id === id) ??
+    derivedCategories.find((category) => category.id === id)
+  );
+}
+
 export function tooltipFor(hash: number, data: EditorData): Tooltip {
   return data.bundle.tooltips[hash] ?? { hash, text: {}, associated: [] };
 }

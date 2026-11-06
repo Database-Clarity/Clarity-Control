@@ -26,6 +26,7 @@ import type { CompareData } from '../conflicts/CompareView';
 import { useAuthStore } from '../../stores/auth';
 import {
   canonicalHash,
+  classifiedCategory,
   editorName,
   exoticPiece,
   sharedPerkLabel,
@@ -344,7 +345,7 @@ function TooltipWorkspace({
   });
   const baseEntry = archivedItemFor(hash, data);
   const heading = baseEntry ? editorName(baseEntry) : nameOf(hash);
-  const baseCategory = data.categories.find((candidate) => candidate.id === baseEntry?.categoryId);
+  const baseCategory = classifiedCategory(baseEntry, data);
   const pickedVariant = previewPick?.hash === hash ? previewPick.variant : undefined;
   const selectedView =
     enhancedViews.find((view) => view.hash === pickedVariant) ?? enhancedViews[0];

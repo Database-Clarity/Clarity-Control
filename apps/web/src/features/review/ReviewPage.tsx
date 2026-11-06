@@ -200,12 +200,14 @@ export function ReviewPage() {
     () =>
       [
         ...new Map(
-          entries.map(({ category, categoryId }) => [
+          entries.map(({ category, categoryId, categoryOrder }) => [
             categoryId,
-            { id: categoryId, label: category },
+            { id: categoryId, label: category, order: categoryOrder },
           ]),
         ).values(),
-      ].sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id)),
+      ].sort(
+        (a, b) => a.order - b.order || a.label.localeCompare(b.label) || a.id.localeCompare(b.id),
+      ),
     [entries],
   );
   const routedHash = searchParams.get('hash');
