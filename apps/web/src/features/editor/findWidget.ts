@@ -119,6 +119,7 @@ class FindWidget implements Panel {
   readonly dom: HTMLElement;
   readonly top = true;
   private readonly search: HTMLInputElement;
+  private readonly field: HTMLElement;
   private readonly replace: HTMLInputElement;
   private readonly count: HTMLElement;
   private readonly flags: Record<'case' | 'word' | 're', HTMLButtonElement>;
@@ -176,17 +177,20 @@ class FindWidget implements Panel {
           },
           [element('span', { class: 'fw-chevron', 'aria-hidden': 'true' }, ['›'])],
         );
+    this.field = element('div', { class: 'fw-field' }, [
+      this.search,
+      this.flags.case,
+      this.flags.word,
+      this.flags.re,
+    ]);
     const find = element('div', { class: 'fw-find' }, [
-      element('div', { class: 'fw-field' }, [
-        this.search,
-        this.flags.case,
-        this.flags.word,
-        this.flags.re,
+      this.field,
+      element('div', { class: 'fw-nav' }, [
+        this.count,
+        action('prev', 'Previous match', 'Previous match (Shift+Enter)', '↑'),
+        action('next', 'Next match', 'Next match (Enter)', '↓'),
+        action('closeFind', 'Close', 'Close (Escape)', '×'),
       ]),
-      this.count,
-      action('prev', 'Previous match', 'Previous match (Shift+Enter)', '↑'),
-      action('next', 'Next match', 'Next match (Enter)', '↓'),
-      action('closeFind', 'Close', 'Close (Escape)', '×'),
     ]);
     const rows: Node[] = [find];
     if (!readOnly) {
@@ -271,7 +275,9 @@ class FindWidget implements Panel {
     this.flags.case.setAttribute('aria-pressed', String(query.caseSensitive));
     this.flags.re.setAttribute('aria-pressed', String(query.regexp));
     this.flags.word.setAttribute('aria-pressed', String(query.wholeWord));
-    this.search.toggleAttribute('data-invalid', Boolean(query.search) && !query.valid);
+    const invalid = Boolean(query.search) && !query.valid;
+    this.search.toggleAttribute('data-invalid', invalid);
+    this.field.toggleAttribute('data-invalid', invalid);
   }
 
   private commit() {

@@ -1,12 +1,15 @@
 @use '../../data/variables' as theme;
 @use '../../ui/controls';
 
+// Touch and narrow phones: the find row splits into the field and, beneath it, the count and
+// buttons, so nothing shrinks below a usable size or wraps inside a control. (Wider screens wrap
+// the same way by themselves when the field's basis no longer fits beside the buttons.)
 @mixin find-stacked {
-  :global(.fw-find) {
-    flex-wrap: wrap;
+  :global(.fw-find .fw-field) {
+    flex-basis: 100%;
   }
-  :global(.fw-find > .fw-field) {
-    flex: 1 0 100%;
+  :global(.fw-nav) {
+    flex: 1 1 100%;
   }
   :global(.fw-count) {
     flex: 1 1 0;
@@ -186,7 +189,6 @@
   }
   :global(.cm-editor .cm-panel.cm-search) {
     @include controls.overlay-surface;
-    container-type: inline-size;
     display: flex;
     gap: 0.125rem;
     box-sizing: border-box;
@@ -194,11 +196,6 @@
     padding: 0.1875rem;
     pointer-events: auto;
     border-radius: 0.25rem;
-    // Narrow editors and touch: the find row splits into the field and, beneath it, the count and
-    // buttons, so nothing shrinks below a usable size or wraps inside a control.
-    @container (max-width: 23rem) {
-      @include find-stacked;
-    }
     @include theme.mobile-or-coarse {
       width: 100%;
       @include find-stacked;
@@ -248,16 +245,31 @@
   :global(.cm-search .fw-find),
   :global(.cm-search .fw-replace) {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.125rem;
     align-items: center;
     min-width: 0;
   }
+  // The replace row never wraps: its field shrinks beside the two buttons.
+  :global(.cm-search .fw-replace) {
+    flex-wrap: nowrap;
+  }
+  :global(.cm-search .fw-replace .fw-field) {
+    flex-basis: 0;
+  }
   :global(.cm-search[data-replace='closed'] .fw-replace) {
     display: none;
   }
+  // The field takes what is left, down to 11rem; below that the buttons drop to a row of their own.
+  :global(.cm-search .fw-nav) {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    margin-left: auto;
+  }
   :global(.cm-search .fw-field) {
     display: flex;
-    flex: 1 1 auto;
+    flex: 1 1 11rem;
     gap: 1px;
     align-items: center;
     min-width: 0;
@@ -268,7 +280,7 @@
     &:focus-within {
       border-color: var(--accent-ink);
     }
-    &:has([data-invalid]) {
+    &[data-invalid] {
       border-color: var(--danger);
     }
   }
