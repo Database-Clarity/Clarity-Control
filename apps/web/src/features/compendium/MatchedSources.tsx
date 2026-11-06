@@ -7,6 +7,7 @@ import { itemFor } from '../navigation/catalog';
 import { useCompendiumStore } from './store';
 import { useDisplayMatches } from './useDisplayMatches';
 import styles from './Compendium.module.scss';
+import { nonEmptyCategories } from '../../services/categoryLabels';
 
 export function MatchedSources() {
   const editor = useDataStore((s) => s.data);
@@ -60,7 +61,7 @@ export function MatchedSources() {
         Category{' '}
         <select value={category} onChange={(e) => filter('matchedCategory', e.target.value)}>
           <option value="">All categories</option>
-          {editor?.categories.map((entry) => (
+          {(editor ? nonEmptyCategories(editor) : []).map((entry) => (
             <option key={entry.id} value={entry.id}>
               {entry.label}
             </option>

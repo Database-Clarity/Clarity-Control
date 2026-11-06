@@ -1,3 +1,4 @@
+import { previousCategoryLabel } from '../../services/categoryLabels';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import { apiUrl } from '../../services/api';
@@ -189,7 +190,7 @@ export function ReviewPage() {
             ({ name, category, categoryId, tooltip }) =>
               (!categoryFilter || categoryId === categoryFilter) &&
               (!query ||
-                `${name} ${category} ${categoryId} ${tooltip.hash}`
+                `${name} ${category} ${categoryId} ${previousCategoryLabel(categoryId)} ${tooltip.hash}`
                   .toLowerCase()
                   .includes(query.toLowerCase())),
           ),
@@ -199,12 +200,14 @@ export function ReviewPage() {
     () =>
       [
         ...new Map(
-          entries.map(({ category, categoryId }) => [
+          entries.map(({ category, categoryId, categoryOrder }) => [
             categoryId,
-            { id: categoryId, label: category },
+            { id: categoryId, label: category, order: categoryOrder },
           ]),
         ).values(),
-      ].sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id)),
+      ].sort(
+        (a, b) => a.order - b.order || a.label.localeCompare(b.label) || a.id.localeCompare(b.id),
+      ),
     [entries],
   );
   const routedHash = searchParams.get('hash');
@@ -311,7 +314,7 @@ export function ReviewPage() {
       ({ name, category, categoryId, tooltip }) =>
         (!categoryValue || categoryId === categoryValue) &&
         (!queryValue ||
-          `${name} ${category} ${categoryId} ${tooltip.hash}`
+          `${name} ${category} ${categoryId} ${previousCategoryLabel(categoryId)} ${tooltip.hash}`
             .toLowerCase()
             .includes(queryValue.toLowerCase())),
     );
@@ -421,7 +424,7 @@ export function ReviewPage() {
                 <option value="">All categories</option>
                 {categories.map(({ id, label }) => (
                   <option key={id} value={id}>
-                    {label} · {id}
+                    {label}
                   </option>
                 ))}
               </select>

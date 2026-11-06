@@ -3,6 +3,7 @@ import { currentArtifactOwners } from '../compendium/artifactIdentity';
 import { resolveAlias, type Tooltip, type CompendiumData } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import type { Category, Item } from '../../services/generator';
+import { categoryDisplay, groupRank } from '../../services/categoryLabels';
 
 const canonicalIndexes = new WeakMap<EditorData, Map<number, number>>();
 export function canonicalHash(hash: number, data: EditorData): number {
@@ -30,6 +31,24 @@ export function canonicalHash(hash: number, data: EditorData): number {
     hash = target;
   }
   throw new Error(`Cyclic tooltip alias at ${hash}`);
+}
+
+/**
+ * The category the finder lists this item under: the generator's, unless the editor reclassifies
+ * it (Stat-only Parts, Parts with Effects, Inactive & Placeholders). Labels and section choice use
+ * this; the generator category stays the item's identity for matching and export.
+ */
+export function classifiedCategory(
+  item: Item | null | undefined,
+  data: EditorData,
+): Category | undefined {
+  if (!item) return undefined;
+  const id = classifyItem(item, data.bundle.tooltips[item.hash])?.categoryId ?? item.categoryId;
+  // An id the catalog does not know is listed under its own "Other: <id>" section.
+  return (
+    data.categories.find((category) => category.id === id) ??
+    derivedCategories.find((category) => category.id === id) ?? { id, ...categoryDisplay(id) }
+  );
 }
 
 export function tooltipFor(hash: number, data: EditorData): Tooltip {
@@ -143,7 +162,19 @@ function matchesOwner(item: Item, data: EditorData, search: string): boolean {
 
 /** The generator category of exotic armour perks; the finder lists the armour pieces instead. */
 export const exoticArmourCategory = 'armor-trait-exotic';
-export const exoticArmourLabel = 'Exotic Armor';
+
+/**
+ * The legacy bundle's placeholder tooltip (hash 0, "Default perk", custom category "none"): it
+ * carries the editor's sample text and no item, so it is not listed. The tooltip stays in the
+ * bundle and in the export; only the finder skips it.
+ */
+export function isDefaultPerkPlaceholder(hash: number, data: EditorData): boolean {
+  const custom = data.bundle.tooltips[hash]?.custom;
+  return hash === 0 && !data.items[0] && custom?.name === 'Default perk';
+}
+
+/** What the editor calls the exotic armour perk category (registry label, also used by worklists). */
+export const exoticArmourLabel = categoryDisplay(exoticArmourCategory).label;
 
 /**
  * A finder entry. Exotic armour entries are named after the piece; `perkName` is the perk they
@@ -253,7 +284,12 @@ export function navigationGroups(data: EditorData, query: string): CategoryGroup
   const items = Object.values(data.items)
     .concat(
       Object.values(data.bundle.tooltips)
-        .filter((tooltip) => !data.items[tooltip.hash] && tooltip.custom)
+        .filter(
+          (tooltip) =>
+            !data.items[tooltip.hash] &&
+            tooltip.custom &&
+            !isDefaultPerkPlaceholder(tooltip.hash, data),
+        )
         .map((tooltip) => itemFor(tooltip.hash, data)!),
     )
     .filter(
@@ -284,11 +320,14 @@ export function navigationGroups(data: EditorData, query: string): CategoryGroup
   ];
   for (const item of classifiedItems) {
     if (!categories.some((category) => category.id === item.categoryId)) {
-      categories.push({ id: item.categoryId, label: item.categoryId, group: 'Other', order: 9999 });
+      categories.push({ id: item.categoryId, ...categoryDisplay(item.categoryId) });
     }
   }
   const groups = new Map<string, CategoryGroup>();
-  for (const category of categories.sort((a, b) => a.order - b.order)) {
+  const ranked = categories.sort(
+    (a, b) => groupRank(a.group) - groupRank(b.group) || a.order - b.order,
+  );
+  for (const category of ranked) {
     const entries = classifiedItems
       .filter((item) => item.categoryId === category.id)
       .sort(
@@ -302,7 +341,6 @@ export function navigationGroups(data: EditorData, query: string): CategoryGroup
     const group = groups.get(category.group) ?? { name: category.group, sections: [] };
     group.sections.push({
       ...category,
-      label: category.id === exoticArmourCategory ? exoticArmourLabel : category.label,
       items: entries,
     });
     groups.set(category.group, group);

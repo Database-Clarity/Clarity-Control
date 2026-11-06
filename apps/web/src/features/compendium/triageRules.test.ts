@@ -336,3 +336,20 @@ it('recovers compound cells on unseen real abilities, follows layout moves, and 
     ),
   ).toHaveLength(2);
 });
+
+it('groups the crossbow bolts with the other parts that carry an effect', () => {
+  for (const hash of [1202133695, 2523856971]) {
+    const inv = facts.items[hash].inventory!;
+    const item = {
+      hash,
+      name: inv.displayName,
+      icon: '',
+      categoryId: 'weapon-perk',
+      inGameDescription: inv.description,
+    } as EditorData['items'][string];
+    expect(inferItemClassification(item, facts.items[hash])).toMatchObject({
+      categoryId: effectCategory,
+      excluded: false,
+    });
+  }
+});

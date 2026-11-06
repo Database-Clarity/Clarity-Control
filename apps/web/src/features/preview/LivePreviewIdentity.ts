@@ -1,7 +1,7 @@
 import { createContext } from 'react';
 import type { EditorData } from '../../stores/data';
 import { archiveCategoryLabel, archivedItemFor } from '../archive/archive';
-import { exoticPiece, tooltipFor } from '../navigation/catalog';
+import { classifiedCategory, exoticPiece, tooltipFor } from '../navigation/catalog';
 
 /** Route identity paints independently of the deferred editor and preview document. */
 export interface PreviewIdentity {
@@ -20,7 +20,7 @@ export function previewIdentityFor(
   readOnly = false,
 ): PreviewIdentity {
   const item = data && archivedItemFor(hash, data);
-  const category = data?.categories.find((entry) => entry.id === item?.categoryId);
+  const category = data ? classifiedCategory(item, data) : undefined;
   const archived =
     readOnly || Boolean(data && hash > 3 && !data.items[hash] && !tooltipFor(hash, data).custom);
   return {

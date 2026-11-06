@@ -16,6 +16,7 @@ import { bundleUrl } from '../../services/bundle';
 import { compendiumDataUrl } from '../../services/compendium';
 import { sourceFingerprint } from './reviewProgress';
 import { inScopeCategory } from './reviewScope';
+import { previousCategoryLabel } from '../../services/categoryLabels';
 
 export type CategoryReviewRouteState = {
   query: string;
@@ -92,7 +93,11 @@ export function CategoryReview({
   const filtered = useMemo(
     () =>
       scopedCategories.filter((category) =>
-        `${category.name} ${category.group}`.toLowerCase().includes(query.toLowerCase()),
+        `${category.name} ${category.group} ${previousCategoryLabel(
+          decodeURIComponent(category.id.replace(/^catalog:/, '')),
+        )}`
+          .toLowerCase()
+          .includes(query.toLowerCase()),
       ),
     [scopedCategories, query],
   );

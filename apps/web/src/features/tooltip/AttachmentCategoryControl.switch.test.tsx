@@ -105,7 +105,7 @@ it('accepts a pre-existing identity identical to a saved switch override', async
   const [, change] = update.mock.calls.at(-1)!;
   expect(JSON.stringify(change(saved))).toBe(JSON.stringify(empty));
 });
-it('switches a native Attachment Effect to Weapon Attachments and back, byte-identical', async () => {
+it('switches a native Parts with Effects entry to Stat-only Parts and back, byte-identical', async () => {
   const native = { ...empty, hash: nativeEffect.hash };
   for (const role of ['editor', 'maintainer'] as const) {
     useAuthStore.setState({ user: { id: 1, login: 'e', role } });
@@ -140,8 +140,8 @@ it('classifies a native effect with the weapon-attachment override as an exclude
 it('shows a two-way switch with both labels', async () => {
   await render(empty);
   expect(buttons().map((b) => b.textContent)).toEqual([
-    'Weapon Attachments (no tooltip)',
-    'Attachment Effects (needs tooltip)',
+    'Stat-only Parts (no tooltip)',
+    'Parts with Effects (needs tooltip)',
   ]);
   expect(buttons()[0].getAttribute('aria-pressed')).toBe('true');
 });

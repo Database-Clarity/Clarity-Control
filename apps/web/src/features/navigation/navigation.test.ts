@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EditorData } from '../../stores/data';
+import { presentCategories } from '../../services/categoryLabels';
+import { loadManifestFacts } from '../compendium/manifestFacts';
 import {
   canonicalHash,
+  classifiedCategory,
   navigationGroups,
   sharedPerkLabel,
   singleOwnerLabel,
@@ -86,6 +89,64 @@ const data: EditorData = {
 };
 
 describe('tooltip catalog', () => {
+  it('names an item by the category the finder lists it under, not its generator category', () => {
+    // Heavy Bolts: generator weapon-perk, reclassified to Parts with Effects.
+    const bolts = {
+      hash: 1202133695,
+      name: 'Heavy Bolts',
+      icon: '',
+      categoryId: 'weapon-perk',
+      inGameDescription: '',
+    };
+    const boltData: EditorData = {
+      ...data,
+      categories: presentCategories([
+        { id: 'weapon-perk', label: 'Weapon Perk', group: 'Weapons', order: 100 },
+      ]),
+      items: { [bolts.hash]: bolts },
+    };
+    const facts = loadManifestFacts().items[bolts.hash].inventory!;
+    bolts.name = facts.displayName ?? bolts.name;
+    bolts.inGameDescription = facts.description ?? bolts.inGameDescription;
+    expect(classifiedCategory(bolts, boltData)?.label).toBe('Parts with Effects');
+    const sections = navigationGroups(boltData, '').flatMap((group) => group.sections);
+    const listed = sections.find((section) =>
+      section.items.some((item) => item.hash === bolts.hash),
+    );
+    expect(listed?.label).toBe('Parts with Effects');
+    expect(listed?.id).toBe(classifiedCategory(bolts, boltData)?.id);
+  });
+
+  it('skips the legacy Default perk placeholder but keeps the other globals', () => {
+    const base = { text: {}, associated: [] };
+    const withGlobals: EditorData = {
+      ...data,
+      bundle: {
+        ...data.bundle,
+        tooltips: {
+          ...data.bundle.tooltips,
+          0: { ...base, hash: 0, custom: { name: 'Default perk', categoryId: 'none' } },
+          1: { ...base, hash: 1, custom: { name: 'Global exports', categoryId: 'none' } },
+        },
+      },
+    };
+    const names = navigationGroups(withGlobals, '').flatMap((group) =>
+      group.sections.flatMap((section) => section.items.map((item) => item.name)),
+    );
+    expect(names).toContain('Global exports');
+    expect(names).not.toContain('Default perk');
+    expect(navigationGroups(withGlobals, 'default perk').flatMap((g) => g.sections)).toEqual([]);
+    expect(withGlobals.bundle.tooltips[0]).toBeDefined();
+    const other = navigationGroups(withGlobals, '').find((group) => group.name === 'Other')!;
+    expect(other.sections[0].label).toBe('Other: none');
+    // Opening a global keeps the finder on its own section (it used to fall back to the first).
+    const globalItem = other.sections[0].items[0];
+    expect(classifiedCategory(globalItem, withGlobals)).toMatchObject({
+      id: 'none',
+      label: 'Other: none',
+    });
+  });
+
   it('retains and discovers single owner identity with fallback names', () => {
     const single: EditorData = {
       ...data,
@@ -278,12 +339,12 @@ describe('tooltip catalog', () => {
   });
   it('groups categories in order and lists variants only with their base', () => {
     const groups = navigationGroups(data, '');
-    expect(groups.map((group) => group.name)).toEqual(['Armor', 'Weapons', 'Other']);
+    expect(groups.map((group) => group.name)).toEqual(['Weapons', 'Armor', 'Other']);
     expect(
       groups.flatMap((group) =>
         group.sections.flatMap((section) => section.items.map((item) => item.hash)),
       ),
-    ).toEqual([20, 10, 2]);
+    ).toEqual([10, 20, 2]);
   });
   it('searches names, base hashes, variant hashes, and sandbox hashes', () => {
     for (const search of ['BASE', 'Enhanced', '10', '11', '99']) {

@@ -6,6 +6,8 @@ import { allowBackgroundCode } from '../../workspacePreload';
 import { useSidebarQueueStore, type SidebarPendingChange } from '../navigation/sidebarQueue';
 export { canPushLive as canPush } from '../auth/permissions';
 
+import { categoryDisplay } from '../../services/categoryLabels';
+
 export interface PendingTooltip {
   tooltip: Tooltip;
   name: string;
@@ -106,9 +108,9 @@ async function computePending(
     return {
       tooltip,
       name: item?.name ?? tooltip.custom?.name ?? `Tooltip ${tooltip.hash}`,
-      category: category?.label ?? categoryId,
+      category: (category ?? categoryDisplay(categoryId)).label,
       categoryId,
-      categoryOrder: category?.order ?? 9999,
+      categoryOrder: (category ?? categoryDisplay(categoryId)).order,
       ...(!item && !tooltip.custom
         ? { unpublishable: 'No generator entry for this tooltip, so it cannot be pushed.' }
         : {}),

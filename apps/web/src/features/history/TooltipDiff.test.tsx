@@ -13,8 +13,8 @@ const withCustom = (name: string, categoryId: string): Tooltip => ({
   ...plain,
   custom: { name, categoryId },
 });
-const F = 'Category: Weapon Attachments → Attachment Effects';
-const R = 'Category: Attachment Effects → Weapon Attachments';
+const F = 'Category: Stat-only Parts → Parts with Effects';
+const R = 'Category: Parts with Effects → Stat-only Parts';
 it('renders every published language immediately, including language removals', () => {
   const before: Tooltip = {
     ...plain,

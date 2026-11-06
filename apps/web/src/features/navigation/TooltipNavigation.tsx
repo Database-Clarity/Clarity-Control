@@ -26,6 +26,7 @@ import {
   workspaceShortcutsBlocked,
 } from '../../ui/interaction';
 import {
+  classifiedCategory,
   frameGroupSize,
   itemFor,
   listName,
@@ -345,7 +346,9 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   const hash = Number(pathname(urgentTarget ?? location.pathname).split('/')[2]);
   const sections = useMemo(() => groups.flatMap((group) => group.sections), [groups]);
   const selectedCategory =
-    sections.find((category) => category.id === itemFor(hash, data)?.categoryId) ?? sections[0];
+    sections.find(
+      (category) => category.id === classifiedCategory(itemFor(hash, data), data)?.id,
+    ) ?? sections[0];
   const items = selectedCategory?.items ?? noItems;
   const hashes = useMemo(() => items.map((item) => item.hash), [items]);
   const indexes = useMemo(() => new Map(hashes.map((value, index) => [value, index])), [hashes]);

@@ -29,8 +29,8 @@ const aeonOwners = {
 };
 const data = {
   categories: [
-    { id: 'armor-trait-exotic', label: 'Armor Trait Exotic', group: 'Armor', order: 10 },
-    { id: 'weapon-perk', label: 'Weapon Perk', group: 'Weapons', order: 20 },
+    { id: 'armor-trait-exotic', label: 'Exotic Armor Perks', group: 'Armor', order: 10 },
+    { id: 'weapon-perk', label: 'Weapon Parts', group: 'Weapons', order: 20 },
   ],
   items: {
     1: perk(1, 'Chaotic Exchanger', {
@@ -65,7 +65,7 @@ const exotic = (source = data, query = '') =>
 describe('exotic armour in the list', () => {
   it('lists the armour piece, labelled as exotic armour, and opens the same perk hash', () => {
     const section = exotic()!;
-    expect(section.label).toBe('Exotic Armor');
+    expect(section.label).toBe('Exotic Armor Perks');
     expect(section.items.map((entry) => [entry.hash, entry.name, entry.perkName])).toEqual([
       [3, 'Aeon Safe/Soul/Swift · Sect of Force', 'Sect of Force'],
       [4, 'Aeon Safe/Soul/Swift · Sect of Insight', 'Sect of Insight'],
@@ -80,7 +80,7 @@ describe('exotic armour in the list', () => {
     const weapons = navigationGroups(data, '')
       .flatMap((group) => group.sections)
       .find((section) => section.id === 'weapon-perk')!;
-    expect(weapons.label).toBe('Weapon Perk');
+    expect(weapons.label).toBe('Weapon Parts');
     expect(weapons.items.map((entry) => entry.name)).toEqual(['Outlaw']);
     expect(listName(data.items[20], data)).toBe('Outlaw');
     expect(listName(data.items[1], data)).toBe('Contraverse Hold');
@@ -180,7 +180,7 @@ describe('exotic armour in the finder', () => {
     await mount('/t/1');
     expect(field().value).toBe('Contraverse Hold');
     expect(host.querySelector<HTMLSelectElement>('select')!.selectedOptions[0].textContent).toBe(
-      'Exotic Armor (5)',
+      'Exotic Armor Perks (5)',
     );
     await act(async () => root.render(null));
     await mount('/t/4');

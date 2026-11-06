@@ -13,6 +13,7 @@ export {
   type Item,
 } from './generatorSchema';
 import { categorySchema, itemsSchema } from './generatorSchema';
+import { presentCategories } from './categoryLabels';
 
 export async function loadGenerator(signal?: AbortSignal) {
   const [categories, items, aliases] = await Promise.all([
@@ -21,7 +22,7 @@ export async function loadGenerator(signal?: AbortSignal) {
     fetchJson(`${source}/aliases.json`, aliasesSchema, { signal }),
   ]);
   return {
-    categories,
+    categories: presentCategories(categories),
     items,
     aliases,
   };

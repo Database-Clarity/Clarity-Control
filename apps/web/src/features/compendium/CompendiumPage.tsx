@@ -8,6 +8,7 @@ import { compendiumChanges } from './tracking';
 import { useCompendiumStore } from './store';
 import { CompendiumFreshness } from './CompendiumFreshness';
 import styles from './Compendium.module.scss';
+import { nonEmptyCategories } from '../../services/categoryLabels';
 
 export function CompendiumPage() {
   const editor = useDataStore((state) => state.data);
@@ -95,7 +96,7 @@ export function CompendiumPage() {
           onChange={(event) => setFilter('linkedCategory', event.target.value)}
         >
           <option value="">All categories</option>
-          {editor.categories.map((entry) => (
+          {nonEmptyCategories(editor).map((entry) => (
             <option key={entry.id} value={entry.id}>
               {entry.label}
             </option>
