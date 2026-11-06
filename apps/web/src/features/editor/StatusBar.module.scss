@@ -156,8 +156,12 @@
 
   @include theme.mobile-or-coarse {
     min-height: max(44px, 2.75rem);
-    min-width: max(44px, 2.75rem);
-    padding: 0 0.5rem;
+    // A 44px target at any interface scale; 2.75rem would be 66px at 150% and push the last
+    // item (Suggest) out of a 390px phone.
+    min-width: max(44px, 2rem);
+    // Tight sides: with an issue count, Markup, a character warning and Suggest all showing, the
+    // bar still fits a 390px phone at 150% (the touch target is the min-width and height).
+    padding: 0 0.25rem;
     font-size: inherit;
 
     kbd {

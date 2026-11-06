@@ -18,7 +18,7 @@
   display: none;
 }
 
-// The mark alone: square, 24px.
+// The mark alone: square, 24px (the phone's workspaces button).
 .mark {
   display: inline-flex;
   line-height: 0;
@@ -28,6 +28,15 @@
     width: 1.5rem;
     height: 1.5rem;
     border-radius: 0.25rem;
+  }
+}
+// In the desktop header the mark replaces the lockup at the lockup's height, so the bar never
+// changes height and the artwork keeps its weight.
+.brand .mark {
+  .dark,
+  .light {
+    width: 1.75rem;
+    height: 1.75rem;
   }
 }
 :global(:root[data-theme='light']) {

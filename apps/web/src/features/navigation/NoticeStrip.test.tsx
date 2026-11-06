@@ -93,6 +93,31 @@ describe('notice strip', () => {
     expect(levels()).toEqual(['alert', 'warning']);
   });
 
+  it('dismisses a focused notice with Esc and hands focus back to where it came from', () => {
+    const outside = document.createElement('button');
+    document.body.append(outside);
+    render([alert, warning]);
+    act(() => outside.focus());
+    const dismiss = host.querySelector<HTMLButtonElement>('[data-level="alert"] button')!;
+    act(() => dismiss.focus());
+    act(() => {
+      dismiss.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(levels()).toEqual(['warning']);
+    expect(document.activeElement).toBe(outside);
+    outside.remove();
+  });
+
+  it('keeps Esc from dismissing a prompt that needs an answer', () => {
+    render([{ ...alert, actions: [{ label: 'Retry', onClick() {} }], dismissible: false }]);
+    const retry = host.querySelector<HTMLButtonElement>('button')!;
+    act(() => retry.focus());
+    act(() => {
+      retry.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(levels()).toEqual(['alert']);
+  });
+
   it('runs explicit actions and hides Dismiss on a prompt that needs an answer', () => {
     const retry = vi.fn();
     render([{ ...alert, actions: [{ label: 'Retry', onClick: retry }], dismissible: false }]);

@@ -7,10 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MarkupGlobals } from '@clarity/core';
 import { ClarityEditor } from './ClarityEditor';
 import { useSettingsStore } from '../../stores/settings';
-import { findSymbols, findTags, symbolExtensions } from './symbols';
+import { findSymbols, findTags, pinTag, symbolExtensions } from './symbols';
 
 const globals: MarkupGlobals = { variables: '', titles: '' };
-const doc = 'Deal <arc/> damage <yellow 5 <solar/> /> and <pve 3 /> done.\n<void/>';
+const doc = 'Deal <arc/> damage <yellow 5 /> <solar/> and <pve 3 /> done.\n<void/>';
 
 let host: HTMLDivElement;
 let root: Root;
@@ -63,7 +63,7 @@ describe('findSymbols / findTags', () => {
     expect(findSymbols('<unknown/> <notatag >')).toEqual([]);
   });
 
-  it('pairs colour tags per line (outer before inner) with the markup ranges', () => {
+  it('pairs colour tags per line with the markup ranges', () => {
     const found = findTags(doc).map((t) => [
       t.name,
       doc.slice(t.from, t.openTo),
@@ -71,17 +71,20 @@ describe('findSymbols / findTags', () => {
       doc.slice(t.closeFrom, t.to),
     ]);
     expect(found).toEqual([
-      ['yellow', '<yellow ', '5 <solar/>', ' />'],
+      ['yellow', '<yellow ', '5', ' />'],
       ['pve', '<pve ', '3', ' />'],
     ]);
   });
 
-  it('nests: the inner tag is listed after the outer and encloses a sub-range', () => {
+  it('does not nest, like the converter: the first /> closes the tag and the rest is plain text', () => {
     const text = '<yellow a <blue b /> c /> d';
-    const [outer, inner] = findTags(text);
-    expect([outer.name, inner.name]).toEqual(['yellow', 'blue']);
-    expect(text.slice(outer.openTo, outer.closeFrom)).toBe('a <blue b /> c');
-    expect(text.slice(inner.openTo, inner.closeFrom)).toBe('b');
+    const tags = findTags(text);
+    expect(tags.map((t) => t.name)).toEqual(['yellow']);
+    expect(text.slice(tags[0].openTo, tags[0].closeFrom)).toBe('a <blue b');
+    expect(text.slice(tags[0].to)).toBe(' c /> d');
+    // An icon inside a colour tag is part of that tag's text, not a symbol (the preview shows it raw).
+    expect(findSymbols('<yellow 5 <solar/> /> <arc/>').map((s) => s.name)).toEqual(['arc']);
+    expect(findSymbols('<yellow 5 /> <arc/>').map((s) => s.name)).toEqual(['arc']);
   });
 
   it('leaves unpaired tags, stray closings, other tags and empty tags raw', () => {
@@ -89,8 +92,9 @@ describe('findSymbols / findTags', () => {
     expect(findTags('<yellow lone')).toEqual([]);
     expect(findTags('<yellow one\ntwo />')).toEqual([]);
     expect(findTags('<pve /> <pvp  />')).toEqual([]);
-    // A non-colour tag inside does not steal the closing of the colour tag.
+    // A non-colour tag inside ends the token at its own />, as in the preview.
     expect(findTags('<yellow a <link b /> c />').map((t) => t.name)).toEqual(['yellow']);
+    expect(findTags('<yellow a <link b [x] /> c />').map((t) => t.to)).toEqual([24]);
   });
 });
 
@@ -202,7 +206,7 @@ describe('symbol view', () => {
     expect(changes).toEqual([]);
     expect(symbols().map((s) => s.dataset.symbol)).toEqual(['arc', 'solar', 'void']);
     expect(tints().map((t) => [t.className, t.textContent])).toEqual([
-      ['cm-tint cm-tint-yellow', '5 '],
+      ['cm-tint cm-tint-yellow', '5'],
       ['cm-tint cm-tint-pve', '3'],
     ]);
     // The markup is hidden; the text is not.
@@ -213,15 +217,13 @@ describe('symbol view', () => {
     expect(view.state.sliceDoc(0, view.state.doc.length)).toBe(doc);
   });
 
-  it('tints nested tags with the inner one winning, and leaves an unpaired tag raw', () => {
+  it('tints a tag up to its first />, as the preview does, and leaves an unpaired tag raw', () => {
     mount('<yellow a <blue b /> c /> <green lone');
-    // One span per tag; the blue one sits inside the yellow one, so the inner tint wins.
+    // The preview shows "a <blue b" in yellow and " c />" as plain text.
     expect(tints().map((t) => [t.className, t.textContent])).toEqual([
-      ['cm-tint cm-tint-yellow', 'a b c'],
-      ['cm-tint cm-tint-blue', 'b'],
+      ['cm-tint cm-tint-yellow', 'a <blue b'],
     ]);
-    expect(host.querySelector('.cm-tint-yellow .cm-tint-blue')).not.toBeNull();
-    expect(content()).toContain('<green lone');
+    expect(content()).toContain('a <blue b c /> <green lone');
     expect(content()).not.toContain('<yellow');
   });
 
@@ -321,10 +323,12 @@ describe('symbol view', () => {
     expect(host.querySelector('.cm-symbol-popover')).toBeNull();
   });
 
-  it('a selected tag edits its colour with Enter and loses its markup (keeping the text) with Backspace', () => {
+  it('a pinned tag edits its colour with Enter and loses its markup (keeping the text) with Backspace', () => {
     const { view } = mount();
     const inner = doc.indexOf('3');
-    act(() => view.dispatch({ selection: { anchor: inner, head: inner + 1 } }));
+    act(() =>
+      view.dispatch({ selection: { anchor: inner, head: inner + 1 }, effects: pinTag.of(true) }),
+    );
     expect(host.querySelector('.cm-symbol-popover code')?.textContent).toBe('<pve … />');
     expect(host.querySelector('.cm-symbol-hint')?.textContent).toContain('remove tag');
     act(() => {
@@ -345,16 +349,50 @@ describe('symbol view', () => {
     expect(view.state.doc.toString()).toBe(doc.replace('<pve 3 />', '3'));
   });
 
-  it('a selection of the whole tag also removes just the markup, keeping the text', () => {
+  it('selecting a tinted word (a double-click) does not pin the tag: no popover, Backspace is plain', () => {
     const { view } = mount('x <yellow ab /> y');
-    act(() => view.dispatch({ selection: { anchor: 2, head: 15 } }));
+    act(() => view.dispatch({ selection: { anchor: 10, head: 12 } }));
+    expect(host.querySelector('.cm-symbol-popover')).toBeNull();
+    // Backspace deletes the selected word (the editor's own behaviour), not the tag around it.
     act(() => {
       key(view, { key: 'Backspace' });
     });
-    expect(view.state.doc.toString()).toBe('x ab y');
+    expect(view.state.doc.toString()).toBe('x <yellow  /> y');
+    act(() =>
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: 'x <yellow ab /> y' },
+      }),
+    );
+    // Neither does selecting the whole tag with the keyboard.
+    act(() => view.dispatch({ selection: { anchor: 2, head: 15 } }));
+    expect(host.querySelector('.cm-symbol-popover')).toBeNull();
   });
 
-  it('Alt+click on tinted text selects the tag text and shows its popover', () => {
+  it('a pin ends with the next selection change or edit', () => {
+    const { view } = mount('x <yellow ab /> y');
+    act(() => view.dispatch({ selection: { anchor: 10, head: 12 }, effects: pinTag.of(true) }));
+    expect(host.querySelector('.cm-symbol-popover')).not.toBeNull();
+    act(() => view.dispatch({ selection: { anchor: 10, head: 11 } }));
+    expect(host.querySelector('.cm-symbol-popover')).toBeNull();
+  });
+
+  it('emptying a tag edit removes the tag cleanly, with no stray " />"', () => {
+    const { view } = mount('x <yellow ab /> y');
+    act(() => view.dispatch({ selection: { anchor: 10, head: 12 }, effects: pinTag.of(true) }));
+    act(() => {
+      key(view, { key: 'Enter' });
+    });
+    const input = host.querySelector<HTMLInputElement>('.cm-symbol-input')!;
+    input.value = '  ';
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    expect(view.state.doc.toString()).toBe('x ab y');
+    expect(host.querySelector('.cm-symbol-input')).toBeNull();
+    expect(view.state.selection.main).toMatchObject({ from: 2, to: 4 });
+  });
+
+  it('Alt+click on tinted text pins the tag: it selects the tag text and shows its popover', () => {
     const { view } = mount('x <yellow ab /> y');
     vi.spyOn(view, 'posAtCoords').mockReturnValue(11);
     act(() => {

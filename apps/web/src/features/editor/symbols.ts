@@ -48,44 +48,50 @@ export interface TagRange {
   name: string;
 }
 
-const tokens = /<(\w+)\/>|<(\w+) | ?\/>/g;
+/**
+ * The converter's own tokenizer (`<.+?\/>`, per line): a token runs from a `<` to the FIRST `/>`
+ * after it, so tags do not nest. `<yellow a <blue b />` is one yellow token whose text is
+ * `a <blue b`, and the ` c />` after it is plain text; an icon inside a colour tag is part of that
+ * tag's text. The preview renders exactly this, so the editor draws exactly this (UI-FIXES-2B 7).
+ */
+const converterToken = /<.+?\/>/g;
+
+function* lineTokens(text: string, offset: number) {
+  let lineFrom = offset;
+  for (const line of text.split('\n')) {
+    for (const match of line.matchAll(converterToken))
+      yield { text: match[0], from: lineFrom + (match.index ?? 0) };
+    lineFrom += line.length + 1;
+  }
+}
 
 /** Finds every icon tag in a text. */
 export function findSymbols(text: string, offset = 0): SymbolRange[] {
   const found: SymbolRange[] = [];
-  for (const match of text.matchAll(tokens)) {
-    if (match[1] === undefined || !icons.has(match[1])) continue;
-    const from = offset + (match.index ?? 0);
-    found.push({ from, to: from + match[0].length, kind: 'icon', name: match[1] });
+  for (const token of lineTokens(text, offset)) {
+    const name = /^<(\w+)\/>$/.exec(token.text)?.[1];
+    if (name === undefined || !icons.has(name)) continue;
+    found.push({ from: token.from, to: token.from + token.text.length, kind: 'icon', name });
   }
   return found;
 }
 
 /**
- * Finds every paired colour tag (sorted by position, outer before inner). Tags pair per line, so an
- * opening without its ` />` (or a stray ` />`) is left raw, and so is a tag that encloses nothing.
+ * Finds every paired colour tag, sorted by position. A tag is one converter token, `<name … />`:
+ * it closes at the first `/>` and does not nest. Tags pair per line, so an opening without its
+ * ` />` (or a stray ` />`) is left raw, and so is a tag that encloses nothing.
  */
 export function findTags(text: string, offset = 0): TagRange[] {
   const found: TagRange[] = [];
-  let lineFrom = offset;
-  for (const line of text.split('\n')) {
-    const stack: { name: string; from: number; to: number }[] = [];
-    for (const match of line.matchAll(tokens)) {
-      if (match[1] !== undefined) continue;
-      const from = lineFrom + (match.index ?? 0);
-      const to = from + match[0].length;
-      if (match[2] !== undefined) {
-        stack.push({ name: match[2], from, to });
-        continue;
-      }
-      const open = stack.pop();
-      if (open && colours.has(open.name) && from > open.to) {
-        found.push({ from: open.from, openTo: open.to, closeFrom: from, to, name: open.name });
-      }
-    }
-    lineFrom += line.length + 1;
+  for (const token of lineTokens(text, offset)) {
+    const open = /^<(\w+) /.exec(token.text);
+    if (!open || !colours.has(open[1]) || !token.text.endsWith(' />')) continue;
+    const openTo = token.from + open[0].length;
+    const to = token.from + token.text.length;
+    const closeFrom = to - ' />'.length;
+    if (closeFrom > openTo) found.push({ from: token.from, openTo, closeFrom, to, name: open[1] });
   }
-  return found.sort((x, y) => x.from - y.from || y.to - x.to);
+  return found;
 }
 
 class SymbolWidget extends WidgetType {
@@ -141,6 +147,8 @@ interface Popover extends Target {
 }
 const setHover = StateEffect.define<Target | null>();
 const setEditing = StateEffect.define<boolean>();
+/** Pins the popover of the colour tag whose enclosed text is the selection (Alt+click only). */
+export const pinTag = StateEffect.define<boolean>();
 
 const hovered = StateField.define<Target | null>({
   create: () => null,
@@ -158,6 +166,19 @@ const editing = StateField.define<boolean>({
   },
 });
 
+/**
+ * A colour tag is pinned only by an explicit Alt+click: a double-click, or a keyboard selection that
+ * happens to be exactly a tag's text (one tinted word), is just a selection, so Backspace deletes
+ * that word instead of silently removing the tag. Any later selection change or edit unpins it.
+ */
+const tagPinned = StateField.define<boolean>({
+  create: () => false,
+  update(value, transaction) {
+    for (const effect of transaction.effects) if (effect.is(pinTag)) return effect.value;
+    return value && !transaction.docChanged && !transaction.selection ? value : false;
+  },
+});
+
 /** The icon that is exactly the selection (chosen with a click or the arrows). */
 function selectedSymbol(state: EditorState): SymbolRange | null {
   const { from, to } = state.selection.main;
@@ -169,10 +190,10 @@ function selectedSymbol(state: EditorState): SymbolRange | null {
   );
 }
 
-/** The colour tag whose whole range, or whose enclosed text, is exactly the selection (Alt+click). */
+/** The pinned colour tag: its whole range, or its enclosed text, is exactly the selection. */
 function selectedTag(state: EditorState): TagRange | null {
   const { from, to } = state.selection.main;
-  if (from === to) return null;
+  if (from === to || !state.field(tagPinned)) return null;
   const line = state.doc.lineAt(from);
   if (to > line.to) return null;
   const matching = findTags(line.text, line.from).filter(
@@ -315,9 +336,16 @@ function popoverDom(view: EditorView, popover: Popover) {
     input.spellcheck = false;
     input.setAttribute('aria-label', tag ? 'Colour tag markup' : 'Symbol markup');
     const finish = (commit: boolean) => {
+      // Emptying a colour tag's markup removes the tag and keeps its text, never a stray " />".
+      if (commit && tag && input.value.trim() === '') {
+        removeTag(view, tag, [setEditing.of(false)]);
+        view.focus();
+        return;
+      }
       const next = tag ? `${input.value.trimEnd()} ` : input.value;
       view.dispatch({
-        effects: setEditing.of(false),
+        // The edited tag stays pinned: its enclosed text is still the selection.
+        effects: commit && tag ? [setEditing.of(false), pinTag.of(true)] : setEditing.of(false),
         ...(commit && next !== markup
           ? {
               changes: { from: edited.from, to: edited.to, insert: next },
@@ -438,7 +466,10 @@ const symbolEvents = EditorView.domEventHandlers({
       const tag = pos === null ? null : tagAt(view.state, pos);
       if (!tag) return false;
       event.preventDefault();
-      view.dispatch({ selection: { anchor: tag.openTo, head: tag.closeFrom } });
+      view.dispatch({
+        selection: { anchor: tag.openTo, head: tag.closeFrom },
+        effects: pinTag.of(true),
+      });
       view.focus();
       return true;
     }
@@ -446,18 +477,24 @@ const symbolEvents = EditorView.domEventHandlers({
   },
 });
 
-/** A selected colour tag: remove the markup, keep the text it enclosed. */
-function removeSelectedTag(view: EditorView): boolean {
-  if (view.state.readOnly || view.state.field(reveal) !== 'popover') return false;
-  const tag = selectedTag(view.state);
-  if (!tag) return false;
+/** Removes a colour tag's markup and keeps the text it enclosed (selected afterwards). */
+function removeTag(view: EditorView, tag: TagRange, effects: readonly StateEffect<unknown>[] = []) {
   view.dispatch({
     changes: [
       { from: tag.from, to: tag.openTo },
       { from: tag.closeFrom, to: tag.to },
     ],
     selection: { anchor: tag.from, head: tag.closeFrom - (tag.openTo - tag.from) },
+    effects,
   });
+}
+
+/** A pinned colour tag: remove the markup, keep the text it enclosed. */
+function removeSelectedTag(view: EditorView): boolean {
+  if (view.state.readOnly || view.state.field(reveal) !== 'popover') return false;
+  const tag = selectedTag(view.state);
+  if (!tag) return false;
+  removeTag(view, tag);
   return true;
 }
 
@@ -493,6 +530,7 @@ export function symbolExtensions(initial: { mode(): SymbolReveal; raw(): boolean
     reveal.init(() => initial.mode()),
     hovered,
     editing,
+    tagPinned,
     symbolDecorations,
     symbolPopover,
     symbolEvents,
