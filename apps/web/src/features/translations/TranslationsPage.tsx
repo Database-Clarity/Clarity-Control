@@ -106,15 +106,18 @@ export function TranslationsPage() {
     }
     setParams(next, { replace: !push });
   };
+  const commitText = () => {
+    const next = new URLSearchParams(params);
+    if (text) next.set('q', text);
+    else next.delete('q');
+    setParams(next, { replace: true });
+  };
   useEffect(() => {
     if (text === query) return;
-    const timer = setTimeout(() => {
-      const next = new URLSearchParams(params);
-      if (text) next.set('q', text);
-      else next.delete('q');
-      setParams(next, { replace: true });
-    }, searchDelayMs);
+    const timer = setTimeout(commitText, searchDelayMs);
     return () => clearTimeout(timer);
+    // commitText closes over the same values as the dependencies below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [text, query, params, setParams]);
 
   const index = useMemo(() => (data ? translationIndex(data) : null), [data]);
@@ -137,8 +140,13 @@ export function TranslationsPage() {
   const filtered = !!(state || category || query);
   const unavailable = !!requested && requested !== 'all' && requested !== language;
   const openFirst = (event: KeyboardEvent) => {
-    if (event.key !== 'Enter' || event.nativeEvent.isComposing || !shown[0]) return;
-    void navigate(entryPath(shown[0]));
+    if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+    // The first match of what is typed now, not of the deferred list.
+    const first = filterRows(rows, { state, category, query: text })[0];
+    if (!first) return;
+    // Back must return to this filter, so it is in the URL before the editor opens.
+    if (text !== query) commitText();
+    void navigate(entryPath(first));
   };
   const pick = (lang: Lang) => {
     setCoverageOpen(false);
@@ -150,6 +158,10 @@ export function TranslationsPage() {
       className={styles.page}
       data-rail={coverage ? '' : undefined}
       aria-label="Translation queue"
+      onClickCapture={() => {
+        // Opening a row inside the typing debounce must not lose the filter on Back.
+        if (text !== query) commitText();
+      }}
       onKeyDown={(event) => {
         if (event.key === 'Escape' && coverageOpen) setCoverageOpen(false);
       }}

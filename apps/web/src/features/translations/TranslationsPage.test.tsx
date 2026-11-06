@@ -252,6 +252,33 @@ describe('TranslationsPage queue', () => {
     expect(location.pathname).toBe('/t/120');
   });
 
+  it('keeps a filter typed just before opening a row when coming Back', async () => {
+    const type = async (input: HTMLInputElement, value: string) => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      await act(async () => {
+        setter.call(input, value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    };
+    await mount('/translations', person('maintainer'));
+    const input = () => host.querySelector<HTMLInputElement>('input[type=search]')!;
+    // Enter in the field, then Back.
+    await type(input(), 'missing mod');
+    await press(input(), 'Enter');
+    expect(location.pathname).toBe('/t/4');
+    await act(async () => void navigate(-1));
+    expect(location.search).toContain('q=missing+mod');
+    expect(input().value).toBe('missing mod');
+    expect(names()).toEqual(['Missing Mod']);
+    // Clicking a row inside the debounce, then Back.
+    await type(input(), 'perk');
+    await act(async () => rows()[0]!.click());
+    expect(location.pathname).toMatch(/^\/t\//);
+    await act(async () => void navigate(-1));
+    expect(location.search).toContain('q=perk');
+    expect(input().value).toBe('perk');
+  });
+
   it('returns from the editor to the same selection and scroll position', async () => {
     const many = build(
       Array.from({ length: 300 }, (_, i) => tooltip(100 + i, `English ${i}`)),
