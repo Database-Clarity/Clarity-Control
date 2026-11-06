@@ -285,6 +285,48 @@ Object.assign(window, {
         },
       });
     },
+    /**
+     * Base 1000 gets term tooltips (`<title … />`) at the start, middle and end of long lines, with a
+     * long wrapping body, for the preview popover's placement (it must never be clipped by a pane).
+     */
+    titles() {
+      const current = useDataStore.getState().data!;
+      const body = Array.from(
+        { length: 6 },
+        (_, i) =>
+          `Stage ${i + 1}: grants a stacking bonus that lasts for a while and refreshes when you defeat a target with this weapon.`,
+      ).join('\n');
+      const text = [
+        '<title Radiant [t2] /> is first on this line.',
+        '',
+        'A long line of ordinary text that runs across the full width of the preview column so the next term lands near the right edge: <title Ionic Trace [t1] />',
+        '',
+        ...Array.from({ length: 8 }, (_, i) => `Filler line ${i + 1} of the description.`),
+        'Last line with a term at the end <title Surge [t2] />',
+        '',
+        'title t1 (',
+        body,
+        ')',
+        'title t2 (',
+        'Short body.',
+        ')',
+      ].join('\n');
+      useDataStore.setState({
+        data: {
+          ...current,
+          bundle: {
+            ...current.bundle,
+            tooltips: {
+              ...current.bundle.tooltips,
+              1000: {
+                ...current.bundle.tooltips[1000],
+                text: { en: { text, updatedAt: stamp, updatedBy: 'fixture' } },
+              },
+            },
+          },
+        },
+      });
+    },
     dataError() {
       useDataStore.setState({ error: 'Cannot reach the data bundle', status: 'ready' });
     },

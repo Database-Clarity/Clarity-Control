@@ -57,8 +57,10 @@ const noOverflow = async (page, label) => {
   assert.deepEqual(overflow.wide, [], `${label}: elements run past the window`);
 };
 
+// Tags do not nest (the converter closes a tag at its first />), so icons and other tags sit beside
+// them, not inside.
 const sample =
-  '<yellow 10% <arc/> /> <pve 5 /> <pvp [3] /> <blue reload <bold nested /> done /> <green lone\n<kinetic/><arc/><solar/><void/><stasis/><strand/><heavy/><primary/><special/><barrier/><overload/><unstoppable/> icons\n<purple void <arc/> /> <bold b /> <yellow y /> <green g /> <pve 7 /> <pvp [9] />\n';
+  '<yellow 10% /> <arc/> <pve 5 /> <pvp [3] /> <blue reload /> <bold nested /> <green lone\n<kinetic/><arc/><solar/><void/><stasis/><strand/><heavy/><primary/><special/><barrier/><overload/><unstoppable/> icons\n<purple void /> <arc/> <bold b /> <yellow y /> <green g /> <pve 7 /> <pvp [9] />\n';
 const tinted = ['yellow', 'blue', 'green', 'purple', 'pve', 'pvp'];
 // WCAG contrast between a tint colour and the editor surface.
 const contrastOf = (page) =>
@@ -178,13 +180,9 @@ async function check(theme, width, height, phone, scale, name) {
     '700',
     `${label}: bold is bold`,
   );
-  const nested = await page.evaluate(() => {
-    const inner = document.querySelector('.cm-tint-blue .cm-tint-bold');
-    return inner
-      ? [getComputedStyle(inner).color, getComputedStyle(inner.parentElement).color]
-      : null;
-  });
-  assert.ok(nested && nested[0] === nested[1], `${label}: bold inside blue keeps blue`);
+  // Tags do not nest, as in the preview: no tint sits inside another.
+  const nested = await page.evaluate(() => document.querySelectorAll('.cm-tint .cm-tint').length);
+  assert.equal(nested, 0, `${label}: tints never nest`);
   await noOverflow(page, `${label} widgets`);
   await page.screenshot({ path: `${shots}/${name}-widgets.png` });
 

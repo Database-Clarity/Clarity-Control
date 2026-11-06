@@ -143,7 +143,7 @@ function matchesOwner(item: Item, data: EditorData, search: string): boolean {
 
 /** The generator category of exotic armour perks; the finder lists the armour pieces instead. */
 export const exoticArmourCategory = 'armor-trait-exotic';
-const exoticArmourLabel = 'Exotic Armor';
+export const exoticArmourLabel = 'Exotic Armor';
 
 /**
  * A finder entry. Exotic armour entries are named after the piece; `perkName` is the perk they

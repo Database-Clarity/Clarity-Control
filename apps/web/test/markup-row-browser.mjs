@@ -28,6 +28,13 @@ const browser = await chromium.launch({
   headless: true,
 });
 
+/** The symbol view hides tag markup and tints what it encloses: read the tints as "tag:text". */
+const tintedText = (page) =>
+  page.evaluate(() =>
+    [...document.querySelectorAll('.cm-tint')].map(
+      (el) => `${el.className.split(' ').pop()}:${el.textContent}`,
+    ),
+  );
 const firstLine = (page) =>
   page.evaluate(() =>
     Math.round(
@@ -183,9 +190,12 @@ try {
       await page.keyboard.insertText('\n\nGains ');
       const settled = await firstLine(page);
       await page.locator('[data-entry="pair"]').click();
+      // The symbol view hides the tag markup and tints the text it encloses, so the inserted
+      // `<pve value /> <pvp [value] />` shows as two tinted placeholders.
+      const tinted = await tintedText(page);
       assert.ok(
-        (await content.innerText()).includes('<pve value /> <pvp [value] />'),
-        `${label}: pair inserted`,
+        tinted.includes('cm-tint-pve:value') && tinted.includes('cm-tint-pvp:[value]'),
+        `${label}: pair inserted (${tinted.join(', ')})`,
       );
       assert.equal(await firstLine(page), settled, `${label}: inserting moved the first line`);
       assert.equal(
@@ -268,7 +278,11 @@ try {
       await page.keyboard.type('Arc');
       await chip.waitFor();
       await page.keyboard.press('Enter');
-      assert.ok((await content.innerText()).includes('<arc/>Arc'), `${label}: Enter took the chip`);
+      assert.ok(
+        (await content.innerText()).includes('Arc') &&
+          (await page.locator('.cm-symbol[data-symbol="arc"]').count()) > 0,
+        `${label}: Enter took the chip`,
+      );
 
       // Chip for a selection: never over any selected character.
       await page.keyboard.press('Control+End');
@@ -318,9 +332,10 @@ try {
       await noOverflow(page, `${label} selection chip`);
       await page.screenshot({ path: `${shots}/${theme}-${width}-chip-selection.png` });
       await page.keyboard.press('Enter');
+      const transformed = await tintedText(page);
       assert.ok(
-        (await content.innerText()).includes('<pve 6.5 /> <pvp [5] />'),
-        `${label}: Enter applied the transform`,
+        transformed.includes('cm-tint-pve:6.5') && transformed.includes('cm-tint-pvp:[5]'),
+        `${label}: Enter applied the transform (${transformed.join(', ')})`,
       );
 
       // Ctrl+. again closes the row; the text returns to where it was.

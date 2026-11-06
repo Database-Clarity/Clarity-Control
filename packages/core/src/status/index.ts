@@ -98,34 +98,10 @@ export function translationQueue(
   const selected = new Set(selectedLanguages);
   const entries: TranslationQueueEntry[] = [];
   for (const tooltip of tooltips) {
-    const english = tooltip.text.en;
-    if (
-      resolveAlias(tooltip.hash, aliases) !== tooltip.hash ||
-      !english?.text.trim() ||
-      tooltip.archive
-    )
-      continue;
+    if (!isTranslatable(tooltip, aliases)) continue;
     for (const language of languages) {
       if (language === 'en' || !selected.has(language)) continue;
-      const translation = tooltip.text[language];
-      if (!translation) {
-        entries.push({ tooltip, language, state: 'missing' });
-        continue;
-      }
-      const sourceUpdatedAt = translation.sourceUpdatedAt;
-      const ageMs = sourceUpdatedAt
-        ? Date.parse(english.updatedAt) - Date.parse(sourceUpdatedAt)
-        : 0;
-      if (sourceUpdatedAt && ageMs > 0) {
-        entries.push({
-          tooltip,
-          language,
-          state: 'outdated',
-          ageMs,
-          sourceUpdatedAt,
-          exportedInEnglish: usesEnglishFallback(tooltip, language),
-        });
-      } else entries.push({ tooltip, language, state: 'current' });
+      entries.push({ tooltip, language, ...translationStateOf(tooltip, language) });
     }
   }
   return entries.sort(
@@ -135,6 +111,38 @@ export function translationQueue(
       a.tooltip.hash - b.tooltip.hash ||
       a.language.localeCompare(b.language),
   );
+}
+
+/** Whether a tooltip can be translated at all: canonical, live, and with English text. */
+export function isTranslatable(tooltip: Tooltip, aliases: Aliases = {}): boolean {
+  return (
+    resolveAlias(tooltip.hash, aliases) === tooltip.hash &&
+    !!tooltip.text.en?.text.trim() &&
+    !tooltip.archive
+  );
+}
+
+/**
+ * The state of one translatable tooltip in one non-English language (see `translationQueue`).
+ * Call only for tooltips that pass `isTranslatable`.
+ */
+export function translationStateOf(
+  tooltip: Tooltip,
+  language: Lang,
+): Omit<TranslationQueueEntry, 'tooltip' | 'language'> {
+  const english = tooltip.text.en!;
+  const translation = tooltip.text[language];
+  if (!translation) return { state: 'missing' };
+  const sourceUpdatedAt = translation.sourceUpdatedAt;
+  const ageMs = sourceUpdatedAt ? Date.parse(english.updatedAt) - Date.parse(sourceUpdatedAt) : 0;
+  if (sourceUpdatedAt && ageMs > 0)
+    return {
+      state: 'outdated',
+      ageMs,
+      sourceUpdatedAt,
+      exportedInEnglish: usesEnglishFallback(tooltip, language),
+    };
+  return { state: 'current' };
 }
 
 /**
