@@ -270,6 +270,7 @@ describe('TranslationsPage queue', () => {
     expect(location.search).toContain('q=missing+mod');
     expect(input().value).toBe('missing mod');
     expect(names()).toEqual(['Missing Mod']);
+    expect(host.querySelector('a[data-selected]')!.textContent).toContain('Missing Mod');
     // Clicking a row inside the debounce, then Back.
     await type(input(), 'perk');
     await act(async () => rows()[0]!.click());
@@ -287,6 +288,26 @@ describe('TranslationsPage queue', () => {
     await act(async () => second.click());
     await act(async () => void navigate(-1));
     expect(host.querySelector('a[data-selected]')!.textContent).toBe(label);
+  });
+
+  it('selects the first match on Back after Enter, whatever was selected before', async () => {
+    const type = async (input: HTMLInputElement, value: string) => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      await act(async () => {
+        setter.call(input, value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    };
+    await mount('/translations', person('translator', ['de']));
+    const input = () => host.querySelector<HTMLInputElement>('input[type=search]')!;
+    await type(input(), 'perk');
+    const [first, second] = rows().map((row) => row.textContent);
+    await act(async () => rows()[1]!.click());
+    await act(async () => void navigate(-1));
+    expect(host.querySelector('a[data-selected]')!.textContent).toBe(second);
+    await press(input(), 'Enter');
+    await act(async () => void navigate(-1));
+    expect(host.querySelector('a[data-selected]')!.textContent).toBe(first);
   });
 
   it('returns from the editor to the same selection and scroll position', async () => {

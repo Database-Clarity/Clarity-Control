@@ -5,7 +5,7 @@ import { languageLabel } from '../../languageLabels';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { SkeletonRegion, SkeletonRows, SkeletonStatus } from '../../ui/Skeleton';
-import { QueueList } from './QueueList';
+import { QueueList, rememberOpenedFirst } from './QueueList';
 import {
   categoryOptions,
   countRows,
@@ -146,6 +146,7 @@ export function TranslationsPage() {
     if (!first) return;
     // Back must return to this filter, so it is in the URL before the editor opens.
     if (text !== query) commitText();
+    rememberOpenedFirst(`${language}|${state}|${category}|${text}`, first.key);
     void navigate(entryPath(first));
   };
   const pick = (lang: Lang) => {

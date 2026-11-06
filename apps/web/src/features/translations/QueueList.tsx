@@ -14,6 +14,13 @@ const overscan = 6;
  * opens. Only a Back or Forward arrival restores it; a fresh visit starts at the top.
  */
 const memory = new Map<string, { top: number; selected: string | null }>();
+let forced: { signature: string; key: string } | null = null;
+
+/** The filter's Enter opens the first match without the list having selected it. */
+export function rememberOpenedFirst(signature: string, key: string) {
+  forced = { signature, key };
+  memory.set(signature, { top: 0, selected: key });
+}
 
 export function stateText(row: QueueRow): string {
   return row.state === 'missing' ? 'Missing' : `Outdated · ${behindLabel(row.ageMs ?? 0)}`;
@@ -90,7 +97,10 @@ export function QueueList({
     () => () =>
       void memory.set(signature, {
         top: scrolled.current,
-        selected: opened.current ?? selectedKey.current,
+        selected:
+          (forced?.signature === signature ? forced.key : null) ??
+          opened.current ??
+          selectedKey.current,
       }),
     [signature],
   );
