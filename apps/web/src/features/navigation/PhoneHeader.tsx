@@ -4,7 +4,7 @@ import { BrandMark } from './Brand';
 import { DraftButton } from './DraftButton';
 import { IdentityMenu } from './IdentityMenu';
 import { ShellOverlay } from './ShellOverlay';
-import { FinderSheetContext } from './FinderSheetContext';
+import { FinderSheetCloseContext, FinderSheetContext } from './FinderSheetContext';
 import { WorkspaceList } from './WorkspaceTabs';
 import { useSteppingActivity } from './steppingActivity';
 import { useDataStore } from '../../stores/data';
@@ -109,7 +109,9 @@ export function PhoneHeader({
           tall
         >
           <FinderSheetContext.Provider value={sheet === 'finder'}>
-            {finder}
+            <FinderSheetCloseContext.Provider value={close}>
+              {finder}
+            </FinderSheetCloseContext.Provider>
           </FinderSheetContext.Provider>
         </ShellOverlay>
       )}

@@ -33,6 +33,7 @@ import {
 import { clarityHighlighting, clarityLanguage } from './language';
 import { tableFormattingTransaction } from './formatTable';
 import { editorScrollMargins } from './scrollMargins';
+import { findWidgetExtension, findWidgetPanel, openReplace } from './findWidget';
 import { rememberSearch, restoreSearch } from './searchMemory';
 import { rawMode, setSymbolReveal, symbolExtensions, toggleRaw, toggleRawView } from './symbols';
 import { hasImportDependencies, validationDiagnostics } from './diagnostics';
@@ -352,7 +353,8 @@ export function ClarityEditor({
       conflictExtensions(),
       initialConflicts,
       undo.current.of(history()),
-      search({ top: true }),
+      search({ top: true, createPanel: findWidgetPanel }),
+      findWidgetExtension,
       indentOnInput(),
       bracketMatching(),
       clarityLanguage,
@@ -375,6 +377,7 @@ export function ClarityEditor({
         { key: 'ScrollLock', run: format },
         { key: 'Mod-Shift-f', run: format },
         { key: 'Mod-/', run: toggleComment },
+        { key: 'Mod-h', run: openReplace, scope: 'editor search-panel', preventDefault: true },
         ...searchKeymap,
         ...historyKeymap,
         ...defaultKeymap,
