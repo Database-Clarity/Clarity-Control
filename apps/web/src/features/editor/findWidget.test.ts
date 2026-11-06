@@ -243,7 +243,7 @@ describe('find widget', () => {
   it('closes from its button', () => {
     make('cat');
     openSearchPanel(view);
-    button('close').click();
+    button('closeFind').click();
     expect(searchPanelOpen(view.state)).toBe(false);
   });
 

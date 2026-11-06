@@ -174,7 +174,7 @@ class FindWidget implements Panel {
             title: 'Toggle replace (Ctrl+H)',
             'aria-expanded': 'false',
           },
-          ['›'],
+          [element('span', { class: 'fw-chevron', 'aria-hidden': 'true' }, ['›'])],
         );
     const find = element('div', { class: 'fw-find' }, [
       element('div', { class: 'fw-field' }, [
@@ -186,7 +186,7 @@ class FindWidget implements Panel {
       this.count,
       action('prev', 'Previous match', 'Previous match (Shift+Enter)', '↑'),
       action('next', 'Next match', 'Next match (Enter)', '↓'),
-      action('close', 'Close', 'Close (Escape)', '×'),
+      action('closeFind', 'Close', 'Close (Escape)', '×'),
     ]);
     const rows: Node[] = [find];
     if (!readOnly) {
@@ -309,7 +309,7 @@ class FindWidget implements Panel {
       case 'prev':
         findPrevious(view);
         break;
-      case 'close':
+      case 'closeFind':
         closeSearchPanel(view);
         break;
       case 'replace':

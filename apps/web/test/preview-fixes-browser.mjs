@@ -92,9 +92,7 @@ try {
         const tag = `${theme}-${width}-${scale}`;
         const { context, page, errors } = await open(theme, { width, height }, phone, scale);
         // A narrow window limits a large scale so the layout keeps fitting: use what applied.
-        const applied = Number(
-          await page.evaluate(() => document.documentElement.dataset.uiScale),
-        );
+        const applied = Number(await page.evaluate(() => document.documentElement.dataset.uiScale));
         assert.ok(applied <= scale && applied >= 85, `${label}: scale applied (${applied})`);
 
         // Markup row + All popover: compact, no label text on icon chips, variables split.
@@ -142,8 +140,12 @@ try {
         await page.keyboard.press('Escape');
         await all.waitFor({ state: 'detached' });
 
-        // Find & replace: top of the editor, readable, and it follows to the next tooltip.
+        // Find & replace: a widget over the top right of the text (the text never moves), readable,
+        // and it follows to the next tooltip.
         await page.locator('.cm-content').click();
+        const textTop = await page.evaluate(
+          () => document.querySelector('.cm-line').getBoundingClientRect().top,
+        );
         await page.keyboard.press('Control+f');
         const panel = page.locator('.cm-panels-top .cm-search');
         await panel.waitFor();
@@ -161,13 +163,14 @@ try {
           };
         });
         assert.equal(find.bottomPanel, false, `${label}: find is not at the bottom`);
-        assert.ok(find.panelBottom <= find.lineTop + 1, `${label}: find sits above the text`);
+        assert.ok(Math.abs(find.lineTop - textTop) < 0.5, `${label}: opening find moves no text`);
         const minimum = phone ? 16 : 12 * (applied / 100) - 0.6;
         assert.ok(
           find.inputSize >= minimum && find.buttonSize >= 12 * (applied / 100) - 0.6,
           `${label}: find text scales (${find.inputSize}px, ${find.buttonSize}px)`,
         );
         await page.locator('.cm-panels-top input[name=search]').fill('the');
+        await page.locator('.cm-panels-top button[name=toggleReplace]').click();
         await page.locator('.cm-panels-top input[name=replace]').fill('THE');
         await page.screenshot({ path: `${shots}/${tag}-find.png` });
         await page.evaluate(() => {
