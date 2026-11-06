@@ -85,6 +85,16 @@ beforeEach(() => {
   );
   Object.defineProperty(window, 'innerWidth', { value: 390, configurable: true });
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+  // DECODE scheduling can let CodeMirror's deferred measurement run before
+  // these archive assertions finish. jsdom has Range selection, but no layout
+  // geometry; provide only those missing test APIs instead of masking errors.
+  const createRange = document.createRange.bind(document);
+  vi.spyOn(document, 'createRange').mockImplementation(() => {
+    const range = createRange();
+    range.getClientRects = () => Object.assign([] as DOMRect[], { item: () => null });
+    range.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0);
+    return range;
+  });
   // 'auto' follows the runner's locale; pin it so the asserted text is stable.
   useSettingsStore.getState().update({ dateFormat: 'dmy', timeZone: 'UTC', timeDisplay: 'date' });
   useDataStore.setState({ data, status: 'ready', error: null });
