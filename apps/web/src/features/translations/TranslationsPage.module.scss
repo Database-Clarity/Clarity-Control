@@ -1,10 +1,396 @@
-.entry {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 220px;
-  background: var(--col);
+@use '../../data/variables' as theme;
+@use '../../ui/controls';
+
+// The queue fills the viewport under the header and scrolls inside itself, so the list is
+// virtualised against a known height. The main frame's padding is subtracted so the page
+// never adds a second scrollbar at ordinary sizes.
+.page {
+  // Matches the tighter frame the Layout gives list workspaces (reviewMode).
+  --pad: clamp(1rem, 3vw, 2rem);
+  --row-h: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  box-sizing: border-box;
+  height: calc(100dvh - var(--header-h, 37px) - 2 * var(--pad));
+  min-height: 22rem;
+  min-width: 0;
+  // Layout follows the room the page has (window width and interface scale), not the viewport.
+  container-type: inline-size;
   color: var(--text);
+
+  @include theme.mobile-or-coarse {
+    --row-h: max(3rem, 48px);
+  }
 }
 
-.warning {
-  color: var(--danger);
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  flex: none;
+  min-width: 0;
+
+  h1 {
+    margin: 0 0.5rem 0 0;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    line-height: 1.75rem;
+  }
+
+  select,
+  input {
+    @include controls.field;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  select {
+    padding-inline-end: 0.25rem;
+  }
+
+  input[type='search'] {
+    flex: 1 1 12rem;
+  }
+
+  .categories {
+    flex: 0 1 14rem;
+  }
+
+  @include theme.mobile {
+    // The header already names the workspace; the heading stays for screen readers.
+    h1 {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    select,
+    input[type='search'] {
+      flex: 1 1 8rem;
+    }
+
+    .categories,
+    .languagePicker {
+      flex: 1 1 8rem;
+      min-width: 0;
+    }
+
+    .languagePicker select,
+    .categories select {
+      width: 100%;
+    }
+  }
+}
+
+.fixedLanguage {
+  font-size: 0.8125rem;
+  color: var(--text2);
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  flex: none;
+  min-width: 0;
+  font-size: 0.8125rem;
+  color: var(--text2);
+
+  [role='group'] {
+    display: flex;
+    gap: 0.25rem;
+  }
+
+  button {
+    @include controls.button;
+    padding: 0 0.5rem;
+
+    &[aria-pressed='true'] {
+      background: var(--sel);
+      border-color: var(--accent-ink);
+    }
+  }
+
+  .count {
+    margin-inline-start: auto;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.summary .coverageToggle {
+  display: none;
+
+  @container (max-width: 53.99rem) {
+    display: inline-flex;
+  }
+}
+
+.body {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  gap: 0.75rem;
+  min-height: 0;
+  min-width: 0;
+}
+
+.coverage {
+  flex: none;
+  width: 23rem;
+  overflow: auto;
+  align-self: stretch;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  border-inline-end: 1px solid var(--hair);
+  padding-inline-end: 0.5rem;
+
+  .coverageHead {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 4.25rem 3.75rem 3.5rem;
+    align-items: center;
+    column-gap: 0.25rem;
+    box-sizing: border-box;
+    padding-inline: 0.375rem;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding-block: 0.125rem;
+    color: var(--text3);
+    background: var(--page);
+
+    > :not(:first-child) {
+      text-align: end;
+    }
+  }
+
+  button {
+    all: unset;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 4.25rem 3.75rem 3.5rem;
+    align-items: center;
+    column-gap: 0.25rem;
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 1.75rem;
+    padding-inline: 0.375rem;
+    border-block-start: 1px solid var(--hair);
+    cursor: pointer;
+
+    > :not(:first-child) {
+      text-align: end;
+    }
+
+    > :first-child {
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    &:hover {
+      background: var(--hover);
+    }
+
+    &[aria-pressed='true'] {
+      background: var(--sel);
+    }
+
+    &:focus-visible {
+      @include controls.focus-ring;
+      outline-offset: -2px;
+    }
+
+    [data-zero] {
+      color: var(--text3);
+    }
+  }
+
+  // Narrow pages show coverage only on request, over the queue.
+  @container (max-width: 53.99rem) {
+    display: none;
+    position: absolute;
+    inset: 0 0 auto;
+    width: auto;
+    max-height: 100%;
+    z-index: 3;
+    padding: 0.25rem 0.5rem;
+    background: var(--raised);
+    border: 1px solid var(--ctl-hover-edge);
+    border-radius: 0.25rem;
+    box-shadow: var(--shadow);
+
+    &[data-open] {
+      display: block;
+    }
+
+    button {
+      min-height: max(44px, 2.75rem);
+      grid-template-columns: minmax(0, 1fr) 4.25rem 3.75rem 3.5rem;
+    }
+
+    .coverageHead {
+      grid-template-columns: minmax(0, 1fr) 4.25rem 3.75rem 3.5rem;
+    }
+  }
+}
+
+.listing {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+// Wide frames with coverage show the language list as a rail, so the picker is redundant.
+.page[data-rail] .bar .languagePicker {
+  @container (min-width: 54rem) {
+    display: none;
+  }
+}
+
+.viewport {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border-block: 1px solid var(--hair);
+  // Only the rendered window contributes layout and paint.
+  contain: strict;
+  container-type: inline-size;
+}
+
+.sizer,
+.list {
+  @container (max-width: 36rem) {
+    --row-h: max(3rem, 48px);
+  }
+}
+
+.sizer {
+  position: absolute;
+  inset-block-start: 0;
+  width: 0;
+  height: var(--row-h);
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.list {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  position: absolute;
+  inset-inline: 0;
+  height: var(--row-h);
+  box-sizing: border-box;
+
+  a {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 14rem) 7rem;
+    align-items: center;
+    column-gap: 0.75rem;
+    box-sizing: border-box;
+    height: 100%;
+    padding-inline: 0.5rem;
+    color: var(--text);
+    text-decoration: none;
+    font-size: 0.8125rem;
+    border-block-end: 1px solid var(--hair);
+    cursor: pointer;
+
+    &:hover {
+      background: var(--hover);
+    }
+
+    &:focus-visible {
+      @include controls.focus-ring;
+      outline-offset: -2px;
+    }
+
+    &[data-selected] {
+      background: var(--sel);
+    }
+  }
+
+  .name,
+  .category,
+  .state {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .category {
+    color: var(--text2);
+  }
+
+  .state {
+    color: var(--text2);
+    text-align: end;
+    font-variant-numeric: tabular-nums;
+
+    &[data-state='outdated'] {
+      color: var(--warn);
+    }
+
+    &[data-exported] {
+      color: var(--danger);
+    }
+  }
+
+  // Narrow lists: name on the first line, category and state beneath it.
+  @container (max-width: 36rem) {
+    a {
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        'name name'
+        'category state';
+      row-gap: 0.0625rem;
+      padding-block: 0.25rem;
+    }
+
+    .name {
+      grid-area: name;
+    }
+
+    .category {
+      grid-area: category;
+      font-size: 0.75rem;
+    }
+
+    .state {
+      grid-area: state;
+      font-size: 0.75rem;
+    }
+  }
+}
+
+.empty {
+  margin: 0;
+  padding: 1rem 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--text2);
+
+  button {
+    @include controls.button;
+    margin-inline-start: 0.5rem;
+  }
+}
+
+.skeleton {
+  flex: 1 1 0;
+  min-height: 0;
 }

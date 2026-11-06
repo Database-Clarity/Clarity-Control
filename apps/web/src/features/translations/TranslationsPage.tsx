@@ -1,95 +1,83 @@
-import { isSetSelector } from '../compendium/itemClassification';
+import { useDeferredValue, useEffect, useMemo, useState, type KeyboardEvent } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import type { Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
-import { useDeferredValue, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
-import { translationQueue, type Tooltip, type TranslationQueueEntry } from '@clarity/core';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
-import { EnglishDiff } from './EnglishDiff';
+import { SkeletonRegion, SkeletonRows, SkeletonStatus } from '../../ui/Skeleton';
+import { QueueList } from './QueueList';
 import {
-  availableLanguages,
-  countStates,
-  entryLabel,
-  entryPath,
-  filterQueue,
-  nextEntry,
-  parseWorklistFilter,
-  worklistFilters,
-  type WorklistFilter,
-} from './worklist';
-import styles from '../drift/Status.module.scss';
-import landing from './TranslationsPage.module.scss';
+  categoryOptions,
+  countRows,
+  filterRows,
+  parseStateFilter,
+  translationIndex,
+  type QueueRow,
+  type TranslationIndex,
+} from './queue';
+import { availableLanguages, entryPath } from './worklist';
+import styles from './TranslationsPage.module.scss';
 
-const pageSize = 15;
-const filterLabels: Record<WorklistFilter, string> = {
-  missing: 'Missing',
-  outdated: 'Outdated',
-  all: 'All',
-};
+const searchDelayMs = 200;
+const noRows: readonly QueueRow[] = [];
 
-function Cards({
-  entries,
-  nameOf,
-}: {
-  entries: readonly TranslationQueueEntry[];
-  nameOf: (tooltip: Tooltip) => string;
-}) {
-  const [limit, setLimit] = useState(pageSize);
+function Loading() {
   return (
-    <>
-      <ul className={styles.worklist}>
-        {entries.slice(0, limit).map((entry) => {
-          const { tooltip, language, state } = entry;
-          return (
-            <li
-              key={`${tooltip.hash}:${language}`}
-              className={`${styles.card} ${styles.workCard} ${landing.entry}`}
-            >
-              <h2>
-                <Link className={styles.cardLink} to={entryPath(entry)}>
-                  {nameOf(tooltip)}
-                </Link>{' '}
-                <small>({tooltip.hash})</small>
-              </h2>
-              <p>
-                <span className={styles.badge}>{languageLabel(language)}</span>{' '}
-                <span
-                  className={
-                    state === 'missing' ? `${styles.warning} ${landing.warning}` : undefined
-                  }
-                >
-                  {state === 'missing' && 'Not translated yet'}
-                  {state === 'current' && 'Up to date'}
-                  {state === 'outdated' &&
-                    (entry.exportedInEnglish
-                      ? 'Over 90 days behind English — exported in English'
-                      : `${Math.ceil((entry.ageMs ?? 0) / 86_400_000)} days behind English`)}
-                </span>
-              </p>
-              <p className={`${styles.text} ${styles.clamp}`}>
-                {state === 'missing' ? tooltip.text.en?.text : tooltip.text[language]?.text}
-              </p>
-              {state === 'outdated' && entry.sourceUpdatedAt && (
-                <EnglishDiff
-                  hash={tooltip.hash}
-                  sourceUpdatedAt={entry.sourceUpdatedAt}
-                  current={tooltip.text.en?.text ?? ''}
-                />
-              )}
-            </li>
-          );
-        })}
-      </ul>
-      {entries.length > limit && (
-        <button
-          type="button"
-          data-perf-navigation="true"
-          onClick={() => setLimit(limit + pageSize)}
-        >
-          Show more ({entries.length - limit} remaining)
-        </button>
-      )}
-    </>
+    <div className={styles.page}>
+      <SkeletonStatus>Loading translation queue</SkeletonStatus>
+      <SkeletonRegion className={styles.skeleton}>
+        <SkeletonRows count={12} maxRows={20} columns={[55, 25, 12]} rowHeight="2rem" />
+      </SkeletonRegion>
+    </div>
+  );
+}
+
+function Coverage({
+  index,
+  languages,
+  language,
+  open,
+  onPick,
+}: {
+  index: TranslationIndex;
+  languages: readonly Lang[];
+  language: Lang;
+  open: boolean;
+  onPick(language: Lang): void;
+}) {
+  return (
+    <div
+      id="translation-coverage"
+      className={styles.coverage}
+      data-open={open ? '' : undefined}
+      role="group"
+      aria-label="Coverage by language"
+    >
+      <div className={styles.coverageHead} aria-hidden="true">
+        <span>Language</span>
+        <span>Translated</span>
+        <span>Outdated</span>
+        <span>Missing</span>
+      </div>
+      {languages.map((lang) => {
+        const { translated, outdated, missing } = index.coverage(lang);
+        return (
+          <button
+            key={lang}
+            type="button"
+            data-perf-navigation="true"
+            aria-pressed={lang === language}
+            aria-label={`${languageLabel(lang)}: ${translated} translated, ${outdated} outdated, ${missing} missing`}
+            onClick={() => onPick(lang)}
+          >
+            <span>{languageLabel(lang)}</span>
+            <span>{translated}</span>
+            <span data-zero={outdated ? undefined : ''}>{outdated}</span>
+            <span data-zero={missing ? undefined : ''}>{missing}</span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -97,125 +85,205 @@ export function TranslationsPage() {
   const data = useDataStore((state) => state.data);
   const { user, loading } = useAuthStore();
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const available = useMemo(() => availableLanguages(user), [user]);
-  const language = params.get('lang') ?? 'all';
-  const status = parseWorklistFilter(params.get('status'));
+  const requested = params.get('lang');
+  const language: Lang | undefined = available.find((lang) => lang === requested) ?? available[0];
+  const state = parseStateFilter(params.get('state'));
+  const category = params.get('cat');
   const query = params.get('q') ?? '';
-  const deferredQuery = useDeferredValue(query);
-  const selected = useMemo(
-    () => available.filter((lang) => language === 'all' || language === lang),
-    [available, language],
-  );
-  const queue = useMemo(
-    () =>
-      data
-        ? translationQueue(
-            Object.values(data.bundle.tooltips).filter(
-              (tooltip) => !data.items[tooltip.hash] || !isSetSelector(data.items[tooltip.hash]),
-            ),
-            selected,
-            data.aliases,
-          )
-        : [],
-    [data, selected],
-  );
-  const nameOf = useMemo(
-    () => (tooltip: Tooltip) => entryLabel(tooltip, data?.items[tooltip.hash]?.name),
-    [data],
-  );
-  const counts = useMemo(() => countStates(queue), [queue]);
-  const visible = useMemo(
-    () => filterQueue(queue, status, deferredQuery, nameOf),
-    [queue, status, deferredQuery, nameOf],
-  );
-  const next = nextEntry(visible);
-  if (loading) return <p role="status">Loading your translation languages...</p>;
-  if (!data) return null;
-  const update = (changes: Record<string, string | null>) => {
-    const nextParams = new URLSearchParams(params);
+  const [text, setText] = useState(query);
+  const deferredText = useDeferredValue(text);
+  const [coverageOpen, setCoverageOpen] = useState(false);
+
+  // The URL is the source of truth; typing is debounced into it so every key is not a navigation.
+  useEffect(() => setText(query), [query]);
+  const update = (changes: Record<string, string | null>, push = false) => {
+    const next = new URLSearchParams(params);
     for (const [key, value] of Object.entries(changes)) {
-      if (value) nextParams.set(key, value);
-      else nextParams.delete(key);
+      if (value) next.set(key, value);
+      else next.delete(key);
     }
-    setParams(nextParams, { replace: true });
+    setParams(next, { replace: !push });
   };
+  useEffect(() => {
+    if (text === query) return;
+    const timer = setTimeout(() => {
+      const next = new URLSearchParams(params);
+      if (text) next.set('q', text);
+      else next.delete('q');
+      setParams(next, { replace: true });
+    }, searchDelayMs);
+    return () => clearTimeout(timer);
+  }, [text, query, params, setParams]);
+
+  const index = useMemo(() => (data ? translationIndex(data) : null), [data]);
+  const rows = (index && language && index.queue(language)) || noRows;
+  const categories = useMemo(
+    () => (index ? categoryOptions(rows, index.categories) : []),
+    [rows, index],
+  );
+  const shown = useMemo(
+    () => filterRows(rows, { state, category, query: deferredText }),
+    [rows, state, category, deferredText],
+  );
+  const counts = useMemo(() => countRows(rows), [rows]);
+
+  if (loading || !index) return <Loading />;
+
   const translator = user?.role === 'translator';
+  const coverage = !translator && available.length > 0;
+  const filtered = !!(state || category || query);
+  const unavailable = !!requested && requested !== 'all' && requested !== language;
+  const openFirst = (event: KeyboardEvent) => {
+    if (event.key !== 'Enter' || event.nativeEvent.isComposing || !shown[0]) return;
+    void navigate(entryPath(shown[0]));
+  };
+  const pick = (lang: Lang) => {
+    setCoverageOpen(false);
+    update({ lang: lang === available[0] ? null : lang, cat: null }, true);
+  };
+
   return (
-    <article className={styles.page}>
-      <h1>Translation worklist</h1>
-      <p>
-        Pick a tooltip to translate. <strong>Missing</strong> has no saved translation yet;{' '}
-        <strong>Outdated</strong> is based on an older English revision (oldest gap first; red means
-        the gap exceeds 90 days, so it is exported in English). Only tooltips with English text are
-        listed. Local drafts are not included.
-      </p>
-      {translator && (
-        <p>Your assigned languages: {available.map(languageLabel).join(', ') || 'none'}.</p>
-      )}
-      <div className={styles.filters}>
-        <div role="group" aria-label="Translation status" className={styles.chips}>
-          {worklistFilters.map((filter) => (
-            <button
-              key={filter}
-              type="button"
+    <section
+      className={styles.page}
+      data-rail={coverage ? '' : undefined}
+      aria-label="Translation queue"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && coverageOpen) setCoverageOpen(false);
+      }}
+    >
+      <div className={styles.bar}>
+        <h1>Translations</h1>
+        {language && available.length > 1 && (
+          <label className={styles.languagePicker}>
+            <span className="sr-only">Language</span>
+            <select
               data-perf-navigation="true"
-              aria-pressed={status === filter}
-              onClick={() => update({ status: filter === 'missing' ? null : filter })}
+              value={language}
+              onChange={(event) => pick(event.target.value as Lang)}
             >
-              {filterLabels[filter]}
-              {filter !== 'all' && ` (${counts[filter]})`}
-            </button>
-          ))}
-        </div>
-        <label>
-          Language
-          <select
-            data-perf-navigation="true"
-            value={language}
-            onChange={(event) =>
-              update({ lang: event.target.value === 'all' ? null : event.target.value })
-            }
-          >
-            <option value="all">{translator ? 'All assigned languages' : 'All languages'}</option>
-            {available.map((lang) => (
-              <option key={lang} value={lang}>
-                {languageLabel(lang)}
-              </option>
-            ))}
-            {language !== 'all' && !available.some((lang) => lang === language) && (
-              <option value={language} disabled>
-                Unavailable language ({languageLabel(language)})
-              </option>
-            )}
-          </select>
-        </label>
-        <label>
-          Search
-          <input
-            type="search"
-            value={query}
-            placeholder="Name, hash or text"
-            onChange={(event) => update({ q: event.target.value })}
-          />
-        </label>
-      </div>
-      <p role="status">
-        {visible.length} {status === 'all' ? '' : `${filterLabels[status].toLowerCase()} `}
-        translations in this view.{' '}
-        {next && (
-          <Link className={styles.next} to={entryPath(next)}>
-            Open next
-          </Link>
+              {available.map((lang) => (
+                <option key={lang} value={lang}>
+                  {languageLabel(lang)}
+                </option>
+              ))}
+            </select>
+          </label>
         )}
-      </p>
-      {!visible.length && (
-        <p>
-          {translator && !available.length
-            ? 'You have no assigned languages, so there is nothing to translate.'
-            : 'Nothing to show for these filters.'}
-        </p>
+        {language && available.length === 1 && (
+          <span className={styles.fixedLanguage}>{languageLabel(language)}</span>
+        )}
+        {language && (
+          <>
+            <label className={styles.categories}>
+              <span className="sr-only">Category</span>
+              <select
+                data-perf-navigation="true"
+                value={
+                  category && categories.some((option) => option.id === category) ? category : ''
+                }
+                onChange={(event) => update({ cat: event.target.value || null })}
+              >
+                <option value="">All categories</option>
+                {categories.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label} ({option.count})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <input
+              type="search"
+              aria-label="Filter by name, hash, or category"
+              placeholder="Filter name, hash, or category"
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              onKeyDown={openFirst}
+            />
+          </>
+        )}
+      </div>
+      {language && (
+        <div className={styles.summary}>
+          <div role="group" aria-label="Show">
+            {(['outdated', 'missing'] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                data-perf-navigation="true"
+                aria-pressed={state === value}
+                onClick={() => update({ state: state === value ? null : value })}
+              >
+                {value === 'outdated' ? 'Outdated' : 'Missing'} {counts[value]}
+              </button>
+            ))}
+          </div>
+          {coverage && (
+            <button
+              type="button"
+              className={styles.coverageToggle}
+              aria-expanded={coverageOpen}
+              aria-controls="translation-coverage"
+              onClick={() => setCoverageOpen(!coverageOpen)}
+            >
+              Coverage
+            </button>
+          )}
+          <span className={styles.count} role="status">
+            {filtered ? `${shown.length} of ${rows.length}` : `${rows.length} to translate`}
+          </span>
+        </div>
       )}
-      <Cards key={`${status}|${language}|${deferredQuery}`} entries={visible} nameOf={nameOf} />
-    </article>
+      <div className={styles.body}>
+        {coverage && language && (
+          <Coverage
+            index={index}
+            languages={available}
+            language={language}
+            open={coverageOpen}
+            onPick={pick}
+          />
+        )}
+        <div className={styles.listing}>
+          {unavailable && (
+            <p className={styles.empty} role="status">
+              {languageLabel(requested)} is not one of your assigned languages. Showing{' '}
+              {language ? languageLabel(language) : 'nothing'}.
+            </p>
+          )}
+          {!language ? (
+            <p className={styles.empty}>
+              {translator
+                ? 'You have no assigned languages, so there is nothing to translate.'
+                : 'No languages to translate.'}
+            </p>
+          ) : shown.length ? (
+            <QueueList
+              key={`${language}|${state}|${category}|${deferredText}`}
+              rows={shown}
+              label={`${languageLabel(language)} tooltips to translate`}
+            />
+          ) : (
+            <p className={styles.empty} role="status">
+              {filtered
+                ? 'No tooltips match these filters.'
+                : `Nothing to translate in ${languageLabel(language)}.`}
+              {filtered && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setText('');
+                    update({ state: null, cat: null, q: null });
+                  }}
+                >
+                  Clear filters
+                </button>
+              )}
+            </p>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }

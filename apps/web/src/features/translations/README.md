@@ -1,15 +1,27 @@
-# Translation worklist
+# Translator queue
 
-`translationQueue` (core) classifies every tooltip × language as `missing` (English exists,
-no saved translation), `outdated` (known source revision older than the current English) or
-`current`. Aliases and tooltips without English are never listed. Translations without a
-known `sourceUpdatedAt` count as current: missing source metadata is deliberately not guessed.
+The Translations tab lists, for one language, every tooltip that still needs work: one dense row per
+tooltip (name, category, state), opening the editor in translate mode (`/t/<hash>?lang=<language>`).
+Core's `translationStateOf` classifies each translatable tooltip as `missing` (English exists, no saved
+translation), `outdated` (known source revision older than the current English) or current;
+`translationQueue` is the same rule over a list. Translations without a known `sourceUpdatedAt` count as
+current: missing source metadata is deliberately not guessed.
 
-The page filters Missing (default) · Outdated · All via `?status=`, a language via `?lang=` and
-a search via `?q=` (name, hash or saved text). Translators see only their assigned languages;
-everyone else sees all of them. Each card is a single tap target linking to
-`/t/<hash>?lang=<language>`; "Open next" opens the first listed entry that still needs work.
-Lists render 50 cards at a time.
+`queue.ts` builds a per-data index once. Never listed: aliases, archived tooltips, tooltips without English
+text, set-selector items, and items classified Inactive & Placeholder. Rows are outdated first (largest
+English gap first, the same order as before), then missing in finder order (category order, then name), so
+a translator works through one category at a time. Categories use the finder's labels.
+
+State is in the URL: `?lang=` (default: the first available language, never written), `?cat=` (category id),
+`?q=` (name, hash, or category; typing is debounced into the URL) and `?state=outdated|missing`. Picking a
+language pushes history; filters replace. Translators see only their assigned languages and no coverage;
+editors and maintainers see every language plus a coverage table (translated, outdated, missing) that also
+picks the language: a side rail when the page has room, otherwise a "Coverage" popover. Read-only: nothing
+is written, and roles are still enforced by the Worker.
+
+The list is virtualized (fixed rows, a bounded DOM window, one tab stop). Up and Down move the selection,
+Page Up, Page Down, Home, and End jump, Enter opens it, and Enter in the filter opens the first match. Back
+from the editor restores the language, filters, selection, and scroll position for that history entry.
 
 On a non-English tooltip, outdated translations show English changes in the Source panel. A
 single toggle switches to current English and remembers the choice locally. Translators do not
@@ -37,11 +49,6 @@ Edit existing markup directly when a toolbar operation is declined.
 
 Outdated order and the red "exported in English" flag use the same strict greater-than-90-day
 revision gap as core export, not wall-clock time. Exactly 90 days remains translated.
-
-Expand English changes on an outdated card to load tooltip history lazily. Match the English
-revision timestamp, not the commit date. Search up to 20 pages (600 commits); if unavailable
-or not found, show a labeled current-English fallback, with explicit errors and retry for
-request failures. Collapse or navigation aborts outstanding requests.
 
 Run root tests targeting this folder and `packages/core/src/status/status.test.ts`.
 For the rendered touch-target and alias regression, run the web Vite server with
