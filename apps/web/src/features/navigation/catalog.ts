@@ -44,9 +44,10 @@ export function classifiedCategory(
 ): Category | undefined {
   if (!item) return undefined;
   const id = classifyItem(item, data.bundle.tooltips[item.hash])?.categoryId ?? item.categoryId;
+  // An id the catalog does not know is listed under its own "Other: <id>" section.
   return (
     data.categories.find((category) => category.id === id) ??
-    derivedCategories.find((category) => category.id === id)
+    derivedCategories.find((category) => category.id === id) ?? { id, ...categoryDisplay(id) }
   );
 }
 

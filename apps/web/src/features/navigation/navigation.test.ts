@@ -139,6 +139,12 @@ describe('tooltip catalog', () => {
     expect(withGlobals.bundle.tooltips[0]).toBeDefined();
     const other = navigationGroups(withGlobals, '').find((group) => group.name === 'Other')!;
     expect(other.sections[0].label).toBe('Other: none');
+    // Opening a global keeps the finder on its own section (it used to fall back to the first).
+    const globalItem = other.sections[0].items[0];
+    expect(classifiedCategory(globalItem, withGlobals)).toMatchObject({
+      id: 'none',
+      label: 'Other: none',
+    });
   });
 
   it('retains and discovers single owner identity with fallback names', () => {
