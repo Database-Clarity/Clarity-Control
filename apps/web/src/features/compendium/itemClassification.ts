@@ -3,6 +3,7 @@ import type { Item, Category } from '../../services/generator';
 import { loadManifestFacts, type ManifestFacts } from './manifestFacts';
 import triage from './owner-triage.json';
 import { approvedExoticStat } from './ownerExceptions';
+import { categoryDisplay } from '../../services/categoryLabels';
 
 export function isSetSelector(
   item: Pick<Item, 'name' | 'hiddenFromEditor' | 'inGameDescription'>,
@@ -18,10 +19,10 @@ export const attachmentCategory = 'weapon-attachment';
 export const effectCategory = 'attachment-effect';
 export const inactiveCategory = 'inactive-placeholder';
 export const derivedCategories: Category[] = [
-  { id: attachmentCategory, label: 'Weapon Attachments', group: 'Weapons', order: 9000 },
-  { id: effectCategory, label: 'Attachment Effects', group: 'Weapons', order: 9001 },
-  { id: inactiveCategory, label: 'Inactive & Placeholder Items', group: 'Other', order: 9998 },
-];
+  attachmentCategory,
+  effectCategory,
+  inactiveCategory,
+].map((id) => ({ id, ...categoryDisplay(id) }));
 export interface ItemClassification {
   categoryId: string;
   ruleId: string;
@@ -48,6 +49,8 @@ const attachments = new Set([
   'stocks',
   'blades',
   'guards',
+  // Crossbow bolts: the last parts left in Weapon Parts, grouped with the other parts.
+  'bolts',
 ]);
 const playerStats = new Set([2996146975, 392767087, 1735777505, 144602215, 1943323491, 4244567218]);
 export function triageMember(item: Pick<Item, 'hash' | 'name' | 'categoryId'>) {
@@ -206,7 +209,7 @@ export function classifyItem(item: Item, tooltip?: Tooltip): ItemClassification 
       result = classification(
         attachmentCategory,
         record.ruleId,
-        'Explicit owner triage: Weapon Attachments, excluded by default; may be promoted.',
+        'Explicit owner triage: Stat-only Parts, excluded by default; may be promoted.',
         true,
         'owner',
       );
@@ -224,7 +227,7 @@ export function classifyItem(item: Item, tooltip?: Tooltip): ItemClassification 
       result = classification(
         inactiveCategory,
         record.ruleId,
-        'Explicit owner triage: retain in Inactive & Placeholder Items; not archived.',
+        'Explicit owner triage: retain in Inactive & Placeholders; not archived.',
         true,
         'owner',
       );
@@ -240,7 +243,7 @@ export function classifyItem(item: Item, tooltip?: Tooltip): ItemClassification 
       result = classification(
         'weapon-mod',
         record.ruleId,
-        'Explicit owner triage: heat/vent upgrade is a Weapon Mod; no tooltip needed.',
+        'Explicit owner triage: heat/vent upgrade is a Weapon Mods entry; no tooltip needed.',
         true,
         'owner',
       );
@@ -279,7 +282,7 @@ export function classifyItem(item: Item, tooltip?: Tooltip): ItemClassification 
     return classification(
       attachmentCategory,
       'editor-attachment-override',
-      'Editor-moved to Weapon Attachments: no tooltip required; owner/manifest classification is overridden only by this draft/saved category.',
+      'Editor-moved to Stat-only Parts: no tooltip required; owner/manifest classification is overridden only by this draft/saved category.',
       true,
       'editor',
     );
@@ -291,7 +294,7 @@ export function classifyItem(item: Item, tooltip?: Tooltip): ItemClassification 
     return classification(
       effectCategory,
       'editor-attachment-effect',
-      'Editor-promoted Attachment Effects: requires a tooltip; normal source identity validation still applies.',
+      'Editor-promoted Parts with Effects: requires a tooltip; normal source identity validation still applies.',
       false,
       'editor',
       'required',

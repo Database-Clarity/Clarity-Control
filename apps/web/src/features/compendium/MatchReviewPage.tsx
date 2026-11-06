@@ -48,6 +48,7 @@ import { CompendiumPage } from './CompendiumPage';
 import { MatchedSources } from './MatchedSources';
 import { useDisplayMatches } from './useDisplayMatches';
 import type { displayMatches } from './displayMatches';
+import { nonEmptyCategories } from '../../services/categoryLabels';
 
 const labels = {
   open: 'Unresolved',
@@ -822,7 +823,7 @@ export function ReviewQueue({
             }}
           >
             <option value="">All categories</option>
-            {editor.categories.map((c) => (
+            {nonEmptyCategories(editor).map((c) => (
               <option key={c.id} value={c.id}>
                 {c.label}
               </option>

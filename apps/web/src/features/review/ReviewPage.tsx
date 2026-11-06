@@ -1,3 +1,4 @@
+import { previousCategoryLabel } from '../../services/categoryLabels';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import { apiUrl } from '../../services/api';
@@ -189,7 +190,7 @@ export function ReviewPage() {
             ({ name, category, categoryId, tooltip }) =>
               (!categoryFilter || categoryId === categoryFilter) &&
               (!query ||
-                `${name} ${category} ${categoryId} ${tooltip.hash}`
+                `${name} ${category} ${categoryId} ${previousCategoryLabel(categoryId)} ${tooltip.hash}`
                   .toLowerCase()
                   .includes(query.toLowerCase())),
           ),
@@ -311,7 +312,7 @@ export function ReviewPage() {
       ({ name, category, categoryId, tooltip }) =>
         (!categoryValue || categoryId === categoryValue) &&
         (!queryValue ||
-          `${name} ${category} ${categoryId} ${tooltip.hash}`
+          `${name} ${category} ${categoryId} ${previousCategoryLabel(categoryId)} ${tooltip.hash}`
             .toLowerCase()
             .includes(queryValue.toLowerCase())),
     );

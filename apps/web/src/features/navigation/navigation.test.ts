@@ -86,6 +86,30 @@ const data: EditorData = {
 };
 
 describe('tooltip catalog', () => {
+  it('skips the legacy Default perk placeholder but keeps the other globals', () => {
+    const base = { text: {}, associated: [] };
+    const withGlobals: EditorData = {
+      ...data,
+      bundle: {
+        ...data.bundle,
+        tooltips: {
+          ...data.bundle.tooltips,
+          0: { ...base, hash: 0, custom: { name: 'Default perk', categoryId: 'none' } },
+          1: { ...base, hash: 1, custom: { name: 'Global exports', categoryId: 'none' } },
+        },
+      },
+    };
+    const names = navigationGroups(withGlobals, '').flatMap((group) =>
+      group.sections.flatMap((section) => section.items.map((item) => item.name)),
+    );
+    expect(names).toContain('Global exports');
+    expect(names).not.toContain('Default perk');
+    expect(navigationGroups(withGlobals, 'default perk').flatMap((g) => g.sections)).toEqual([]);
+    expect(withGlobals.bundle.tooltips[0]).toBeDefined();
+    const other = navigationGroups(withGlobals, '').find((group) => group.name === 'Other')!;
+    expect(other.sections[0].label).toBe('Other: none');
+  });
+
   it('retains and discovers single owner identity with fallback names', () => {
     const single: EditorData = {
       ...data,
@@ -278,12 +302,12 @@ describe('tooltip catalog', () => {
   });
   it('groups categories in order and lists variants only with their base', () => {
     const groups = navigationGroups(data, '');
-    expect(groups.map((group) => group.name)).toEqual(['Armor', 'Weapons', 'Other']);
+    expect(groups.map((group) => group.name)).toEqual(['Weapons', 'Armor', 'Other']);
     expect(
       groups.flatMap((group) =>
         group.sections.flatMap((section) => section.items.map((item) => item.hash)),
       ),
-    ).toEqual([20, 10, 2]);
+    ).toEqual([10, 20, 2]);
   });
   it('searches names, base hashes, variant hashes, and sandbox hashes', () => {
     for (const search of ['BASE', 'Enhanced', '10', '11', '99']) {
