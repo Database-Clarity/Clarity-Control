@@ -252,8 +252,9 @@ function TooltipWorkspace({
         (entry) => entry.canonical === reviewCanonical && entry.dirty > entry.reviewed,
       ).length,
   );
-  // "Show preview" from the leave guard opens the column on a render that counts as seen: Base, or
-  // Enhanced for an override with unseen edits. Compare never does, so it is left.
+  // "Show preview" from the leave guard opens the column. A view that already shows the unseen
+  // edits (Base, Enhanced, or Compare, which shows both) is left as it is; otherwise it moves to
+  // Base, or to Enhanced for an override with unseen edits.
   const reveal = useRef<() => void>(undefined);
   useEffect(() => {
     if (!showPreview) return;
@@ -352,6 +353,8 @@ function TooltipWorkspace({
   const mode = effectiveMode(previewMode, phone, selectedView !== undefined);
   reveal.current = () => {
     const unseen = usePreviewReviewStore.getState().unreviewed(canonical);
+    const shownNow = previewedHashes(mode, hash, selectedView);
+    if (unseen.every((variant) => shownNow.includes(variant))) return;
     const override = enhancedViews.find((view) => !view.derived && unseen.includes(view.hash));
     if (override && !unseen.includes(hash)) {
       setPreviewPick({ hash, variant: override.hash });

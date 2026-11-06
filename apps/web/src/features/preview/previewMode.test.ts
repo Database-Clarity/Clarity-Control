@@ -24,10 +24,13 @@ describe('preview modes', () => {
     it('is the override itself for an override Enhanced', () => {
       expect(previewedHashes('enhanced', 10, override)).toEqual([12]);
     });
-    it('is nothing for Compare, a working view and never a render a consumer sees', () => {
-      expect(previewedHashes('compare', 10, derived)).toEqual([]);
-      expect(previewedHashes('compare', 10, override)).toEqual([]);
-      expect(previewedHashes('compare', 10, undefined)).toEqual([]);
+    it('is the base and the selected override for Compare, which shows both', () => {
+      expect(previewedHashes('compare', 10, derived)).toEqual([10]);
+      expect(previewedHashes('compare', 10, override)).toEqual([10, 12]);
+      expect(previewedHashes('compare', 10, undefined)).toEqual([10]);
+    });
+    it('is nothing for Enhanced when there is no enhanced version', () => {
+      expect(previewedHashes('enhanced', 10, undefined)).toEqual([]);
     });
   });
 });

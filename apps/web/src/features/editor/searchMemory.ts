@@ -6,6 +6,7 @@ import {
   setSearchQuery,
 } from '@codemirror/search';
 import type { EditorView, ViewUpdate } from '@codemirror/view';
+import { replaceRowOpen, setReplaceOpen } from './findWidget';
 
 /**
  * Find and replace outlives a tooltip: its open state, query, replacement and options are
@@ -14,6 +15,8 @@ import type { EditorView, ViewUpdate } from '@codemirror/view';
  */
 export interface SearchMemory {
   open: boolean;
+  /** The replace row of the widget is showing. */
+  replaceOpen: boolean;
   search: string;
   replace: string;
   caseSensitive: boolean;
@@ -24,6 +27,7 @@ export interface SearchMemory {
 const key = 'clarity.find';
 const closed: SearchMemory = {
   open: false,
+  replaceOpen: false,
   search: '',
   replace: '',
   caseSensitive: false,
@@ -41,6 +45,7 @@ function parse(raw: string | null): SearchMemory | null {
     const value = JSON.parse(raw) as Partial<SearchMemory>;
     return {
       open: value.open === true,
+      replaceOpen: value.replaceOpen === true,
       search: typeof value.search === 'string' ? value.search : '',
       replace: typeof value.replace === 'string' ? value.replace : '',
       caseSensitive: value.caseSensitive === true,
@@ -86,6 +91,7 @@ export function searchSnapshot(state: EditorView['state']): SearchMemory {
   const query = getSearchQuery(state);
   return {
     open: searchPanelOpen(state),
+    replaceOpen: replaceRowOpen(state),
     search: query.search,
     replace: query.replace,
     caseSensitive: query.caseSensitive,
@@ -96,6 +102,7 @@ export function searchSnapshot(state: EditorView['state']): SearchMemory {
 
 const same = (a: SearchMemory, b: SearchMemory) =>
   a.open === b.open &&
+  a.replaceOpen === b.replaceOpen &&
   a.search === b.search &&
   a.replace === b.replace &&
   a.caseSensitive === b.caseSensitive &&
@@ -118,7 +125,7 @@ export function rememberSearch(update: ViewUpdate): void {
  */
 export function restoreSearch(view: EditorView): void {
   const saved = readSearchMemory();
-  if (!saved.open && !saved.search && !saved.replace) return;
+  if (!saved.open && !saved.replaceOpen && !saved.search && !saved.replace) return;
   const query = new SearchQuery({
     search: saved.search,
     replace: saved.replace,
@@ -129,7 +136,9 @@ export function restoreSearch(view: EditorView): void {
   const active = document.activeElement;
   restoring = true;
   try {
-    view.dispatch({ effects: setSearchQuery.of(query) });
+    view.dispatch({
+      effects: [setSearchQuery.of(query), setReplaceOpen.of(saved.replaceOpen)],
+    });
     if (saved.open) openSearchPanel(view);
   } finally {
     restoring = false;

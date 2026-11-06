@@ -16,9 +16,10 @@ export function effectiveMode(
 }
 
 /**
- * The variants whose current text a visible preview has rendered, i.e. what counts as previewed.
- * A derived Enhanced is the base text read as the enhanced type, an override is its own text.
- * Compare is never a render a consumer sees, so it acknowledges nothing.
+ * The variants whose current text a visible preview shows, i.e. what counts as previewed in any
+ * view. A derived Enhanced is the base text read as the enhanced type, an override is its own text.
+ * Compare lays the selected enhanced version over the base, so it shows both: an edit to either is
+ * in front of the reader (a derived Enhanced has no text of its own, so Compare shows the base).
  */
 export function previewedHashes(
   mode: PreviewMode,
@@ -26,6 +27,7 @@ export function previewedHashes(
   enhanced: { hash: number; derived: boolean } | undefined,
 ): number[] {
   if (mode === 'base') return [base];
-  if (mode === 'enhanced' && enhanced) return [enhanced.derived ? base : enhanced.hash];
-  return [];
+  if (!enhanced) return mode === 'compare' ? [base] : [];
+  const own = enhanced.derived ? base : enhanced.hash;
+  return mode === 'enhanced' ? [own] : [...new Set([base, own])];
 }

@@ -5,7 +5,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
-import { FinderSheetContext } from './FinderSheetContext';
+import { FinderSheetCloseContext, FinderSheetContext } from './FinderSheetContext';
 import { TooltipNavigation } from './TooltipNavigation';
 import {
   observeNativeDialogShortcutOwner,
@@ -636,6 +636,54 @@ describe('finder sheet form', () => {
     expect(field().getAttribute('aria-expanded')).toBe('false');
     await render(true);
     expect(options()).toHaveLength(3);
+  });
+});
+
+describe('finder sheet row choice', () => {
+  const close = vi.fn();
+  const render = () =>
+    act(async () =>
+      root.render(
+        <MemoryRouter initialEntries={['/t/10?lang=de']}>
+          <Routes>
+            <Route
+              path="/t/:hash"
+              element={
+                <>
+                  <FinderSheetContext.Provider value={true}>
+                    <FinderSheetCloseContext.Provider value={close}>
+                      <TooltipNavigation data={data} variant="sheet" />
+                    </FinderSheetCloseContext.Provider>
+                  </FinderSheetContext.Provider>
+                  <Echo />
+                </>
+              }
+            />
+          </Routes>
+        </MemoryRouter>,
+      ),
+    );
+  beforeEach(() => close.mockClear());
+
+  it('opens the chosen item and closes the sheet', async () => {
+    await render();
+    await act(async () => options()[2].click());
+    expect(route()).toBe('/t/12?lang=de');
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+  it('closes the sheet on Enter as well', async () => {
+    await render();
+    await press('ArrowDown');
+    await press('Enter');
+    expect(route()).toBe('/t/11?lang=de');
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+  it('stays open when stepping with the sheet row', async () => {
+    await render();
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="Next tooltip"]')!.click(),
+    );
+    expect(close).not.toHaveBeenCalled();
   });
 });
 

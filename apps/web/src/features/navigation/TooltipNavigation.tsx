@@ -47,7 +47,7 @@ import {
   tooltipPath,
   type SteppingGuard,
 } from './stepping';
-import { FinderSheetContext } from './FinderSheetContext';
+import { FinderSheetCloseContext, FinderSheetContext } from './FinderSheetContext';
 import {
   beginSteppingFrame,
   clearSteppingTarget,
@@ -317,6 +317,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
 }) {
   const compendiumSource = useCompendiumStore((state) => state.data);
   const sheetOpen = useContext(FinderSheetContext);
+  const closeSheet = useContext(FinderSheetCloseContext);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -660,18 +661,22 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       stepping.cancel();
     };
   }, [stepping, wheelStepper]);
-  function choose(target: number) {
+  /** True when the navigation went ahead (the guard did not refuse it). */
+  function choose(target: number): boolean {
     stepping.commit();
     const path = tooltipPath(target, location.search);
-    if (!steppingGuard.allow(location.pathname, path)) return;
+    if (!steppingGuard.allow(location.pathname, path)) return false;
     pulseStepping();
     navigate(path);
+    return true;
   }
   function commit(row: Row | undefined) {
     if (!row) return;
     restore();
     // A refused (guarded) navigation leaves the route; the field shows the current item again.
-    choose(row.hash);
+    // On the phone the chosen row opens its item and the sheet closes (a refused one stays, so
+    // the prompt that explains why is not the only thing on screen).
+    if (choose(row.hash) && variant === 'sheet') closeSheet?.();
   }
   const commitRef = useRef(commit);
   commitRef.current = commit;
