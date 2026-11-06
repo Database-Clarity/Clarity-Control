@@ -371,7 +371,6 @@ class FindWidget implements Panel {
   private rescan(delay: number) {
     const token = ++this.run;
     clearTimeout(this.quiet);
-    this.dom.setAttribute('aria-busy', 'true');
     const start = () => {
       if (token !== this.run) return;
       const state = this.view.state;
@@ -409,7 +408,6 @@ class FindWidget implements Panel {
 
   private finish(list: MatchList) {
     this.list = list;
-    this.dom.removeAttribute('aria-busy');
     this.paint();
   }
 
