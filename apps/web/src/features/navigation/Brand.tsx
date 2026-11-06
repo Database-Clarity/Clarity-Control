@@ -7,7 +7,8 @@ import styles from './Brand.module.scss';
  * artwork is its own outlined drawing, not an inversion of the dark one.
  */
 export function Brand({ className, compact = false }: { className?: string; compact?: boolean }) {
-  // Compact windows (< 1100px) keep the mark alone; the full lockup returns at desktop widths.
+  // Compact windows (< 1100px) and bars too tight for the finder keep the mark alone; the full
+  // lockup returns as soon as the bar has room (Header decides, from its measured width).
   if (compact)
     return (
       <div

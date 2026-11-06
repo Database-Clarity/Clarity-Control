@@ -134,7 +134,8 @@
 
 @media (max-width: 700px) {
   .button {
-    max-width: 7rem;
+    // Physical pixels, not rem: at a large interface scale the label must not eat the page title.
+    max-width: min(7rem, 112px);
   }
 
   .role {

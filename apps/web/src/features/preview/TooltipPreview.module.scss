@@ -48,21 +48,23 @@
 // theme swaps them for pre-processed copies (assets/light): a dark outline traced round the glyph
 // with every enclosed area filled, edges smoothed. Coloured glyphs are used as they are.
 @mixin light-icons {
+  // The outlined copies are drawn a little larger than their glyph; each size keeps the traced
+  // outline inside the 12px box (primary: the 16px ammo box).
   .kinetic::before {
     background-image: url('./assets/light/kinetic.png');
-    background-size: 0.9375rem 0.9375rem;
+    background-size: 0.8125rem 0.8125rem;
   }
   .primary::before {
     background-image: url('./assets/light/primary.png');
-    background-size: 1.5rem 1.5rem;
+    background-size: 1.375rem 1.375rem;
   }
   .barrier::before {
     background-image: url('./assets/light/barrier.png');
-    background-size: 0.9375rem 0.9375rem;
+    background-size: 0.8125rem 0.8125rem;
   }
   .overload::before {
     background-image: url('./assets/light/overload.png');
-    background-size: 0.9375rem 0.9375rem;
+    background-size: 0.8125rem 0.8125rem;
   }
   .unstoppable::before {
     background-image: url('./assets/light/unstoppable.png');
@@ -296,40 +298,56 @@
 .titleAnchor {
   position: relative;
 }
+// A top-layer popover (titlePopover.ts): placed in viewport coordinates, never clipped by a pane.
+// The text wraps inside max-width and a very tall body scrolls instead of leaving the viewport.
 .titleContainer {
   display: none;
-  color: var(--tp-pop-text);
-  z-index: 2;
-  padding: 2px 0.25rem;
-  flex-direction: column;
-  position: absolute;
+  box-sizing: border-box;
+  position: fixed;
+  inset: auto;
   left: 0;
-  top: 100%;
-  background-color: var(--tp-pop-bg);
-  max-width: min(18.75rem, 85vw);
+  top: 0;
+  z-index: 100;
+  margin: 0;
+  flex-direction: column;
   width: max-content;
+  max-width: min(18.75rem, calc(100vw - 16px));
+  overflow: auto;
+  overflow-wrap: anywhere;
+  padding: 2px 0.25rem;
+  color: var(--tp-pop-text);
+  background-color: var(--tp-pop-bg);
   border: 2px solid var(--tp-pop-edge);
   font-weight: normal;
   text-align: left;
+  white-space: normal;
   table td:not(:first-child):not(:last-child) {
     padding: 0 0.1875rem;
   }
-}
-.titleAnchor:hover > .titleContainer,
-.titleAnchor:focus > .titleContainer {
-  display: flex;
+  &:popover-open,
+  &[data-open] {
+    display: flex;
+  }
 }
 
-// Every inline symbol is the same 12px box in both themes, so lines of text keep one rhythm;
-// $size fits the artwork to the box (some artwork carries transparent padding).
+// Every inline symbol is 12px tall and 16px wide with its margins in both themes, so lines of text
+// keep one rhythm; $size fits the artwork to the box (some artwork carries transparent padding).
+// The artwork must stay inside the box: a background larger than the box is cropped at the sides.
+// The ammo frames are wide (71% of their image), so at the size that reads well they need the whole
+// 16px: the box takes the margins' width ($wide) and the advance stays 16px.
 $symbol: 0.75rem;
-@mixin icon($url, $size: 0.75rem 0.75rem) {
+@mixin icon($url, $size: 0.75rem 0.75rem, $wide: false) {
   &::before {
     content: '';
     display: inline-block;
     height: $symbol;
-    width: $symbol;
-    margin: 0 0.125rem;
+    @if $wide {
+      width: 1rem;
+      margin: 0;
+    } @else {
+      width: $symbol;
+      margin: 0 0.125rem;
+    }
     vertical-align: -1px;
     background: url($url) center / $size no-repeat;
   }
@@ -367,19 +385,22 @@ $symbol: 0.75rem;
 .primary {
   @include icon(
     'https://www.bungie.net/common/destiny2_content/icons/99f3733354862047493d8550e46a45ec.png',
-    1.25rem 1.25rem
+    1.25rem 1.25rem,
+    true
   );
 }
 .special {
   @include icon(
     'https://www.bungie.net/common/destiny2_content/icons/d920203c4fd4571ae7f39eb5249eaecb.png',
-    1.25rem 1.25rem
+    1.25rem 1.25rem,
+    true
   );
 }
 .heavy {
   @include icon(
     'https://www.bungie.net/common/destiny2_content/icons/78ef0e2b281de7b60c48920223e0f9b1.png',
-    1.25rem 1.25rem
+    1.25rem 1.25rem,
+    true
   );
 }
 .barrier {
