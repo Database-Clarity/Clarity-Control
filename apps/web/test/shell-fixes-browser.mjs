@@ -297,16 +297,12 @@ try {
             check(!facts.scrollsX, `${label}: popover ${i} does not wrap its text`);
             await page.screenshot({ path: `${shots}/${name}-popover-${i}.png` });
             await page.mouse.move(width - 2, height - 2);
-            const closed = await page.evaluate(
-              (index) =>
-                !document
-                  .querySelectorAll(
-                    'section[aria-label$="preview"] [tabindex="0"][aria-describedby]',
-                  )
-                  [index].querySelector('[role="tooltip"]')
-                  .matches(':popover-open'),
-              i,
-            );
+            const closed = await page.evaluate((index) => {
+              const anchors = document.querySelectorAll(
+                'section[aria-label$="preview"] [tabindex="0"][aria-describedby]',
+              );
+              return !anchors[index].querySelector('[role="tooltip"]').matches(':popover-open');
+            }, i);
             check(closed, `${label}: popover ${i} stays open after the pointer leaves`);
           }
           await context.close();

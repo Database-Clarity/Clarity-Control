@@ -52,8 +52,8 @@ export function Header({
 /** The lockup's own proportions (viewBox 6005 x 1020) at the header's 1.75rem height. */
 const LOCKUP_ASPECT = 6005 / 1020;
 const LOCKUP_HEIGHT_REM = 1.75;
-/** The least the finder is worth: its category select alone is 11rem, and the field needs room. */
-const FINDER_MIN_REM = 15;
+/** The finder slot holds the category select (11rem) and the field: below this the field is under ~14rem. */
+const FINDER_MIN_REM = 25;
 
 /**
  * Whether the lockup would leave the finder under its minimum. Measured from the parts that do not
