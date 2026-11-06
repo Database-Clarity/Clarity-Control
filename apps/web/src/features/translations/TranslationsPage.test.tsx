@@ -308,6 +308,11 @@ describe('TranslationsPage queue', () => {
     await press(input(), 'Enter');
     await act(async () => void navigate(-1));
     expect(host.querySelector('a[data-selected]')!.textContent).toBe(first);
+    // The filter-Enter destination applies only to that departure.
+    await act(async () => rows()[1]!.click());
+    await act(async () => void navigate(-1));
+    expect(host.querySelector('a[data-selected]')!.textContent).toBe(second);
+    expect(document.activeElement).toBe(host.querySelector('a[data-selected]'));
   });
 
   it('returns from the editor to the same selection and scroll position', async () => {
@@ -341,6 +346,13 @@ describe('TranslationsPage queue', () => {
     expect(host.querySelector('a[data-selected]')!.textContent).toBe(selected);
     expect(document.activeElement).toBe(host.querySelector('a[data-selected]'));
     expect(host.querySelector<HTMLElement>('[class*=viewport]')!.scrollTop).toBe(600);
+    const input = host.querySelector<HTMLInputElement>('input[type=search]')!;
+    act(() => input.focus());
+    await press(input, 'Enter');
+    await act(async () => void navigate(-1));
+    expect(host.querySelector('a[data-selected]')!.textContent).toContain('Tooltip 000');
+    expect(host.querySelector<HTMLElement>('[class*=viewport]')!.scrollTop).toBe(0);
+    expect(document.activeElement).toBe(host.querySelector('a[data-selected]'));
   });
 
   it('renders a bounded window for a long queue', async () => {

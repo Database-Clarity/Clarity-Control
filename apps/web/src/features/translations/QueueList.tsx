@@ -60,6 +60,9 @@ export function QueueList({
   const scrolled = useRef(saved?.top ?? 0);
 
   useLayoutEffect(() => {
+    // An Enter destination belongs only to the departure that opened the editor.
+    // Its saved position has now been read; later clicks and keys must win again.
+    forced = null;
     const element = host.current!;
     if (saved?.top) element.scrollTop = saved.top;
     if (typeof ResizeObserver === 'undefined') {
@@ -96,7 +99,7 @@ export function QueueList({
   useLayoutEffect(
     () => () =>
       void memory.set(signature, {
-        top: scrolled.current,
+        top: forced?.signature === signature ? 0 : scrolled.current,
         selected:
           (forced?.signature === signature ? forced.key : null) ??
           opened.current ??
