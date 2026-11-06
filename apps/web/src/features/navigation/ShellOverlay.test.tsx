@@ -3,6 +3,7 @@ import { act, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ShellOverlay } from './ShellOverlay';
+import { workspaceShortcutsBlocked } from '../../ui/interaction';
 
 let host: HTMLDivElement;
 let root: Root;
@@ -80,9 +81,11 @@ describe('ShellOverlay', () => {
   it('marks itself, moves focus in, and Escape closes it and returns focus to the anchor', async () => {
     await act(async () => root.render(<Pair />));
     await click(q('open-a'));
+    expect(workspaceShortcutsBlocked(new Event('wheel'))).toBe(true);
     expect(marker()).toEqual(['Overlay A']);
     expect(document.activeElement?.getAttribute('aria-label')).toBe('Overlay A');
     await key(document.activeElement!, 'Escape');
+    expect(workspaceShortcutsBlocked(new Event('wheel'))).toBe(false);
     expect(marker()).toEqual([]);
     expect(document.activeElement).toBe(q('open-a'));
   });

@@ -2,6 +2,41 @@ import { resolveAlias } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import { itemFor } from '../navigation/catalog';
 
+interface Candidate {
+  hash: number;
+  name: string;
+  search: string[];
+}
+const candidateIndexes = new WeakMap<EditorData, Candidate[]>();
+
+function candidateIndex(data: EditorData) {
+  const cached = candidateIndexes.get(data);
+  if (cached) return cached;
+  const candidates = new Map<number, Candidate>();
+  const hashes = new Set([
+    ...Object.keys(data.items),
+    ...Object.keys(data.bundle.tooltips),
+    ...Object.keys(data.aliases),
+  ]);
+  for (const hash of hashes) {
+    const canonical = resolveAlias(Number(hash), data.aliases);
+    if (canonical <= 3 || data.bundle.tooltips[canonical]?.archive) continue;
+    let candidate = candidates.get(canonical);
+    if (!candidate) {
+      candidate = { hash: canonical, name: itemFor(canonical, data)?.name ?? '', search: [] };
+      candidates.set(canonical, candidate);
+    }
+    const item = itemFor(Number(hash), data) ?? itemFor(canonical, data);
+    candidate.search.push(hash);
+    if (item) candidate.search.push(item.name.toLowerCase());
+  }
+  const index = [...candidates.values()].sort(
+    (left, right) => left.name.localeCompare(right.name) || left.hash - right.hash,
+  );
+  candidateIndexes.set(data, index);
+  return index;
+}
+
 export function associationCandidates(
   data: EditorData,
   query: string,
@@ -10,24 +45,13 @@ export function associationCandidates(
 ) {
   const search = query.trim().toLowerCase();
   const excluded = new Set([self, ...selected].map((hash) => resolveAlias(hash, data.aliases)));
-  const matches = new Set<number>();
-  const hashes = new Set([
-    ...Object.keys(data.items),
-    ...Object.keys(data.bundle.tooltips),
-    ...Object.keys(data.aliases),
-  ]);
-  for (const hash of hashes) {
-    const canonical = resolveAlias(Number(hash), data.aliases);
-    // Hashes 1-3 are reserved global documents; archived tooltips are retired.
-    if (excluded.has(canonical) || canonical <= 3 || data.bundle.tooltips[canonical]?.archive)
-      continue;
-    const item = itemFor(Number(hash), data) ?? itemFor(canonical, data);
-    if (!search || hash.includes(search) || item?.name.toLowerCase().includes(search))
-      matches.add(canonical);
-  }
-  return [...matches].sort(
-    (a, b) => (itemFor(a, data)?.name ?? '').localeCompare(itemFor(b, data)?.name ?? '') || a - b,
-  );
+  return candidateIndex(data)
+    .filter(
+      (candidate) =>
+        !excluded.has(candidate.hash) &&
+        (!search || candidate.search.some((token) => token.includes(search))),
+    )
+    .map((candidate) => candidate.hash);
 }
 
 export function moveAssociation(

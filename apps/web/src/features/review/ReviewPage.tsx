@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { apiUrl } from '../../services/api';
 import { errorMessage } from '../../services/http';
 import { useAuthStore } from '../../stores/auth';
@@ -8,8 +8,10 @@ import { useDraftStore } from '../../stores/drafts';
 import {
   canPush,
   pendingTooltips,
+  preparedPending,
   publishableHashes,
   selectedPending,
+  sidebarChanges,
   stepIndex,
   toggleSelection,
   type PendingTooltip,
@@ -26,24 +28,105 @@ import { activeHashes, usePublishState } from './publishDriver';
 import { useSidebarQueueStore } from '../navigation/sidebarQueue';
 import { workspaceShortcutsBlocked } from '../../ui/interaction';
 import styles from './Review.module.scss';
+import {
+  advanceReviewOpening,
+  readyReviewData,
+  retainReviewPage,
+  useReviewOpening,
+} from './opening';
 
 const pageSize = 15;
 
 export function ReviewPage() {
+  const opening = useReviewOpening((state) => state.warming);
+  const openingToken = useReviewOpening((state) => state.token);
+  const article = useRef<HTMLElement>(null);
+  useLayoutEffect(retainReviewPage, []);
+  useLayoutEffect(() => {
+    const state = useReviewOpening.getState();
+    if (!state.warming || state.token !== openingToken || !window.requestAnimationFrame) return;
+    let frame: number | undefined;
+    let timer: number | undefined;
+    let alive = true;
+    // Schedule before the first paint; a passive effect can miss its frame
+    // and leave an unnecessary idle frame before the bounded row slices.
+    let first = true;
+    const next = () => {
+      frame = requestAnimationFrame(() => {
+        timer = window.setTimeout(() => {
+          if (!alive) return;
+          if (first) {
+            performance.mark?.('review:opening-painted', {
+              detail: { token: openingToken, route: location.hash },
+            });
+            first = false;
+          }
+          if (!advanceReviewOpening(openingToken)) next();
+        }, 0);
+      });
+    };
+    next();
+    return () => {
+      alive = false;
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, [openingToken]);
+  useEffect(() => {
+    const state = useReviewOpening.getState();
+    if (opening || state.warming || state.token !== openingToken || !window.requestAnimationFrame)
+      return;
+    let timer: number | undefined;
+    const frame = requestAnimationFrame(() => {
+      timer = window.setTimeout(() => {
+        const current = useReviewOpening.getState();
+        if (
+          !article.current?.isConnected ||
+          current.warming ||
+          current.token !== openingToken ||
+          !location.hash.startsWith('#/review')
+        )
+          return;
+        performance.mark?.('review:interactive', {
+          detail: { token: openingToken, route: location.hash },
+        });
+      }, 0);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, [opening, openingToken]);
   const [searchParams, setSearchParams] = useSearchParams();
+  const routeLocation = useLocation();
+  const selectionIntent = useRef<{ params: URLSearchParams; targets: Set<string> }>();
+  useLayoutEffect(() => {
+    const intent = selectionIntent.current;
+    if (!intent) return;
+    const committed = searchParams.toString();
+    // An older queued selection can commit before the latest one. Retain the
+    // latest intent until it commits, or an external URL/Back navigation wins.
+    if (committed === intent.params.toString() || !intent.targets.delete(committed))
+      selectionIntent.current = undefined;
+  }, [searchParams, routeLocation.key]);
   const data = useDataStore((state) => state.data);
   const load = useDataStore((state) => state.load);
   const user = useAuthStore((state) => state.user);
   const drafts = useDraftStore((state) => state.drafts);
   const setSidebarChanges = useSidebarQueueStore((state) => state.setPendingChanges);
-  const [entries, setEntries] = useState<PendingTooltip[]>([]);
+  const { pushing, notice, error: pushError, acknowledgments } = useReviewSession();
+  const prepared = useMemo(
+    () => (data && !Object.keys(acknowledgments).length ? preparedPending(data) : undefined),
+    [data, acknowledgments],
+  );
+  const [entries, setEntries] = useState<PendingTooltip[]>(prepared ?? []);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   // What the confirm dialog lists is exactly what gets pushed, from the snapshot it was opened on.
   const [confirming, setConfirming] = useState<{ entries: PendingTooltip[]; data: EditorData }>();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!prepared);
+  useLayoutEffect(() => readyReviewData(!loading), [loading]);
   const query = searchParams.get('query') ?? '';
   const categoryFilter = searchParams.get('category') ?? '';
-  const { pushing, notice, error: pushError, acknowledgments } = useReviewSession();
   const publisher = publisherEnabled();
   const ops = usePublishState((state) => state.ops);
   // Hashes inside a publish that is still queued or being sent; cannot be picked again.
@@ -66,9 +149,22 @@ export function ReviewPage() {
   useEffect(() => {
     let active = true;
     if (!data) return;
-    setLoading(true);
-    setSelected(new Set());
-    void pendingTooltips(data, acknowledgedMarkers(data)).then(
+    // The initial snapshot was already checked against these exact saved
+    // markers. Rechecking and cloning thousands of markers in the mount effect
+    // repeats that work before the first workspace paint.
+    if (prepared) {
+      setEntries(prepared);
+      setLoading(false);
+      setSelected((previous) => (previous.size ? new Set() : previous));
+      return;
+    }
+    const markers = acknowledgedMarkers(data);
+    const ready = preparedPending(data, markers);
+    setLoading(!ready);
+    if (ready) setEntries(ready);
+    setSelected((previous) => (previous.size ? new Set() : previous));
+    if (ready) return;
+    void pendingTooltips(data, markers).then(
       (result) => {
         if (!active) return;
         setEntries(result);
@@ -84,44 +180,88 @@ export function ReviewPage() {
     return () => {
       active = false;
     };
-  }, [data, acknowledgments]);
-  const visibleEntries = entries.filter(
-    ({ name, category, categoryId, tooltip }) =>
-      (!categoryFilter || categoryId === categoryFilter) &&
-      (!query ||
-        `${name} ${category} ${categoryId} ${tooltip.hash}`
-          .toLowerCase()
-          .includes(query.toLowerCase())),
+  }, [data, acknowledgments, prepared]);
+  const visibleEntries = useMemo(
+    () =>
+      !categoryFilter && !query
+        ? entries
+        : entries.filter(
+            ({ name, category, categoryId, tooltip }) =>
+              (!categoryFilter || categoryId === categoryFilter) &&
+              (!query ||
+                `${name} ${category} ${categoryId} ${tooltip.hash}`
+                  .toLowerCase()
+                  .includes(query.toLowerCase())),
+          ),
+    [entries, categoryFilter, query],
   );
-  const categories = [
-    ...new Map(
-      entries.map(({ category, categoryId }) => [categoryId, { id: categoryId, label: category }]),
-    ).values(),
-  ].sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
-  const routedIndex = visibleEntries.findIndex(
-    ({ tooltip }) => String(tooltip.hash) === searchParams.get('hash'),
+  const categories = useMemo(
+    () =>
+      [
+        ...new Map(
+          entries.map(({ category, categoryId }) => [
+            categoryId,
+            { id: categoryId, label: category },
+          ]),
+        ).values(),
+      ].sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id)),
+    [entries],
   );
+  const routedHash = searchParams.get('hash');
+  const routedIndex =
+    routedHash === null
+      ? -1
+      : visibleEntries.findIndex(({ tooltip }) => String(tooltip.hash) === routedHash);
   const index = routedIndex < 0 ? 0 : routedIndex;
   const selectIndex = useCallback(
     (next: number | ((current: number) => number)) => {
       if (!visibleEntries.length) return;
-      const requested = typeof next === 'function' ? next(index) : next;
+      const intent = selectionIntent.current;
+      const params = new URLSearchParams(intent?.params ?? searchParams);
+      const pendingIndex = intent
+        ? visibleEntries.findIndex(({ tooltip }) => String(tooltip.hash) === params.get('hash'))
+        : -1;
+      const currentIndex = pendingIndex < 0 ? index : pendingIndex;
+      const requested = typeof next === 'function' ? next(currentIndex) : next;
       const entry = visibleEntries[stepIndex(requested, 0, visibleEntries.length)];
-      if (!entry || searchParams.get('hash') === String(entry.tooltip.hash)) return;
-      const params = new URLSearchParams(searchParams);
+      if (!entry || params.get('hash') === String(entry.tooltip.hash)) return;
       params.set('hash', String(entry.tooltip.hash));
+      const targets = intent?.targets ?? new Set<string>();
+      targets.add(params.toString());
+      selectionIntent.current = { params, targets };
       setSearchParams(params, { replace: true });
     },
     [index, searchParams, setSearchParams, visibleEntries],
   );
+  const committedSelectIndex = useRef(selectIndex);
+  useLayoutEffect(() => {
+    // Window listeners can run after a commit but before passive effects bind
+    // a new closure. Use that commit's selection alongside any queued intent.
+    committedSelectIndex.current = selectIndex;
+  }, [selectIndex]);
+  const openCurrentRow = useCallback(
+    (hash: number) => {
+      const next = visibleEntries.findIndex((entry) => entry.tooltip.hash === hash);
+      if (next >= 0) selectIndex(next);
+    },
+    [selectIndex, visibleEntries],
+  );
+  const committedRowOpen = useRef(openCurrentRow);
+  useLayoutEffect(() => {
+    // Retained row handlers must use the filters and URL from the committed UI.
+    committedRowOpen.current = openCurrentRow;
+  }, [openCurrentRow]);
+  const openRow = useCallback((hash: number) => committedRowOpen.current(hash), []);
+  const toggleRow = useCallback(
+    (hash: number) => setSelected((previous) => toggleSelection(previous, hash)),
+    [],
+  );
   useEffect(() => {
     if (loading) return;
-    setSidebarChanges(
-      entries.map(({ tooltip, name, category }) => ({ hash: tooltip.hash, name, category })),
-    );
+    setSidebarChanges(sidebarChanges(entries));
   }, [entries, loading, setSidebarChanges]);
   useEffect(() => {
-    if (loading) return;
+    if (loading || selectionIntent.current) return;
     const current = visibleEntries[index];
     const params = new URLSearchParams(searchParams);
     if (!current) {
@@ -135,7 +275,7 @@ export function ReviewPage() {
     setSearchParams(params, { replace: true });
   }, [index, loading, searchParams, setSearchParams, visibleEntries]);
   useEffect(() => {
-    setSelected(new Set());
+    setSelected((previous) => (previous.size ? new Set() : previous));
   }, [user]);
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
@@ -148,20 +288,21 @@ export function ReviewPage() {
         return;
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
       event.preventDefault();
-      selectIndex((value) =>
-        stepIndex(value, event.key === 'ArrowDown' ? 1 : -1, visibleEntries.length),
-      );
+      committedSelectIndex.current((value) => value + (event.key === 'ArrowDown' ? 1 : -1));
     }
     window.addEventListener('keydown', keydown);
     return () => window.removeEventListener('keydown', keydown);
-  }, [pushing, selectIndex, visibleEntries.length]);
-  const hashes = selectedPending(selected, entries).filter((hash) => !inFlight.has(hash));
+  }, [pushing]);
+  const hashes = selected.size
+    ? selectedPending(selected, entries).filter((hash) => !inFlight.has(hash))
+    : [];
   const start = Math.floor(index / pageSize) * pageSize;
   const page = visibleEntries.slice(start, start + pageSize);
   const groups = [...new Set(page.map((entry) => entry.categoryId))];
 
   function updateFilters(queryValue: string, categoryValue: string) {
-    const params = new URLSearchParams(searchParams);
+    const params = new URLSearchParams(selectionIntent.current?.params ?? searchParams);
+    selectionIntent.current = undefined;
     if (queryValue) params.set('query', queryValue);
     else params.delete('query');
     if (categoryValue) params.set('category', categoryValue);
@@ -200,207 +341,214 @@ export function ReviewPage() {
   }
 
   return (
-    <article>
-      <header className={styles.heading}>
-        <h1>Review changes</h1>
-        <p>
-          Saved changes waiting to go live, grouped by category. Use Up/Down outside controls, or
-          Previous/Next, to walk through them.
-        </p>
-      </header>
-      {Object.keys(drafts).length > 0 && (
-        <p>Local drafts are not included. Save them through the tooltip editor first.</p>
-      )}
-      {(!apiUrl || !user?.role) && (
-        <p className={styles.authNotice} role="note">
-          {apiUrl
-            ? 'Sign in as a configured member to compare live versions and browse history. Only editors and maintainers may push.'
-            : 'Live comparison and history need a configured API. Saved changes remain local.'}
-        </p>
-      )}
-      {confirming && (
-        <PushConfirm
-          entries={confirming.entries}
-          background={publisher}
-          onConfirm={() => void publish(confirming)}
-          onCancel={() => setConfirming(undefined)}
-        />
-      )}
-      {error && <p role="alert">{error}</p>}
-      {pushError && <p role="alert">{pushError}</p>}
-      {notice && <p role="status">{notice}</p>}
-      {publisher && canPush(user) && <PublishActivity queue={data?.bundle.publishQueue} />}
-      <div className={styles.toolbar}>
-        <button type="button" disabled={pushing || loading} onClick={() => void load()}>
-          Refresh saved changes
-        </button>
-        <span>
-          {entries.length} pending / {hashes.length} selected
-        </span>
-        {canPush(user) && (
-          <button
-            type="button"
-            disabled={pushing || loading || !hashes.length}
-            onClick={askToPublish}
-          >
-            {publisher
-              ? pushing
-                ? 'Starting...'
-                : 'Publish selected'
-              : pushing
-                ? 'Pushing...'
-                : 'Push selected'}
-          </button>
+    <>
+      <p role="status" className={opening ? styles.openingStatus : styles.readyStatus}>
+        {opening ? 'Loading sidebar…' : 'Review ready.'}
+      </p>
+      <article ref={article} aria-busy={loading} className={styles.page}>
+        <header className={styles.heading}>
+          <h1>Review changes</h1>
+          <p>
+            Saved changes waiting to go live, grouped by category. Use Up/Down outside controls, or
+            Previous/Next, to walk through them.
+          </p>
+        </header>
+        {Object.keys(drafts).length > 0 && (
+          <p>Local drafts are not included. Save them through the tooltip editor first.</p>
         )}
-      </div>
-      {!!entries.length && (
-        <div className={styles.filters}>
-          <label>
-            Find saved changes
-            <input
-              type="search"
-              aria-label="Find saved changes"
-              value={query}
-              onChange={(event) => updateFilters(event.target.value, categoryFilter)}
-              placeholder="Name, category or hash"
-            />
-          </label>
-          <label>
-            Category
-            <select
-              aria-label="Category"
-              value={categoryFilter}
-              onChange={(event) => updateFilters(query, event.target.value)}
-            >
-              <option value="">All categories</option>
-              {categories.map(({ id, label }) => (
-                <option key={id} value={id}>
-                  {label} · {id}
-                </option>
-              ))}
-            </select>
-          </label>
-          <span>
-            Showing {visibleEntries.length} of {entries.length}
-          </span>
-        </div>
-      )}
-      {loading ? (
-        <p role="status">Comparing publishable content...</p>
-      ) : !entries.length ? (
-        <p>No saved changes are waiting to go live.</p>
-      ) : !visibleEntries.length ? (
-        <section className={styles.empty}>
-          <p>No saved changes match these filters.</p>
-          <button type="button" onClick={() => updateFilters('', '')}>
-            Clear filters
+        {(!apiUrl || !user?.role) && (
+          <p className={styles.authNotice} role="note">
+            {apiUrl
+              ? 'Sign in as a configured member to compare live versions and browse history. Only editors and maintainers may push.'
+              : 'Live comparison and history need a configured API. Saved changes remain local.'}
+          </p>
+        )}
+        {confirming && (
+          <PushConfirm
+            entries={confirming.entries}
+            background={publisher}
+            onConfirm={() => void publish(confirming)}
+            onCancel={() => setConfirming(undefined)}
+          />
+        )}
+        {error && <p role="alert">{error}</p>}
+        {pushError && <p role="alert">{pushError}</p>}
+        {notice && <p role="status">{notice}</p>}
+        {publisher && canPush(user) && <PublishActivity queue={data?.bundle.publishQueue} />}
+        <div className={styles.toolbar}>
+          <button type="button" disabled={pushing || loading} onClick={() => void load()}>
+            Refresh saved changes
           </button>
-        </section>
-      ) : (
-        <>
-          <div className={styles.toolbar}>
+          <span>
+            {entries.length} pending / {hashes.length} selected
+          </span>
+          {canPush(user) && (
             <button
               type="button"
-              disabled={!index || pushing}
-              onClick={() => selectIndex((value) => stepIndex(value, -1, visibleEntries.length))}
+              disabled={pushing || loading || !hashes.length}
+              onClick={askToPublish}
             >
-              Previous
+              {publisher
+                ? pushing
+                  ? 'Starting...'
+                  : 'Publish selected'
+                : pushing
+                  ? 'Pushing...'
+                  : 'Push selected'}
             </button>
+          )}
+        </div>
+        {!!entries.length && (
+          <div className={styles.filters}>
+            <label>
+              Find saved changes
+              <input
+                type="search"
+                aria-label="Find saved changes"
+                value={query}
+                onChange={(event) => updateFilters(event.target.value, categoryFilter)}
+                placeholder="Name, category or hash"
+              />
+            </label>
+            <label>
+              Category
+              <select
+                data-perf-navigation="true"
+                aria-label="Category"
+                value={categoryFilter}
+                onChange={(event) => updateFilters(query, event.target.value)}
+              >
+                <option value="">All categories</option>
+                {categories.map(({ id, label }) => (
+                  <option key={id} value={id}>
+                    {label} · {id}
+                  </option>
+                ))}
+              </select>
+            </label>
             <span>
-              {index + 1} of {visibleEntries.length}
+              Showing {visibleEntries.length} of {entries.length}
             </span>
-            <button
-              type="button"
-              disabled={index >= visibleEntries.length - 1 || pushing}
-              onClick={() => selectIndex((value) => stepIndex(value, 1, visibleEntries.length))}
-            >
-              Next
-            </button>
           </div>
-          <div className={styles.workspace}>
-            <section className={styles.card} aria-label="Pending changes">
-              <header className={styles.listHeading}>
-                <h2>Pending changes</h2>
+        )}
+        {loading ? (
+          <p role="status">Comparing publishable content...</p>
+        ) : !entries.length ? (
+          <p>No saved changes are waiting to go live.</p>
+        ) : !visibleEntries.length ? (
+          <section className={styles.empty}>
+            <p>No saved changes match these filters.</p>
+            <button type="button" data-perf-navigation="true" onClick={() => updateFilters('', '')}>
+              Clear filters
+            </button>
+          </section>
+        ) : (
+          <>
+            <div className={styles.toolbar}>
+              <button
+                type="button"
+                disabled={!index || pushing}
+                data-perf-navigation="true"
+                onClick={() => selectIndex((value) => stepIndex(value, -1, visibleEntries.length))}
+              >
+                Previous
+              </button>
+              <span>
+                {index + 1} of {visibleEntries.length}
+              </span>
+              <button
+                type="button"
+                disabled={index >= visibleEntries.length - 1 || pushing}
+                data-perf-navigation="true"
+                onClick={() => selectIndex((value) => stepIndex(value, 1, visibleEntries.length))}
+              >
+                Next
+              </button>
+            </div>
+            <div className={styles.workspace}>
+              <section className={styles.card} aria-label="Pending changes">
+                <header className={styles.listHeading}>
+                  <h2>Pending changes</h2>
+                  <div className={styles.toolbar}>
+                    <button
+                      type="button"
+                      disabled={pushing}
+                      onClick={() =>
+                        setSelected(
+                          (previous) =>
+                            new Set([
+                              ...previous,
+                              ...publishableHashes(page).filter((hash) => !inFlight.has(hash)),
+                            ]),
+                        )
+                      }
+                    >
+                      Select page
+                    </button>
+                    <button type="button" disabled={pushing} onClick={() => setSelected(new Set())}>
+                      Clear selection
+                    </button>
+                  </div>
+                </header>
+                {groups.map((categoryId) => {
+                  const category = page.find((entry) => entry.categoryId === categoryId)!;
+                  return (
+                    <section key={categoryId} aria-label={`${category.category} (${categoryId})`}>
+                      <h3 className={styles.categoryHeading}>
+                        {category.category} <small>· {categoryId}</small>
+                      </h3>
+                      <ul className={styles.list}>
+                        {page
+                          .filter((entry) => entry.categoryId === categoryId)
+                          .map((entry) => (
+                            <ReviewRow
+                              key={entry.tooltip.hash}
+                              entry={entry}
+                              checked={selected.has(entry.tooltip.hash)}
+                              active={visibleEntries[index]?.tooltip.hash === entry.tooltip.hash}
+                              disabled={pushing}
+                              publishing={inFlight.has(entry.tooltip.hash)}
+                              historyAvailable={Boolean(apiUrl && user?.role)}
+                              historyDeferred={opening}
+                              onToggle={toggleRow}
+                              onOpen={openRow}
+                            />
+                          ))}
+                      </ul>
+                    </section>
+                  );
+                })}
                 <div className={styles.toolbar}>
                   <button
                     type="button"
-                    disabled={pushing}
-                    onClick={() =>
-                      setSelected(
-                        (previous) =>
-                          new Set([
-                            ...previous,
-                            ...publishableHashes(page).filter((hash) => !inFlight.has(hash)),
-                          ]),
-                      )
-                    }
+                    disabled={!start || pushing}
+                    data-perf-navigation="true"
+                    onClick={() => selectIndex(start - pageSize)}
                   >
-                    Select page
+                    Previous page
                   </button>
-                  <button type="button" disabled={pushing} onClick={() => setSelected(new Set())}>
-                    Clear selection
+                  <button
+                    type="button"
+                    disabled={start + pageSize >= visibleEntries.length || pushing}
+                    data-perf-navigation="true"
+                    onClick={() => selectIndex(start + pageSize)}
+                  >
+                    Next page
                   </button>
                 </div>
-              </header>
-              {groups.map((categoryId) => {
-                const category = page.find((entry) => entry.categoryId === categoryId)!;
-                return (
-                  <section key={categoryId} aria-label={`${category.category} (${categoryId})`}>
-                    <h3 className={styles.categoryHeading}>
-                      {category.category} <small>· {categoryId}</small>
-                    </h3>
-                    <ul className={styles.list}>
-                      {page
-                        .filter((entry) => entry.categoryId === categoryId)
-                        .map((entry) => (
-                          <ReviewRow
-                            key={entry.tooltip.hash}
-                            entry={entry}
-                            checked={selected.has(entry.tooltip.hash)}
-                            active={visibleEntries[index]?.tooltip.hash === entry.tooltip.hash}
-                            disabled={pushing}
-                            publishing={inFlight.has(entry.tooltip.hash)}
-                            historyAvailable={Boolean(apiUrl && user?.role)}
-                            onToggle={() =>
-                              setSelected((previous) =>
-                                toggleSelection(previous, entry.tooltip.hash),
-                              )
-                            }
-                            onOpen={() => selectIndex(visibleEntries.indexOf(entry))}
-                          />
-                        ))}
-                    </ul>
-                  </section>
-                );
-              })}
-              <div className={styles.toolbar}>
-                <button
-                  type="button"
-                  disabled={!start || pushing}
-                  onClick={() => selectIndex(start - pageSize)}
-                >
-                  Previous page
-                </button>
-                <button
-                  type="button"
-                  disabled={start + pageSize >= visibleEntries.length || pushing}
-                  onClick={() => selectIndex(start + pageSize)}
-                >
-                  Next page
-                </button>
-              </div>
-            </section>
-            {visibleEntries[index] && user?.role && apiUrl && (
-              <div className={styles.card}>
-                <ReviewDetail
-                  key={visibleEntries[index].tooltip.hash}
-                  entry={visibleEntries[index]}
-                />
-              </div>
-            )}
-          </div>
-        </>
-      )}
-    </article>
+              </section>
+              {visibleEntries[index] && user?.role && apiUrl && (
+                <div className={styles.card}>
+                  <ReviewDetail
+                    key={visibleEntries[index].tooltip.hash}
+                    entry={visibleEntries[index]}
+                  />
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </article>
+    </>
   );
 }

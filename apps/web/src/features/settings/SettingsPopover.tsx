@@ -6,6 +6,7 @@ import { scaledPx } from '../../ui/scale';
 import { useSettingsPanel } from './panel';
 import { SettingsContent } from './SettingsContent';
 import styles from './SettingsPopover.module.scss';
+import { useWorkspaceShortcutOwner } from '../../ui/interaction';
 
 const focusable =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -44,6 +45,7 @@ export function SettingsPopover({ layout }: { layout: React.RefObject<HTMLElemen
 
 function OpenSettings({ layout }: { layout: React.RefObject<HTMLElement | null> }) {
   const panel = useRef<HTMLDivElement>(null);
+  useWorkspaceShortcutOwner(panel);
   // The stable header button that opened Settings wins; otherwise whatever had focus.
   const [opener] = useState(() => {
     const registered = useSettingsPanel.getState().opener;

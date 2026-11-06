@@ -1,4 +1,6 @@
 import {
+  cloneElement,
+  isValidElement,
   memo,
   startTransition,
   useCallback,
@@ -7,11 +9,19 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from 'react';
 import { flushSync } from 'react-dom';
-import { resolveCompendiumLink, snapshotCompendium, sameCell, type Tooltip } from '@clarity/core';
+import {
+  resolveCompendiumLink,
+  snapshotCompendium,
+  sameCell,
+  type Tooltip,
+  type CompendiumCell,
+} from '@clarity/core';
 import { approvalEvidence } from './approvalEvidence';
 import { usePreparedPaneDiff } from './usePreparedPaneDiff';
+import { CompendiumPaneSkeleton, rememberPaneSkeleton } from './CompendiumPaneSkeleton';
 import { initializeCompendiumDiffWorker, prepareCompendiumDiff } from './compendiumDiffCache';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
@@ -27,6 +37,7 @@ import { LinkPicker } from './LinkPicker';
 import { useCompendiumStore } from './store';
 import { When } from '../../ui/When';
 import { RightPane, RightPaneHeader } from '../../ui/RightPane';
+import { SkeletonStatus, useSkeletonVisible } from '../../ui/Skeleton';
 import { useElementWidth } from '../../ui/useElementWidth';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { scaledPx } from '../../ui/scale';
@@ -35,6 +46,7 @@ import { confirmCompendiumSelection } from './selection';
 import { usePaneMatch } from './usePaneMatch';
 import { useDisplayMatches } from './useDisplayMatches';
 import { createPaneDecodeGuard } from './paneDecodeActivity';
+import { useSteppingActivity } from '../navigation/steppingActivity';
 import { openDraftSaveReview } from '../../services/save/openReview';
 
 /**
@@ -46,8 +58,69 @@ import { openDraftSaveReview } from '../../services/save/openReview';
 const HEADER_TOGGLE_MIN = 381;
 const ApprovalDiff = memo(CompendiumDiff);
 
+/** The retained source stays mounted; its entry-specific picker does not. */
+function InlineLinkPicker({ children, onStep }: { children: ReactNode; onStep(): void }) {
+  const stepping = useSteppingActivity((state) => state.active);
+  const [closed, setClosed] = useState(false);
+  const element = useRef<HTMLDivElement | null>(null);
+  const paneHadFocus = useRef(false);
+  const steppingRef = useRef(stepping);
+  steppingRef.current = stepping;
+  useLayoutEffect(
+    () =>
+      useSteppingActivity.subscribe((state, previous) => {
+        if (!state.active || previous.active) return;
+        // Capture before the commit disables the header toggle and the browser
+        // moves focus to the body. The toggle is outside the picker element.
+        const pane = element.current?.closest('aside');
+        paneHadFocus.current = !!pane?.contains(pane.ownerDocument.activeElement);
+      }),
+    [],
+  );
+  const attach = useCallback((node: HTMLDivElement | null) => {
+    const previous = element.current;
+    element.current = node;
+    if (
+      node ||
+      !steppingRef.current ||
+      !previous ||
+      (!paneHadFocus.current && !previous.contains(previous.ownerDocument.activeElement))
+    )
+      return;
+    const owner = previous.ownerDocument;
+    // Restore focus after the commit. The finder is stable across document
+    // swaps, and its focus handler lands the newest route before more input.
+    queueMicrotask(() => {
+      if (
+        owner.activeElement !== owner.body &&
+        owner.activeElement?.isConnected &&
+        !owner.activeElement.matches(':disabled') &&
+        !owner.activeElement.closest('[hidden], [inert]')
+      )
+        return;
+      const finder = owner.querySelector<HTMLInputElement>('input[aria-label="Tooltip"]');
+      const target =
+        finder && !finder.disabled && !finder.closest('[hidden], [inert]')
+          ? finder
+          : owner.querySelector<HTMLButtonElement>('[data-tooltip-finder]');
+      target?.focus({ preventScroll: true });
+    });
+  }, []);
+  useLayoutEffect(() => {
+    if (!stepping) return;
+    setClosed(true);
+    onStep();
+  }, [stepping, onStep]);
+  if (stepping || closed) return null;
+  return (
+    <div ref={attach} className={styles.picker} data-inline-link-picker>
+      {children}
+    </div>
+  );
+}
+
 /** Compendium zoom (70–100 %), kept on this device: − / value / +. */
-function ScaleControl() {
+function ScaleControl({ disabled = false }: { disabled?: boolean } = {}) {
   const scale = useSettingsStore((state) => state.device.compendiumScale);
   const updateDevice = useSettingsStore((state) => state.updateDevice);
   const index = Math.max(0, compendiumScales.indexOf(scale as (typeof compendiumScales)[number]));
@@ -55,14 +128,19 @@ function ScaleControl() {
     updateDevice({ compendiumScale: compendiumScales[index + by] ?? scale });
   return (
     <span className={styles.scale} role="group" aria-label="Compendium zoom">
-      <button type="button" aria-label="Smaller" disabled={index === 0} onClick={() => step(-1)}>
+      <button
+        type="button"
+        aria-label="Smaller"
+        disabled={disabled || index === 0}
+        onClick={() => step(-1)}
+      >
         −
       </button>
       <output aria-live="polite">{scale}%</output>
       <button
         type="button"
         aria-label="Larger"
-        disabled={index === compendiumScales.length - 1}
+        disabled={disabled || index === compendiumScales.length - 1}
         onClick={() => step(1)}
       >
         +
@@ -76,6 +154,7 @@ function usePaneFrame(
   base: Tooltip,
   prepare: (signal: AbortSignal) => Promise<void> | false | undefined,
   concurrent: boolean,
+  stepping: boolean,
 ) {
   const [ready, setReady] = useState(base);
   const committed = useRef(base);
@@ -83,7 +162,7 @@ function usePaneFrame(
   const generation = useRef(0);
   // A frame callback can fire just before a newer navigation render. Its queued
   // update must not make that superseded tooltip visible, even for one commit.
-  const displayed = ready === base ? base : committed.current;
+  const displayed = !stepping && ready === base ? base : committed.current;
   useLayoutEffect(() => {
     committed.current = displayed;
   }, [displayed]);
@@ -95,10 +174,10 @@ function usePaneFrame(
       if (frame.current !== undefined) cancelAnimationFrame(frame.current);
       frame.current = undefined;
     },
-    [base, prepare],
+    [base, prepare, stepping],
   );
   useEffect(() => {
-    if (displayed === base) return;
+    if (stepping || displayed === base) return;
     const controller = new AbortController();
     const current = generation.current;
     let scheduled: number | undefined;
@@ -122,11 +201,22 @@ function usePaneFrame(
       if (scheduled !== undefined) cancelAnimationFrame(scheduled);
       if (frame.current === scheduled) frame.current = undefined;
     };
-  }, [base, displayed, prepare, concurrent]);
+  }, [base, displayed, prepare, concurrent, stepping]);
   return displayed;
 }
 
-export function CompendiumPanel({ base }: { base: Tooltip }) {
+export function CompendiumPanel({
+  base: incomingBase,
+  stepping = false,
+}: {
+  base: Tooltip;
+  stepping?: boolean;
+}) {
+  const retainedBase = useRef(incomingBase);
+  const base = stepping ? retainedBase.current : incomingBase;
+  useLayoutEffect(() => {
+    if (!stepping) retainedBase.current = incomingBase;
+  }, [incomingBase, stepping]);
   const editor = useDataStore((state) => state.data);
   const source = useCompendiumStore((state) => state.data);
   const sourceReady = !!source;
@@ -173,6 +263,7 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
   const incomingLink = incomingLinkRef.current.value;
   useEffect(initializeCompendiumDiffWorker, []);
   const comparison = useMemo(() => {
+    if (stepping) return;
     if (incomingLink && source) {
       const resolved = resolveCompendiumLink(incomingLink, source);
       if (['ok', 'changed', 'moved'].includes(resolved.status) && 'row' in resolved)
@@ -183,13 +274,13 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
         item && approvalEvidence(base.hash, item.name, item.categoryId, incomingMatch);
       if (approved) return { before: approved, after: incomingMatch.row.cell };
     }
-  }, [base, incomingLink, source, incomingMatch, editor]);
+  }, [base, incomingLink, source, incomingMatch, editor, stepping]);
   const prepare = useCallback(
     (signal: AbortSignal) => {
       // Keep the old pane until the incoming row can be prepared. Committing an
       // empty pane first would paint its plain cell and then replace it again
       // when the worker projection arrives.
-      if (awaitingMatch) return false;
+      if (stepping || awaitingMatch) return false;
       if (!comparison) return;
       const preparation = prepareCompendiumDiff(comparison.before, comparison.after, signal);
       if (diffMode === 'before-after') {
@@ -198,12 +289,13 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
       }
       return preparation;
     },
-    [awaitingMatch, comparison, diffMode],
+    [awaitingMatch, comparison, diffMode, stepping],
   );
   const displayed = usePaneFrame(
     base,
     prepare,
     !!comparison && !sameCell(comparison.before, comparison.after),
+    stepping,
   );
   const draft = drafts[displayed.hash];
   const link = draft ? draft.next.compendium : displayed.compendium;
@@ -231,6 +323,17 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
     <PaneContents
       base={displayed}
       pending={displayed !== base}
+      stepping={stepping}
+      pendingBase={incomingBase}
+      pendingLink={
+        stepping
+          ? drafts[incomingBase.hash]
+            ? drafts[incomingBase.hash].next.compendium
+            : incomingBase.compendium
+          : incomingLink
+      }
+      pendingDraft={!!drafts[incomingBase.hash]?.next.compendium}
+      pendingCell={!stepping ? (comparison?.after ?? incomingMatch?.row.cell) : undefined}
       link={retainedLink.current.value}
       draft={!!draft && !!link}
       matched={matched}
@@ -246,6 +349,11 @@ export function CompendiumPanel({ base }: { base: Tooltip }) {
 const PaneContents = memo(function PaneContents({
   base,
   pending: navigating,
+  stepping,
+  pendingBase,
+  pendingLink,
+  pendingDraft,
+  pendingCell,
   link,
   draft,
   matched,
@@ -255,6 +363,11 @@ const PaneContents = memo(function PaneContents({
 }: {
   base: Tooltip;
   pending: boolean;
+  stepping: boolean;
+  pendingBase: Tooltip;
+  pendingLink: Tooltip['compendium'];
+  pendingDraft: boolean;
+  pendingCell?: CompendiumCell;
   link: Tooltip['compendium'];
   draft: boolean;
   matched: ReturnType<typeof usePaneMatch>;
@@ -269,6 +382,7 @@ const PaneContents = memo(function PaneContents({
   const user = useAuthStore((state) => state.user);
   const saving = useSaveState((state) => state.locked);
   const [picking, setPicking] = useState(false);
+  const closePickerForStep = useCallback(() => setPicking(false), []);
   const scale = useSettingsStore((state) => state.device.compendiumScale);
   const [diffMode, setDiffMode] = useCompendiumDiffMode();
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -318,15 +432,35 @@ const PaneContents = memo(function PaneContents({
   const approvalChanged = approved && matched && !sameCell(approved, matched.row.cell);
   const comparisonBefore = link && match ? link.snapshot : !link ? approved : undefined;
   const comparisonAfter = link && match ? match.row.cell : !link ? matched?.row.cell : undefined;
-  const preparedDiff = usePreparedPaneDiff(comparisonBefore, comparisonAfter, diffMode);
+  const preparedDiff = usePreparedPaneDiff(comparisonBefore, comparisonAfter, diffMode, stepping);
   const pending = navigating || preparedDiff.pending;
+  const waiting = stepping || pending || loading || (!link && matching && !matched);
   useEffect(() => {
-    if (!pending && !loading && (link || matched || !matching || matchError))
-      onCommitted(base.hash);
-  }, [base.hash, pending, loading, link, matched, matching, matchError, onCommitted]);
+    if (!waiting) onCommitted(base.hash);
+  }, [base.hash, waiting, onCommitted]);
+  const retainedPane = useRef<ReturnType<typeof RightPane>>();
+  const hasContent = useRef(false);
+  const wasStepping = useRef(false);
+  const showSkeleton = useSkeletonVisible(waiting, pendingBase.hash, hasContent.current);
+  useLayoutEffect(() => {
+    if (stepping) wasStepping.current = true;
+    else if (!waiting) wasStepping.current = false;
+  }, [stepping, waiting]);
+  useLayoutEffect(() => {
+    const previous = bodyRef.current?.querySelector(
+      ':scope > [data-scale]:not([data-pane-skeleton])',
+    );
+    previous?.toggleAttribute('inert', waiting);
+    bodyRef.current?.previousElementSibling?.removeAttribute('inert');
+  }, [waiting, showSkeleton]);
+  useLayoutEffect(() => {
+    if (!waiting)
+      rememberPaneSkeleton(base.hash, compendium?.fetchedAt, comparisonBefore, comparisonAfter);
+  }, [waiting, base.hash, compendium?.fetchedAt, comparisonBefore, comparisonAfter]);
+
 
   const diffToggle = <CompendiumDiffModeToggle mode={diffMode} onChange={setDiffMode} />;
-  return (
+  const pane = (
     <RightPane
       className={styles.pane}
       busy={pending}
@@ -362,7 +496,7 @@ const PaneContents = memo(function PaneContents({
         }
       >
         {picking && canEdit && (
-          <div className={styles.picker}>
+          <InlineLinkPicker onStep={closePickerForStep}>
             <LinkPicker
               base={base}
               name={item?.name ?? base.custom?.name ?? ''}
@@ -370,7 +504,7 @@ const PaneContents = memo(function PaneContents({
               readOnly={pending}
               onLinked={() => setPicking(false)}
             />
-          </div>
+          </InlineLinkPicker>
         )}
         {loading && <p role="status">Loading Compendium...</p>}
         {error && (
@@ -630,4 +764,73 @@ const PaneContents = memo(function PaneContents({
       </div>
     </RightPane>
   );
+  useLayoutEffect(() => {
+    if (!waiting) {
+      retainedPane.current = pane;
+      hasContent.current = true;
+    }
+  });
+  if (!waiting) return pane;
+  if (!stepping && !wasStepping.current && !showSkeleton)
+    return cloneElement(pane, {
+      busy: true,
+      children: (
+        <>
+          {pane.props.children}
+          <SkeletonStatus>Loading Compendium…</SkeletonStatus>
+        </>
+      ),
+    });
+  const previous = retainedPane.current;
+  const oldContent = previous?.props.children;
+  const pendingItem = data && itemFor(pendingBase.hash, data);
+  const loadingHeader = (
+    <RightPaneHeader title="Compendium">
+      {pendingLink && roomy && (
+        <CompendiumDiffModeToggle mode={diffMode} onChange={setDiffMode} disabled />
+      )}
+      {canEdit && (
+        <button type="button" disabled>
+          {pendingLink ? 'Relink' : 'Link row'}
+        </button>
+      )}
+      <SheetColoursToggle disabled />
+      <ScaleControl disabled />
+    </RightPaneHeader>
+  );
+  return cloneElement(previous ?? pane, {
+    busy: true,
+    label: `Compendium for ${pendingItem?.name ?? pendingBase.hash}`,
+    header: loadingHeader,
+    children: (
+      <>
+        {isValidElement<{ hidden?: boolean; 'aria-hidden'?: boolean }>(oldContent) &&
+          cloneElement(oldContent, {
+            hidden: showSkeleton,
+            'aria-hidden': showSkeleton || undefined,
+          })}
+        <SkeletonStatus>Loading Compendium…</SkeletonStatus>
+        {showSkeleton && (
+          <CompendiumPaneSkeleton
+            base={pendingBase}
+            link={pendingLink}
+            draft={pendingDraft}
+            after={pendingCell}
+            sourceFetchedAt={compendium?.fetchedAt}
+            width={width}
+            scale={scale}
+            remPx={(headerMin / HEADER_TOGGLE_MIN) * 16}
+            mode={diffMode}
+            phone={phone}
+            canEdit={canEdit}
+            canReview={canReview}
+            roomy={roomy}
+            diffControl={
+              <CompendiumDiffModeToggle mode={diffMode} onChange={setDiffMode} disabled />
+            }
+          />
+        )}
+      </>
+    ),
+  });
 });

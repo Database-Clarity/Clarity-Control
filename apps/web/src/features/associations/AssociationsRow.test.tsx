@@ -62,11 +62,11 @@ afterEach(async () => {
   useAuthStore.setState(originals.auth);
   useDraftStore.setState(originals.drafts);
 });
-const render = () =>
+const render = (hash = 10, suspended = false) =>
   act(async () =>
     root.render(
       <MemoryRouter>
-        <AssociationsPanel hash={10} />
+        <AssociationsPanel hash={hash} suspended={suspended} />
       </MemoryRouter>,
     ),
   );
@@ -118,6 +118,21 @@ it('scans candidates only while the add picker is visible, including after draft
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
   expect(host.textContent).toContain('Add Beta');
   expect(associationCandidates).toHaveBeenCalledTimes(1);
+});
+
+it('pauses an open picker during stepping and filters only the landed tooltip', async () => {
+  await render();
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[aria-label="Add associated tooltip"]')!.click(),
+  );
+  vi.mocked(associationCandidates).mockClear();
+  await render(20, true);
+  await render(21, true);
+  expect(associationCandidates).not.toHaveBeenCalled();
+  await render(21, false);
+  expect(associationCandidates).toHaveBeenCalledOnce();
+  expect(host.textContent).toContain('Add Alpha');
+  expect(host.textContent).toContain('Add Beta');
 });
 
 it('keeps open picker results through text edits and refreshes changed membership', async () => {

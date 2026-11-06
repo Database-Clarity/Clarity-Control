@@ -74,6 +74,48 @@ const pressed = () =>
     .map((button) => button.textContent);
 
 describe('PreviewColumn', () => {
+  it('retains visible text and cancels obsolete preview documents while stepping', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('requestAnimationFrame', (run: FrameRequestCallback) =>
+      setTimeout(() => run(0), 16),
+    );
+    vi.stubGlobal('cancelAnimationFrame', clearTimeout);
+    const painted = vi.fn();
+    try {
+      await render({ hash: 10, baseText: 'Previous content', enhanced: [], mode: 'base' });
+      await render({
+        hash: 11,
+        baseText: 'Skipped content',
+        enhanced: [],
+        mode: 'base',
+        stepping: true,
+        onDocumentPaint: painted,
+      });
+      expect(host.textContent).toContain('Previous content');
+      await render({
+        hash: 12,
+        baseText: 'Newest content',
+        enhanced: [],
+        mode: 'base',
+        stepping: true,
+        onDocumentPaint: painted,
+      });
+      expect(host.textContent).toContain('Previous content');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(17);
+      });
+      expect(host.textContent).toContain('Newest content');
+      expect(host.textContent).not.toContain('Skipped content');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(17);
+      });
+      expect(painted).toHaveBeenCalledWith(12);
+      expect(painted).not.toHaveBeenCalledWith(11);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
   it('acknowledges only the text that its deferred body actually committed', async () => {
     vi.useFakeTimers();
     const commits: { expected: string; rendered: string }[] = [];

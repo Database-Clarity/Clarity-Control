@@ -1,5 +1,9 @@
-import { publishableHash, resolveAlias, type Tooltip } from '@clarity/core';
-import type { EditorData } from '../../stores/data';
+import { resolveAlias, type Tooltip } from '@clarity/core';
+import { fingerprints, prepareFingerprintWorker } from './fingerprints';
+import { useDataStore, type EditorData } from '../../stores/data';
+import { useAuthStore } from '../../stores/auth';
+import { allowBackgroundCode } from '../../workspacePreload';
+import { useSidebarQueueStore, type SidebarPendingChange } from '../navigation/sidebarQueue';
 export { canPushLive as canPush } from '../auth/permissions';
 
 export interface PendingTooltip {
@@ -12,29 +16,104 @@ export interface PendingTooltip {
   unpublishable?: string;
 }
 
-export async function pendingTooltips(
+const snapshots = new WeakMap<
+  EditorData,
+  {
+    markers: Record<string, string>;
+    pending: Promise<PendingTooltip[]>;
+    entries?: PendingTooltip[];
+    aliases: EditorData['aliases'];
+    tooltips: EditorData['bundle']['tooltips'];
+    items: EditorData['items'];
+    categories: EditorData['categories'];
+  }
+>();
+const queues = new WeakMap<PendingTooltip[], SidebarPendingChange[]>();
+export function sidebarChanges(entries: PendingTooltip[]): SidebarPendingChange[] {
+  let queue = queues.get(entries);
+  if (!queue) {
+    queue = entries.map(({ tooltip, name, category }) => ({ hash: tooltip.hash, name, category }));
+    queues.set(entries, queue);
+  }
+  return queue;
+}
+function sameMarkers(a: Record<string, string>, b: Record<string, string>): boolean {
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key]);
+}
+
+export function preparedPending(
+  data: EditorData,
+  pushed = data.bundle.pushed,
+): PendingTooltip[] | undefined {
+  const snapshot = snapshots.get(data);
+  return snapshot && sameInputs(snapshot, data) && sameMarkers(snapshot.markers, pushed)
+    ? snapshot.entries
+    : undefined;
+}
+
+function sameInputs(snapshot: NonNullable<ReturnType<typeof snapshots.get>>, data: EditorData) {
+  return (
+    snapshot.aliases === data.aliases &&
+    snapshot.tooltips === data.bundle.tooltips &&
+    snapshot.items === data.items &&
+    snapshot.categories === data.categories
+  );
+}
+
+export function pendingTooltips(
   data: EditorData,
   pushed = data.bundle.pushed,
 ): Promise<PendingTooltip[]> {
-  const entries = await Promise.all(
-    Object.values(data.bundle.tooltips).map(async (tooltip) => {
-      if (resolveAlias(tooltip.hash, data.aliases) !== tooltip.hash) return null;
-      if ((await publishableHash(tooltip, data.aliases)) === pushed[tooltip.hash]) return null;
-      const item = data.items[tooltip.hash];
-      const categoryId = item?.categoryId ?? tooltip.custom?.categoryId ?? 'other';
-      const category = data.categories.find((entry) => entry.id === categoryId);
-      return {
-        tooltip,
-        name: item?.name ?? tooltip.custom?.name ?? `Tooltip ${tooltip.hash}`,
-        category: category?.label ?? categoryId,
-        categoryId,
-        categoryOrder: category?.order ?? 9999,
-        ...(!item && !tooltip.custom
-          ? { unpublishable: 'No generator entry for this tooltip, so it cannot be pushed.' }
-          : {}),
-      };
-    }),
+  const existing = snapshots.get(data);
+  if (existing && sameInputs(existing, data) && sameMarkers(existing.markers, pushed))
+    return existing.pending;
+  const snapshot = {
+    markers: { ...pushed },
+    pending: computePending(data, pushed),
+    entries: undefined as PendingTooltip[] | undefined,
+    aliases: data.aliases,
+    tooltips: data.bundle.tooltips,
+    items: data.items,
+    categories: data.categories,
+  };
+  snapshots.set(data, snapshot);
+  void snapshot.pending.then(
+    (entries) => {
+      snapshot.entries = entries;
+    },
+    () => {
+      if (snapshots.get(data) === snapshot) snapshots.delete(data);
+    },
   );
+  return snapshot.pending;
+}
+
+async function computePending(
+  data: EditorData,
+  pushed = data.bundle.pushed,
+): Promise<PendingTooltip[]> {
+  const tooltips = Object.values(data.bundle.tooltips).filter(
+    (tooltip) => resolveAlias(tooltip.hash, data.aliases) === tooltip.hash,
+  );
+  const hashes = await fingerprints(tooltips, data.aliases);
+  const categories = new Map(data.categories.map((entry) => [entry.id, entry]));
+  const entries = tooltips.map((tooltip, index) => {
+    if (hashes[index] === pushed[tooltip.hash]) return null;
+    const item = data.items[tooltip.hash];
+    const categoryId = item?.categoryId ?? tooltip.custom?.categoryId ?? 'other';
+    const category = categories.get(categoryId);
+    return {
+      tooltip,
+      name: item?.name ?? tooltip.custom?.name ?? `Tooltip ${tooltip.hash}`,
+      category: category?.label ?? categoryId,
+      categoryId,
+      categoryOrder: category?.order ?? 9999,
+      ...(!item && !tooltip.custom
+        ? { unpublishable: 'No generator entry for this tooltip, so it cannot be pushed.' }
+        : {}),
+    };
+  });
   return entries
     .filter((entry): entry is PendingTooltip => entry !== null)
     .sort(
@@ -67,4 +146,33 @@ export function publishableHashes(page: PendingTooltip[]): number[] {
 
 export function stepIndex(index: number, delta: number, length: number): number {
   return Math.max(0, Math.min(Math.max(0, length - 1), index + delta));
+}
+
+// Prepare every saved snapshot equally, independent of the next workspace destination.
+if (typeof window !== 'undefined' && typeof Worker !== 'undefined') {
+  const warm = () => {
+    const role = useAuthStore.getState().user?.role;
+    if (!allowBackgroundCode() || (role !== 'editor' && role !== 'maintainer')) return;
+    // Initialize code while the bundle/catalogue are still loading, without sending data.
+    try {
+      prepareFingerprintWorker();
+    } catch {
+      return;
+    }
+    const data = useDataStore.getState().data;
+    if (data)
+      void pendingTooltips(data)
+        .then((entries) => {
+          if (useDataStore.getState().data === data)
+            useSidebarQueueStore.getState().setPendingChanges(sidebarChanges(entries));
+        })
+        .catch(() => {});
+  };
+  useDataStore.subscribe((state, previous) => {
+    if (state.data !== previous.data) warm();
+  });
+  useAuthStore.subscribe((state, previous) => {
+    if (state.user?.role !== previous.user?.role) warm();
+  });
+  warm();
 }

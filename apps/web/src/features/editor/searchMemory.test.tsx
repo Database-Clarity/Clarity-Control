@@ -2,7 +2,7 @@
 import { act, useLayoutEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { EditorView } from '@codemirror/view';
-import { undoDepth } from '@codemirror/commands';
+import { redo, redoDepth, undo, undoDepth } from '@codemirror/commands';
 import {
   closeSearchPanel,
   getSearchQuery,
@@ -50,6 +50,50 @@ function render(value: string, tooltipHash?: number, definitions = globals) {
 }
 
 describe('find and replace persistence', () => {
+  it('loads an unedited item with a single transaction and retains its view plugins', () => {
+    const view = render('Previous item', 10);
+    const update = vi.spyOn(view, 'update');
+    const next = render('Newest item', 20);
+    expect(next).toBe(view);
+    expect(update).toHaveBeenCalledOnce();
+    expect(update.mock.calls[0][0]).toHaveLength(1);
+    expect(update.mock.calls[0][0][0].reconfigured).toBe(false);
+    expect(view.state.doc.toString()).toBe('Newest item');
+  });
+  it('keeps live documents mounted while postponing caret movement until stepping ends', () => {
+    const changed = vi.fn();
+    const show = (value: string, hash: number, stepping: boolean) =>
+      act(() =>
+        root.render(
+          <ClarityEditor
+            value={value}
+            tooltipHash={hash}
+            lang="en"
+            globals={globals}
+            onChange={changed}
+            stepping={stepping}
+            markupRow
+          />,
+        ),
+      );
+    show('Previous item', 10, false);
+    const editorDOM = host.querySelector<HTMLElement>('.cm-editor')!;
+    const view = EditorView.findFromDOM(editorDOM)!;
+    const toolbar = host.querySelector('[data-markup-row]');
+    act(() => view.focus());
+    show('Newest item', 20, true);
+    expect(host.querySelector('.cm-editor')).toBe(editorDOM);
+    expect(host.querySelector('[data-markup-row]')).toBe(toolbar);
+    expect(view.state.doc.toString()).toBe('Newest item');
+    expect(view.hasFocus).toBe(true);
+    expect(changed).not.toHaveBeenCalled();
+    const dispatch = vi.spyOn(view, 'dispatch');
+    show('Newest item', 20, false);
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(view.state.selection.main.head).toBe(0);
+    expect(view.hasFocus).toBe(true);
+    expect(changed).not.toHaveBeenCalled();
+  });
   it('commits the landed document before layout observers can see the resumed editor', () => {
     const snapshots: string[] = [];
     const changed = vi.fn();
@@ -184,6 +228,44 @@ describe('find and replace persistence', () => {
     expect(next.state.doc.toString()).toBe('one cat');
     expect(next.state.selection.main.head).toBe(0);
     expect(undoDepth(next.state)).toBe(0);
+  });
+  it('loads a document in place without authoring it or undoing deletions from another item', () => {
+    const changed = vi.fn();
+    const show = (value: string, tooltipHash: number) =>
+      act(() =>
+        root.render(
+          <ClarityEditor
+            value={value}
+            tooltipHash={tooltipHash}
+            lang="en"
+            globals={globals}
+            onChange={changed}
+          />,
+        ),
+      );
+    show('previous document', 10);
+    const view = EditorView.findFromDOM(host.querySelector<HTMLElement>('.cm-editor')!)!;
+    const editorDOM = view.dom;
+    act(() => view.dispatch({ changes: { from: 0, to: 9 }, userEvent: 'delete' }));
+    changed.mockClear();
+    const update = vi.spyOn(view, 'update');
+    const rebuild = vi.spyOn(view, 'setState');
+    show('new document', 20);
+    expect(view.dom).toBe(editorDOM);
+    expect(update).toHaveBeenCalledOnce();
+    expect(rebuild).not.toHaveBeenCalled();
+    expect(changed).not.toHaveBeenCalled();
+    expect(undoDepth(view.state)).toBe(0);
+    expect(redoDepth(view.state)).toBe(0);
+    expect(undo(view)).toBe(false);
+    expect(redo(view)).toBe(false);
+    expect(view.state.doc.toString()).toBe('new document');
+    act(() => view.dispatch({ changes: { from: 12, insert: '!' }, userEvent: 'input.type' }));
+    act(() => {
+      expect(undo(view)).toBe(true);
+    });
+    expect(view.state.doc.toString()).toBe('new document');
+    expect(changed).toHaveBeenLastCalledWith('new document');
   });
   it('opens at the top of the editor', () => {
     const view = render('one');

@@ -14,6 +14,7 @@ import { scaledPx } from '../../ui/scale';
 import { create } from 'zustand';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import styles from './ShellOverlay.module.scss';
+import { useWorkspaceShortcutOwner } from '../../ui/interaction';
 
 const focusable =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -89,6 +90,7 @@ export function ShellOverlay({
   const phone = useMedia(phoneQuery);
   const sheet = phone || sheetOnDesktop;
   const panel = useRef<HTMLDivElement>(null);
+  useWorkspaceShortcutOwner(panel, open);
   const [id] = useState(() => Symbol(label));
   const closeRef = useRef(onClose);
   closeRef.current = onClose;

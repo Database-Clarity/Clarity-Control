@@ -8,33 +8,70 @@ import { LazyLostTextPage as LostTextPage } from './features/lost-text/LazyLostT
 import { SettingsRedirect } from './features/settings/SettingsRedirect';
 import { PlaceholderPage } from './ui/PlaceholderPage';
 import { useAuthStore } from './stores/auth';
+import { useEffect } from 'react';
+import { visibleLinks } from './features/navigation/links';
+import { preloadWorkspaces, workspacePage } from './workspacePreload';
+import { reviewRoute } from './features/review/route';
 
 import { AppLazyPage } from './AppLazyPage';
-const loadTooltipPage = () =>
-  import('./features/tooltip/TooltipPage').then((module) => ({ default: module.TooltipPage }));
+const loadTooltipPage = workspacePage(() =>
+  import('./features/tooltip/TooltipPage').then((module) => ({ default: module.TooltipPage })),
+);
 const TooltipPage = () => <AppLazyPage load={loadTooltipPage} />;
-const loadTranslationsPage = () =>
+const loadTranslationsPage = workspacePage(() =>
   import('./features/translations/TranslationsPage').then((module) => ({
     default: module.TranslationsPage,
-  }));
+  })),
+);
 const TranslationsPage = () => <AppLazyPage load={loadTranslationsPage} />;
-const loadArchivePage = () =>
-  import('./features/archive/ArchivePage').then((module) => ({ default: module.ArchivePage }));
+const loadArchivePage = workspacePage(() =>
+  import('./features/archive/ArchivePage').then((module) => ({ default: module.ArchivePage })),
+);
 const ArchivePage = () => <AppLazyPage load={loadArchivePage} />;
-const loadDriftPage = () =>
-  import('./features/drift/DriftPage').then((module) => ({ default: module.DriftPage }));
+const loadDriftPage = workspacePage(() =>
+  import('./features/drift/DriftPage').then((module) => ({ default: module.DriftPage })),
+);
 const DriftPage = () => <AppLazyPage load={loadDriftPage} />;
-const loadReviewPage = () =>
-  import('./features/review/ReviewPage').then((module) => ({ default: module.ReviewPage }));
+const loadReviewPage = workspacePage(() =>
+  import('./features/review/ReviewPage').then((module) => ({ default: module.ReviewPage })),
+);
 const ReviewPage = () => <AppLazyPage load={loadReviewPage} />;
-const loadAdminPage = () =>
-  import('./features/admin/AdminPage').then((module) => ({ default: module.AdminPage }));
+const loadAdminPage = workspacePage(() =>
+  import('./features/admin/AdminPage').then((module) => ({ default: module.AdminPage })),
+);
 const AdminPage = () => <AppLazyPage load={loadAdminPage} />;
-const loadGlobalDetailPage = () =>
-  import('./features/globals/GlobalsPage').then((module) => ({ default: module.GlobalDetailPage }));
+const workspaceLoaders: Record<string, () => Promise<unknown>> = {
+  '/': loadTooltipPage,
+  '/review': loadReviewPage,
+  '/compendium': () => import('./features/compendium/MatchReviewPage'),
+  '/translations': loadTranslationsPage,
+  '/drift': loadDriftPage,
+  '/lost-text': () => import('./features/lost-text/LostTextPage'),
+  '/archive': loadArchivePage,
+  '/admin': loadAdminPage,
+};
+
+function WorkspaceRouteLayer() {
+  const role = useAuthStore((state) => state.user?.role);
+  const loading = useAuthStore((state) => state.loading);
+  const ready = useDataStore((state) => state.status === 'ready');
+  useEffect(() => {
+    if (!ready || loading) return;
+    return preloadWorkspaces(
+      visibleLinks(role ? { role } : null)
+        .map(({ to }) => workspaceLoaders[to])
+        .filter((load) => load !== undefined),
+    );
+  }, [role, ready, loading]);
+  return <Layout />;
+}
+const loadGlobalDetailPage = workspacePage(() =>
+  import('./features/globals/GlobalsPage').then((module) => ({ default: module.GlobalDetailPage })),
+);
 const GlobalDetailPage = () => <AppLazyPage load={loadGlobalDetailPage} />;
-const loadGlobalsPage = () =>
-  import('./features/globals/GlobalsPage').then((module) => ({ default: module.GlobalsPage }));
+const loadGlobalsPage = workspacePage(() =>
+  import('./features/globals/GlobalsPage').then((module) => ({ default: module.GlobalsPage })),
+);
 const GlobalsPage = () => <AppLazyPage load={loadGlobalsPage} />;
 
 /**
@@ -45,11 +82,16 @@ const GlobalsPage = () => <AppLazyPage load={loadGlobalsPage} />;
 export const routes: RouteObject[] = [
   { path: 'auth/callback', element: <AuthCallback /> },
   {
-    element: <Layout />,
+    element: <WorkspaceRouteLayer />,
     children: [
       { index: true, element: <StartPage /> },
       { path: 't/:hash', element: <TooltipPage />, handle: { preload: loadTooltipPage } },
-      { path: 'review', element: <ReviewPage />, handle: { preload: loadReviewPage } },
+      {
+        path: 'review',
+        element: <ReviewPage />,
+        loader: reviewRoute,
+        handle: { preload: loadReviewPage },
+      },
       { path: 'compendium/review', element: <MatchReviewPage /> },
       { path: 'compendium', element: <MatchReviewPage /> },
       { path: 'archive', element: <ArchivePage />, handle: { preload: loadArchivePage } },

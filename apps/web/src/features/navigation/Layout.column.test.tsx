@@ -11,6 +11,7 @@ import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { usePreviewReviewStore } from '../../stores/previewReview';
 import { useSettingsStore } from '../../stores/settings';
+import { registerWorkspaceShortcutOwner } from '../../ui/interaction';
 
 vi.mock('../../services/save/SavePanel', () => ({
   SavePanel: () => null,
@@ -27,7 +28,13 @@ vi.mock('../compendium/CompendiumBadge', () => ({
 }));
 vi.mock('../editor', () => ({ ClarityEditor: () => <textarea aria-label="Editor" /> }));
 vi.mock('../preview', () => ({
-  PreviewColumn: ({ baseText, acknowledgement }: { baseText: string; acknowledgement?: ReactNode }) => (
+  PreviewColumn: ({
+    baseText,
+    acknowledgement,
+  }: {
+    baseText: string;
+    acknowledgement?: ReactNode;
+  }) => (
     <>
       <div data-preview>{baseText}</div>
       {acknowledgement}
@@ -202,9 +209,16 @@ describe('the preview column', () => {
     const sheet = document.createElement('div');
     sheet.setAttribute('data-shell-overlay', '');
     document.body.append(sheet);
-    await pressAltP();
-    sheet.remove();
+    const release = registerWorkspaceShortcutOwner(sheet);
+    try {
+      await pressAltP();
+    } finally {
+      release();
+      sheet.remove();
+    }
     expect(aside()?.hasAttribute('hidden')).toBe(false);
+    await pressAltP();
+    expect(aside()?.hasAttribute('hidden')).toBe(true);
   });
 
   it('records a change as unreviewed only while collapsed, and counts it on the column toggle (the editor status bar says it too)', async () => {

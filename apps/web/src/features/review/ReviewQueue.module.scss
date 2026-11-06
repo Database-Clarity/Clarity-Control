@@ -1,0 +1,98 @@
+.viewport {
+  position: relative;
+  max-height: calc(100dvh - var(--header-h, 37px) - 7rem);
+  overflow: auto;
+  min-height: 0;
+  // A definite height keeps the full virtual track out of ancestor sizing.
+  contain: strict;
+  container-type: inline-size;
+}
+
+.rowSizer {
+  position: absolute;
+  height: 2rem;
+  width: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.openingRows {
+  position: absolute;
+  inset-inline: 0;
+  contain: strict;
+  pointer-events: none;
+  animation: opening-pulse 0.9s ease-in-out infinite alternate;
+
+  svg {
+    display: block;
+    fill: var(--text2);
+    opacity: 0.25;
+  }
+}
+
+@keyframes opening-pulse {
+  from {
+    opacity: 0.5;
+  }
+  to {
+    opacity: 0.85;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .openingRows {
+    animation: none;
+  }
+}
+
+.list {
+  position: absolute;
+  inset-inline: 0;
+  // Only the rendered window contributes paint bounds; the separate empty
+  // spacer preserves the complete queue's native scrolling range.
+  contain: layout paint;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+
+  li {
+    position: absolute;
+    inset-inline: 0;
+  }
+
+  li a {
+    box-sizing: border-box;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    padding-block: 0;
+
+    &:focus-visible {
+      // Keep the complete focus ring within the row's allocated bounds.
+      outline-offset: -2px;
+    }
+  }
+
+  span {
+    flex: 1;
+    min-width: 0;
+    display: block;
+    line-height: 1rem;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  small {
+    // The full hash remains in the accessible link label, title, selected
+    // comparison, and main list. Give the bounded sidebar's width to names.
+    display: none;
+  }
+}
+
+@container (max-width: 12rem) {
+  .rowSizer {
+    // Preserve a fixed native scrolling pitch while allowing narrow names to
+    // wrap. ResizeObserver supplies this same pitch to the window and feedback.
+    height: 3rem;
+  }
+}

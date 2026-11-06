@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { EditorData } from '../../stores/data';
 import { associationCandidates, moveAssociation } from './associations';
+import { resolveAlias } from '@clarity/core';
+import { itemFor } from '../navigation/catalog';
 
 const item = (hash: number, name: string) => ({
   hash,
@@ -28,6 +30,43 @@ const data: EditorData = {
 };
 
 describe('association picker', () => {
+  it('matches the uncached picker across alias queries, exclusions, and data replacements', () => {
+    // Preserve the previous consumer output as the equivalence oracle.
+    const previous = (source: EditorData, query: string, self: number, selected: number[]) => {
+      const search = query.trim().toLowerCase();
+      const excluded = new Set(
+        [self, ...selected].map((hash) => resolveAlias(hash, source.aliases)),
+      );
+      const matches = new Set<number>();
+      const hashes = new Set([
+        ...Object.keys(source.items),
+        ...Object.keys(source.bundle.tooltips),
+        ...Object.keys(source.aliases),
+      ]);
+      for (const hash of hashes) {
+        const canonical = resolveAlias(Number(hash), source.aliases);
+        if (excluded.has(canonical) || canonical <= 3 || source.bundle.tooltips[canonical]?.archive)
+          continue;
+        const entry = itemFor(Number(hash), source) ?? itemFor(canonical, source);
+        if (!search || hash.includes(search) || entry?.name.toLowerCase().includes(search))
+          matches.add(canonical);
+      }
+      return [...matches].sort(
+        (a, b) =>
+          (itemFor(a, source)?.name ?? '').localeCompare(itemFor(b, source)?.name ?? '') || a - b,
+      );
+    };
+    for (const source of [
+      data,
+      { ...data, items: { ...data.items, 40: item(40, 'Scorch'), 50: item(50, 'Éclair') } },
+    ])
+      for (const query of ['', ' ', 'Scorch', 'SCOR', '99', '100', 'alias', '0', 'é', 'absent'])
+        for (const self of [0, 10, 99, 100, 30])
+          for (const selected of [[], [20], [99], [100, 30]])
+            expect(associationCandidates(source, query, self, selected)).toEqual(
+              previous(source, query, self, selected),
+            );
+  });
   it('searches verbs by name, canonical hashes and alias hashes', () => {
     expect(associationCandidates(data, 'scorch', 10, [])).toEqual([20]);
     expect(associationCandidates(data, '20', 10, [])).toEqual([20]);

@@ -1,9 +1,37 @@
+.page {
+  // The shell assigns this width. Keep the route out of ancestor inline sizing.
+  contain: inline-size layout;
+}
+
 .toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem;
   margin-block: 1rem;
+}
+
+.openingStatus {
+  position: fixed;
+  top: calc(var(--header-h, 37px) + 0.4rem);
+  right: 1rem;
+  z-index: 5;
+  margin: 0;
+  padding: 0.35rem 0.6rem;
+  color: var(--text);
+  background: var(--col);
+  border: 1px solid var(--line);
+  border-radius: 0.35rem;
+  pointer-events: none;
+}
+
+.readyStatus {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .heading {
@@ -15,7 +43,7 @@
 
   p {
     margin: 0;
-    color: #aab8cc;
+    color: var(--text2);
   }
 }
 
@@ -24,29 +52,56 @@
   border: 1px solid #596478;
   border-left: 3px solid #87beff;
   border-radius: 0.4rem;
-  background: #1c2130;
+  background: var(--col);
 }
 
 .filters {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(12rem, 1fr) auto;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   align-items: end;
   gap: 0.75rem;
   margin-block: 1rem;
+
+  > span {
+    grid-column: 1 / -1;
+  }
+
+  label {
+    display: grid;
+    gap: 0.35rem;
+    min-width: 0;
+  }
+
+  input,
+  select {
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+  }
 }
 
 .workspace {
+  contain: layout;
   display: grid;
-  grid-template-columns: minmax(15rem, 1fr) minmax(0, 2fr);
+  // Keep the cards' block sizing independent, rather than stretching both to
+  // the taller card and laying out their contained descendants a second time.
+  align-items: start;
+  // Equivalent one-third/two-thirds split with a definite first track; the
+  // new route does not need an intrinsic sizing pass over both cards.
+  grid-template-columns: max(15rem, calc((100% - 1.5rem) / 3)) minmax(0, 1fr);
   gap: 1.5rem;
 }
 
 .card {
+  // The workspace assigns the column width. Descendant text does not need to
+  // participate in its parent's intrinsic inline sizing.
+  contain: inline-size layout;
   min-width: 0;
   padding: 1rem;
-  border: 1px solid #424e62;
+  border: 1px solid var(--line);
   border-radius: 0.6rem;
-  background: #1c2130;
+  background: var(--col);
 }
 
 .listHeading {
@@ -69,7 +124,7 @@
   overflow-wrap: anywhere;
 
   small {
-    color: #aab8cc;
+    color: var(--text2);
     font-size: 0.75em;
     font-weight: 400;
   }
@@ -78,30 +133,70 @@
 .rowIdentity,
 .detailIdentity {
   small {
-    color: #aab8cc;
+    color: var(--text2);
+  }
+}
+
+.liveSkeleton {
+  margin-block: 1.5rem 1rem;
+
+  > div {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+
+  span:not(.readyStatus) {
+    height: 0.75rem;
+    border-radius: 0.25rem;
+    background: linear-gradient(100deg, var(--raised) 25%, var(--line) 50%, var(--raised) 75%);
+    background-size: 200% 100%;
+    animation: comparison-shimmer 1.5s linear infinite;
+  }
+
+  span:last-child {
+    grid-column: 1 / -1;
+    width: 65%;
+  }
+}
+
+@keyframes comparison-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liveSkeleton span:not(.readyStatus) {
+    animation: none;
   }
 }
 
 .detailIdentity {
   margin-block: 0 0.4rem;
-  color: #aab8cc;
+  color: var(--text2);
   font-size: 0.8rem;
 }
 
 .list {
   list-style: none;
   padding: 0;
-  display: grid;
-  gap: 1rem;
   overflow-wrap: anywhere;
 
   li {
-    display: grid;
-    gap: 0.45rem;
+    contain: inline-size layout;
+    // Preserve the complete 15-row page while the browser skips offscreen
+    // descendants; focus, find-in-page, and scrolling reveal their full content.
+    content-visibility: auto;
+    contain-intrinsic-block-size: auto 5rem;
     padding: 0.65rem;
-    border: 1px solid #424e62;
+    border: 1px solid var(--line);
     border-radius: 0.4rem;
-    background: #202737;
+    background: var(--raised);
+  }
+
+  li + li {
+    margin-block-start: 1rem;
   }
 
   label {
@@ -112,6 +207,7 @@
   }
 
   button {
+    flex: 1;
     min-width: 0;
     max-width: 100%;
     text-align: left;
@@ -119,12 +215,18 @@
 
   button > span {
     display: block;
+    white-space: normal;
     overflow-wrap: anywhere;
+
+    small {
+      display: block;
+    }
   }
 
   li > div {
+    margin-block-start: 0.45rem;
     font-size: 0.8rem;
-    color: #aab8cc;
+    color: var(--text2);
     overflow-wrap: anywhere;
   }
 
@@ -178,7 +280,7 @@
   padding: 0.25rem 0;
   overflow-y: auto;
   list-style: none;
-  border: 1px solid #424e62;
+  border: 1px solid var(--line);
   border-radius: 0.4rem;
   font-size: 0.9rem;
 
@@ -192,7 +294,7 @@
 
   small {
     flex: none;
-    color: #aab8cc;
+    color: var(--text2);
   }
 }
 
@@ -208,9 +310,9 @@
 .activity {
   margin-block: 0.5rem;
   padding: 0.25rem 0.5rem;
-  border: 1px solid #424e62;
+  border: 1px solid var(--line);
   border-radius: 0.4rem;
-  background: #1c2130;
+  background: var(--col);
   font-size: 0.85rem;
 
   ul {
@@ -283,7 +385,7 @@
   display: -webkit-box;
   min-width: 0;
   overflow: hidden;
-  color: #aab8cc;
+  color: var(--text2);
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 1;

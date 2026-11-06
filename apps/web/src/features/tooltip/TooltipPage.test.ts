@@ -1,7 +1,7 @@
 import { compendiumDataSchema } from '@clarity/core';
 import { useCompendiumStore } from '../compendium/store';
 import frozen from '../compendium/fixtures/frozen-matcher.json';
-import { createElement } from 'react';
+import { createElement, useContext } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { StaticRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,6 +14,20 @@ import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { useAuthStore } from '../../stores/auth';
 import { apiUrl } from '../../services/api';
+import { useSteppingActivity } from '../navigation/steppingActivity';
+import { LivePreviewIdentity } from '../preview/LivePreviewIdentity';
+
+vi.mock('../navigation/steppingActivity', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../navigation/steppingActivity')>();
+  return {
+    ...actual,
+    useSteppingActivity: Object.assign(
+      (selector: (state: ReturnType<typeof actual.useSteppingActivity.getState>) => unknown) =>
+        selector(actual.useSteppingActivity.getState()),
+      actual.useSteppingActivity,
+    ),
+  };
+});
 
 vi.mock('../compendium/store', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../compendium/store')>();
@@ -30,7 +44,10 @@ vi.mock('../editor', () => ({
   ClarityEditor: vi.fn((props: ClarityEditorProps) => createElement('div', null, props.value)),
 }));
 vi.mock('../preview', () => ({
-  PreviewColumn: vi.fn((props: PreviewColumnProps) => createElement('div', null, props.baseText)),
+  PreviewColumn: vi.fn(function PreviewMock(props: PreviewColumnProps) {
+    const identity = useContext(LivePreviewIdentity);
+    return createElement('div', { 'data-archive-preview': identity?.archiveIcon }, props.baseText);
+  }),
 }));
 vi.mock('../compendium/CompendiumPanel', () => ({
   CompendiumPanel: vi.fn(({ base }: { base: Tooltip }) =>
@@ -163,6 +180,11 @@ function previewsOf() {
 }
 
 describe('tooltip screen composition', () => {
+  it('keeps the urgent preview header archived for a removed saved tooltip', () => {
+    useDataStore.setState({ data: { ...data, items: {} } });
+    expect(render()).toContain('data-archive-preview="true"');
+    expect(vi.mocked(ClarityEditor).mock.calls[0][0].readOnly).toBe(true);
+  });
   const originalDraftState = useDraftStore.getState();
   const originalDataState = useDataStore.getState();
   const originalAuthState = useAuthStore.getState();
@@ -225,6 +247,23 @@ describe('tooltip screen composition', () => {
       expect(vi.mocked(CompendiumPanel).mock.calls.map(([props]) => props.base)).toEqual([base]);
       expect(markup).toContain('data-compendium-hash="10"');
       expect(markup).not.toContain('data-compendium-hash="11"');
+    }
+  });
+  it('keeps the editor and preview visible during a physical navigation hold', () => {
+    useSteppingActivity.setState({ active: true });
+    try {
+      const markup = render();
+      expect(markup).not.toContain('Opening');
+      expect(markup).not.toContain('display:none');
+      expect(markup).toContain('Raw base markup');
+      expect(vi.mocked(ClarityEditor).mock.calls[0][0].suspended).not.toBe(true);
+      expect(vi.mocked(PreviewColumn)).toHaveBeenCalledOnce();
+      expect(vi.mocked(CompendiumPanel).mock.calls[0][0]).toMatchObject({
+        base,
+        stepping: true,
+      });
+    } finally {
+      useSteppingActivity.setState({ active: false });
     }
   });
   it('hides Compendium from translators and shows changes only for outdated translations', () => {

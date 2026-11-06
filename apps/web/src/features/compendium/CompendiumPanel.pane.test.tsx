@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CompendiumCell, Tooltip } from '@clarity/core';
 import * as core from '@clarity/core';
 import * as dates from '../../services/format/date';
+import * as paneSkeleton from './CompendiumPaneSkeleton';
+import * as rightPane from '../../ui/RightPane';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
@@ -16,8 +18,18 @@ import { CompendiumPanel } from './CompendiumPanel';
 import * as diffCache from './compendiumDiffCache';
 import { useDisplayMatches } from './useDisplayMatches';
 import { backgroundDecodePaused } from './paneDecodeActivity';
+import { useSteppingActivity } from '../navigation/steppingActivity';
 
 const paneMatch = vi.hoisted(() => vi.fn());
+const skeletonTiming = vi.hoisted(() => ({ enabled: false }));
+vi.mock('../../ui/Skeleton', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../ui/Skeleton')>();
+  return {
+    ...actual,
+    useSkeletonVisible: (...args: Parameters<typeof actual.useSkeletonVisible>) =>
+      actual.useSkeletonVisible(skeletonTiming.enabled && args[0], args[1], args[2]),
+  };
+});
 const matchState = vi.hoisted(() => ({
   loading: false,
   rows: undefined as Map<number, unknown> | undefined,
@@ -33,7 +45,11 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 vi.mock('../../services/api', () => ({ apiUrl: 'https://api.test' }));
 vi.mock('./LinkPicker', () => ({
   LinkPicker: ({ readOnly }: { readOnly?: boolean }) =>
-    createElement('div', { 'data-picker': true, 'data-readonly': String(!!readOnly) }),
+    createElement(
+      'div',
+      { 'data-picker': true, 'data-readonly': String(!!readOnly) },
+      createElement('input', { 'aria-label': 'Picker query', defaultValue: 'Initial search' }),
+    ),
 }));
 
 const cell = (text: string): CompendiumCell => ({ plain: text, runs: [{ text }] });
@@ -55,6 +71,7 @@ const roots: Root[] = [];
 let width: number | undefined;
 
 beforeEach(() => {
+  skeletonTiming.enabled = false;
   paneMatch.mockReturnValue(undefined);
   matchState.loading = false;
   matchState.rows = undefined;
@@ -99,6 +116,7 @@ beforeEach(() => {
   );
 });
 afterEach(() => {
+  act(() => useSteppingActivity.setState({ active: false, deferWorkspace: false }));
   for (const root of roots.splice(0)) act(() => root.unmount());
   document.body.replaceChildren();
   vi.restoreAllMocks();
@@ -148,6 +166,241 @@ describe('Compendium pane', () => {
     expect(backgroundDecodePaused()).toBe(true);
     await act(async () => vi.runOnlyPendingTimers());
     expect(backgroundDecodePaused()).toBe(false);
+  });
+
+
+  it.each([
+    ['desktop', 'query'],
+    ['phone', 'query'],
+    ['desktop', 'close'],
+    ['phone', 'close'],
+  ])(
+    'discards the inline picker and restores %s focus from its %s control on stepping',
+    async (mode, focusedControl) => {
+      const frames = new Map<number, FrameRequestCallback>();
+      let serial = 0;
+      vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+        frames.set(++serial, callback);
+        return serial;
+      });
+      vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+      const host = await mount();
+      const root = roots.at(-1)!;
+      const finder = document.createElement('input');
+      finder.setAttribute('aria-label', 'Tooltip');
+      document.body.prepend(finder);
+      const trigger = document.createElement('button');
+      trigger.setAttribute('data-tooltip-finder', '');
+      document.body.prepend(trigger);
+      if (mode === 'phone') finder.hidden = true;
+      await act(async () => button(host, 'Pick other row')!.click());
+      const pane = host.querySelector('aside');
+      const source = host.querySelector('[data-scale]');
+      const query = host.querySelector<HTMLInputElement>('[aria-label="Picker query"]')!;
+      query.value = 'Old picker state';
+      (focusedControl === 'close' ? button(host, 'Close picker')! : query).focus();
+      await act(async () => {
+        useSteppingActivity.setState({ active: true });
+        root.render(
+          createElement(CompendiumPanel, { base: { ...linked, hash: 6 }, stepping: true }),
+        );
+      });
+      expect(host.querySelector('[data-picker]')).toBeNull();
+      expect(host.querySelector('[data-inline-link-picker]')).toBeNull();
+      expect(query.isConnected).toBe(false);
+      expect(host.querySelector('aside')).toBe(pane);
+      expect(host.querySelector('[data-scale]')).toBe(source);
+      expect(document.activeElement).toBe(mode === 'phone' ? trigger : finder);
+      await act(async () => {
+        useSteppingActivity.setState({ active: false });
+        root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 6 } }));
+      });
+      expect(host.querySelector('[data-picker]')).toBeNull();
+      await act(async () => {
+        for (const callback of frames.values()) callback(0);
+        frames.clear();
+      });
+      await act(async () => button(host, 'Pick other row')!.click());
+      expect(host.querySelector<HTMLInputElement>('[aria-label="Picker query"]')?.value).toBe(
+        'Initial search',
+      );
+    },
+  );
+  it('reveals data-sized skeletons after two frames and reuses their shimmer regions', async () => {
+    skeletonTiming.enabled = true;
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    const host = await mount();
+    const root = roots.at(-1)!;
+    const content = host.querySelector('[data-scale]');
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 6 }, stepping: true })),
+    );
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+    const tick = async () => {
+      const [id, callback] = frames.entries().next().value!;
+      frames.delete(id);
+      await act(async () => callback(0));
+    };
+    await tick();
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+    await tick();
+    const skeleton = host.querySelector('[data-pane-skeleton]');
+    expect(skeleton).not.toBeNull();
+    expect(host.querySelector('[data-scale]')).toBe(content);
+    expect(content?.hasAttribute('hidden')).toBe(true);
+    expect(skeleton?.textContent).toContain('Name');
+    expect(skeleton?.textContent).toContain('Snapshot');
+    expect(skeleton?.querySelector('button')?.disabled).toBe(true);
+    const region = skeleton?.querySelector('[aria-hidden="true"]');
+    const cellRegion = skeleton?.querySelector('[class*="skeletonCell"]');
+    const newest = {
+      ...linked,
+      hash: 7,
+      compendium: { ...linked.compendium!, rowKey: 'Latest row', gid: 'g2' },
+    };
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: newest, stepping: true })),
+    );
+    expect(host.querySelector('[data-pane-skeleton]')).toBe(skeleton);
+    expect(skeleton?.querySelector('[aria-hidden="true"]')).toBe(region);
+    expect(skeleton?.querySelector('[class*="skeletonCell"]')).toBe(cellRegion);
+    expect(skeleton?.textContent).toContain('Latest row');
+    expect(frames.size).toBe(0);
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: newest, stepping: false })),
+    );
+    await tick();
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+    expect(host.querySelector('[data-match-hash]')?.getAttribute('data-match-hash')).toBe('7');
+    expect(host.querySelector('aside')?.hasAttribute('aria-busy')).toBe(false);
+  });
+
+  it('retains the mounted pane while the skeleton is deferred and commits the latest entry', async () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    useCompendiumStore.setState({
+      data: { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] },
+    } as never);
+    const host = await mount();
+    const root = roots.at(-1)!;
+    const original = host.innerHTML;
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: linked, stepping: false })),
+    );
+    expect(host.innerHTML).toBe(original);
+    const content = host.querySelector('[data-scale]')!;
+    const prepare = vi.spyOn(diffCache, 'prepareCompendiumDiff').mockReturnValue(undefined);
+    for (const hash of [6, 7]) {
+      await act(async () =>
+        root.render(createElement(CompendiumPanel, { base: { ...linked, hash }, stepping: true })),
+      );
+      expect(host.querySelector('[data-scale]')).toBe(content);
+      expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe(
+        `Compendium for ${hash}`,
+      );
+      expect(content.getAttribute('data-match-hash')).toBe('5');
+      expect(host.querySelector('aside')?.getAttribute('aria-busy')).toBe('true');
+      expect(content.hasAttribute('inert')).toBe(true);
+      expect(
+        [...header(host).querySelectorAll('button')].every((control) => control.disabled),
+      ).toBe(true);
+      expect(host.querySelector('[role="status"]')?.textContent).toBe('Loading Compendium…');
+      expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+      expect(vi.mocked(useDisplayMatches).mock.calls.at(-1)?.[4]).toBe(5);
+      expect(prepare).not.toHaveBeenCalled();
+      expect(frames.size).toBe(0);
+    }
+    await act(async () =>
+      root.render(
+        createElement(CompendiumPanel, { base: { ...linked, hash: 7 }, stepping: false }),
+      ),
+    );
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(frames.size).toBe(1);
+    await act(async () => [...frames.values()][0](0));
+    expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe('Compendium for 7');
+    expect(host.querySelector('aside')?.hasAttribute('aria-busy')).toBe(false);
+    expect(host.querySelector('[data-scale]')?.hasAttribute('inert')).toBe(false);
+    expect(header(host).hasAttribute('inert')).toBe(false);
+    expect(host.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it('cancels a queued handoff when stepping starts and commits only the latest stop', async () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    const host = await mount();
+    const root = roots.at(-1)!;
+    const content = host.querySelector('[data-scale]');
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 6 } })),
+    );
+    expect(frames.size).toBe(1);
+    const superseded = [...frames.values()][0];
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 7 }, stepping: true })),
+    );
+    expect(frames.size).toBe(0);
+    await act(async () => superseded(0));
+    expect(host.querySelector('[data-scale]')).toBe(content);
+    expect(host.querySelector('[data-match-hash]')?.getAttribute('data-match-hash')).toBe('5');
+    await act(async () =>
+      root.render(
+        createElement(CompendiumPanel, { base: { ...linked, hash: 8 }, stepping: false }),
+      ),
+    );
+    expect(frames.size).toBe(1);
+    await act(async () => [...frames.values()][0](0));
+    expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe('Compendium for 8');
+    expect(host.querySelector('aside')?.hasAttribute('aria-busy')).toBe(false);
+  });
+
+  it('does not retain a transition queued just before stepping begins', async () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    useCompendiumStore.setState({
+      data: { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] },
+    } as never);
+    const host = await mount();
+    const root = roots.at(-1)!;
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 6 } })),
+    );
+    const queued = [...frames.values()][0];
+    frames.clear();
+    await act(async () => {
+      queued(0);
+      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 7 }, stepping: true }));
+    });
+    expect(host.querySelector('[data-match-hash]')?.getAttribute('data-match-hash')).toBe('5');
+    await act(async () =>
+      root.render(
+        createElement(CompendiumPanel, { base: { ...linked, hash: 8 }, stepping: false }),
+      ),
+    );
+    expect(host.querySelector('[data-match-hash]')?.getAttribute('data-match-hash')).toBe('5');
+    await act(async () => [...frames.values()][0](0));
+    expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe('Compendium for 8');
   });
 
   it('waits for an incoming match before scheduling the pane handoff', async () => {
@@ -327,6 +580,44 @@ describe('Compendium pane', () => {
     expect(host.contains(status)).toBe(true);
     expect(host.querySelector('[data-multiline]')).toBe(cell);
   });
+
+  it.each(['linked', 'matched'] as const)(
+    'leaves the settled %s skeleton, pane, and shape cache idle through text edits',
+    async (kind) => {
+      skeletonTiming.enabled = true;
+      const frame = vi.fn();
+      vi.stubGlobal('requestAnimationFrame', frame);
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+      const renderPane = vi.spyOn(rightPane, 'RightPane');
+      const remember = vi.spyOn(paneSkeleton, 'rememberPaneSkeleton');
+      const format = vi.spyOn(dates, 'formatDate');
+      const base = kind === 'linked' ? linked : { ...linked, compendium: undefined };
+      if (kind === 'matched') paneMatch.mockReturnValue({ status: 'ok', changed: false, tab, row });
+      const next = structuredClone(base);
+      next.text = { en: { text: 'Existing draft' } } as Tooltip['text'];
+      useDraftStore.setState({ drafts: { [base.hash]: { base, next } } });
+      const host = await mount(base);
+      const rendered = renderPane.mock.calls.length;
+      const remembered = remember.mock.calls.length;
+      const formatted = format.mock.calls.length;
+      const original = host.innerHTML;
+      frame.mockClear();
+      for (let key = 0; key < 300; key++) {
+        const changed = structuredClone(next);
+        changed.text = { en: { text: `Existing draft ${key}` } } as Tooltip['text'];
+        await act(async () =>
+          useDraftStore.setState({ drafts: { [base.hash]: { base, next: changed } } }),
+        );
+      }
+      expect(renderPane.mock.calls.length).toBe(rendered);
+      expect(remember.mock.calls.length).toBe(remembered);
+      expect(format.mock.calls.length).toBe(formatted);
+      expect(frame).not.toHaveBeenCalled();
+      expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+      expect(host.querySelector('[class*="Skeleton_region"]')).toBeNull();
+      expect(host.innerHTML).toBe(original);
+    },
+  );
 
   it('does not remeasure the root or resolve an unchanged source while English drafts are typed', async () => {
     useCompendiumStore.setState({ data: { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] } });
