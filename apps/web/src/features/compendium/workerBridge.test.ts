@@ -4,51 +4,9 @@ import { sendWorkerResult } from './workerReplies';
 import { createPaneDecodeGuard } from './paneDecodeActivity';
 
 afterEach(() => {
-  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
-});
-
-it('holds queued background decode through editor input, permits priority, and resumes after quiet', async () => {
-  vi.useFakeTimers();
-  const callbacks = new Map<string, EventListener>();
-  class EditorElement {
-    closest(selector: string) {
-      return selector === '.cm-content' ? this : null;
-    }
-  }
-  vi.stubGlobal('Element', EditorElement);
-  vi.stubGlobal('document', {
-    addEventListener: (name: string, callback: EventListener) => callbacks.set(name, callback),
-    removeEventListener: (name: string) => callbacks.delete(name),
-  });
-  const idle: IdleRequestCallback[] = [];
-  vi.stubGlobal('scheduler', undefined);
-  vi.stubGlobal('requestIdleCallback', (callback: IdleRequestCallback) => idle.push(callback));
-  const worker = { postMessage: vi.fn(), terminate: vi.fn() } as unknown as Worker;
-  const bridge = createWorkerBridge(worker);
-  try {
-    const background = bridge.request({ input: {} });
-    const published = vi.fn();
-    void background.then(published);
-    worker.onmessage!.call(worker, { data: { id: 1, value: 'background' } } as MessageEvent);
-    callbacks.get('beforeinput')!({ target: new EditorElement() } as unknown as Event);
-    while (idle.length) idle.shift()!({ timeRemaining: () => 50, didTimeout: false });
-    const priority = bridge.request({ priority: { hash: 5 } });
-    worker.onmessage!.call(worker, { data: { id: 2, value: 'pane' } } as MessageEvent);
-    while (idle.length) idle.shift()!({ timeRemaining: () => 50, didTimeout: false });
-    expect(await priority).toBe('pane');
-    expect(published).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(299);
-    expect(idle).toHaveLength(0);
-    vi.advanceTimersByTime(1);
-    while (idle.length) idle.shift()!({ timeRemaining: () => 50, didTimeout: false });
-    expect(await background).toBe('background');
-  } finally {
-    bridge.dispose();
-  }
-  expect(callbacks.size).toBe(0);
 });
 
 it('pauses an active background graph while a pane opens, without blocking its priority reply', async () => {

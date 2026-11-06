@@ -21,19 +21,6 @@ export function createWorkerBridge(worker: Worker) {
   let scheduled = false;
   let scheduledUrgent = false;
   let scheduleGeneration = 0;
-  let typing = false;
-  let typingTimer: ReturnType<typeof setTimeout> | undefined;
-  const backgroundPaused = () => typing || backgroundDecodePaused();
-  const typed = (event: Event) => {
-    if (!(event.target instanceof Element) || !event.target.closest('.cm-content')) return;
-    typing = true;
-    clearTimeout(typingTimer);
-    typingTimer = setTimeout(() => {
-      typing = false;
-      resume();
-    }, 300);
-  };
-  globalThis.document?.addEventListener('beforeinput', typed, true);
   const inputPending = () =>
     (
       globalThis.navigator as Navigator & {
@@ -41,7 +28,11 @@ export function createWorkerBridge(worker: Worker) {
       }
     )?.scheduling?.isInputPending({ includeContinuous: true }) ?? false;
   const schedule = (urgent = false) => {
-    if (failure || (backgroundPaused() && !urgent) || (scheduled && (!urgent || scheduledUrgent)))
+    if (
+      failure ||
+      (backgroundDecodePaused() && !urgent) ||
+      (scheduled && (!urgent || scheduledUrgent))
+    )
       return;
     scheduled = true;
     scheduledUrgent = urgent;
@@ -83,12 +74,12 @@ export function createWorkerBridge(worker: Worker) {
     // Poll in small batches, including before the first node of each slice.
     while (steps++ % 16 !== 0 || (performance.now() < end && !inputPending())) {
       if (active && jobs.get(active.id) !== active.job) active = undefined;
-      if (backgroundPaused() && active && !active.job.urgent) {
+      if (backgroundDecodePaused() && active && !active.job.urgent) {
         arrivals.unshift({ id: active.id, steps: active.steps });
         active = undefined;
       }
       if (!active) {
-        const index = backgroundPaused()
+        const index = backgroundDecodePaused()
           ? arrivals.findIndex((arrival) => jobs.get(arrival.id)?.urgent)
           : 0;
         if (index < 0) break;
@@ -125,15 +116,12 @@ export function createWorkerBridge(worker: Worker) {
     if (active || arrivals.length)
       schedule(!!active?.job.urgent || arrivals.some((arrival) => jobs.get(arrival.id)?.urgent));
   }
-  function resume() {
+  const unsubscribe = onBackgroundDecodeResume(() => {
     if (active || arrivals.length)
       schedule(!!active?.job.urgent || arrivals.some((arrival) => jobs.get(arrival.id)?.urgent));
-  }
-  const unsubscribe = onBackgroundDecodeResume(resume);
+  });
   const rejectAll = (error: Error) => {
     unsubscribe();
-    globalThis.document?.removeEventListener('beforeinput', typed, true);
-    clearTimeout(typingTimer);
     for (const job of jobs.values()) job.reject(error);
     jobs.clear();
     arrivals.length = 0;
