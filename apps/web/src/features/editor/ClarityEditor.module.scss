@@ -195,8 +195,6 @@
   }
   :global(.cm-editor .cm-panel.cm-search) {
     @include controls.overlay-surface;
-    // The edge alone separates it: a blurred shadow cost its first paint ~25 ms.
-    box-shadow: none;
     display: flex;
     gap: 0.125rem;
     box-sizing: border-box;
