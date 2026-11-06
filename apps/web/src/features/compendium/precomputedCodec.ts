@@ -69,3 +69,46 @@ export function decodePrecomputed(nodes: unknown[], root: number): unknown {
   for (const node of nodes) values.push(decodeValueNode(node, (id) => values[id]));
   return values[root];
 }
+
+/** Same value table, with resumable traversal for background worker replies. */
+export function* encodePrecomputedSteps(
+  value: unknown,
+  observe?: (value: unknown, id: number, nodes: unknown[]) => void,
+): Generator<void, { nodes: unknown[]; root: number }> {
+  const nodes: unknown[] = [];
+  const ids = new Map<string, number>();
+  const objects = new WeakMap<object, number>();
+  function* write(value: unknown): Generator<void, number> {
+    if (value && typeof value === 'object' && objects.has(value)) {
+      const id = objects.get(value)!;
+      observe?.(value, id, nodes);
+      yield;
+      return id;
+    }
+    let node: unknown = value === undefined ? [3] : value;
+    if (value && typeof value === 'object') {
+      const fields: unknown[] = [value instanceof Map ? 2 : Array.isArray(value) ? 0 : 1];
+      if (value instanceof Map) {
+        for (const [key, entry] of value) fields.push(yield* write(key), yield* write(entry));
+      } else if (Array.isArray(value)) {
+        for (const entry of value) fields.push(yield* write(entry));
+      } else {
+        for (const [key, entry] of Object.entries(value))
+          fields.push(yield* write(key), yield* write(entry));
+      }
+      node = fields;
+    }
+    const key = JSON.stringify(node);
+    let id = ids.get(key);
+    if (id === undefined) {
+      id = nodes.length;
+      nodes.push(node);
+      ids.set(key, id);
+    }
+    if (value && typeof value === 'object') objects.set(value, id);
+    observe?.(value, id, nodes);
+    yield;
+    return id;
+  }
+  return { nodes, root: yield* write(value) };
+}

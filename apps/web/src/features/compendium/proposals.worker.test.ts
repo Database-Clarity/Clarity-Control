@@ -99,6 +99,8 @@ it('publishes selected review evidence before assets/full proposals, and reprior
     release = resolve;
   });
   let assetRequests = 0;
+  let duringReply: Promise<Map<number, unknown>> | undefined;
+  let fullPublished = false;
   vi.stubGlobal('fetch', async () => {
     assetRequests++;
     await asset;
@@ -115,6 +117,10 @@ it('publishes selected review evidence before assets/full proposals, and reprior
   const worker = {
     onmessage: null as null | ((event: { data: unknown }) => void),
     postMessage(reply: WorkerReply) {
+      if (reply.id === 4 && reply.partialRoot !== undefined)
+        duringReply = request(6, { priority: { token: 17, hash: 102, input, matchesOnly: true } });
+      if (reply.id === 6) expect(fullPublished).toBe(false);
+      if (reply.id === 4 && reply.root !== undefined) fullPublished = true;
       // Selected replies must bypass the graph codec entirely.
       if (reply.id === 2 || reply.id === 3 || reply.id === 5) {
         expect(Object.hasOwn(reply, 'value')).toBe(true);
@@ -187,6 +193,15 @@ it('publishes selected review evidence before assets/full proposals, and reprior
     expect(review.decision).toEqual(full.decisions.find((d) => d.hash === review.hash));
     expect(review.matches.get(review.hash)?.row).toEqual(full.matches.get(review.hash)?.row);
   }
+  expect(duringReply).toBeDefined();
+  const current = await duringReply!;
+  expect([...current.keys()]).toEqual([102]);
+  expect(current.get(102)).toEqual(full.matches.get(102));
+  await expect(
+    request(7, {
+      priority: { token: 17, hash: 102, input: { ...input, scope: 'changed' }, matchesOnly: true },
+    }),
+  ).rejects.toThrow(/another dataset/);
 });
 
 it.each([false, true])(
