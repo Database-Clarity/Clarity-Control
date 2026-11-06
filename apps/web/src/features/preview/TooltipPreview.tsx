@@ -1,12 +1,13 @@
 import { ArchiveIcon } from '../archive/ArchiveIcon';
 import { languageLabel } from '../../languageLabels';
-import { memo, useContext, useId, useMemo, type ReactNode } from 'react';
+import { memo, useContext, useEffect, useId, useMemo, useRef, type ReactNode } from 'react';
 import {
   LivePreviewIdentity,
   previewIdentityFor,
   type PreviewIdentity,
 } from './LivePreviewIdentity';
 import { useSteppingActivity } from '../navigation/steppingActivity';
+import { closeTitlePopover, openTitlePopover } from './titlePopover';
 import { Link } from 'react-router-dom';
 import {
   markupLanguage,
@@ -49,6 +50,60 @@ function linkUrl(url: string): string | undefined {
   return /^(https?:\/\/|mailto:)/i.test(url.trim()) ? url.trim() : undefined;
 }
 
+/**
+ * A term with a tooltip: hover or focus opens its body as a top-layer popover (titlePopover.ts), Esc
+ * closes it. The body stays rendered, so opening costs one placement and no React work.
+ */
+function TitleAnchor({ part, id }: { part: MarkupSpan; id: string }) {
+  const box = useRef<HTMLSpanElement>(null);
+  const anchor = useRef<HTMLSpanElement>(null);
+  // One stable function: it is also the scroll listener, since scrolling anything while the popover
+  // is open would leave a fixed box behind its anchor.
+  const hide = useMemo(() => {
+    const close = () => {
+      window.removeEventListener('scroll', close, true);
+      if (box.current) closeTitlePopover(box.current);
+    };
+    return close;
+  }, []);
+  const open = (pointer?: { x: number; y: number }) => {
+    if (!anchor.current || !box.current) return;
+    openTitlePopover(anchor.current, box.current, pointer);
+    window.addEventListener('scroll', hide, { capture: true, passive: true });
+  };
+  useEffect(() => hide, [hide]);
+  return (
+    <span
+      ref={anchor}
+      className={styles.titleAnchor}
+      tabIndex={0}
+      aria-describedby={id}
+      onPointerEnter={(event) => {
+        if (event.pointerType !== 'touch') open({ x: event.clientX, y: event.clientY });
+      }}
+      onPointerLeave={hide}
+      onFocus={() => open()}
+      onBlur={hide}
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape' || !box.current?.matches(':popover-open, [data-open]')) return;
+        event.stopPropagation();
+        hide();
+      }}
+    >
+      {part.text}
+      <span
+        ref={box}
+        {...{ popover: 'manual' }}
+        className={styles.titleContainer}
+        role="tooltip"
+        id={id}
+      >
+        <Lines lines={part.title ?? []} />
+      </span>
+    </span>
+  );
+}
+
 /** One span of rendered markup: text, icon, link or title anchor. */
 export function PreviewSpan({ part }: { part: MarkupSpan }) {
   const id = useId();
@@ -56,12 +111,7 @@ export function PreviewSpan({ part }: { part: MarkupSpan }) {
   return (
     <span className={classNames(part.classNames)}>
       {part.title ? (
-        <span className={styles.titleAnchor} tabIndex={0} aria-describedby={id}>
-          {part.text}
-          <span className={styles.titleContainer} role="tooltip" id={id}>
-            <Lines lines={part.title} />
-          </span>
-        </span>
+        <TitleAnchor part={part} id={id} />
       ) : link ? (
         <a href={link} target="_blank" rel="noreferrer">
           {part.text}

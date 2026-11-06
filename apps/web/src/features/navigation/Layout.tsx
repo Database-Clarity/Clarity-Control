@@ -81,6 +81,7 @@ function LayoutContent() {
   const isEditor = location.pathname.startsWith('/t/');
   const isCompendium = location.pathname.startsWith('/compendium');
   const isReview = location.pathname === '/review';
+  const isTranslations = location.pathname === '/translations';
   const contextual = isCompendium || isReview;
   // The left column is the editor's preview, or the Compendium / Review queue list. A phone has
   // neither: the preview is a view of the page and the lists live in the Find sheet.
@@ -238,7 +239,7 @@ function LayoutContent() {
         id="shell-root"
         ref={layout}
         data-fixed={!phone && isEditor ? '' : undefined}
-        className={`${styles.layout} ${isCompendium ? styles.reviewMode : ''} ${isReview ? styles.reviewMode : ''} ${isEditor ? styles.editorMode : ''}`}
+        className={`${styles.layout} ${isCompendium ? styles.reviewMode : ''} ${isReview || isTranslations ? styles.reviewMode : ''} ${isEditor ? styles.editorMode : ''}`}
       >
         <a
           className={styles.skipLink}

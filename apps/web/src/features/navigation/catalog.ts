@@ -173,6 +173,9 @@ export function isDefaultPerkPlaceholder(hash: number, data: EditorData): boolea
   return hash === 0 && !data.items[0] && custom?.name === 'Default perk';
 }
 
+/** What the editor calls the exotic armour perk category (registry label, also used by worklists). */
+export const exoticArmourLabel = categoryDisplay(exoticArmourCategory).label;
+
 /**
  * A finder entry. Exotic armour entries are named after the piece; `perkName` is the perk they
  * open, `piece` the piece label alone (the name also carries the perk when pieces repeat) and

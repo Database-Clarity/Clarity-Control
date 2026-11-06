@@ -62,7 +62,7 @@ useDraftStore.setState({
 
 const result = document.getElementById('result')!;
 const root = document.getElementById('root')!;
-window.location.hash = '#/translations?lang=fr&status=outdated';
+window.location.hash = '#/translations?lang=fr&state=outdated';
 createRoot(root).render(createElement(HashRouter, null, createElement(App)));
 
 async function waitFor(predicate: () => boolean, description: string) {
@@ -103,22 +103,13 @@ async function run() {
       document.querySelector('main input[type="search"]') !== null,
     'worklist',
   );
-  size('worklist language', document.querySelector('main select'), measurements);
-  size('worklist search', document.querySelector('main input[type="search"]'), measurements);
-  const openNext = [...document.querySelectorAll<HTMLAnchorElement>('main a')].find(
-    (item) => item.textContent?.trim() === 'Open next',
-  );
-  size('Open next', openNext ?? null, measurements);
-  for (const text of ['Missing', 'Outdated', 'All', 'Show more', 'Show English changes']) {
-    size(text, button(text), measurements);
-  }
-  button('Show English changes').click();
-  await waitFor(
-    () => document.body.textContent?.includes('Retry history') === true,
-    'history error',
-  );
-  size('Retry history', button('Retry history'), measurements);
-  size('Hide English changes', button('Hide English changes'), measurements);
+  size('queue language', document.querySelector('main select'), measurements);
+  size('queue search', document.querySelector('main input[type="search"]'), measurements);
+  for (const text of ['Outdated', 'Missing']) size(text, button(text), measurements);
+  const firstRow = document.querySelector<HTMLAnchorElement>('main li[data-index] a');
+  size('queue row', firstRow, measurements);
+  if (document.documentElement.scrollWidth > window.innerWidth)
+    throw new Error('Translations queue overflows horizontally');
 
   window.location.hash = '#/t/40?lang=fr&line=3&variant=40';
   await waitFor(

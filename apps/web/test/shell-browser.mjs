@@ -215,7 +215,7 @@ try {
       await context.close();
     }
 
-    // Notices: overlays under the header; the editor text never moves.
+    // Notices: compact overlays at the bottom-right, clear of the header; the editor text never moves.
     {
       const { context, page } = await open(theme, { width: 1280, height: 800 });
       const before = await editorTop(page);
@@ -230,12 +230,13 @@ try {
       );
       const header = await page.locator('header').first().boundingBox();
       const strip = await page.locator('[data-notice-strip]').boundingBox();
-      assert.ok(strip.y >= header.y + header.height, 'the strip starts under the header');
+      assert.ok(strip.y >= header.y + header.height, 'the strip is clear of the header');
+      assert.ok(strip.y + strip.height <= 800 - 24, 'the strip sits above the editor status line');
       assert.equal(
         await page.evaluate(
           () => getComputedStyle(document.querySelector('[data-notice-strip]')).position,
         ),
-        'absolute',
+        'fixed',
       );
       const order = await page
         .locator('[data-notice-strip] > div')
