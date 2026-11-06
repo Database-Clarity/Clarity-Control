@@ -1,4 +1,4 @@
-import { decodeValueNode, encodePrecomputed } from './precomputedCodec';
+import { decodeValueNode, encodePrecomputed, encodePrecomputedSteps } from './precomputedCodec';
 
 export interface WorkerReply {
   id: number;
@@ -20,6 +20,34 @@ export function sendWorkerResult(
   value: unknown,
   partial?: unknown,
 ) {
+  const writer = resultWriter(post, id, partial);
+  writer.finish(encodePrecomputed(value, writer.observe));
+}
+
+/** Yield the encoder too: a paused main-thread decoder must not hide priority messages. */
+export async function sendWorkerResultYielding(
+  post: (reply: WorkerReply) => void,
+  id: number,
+  value: unknown,
+  partial: unknown,
+  yieldWork: () => Promise<void>,
+) {
+  const writer = resultWriter(post, id, partial);
+  const steps = encodePrecomputedSteps(value, writer.observe);
+  for (;;) {
+    const end = performance.now() + 2;
+    let next = steps.next();
+    let count = 0;
+    while (!next.done && (++count % 32 !== 0 || performance.now() < end)) next = steps.next();
+    if (next.done) {
+      writer.finish(next.value);
+      return;
+    }
+    await yieldWork();
+  }
+}
+
+function resultWriter(post: (reply: WorkerReply) => void, id: number, partial: unknown) {
   const encoder = new TextEncoder();
   let sent = 0;
   let published = false;
@@ -35,7 +63,7 @@ export function sendWorkerResult(
     post({ id, buffer: bytes.buffer, sizes: packets.map((part) => part.length), ...marker });
     packets = [];
   };
-  const encoded = encodePrecomputed(value, (current, root, nodes) => {
+  const observe = (current: unknown, root: number, nodes: unknown[]) => {
     while (nodes.length - sent >= 128) {
       packet(nodes.slice(sent, sent + 128));
       sent += 128;
@@ -46,9 +74,14 @@ export function sendWorkerResult(
       publish({ partialRoot: root });
       published = true;
     }
-  });
-  if (sent < encoded.nodes.length) packet(encoded.nodes.slice(sent));
-  publish({ root: encoded.root });
+  };
+  return {
+    observe,
+    finish(encoded: { nodes: unknown[]; root: number }) {
+      if (sent < encoded.nodes.length) packet(encoded.nodes.slice(sent));
+      publish({ root: encoded.root });
+    },
+  };
 }
 
 // A single graph node can be a large catalog array/map. Yield inside those

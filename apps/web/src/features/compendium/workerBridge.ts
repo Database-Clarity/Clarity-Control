@@ -1,5 +1,6 @@
 import type { CompendiumData } from '@clarity/core';
 import { receiveWorkerResult, type WorkerReply } from './workerReplies';
+import { backgroundDecodePaused, onBackgroundDecodeResume } from './paneDecodeActivity';
 
 type Receiver = ReturnType<typeof receiveWorkerResult>;
 type Job = {
@@ -27,7 +28,12 @@ export function createWorkerBridge(worker: Worker) {
       }
     )?.scheduling?.isInputPending({ includeContinuous: true }) ?? false;
   const schedule = (urgent = false) => {
-    if (failure || (scheduled && (!urgent || scheduledUrgent))) return;
+    if (
+      failure ||
+      (backgroundDecodePaused() && !urgent) ||
+      (scheduled && (!urgent || scheduledUrgent))
+    )
+      return;
     scheduled = true;
     scheduledUrgent = urgent;
     const generation = ++scheduleGeneration;
@@ -68,8 +74,16 @@ export function createWorkerBridge(worker: Worker) {
     // Poll in small batches, including before the first node of each slice.
     while (steps++ % 16 !== 0 || (performance.now() < end && !inputPending())) {
       if (active && jobs.get(active.id) !== active.job) active = undefined;
+      if (backgroundDecodePaused() && active && !active.job.urgent) {
+        arrivals.unshift({ id: active.id, steps: active.steps });
+        active = undefined;
+      }
       if (!active) {
-        const next = arrivals.shift();
+        const index = backgroundDecodePaused()
+          ? arrivals.findIndex((arrival) => jobs.get(arrival.id)?.urgent)
+          : 0;
+        if (index < 0) break;
+        const next = arrivals.splice(index, 1)[0];
         if (!next) break;
         const job = jobs.get(next.id);
         if (!job) continue;
@@ -81,8 +95,10 @@ export function createWorkerBridge(worker: Worker) {
         if (!next.done) continue;
         active = undefined;
         const result = next.value;
-        performance.mark('compendium:result-ready', { detail: { id, partial: !result.done } });
-        performance.clearMarks('compendium:result-ready');
+        if (import.meta.env.DEV) {
+          performance.mark('compendium:result-ready', { detail: { id, partial: !result.done } });
+          performance.clearMarks('compendium:result-ready');
+        }
         if (result.done) {
           jobs.delete(id);
           job.resolve(result.value);
@@ -93,12 +109,19 @@ export function createWorkerBridge(worker: Worker) {
         job.reject(error instanceof Error ? error : new Error(String(error)));
       }
     }
-    performance.measure('compendium:decode', { start, end: performance.now() });
-    performance.clearMeasures('compendium:decode');
+    if (import.meta.env.DEV) {
+      performance.measure('compendium:decode', { start, end: performance.now() });
+      performance.clearMeasures('compendium:decode');
+    }
     if (active || arrivals.length)
-      schedule(!!active?.job.urgent || !!jobs.get(arrivals[0]?.id)?.urgent);
+      schedule(!!active?.job.urgent || arrivals.some((arrival) => jobs.get(arrival.id)?.urgent));
   }
+  const unsubscribe = onBackgroundDecodeResume(() => {
+    if (active || arrivals.length)
+      schedule(!!active?.job.urgent || arrivals.some((arrival) => jobs.get(arrival.id)?.urgent));
+  });
   const rejectAll = (error: Error) => {
+    unsubscribe();
     for (const job of jobs.values()) job.reject(error);
     jobs.clear();
     arrivals.length = 0;
