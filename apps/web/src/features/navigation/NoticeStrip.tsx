@@ -3,7 +3,7 @@ import { STATUS_FADE_MS, sortNotices, type ShellNotice } from './notices';
 import styles from './NoticeStrip.module.scss';
 
 /**
- * Notices as compact overlays at the header's right edge, never rows in the page: nothing below
+ * Notices as compact overlays at the window's bottom-right, never rows in the page: nothing below
  * them moves when one appears or goes, and none spans the window. Each is as wide as its message,
  * with its actions and a close button right beside the text; Esc on a focused notice dismisses it
  * and returns focus to where it came from. Alerts above warnings above statuses. A status fades after six seconds, paused

@@ -1,24 +1,28 @@
 @use '../../ui/controls';
 @use '../../data/variables' as theme;
 
-// Compact notices hanging from the bottom-right of the header, VS Code notification style: each is
-// as wide as its message (up to a cap), stacked with a small gap, with its actions and close button
-// right next to the text. They take no space in the page (absolute), so nothing below them moves.
-// Only the notices take pointer events; the gaps between them pass clicks through.
+// Compact notices at the bottom-right of the window, above the editor's status line (VS Code
+// notification style): each is as wide as its message (up to a cap), stacked with a small gap, with
+// its actions and close button right next to the text. Fixed, so they take no space in the page and
+// nothing moves when one comes or goes; at the bottom they sit clear of the header, tabs, finder and
+// the editor's tool rows, which is where the controls are. Only the notices take pointer events.
 .strip {
-  position: absolute;
-  // Below the header's 1px bottom border, which sits outside its padding box.
-  top: calc(100% + 1px);
+  position: fixed;
   right: 0;
-  z-index: 1;
+  // Above the editor's 24px status line and the page margin under it (52px line on a phone).
+  bottom: 2.5rem;
+  z-index: 60;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 0.25rem;
   box-sizing: border-box;
   width: min(100%, 28rem);
-  padding: 0.25rem 0.375rem 0;
+  padding: 0 0.375rem 0.25rem;
   pointer-events: none;
+  @include theme.mobile-or-coarse {
+    bottom: 4.5rem;
+  }
 }
 
 .notice {

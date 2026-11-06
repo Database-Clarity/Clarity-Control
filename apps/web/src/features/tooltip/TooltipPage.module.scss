@@ -66,8 +66,13 @@
   grid-column: 1 / -1;
   gap: 0.25rem;
   button {
-    flex: 1;
+    // Sized by their labels, shrinking together only when they must, so a long label ("Compendium")
+    // stays whole at a large interface scale on a 390px phone.
+    flex: 1 1 auto;
     min-width: 0;
+    padding-inline: 0.375rem;
+    // Capped at 16px: three tabs with "Compendium" must fit 390px at 150% (the 44px height stays).
+    font-size: min(0.8125rem, 16px);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

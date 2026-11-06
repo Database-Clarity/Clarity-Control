@@ -147,6 +147,21 @@ try {
             };
           });
           log('header', JSON.stringify(header));
+          if (phone) {
+            const tabs = await page.evaluate(() =>
+              [...document.querySelectorAll('[role="tab"]')]
+                .filter((el) => el.getBoundingClientRect().width > 0)
+                .map((el) => ({
+                  text: el.textContent.trim(),
+                  cut: el.scrollWidth > el.clientWidth + 1,
+                })),
+            );
+            log('phone tabs', JSON.stringify(tabs));
+            check(
+              tabs.length > 0 && tabs.every((t) => !t.cut),
+              `${label}: a phone tab is truncated ${JSON.stringify(tabs)}`,
+            );
+          }
           check(header.clipped.length === 0, `${label}: clipped header text ${header.clipped}`);
           await noOverflow(page, `${label} header`);
           await page.screenshot({
@@ -230,15 +245,41 @@ try {
               `${label}: ${notice.level} notice spans the window (${notice.w}px)`,
             );
           }
+          // The stack sits at the bottom-right: it must not cover any control of the page behind it.
+          const covered = await page.evaluate(() => {
+            const rects = [...document.querySelectorAll('[data-notice-strip] > [data-level]')].map(
+              (el) => el.getBoundingClientRect(),
+            );
+            return [...document.querySelectorAll('button, a[href], input, select, [role="tab"]')]
+              .filter((el) => !el.closest('[data-notice-strip]') && !el.closest('[hidden]') && true)
+              .filter((el) => {
+                const r = el.getBoundingClientRect();
+                if (!r.width || !r.height) return false;
+                return rects.some(
+                  (n) =>
+                    r.left < n.right && r.right > n.left && r.top < n.bottom && r.bottom > n.top,
+                );
+              })
+              .map((el) =>
+                (el.getAttribute('aria-label') || el.textContent || el.tagName).trim().slice(0, 30),
+              );
+          });
+          log('covered by notices', JSON.stringify(covered));
+          // Desktop: the stack must stay clear of every control. A phone is as short as three stacked
+          // notices, so there it covers some of the page while they show (they answer or dismiss).
+          check(
+            phone || covered.length === 0,
+            `${label}: notices cover controls ${JSON.stringify(covered)}`,
+          );
           await noOverflow(page, `${label} notices`);
           await page.screenshot({
             path: `${shots}/${name}-notices.png`,
-            clip: { x: 0, y: 0, width, height: Math.min(height, 360) },
+            clip: { x: 0, y: 0, width, height },
           });
           await page.evaluate(() => window.shellFixture.notice('long'));
           await page.screenshot({
             path: `${shots}/${name}-notice-long.png`,
-            clip: { x: 0, y: 0, width, height: Math.min(height, 360) },
+            clip: { x: 0, y: 0, width, height },
           });
           await context.close();
         }
