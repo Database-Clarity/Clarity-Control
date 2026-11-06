@@ -142,6 +142,45 @@ const diffViews = (host: ParentNode) =>
   host.querySelectorAll('[aria-label="Compendium diff view"]');
 
 describe('Compendium pane', () => {
+  it('keeps decoding live for language history on an unchanged active override', async () => {
+    vi.useFakeTimers();
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    const original = window.location.hash;
+    try {
+      window.history.replaceState(null, '', '#/t/10?variant=5&lang=en');
+      await mount(linked);
+      for (const lang of ['fr', 'en', 'fr']) {
+        await act(async () => {
+          for (const [id, callback] of [...frames]) {
+            frames.delete(id);
+            callback(16);
+          }
+          vi.runOnlyPendingTimers();
+        });
+        expect(backgroundDecodePaused()).toBe(false);
+        await act(async () => {
+          window.history.replaceState(null, '', `#/t/10?variant=5&lang=${lang}`);
+          window.dispatchEvent(new PopStateEvent('popstate'));
+        });
+        expect(backgroundDecodePaused()).toBe(false);
+      }
+      // A different base route must still pause immediately, before React paints it.
+      await act(async () => {
+        window.history.replaceState(null, '', '#/t/11');
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      });
+      expect(backgroundDecodePaused()).toBe(true);
+    } finally {
+      window.history.replaceState(null, '', original || '#/');
+    }
+  });
+
   it('lets cold source bootstrap finish, then releases background decode after the pane paints', async () => {
     vi.useFakeTimers();
     const frames = new Map<number, FrameRequestCallback>();

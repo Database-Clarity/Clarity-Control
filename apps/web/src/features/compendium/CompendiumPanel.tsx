@@ -227,10 +227,21 @@ export function CompendiumPanel({
   }, [incomingBase.hash, sourceReady, decodeGuard]);
   useLayoutEffect(() => {
     if (!sourceReady) return;
+    let previousPath = window.location.hash.split('?')[0];
     const navigation = () => {
-      const hash = /^#\/t\/(\d+)/.exec(window.location.hash)?.[1];
+      const path = window.location.hash.split('?')[0];
+      const previous = previousPath;
+      previousPath = path;
+      // Language/variant history can retain an active override whose identity
+      // differs from the route's base. Its incoming prop owns that handoff.
+      if (path === previous) return;
+      const hash = /^#\/t\/(\d+)/.exec(path)?.[1];
+      const oldHash = /^#\/t\/(\d+)/.exec(previous)?.[1];
       const data = useDataStore.getState().data;
-      if (hash) decodeGuard.begin(data ? canonicalHash(Number(hash), data) : Number(hash));
+      const canonical = (value: string) =>
+        data ? canonicalHash(Number(value), data) : Number(value);
+      if (hash && (!oldHash || canonical(hash) !== canonical(oldHash)))
+        decodeGuard.begin(canonical(hash));
     };
     window.addEventListener('hashchange', navigation, true);
     window.addEventListener('popstate', navigation, true);
