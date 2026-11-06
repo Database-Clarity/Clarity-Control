@@ -222,9 +222,9 @@ export function CompendiumPanel({
   const sourceReady = !!source;
   const decodeGuard = useMemo(createPaneDecodeGuard, []);
   useLayoutEffect(() => {
-    if (sourceReady) decodeGuard.begin(base.hash);
+    if (sourceReady) decodeGuard.begin(incomingBase.hash);
     else decodeGuard.dispose();
-  }, [base.hash, sourceReady, decodeGuard]);
+  }, [incomingBase.hash, sourceReady, decodeGuard]);
   useLayoutEffect(() => {
     if (!sourceReady) return;
     const navigation = () => {
@@ -457,7 +457,6 @@ const PaneContents = memo(function PaneContents({
     if (!waiting)
       rememberPaneSkeleton(base.hash, compendium?.fetchedAt, comparisonBefore, comparisonAfter);
   }, [waiting, base.hash, compendium?.fetchedAt, comparisonBefore, comparisonAfter]);
-
 
   const diffToggle = <CompendiumDiffModeToggle mode={diffMode} onChange={setDiffMode} />;
   const pane = (

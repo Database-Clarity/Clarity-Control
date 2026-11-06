@@ -168,7 +168,6 @@ describe('Compendium pane', () => {
     expect(backgroundDecodePaused()).toBe(false);
   });
 
-
   it.each([
     ['desktop', 'query'],
     ['phone', 'query'],
