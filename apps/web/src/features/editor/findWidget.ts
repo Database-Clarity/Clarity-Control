@@ -108,9 +108,30 @@ const toggle = (name: string, label: string, title: string, glyph: string) =>
     [glyph],
   );
 
-const action = (name: string, label: string, title: string, glyph: string) =>
+/**
+ * Icons are drawn paths, not text glyphs: arrows and crosses come from a fallback font, and loading
+ * one on the first open cost the widget a visible part of its first paint.
+ */
+const icons = {
+  up: 'M8 12.5v-9M4.5 7 8 3.5 11.5 7',
+  down: 'M8 3.5v9M4.5 9 8 12.5 11.5 9',
+  close: 'M4 4l8 8M12 4l-8 8',
+  chevron: 'M6 3.5 10.5 8 6 12.5',
+} as const;
+function icon(name: keyof typeof icons): SVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('class', 'fw-icon');
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', icons[name]);
+  svg.append(path);
+  return svg;
+}
+
+const action = (name: string, label: string, title: string, glyph: keyof typeof icons) =>
   element('button', { type: 'button', name, class: 'fw-button', 'aria-label': label, title }, [
-    glyph,
+    icon(glyph),
   ]);
 
 const widgets = new WeakMap<HTMLElement, FindWidget>();
@@ -176,7 +197,7 @@ class FindWidget implements Panel {
             title: 'Toggle replace (Ctrl+H)',
             'aria-expanded': 'false',
           },
-          [element('span', { class: 'fw-chevron', 'aria-hidden': 'true' }, ['›'])],
+          [element('span', { class: 'fw-chevron', 'aria-hidden': 'true' }, [icon('chevron')])],
         );
     this.field = element('div', { class: 'fw-field' }, [
       this.search,
@@ -188,9 +209,9 @@ class FindWidget implements Panel {
       this.field,
       element('div', { class: 'fw-nav' }, [
         this.count,
-        action('prev', 'Previous match', 'Previous match (Shift+Enter)', '↑'),
-        action('next', 'Next match', 'Next match (Enter)', '↓'),
-        action('closeFind', 'Close', 'Close (Escape)', '×'),
+        action('prev', 'Previous match', 'Previous match (Shift+Enter)', 'up'),
+        action('next', 'Next match', 'Next match (Enter)', 'down'),
+        action('closeFind', 'Close', 'Close (Escape)', 'close'),
       ]),
     ]);
     const rows: Node[] = [find];
