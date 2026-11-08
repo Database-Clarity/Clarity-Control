@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useNavigate, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { LostTextPage } from './LostTextPage';
 import artifact from './lost-text.json';
@@ -57,10 +57,22 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
+function HistoryControls() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  return (
+    <>
+      <button onClick={() => navigate(-1)}>Browser back</button>
+      <button onClick={() => navigate(1)}>Browser forward</button>
+      <output>{location.search}</output>
+    </>
+  );
+}
 function render(route = '/lost-text') {
   act(() =>
     root.render(
       <MemoryRouter initialEntries={[route]}>
+        <HistoryControls />
         <LostTextPage />
       </MemoryRouter>,
     ),
@@ -152,4 +164,30 @@ it('selects copies directly without an overlapping include-copies checkbox', () 
     select.dispatchEvent(new Event('change', { bubbles: true }));
   });
   expect(container.textContent).toContain('2 of 480 records shown');
+});
+
+it('keeps a focusable list region and restores selection and scroll through history and Back to list', () => {
+  render();
+  const list = container.querySelector<HTMLElement>('section[aria-label="Possibly lost text"]')!;
+  expect(list.tabIndex).toBe(0);
+  vi.spyOn(list, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
+  list.scrollTop = 460;
+  act(() => list.dispatchEvent(new Event('scroll')));
+  click('Ricochet Rounds');
+  expect(container.querySelector('output')?.textContent).toBe('?item=1885400500%3Aen');
+  list.scrollTop = 0; // A hidden phone list can lose its DOM offset.
+  click('Back to list');
+  expect(container.querySelector('section[aria-label="Historical text detail"]')).toBeNull();
+  expect(list.scrollTop).toBe(460);
+  click('Browser back');
+  expect(container.querySelector('section[aria-label="Historical text detail"]')).toBeTruthy();
+  expect(container.querySelector('button[aria-pressed="true"]')?.textContent).toContain(
+    'Ricochet Rounds',
+  );
+  click('Browser back');
+  expect(container.querySelector('section[aria-label="Historical text detail"]')).toBeNull();
+  expect(list.scrollTop).toBe(460);
+  click('Browser forward');
+  expect(container.querySelector('section[aria-label="Historical text detail"]')).toBeTruthy();
+  expect(list.scrollTop).toBe(460);
 });
