@@ -2,12 +2,11 @@ import { expect, it } from 'vitest';
 import { guidedFixture } from '../../../test/guided-fixture';
 import { displayMatches } from './displayMatches';
 import { emptyProgress } from './reviewProgress';
-import { preparedEvidence, reviewedEntries } from './reviewViewCache';
-import { bulkPreviewCurrent, createBulkPreview } from './BulkPreview';
+import { preparedEvidence, preparedQueueRows, reviewedEntries } from './reviewViewCache';
 import { compactDisplay } from './compactMatches';
 import type { Drafts } from '../../services/draftStorage';
 
-it('keeps bulk acceptance current after a worker clone and preserves real draft text', () => {
+it('keeps worker clones usable as evidence while preserving real draft text', () => {
   const { editor, source, proposals, scope, document, categories } = guidedFixture();
   const progress = emptyProgress();
   const bases = categories.flatMap((category) => category.entries.map((entry) => entry.base));
@@ -36,23 +35,15 @@ it('keeps bulk acceptance current after a worker clone and preserves real draft 
   );
   expect(prepared.evidence.every((entry) => entry.base.text.de === undefined)).toBe(true);
   const drafts: Drafts = {};
-  const clonedEntries = reviewedEntries(prepared.evidence, progress);
-  const stalePreview = createBulkPreview(editor, source, clonedEntries, proposals);
-  expect(bulkPreviewCurrent(stalePreview, editor, source, clonedEntries, proposals, drafts)).toBe(
-    false,
-  );
   const evidence = preparedEvidence(prepared, drafts, editor, source);
   expect(evidence.every((e) => e.base === editor.bundle.tooltips[e.hash])).toBe(true);
   expect(preparedEvidence(prepared, drafts, editor, source)).toBe(evidence);
   const entries = reviewedEntries(evidence, progress);
-  const preview = createBulkPreview(editor, source, entries, proposals);
-  expect(preview.proposals.length).toBeGreaterThan(0);
-  expect(bulkPreviewCurrent(preview, editor, source, entries, proposals, drafts)).toBe(true);
-  const base = preview.proposals[0].entry.base;
+  const link = proposals.get(entries[0].hash)!.link!;
+  const base = entries[0].base;
   const next = structuredClone(base);
   next.text = { ...next.text, en: { ...next.text.en!, text: 'Current unsaved English' } };
   const edited = { [base.hash]: { base, next } };
-  expect(bulkPreviewCurrent(preview, editor, source, entries, proposals, edited)).toBe(false);
   const current = preparedEvidence(prepared, edited, editor, source).find(
     (e) => e.hash === base.hash,
   )!;
@@ -60,7 +51,7 @@ it('keeps bulk acceptance current after a worker clone and preserves real draft 
   expect(current.base).toBe(base);
   expect(current.next.text).toBe(next.text);
   expect(current.next.text.de?.text).toBe('Current German translation');
-  const linked = { ...next, compendium: preview.proposals[0].link };
+  const linked = { ...next, compendium: link };
   const linkedEvidence = preparedEvidence(
     prepared,
     { [base.hash]: { base, next: linked } },
@@ -72,4 +63,5 @@ it('keeps bulk acceptance current after a worker clone and preserves real draft 
   )!;
   expect(accepted.status).toBe('drafted');
   expect(accepted.next).toBe(linked);
+  expect(preparedQueueRows([accepted], prepared, proposals, new Set(), new Map())[0].kind).toBe('drafted');
 });

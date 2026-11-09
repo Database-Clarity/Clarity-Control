@@ -1,4 +1,4 @@
-import { publishableHash, type Aliases, type Tooltip } from '@clarity/core';
+import { incomingAliases, publishableHash, type Aliases, type Tooltip } from '@clarity/core';
 
 export interface FingerprintRequest {
   id: number;
@@ -9,17 +9,30 @@ export interface FingerprintRequest {
 export interface FingerprintResponse {
   id: number;
   hashes?: string[];
+  /**
+   * The digest with incoming aliases left out, parallel to `hashes`. Equal to the hash when the
+   * tooltip has no incoming alias; a saved tooltip whose only change is that marker is a leftover
+   * of the alias migration, not a content change.
+   */
+  bare?: string[];
   error?: string;
+}
+export interface FingerprintDigest {
+  hash: string;
+  bare: string;
 }
 
 // Store snapshots are immutable. Alias identity is part of the key: a new alias, a chain
 // change, or a fallback timestamp change must invalidate the reviewed fingerprint.
-const revisions = new WeakMap<Tooltip, WeakMap<Aliases, Promise<string>>>();
+const revisions = new WeakMap<Tooltip, WeakMap<Aliases, Promise<FingerprintDigest>>>();
 let worker: Worker | undefined;
 let nextId = 0;
 let aliasIds = new WeakMap<Aliases, number>();
 let nextAliasId = 0;
-const requests = new Map<number, { resolve(hashes: string[]): void; reject(error: Error): void }>();
+const requests = new Map<
+  number,
+  { resolve(digests: FingerprintDigest[]): void; reject(error: Error): void }
+>();
 
 export function prepareFingerprintWorker(): void {
   if (typeof Worker === 'undefined') return;
@@ -28,7 +41,10 @@ export function prepareFingerprintWorker(): void {
     worker.onmessage = ({ data }: MessageEvent<FingerprintResponse>) => {
       const request = requests.get(data.id);
       requests.delete(data.id);
-      if (data.hashes) request?.resolve(data.hashes);
+      if (data.hashes)
+        request?.resolve(
+          data.hashes.map((hash, index) => ({ hash, bare: data.bare?.[index] ?? hash })),
+        );
       else request?.reject(new Error(data.error ?? 'Fingerprint computation failed'));
     };
     worker.onerror = (event) => {
@@ -41,9 +57,14 @@ export function prepareFingerprintWorker(): void {
   }
 }
 
-function batch(tooltips: Tooltip[], aliases: Aliases): Promise<string[]> {
-  if (typeof Worker === 'undefined')
-    return Promise.all(tooltips.map((t) => publishableHash(t, aliases)));
+const noAliases: Aliases = {};
+async function digest(tooltip: Tooltip, aliases: Aliases): Promise<FingerprintDigest> {
+  const hash = await publishableHash(tooltip, aliases);
+  return { hash, bare: incomingAliases(tooltip.hash, aliases).length ? await publishableHash(tooltip, noAliases) : hash };
+}
+
+function batch(tooltips: Tooltip[], aliases: Aliases): Promise<FingerprintDigest[]> {
+  if (typeof Worker === 'undefined') return Promise.all(tooltips.map((t) => digest(t, aliases)));
   prepareFingerprintWorker();
   const id = ++nextId;
   let aliasId = aliasIds.get(aliases);
@@ -78,7 +99,15 @@ function batch(tooltips: Tooltip[], aliases: Aliases): Promise<string[]> {
 
 /** Clone and hash only changed revisions, in small batches, away from the input task. */
 export async function fingerprints(tooltips: Tooltip[], aliases: Aliases): Promise<string[]> {
-  const results: Promise<string>[] = [];
+  return (await fingerprintDigests(tooltips, aliases)).map(({ hash }) => hash);
+}
+
+/** Each tooltip's digest and its alias-free digest, from one worker pass. */
+export async function fingerprintDigests(
+  tooltips: Tooltip[],
+  aliases: Aliases,
+): Promise<FingerprintDigest[]> {
+  const results: Promise<FingerprintDigest>[] = [];
   for (let start = 0; start < tooltips.length; start += 64) {
     const slice = tooltips.slice(start, start + 64);
     const changed = slice.filter((tooltip) => !revisions.get(tooltip)?.has(aliases));
@@ -95,7 +124,7 @@ export async function fingerprints(tooltips: Tooltip[], aliases: Aliases): Promi
         missing.forEach((tooltip, index) => {
           let cache = revisions.get(tooltip);
           if (!cache) revisions.set(tooltip, (cache = new WeakMap()));
-          const value = pending.then((hashes) => hashes[index]!);
+          const value = pending.then((digests) => digests[index]!);
           cache.set(aliases, value);
           void value.catch(() => cache!.delete(aliases));
         });

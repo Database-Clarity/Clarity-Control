@@ -1,5 +1,6 @@
 import { resolveAlias, type Tooltip } from '@clarity/core';
-import { fingerprints, prepareFingerprintWorker } from './fingerprints';
+import { fingerprintDigests, prepareFingerprintWorker } from './fingerprints';
+import { useMarkerQueue } from './markerQueue';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useAuthStore } from '../../stores/auth';
 import { allowBackgroundCode } from '../../workspacePreload';
@@ -16,6 +17,14 @@ export interface PendingTooltip {
   categoryOrder: number;
   /** Set when the Worker would reject it (422): no generator entry and not a custom tooltip. */
   unpublishable?: string;
+  /**
+   * The saved content equals the last push; only the incoming-alias marker differs. These are
+   * leftovers of the alias migration, not changes a person made. Classified locally, in the same
+   * worker pass as the pending check; no stored data changes.
+   */
+  markerOnly: boolean;
+  /** Never pushed: no recorded marker. */
+  isNew: boolean;
 }
 
 const snapshots = new WeakMap<
@@ -31,13 +40,21 @@ const snapshots = new WeakMap<
   }
 >();
 const queues = new WeakMap<PendingTooltip[], SidebarPendingChange[]>();
+/** The sidebar lists what a person changed; marker-only leftovers are one footer link. */
 export function sidebarChanges(entries: PendingTooltip[]): SidebarPendingChange[] {
   let queue = queues.get(entries);
   if (!queue) {
-    queue = entries.map(({ tooltip, name, category }) => ({ hash: tooltip.hash, name, category }));
+    queue = entries
+      .filter(({ markerOnly }) => !markerOnly)
+      .map(({ tooltip, name, category }) => ({ hash: tooltip.hash, name, category }));
     queues.set(entries, queue);
   }
   return queue;
+}
+/** Hand the sidebar its rows and the marker-only count together. */
+export function publishSidebar(entries: PendingTooltip[], sidebar = useSidebarQueueStore.getState()) {
+  useMarkerQueue.getState().set(entries.filter(({ markerOnly }) => markerOnly).length);
+  sidebar.setPendingChanges(sidebarChanges(entries));
 }
 function sameMarkers(a: Record<string, string>, b: Record<string, string>): boolean {
   const keys = Object.keys(a);
@@ -98,10 +115,11 @@ async function computePending(
   const tooltips = Object.values(data.bundle.tooltips).filter(
     (tooltip) => resolveAlias(tooltip.hash, data.aliases) === tooltip.hash,
   );
-  const hashes = await fingerprints(tooltips, data.aliases);
+  const digests = await fingerprintDigests(tooltips, data.aliases);
   const categories = new Map(data.categories.map((entry) => [entry.id, entry]));
   const entries = tooltips.map((tooltip, index) => {
-    if (hashes[index] === pushed[tooltip.hash]) return null;
+    const pushedMarker = pushed[tooltip.hash];
+    if (digests[index].hash === pushedMarker) return null;
     const item = data.items[tooltip.hash];
     const categoryId = item?.categoryId ?? tooltip.custom?.categoryId ?? 'other';
     const category = categories.get(categoryId);
@@ -111,6 +129,8 @@ async function computePending(
       category: (category ?? categoryDisplay(categoryId)).label,
       categoryId,
       categoryOrder: (category ?? categoryDisplay(categoryId)).order,
+      markerOnly: pushedMarker !== undefined && digests[index].bare === pushedMarker,
+      isNew: pushedMarker === undefined,
       ...(!item && !tooltip.custom
         ? { unpublishable: 'No generator entry for this tooltip, so it cannot be pushed.' }
         : {}),
@@ -142,8 +162,11 @@ export function selectedPending(
     .map(({ tooltip }) => tooltip.hash);
 }
 
+/** What "Select page" picks: never the marker-only leftovers, which a data task clears. */
 export function publishableHashes(page: PendingTooltip[]): number[] {
-  return page.filter(({ unpublishable }) => !unpublishable).map(({ tooltip }) => tooltip.hash);
+  return page
+    .filter(({ unpublishable, markerOnly }) => !unpublishable && !markerOnly)
+    .map(({ tooltip }) => tooltip.hash);
 }
 
 export function stepIndex(index: number, delta: number, length: number): number {
@@ -165,8 +188,7 @@ if (typeof window !== 'undefined' && typeof Worker !== 'undefined') {
     if (data)
       void pendingTooltips(data)
         .then((entries) => {
-          if (useDataStore.getState().data === data)
-            useSidebarQueueStore.getState().setPendingChanges(sidebarChanges(entries));
+          if (useDataStore.getState().data === data) publishSidebar(entries);
         })
         .catch(() => {});
   };

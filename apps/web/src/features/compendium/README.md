@@ -7,13 +7,14 @@ unresolved investigation. Regenerate its decision tables with
 and decision-data/document synchronization.
 
 
-`#/compendium` opens **Review matches**, the category-review workload also
-available at `#/compendium/review`. Its **Linked sources changed** tab keeps the
-previous linked-change and unlinked-tooltip lists. The counters name their
-scope: **Linked sources changed** and **Tooltips without links**. Neither count
-implies total review completion. Sandbox/frame aliases are excluded; enhanced
-tooltips that own distinct text remain separate. Saved healthy links enter the
-review queue only when there is local review history.
+`#/compendium` is the review queue. Rows are derived once per (entries, display, proposals,
+scope) in `queueRows.ts` / `reviewViewCache.ts`: proposal, candidates, none, changed (open),
+drafted, skipped (decided), not needed (local no-equivalent or out of scope by rule, with
+Re-include), and matched (confident, display-only until cut-over). Filters (`show`, `q`,
+`group`) and the entry (`hash`) live in the URL; `#/compendium?tab=linked` keeps the
+**Linked sources changed** list. The Editor's Compendium pane links here (`hash`, `show=all`).
+Sheet locations (`sourceLocation.ts`) are text plus `edit#gid=&range=` links.
+Sandbox/frame aliases are excluded; enhanced tooltips that own distinct text remain separate.
 
 Select a tooltip, inspect its English text, then use the shared LinkPicker and
 CellPicker. Tab suggestions come from core category configuration; section
@@ -72,7 +73,7 @@ English/translation save invariants remain in selection/enricher/core tests.
 Changed UI still requires independent wide/narrow rendered verification.
 
 Reviewed research hints (October 31, 2026) now feed the existing typed suggestions
-API on `#/compendium/review`. `research-hints.json` shares navigation places across
+API in the picker and the candidate list. `research-hints.json` shares navigation places across
 523 unresolved/excluded records, including all 41 human candidates. It contains
 no authoritative links or absolute coordinate identity. The generator and dated
 provenance are documented in `scripts/compendium-link/README.md`.

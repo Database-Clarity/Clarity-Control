@@ -6,9 +6,7 @@ import type { EditorData } from '../../stores/data';
 import { useAuthStore } from '../../stores/auth';
 import { useDraftStore } from '../../stores/drafts';
 import { useCompendiumStore } from './store';
-import { CategoryReview } from './CategoryReview';
 import { LinkPicker } from './LinkPicker';
-import { GuidancePersistence } from './guidancePersistence';
 import { guidanceSchema } from './guidanceSchema';
 import { mayDraftLink, reviewQueue } from './reviewQueue';
 import { emptyProgress, sourceFingerprint } from './reviewProgress';
@@ -149,43 +147,11 @@ it('invalidates references after entry/baseline/source changes and distinguishes
     sampleReference(entry, categoryId(entry.category), 'baseline', 'Only a note').decision,
   ).toBeUndefined();
 });
-it('keeps signed-out category inputs editable during disk conflicts while ordinary linking remains gated', async () => {
-  const { editor, source, entry, proposal } = fixture();
+it('keeps ordinary linking gated for signed-out users while the reference picker stays usable', () => {
+  const { entry, source } = fixture();
   useAuthStore.setState({ user: null });
   useCompendiumStore.setState({ data: source });
   const drafts = useDraftStore.getState().drafts;
-  const persistence = new GuidancePersistence(
-    'test',
-    '/guidance',
-    { getItem: () => null, setItem: () => {} },
-    vi.fn<typeof fetch>(async () => Response.json({ document: null, revision: null })),
-  );
-  await persistence.start();
-  const categories = reviewCategories([entry], editor, new Map([[entry.hash, proposal]]), false);
-  persistence.synchronize(
-    categories.map((category) => ({
-      id: category.id,
-      name: category.name,
-      rule: category.rule,
-      hashes: [entry.hash],
-      count: 1,
-      active: true,
-    })),
-    'baseline',
-  );
-  const html = renderToStaticMarkup(
-    createElement(CategoryReview, {
-      categories,
-      editor,
-      source,
-      proposals: new Map([[entry.hash, proposal]]),
-      guidance: { ...persistence.getSnapshot(), conflict: true, persistence },
-      onReview: vi.fn(),
-    }),
-  );
-  expect(html).not.toMatch(/<textarea[^>]*disabled/);
-  expect(html).toMatch(/<button disabled="">Accept proposed link/);
-  expect(html).toContain('0/1 samples resolved');
   const ordinary = renderToStaticMarkup(
     createElement(LinkPicker, {
       base: entry.base,
@@ -208,8 +174,6 @@ it('keeps signed-out category inputs editable during disk conflicts while ordina
   expect(referencePicker).not.toMatch(/<button type="button" disabled="">/);
   expect(referencePicker).toContain('local reference only');
   expect(useDraftStore.getState().drafts).toBe(drafts);
-  await persistence.flush();
-  persistence.dispose();
 });
 it('validates reference identity and decision/source consistency while accepting legacy comment-only documents', () => {
   const { entry, source, proposal } = fixture();

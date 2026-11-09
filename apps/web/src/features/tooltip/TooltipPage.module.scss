@@ -61,6 +61,20 @@
   min-height: 0;
 }
 
+.statusDot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-inline-start: 0.375rem;
+  vertical-align: middle;
+  border-radius: 50%;
+  background: var(--accent);
+
+  &[data-status='review'] {
+    background: var(--warn);
+  }
+}
+
 .tabs {
   display: none;
   grid-column: 1 / -1;

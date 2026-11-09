@@ -1,7 +1,7 @@
 import { Component, Suspense, lazy, useState, type ComponentType, type ReactNode } from 'react';
 
 const loadPage = () =>
-  import('./MatchReviewPage').then((module) => ({ default: module.MatchReviewPage }));
+  import('./CompendiumTab').then((module) => ({ default: module.CompendiumTab }));
 
 class LoadBoundary extends Component<{ children: ReactNode; retry(): void }, { failed: boolean }> {
   state = { failed: false };
@@ -11,7 +11,7 @@ class LoadBoundary extends Component<{ children: ReactNode; retry(): void }, { f
   render() {
     return this.state.failed ? (
       <p role="alert">
-        Couldn't load Compendium review. Check your connection and{' '}
+        Couldn't load the Compendium tab. Check your connection and{' '}
         <button type="button" onClick={this.props.retry}>
           Retry
         </button>
@@ -23,7 +23,7 @@ class LoadBoundary extends Component<{ children: ReactNode; retry(): void }, { f
   }
 }
 
-export function LazyMatchReviewPage({
+export function LazyCompendiumTab({
   load = loadPage,
 }: {
   load?: () => Promise<{ default: ComponentType }>;
@@ -38,7 +38,7 @@ export function LazyMatchReviewPage({
         setAttempt((value) => value + 1);
       }}
     >
-      <Suspense fallback={<p role="status">Loading Compendium review…</p>}>
+      <Suspense fallback={<p role="status">Loading the Compendium tab…</p>}>
         <Page />
       </Suspense>
     </LoadBoundary>

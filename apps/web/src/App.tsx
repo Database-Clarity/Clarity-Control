@@ -1,5 +1,5 @@
-import { Navigate, useRoutes, type RouteObject } from 'react-router-dom';
-import { LazyMatchReviewPage as MatchReviewPage } from './features/compendium/LazyMatchReviewPage';
+import { Navigate, useLocation, useRoutes, type RouteObject } from 'react-router-dom';
+import { LazyCompendiumTab } from './features/compendium/LazyCompendiumTab';
 import { useDataStore } from './stores/data';
 import { navigationGroups } from './features/navigation/catalog';
 import { AuthCallback } from './features/auth/AuthCallback';
@@ -46,7 +46,7 @@ const MigratePage = () => <AppLazyPage load={loadMigratePage} />;
 const workspaceLoaders: Record<string, () => Promise<unknown>> = {
   '/': loadTooltipPage,
   '/review': loadReviewPage,
-  '/compendium': () => import('./features/compendium/MatchReviewPage'),
+  '/compendium': () => import('./features/compendium/CompendiumTab'),
   '/translations': loadTranslationsPage,
   '/drift': loadDriftPage,
   '/lost-text': () => import('./features/lost-text/LostTextPage'),
@@ -97,8 +97,8 @@ export const routes: RouteObject[] = [
         loader: reviewRoute,
         handle: { preload: loadReviewPage },
       },
-      { path: 'compendium/review', element: <MatchReviewPage /> },
-      { path: 'compendium', element: <MatchReviewPage /> },
+      { path: 'compendium/review', element: <RetiredCompendiumRoute /> },
+      { path: 'compendium', element: <LazyCompendiumTab /> },
       { path: 'archive', element: <ArchivePage />, handle: { preload: loadArchivePage } },
       { path: 'drift', element: <DriftPage />, handle: { preload: loadDriftPage } },
       { path: 'lost-text', element: <LostTextPage /> },
@@ -130,6 +130,19 @@ export const routes: RouteObject[] = [
 /** The routes as an element, for rendering inside an existing data router (tests, fixtures). */
 export function App() {
   return useRoutes(routes);
+}
+
+/** The old sample and guidance pages are gone; their links land on the Compendium tab, keeping `hash`. */
+function RetiredCompendiumRoute() {
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  const next = new URLSearchParams();
+  if (params.get('hash')) next.set('hash', params.get('hash')!);
+  // Old category links named `catalog:<id>`; the tab names the bare category id.
+  const group = params.get('group')?.replace(/^catalog:/, '');
+  if (group) next.set('group', decodeURIComponent(group));
+  const search = next.toString();
+  return <Navigate to={{ pathname: '/compendium', search: search ? `?${search}` : '' }} replace />;
 }
 
 function StartPage() {

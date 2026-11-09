@@ -1,6 +1,6 @@
 import { previousCategoryLabel } from '../../services/categoryLabels';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { apiUrl } from '../../services/api';
 import { errorMessage } from '../../services/http';
 import { useAuthStore } from '../../stores/auth';
@@ -10,9 +10,9 @@ import {
   canPush,
   pendingTooltips,
   preparedPending,
+  publishSidebar,
   publishableHashes,
   selectedPending,
-  sidebarChanges,
   stepIndex,
   toggleSelection,
   type PendingTooltip,
@@ -26,7 +26,6 @@ import { PublishActivity } from './PublishActivity';
 import { queuePublish } from './publishAction';
 import { publishDriver } from './publisher';
 import { activeHashes, usePublishState } from './publishDriver';
-import { useSidebarQueueStore } from '../navigation/sidebarQueue';
 import { workspaceShortcutsBlocked } from '../../ui/interaction';
 import styles from './Review.module.scss';
 import {
@@ -37,6 +36,17 @@ import {
 } from './opening';
 
 const pageSize = 15;
+const count = new Intl.NumberFormat('en');
+
+/** The list's URL: the marker-only group on request, never keeping another group's selection. */
+function viewSearch(params: URLSearchParams, marker: boolean) {
+  const next = new URLSearchParams(params);
+  next.delete('hash');
+  if (marker) next.set('marker', '1');
+  else next.delete('marker');
+  const search = next.toString();
+  return search ? `?${search}` : '';
+}
 
 export function ReviewPage() {
   const opening = useReviewOpening((state) => state.warming);
@@ -114,7 +124,6 @@ export function ReviewPage() {
   const load = useDataStore((state) => state.load);
   const user = useAuthStore((state) => state.user);
   const drafts = useDraftStore((state) => state.drafts);
-  const setSidebarChanges = useSidebarQueueStore((state) => state.setPendingChanges);
   const { pushing, notice, error: pushError, acknowledgments } = useReviewSession();
   const prepared = useMemo(
     () => (data && !Object.keys(acknowledgments).length ? preparedPending(data) : undefined),
@@ -182,11 +191,19 @@ export function ReviewPage() {
       active = false;
     };
   }, [data, acknowledgments, prepared]);
+  // Marker-only leftovers are one group of their own, shown on request; the rest are changes.
+  const routedHash = searchParams.get('hash');
+  const routedEntry =
+    routedHash === null ? undefined : entries.find(({ tooltip }) => String(tooltip.hash) === routedHash);
+  const markerView = searchParams.get('marker') === '1' || !!routedEntry?.markerOnly;
+  const changes = useMemo(() => entries.filter(({ markerOnly }) => !markerOnly), [entries]);
+  const markerOnly = useMemo(() => entries.filter(({ markerOnly }) => markerOnly), [entries]);
+  const listed = markerView ? markerOnly : changes;
   const visibleEntries = useMemo(
     () =>
       !categoryFilter && !query
-        ? entries
-        : entries.filter(
+        ? listed
+        : listed.filter(
             ({ name, category, categoryId, tooltip }) =>
               (!categoryFilter || categoryId === categoryFilter) &&
               (!query ||
@@ -194,13 +211,13 @@ export function ReviewPage() {
                   .toLowerCase()
                   .includes(query.toLowerCase())),
           ),
-    [entries, categoryFilter, query],
+    [listed, categoryFilter, query],
   );
   const categories = useMemo(
     () =>
       [
         ...new Map(
-          entries.map(({ category, categoryId, categoryOrder }) => [
+          listed.map(({ category, categoryId, categoryOrder }) => [
             categoryId,
             { id: categoryId, label: category, order: categoryOrder },
           ]),
@@ -208,9 +225,8 @@ export function ReviewPage() {
       ].sort(
         (a, b) => a.order - b.order || a.label.localeCompare(b.label) || a.id.localeCompare(b.id),
       ),
-    [entries],
+    [listed],
   );
-  const routedHash = searchParams.get('hash');
   const routedIndex =
     routedHash === null
       ? -1
@@ -236,6 +252,7 @@ export function ReviewPage() {
     },
     [index, searchParams, setSearchParams, visibleEntries],
   );
+  const shortcuts = useRef<(action: 'include' | 'publish') => void>(() => {});
   const committedSelectIndex = useRef(selectIndex);
   useLayoutEffect(() => {
     // Window listeners can run after a commit but before passive effects bind
@@ -261,8 +278,8 @@ export function ReviewPage() {
   );
   useEffect(() => {
     if (loading) return;
-    setSidebarChanges(sidebarChanges(entries));
-  }, [entries, loading, setSidebarChanges]);
+    publishSidebar(entries);
+  }, [entries, loading]);
   useEffect(() => {
     if (loading || selectionIntent.current) return;
     const current = visibleEntries[index];
@@ -289,6 +306,12 @@ export function ReviewPage() {
         event.target.closest('input, textarea, select, button, a, [contenteditable="true"]')
       )
         return;
+      if (event.key === ' ' || event.key.toLowerCase() === 'p') {
+        // Space includes the open change in the publish; P opens the publish confirmation.
+        event.preventDefault();
+        shortcuts.current(event.key === ' ' ? 'include' : 'publish');
+        return;
+      }
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
       event.preventDefault();
       committedSelectIndex.current((value) => value + (event.key === 'ArrowDown' ? 1 : -1));
@@ -310,7 +333,7 @@ export function ReviewPage() {
     else params.delete('query');
     if (categoryValue) params.set('category', categoryValue);
     else params.delete('category');
-    const matching = entries.filter(
+    const matching = listed.filter(
       ({ name, category, categoryId, tooltip }) =>
         (!categoryValue || categoryId === categoryValue) &&
         (!queryValue ||
@@ -331,6 +354,18 @@ export function ReviewPage() {
     const chosen = entries.filter(({ tooltip }) => hashes.includes(tooltip.hash));
     if (chosen.length) setConfirming({ entries: chosen, data });
   }
+  shortcuts.current = (action) => {
+    const current = visibleEntries[index];
+    if (action === 'publish') {
+      if (canPush(user) && hashes.length) askToPublish();
+    } else if (
+      current &&
+      !pushing &&
+      !current.unpublishable &&
+      !inFlight.has(current.tooltip.hash)
+    )
+      toggleRow(current.tooltip.hash);
+  };
 
   async function publish({ entries: chosen, data: reviewed }: NonNullable<typeof confirming>) {
     setConfirming(undefined);
@@ -349,13 +384,55 @@ export function ReviewPage() {
         {opening ? 'Loading sidebar…' : 'Review ready.'}
       </p>
       <article ref={article} aria-busy={loading} className={styles.page}>
-        <header className={styles.heading}>
+        <header className={styles.summary}>
           <h1>Review changes</h1>
-          <p>
-            Saved changes waiting to go live, grouped by category. Use Up/Down outside controls, or
-            Previous/Next, to walk through them.
+          <p className={styles.counts}>
+            {markerView ? (
+              <Link to={{ search: viewSearch(searchParams, false) }}>
+                {count.format(changes.length)} {changes.length === 1 ? 'change' : 'changes'}
+              </Link>
+            ) : (
+              <>
+                {count.format(changes.length)} {changes.length === 1 ? 'change' : 'changes'}
+              </>
+            )}
+            {' · '}
+            {markerView ? (
+              <>{count.format(markerOnly.length)} marker-only</>
+            ) : (
+              <Link to={{ search: viewSearch(searchParams, true) }}>
+                {count.format(markerOnly.length)} marker-only
+              </Link>
+            )}
+            {' · '}
+            {hashes.length} selected
           </p>
+          <button type="button" disabled={pushing || loading} onClick={() => void load()}>
+            Refresh
+          </button>
+          {canPush(user) && (
+            <button
+              type="button"
+              disabled={pushing || loading || !hashes.length}
+              onClick={askToPublish}
+            >
+              {publisher
+                ? pushing
+                  ? 'Starting...'
+                  : `Publish selected (${hashes.length})`
+                : pushing
+                  ? 'Pushing...'
+                  : `Push selected (${hashes.length})`}
+            </button>
+          )}
         </header>
+        {markerView && (
+          <p className={styles.markerNote} role="note">
+            Marker-only: alias-marker migration leftovers. The saved content equals the live
+            version, so these are not changes a person made. A data task clears them; Select page
+            never includes them.
+          </p>
+        )}
         {Object.keys(drafts).length > 0 && (
           <p>Local drafts are not included. Save them through the tooltip editor first.</p>
         )}
@@ -378,30 +455,7 @@ export function ReviewPage() {
         {pushError && <p role="alert">{pushError}</p>}
         {notice && <p role="status">{notice}</p>}
         {publisher && canPush(user) && <PublishActivity queue={data?.bundle.publishQueue} />}
-        <div className={styles.toolbar}>
-          <button type="button" disabled={pushing || loading} onClick={() => void load()}>
-            Refresh saved changes
-          </button>
-          <span>
-            {entries.length} pending / {hashes.length} selected
-          </span>
-          {canPush(user) && (
-            <button
-              type="button"
-              disabled={pushing || loading || !hashes.length}
-              onClick={askToPublish}
-            >
-              {publisher
-                ? pushing
-                  ? 'Starting...'
-                  : 'Publish selected'
-                : pushing
-                  ? 'Pushing...'
-                  : 'Push selected'}
-            </button>
-          )}
-        </div>
-        {!!entries.length && (
+        {!!listed.length && (
           <div className={styles.filters}>
             <label>
               Find saved changes
@@ -430,7 +484,7 @@ export function ReviewPage() {
               </select>
             </label>
             <span>
-              Showing {visibleEntries.length} of {entries.length}
+              Showing {visibleEntries.length} of {listed.length}
             </span>
           </div>
         )}
@@ -438,6 +492,13 @@ export function ReviewPage() {
           <p role="status">Comparing publishable content...</p>
         ) : !entries.length ? (
           <p>No saved changes are waiting to go live.</p>
+        ) : !listed.length ? (
+          <p>
+            No changes made by a person are waiting to go live.{' '}
+            <Link to={{ search: viewSearch(searchParams, true) }}>
+              Show the {count.format(markerOnly.length)} marker-only leftovers
+            </Link>
+          </p>
         ) : !visibleEntries.length ? (
           <section className={styles.empty}>
             <p>No saved changes match these filters.</p>
@@ -545,6 +606,13 @@ export function ReviewPage() {
                   <ReviewDetail
                     key={visibleEntries[index].tooltip.hash}
                     entry={visibleEntries[index]}
+                    included={selected.has(visibleEntries[index].tooltip.hash)}
+                    selectionLocked={
+                      pushing ||
+                      !!visibleEntries[index].unpublishable ||
+                      inFlight.has(visibleEntries[index].tooltip.hash)
+                    }
+                    onInclude={toggleRow}
                   />
                 </div>
               )}

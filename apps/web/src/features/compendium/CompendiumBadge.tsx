@@ -72,7 +72,7 @@ export function useCompendiumCount(): CompendiumCount {
   useEffect(() => {
     const start = () => {
       void load();
-      void import('./MatchReviewPage');
+      void import('./CompendiumTab');
       // Any source can contain sheet glyphs. Load their shared face during idle prefetch,
       // rather than fetching it on the first entry that happens to use one.
       void document.fonts?.load('16px DestinySymbols').catch(() => undefined);

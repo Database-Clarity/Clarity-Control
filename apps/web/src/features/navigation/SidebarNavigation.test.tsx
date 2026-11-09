@@ -8,6 +8,9 @@ import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { useSidebarQueueStore } from './sidebarQueue';
+import { useCompendiumQueueStore, emptyCounts } from '../compendium/queueStore';
+import { buildQueue } from '../compendium/queueView';
+import type { QueueRow } from '../compendium/queueRows';
 
 vi.mock('../../services/save/SavePanel', () => ({
   SavePanel: () => null,
@@ -104,14 +107,32 @@ beforeEach(() => {
     activate: async () => {},
   });
   useSidebarQueueStore.setState({
-    compendiumCategories: [
-      { id: 'catalog:armor', name: 'Armor category with a deliberately long name'.repeat(3) },
-      { id: 'catalog:weapons', name: 'Weapons' },
-    ],
     pendingChanges: [
       { hash: 42, name: 'Pending tooltip 42', category: 'Armor' },
       { hash: 43, name: 'Pending tooltip 43', category: 'Weapons' },
     ],
+  });
+  const rows: QueueRow[] = [
+    { hash: 41, name: 'Armor tooltip 41', category: 'armor', kind: 'proposal' },
+    { hash: 42, name: 'Armor tooltip 42', category: 'armor', kind: 'none' },
+    { hash: 50, name: 'Weapon tooltip 50', category: 'weapons', kind: 'candidates' },
+  ];
+  const categories = new Map([
+    ['armor', { id: 'armor', label: 'Armor category with a deliberately long name', order: 1 }],
+    ['weapons', { id: 'weapons', label: 'Weapons', order: 2 }],
+  ]);
+  useCompendiumQueueStore.setState({
+    rows,
+    counts: { ...emptyCounts, open: 3 },
+    categories,
+    toggled: new Set(),
+    selected: 42,
+    model: buildQueue({
+      rows,
+      filters: { show: 'open', query: '', group: '' },
+      categories,
+      toggled: new Set(),
+    }),
   });
   host = document.createElement('div');
   document.body.append(host);
@@ -124,7 +145,8 @@ afterEach(async () => {
   useAuthStore.setState({ user: null, loading: false });
   useDataStore.setState({ data: null, status: 'idle', error: null });
   useDraftStore.setState({ drafts: {}, hydrated: false, pending: 0, error: null });
-  useSidebarQueueStore.setState({ compendiumCategories: null, pendingChanges: null });
+  useSidebarQueueStore.setState({ pendingChanges: null });
+  useCompendiumQueueStore.setState({ rows: null, selected: undefined });
   document.body.style.overflow = '';
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -138,27 +160,27 @@ describe('context-aware navigation', () => {
 
     await chooseWorkspace('/compendium');
     expect(host.querySelector('[aria-label="Tooltip navigation"]')).toBeNull();
-    expect(host.querySelector('[aria-label="Compendium category queue"]')).not.toBeNull();
-    await click(host.querySelector('[aria-label="Compendium category queue"] a')!);
-    expect(location()).toBe('/compendium/review?view=entries&group=catalog%3Aarmor');
+    expect(host.querySelector('[aria-label="Compendium review queue"]')).not.toBeNull();
+    await click(host.querySelector('[role="treeitem"][data-kind="proposal"]')!);
+    expect(location()).toBe('/compendium?hash=41');
 
     await chooseWorkspace('/review');
-    expect(host.querySelector('[aria-label="Compendium category queue"]')).toBeNull();
+    expect(host.querySelector('[aria-label="Compendium review queue"]')).toBeNull();
     expect(host.querySelector('[aria-label="Pending saved changes"]')).not.toBeNull();
   });
 
-  it('preserves the selected Compendium category and item in route history', async () => {
-    await mount('/compendium/review?view=entries&group=catalog%3Aarmor&hash=42');
+  it('preserves the selected Compendium item in route history', async () => {
+    await mount('/compendium?hash=42');
     expect(
-      host.querySelector('[aria-label="Compendium category queue"] a[aria-current="page"]')
+      host.querySelector('[aria-label="Compendium review queue"] [aria-selected="true"]')
         ?.textContent,
-    ).toContain('Armor category');
+    ).toContain('Armor tooltip 42');
     await chooseWorkspace('/review');
     expect(host.querySelector('[aria-label="Pending saved changes"]')).not.toBeNull();
     await chooseWorkspace('/compendium');
-    expect(location()).toBe('/compendium/review?view=entries&group=catalog%3Aarmor&hash=42');
+    expect(location()).toBe('/compendium?hash=42');
     expect(
-      host.querySelector('[aria-label="Compendium category queue"] a[aria-current="page"]'),
+      host.querySelector('[aria-label="Compendium review queue"] [aria-selected="true"]'),
     ).not.toBeNull();
   });
 
@@ -188,7 +210,7 @@ describe('context-aware navigation', () => {
       addEventListener: () => {},
       removeEventListener: () => {},
     }));
-    await mount('/compendium/review?view=entries&group=catalog%3Aarmor&hash=42');
+    await mount('/compendium?hash=42');
     // No desktop column on the phone: the queue lives in the finder sheet.
     expect(host.querySelector('aside[aria-label="Context"]')).toBeNull();
     const title = host.querySelector<HTMLButtonElement>(
@@ -204,7 +226,7 @@ describe('context-aware navigation', () => {
     const sheet = document.querySelector<HTMLElement>('[data-shell-overlay="Find"]');
     expect(sheet).not.toBeNull();
     expect(
-      sheet!.querySelector('[aria-label="Compendium category queue"] a[aria-current="page"]'),
+      sheet!.querySelector('[aria-label="Compendium review queue"] [aria-selected="true"]'),
     ).not.toBeNull();
     expect(document.body.style.overflow).toBe('hidden');
     expect(host.querySelector('#shell-root')?.hasAttribute('inert')).toBe(true);
@@ -218,6 +240,6 @@ describe('context-aware navigation', () => {
     expect(document.activeElement).toBe(titleButton);
     expect(document.body.style.overflow).toBe('');
     expect(host.querySelector('#shell-root')?.hasAttribute('inert')).toBe(false);
-    expect(location()).toBe('/compendium/review?view=entries&group=catalog%3Aarmor&hash=42');
+    expect(location()).toBe('/compendium?hash=42');
   });
 });

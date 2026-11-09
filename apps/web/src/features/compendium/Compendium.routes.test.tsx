@@ -19,39 +19,6 @@ const captured = vi.hoisted(() => ({ proposals: new Map() }));
 vi.mock('./useProposals', () => ({
   useProposals: () => ({ proposals: captured.proposals, loading: false, error: null }),
 }));
-vi.mock('./useGuidance', () => ({
-  useGuidance: () => ({
-    document: { categories: {}, baseline: '' },
-    ready: true,
-    reloading: false,
-    saving: false,
-    diskSaved: false,
-    conflict: false,
-    persistence: { getSnapshot: () => ({}) },
-    planningRevision: 0,
-  }),
-}));
-vi.mock('./CategoryReview', async () => {
-  const { createElement } = await import('react');
-  return {
-    CategoryReview: ({
-      categories,
-    }: {
-      categories: { id: string; name: string; entries: unknown[] }[];
-    }) =>
-      createElement(
-        'section',
-        { 'aria-label': 'Category guidance' },
-        categories.map((category) =>
-          createElement(
-            'p',
-            { key: category.id },
-            `${category.name}: ${category.entries.length} entries`,
-          ),
-        ),
-      ),
-  };
-});
 vi.mock('../auth/AuthStatus', () => ({
   useAuthSession: () => undefined,
   IdentityStatus: () => null,
@@ -110,20 +77,8 @@ function link(text: string) {
   return found;
 }
 
-function tab(text: string) {
-  const found = [
-    ...host.querySelectorAll<HTMLAnchorElement>('nav[aria-label="Compendium views"] a'),
-  ].find((item) => item.textContent?.includes(text));
-  if (!found) throw new Error(`Missing tab ${text}: ${host.textContent}`);
-  return found;
-}
-
 async function clickLink(text: string) {
   await act(async () => link(text).click());
-}
-
-async function clickTab(text: string) {
-  await act(async () => tab(text).click());
 }
 
 async function change(label: string, value: string) {
@@ -220,7 +175,7 @@ beforeEach(() => {
     load: async () => {},
     refresh: async () => {},
   });
-  useSidebarQueueStore.setState({ compendiumCategories: null, pendingChanges: null });
+  useSidebarQueueStore.setState({ pendingChanges: null });
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -241,23 +196,41 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-describe('Compendium route and linked-source tab', () => {
-  it('opens the category review workload at the workspace route and preserves sidebar deep links', async () => {
+const title = () =>
+  host.querySelector('[aria-label="Entry to review"] [role="heading"]')?.textContent ?? '';
+
+describe('Compendium route and linked-source view', () => {
+  it('lists the queue beside the first entry and keeps selection in the URL', async () => {
     await mount('/compendium');
 
-    expect(host.querySelector('h1')?.textContent).toBe('Review matches');
-    expect(host.querySelector('[aria-label="Category guidance"]')?.textContent).toContain(
-      'weapon-trait: 6 entries',
-    );
-    expect(tab('Review matches').getAttribute('aria-current')).toBe('page');
+    expect(host.querySelector('[aria-label="Compendium review queue"]')).not.toBeNull();
+    expect(host.querySelector('header p')?.textContent).toContain('6 to review');
+    expect(title()).toContain('Sample 100');
+    // Selecting a row replaces history: Back leaves the page, not the previous entry.
+    const rows = host.querySelectorAll<HTMLElement>('[role="treeitem"][aria-level="2"]');
+    expect(rows).toHaveLength(6);
+    await act(async () => rows[2].click());
+    expect(route().pathname).toBe('/compendium');
+    expect(route().searchParams.get('hash')).toBe('102');
+    expect(title()).toContain('Sample 102');
+  });
 
-    const categoryLink = host.querySelector<HTMLAnchorElement>(
-      '[aria-label="Compendium category queue"] a',
-    )!;
-    await act(async () => categoryLink.click());
-    expect(route().pathname).toBe('/compendium/review');
-    expect(route().searchParams.get('group')).toBe('catalog:weapon-trait');
-    expect(host.querySelector('[aria-label="Entry to review"] h2')?.textContent).toBe('Sample 100');
+  it('opens direct entry links on that entry, even when filters would hide it', async () => {
+    await mount('/compendium?hash=105&q=zzz');
+    expect(title()).toContain('Sample 105');
+    expect(route().searchParams.get('hash')).toBe('105');
+    expect(host.querySelector('[role="treeitem"][aria-selected="true"]')?.textContent).toContain(
+      'outside filter',
+    );
+  });
+
+  it('sends the retired review URLs to the tab, keeping the entry and mapping the category', async () => {
+    await mount('/compendium/review?view=entries&group=catalog%3Aweapon-trait&hash=105');
+    expect(route().pathname).toBe('/compendium');
+    expect(route().searchParams.get('hash')).toBe('105');
+    expect(route().searchParams.get('group')).toBe('weapon-trait');
+    expect(route().searchParams.has('view')).toBe(false);
+    expect(title()).toContain('Sample 105');
   });
 
   it('labels zero linked changes separately from the real unlinked-tooltip count', async () => {
@@ -269,7 +242,7 @@ describe('Compendium route and linked-source tab', () => {
     expect(host.textContent).not.toContain('all matching complete');
   });
 
-  it('retains populated linked-source entries, filters, deep links, and review history', async () => {
+  it('retains populated linked-source entries, filters, and history across the queue', async () => {
     fixture.editor.categories = [
       { id: 'weapon-trait', label: 'Traits', group: 'Weapons', order: 1 },
     ];
@@ -285,22 +258,18 @@ describe('Compendium route and linked-source tab', () => {
       associated: [],
       compendium: missingLink('Missing 101'),
     };
-    await mount(
-      '/compendium/review?view=entries&hash=100&query=Sample&category=weapon-trait&status=all&proposal=yes',
-    );
+    await mount('/compendium?hash=100&show=all');
+    expect(title()).toContain('Sample 100');
 
-    expect(host.querySelector('[aria-label="Entry to review"] h2')?.textContent).toBe('Sample 100');
-    await clickTab('Linked sources changed');
+    await clickLink('Linked (2)');
+    expect(route().searchParams.get('tab')).toBe('linked');
     expect(button('Linked sources changed (2)')).toBeTruthy();
     expect(button('Tooltips without links (4)')).toBeTruthy();
     expect(link('Sample 100').getAttribute('href')).toBe('/t/100');
 
     await change('Search tooltips', 'Sample 101');
-    await change('Category', 'weapon-trait');
-    expect(route().searchParams.get('query')).toBe('Sample');
-    expect(route().searchParams.get('category')).toBe('weapon-trait');
-    expect(route().searchParams.get('status')).toBe('all');
-    expect(route().searchParams.get('proposal')).toBe('yes');
+    expect(route().searchParams.get('hash')).toBe('100');
+    expect(route().searchParams.get('show')).toBe('all');
     expect(route().searchParams.get('linkedQuery')).toBe('Sample 101');
     expect(host.querySelectorAll('main article section ul > li')).toHaveLength(1);
     await clickLink('Sample 101');
@@ -309,22 +278,9 @@ describe('Compendium route and linked-source tab', () => {
     await go(-1);
     expect(route().searchParams.get('tab')).toBe('linked');
     expect(route().searchParams.get('linkedQuery')).toBe('Sample 101');
-    await clickTab('Review matches');
+    await clickLink('Back to the review queue');
     expect(route().searchParams.has('tab')).toBe(false);
-    expect(route().searchParams.get('query')).toBe('Sample');
-    expect(route().searchParams.get('status')).toBe('all');
-    expect(host.querySelector('[aria-label="Entry to review"] h2')?.textContent).toBe('Sample 100');
-    await go(-1);
-    expect(route().searchParams.get('tab')).toBe('linked');
-    expect(host.querySelector('input')?.value).toBe('Sample 101');
-    await go(1);
-    expect(route().searchParams.has('tab')).toBe(false);
-    expect(host.querySelector('[aria-label="Entry to review"] h2')?.textContent).toBe('Sample 100');
-  });
-
-  it('keeps direct entry deep links selected in Review matches', async () => {
-    await mount('/compendium/review?view=entries&hash=105');
-    expect(host.querySelector('[aria-label="Entry to review"] h2')?.textContent).toBe('Sample 105');
-    expect(route().searchParams.get('hash')).toBe('105');
+    expect(route().searchParams.get('hash')).toBe('100');
+    expect(title()).toContain('Sample 100');
   });
 });
