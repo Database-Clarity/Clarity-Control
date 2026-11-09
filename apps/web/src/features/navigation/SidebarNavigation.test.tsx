@@ -8,6 +8,7 @@ import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { useSidebarQueueStore } from './sidebarQueue';
+import { useReviewQueue } from '../review/queueStore';
 import { useCompendiumQueueStore, emptyCounts } from '../compendium/queueStore';
 import { buildQueue } from '../compendium/queueView';
 import type { QueueRow } from '../compendium/queueRows';
@@ -112,6 +113,16 @@ beforeEach(() => {
       { hash: 43, name: 'Pending tooltip 43', category: 'Weapons' },
     ],
   });
+  const pending = (hash: number, category: string) => ({
+    tooltip: { hash, text: {}, associated: [] },
+    name: `Pending tooltip ${hash}`,
+    category,
+    categoryId: category.toLowerCase(),
+    categoryOrder: category === 'Armor' ? 1 : 2,
+    markerOnly: false,
+    isNew: true,
+  });
+  useReviewQueue.setState({ entries: [pending(42, 'Armor'), pending(43, 'Weapons')] });
   const rows: QueueRow[] = [
     { hash: 41, name: 'Armor tooltip 41', category: 'armor', kind: 'proposal' },
     { hash: 42, name: 'Armor tooltip 42', category: 'armor', kind: 'none' },
@@ -146,6 +157,7 @@ afterEach(async () => {
   useDataStore.setState({ data: null, status: 'idle', error: null });
   useDraftStore.setState({ drafts: {}, hydrated: false, pending: 0, error: null });
   useSidebarQueueStore.setState({ pendingChanges: null });
+  useReviewQueue.setState({ entries: null, scrollTop: 0 });
   useCompendiumQueueStore.setState({ rows: null, selected: undefined });
   document.body.style.overflow = '';
   vi.unstubAllGlobals();

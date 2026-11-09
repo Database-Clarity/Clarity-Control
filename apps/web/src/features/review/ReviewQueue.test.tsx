@@ -5,6 +5,125 @@ import { HashRouter, MemoryRouter, useLocation, useNavigationType } from 'react-
 import { expect, it, vi } from 'vitest';
 import { ReviewQueue } from './ReviewQueue';
 import { advanceReviewOpening, beginReviewOpening, useReviewOpening } from './opening';
+import type { PendingTooltip } from './model';
+import type { QueueView } from './queueModel';
+import { queueView } from './queueModel';
+import { useReviewQueue } from './queueStore';
+
+const views = new WeakMap<object, QueueView>();
+it('reveals the new selection instead of clamping to the bottom after a grouped filter shrinks', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  useReviewQueue.setState({ scrollTop: 0 });
+  vi.stubGlobal('ResizeObserver', undefined);
+  const height = vi.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(160);
+  const bounds = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: Element,
+  ) {
+    return { height: this.hasAttribute('data-review-row-size') ? 32 : 24 } as DOMRect;
+  });
+  const entries: PendingTooltip[] = Array.from({ length: 100 }, (_, hash) => ({
+    tooltip: { hash, text: {}, associated: [] },
+    name: `Tooltip ${hash}`,
+    category: 'Perk',
+    categoryId: 'perk',
+    categoryOrder: 0,
+    markerOnly: false,
+    isNew: false,
+  }));
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const render = (rows: PendingTooltip[], hash: string) =>
+    root.render(
+      <MemoryRouter>
+        <ReviewQueue view={queueView(rows, '', '', new Set(), false)} selectedHash={hash} />
+      </MemoryRouter>,
+    );
+  try {
+    await act(async () => render(entries, '99'));
+    const scroller = host.querySelector<HTMLElement>(
+      '[aria-label="Scroll pending saved changes"]',
+    )!;
+    expect(scroller.scrollTop).toBe(3064);
+    await act(async () => render(entries.slice(0, 20), '0'));
+    expect(scroller.scrollTop).toBe(0);
+    expect(host.querySelector('a[aria-current="page"]')?.getAttribute('data-review-hash')).toBe(
+      '0',
+    );
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    height.mockRestore();
+    bounds.mockRestore();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('checks a group when every available row is selected and another row is in flight', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  useReviewQueue.setState({ selected: new Set(), scrollTop: 0 });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const entries: PendingTooltip[] = [1, 2].map((hash) => ({
+    tooltip: { hash, text: {}, associated: [] },
+    name: `Tooltip ${hash}`,
+    category: 'Perk',
+    categoryId: 'perk',
+    categoryOrder: 0,
+    markerOnly: false,
+    isNew: false,
+  }));
+  try {
+    await act(async () =>
+      root.render(
+        <MemoryRouter>
+          <ReviewQueue
+            view={queueView(entries, '', '', new Set(), false)}
+            selectedHash="1"
+            inFlight={new Set([2])}
+          />
+        </MemoryRouter>,
+      ),
+    );
+    const checkbox = host.querySelector<HTMLInputElement>('input[data-review-group-toggle]')!;
+    await act(async () => checkbox.click());
+    expect([...useReviewQueue.getState().selected]).toEqual([1]);
+    expect(checkbox.checked).toBe(true);
+    expect(checkbox.indeterminate).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    useReviewQueue.setState({ selected: new Set(), scrollTop: 0 });
+  }
+});
+/** A flat list of rows (no group headers), so indices match hashes as in the original queue. */
+function listView(changes: { hash: number; name: string; category: string }[]): QueueView {
+  let view = views.get(changes);
+  if (!view) {
+    const entries = changes.map(
+      ({ hash, name, category }) =>
+        ({
+          tooltip: { hash, text: {}, associated: [] },
+          name,
+          category,
+          categoryId: category,
+          categoryOrder: 0,
+          markerOnly: false,
+          isNew: false,
+        }) as PendingTooltip,
+    );
+    view = {
+      items: entries.map((entry) => ({ kind: 'row', entry, group: entry.categoryId })),
+      ordered: entries,
+      shown: new Set(entries.map(({ tooltip }) => tooltip.hash)),
+      contentCount: entries.length,
+      markerCount: 0,
+    };
+    views.set(changes, view);
+  }
+  return view;
+}
 
 it('bounds a long queue, reveals deep URL selections, and keeps keyboard access across windows', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -56,7 +175,7 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
     await act(async () =>
       root.render(
         <MemoryRouter>
-          <ReviewQueue changes={changes} selectedHash="1800" />
+          <ReviewQueue view={listView(changes)} selectedHash="1800" />
         </MemoryRouter>,
       ),
     );
@@ -66,7 +185,8 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
     const scroller = host.querySelector<HTMLElement>(
       '[aria-label="Scroll pending saved changes"]',
     )!;
-    expect(scroller.scrollTop).toBeCloseTo(1800 * 69.12);
+    // A row below the window is revealed with the least scroll: it lands on the bottom edge.
+    expect(scroller.scrollTop).toBeCloseTo(1801 * 69.12 - 1600);
     const windowTop = Number.parseFloat(host.querySelector<HTMLElement>('ul')!.style.top);
     const renderedBottom =
       windowTop +
@@ -94,7 +214,7 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
     expect(selected.closest('li')?.style.height).toBe('96px');
     expect(
       host.querySelector<HTMLElement>('[aria-label="Scroll pending saved changes"]')?.scrollTop,
-    ).toBe(1800 * 96);
+    ).toBe(1801 * 96 - 1600);
     await act(async () => selected.focus());
     await act(async () =>
       selected.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })),
@@ -172,7 +292,7 @@ it('coalesces wheel deltas before scrolling, preserves zoom/chaining, and cancel
     await act(async () =>
       root.render(
         <MemoryRouter>
-          <ReviewQueue changes={changes} selectedHash="0" />
+          <ReviewQueue view={listView(changes)} selectedHash="0" />
         </MemoryRouter>,
       ),
     );
@@ -287,7 +407,7 @@ it('preserves native link modifiers and current-route replacement with one queue
     await act(async () =>
       root.render(
         <MemoryRouter basename="/app" initialEntries={['/app/review']}>
-          <ReviewQueue changes={changes} selectedHash={null} />
+          <ReviewQueue view={listView(changes)} selectedHash={null} />
           <Location />
         </MemoryRouter>,
       ),
@@ -368,7 +488,7 @@ it('retains a keyboard activation and wheel delta during the readonly opening', 
     return (
       <>
         <ReviewQueue
-          changes={changes}
+          view={listView(changes)}
           selectedHash={new URLSearchParams(location.search).get('hash')}
         />
         <output>{location.pathname + location.search}</output>

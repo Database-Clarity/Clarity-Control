@@ -3,8 +3,11 @@
 `#/review` compares each canonical saved tooltip's core `publishableHash` with
 the bundle's pushed marker. Local drafts and metadata-only edits do not count.
 Categories follow registry order; enhanced tooltips with their own authored text
-remain separate review items. Lists are paged in groups of 15 to bound history requests.
-Up/Down (outside controls) and Previous/Next walk the list without wrapping.
+remain separate review items. The left column (`ReviewQueue`, a fixed-height virtual list) groups
+the changes by category with counts and a checkbox per row and per group (the publish selection);
+marker-only leftovers are one collapsed group at the bottom that never takes part in a group
+select. Only the open change requests history. Up/Down (outside controls), the list's own keys,
+and the phone's ‹ › walk the shown rows without wrapping; Space includes the open change.
 
 Selection survives navigation, but only still-pending hashes are submitted.
 Editors and maintainers may push any number at once (the Worker reads them in batches). "Push selected"
