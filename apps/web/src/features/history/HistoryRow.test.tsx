@@ -84,6 +84,22 @@ it('keeps the v2 count ready and loads legacy history only on open', async () =>
   );
 });
 
+it('shows the open language attribution inside the row, only once expanded', async () => {
+  getHistory.mockResolvedValue({ page: 1, commits: [commit(1)] });
+  await act(async () =>
+    root.render(<HistoryPanel hash={10} attribution={<p data-attribution="">Edited by ann</p>} />),
+  );
+  expect(host.querySelector('[data-attribution]')).toBeNull();
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  const attribution = host.querySelector('[data-attribution]')!;
+  expect(attribution.textContent).toBe('Edited by ann');
+  // Above the commit list.
+  expect(
+    attribution.compareDocumentPosition(host.querySelector('ol')!) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+});
+
 it('says 30+ when a full page of commits came back', async () => {
   getHistory.mockResolvedValue({
     page: 1,

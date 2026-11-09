@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
 import { type HistoryCommit } from '../../services/history';
@@ -20,15 +20,18 @@ import styles from './History.module.scss';
 /**
  * One collapsed row: "Edited <date> by <author>, n revisions". Expanding it shows the commit list
  * with compare and Revert. The v2 list supplies the collapsed count; legacy history loads on open.
+ * `attribution` is the open language's own last edit and legacy upload, shown above the commits.
  */
 export function HistoryPanel({
   hash,
   readOnly = false,
   suspended = false,
+  attribution,
 }: {
   hash: number;
   readOnly?: boolean;
   suspended?: boolean;
+  attribution?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [revisions, setRevisions] = useState<{
@@ -83,6 +86,7 @@ export function HistoryPanel({
         )
       }
     >
+      {attribution}
       {!signedIn ? <p>Sign in as a configured member to view v2 history.</p> : null}
       {signedIn && (
         <HistoryContent

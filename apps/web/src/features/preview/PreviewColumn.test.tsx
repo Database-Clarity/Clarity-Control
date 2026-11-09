@@ -171,9 +171,16 @@ describe('PreviewColumn', () => {
     expect(host.querySelectorAll('img[alt]')).toHaveLength(0);
   });
 
-  it('has no switch for an item with no enhanced version', async () => {
+  it('keeps the switch for an item with no enhanced version, with Enhanced and Compare dimmed', async () => {
     await render({ enhanced: [], mode: 'base', variant: undefined });
-    expect(host.querySelector('[role="group"]')).toBeNull();
+    expect(host.querySelector('[role="group"]')).not.toBeNull();
+    expect(buttons().map((button) => [button.textContent, button.disabled])).toEqual([
+      ['Base', false],
+      ['Enhanced', true],
+      ['Compare', true],
+    ]);
+    expect(pressed()).toEqual(['Base']);
+    expect(host.querySelector('select')).toBeNull();
     expect(host.querySelectorAll('header')).toHaveLength(1);
   });
 
