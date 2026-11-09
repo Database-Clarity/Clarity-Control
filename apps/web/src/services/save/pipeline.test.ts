@@ -57,6 +57,72 @@ describe('conflict markers block saving', () => {
   });
 });
 
+describe('validation is scoped to text the change edits', () => {
+  const entry = (text: string) => ({ ...english, text });
+  const errors = (issues: ReturnType<typeof validateChanges>) =>
+    issues.filter((issue) => issue.severity === 'error');
+  const emptyEnglish = { ...tooltip, text: {} };
+
+  it('a link-only change on an empty-English tooltip saves', async () => {
+    const change = { hash: 123, base: emptyEnglish, next: { ...emptyEnglish, associated: [30] } };
+    expect(validateChanges([change], editorData())).toEqual([]);
+    const prepared = await prepareChanges([change], user, editorData());
+    expect(prepared[0].next.associated).toEqual([30]);
+  });
+  it('editing English to empty still blocks', async () => {
+    const change = { hash: 123, base: tooltip, next: { ...tooltip, text: { en: entry('  ') } } };
+    expect(errors(validateChanges([change], editorData()))).toEqual([
+      expect.objectContaining({ lang: 'en', message: 'English text must not be empty.' }),
+    ]);
+    await expect(prepareChanges([change], user, editorData())).rejects.toThrow('Validation');
+  });
+  it('an error in unchanged French does not block an English edit, but edited French does', () => {
+    const base = { ...tooltip, text: { en: entry('Old'), fr: entry('import main from 999') } };
+    const english = { ...base, text: { ...base.text, en: entry('New') } };
+    const issues = validateChanges([{ hash: 123, base, next: english }], editorData());
+    expect(errors(issues)).toEqual([]);
+    expect(issues).toContainEqual(
+      expect.objectContaining({ lang: 'fr', severity: 'warning', message: expect.any(String) }),
+    );
+    const french = { ...base, text: { ...base.text, fr: entry('import main from 998') } };
+    expect(errors(validateChanges([{ hash: 123, base, next: french }], editorData()))).toEqual([
+      expect.objectContaining({ lang: 'fr' }),
+    ]);
+  });
+  it('an unknown-variable error in unchanged English does not block a link-only change', () => {
+    const base = { ...tooltip, text: { en: entry('import main from 999') } };
+    const issues = validateChanges(
+      [{ hash: 123, base, next: { ...base, associated: [30] } }],
+      editorData(),
+    );
+    expect(errors(issues)).toEqual([]);
+  });
+  it('one bad edited tooltip still blocks a batch of otherwise fine changes', () => {
+    const second = { ...tooltip, hash: 124 };
+    const bad = { ...second, text: { en: entry('import main from 999') } };
+    const data = editorData();
+    data.bundle.tooltips[124] = second;
+    const issues = validateChanges(
+      [
+        { hash: 123, base: emptyEnglish, next: { ...emptyEnglish, associated: [30] } },
+        { hash: 124, base: second, next: bad },
+      ],
+      data,
+    );
+    expect(errors(issues).map((issue) => issue.hash)).toEqual([124]);
+  });
+  it('a new tooltip with empty English still blocks', () => {
+    expect(
+      errors(
+        validateChanges(
+          [{ hash: 124, base: null, next: { ...tooltip, hash: 124, text: {} } }],
+          editorData(),
+        ),
+      ),
+    ).toEqual([expect.objectContaining({ hash: 124, lang: 'en' })]);
+  });
+});
+
 describe('save preparation', () => {
   it('surfaces glyph warnings in save review and allows preparation', async () => {
     const change = {
