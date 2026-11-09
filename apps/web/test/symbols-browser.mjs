@@ -141,9 +141,11 @@ async function check(theme, width, height, phone, scale, name) {
     `${label}: symbol box is 1rem (${widgets[0].width} vs ${rem})`,
   );
   const drawn = await page.evaluate(() =>
-    [...document.querySelectorAll('.cm-symbol-icon')].map(
-      (el) => getComputedStyle(el, '::before').backgroundImage !== 'none',
-    ),
+    [...document.querySelectorAll('.cm-symbol-icon')].map((el) => {
+      // Light draws the artwork's alpha as a mask over a token fill; dark draws the artwork.
+      const style = getComputedStyle(el, '::before');
+      return style.backgroundImage !== 'none' || style.maskImage !== 'none';
+    }),
   );
   assert.ok(drawn.length > 0 && drawn.every(Boolean), `${label}: icons draw the preview artwork`);
   assert.equal(

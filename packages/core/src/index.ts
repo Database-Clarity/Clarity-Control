@@ -11,6 +11,7 @@ export * from './merge3.js';
 export * from './markup/index.js';
 export * from './validation/index.js';
 export * from './validation/glyphs.js';
+export * from './validation/retired.js';
 export * from './globals/index.js';
 export * from './status/index.js';
 export * from './compendium/index.js';

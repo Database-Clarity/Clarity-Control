@@ -16,7 +16,7 @@ import {
   type DecorationSet,
   type Tooltip,
 } from '@codemirror/view';
-import { markupIcons } from '@clarity/core';
+import { markupIcons, markupRetiredColors } from '@clarity/core';
 import previewStyles from '../preview/TooltipPreview.module.scss';
 import type { SymbolReveal } from '../../stores/settings';
 
@@ -26,9 +26,14 @@ import type { SymbolReveal } from '../../stores/settings';
  * colour, like a syntax highlighter. The document is never changed by drawing: only what is shown is
  * replaced, and search, spellcheck and copy all work on the raw text.
  */
-export const symbolColours = ['yellow', 'blue', 'green', 'purple', 'pve', 'pvp', 'bold'] as const;
+export const symbolColours = ['yellow', 'pve', 'pvp', 'bold'] as const;
 const icons: ReadonlySet<string> = new Set(markupIcons);
-const colours: ReadonlySet<string> = new Set(symbolColours);
+const retiredColours: ReadonlySet<string> = new Set(markupRetiredColors);
+/**
+ * The colours drawn as tints: the current ones plus the retired ones, which the parser and the
+ * preview still render, so existing text looks as it always did until it is fixed (P0a).
+ */
+const colours: ReadonlySet<string> = new Set([...symbolColours, ...markupRetiredColors]);
 
 export interface SymbolRange {
   from: number;
@@ -382,13 +387,48 @@ function popoverDom(view: EditorView, popover: Popover) {
       ? `${markup.trimEnd()} … ${view.state.sliceDoc(tag.closeFrom, tag.to).trimStart()}`
       : markup;
     dom.append(code);
+    const retired = tag !== null && retiredColours.has(tag.name);
+    if (retired) {
+      const note = document.createElement('span');
+      note.className = 'cm-symbol-retired';
+      note.textContent = 'Retired';
+      dom.append(note);
+    }
     if (popover.source === 'selected' && !view.state.readOnly) {
+      if (tag && retired) {
+        // The same two fixes as the status bar's list, in the same order.
+        const fixes: [string, () => void][] = [
+          ['Remove tag (keep the text)', () => removeTag(view, tag)],
+          ['Change to yellow', () => retagTag(view, tag, 'yellow')],
+        ];
+        for (const [label, run] of fixes) {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'cm-symbol-fix';
+          button.textContent = label;
+          // A click must not take focus from the text: the fix keeps the caret in the editor.
+          button.addEventListener('mousedown', (event) => event.preventDefault());
+          button.addEventListener('click', () => {
+            run();
+            view.focus();
+          });
+          dom.append(button);
+        }
+      }
       const hint = document.createElement('span');
       hint.className = 'cm-symbol-hint';
-      hint.textContent = tag
-        ? 'Enter edit · Backspace remove tag'
-        : 'Enter edit · Backspace remove';
+      // The two fixes are buttons, so a retired tag's hint stays short (the popover must fit).
+      hint.textContent = retired
+        ? 'Enter edit'
+        : tag
+          ? 'Enter edit · Backspace remove tag'
+          : 'Enter edit · Backspace remove';
       dom.append(hint);
+    } else if (retired) {
+      const hint = document.createElement('span');
+      hint.className = 'cm-symbol-hint';
+      hint.textContent = view.state.readOnly ? '' : 'Alt+click to fix';
+      if (hint.textContent) dom.append(hint);
     }
   }
   return dom;
@@ -487,6 +527,19 @@ function removeTag(view: EditorView, tag: TagRange, effects: readonly StateEffec
     ],
     selection: { anchor: tag.from, head: tag.closeFrom - (tag.openTo - tag.from) },
     effects,
+  });
+}
+
+/** Renames a colour tag in place (retired colour to yellow); the text it encloses stays selected. */
+function retagTag(view: EditorView, tag: TagRange, name: string) {
+  const next = `<${name} `;
+  view.dispatch({
+    changes: { from: tag.from, to: tag.openTo, insert: next },
+    selection: {
+      anchor: tag.from + next.length,
+      head: tag.closeFrom - (tag.openTo - tag.from) + next.length,
+    },
+    effects: pinTag.of(true),
   });
 }
 

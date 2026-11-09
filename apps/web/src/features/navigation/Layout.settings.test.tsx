@@ -68,7 +68,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-it('opens Settings from the identity menu, keeps Tab inside it, and gives focus back to the stable header button', async () => {
+it('opens Settings from the header gear, keeps Tab inside it, and gives focus back to the stable header button', async () => {
   await act(async () =>
     root.render(
       <MemoryRouter initialEntries={['/archive']}>
@@ -77,14 +77,21 @@ it('opens Settings from the identity menu, keeps Tab inside it, and gives focus 
     ),
   );
   const click = (element: Element) => act(async () => (element as HTMLElement).click());
-  const identity = host.querySelector<HTMLElement>('[data-identity-button]')!;
-  await click(identity);
+  const gear = host.querySelector<HTMLElement>('[data-settings-button]')!;
+  expect(gear.getAttribute('aria-expanded')).toBe('false');
+  // The account menu no longer carries Settings.
+  await click(host.querySelector('[data-identity-button]')!);
   const menu = document.querySelector('[data-shell-overlay="Account"]')!;
-  expect(menu).not.toBeNull();
-  const settings = [...menu.querySelectorAll('button')].find((b) => b.textContent === 'Settings')!;
-  await click(settings);
-  // The menu item that opened Settings is gone; the header button is the anchor and return target.
-  expect(document.querySelector('[data-shell-overlay="Account"]')).toBeNull();
+  expect([...menu.querySelectorAll('button')].some((b) => b.textContent === 'Settings')).toBe(
+    false,
+  );
+  await act(async () => {
+    document.activeElement!.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+  });
+  gear.focus();
+  await click(gear);
   const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-labelledby]')!;
   expect(dialog).not.toBeNull();
   const items = [...dialog.querySelectorAll<HTMLElement>('button, select')];
@@ -102,7 +109,8 @@ it('opens Settings from the identity menu, keeps Tab inside it, and gives focus 
     );
   });
   expect(document.querySelector('[role="dialog"][aria-labelledby]')).toBeNull();
-  expect(document.activeElement).toBe(identity);
+  expect(document.activeElement).toBe(gear);
+  expect(gear.getAttribute('aria-expanded')).toBe('false');
   expect(host.querySelector('#shell-root')?.hasAttribute('inert')).toBe(false);
 });
 

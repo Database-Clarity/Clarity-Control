@@ -40,6 +40,9 @@ const loadAdminPage = workspacePage(() =>
   import('./features/admin/AdminPage').then((module) => ({ default: module.AdminPage })),
 );
 const AdminPage = () => <AppLazyPage load={loadAdminPage} />;
+const loadMigratePage = () =>
+  import('./features/migrate/MigratePage').then((module) => ({ default: module.MigratePage }));
+const MigratePage = () => <AppLazyPage load={loadMigratePage} />;
 const workspaceLoaders: Record<string, () => Promise<unknown>> = {
   '/': loadTooltipPage,
   '/review': loadReviewPage,
@@ -81,6 +84,8 @@ const GlobalsPage = () => <AppLazyPage load={loadGlobalsPage} />;
  */
 export const routes: RouteObject[] = [
   { path: 'auth/callback', element: <AuthCallback /> },
+  // Receives drafts from the old site; outside the Layout so it loads no data and is inert alone.
+  { path: 'migrate', element: <MigratePage /> },
   {
     element: <WorkspaceRouteLayer />,
     children: [

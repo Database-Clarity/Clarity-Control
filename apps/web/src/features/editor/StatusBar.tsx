@@ -10,7 +10,7 @@ import { canReplaceGlyph, type GlyphWarning, type ValidationIssue } from '@clari
 import styles from './StatusBar.module.scss';
 import type { CursorPositionStore } from './cursorPosition';
 
-export type StatusPanel = 'help' | 'glyphs' | 'conflicts';
+export type StatusPanel = 'help' | 'glyphs' | 'conflicts' | 'retired';
 
 export const CursorStatusBar = memo(function CursorStatusBar({
   cursor,
@@ -54,6 +54,7 @@ export function StatusBar({
   issues,
   validating = false,
   glyphCount,
+  retiredCount = 0,
   line,
   column,
   preview,
@@ -68,6 +69,8 @@ export function StatusBar({
   issues: readonly ValidationIssue[];
   validating?: boolean;
   glyphCount: number;
+  /** Retired markup forms in the text (core/validation/retired.ts); each is also a warning. */
+  retiredCount?: number;
   line: number;
   column: number;
   preview?: PreviewStatus;
@@ -137,6 +140,25 @@ export function StatusBar({
       )}
       {/* A live region so a warning that appears while typing is announced without moving focus. */}
       <span role="status" aria-live="polite" className={styles.live}>
+        {retiredCount > 0 && (
+          <button
+            type="button"
+            className={styles.item}
+            data-severity="warning"
+            data-status-retired
+            aria-expanded={panel === 'retired'}
+            aria-controls="editor-panel-retired"
+            title="Retired markup: still renders, no longer supported. Click to see the fixes."
+            aria-label={`${retiredCount} retired markup`}
+            onClick={() => toggle('retired')}
+          >
+            <span>
+              <span aria-hidden="true">⚠</span> {retiredCount}{' '}
+              <span className={styles.long}>retired markup</span>
+              <span className={styles.short}>retired</span>
+            </span>
+          </button>
+        )}
         {glyphCount > 0 && (
           <button
             type="button"
@@ -230,12 +252,25 @@ export function Overlay({
   children: ReactNode;
 }) {
   const root = useRef<HTMLElement>(null);
-  const close = useRef(onClose);
-  close.current = onClose;
+  // Where focus was when the panel opened (the text, or the bar item that opened it): closing
+  // puts it back there, never somewhere new (a phone must not get its keyboard from a Close).
+  const opener = useRef<HTMLElement | null>(null);
+  const close = useRef(() => undefined as void);
+  close.current = () => {
+    onClose();
+    if (opener.current?.isConnected) opener.current.focus({ preventScroll: true });
+  };
   useEffect(() => {
     // Esc closes it from inside; the editor's own Esc handling covers the caret being in the text.
     const element = root.current;
     if (!element) return;
+    // Opened from a status bar button: focus would stay on that button, outside the panel, so Esc
+    // would do nothing and Tab would skip the panel. Move it into the panel (a click or Enter on
+    // the item, never the caret in the text, which keeps focus).
+    const active = element.ownerDocument.activeElement;
+    opener.current =
+      active instanceof HTMLElement && active !== element.ownerDocument.body ? active : null;
+    if (active?.closest('[data-editor-status]')) element.focus({ preventScroll: true });
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       event.stopPropagation();
@@ -245,13 +280,20 @@ export function Overlay({
     return () => element.removeEventListener('keydown', onKey);
   }, []);
   return (
-    <section ref={root} id={id} aria-label={label} className={styles.overlay} data-editor-overlay>
+    <section
+      ref={root}
+      id={id}
+      aria-label={label}
+      tabIndex={-1}
+      className={styles.overlay}
+      data-editor-overlay
+    >
       <div className={styles.overlayBody}>{children}</div>
       <button
         type="button"
         className={styles.close}
         aria-label={`Close ${label}`}
-        onClick={onClose}
+        onClick={() => close.current()}
       >
         ×
       </button>

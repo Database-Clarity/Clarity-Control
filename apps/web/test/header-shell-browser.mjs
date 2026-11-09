@@ -195,14 +195,15 @@ try {
         path: out('identity-menu'),
         clip: { x: 0, y: 0, width: 1280, height: 320 },
       });
-      await page.getByRole('button', { name: 'Settings', exact: true }).click();
+      await page.keyboard.press('Escape');
+      await page.locator('[data-settings-button]').click();
       await page.getByRole('dialog', { name: /settings/i }).waitFor();
-      await page.screenshot({ path: out('settings-from-identity') });
+      await page.screenshot({ path: out('settings-from-gear') });
       await page.getByRole('button', { name: 'Close settings' }).click();
       assert.equal(
-        await page.evaluate(() => document.activeElement?.hasAttribute('data-identity-button')),
+        await page.evaluate(() => document.activeElement?.hasAttribute('data-settings-button')),
         true,
-        'focus is back on the identity button',
+        'focus is back on the settings gear',
       );
       await setup(page, [['dataError']]);
       await page.locator('[data-identity-button]').click();
@@ -287,7 +288,8 @@ try {
       await page.locator('[data-identity-button]').click();
       await page.getByRole('dialog', { name: 'Account' }).waitFor();
       await page.screenshot({ path: out('phone-identity-sheet') });
-      await page.getByRole('button', { name: 'Settings', exact: true }).click();
+      await page.keyboard.press('Escape');
+      await page.locator('[data-settings-button]').click();
       await page.getByRole('dialog', { name: /settings/i }).waitFor();
       await page.screenshot({ path: out('phone-settings-sheet') });
       await context.close();

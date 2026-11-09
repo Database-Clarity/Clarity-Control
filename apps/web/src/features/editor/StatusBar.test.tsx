@@ -2,7 +2,7 @@
 import { act, type ComponentProps, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { StatusBar } from './StatusBar';
+import { Overlay, StatusBar } from './StatusBar';
 import { ClarityEditor } from './ClarityEditor';
 
 let host: HTMLDivElement;
@@ -136,5 +136,46 @@ describe('editor overlays', () => {
   it('reports the caret position', () => {
     render(editor('one\ntwo'));
     expect(q('[data-editor-status]')?.textContent).toContain('Ln 1, Col 1');
+  });
+});
+
+describe('overlay focus', () => {
+  const panel = (onClose = () => undefined) => (
+    <>
+      <div data-editor-status>
+        <button id="opener">open</button>
+      </div>
+      <Overlay id="p" label="Panel" onClose={onClose}>
+        <button>inside</button>
+      </Overlay>
+    </>
+  );
+
+  it('takes focus from the bar item that opened it and gives it back on Escape and Close', () => {
+    const opener = document.createElement('button');
+    opener.dataset.editorStatus = '';
+    document.body.append(opener);
+    opener.focus();
+    const onClose = vi.fn();
+    render(panel(onClose));
+    expect(document.activeElement).toBe(q('#p'));
+    act(() => {
+      q('#p')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(opener);
+    click(q('#p button[aria-label="Close Panel"]'));
+    expect(onClose).toHaveBeenCalledTimes(2);
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+  });
+
+  it('never moves focus when nothing had it (a phone tap): closing leaves it alone', () => {
+    (document.activeElement as HTMLElement | null)?.blur();
+    const before = document.activeElement;
+    render(panel());
+    expect(document.activeElement).toBe(before);
+    click(q('#p button[aria-label="Close Panel"]'));
+    expect(document.activeElement).toBe(before);
   });
 });

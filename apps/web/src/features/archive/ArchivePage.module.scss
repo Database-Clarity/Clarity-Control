@@ -24,7 +24,7 @@
   }
 }
 .card {
-  border: 1px solid #555;
+  border: 1px solid var(--box-edge);
   padding: 1rem;
   margin: 1rem 0;
 }
@@ -52,7 +52,7 @@
 }
 
 .status {
-  border-left: 3px solid #888;
+  border-left: 3px solid var(--status-edge);
   padding: 0.25rem 0.75rem;
   margin: 0.75rem 0;
 }

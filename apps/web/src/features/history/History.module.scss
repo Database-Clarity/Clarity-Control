@@ -32,9 +32,9 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font: inherit;
-  background: var(--diff-bg, #17171c);
+  background: var(--diff-bg);
   padding: 0.75rem;
-  border: 1px solid #444;
+  border: 1px solid var(--diff-edge);
 }
 
 .diff {

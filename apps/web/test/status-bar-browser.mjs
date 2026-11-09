@@ -306,8 +306,7 @@ try {
   // Interface scale in Settings: the range input applies at once and 100% resets it.
   {
     const { context, page } = await open('dark', { width: 1280, height: 800 });
-    await page.locator('[data-identity-button]').click();
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.locator('[data-settings-button]').click();
     const range = page.getByLabel('Interface scale');
     await range.waitFor();
     await range.fill('150');

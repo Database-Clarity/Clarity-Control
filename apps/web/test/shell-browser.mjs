@@ -178,7 +178,8 @@ try {
       await context.close();
     }
 
-    // Symbols: one box size everywhere; the light theme swaps white glyphs for outlined, filled copies.
+    // Symbols: one box size everywhere; the light theme draws the artwork's alpha as a mask over a
+    // token fill, dark draws the artwork itself.
     {
       const { context, page } = await open(theme, { width: 1280, height: 800 });
       const symbols = await page.evaluate(() =>
@@ -190,7 +191,13 @@ try {
                 el.className,
               )?.[1];
             return name
-              ? { name, width: style.width, height: style.height, image: style.backgroundImage }
+              ? {
+                  name,
+                  width: style.width,
+                  height: style.height,
+                  image: style.backgroundImage,
+                  mask: style.maskImage,
+                }
               : null;
           })
           .filter(Boolean),
@@ -201,13 +208,11 @@ try {
         ['12px x 12px'.replace(' x ', 'x')],
         'every symbol has the same width and height',
       );
-      for (const symbol of symbols.filter((s) =>
-        ['kinetic', 'primary', 'barrier', 'overload', 'unstoppable'].includes(s.name),
-      ))
-        assert.equal(
-          symbol.image.includes('/assets/light/') || symbol.image.includes('light'),
-          theme === 'light',
-          `${symbol.name} uses the outlined copy only in the light theme`,
+      for (const symbol of symbols.filter((s) => !['hunter', 'titan', 'warlock'].includes(s.name)))
+        assert.deepEqual(
+          [symbol.mask.includes('bungie.net'), symbol.image.includes('bungie.net')],
+          theme === 'light' ? [true, false] : [false, true],
+          `${symbol.name} is a filled mask only in the light theme`,
         );
       await page
         .locator('#shell-left [class*="_preview_"]')
