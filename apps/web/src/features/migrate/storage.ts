@@ -135,8 +135,13 @@ export async function clearMoved(
     const current = await storage.read();
     const next = { ...current };
     for (const hash of hashes) {
-      const draft = sentDrafts[hash];
-      if (draft && current[hash] && JSON.stringify(current[hash]) === JSON.stringify(draft)) {
+      // Own keys only: a hash such as `constructor` must never match an inherited property.
+      const draft = Object.hasOwn(sentDrafts, hash) ? sentDrafts[hash] : undefined;
+      if (
+        draft &&
+        Object.hasOwn(current, hash) &&
+        JSON.stringify(current[hash]) === JSON.stringify(draft)
+      ) {
         delete next[hash];
         removed++;
       }

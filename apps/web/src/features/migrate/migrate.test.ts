@@ -210,6 +210,12 @@ describe('applying a snapshot', () => {
     expect(removed).toBe(1);
     expect(Object.keys(buckets.get('tooltips:user:7')!).sort()).toEqual(['2', '3', '4']);
   });
+
+  it('clearing ignores inherited property names such as constructor', async () => {
+    const sent = snapshot({ 'tooltips:user:7': { '1': draft(1, 'a') } });
+    const { io } = memoryIO({ 'tooltips:user:7': { '1': draft(1, 'a') } });
+    expect(await clearMoved(sent, { 'tooltips:user:7': ['constructor', 'toString'] }, io)).toBe(0);
+  });
 });
 
 describe('snapshot parsing', () => {

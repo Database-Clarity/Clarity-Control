@@ -180,7 +180,11 @@ describe('rejected return targets', () => {
 
   it('ignores malformed allow-list entries instead of trusting them', () => {
     fixture.env.SITE_ORIGINS =
-      ' https://control.example , not a url, https://x.example/path, ftp://x.example, ,*';
-    expect(siteOrigins(fixture.env)).toEqual(['https://editor.example', 'https://control.example']);
+      ' https://control.example , not a url, https://x.example/path, ftp://x.example, ,*, http://plain.example, https://*.example, http://localhost:3000';
+    expect(siteOrigins(fixture.env)).toEqual([
+      'https://editor.example',
+      'https://control.example',
+      'http://localhost:3000',
+    ]);
   });
 });

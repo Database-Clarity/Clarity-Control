@@ -20,7 +20,7 @@ const stateSchema = z.object({
 /**
  * Origins allowed to call the API and to receive a sign-in. `SITE_ORIGINS` is a comma-separated
  * list; `SITE_ORIGIN` is always included, so the primary site keeps working whatever the list says.
- * Entries that are not a bare http(s) origin are ignored rather than trusted.
+ * Entries that are not a bare https origin (or http://localhost) are ignored rather than trusted.
  */
 export function siteOrigins(env: Pick<Env, 'SITE_ORIGIN' | 'SITE_ORIGINS'>): string[] {
   const origins = [env.SITE_ORIGIN];
@@ -29,7 +29,9 @@ export function siteOrigins(env: Pick<Env, 'SITE_ORIGIN' | 'SITE_ORIGINS'>): str
     if (!value) continue;
     try {
       const url = new URL(value);
-      if (/^https?:$/.test(url.protocol) && url.origin === value && !origins.includes(value))
+      const secure = url.protocol === 'https:' && !url.hostname.includes('*');
+      const local = url.protocol === 'http:' && url.hostname === 'localhost';
+      if ((secure || local) && url.origin === value && !origins.includes(value))
         origins.push(value);
     } catch {
       // Not a URL: never an allowed origin.
