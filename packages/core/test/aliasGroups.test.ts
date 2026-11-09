@@ -72,6 +72,18 @@ test('groups resolve enhanced members across base groups; unaccepted enhanced gr
   const value = tooltip();
   value.text.en!.text = 'enhanced (\nLonger\n)';
   expect(enhancedWordingNeeded(items, aliases, { 42: value })).toEqual([]);
+  // An enhanced weapon part with different in-game wording still needs no wording of its own.
+  const parts: AliasItems = {
+    60: { hash: 60, name: 'Part', categoryId: 'weapon-perk', inGameDescription: 'Base' },
+    61: {
+      hash: 61,
+      name: 'Part',
+      categoryId: 'weapon-perk-enhanced',
+      baseHash: 60,
+      inGameDescription: 'Longer',
+    },
+  };
+  expect(enhancedWordingNeeded(parts, {}, {})).toEqual([]);
 });
 test('generated precedence is flagged, groups drop and flag mixed enhanced/exotic/frame and multiple base owners', () => {
   const result = effectiveAliases(
@@ -357,7 +369,10 @@ test('enhanced legendary frames retain the generated canonical across weapon typ
     50: { ...base, hash: 50, categoryId: 'weapon-frame-enhanced', baseHash: 42 },
     51: { ...base, hash: 51, categoryId: 'weapon-frame-exotic' },
   };
-  const generated = { 43: { to: 42, kind: 'frame' as const }, 50: { to: 42, kind: 'frame' as const } };
+  const generated = {
+    43: { to: 42, kind: 'frame' as const },
+    50: { to: 42, kind: 'frame' as const },
+  };
   const result = effectiveAliases(generated, { version: 1, groups: {}, rejected: {} }, facts);
   expect(result.issues).toEqual([]);
   expect(aliasCanonicalHash(50, facts, result.aliases)).toBe(42);

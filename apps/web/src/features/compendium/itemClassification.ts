@@ -169,7 +169,15 @@ export function inferItemClassification(
         );
   }
 }
+/** Enhanced weapon parts are edited with their base and never need a tooltip of their own (owner 2026-11-09). */
+export const enhancedPartCategory = 'weapon-perk-enhanced';
 export function classifyItem(item: Item, tooltip?: Tooltip): ItemClassification | undefined {
+  if (item.categoryId === enhancedPartCategory)
+    return classification(
+      enhancedPartCategory,
+      'enhanced-part',
+      'Enhanced weapon part: edited with its base; no tooltip of its own needed.',
+    );
   if (legacy.get(item.hash) === item.name) return;
   const record =
     triageMember(item) ??
