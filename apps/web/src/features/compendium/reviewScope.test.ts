@@ -3,6 +3,7 @@ import { guidedFixture } from '../../../test/guided-fixture';
 import { guidedDecisions } from './guidedDecisions';
 import { loadManifestFacts } from './manifestFacts';
 import { classifyScope, inScopeCategory, scopeConfig } from './reviewScope';
+import { classifyItem } from './itemClassification';
 
 it('classifies ghost mods and stat-only manifest entries while protecting decisions', () => {
   const f = guidedFixture();
@@ -78,4 +79,23 @@ it('projects only in-scope owner reasons and samples while preserving canonical 
   expect(mixed.entries).toHaveLength(category.entries.length - 1);
   expect(mixed.samples).not.toContain(excluded);
   expect(Object.values(mixed.reasons).flat()).not.toContain(excluded);
+});
+
+it('never puts an enhanced weapon part in scope', () => {
+  const f = guidedFixture();
+  const entry = f.categories[0].entries[0];
+  const classification = classifyItem({
+    hash: entry.hash,
+    name: entry.name,
+    icon: '',
+    categoryId: 'weapon-perk-enhanced',
+    inGameDescription: '',
+    baseHash: 1,
+  });
+  expect(classification).toMatchObject({ ruleId: 'enhanced-part', excluded: true });
+  entry.classification = classification;
+  expect(classifyScope(entry, 'catalog:weapon-perk-enhanced')).toBe('enhanced-part');
+  // An existing link is preserved, like every other out-of-scope rule.
+  entry.next.compendium = {} as NonNullable<typeof entry.next.compendium>;
+  expect(classifyScope(entry, 'catalog:weapon-perk-enhanced')).toBeUndefined();
 });

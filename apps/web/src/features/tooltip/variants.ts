@@ -146,9 +146,22 @@ export function enhancedRender(
  * are variants too, but they are not enhanced versions of anything and carry no enhanced mark.
  */
 export function isEnhancedPair(base: number, variant: number, data: EditorData): boolean {
+  if (isEnhancedPartPair(base, variant, data)) return true;
   const type = legacyTypeOf(variant, data);
   const baseType = legacyTypeOf(base, data);
   return Boolean(type && baseType && type === `${baseType} Enhanced`);
+}
+
+/**
+ * Enhanced weapon parts pair with their base like enhanced perks (owner 2026-11-09). The generator
+ * files them as `weapon-perk-enhanced` with the shared "Weapon Trait Enhanced" export type, so the
+ * type rule above cannot see the pair; the category ids can.
+ */
+function isEnhancedPartPair(base: number, variant: number, data: EditorData): boolean {
+  return (
+    data.items[variant]?.categoryId === 'weapon-perk-enhanced' &&
+    data.items[base]?.categoryId === 'weapon-perk'
+  );
 }
 
 /** The enhanced versions of a base proper, for the finder's mark and the Base | Enhanced views. */
