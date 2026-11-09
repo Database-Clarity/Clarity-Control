@@ -69,6 +69,13 @@ export type SuggestAccept = (typeof suggestAcceptKeys)[number];
 /** How a symbol widget shows its markup: in a popover on hover, or as raw text while the caret is on it. */
 export const symbolRevealModes = ['popover', 'caret'] as const;
 export type SymbolReveal = (typeof symbolRevealModes)[number];
+/**
+ * What plain Shift+wheel steps in the finder: entries (Alt+Shift steps weapons and activities) or
+ * the groups (Alt+Shift steps entries). Per device.
+ */
+export const finderWheelModes = ['entries', 'groups'] as const;
+export type FinderWheel = (typeof finderWheelModes)[number];
+
 /** Snaps a stored size onto the offered sizes (nearest); anything that is not a number is automatic. */
 export function normalizeEditorFontSize(value: unknown): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value)) return null;
@@ -90,6 +97,7 @@ export const deviceSettingsSchema = z.object({
   compendiumScale: z.number().transform(normalizeCompendiumScale),
   suggestAccept: z.enum(suggestAcceptKeys),
   symbolReveal: z.enum(symbolRevealModes),
+  finderWheel: z.enum(finderWheelModes),
   remembered: rememberedSchema,
 });
 export type DeviceSettings = z.infer<typeof deviceSettingsSchema>;
@@ -102,6 +110,7 @@ export const defaultDeviceSettings: DeviceSettings = {
   compendiumScale: defaultCompendiumScale,
   suggestAccept: 'enter',
   symbolReveal: 'popover',
+  finderWheel: 'entries',
   remembered: {},
 };
 
@@ -431,6 +440,7 @@ export function createSettingsStore({
           ? record.suggestAccept
           : 'enter',
       symbolReveal: record.symbolReveal === 'caret' ? 'caret' : 'popover',
+      finderWheel: record.finderWheel === 'groups' ? 'groups' : 'entries',
       remembered,
     };
   }

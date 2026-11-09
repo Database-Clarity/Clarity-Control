@@ -12,6 +12,7 @@ import {
 } from './catalog';
 import {
   categoryPosition,
+  keyOf,
   createStepping,
   positionLabel,
   shiftScrollDirection,
@@ -406,9 +407,25 @@ describe('tooltip catalog', () => {
       ),
     );
     // One category entry for the whole frame group; the variants have no entry of their own.
-    expect(markup).toContain('Later (1)');
+    expect(markup).toContain('>Later</option>');
   });
 });
+
+const plainList = (hashes: number[]) => {
+  const list = hashes.map((hash) => ({ hash, group: '' }));
+  return { list, index: new Map(list.map((entry, i) => [keyOf(entry), i])) };
+};
+const plainStep = (
+  location: { pathname: string; search: string },
+  direction: number,
+  hashes: number[],
+) => {
+  const { list, index } = plainList(hashes);
+  const hash = Number(location.pathname.split('/')[2]);
+  return stepTarget(location, direction, list, index, { hash, group: '' }, (entry) =>
+    tooltipPath(entry.hash, location.search),
+  );
+};
 
 describe('previous/next stepping buttons', () => {
   const category: EditorData = {
@@ -441,27 +458,33 @@ describe('previous/next stepping buttons', () => {
     };
   }
   it('computes targets and the counter at both ends and in the middle', () => {
-    const hashes = [20, 21, 22];
-    expect(categoryPosition(20, hashes)).toEqual({
+    const list = plainList([20, 21, 22]);
+    const at = (hash: number) => categoryPosition({ hash, group: '' }, list.list, list.index);
+    expect(at(20)).toEqual({
       index: 1,
       total: 3,
       previous: undefined,
-      next: 21,
+      next: { hash: 21, group: '' },
     });
-    expect(categoryPosition(21, hashes)).toEqual({ index: 2, total: 3, previous: 20, next: 22 });
-    expect(categoryPosition(22, hashes)).toEqual({
+    expect(at(21)).toEqual({
+      index: 2,
+      total: 3,
+      previous: { hash: 20, group: '' },
+      next: { hash: 22, group: '' },
+    });
+    expect(at(22)).toEqual({
       index: 3,
       total: 3,
-      previous: 21,
+      previous: { hash: 21, group: '' },
       next: undefined,
     });
-    expect(categoryPosition(99, hashes)).toEqual({
+    expect(at(99)).toEqual({
       index: 0,
       total: 3,
       previous: undefined,
       next: undefined,
     });
-    expect(categoryPosition(1, [])).toEqual({
+    expect(categoryPosition({ hash: 1, group: '' }, [], new Map())).toEqual({
       index: 0,
       total: 0,
       previous: undefined,
@@ -469,6 +492,7 @@ describe('previous/next stepping buttons', () => {
     });
     expect(positionLabel({ index: 2, total: 3 })).toBe('2 of 3');
     expect(positionLabel({ index: 0, total: 3 })).toBe('3 in category');
+    expect(positionLabel({ index: 0, total: 513 }, 'Exotic Weapons')).toBe('513 in Exotic Weapons');
   });
   it('disables Previous on the first and Next on the last tooltip of the category', () => {
     const first = stepper('/t/20');
@@ -645,16 +669,17 @@ describe('stepping history', () => {
     });
     it('steps from /t/1?lang=fr to /t/2?lang=fr, remembering the full origin', () => {
       const location = { pathname: '/t/10', search: '?lang=fr&line=3' };
-      expect(stepTarget(location, 1, [10, 20, 30])).toEqual({
+      expect(plainStep(location, 1, [10, 20, 30])).toEqual({
         from: '/t/10?lang=fr&line=3',
         to: { path: '/t/20?lang=fr', pathname: '/t/20', search: '?lang=fr' },
+        entry: { hash: 20, group: '' },
       });
-      expect(stepTarget({ pathname: '/t/10', search: '' }, 1, [10, 20])?.to).toEqual({
+      expect(plainStep({ pathname: '/t/10', search: '' }, 1, [10, 20])?.to).toEqual({
         path: '/t/20',
         pathname: '/t/20',
         search: '',
       });
-      expect(stepTarget(location, -1, [10, 20, 30])).toBeUndefined();
+      expect(plainStep(location, -1, [10, 20, 30])).toBeUndefined();
     });
     it('keeps ?lang= through Next, Next, and committed Back history without touching the dropdown', () => {
       vi.useFakeTimers();
@@ -662,7 +687,7 @@ describe('stepping history', () => {
       entries[0] = '/t/10?lang=fr&line=3';
       let location = { pathname: '/t/10', search: '?lang=fr&line=3' };
       for (const direction of [1, 1]) {
-        const target = stepTarget(location, direction, [10, 20, 30]);
+        const target = plainStep(location, direction, [10, 20, 30]);
         expect(target).toBeDefined();
         stepping.step(target!.from, target!.to.path);
         location = target!.to;
