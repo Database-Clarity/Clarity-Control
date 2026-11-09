@@ -16,6 +16,7 @@ const fix = (text: string, index: number, id: RetiredFixId) => {
 
 describe('retired markup census', () => {
   const counts: Record<string, string[]> = {
+    '0': ['<blue … />', '<green … />', '<purple … />', '<green/>', '<breakSpaces/>'],
     '569260333': ['<blue … />'],
     '1694242448': ['<purple … />'],
     '1890422124': ['<green … />'],
@@ -27,6 +28,16 @@ describe('retired markup census', () => {
 
   it.each(Object.entries(counts))('flags every retired form in tooltip %s', (hash, expected) => {
     expect(tokens(retiredCensus[hash]!)).toEqual(expected);
+  });
+
+  it('finds exactly the concept inventory over the eight files and nothing else', () => {
+    const all = Object.values(retiredCensus).flatMap(tokens);
+    const count = (token: string) => all.filter((found) => found === token).length;
+    expect(count('<blue … />')).toBe(6);
+    expect(count('<green … />')).toBe(3);
+    expect(count('<purple … />')).toBe(2);
+    expect(count('<green/>') + count('<purple/>') + count('<breakSpaces/>')).toBe(3);
+    expect(all).toHaveLength(14);
   });
 
   it('words the warning as the concept does and underlines the whole token', () => {
