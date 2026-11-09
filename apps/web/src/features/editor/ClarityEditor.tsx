@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   defaultKeymap,
   history,
@@ -186,6 +186,7 @@ export function ClarityEditor({
   revealRef.current = symbolReveal;
   const rawRef = useRef(false);
   const [rawView, setRawView] = useState(false);
+  const flipRawView = useCallback(() => view.current && toggleRawView(view.current), []);
   const symbolsOn = useRef(symbols);
   const chipHooks = useRef({
     acceptKey: () => acceptKeyRef.current,
@@ -597,7 +598,14 @@ export function ClarityEditor({
       data-validation-pending={diagnostics.pending || undefined}
     >
       {markupRow && !readOnly && (
-        <MarkupRow key={lang} view={view} globals={globals} usage={usage} />
+        <MarkupRow
+          key={lang}
+          view={view}
+          globals={globals}
+          usage={usage}
+          rawView={symbols ? rawView : undefined}
+          onRawView={flipRawView}
+        />
       )}
       <div className={styles.textArea}>
         <div ref={host} className={styles.host} />
@@ -676,8 +684,9 @@ export function ClarityEditor({
         panel={open}
         onPanel={setPanel}
         onSuggest={readOnly ? undefined : () => view.current && openSuggest(view.current)}
-        rawView={symbols ? rawView : undefined}
-        onRawView={() => view.current && toggleRawView(view.current)}
+        // The markup row carries this toggle; the bar keeps it only while the row is not shown.
+        rawView={symbols && !(markupRow && !readOnly) ? rawView : undefined}
+        onRawView={flipRawView}
       />
     </div>
   );

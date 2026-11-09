@@ -126,13 +126,13 @@ export function StatusBar({
       {rawView !== undefined && onRawView && (
         <button
           type="button"
-          className={`${styles.item} ${styles.suggest}`}
-          title="Ctrl+Shift+. toggles raw markup"
+          className={styles.item}
+          title="Show the raw markup instead of symbols and colours (Ctrl+Shift+.)"
           aria-pressed={rawView}
           onMouseDown={(event) => event.preventDefault()}
           onClick={onRawView}
         >
-          {rawView ? 'Symbols' : 'Markup'}
+          Raw
         </button>
       )}
       {/* A live region so a warning that appears while typing is announced without moving focus. */}
@@ -329,6 +329,11 @@ export function HelpPanel({
         Hover a #variable, [title] or import to see what it contains (Ctrl/Cmd+K, Ctrl/Cmd+I does
         the same from the caret). Ctrl/Cmd+Click or F12 jumps to its definition; the browser Back
         button returns.
+      </p>
+      <p>
+        Alt+Enter on coloured text (like Alt+click) opens its tag: Enter edits the colour, Backspace
+        removes the tag and keeps the text. Ctrl/Cmd+Shift+. or the Raw button in the markup row
+        shows the markup as stored.
       </p>
       <p>
         Native spelling uses your browser&apos;s enabled dictionaries. Right-click a misspelling for

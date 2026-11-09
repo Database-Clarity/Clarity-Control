@@ -14,7 +14,7 @@ import { createServer } from 'vite';
 const web = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const shots = process.argv[2] ?? resolve(web, '../../.agents/reports/tint-tags-shots');
 await mkdir(shots, { recursive: true });
-const port = 5299;
+const port = Number(process.env.SYMBOLS_BROWSER_PORT ?? 5299);
 const url = `http://127.0.0.1:${port}/test/shell.html`;
 
 process.env.VITE_API_URL = 'https://api.fixture.invalid';
@@ -256,34 +256,29 @@ async function check(theme, width, height, phone, scale, name) {
 
   // Raw toggle: the markup shows, toggling back restores the exact layout.
   await page.locator('.cm-content').click({ position: { x: 4, y: 4 } });
-  const rawButton = page.locator('[data-editor-status] button[aria-pressed]');
-  if (phone) {
-    // Touch has no shortcut: the status-bar button toggles raw and names the state.
-    assert.equal((await rawButton.textContent()).trim(), 'Markup', `${label}: raw button label`);
-    await rawButton.click();
-    assert.equal((await rawButton.textContent()).trim(), 'Symbols', `${label}: raw state shown`);
-    await rawButton.click();
-    assert.equal(
-      await page.locator('.cm-symbol').count(),
-      widgets.length,
-      `${label}: button toggles back`,
-    );
-  } else {
-    assert.equal(
-      await rawButton.isVisible(),
-      false,
-      `${label}: no raw button on desktop until raw`,
-    );
-  }
+  // The markup row carries the toggle on every screen: a pressed-state button naming the shortcut.
+  const rawButton = page.locator('[data-markup-row] [data-raw-toggle]');
+  assert.equal(await rawButton.isVisible(), true, `${label}: raw button is in the markup row`);
+  assert.equal(await rawButton.getAttribute('aria-pressed'), 'false', `${label}: raw is off`);
+  assert.ok(
+    (await rawButton.getAttribute('title')).includes('Ctrl+Shift+.'),
+    `${label}: raw button tooltip names the shortcut`,
+  );
+  await rawButton.click();
+  assert.equal(await rawButton.getAttribute('aria-pressed'), 'true', `${label}: raw state shown`);
+  assert.equal(await page.locator('.cm-symbol').count(), 0, `${label}: button shows raw`);
+  await rawButton.click();
+  assert.equal(
+    await page.locator('.cm-symbol').count(),
+    widgets.length,
+    `${label}: button toggles back`,
+  );
   await page.keyboard.press('Control+Shift+.');
-  if (!phone) {
-    assert.equal(
-      (await page.locator('[data-raw-hint]').textContent()).trim(),
-      'Symbols',
-      `${label}: status bar shows raw state`,
-    );
-    assert.equal(await rawButton.isVisible(), true, `${label}: raw state is visible`);
-  }
+  assert.equal(
+    await rawButton.getAttribute('aria-pressed'),
+    'true',
+    `${label}: the button follows the shortcut`,
+  );
   assert.equal(await page.locator('.cm-symbol').count(), 0, `${label}: raw view has no widgets`);
   assert.equal(await page.locator('.cm-tint').count(), 0, `${label}: raw view has no tints`);
   assert.ok(

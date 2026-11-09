@@ -425,6 +425,88 @@ describe('symbol view', () => {
     expect(host.querySelector('.cm-symbol-popover code')?.textContent).toBe('<yellow … />');
   });
 
+  describe('Alt+Enter pins the tag at the caret', () => {
+    const text = 'x <yellow ab /> y <pve 3 /> z';
+    const altEnter = (view: EditorView) =>
+      act(() => {
+        key(view, { key: 'Enter', altKey: true });
+      });
+
+    it('selects the enclosed text and shows the same popover as Alt+click', () => {
+      const { view } = mount(text);
+      act(() => view.dispatch({ selection: { anchor: 11 } }));
+      expect(host.querySelector('.cm-symbol-popover')).toBeNull();
+      altEnter(view);
+      expect(view.state.selection.main).toMatchObject({ from: 10, to: 12 });
+      expect(host.querySelector('.cm-symbol-popover code')?.textContent).toBe('<yellow … />');
+      expect(host.querySelector('.cm-symbol-hint')?.textContent).toContain('remove tag');
+      // The pinned tag edits and removes exactly like the Alt+click one.
+      act(() => {
+        key(view, { key: 'Backspace' });
+      });
+      expect(view.state.doc.toString()).toBe(text.replace('<yellow ab />', 'ab'));
+    });
+
+    it('works from the edges of the tagged text and from a selection inside it', () => {
+      const { view } = mount(text);
+      act(() => view.dispatch({ selection: { anchor: 10 } }));
+      altEnter(view);
+      expect(view.state.selection.main).toMatchObject({ from: 10, to: 12 });
+      act(() => view.dispatch({ selection: { anchor: 12 } }));
+      expect(host.querySelector('.cm-symbol-popover')).toBeNull();
+      altEnter(view);
+      expect(view.state.selection.main).toMatchObject({ from: 10, to: 12 });
+      const three = text.indexOf('3');
+      act(() => view.dispatch({ selection: { anchor: three, head: three + 1 } }));
+      altEnter(view);
+      expect(host.querySelector('.cm-symbol-popover code')?.textContent).toBe('<pve … />');
+    });
+
+    it('does nothing without a tag at the caret, or for a selection outside or spanning tags', () => {
+      const { view } = mount(text);
+      act(() => view.dispatch({ selection: { anchor: 1 } }));
+      expect(key(view, { key: 'Enter', altKey: true })).toBe(false);
+      act(() => view.dispatch({ selection: { anchor: 8, head: 22 } }));
+      expect(key(view, { key: 'Enter', altKey: true })).toBe(false);
+      expect(view.state.selection.main).toMatchObject({ from: 8, to: 22 });
+      expect(host.querySelector('.cm-symbol-popover')).toBeNull();
+      expect(view.state.doc.toString()).toBe(text);
+    });
+
+    it('leaves an open pinned popover (and its edit input) alone when pressed again', () => {
+      const { view } = mount(text);
+      act(() => view.dispatch({ selection: { anchor: 11 } }));
+      altEnter(view);
+      act(() => {
+        key(view, { key: 'Enter' });
+      });
+      const input = host.querySelector<HTMLInputElement>('.cm-symbol-input')!;
+      input.value = '<blue';
+      altEnter(view);
+      expect(host.querySelector<HTMLInputElement>('.cm-symbol-input')).toBe(input);
+      expect(input.value).toBe('<blue');
+      act(() => {
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      });
+      // Esc closes the input without editing.
+      expect(host.querySelector('.cm-symbol-input')).toBeNull();
+      expect(view.state.doc.toString()).toBe(text);
+    });
+
+    it('is unhandled in the raw view', () => {
+      const { view } = mount(text);
+      act(() => view.dispatch({ selection: { anchor: 11 } }));
+      act(() => {
+        key(view, { key: '.', code: 'Period', ctrlKey: true, shiftKey: true });
+      });
+      expect(key(view, { key: 'Enter', altKey: true })).toBe(false);
+      act(() => {
+        key(view, { key: '.', code: 'Period', ctrlKey: true, shiftKey: true });
+      });
+      expect(key(view, { key: 'Enter', altKey: true })).toBe(true);
+    });
+  });
+
   it('caret mode shows the raw markup only where the caret is', () => {
     act(() => useSettingsStore.getState().updateDevice({ symbolReveal: 'caret' }));
     const { view } = mount();
