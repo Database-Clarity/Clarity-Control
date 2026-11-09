@@ -10,7 +10,6 @@ import {
   isBlankCopy,
   isEnhancedPair,
   previewedVariants,
-  storedFormVariants,
   variantForm,
   variantMatchesBase,
 } from './variants';
@@ -235,10 +234,6 @@ describe('enhanced pairs, override candidates and blank copies', () => {
   it('offers Edit override only for variants with text of their own, never for blank copies', () => {
     expect(variantForm(10, 13, data)).toBe('override');
     expect(editableOverrides(10, data)).toEqual([12, 15]);
-  });
-
-  it('lists Stored form only for derived enhanced pairs', () => {
-    expect(storedFormVariants(10, data)).toEqual([11]);
   });
 
   it('previews the enhanced pairs and editable overrides, not blank or identical copies', () => {

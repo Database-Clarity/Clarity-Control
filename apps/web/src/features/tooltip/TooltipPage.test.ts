@@ -386,14 +386,15 @@ describe('tooltip screen composition', () => {
     expect(previews[1].globals.type).toBe('Weapon Frame Enhanced');
     expect(markup).not.toContain('Edit override');
   });
-  it('offers no override for a blank copy, and Stored form only to maintainers on derived versions', () => {
+  it('offers no override for a blank copy, and the grouped perks only to maintainers', () => {
     const blank = tooltip(11, '');
     const derived = tooltip(11, base.text.en!.text);
-    for (const [variant, role, edit, stored] of [
+    for (const [variant, role, edit, grouped] of [
       [blank, 'editor', false, false],
       [derived, 'editor', false, false],
+      [derived, 'translator', false, false],
       [derived, 'maintainer', false, true],
-      [enhanced, 'maintainer', true, false],
+      [enhanced, 'maintainer', true, true],
     ] as const) {
       useAuthStore.setState({ user: { id: 1, login: 'alice', role } });
       useDataStore.setState({
@@ -404,7 +405,8 @@ describe('tooltip screen composition', () => {
       });
       const markup = render();
       expect(markup.includes('Edit override')).toBe(edit);
-      expect(markup.includes('Stored form')).toBe(stored);
+      expect(markup.includes('Stored form')).toBe(false);
+      expect(markup.includes('manifest perks open this editor entry')).toBe(grouped);
     }
   });
   it('composes one frame editor and projects shared imports into both editor and preview', () => {

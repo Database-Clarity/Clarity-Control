@@ -191,9 +191,47 @@
   min-width: 0;
   margin-left: auto;
 }
-.storedNote {
-  margin: 0 0 0.375rem;
+// Maintainers' grouped-perks popover: one dense row per manifest hash.
+.grouped {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  li {
+    display: contents;
+  }
+  li > * {
+    padding: 0.1875rem 0;
+    border-top: 1px solid var(--line);
+  }
+  li:first-child > * {
+    border-top: 0;
+  }
+}
+.groupedHash {
+  font-family: var(--editor-font, Consolas, monospace);
+  font-variant-numeric: tabular-nums;
+  user-select: all;
+}
+.groupedName {
+  min-width: 0;
+}
+.groupedBase,
+.groupedEnhanced {
+  white-space: nowrap;
   color: var(--text2);
+}
+.groupedEnhanced {
+  color: var(--enhanced);
+}
+.groupedHow {
+  grid-column: 2 / -1;
+  padding-top: 0 !important;
+  border-top: 0 !important;
+  color: var(--text2);
+  font-size: 0.75rem;
 }
 .paneToggles {
   display: inline-flex;

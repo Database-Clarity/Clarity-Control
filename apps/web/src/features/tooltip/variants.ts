@@ -171,13 +171,6 @@ export function editableOverrides(base: number, data: EditorData): number[] {
   return overrideVariants(base, data).filter((variant) => !isBlankCopy(base, variant, data));
 }
 
-/** Derived enhanced versions a maintainer can inspect as "Stored form". */
-export function storedFormVariants(base: number, data: EditorData): number[] {
-  return enhancedPairs(base, data).filter(
-    (variant) => variantForm(base, variant, data) === 'derived',
-  );
-}
-
 /** What the page previews next to the base: real enhanced pairs and editable overrides. */
 export function previewedVariants(base: number, data: EditorData): number[] {
   const overrides = new Set(editableOverrides(base, data));

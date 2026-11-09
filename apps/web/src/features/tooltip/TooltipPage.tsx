@@ -59,12 +59,8 @@ import { EditorPaneHeader } from './EditorPaneHeader';
 import { TranslationSource } from './TranslationSource';
 import { VariantWorkspace } from './VariantWorkspace';
 import { CompendiumPanel } from '../compendium/CompendiumPanel';
-import {
-  editableOverrides,
-  enhancedRender,
-  previewedVariants,
-  storedFormVariants,
-} from './variants';
+import { editableOverrides, enhancedRender, previewedVariants } from './variants';
+import { groupedPerks } from './grouping';
 import styles from './TooltipPage.module.scss';
 import {
   recordSteppingWorkspaceWork,
@@ -321,8 +317,7 @@ function TooltipWorkspace({
   const others = variantHashes(hash, data).filter((variant) => variant !== hash);
   const previewed = readOnly ? others : previewedVariants(hash, data);
   const overrides = readOnly ? [] : editableOverrides(hash, data);
-  const storedForms =
-    !readOnly && user?.role === 'maintainer' ? storedFormVariants(hash, data) : [];
+  const grouped = !readOnly && user?.role === 'maintainer' ? groupedPerks(hash, data) : undefined;
   // A canonical redirect drops line/variant highlights, just like tooltipPath.
   const requested = requestedHash === hash ? Number(search.get('variant')) : NaN;
   const activeVariant =
@@ -490,29 +485,7 @@ function TooltipWorkspace({
       }
       onEditOverride={(variant) => setPicked({ hash, variant })}
       onBack={() => setPicked({ hash, variant: null })}
-      storedForms={storedForms.map((variant) => ({
-        target: { hash: variant, name: nameOf(variant) },
-        node: (
-          <>
-            <p className={styles.storedNote}>
-              {nameOf(variant)} ({variant}) renders exactly like the base text, so it has nothing to
-              edit. This is what is stored for it (read only).
-            </p>
-            <ClarityEditor
-              stepping={suspended}
-              value={tooltipFor(variant, data).text[lang]?.text ?? ''}
-              lang={lang}
-              globals={globalsFor(variant)}
-              requireEnglish={false}
-              readOnly
-              readOnlyReason="Stored form: read only"
-              symbols={false}
-              findMemory={false}
-              onChange={() => undefined}
-            />
-          </>
-        ),
-      }))}
+      grouped={grouped}
     />
   );
 
