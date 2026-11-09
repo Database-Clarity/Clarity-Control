@@ -6,6 +6,8 @@ import type { SidebarPendingChange } from '../navigation/sidebarQueue';
 import styles from './ReviewQueue.module.scss';
 import { requireReviewRows, useReviewOpening } from './opening';
 
+const countFormat = new Intl.NumberFormat('en');
+
 const defaultRowHeight = 32;
 const overscan = 1;
 const QueueLink = memo(function QueueLink({
@@ -377,7 +379,7 @@ export function ReviewQueue({
     </div>
     {markerCount > 0 && (
       <Link className={styles.markerLink} to="/review?marker=1" title="Alias-marker migration leftovers: saved content equals live">
-        Marker-only ({markerCount.toLocaleString('en')})
+        Marker-only ({countFormat.format(markerCount)})
       </Link>
     )}
     </>
