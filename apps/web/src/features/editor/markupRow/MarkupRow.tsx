@@ -14,16 +14,22 @@ const numbered = 9;
  * The markup row: a 30px strip at the top of the editor (52px on touch) with the options an
  * author reaches for most, and "All" pinned at its end for every other one. The buttons never take
  * focus from the text, so the selection they act on stays put; keyboard users move along the row
- * with the arrow keys, insert with Enter or a number, and land back in the text.
+ * with the arrow keys, insert with Enter or a number, and land back in the text. "Raw", beside
+ * "All", flips the whole text between symbols and raw markup (the Ctrl+Shift+. toggle).
  */
 export const MarkupRow = memo(function MarkupRow({
   view,
   globals,
   usage,
+  rawView,
+  onRawView,
 }: {
   view: RefObject<EditorView | null>;
   globals: MarkupGlobals;
   usage?: UsageCorpus;
+  /** Whether the text shows as raw markup; undefined when this editor draws no symbols. */
+  rawView?: boolean;
+  onRawView?(): void;
 }) {
   // The toolbar catalogue depends only on variable definitions. Its insertion actions
   // receive the live globals separately; import snapshot edits must not rebuild every entry.
@@ -154,6 +160,21 @@ export const MarkupRow = memo(function MarkupRow({
           })}
         </div>
       </div>
+      {rawView !== undefined && onRawView && (
+        <button
+          type="button"
+          className={styles.rawButton}
+          data-raw-toggle
+          aria-pressed={rawView}
+          aria-keyshortcuts="Control+Shift+Period"
+          title="Show the raw markup instead of symbols and colours (Ctrl+Shift+.)"
+          // Pressing it never moves focus out of the text.
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={onRawView}
+        >
+          Raw
+        </button>
+      )}
       <AllPopover view={view} globals={globals} usage={usage} onResult={setMessage} />
       {message && (
         <div className={styles.note} role="status">
