@@ -3,6 +3,7 @@ import {
   type CompendiumData,
   countConflicts,
   languages,
+  type Lang,
   maskConflicts,
   resolveAlias,
   stableStringify,
@@ -81,29 +82,41 @@ export function validateChanges(changes: Change[], data: EditorData): TooltipVal
     }
     tooltips[change.hash] = withoutMarkers(change.next);
   }
-  const imports = new Map(
-    languages.map((lang) => [lang, tooltipImports(tooltips, {}, lang, data.aliases)]),
-  );
+  // The same catalogue before this save: every change replaced by its base (a new tooltip
+  // removed). An error in unchanged text that exists there too is not this save's doing.
+  const before = { ...data.bundle.tooltips };
+  for (const change of changes) {
+    if (change.base) before[change.hash] = withoutMarkers(change.base);
+    else delete before[change.hash];
+  }
+  const importsOf = (catalogue: Record<string, Tooltip>) =>
+    new Map(languages.map((lang) => [lang, tooltipImports(catalogue, {}, lang, data.aliases)]));
+  const imports = importsOf(tooltips);
+  const importsBefore = importsOf(before);
+  const globalsIn = (byLanguage: typeof imports, hash: number) => (lang: Lang) => {
+    const catalog = byLanguage.get(lang)!;
+    const item = data.items[hash];
+    return {
+      variables: catalog[2] ?? '',
+      titles: catalog[3] ?? '',
+      imports: catalog,
+      type: data.categories.find((category) => category.id === item?.categoryId)?.legacyType,
+    };
+  };
   return changes.flatMap(({ base, next: unmasked }) => {
     const next = tooltips[unmasked.hash]!;
     return [
       ...conflictMarkerIssues([{ hash: unmasked.hash, base, next: unmasked }]),
       ...validateGlobalAdditions({ base, next }, tooltips),
-      // Only text this change edits can block the save (errors elsewhere are warnings), so a
+      // An error blocks only if this save is responsible for it: the tooltip's text there is
+      // edited, or the error is new compared with the catalogue before the save (a sibling
+      // change removed what the text uses). Older errors in unchanged text only warn, so a
       // link-only change on a tooltip with unwritten English is never refused.
       ...validateTooltip(
         next,
-        (lang) => {
-          const catalog = imports.get(lang)!;
-          const item = data.items[next.hash];
-          return {
-            variables: catalog[2] ?? '',
-            titles: catalog[3] ?? '',
-            imports: catalog,
-            type: data.categories.find((category) => category.id === item?.categoryId)?.legacyType,
-          };
-        },
+        globalsIn(imports, next.hash),
         base,
+        globalsIn(importsBefore, next.hash),
       ),
     ];
   });

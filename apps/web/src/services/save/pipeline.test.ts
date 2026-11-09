@@ -111,6 +111,57 @@ describe('validation is scoped to text the change edits', () => {
     );
     expect(errors(issues).map((issue) => issue.hash)).toEqual([124]);
   });
+  describe('a sibling change in the same batch', () => {
+    const exporter = (body: string) => `export foo (\n${body}\n)`;
+    const data = () => {
+      const donor = { ...tooltip, hash: 124, text: { en: entry(exporter('Shared')) } };
+      const user123 = { ...tooltip, text: { en: entry('import foo from 124') } };
+      const state = editorData();
+      state.bundle.tooltips[124] = donor;
+      state.bundle.tooltips[123] = user123;
+      return { state, donor, user123 };
+    };
+    it('that removes an import the unchanged text uses blocks the save', async () => {
+      const { state, donor, user123 } = data();
+      expect(errors(validateChanges([{ hash: 123, base: user123, next: user123 }], state))).toEqual(
+        [],
+      );
+      const changes = [
+        { hash: 123, base: user123, next: { ...user123, associated: [30] } },
+        { hash: 124, base: donor, next: { ...donor, text: { en: entry('No export now') } } },
+      ];
+      expect(errors(validateChanges(changes, state))).toEqual([
+        expect.objectContaining({
+          hash: 123,
+          lang: 'en',
+          message: 'Unresolved import "foo" from 124.',
+        }),
+      ]);
+      await expect(prepareChanges(changes, user, state)).rejects.toThrow('Validation');
+    });
+    it('that keeps the import working does not block', () => {
+      const { state, donor, user123 } = data();
+      const changes = [
+        { hash: 123, base: user123, next: { ...user123, associated: [30] } },
+        { hash: 124, base: donor, next: { ...donor, text: { en: entry(exporter('Changed')) } } },
+      ];
+      expect(errors(validateChanges(changes, state))).toEqual([]);
+    });
+    it('does not turn an error that already existed into a blocker', () => {
+      const { state, donor } = data();
+      const broken = { ...tooltip, text: { en: entry('import gone from 124') } };
+      state.bundle.tooltips[123] = broken;
+      const changes = [
+        { hash: 123, base: broken, next: { ...broken, associated: [30] } },
+        { hash: 124, base: donor, next: { ...donor, text: { en: entry('Other text') } } },
+      ];
+      const issues = validateChanges(changes, state);
+      expect(errors(issues)).toEqual([]);
+      expect(issues).toContainEqual(
+        expect.objectContaining({ hash: 123, lang: 'en', severity: 'warning' }),
+      );
+    });
+  });
   it('a new tooltip with empty English still blocks', () => {
     expect(
       errors(

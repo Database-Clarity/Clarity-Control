@@ -54,6 +54,7 @@ import { PanelRow } from '../../ui/PanelRow';
 import { languageLabel } from '../../languageLabels';
 import { editorAccess } from './access';
 import { defaultLanguage, withLanguage } from './language';
+import { requireEnglish } from './requireEnglish';
 import { LanguageSummary } from './LanguageSummary';
 import { EditorPaneHeader } from './EditorPaneHeader';
 import { TranslationSource } from './TranslationSource';
@@ -301,6 +302,8 @@ function TooltipWorkspace({
   const globalsFor = (variant: number): MarkupGlobals => typedGlobals(legacyOf(variant));
   const textOf = (variant: number) =>
     (drafts[variant]?.next ?? tooltipFor(variant, data)).text[lang]?.text ?? '';
+  const requiresEnglish = (variant: number) =>
+    requireEnglish(hash, lang, tooltipFor(variant, data).text.en?.text ?? '', textOf(variant));
   // What the preview renders: the same text with conflict blocks resolved to "mine".
   const previewTextOf = (variant: number) =>
     (shown[variant]?.next ?? tooltipFor(variant, data)).text[lang]?.text ?? '';
@@ -445,7 +448,7 @@ function TooltipWorkspace({
       value={textOf(variant)}
       lang={lang}
       globals={globalsFor(variant)}
-      requireEnglish={hash > 3}
+      requireEnglish={requiresEnglish(variant)}
       readOnly={access.reason !== null}
       readOnlyReason={access.reason}
       preview={previewStatus}

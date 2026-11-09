@@ -88,15 +88,19 @@ export function validateText(
 
 /**
  * Validates every language of a tooltip. With `base` (the saved tooltip this one replaces, or
- * null for a new tooltip), only text the change edits can block: an error in a language whose
- * text equals the base text is listed as a warning, and an empty unwritten English text is not
+ * null for a new tooltip), an error blocks only if the change is responsible for it: the
+ * language's text is edited, or the same error is absent when this unchanged text is validated
+ * against `baseGlobalsFor` (the globals and imports before the whole save, so a sibling change
+ * that removes an import, variable, or title this text uses makes the save fail). Any other
+ * error in unchanged text is listed as a warning, and an empty unwritten English text is not
  * reported at all (a link-only or metadata-only change leaves it alone). Without `base`, every
- * language counts as edited.
+ * language counts as edited. `baseGlobalsFor` defaults to `globalsFor` (nothing else changed).
  */
 export function validateTooltip(
   tooltip: Tooltip,
   globalsFor: (lang: Lang) => MarkupGlobals,
   base?: Tooltip | null,
+  baseGlobalsFor: (lang: Lang) => MarkupGlobals = globalsFor,
 ): TooltipValidationIssue[] {
   const languages = new Set<Lang>(['en', ...(Object.keys(tooltip.text) as Lang[])]);
   // Reserved global documents are declaration libraries, not English descriptions.
@@ -104,14 +108,30 @@ export function validateTooltip(
   return [...languages].flatMap((lang) => {
     const text = tooltip.text[lang]?.text ?? '';
     const edited = !base || (base.text[lang]?.text ?? '') !== text;
-    return validateText(text, lang, globalsFor(lang), requireEnglish && edited, tooltip.hash).map(
-      (issue) => ({
-        ...issue,
-        severity: edited ? issue.severity : ('warning' as const),
-        hash: tooltip.hash,
-        lang,
-      }),
+    const issues = validateText(
+      text,
+      lang,
+      globalsFor(lang),
+      requireEnglish && edited,
+      tooltip.hash,
     );
+    // Errors already present before this save (same message on the same text) never block it.
+    const preexisting = edited
+      ? new Set<string>()
+      : new Set(
+          validateText(text, lang, baseGlobalsFor(lang), false, tooltip.hash)
+            .filter((issue) => issue.severity === 'error')
+            .map((issue) => issue.message),
+        );
+    return issues.map((issue) => ({
+      ...issue,
+      severity:
+        edited || issue.severity === 'warning' || !preexisting.has(issue.message)
+          ? issue.severity
+          : ('warning' as const),
+      hash: tooltip.hash,
+      lang,
+    }));
   });
 }
 
@@ -119,8 +139,9 @@ const maxListedTooltips = 8;
 
 /**
  * Creating or renaming a global is only allowed if no tooltip defines the same name locally in
- * that language. Only names this change adds are checked, so an already-clashing global stays
- * editable; the clashing tooltips are blocked from saving instead.
+ * that language. Only names this change adds are checked, so a global that already clashes stays
+ * editable. A clashing tooltip is blocked from saving only when its own text is edited or this
+ * change causes the clash (see validateTooltip); an untouched clashing tooltip only warns.
  */
 export function validateGlobalAdditions(
   change: { base: Tooltip | null; next: Tooltip },

@@ -82,3 +82,26 @@ describe('validateTooltip scoped to a base', () => {
     expect(validateTooltip(empty, globalsFor, empty)).toEqual([]);
   });
 });
+
+describe('validateTooltip errors this save causes', () => {
+  const revision = { updatedAt: '2026-01-01T00:00:00.000Z', updatedBy: 'a' };
+  const entry = (text: string) => ({ ...revision, text });
+  const text = 'import foo from 124';
+  const tooltip = { hash: 10, text: { fr: entry(text) }, associated: [] } as never;
+  const withImport = () => ({ ...globals, imports: { '124': 'export foo (\nShared\n)' } });
+  const withoutImport = () => ({ ...globals, imports: { '124': 'Nothing exported' } });
+
+  it('blocks unchanged text whose import this save removed', () => {
+    expect(validateTooltip(tooltip, withoutImport, tooltip, withImport)).toMatchObject([
+      { lang: 'fr', severity: 'error', message: 'Unresolved import "foo" from 124.' },
+    ]);
+  });
+  it('only warns when the same error exists without this save', () => {
+    expect(validateTooltip(tooltip, withoutImport, tooltip, withoutImport)).toMatchObject([
+      { lang: 'fr', severity: 'warning' },
+    ]);
+    expect(validateTooltip(tooltip, withoutImport, tooltip)).toMatchObject([
+      { lang: 'fr', severity: 'warning' },
+    ]);
+  });
+});
