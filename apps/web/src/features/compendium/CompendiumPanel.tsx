@@ -478,8 +478,8 @@ const PaneContents = memo(function PaneContents({
           ? undefined
           : ('review' as const);
   useEffect(() => {
-    if (!waiting) setPaneStatus(base.hash, paneStatus);
-  }, [setPaneStatus, base.hash, paneStatus, waiting]);
+    setPaneStatus(base.hash, paneStatus);
+  }, [setPaneStatus, base.hash, paneStatus]);
   useEffect(() => {
     if (!waiting) onCommitted(base.hash);
   }, [base.hash, waiting, onCommitted]);

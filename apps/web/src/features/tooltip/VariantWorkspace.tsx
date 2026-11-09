@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode 
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import styles from './TooltipPage.module.scss';
 import { useWorkspaceDivider } from './useWorkspaceDivider';
+import { usePaneStatus } from '../compendium/paneStatus';
 
 type Panel = 'source' | 'translation' | 'preview' | 'compendium';
 const panels: { id: Panel; label: string; toggle: boolean }[] = [
@@ -60,6 +61,8 @@ export function VariantWorkspace({
     preview,
     compendium,
   };
+  // A dot on the Compendium tab: matched or linked text, or an entry that needs a decision.
+  const compendiumStatus = usePaneStatus((state) => state.status);
   const visiblePanels = panels.filter(
     (panel) => panel.id === 'translation' || present(content[panel.id]),
   );
@@ -128,6 +131,14 @@ export function VariantWorkspace({
             onClick={() => setActive(id)}
           >
             {label}
+            {id === 'compendium' && compendiumStatus && (
+              <span
+                className={styles.statusDot}
+                data-status={compendiumStatus}
+                role="img"
+                aria-label={compendiumStatus === 'review' ? 'Needs review' : 'Matched'}
+              />
+            )}
           </button>
         ))}
       </div>
