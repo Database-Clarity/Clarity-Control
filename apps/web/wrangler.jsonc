@@ -1,0 +1,13 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "clarity-control",
+  "compatibility_date": "2025-11-01",
+  "account_id": "c5ec2772673dc72f5e58587ef4c80ff8",
+  // Assets-only Worker for the v2 editor. The app uses hash routing, so no SPA fallback is needed.
+  // workers_dev stays on for the first check; the custom domain control.d2clarity.com is attached
+  // later by the owner (not in this file). VITE_API_URL is baked in at build time, not set here.
+  "workers_dev": true,
+  "assets": {
+    "directory": "./dist",
+  },
+}

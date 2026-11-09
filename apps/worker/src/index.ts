@@ -1,7 +1,7 @@
 import publisherConfig from '../../../config/publisher.json';
 import { ZodError } from 'zod';
 import { agentGuidance } from './agentGuidance.js';
-import { callback, identity, login } from './auth.js';
+import { callback, identity, login, siteOrigins } from './auth.js';
 import { managePermissions, history } from './admin.js';
 import { compendiumRefresh } from './compendium.js';
 import { GitHub } from './github.js';
@@ -16,7 +16,7 @@ import type { Context, Env } from './types.js';
 async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
-  if (request.method === 'GET' && path === '/auth/login') return login(env);
+  if (request.method === 'GET' && path === '/auth/login') return login(request, env);
   if (request.method === 'GET' && path === '/auth/callback') return callback(request, env);
   if (publisherConfig.enabled && path === '/push-live') throw new HttpError(410, 'Use /publish');
   if (!publisherConfig.enabled && ['/publish', '/publish/kick'].includes(path))
@@ -62,7 +62,7 @@ async function route(request: Request, env: Env): Promise<Response> {
 const worker: { fetch(request: Request, env: Env, context: Context): Promise<Response> } = {
   async fetch(request, env) {
     const origin = request.headers.get('Origin');
-    const allowed = !origin || [env.SITE_ORIGIN, 'http://localhost:5173'].includes(origin);
+    const allowed = !origin || [...siteOrigins(env), 'http://localhost:5173'].includes(origin);
     let response: Response;
     try {
       if (!allowed) throw new HttpError(403, 'Origin not allowed');

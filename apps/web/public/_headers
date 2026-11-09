@@ -1,0 +1,10 @@
+# Cloudflare static-assets headers (copied into dist by Vite).
+# Hashed build output never changes under the same name.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The entry document must always be revalidated so a deploy is picked up at once.
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+/
+  Cache-Control: public, max-age=0, must-revalidate

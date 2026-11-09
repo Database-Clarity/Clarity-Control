@@ -1,5 +1,7 @@
 export interface Env {
   SITE_ORIGIN: string;
+  /** Extra allowed site origins, comma-separated (CORS and sign-in return); `SITE_ORIGIN` is always allowed. */
+  SITE_ORIGINS?: string;
   SITE_URL: string;
   GITHUB_OWNER: string;
   GITHUB_REPO: string;
