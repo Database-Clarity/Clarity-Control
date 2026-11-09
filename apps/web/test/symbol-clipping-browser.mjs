@@ -147,6 +147,24 @@ async function open(theme, scale) {
     window.location.hash = '#/t/1000?lang=en';
   });
   await page.locator('.cm-content').first().waitFor();
+  // Light draws symbols as masks that load after first paint: wait for every symbol image so the
+  // screenshots show them all.
+  await page.evaluate(async () => {
+    const urls = new Set();
+    for (const sheet of document.styleSheets)
+      for (const rule of sheet.cssRules ?? [])
+        for (const m of rule.cssText.matchAll(/url\("?(https:[^")]+)"?\)/g)) urls.add(m[1]);
+    await Promise.all(
+      [...urls].map(
+        (u) =>
+          new Promise((done) => {
+            const img = new window.Image();
+            img.onload = img.onerror = () => done();
+            img.src = u;
+          }),
+      ),
+    );
+  });
   await page.waitForTimeout(500);
   return { context, page };
 }
