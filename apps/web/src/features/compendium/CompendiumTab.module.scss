@@ -668,6 +668,21 @@ p.muted {
 
   @include compact-bar;
 
+  // Touch targets: links and folds get a 44px hit area without taking more room.
+  .counts a,
+  .linked,
+  .openEditor,
+  .fold,
+  .nearby summary,
+  .source {
+    padding-block: 1rem;
+    margin-block: -1rem;
+  }
+
+  .step {
+    min-height: 2.75rem;
+  }
+
   .more summary {
     width: 2.75rem;
     height: 2.75rem;
