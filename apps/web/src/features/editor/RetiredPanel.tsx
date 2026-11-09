@@ -79,8 +79,10 @@ export function RetiredPanel({
           </button>
           {found.length > simple && (
             <span className={styles.note}>
-              {found.length - simple} block or table form{found.length - simple === 1 ? '' : 's'}{' '}
-              stay for you to preview.
+              {found.length - simple === 1
+                ? '1 block or table form stays'
+                : `${found.length - simple} block or table forms stay`}{' '}
+              for you to preview.
             </span>
           )}
         </div>

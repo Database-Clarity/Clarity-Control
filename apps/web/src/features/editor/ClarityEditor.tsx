@@ -683,10 +683,7 @@ export function ClarityEditor({
             readOnly={readOnly}
             onApply={applyRetired}
             onFixAll={fixAllRetiredMarkup}
-            onClose={() => {
-              setPanel(null);
-              view.current?.focus();
-            }}
+            onClose={closeAndFocus}
           />
         )}
         {open === 'help' && <HelpPanel issues={issues} onClose={closeAndFocus} />}

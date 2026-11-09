@@ -126,6 +126,16 @@ describe('retired markup in the editor', () => {
     expect(view().hasFocus).toBe(true);
   });
 
+  it('closing the retired panel never calls the editor focus itself (a phone tap must not raise the keyboard)', () => {
+    mount(rites);
+    const focus = vi.spyOn(EditorView.prototype, 'focus');
+    click(status());
+    click(q('#editor-panel-retired button[aria-label^="Close"]'));
+    expect(panel()).toBeNull();
+    expect(focus).not.toHaveBeenCalled();
+    focus.mockRestore();
+  });
+
   it('cuts a long tag with an ellipsis and keeps the whole text as the title', () => {
     const long = `<blue ${'word '.repeat(20)}/>`;
     mount(long);
