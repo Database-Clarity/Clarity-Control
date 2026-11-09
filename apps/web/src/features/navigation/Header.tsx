@@ -53,12 +53,15 @@ export function Header({
 const LOCKUP_ASPECT = 6005 / 1020;
 const LOCKUP_HEIGHT_REM = 1.75;
 /**
- * The finder slot holds the category select (12rem), the weapon or activity select where the
- * category has one (12rem), and the field (at least 12rem, 14rem preferred) with the position
- * readout: below this the field is under ~14rem.
+ * The finder slot holds the category select (12rem) and the field (14rem preferred, 12rem at
+ * least) with its position readout: below this the field is under ~14rem.
  */
 const FINDER_MIN_REM = 25;
-const FINDER_MIN_GROUPED_REM = 37;
+/**
+ * With the weapon or activity select (another 12rem and a gap) the slot needs room for all three
+ * controls and the readout, or the readout would sit under the field; the lockup gives way first.
+ */
+const FINDER_MIN_GROUPED_REM = 41;
 
 /**
  * Whether the lockup would leave the finder under its minimum. Measured from the parts that do not
