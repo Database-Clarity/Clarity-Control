@@ -2,16 +2,27 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { contrastRatio } from '../features/compendium/sheetSurface';
 
-const source = readFileSync(new URL('./tokens.scss', import.meta.url), 'utf8');
-function block(name: string): Record<string, string> {
+// Line endings normalised: a Windows checkout has CRLF, CI has LF.
+const source = readFileSync(new URL('./tokens.scss', import.meta.url), 'utf8').replace(
+  /\r\n/g,
+  '\n',
+);
+function body(name: string): string {
   const start = source.indexOf(`@mixin ${name} {`);
-  const body = source.slice(start, source.indexOf('\n}\n', start));
+  const end = source.indexOf('\n}\n', start);
+  if (start < 0 || end < 0) throw new Error(`tokens.scss: no complete @mixin ${name}`);
+  return source.slice(start, end);
+}
+/** The block's six-digit hex values (for contrast). */
+function block(name: string): Record<string, string> {
   return Object.fromEntries(
-    [...body.matchAll(/--([a-z0-9-]+):\s*(#[0-9a-f]{6})\s*;/gi)].map((m) => [m[1], m[2]]),
+    [...body(name).matchAll(/--([a-z0-9-]+):\s*(#[0-9a-f]{6})\s*;/gi)].map((m) => [m[1], m[2]]),
   );
 }
+/** Every custom property the block declares, whatever its value. */
+const declared = (name: string) =>
+  [...body(name).matchAll(/^\s*--([a-z0-9-]+):/gm)].map((m) => m[1]).sort();
 const light = block('light-tokens');
-const dark = block('dark-tokens');
 const previewSurface = '#fdfeff';
 const ratio = (fg: string, bg: string) => contrastRatio(light[fg] ?? fg, light[bg] ?? bg);
 
@@ -66,8 +77,8 @@ describe('light theme tokens (theme design spec §2-§3)', () => {
     expect(contrastRatio(light['sym-arc'], light['sym-stasis'])).toBeGreaterThanOrEqual(1.5);
   });
 
-  it('defines every symbol token in both themes (dark draws the game artwork and ignores them)', () => {
-    const names = (map: Record<string, string>) => Object.keys(map).sort();
-    expect(names(dark)).toEqual(names(light));
+  it('defines every token in both themes (dark draws the game artwork and ignores --sym-*)', () => {
+    expect(declared('dark-tokens')).toEqual(declared('light-tokens'));
+    expect(declared('dark-tokens').filter((name) => name.startsWith('sym-'))).toHaveLength(11);
   });
 });

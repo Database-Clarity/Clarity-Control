@@ -65,7 +65,7 @@ $name-floor: $name-size * 0.75;
       @include light-values;
       outline: 1px solid var(--line);
     }
-    }
+  }
 }
 .preview {
   width: 100%;
