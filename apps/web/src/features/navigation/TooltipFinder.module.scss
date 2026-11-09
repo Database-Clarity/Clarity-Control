@@ -108,17 +108,14 @@
   border-radius: 0.25rem;
   overflow: hidden;
 
-  // Rows that carry a group, an entry, a kind, and a hash need the room.
+  // Rows that carry a group, an entry, a kind, and a hash need the room. The list hangs from the
+  // field's right edge, which always has the readout and the account buttons beyond it, so it
+  // never leaves the viewport however tight or scaled the bar is.
   &[data-wide]:not([data-variant='sheet']) {
     width: max(100%, 30rem);
-
-    // In the band (decided by the header, so it follows the interface scale) the field is not at
-    // the left edge: open towards the viewport, never past it.
-    [data-compact] & {
-      left: auto;
-      right: 0;
-      max-width: calc(100vw - 1rem);
-    }
+    left: auto;
+    right: 0;
+    max-width: calc(100vw - 1rem);
   }
 
   &[data-variant='sheet'] {
@@ -213,6 +210,11 @@
     small {
       justify-content: flex-start;
       text-overflow: ellipsis;
+    }
+
+    // Two lines: the tail may ellipsise again (the entry has its own line).
+    .tail {
+      flex: 0 1 auto;
     }
   }
 
