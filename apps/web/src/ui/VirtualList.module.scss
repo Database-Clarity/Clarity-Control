@@ -1,0 +1,54 @@
+.viewport {
+  position: relative;
+  overflow: auto;
+  min-height: 0;
+  height: 100%;
+  // A definite height keeps the full virtual track out of ancestor sizing.
+  contain: strict;
+  container-type: inline-size;
+
+  &:focus-visible {
+    outline: 2px solid var(--accent-ink, currentColor);
+    outline-offset: -2px;
+  }
+}
+
+.sizer {
+  position: absolute;
+  width: 0;
+  height: 1rem;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.track {
+  width: 1px;
+  pointer-events: none;
+}
+
+// Takes no layout space: the pinned group header sits over the first row.
+.sticky {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 0;
+  overflow: visible;
+  contain: layout;
+
+  > * {
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+  }
+}
+
+.window {
+  position: absolute;
+  inset-inline: 0;
+  contain: layout paint;
+}
+
+.item {
+  position: absolute;
+  inset-inline: 0;
+}

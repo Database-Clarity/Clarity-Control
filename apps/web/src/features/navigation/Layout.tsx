@@ -30,7 +30,8 @@ import { documentTitle } from './documentTitle';
 import { links, workspacePath } from './links';
 import { count } from './notices';
 import { useShellNotices } from './useShellNotices';
-import { CompendiumSidebarNavigation, ReviewSidebarNavigation } from './SidebarNavigation';
+import { ReviewSidebarNavigation } from './SidebarNavigation';
+import { CompendiumQueue } from '../compendium/CompendiumQueue';
 import { SettingsSync } from '../settings/SettingsSync';
 import { SettingsPopover } from '../settings/SettingsPopover';
 import { RememberRoute } from '../settings/SettingsRedirect';
@@ -223,7 +224,7 @@ function LayoutContent() {
   const finder = (
     <>
       {data && isEditor && <TooltipNavigation data={data} variant={phone ? 'sheet' : 'bar'} />}
-      {phone && isCompendium && <CompendiumSidebarNavigation />}
+      {phone && isCompendium && <CompendiumQueue />}
       {phone && isReview && <ReviewSidebarNavigation />}
       <ShellSlotHost name="finder" className={styles.slotHost} />
     </>
@@ -291,7 +292,7 @@ function LayoutContent() {
                 hidden={columnCollapsed}
               >
                 {previewColumn && <ShellSlotHost name="left" className={styles.leftHost} />}
-                {isCompendium && <CompendiumSidebarNavigation />}
+                {isCompendium && <CompendiumQueue />}
                 {isReview && <ReviewSidebarNavigation />}
               </aside>
               <div className={styles.dividerCell} data-collapsed={columnCollapsed || undefined}>

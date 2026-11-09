@@ -9,13 +9,12 @@ import { guidedFixture } from '../../../test/guided-fixture';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { useCompendiumStore } from './store';
-import { BulkPreview, createBulkPreview } from './BulkPreview';
-import { CategoryReview } from './CategoryReview';
 import { CellPicker } from './CellPicker';
+import { CompendiumDetail } from './CompendiumDetail';
+import { matchLocation } from './sourceLocation';
+import { MemoryRouter } from 'react-router-dom';
 import { CompendiumDiff } from './CompendiumDiff';
 import { CompendiumPanel } from './CompendiumPanel';
-import { GuidedPreview } from './GuidedPreview';
-import { ProposalContext } from './ProposalContext';
 import { reviewQueue } from './reviewQueue';
 import { emptyProgress, sourceFingerprint } from './reviewProgress';
 import { proposalFor } from './rapidReview';
@@ -156,12 +155,34 @@ describe('compendium newline preservation per surface', () => {
     expect(multiline(host, 'ul button')).toHaveLength(1);
   });
 
-  it('ProposalContext lazily opens nearby cells while preserving their source line breaks', async () => {
+  it('CompendiumDetail keeps breaks in candidate cells and lazily opened nearby cells', async () => {
     const f = guided();
     const match = f.proposals.get(100)!.match!;
     match.tab.grid = [{ row: match.row.rowIndex, col: 1, cell: cellOf(TEXT) }] as never;
     const compact = { ...match, tab: { ...match.tab, grid: undefined, rows: [] } };
-    const host = await mount(createElement(ProposalContext, { match: compact, source: f.source }));
+    const host = await mount(
+      createElement(
+        MemoryRouter,
+        null,
+        createElement(CompendiumDetail, {
+          row: { hash: 100, name: 'Sample 100', category: 'weapon-trait', kind: 'proposal' },
+          categoryLabel: 'Traits',
+          manifest: [],
+          currentText: TEXT,
+          blocks: [
+            {
+              id: 'proposal',
+              origin: 'proposal',
+              match: compact,
+              location: matchLocation(compact, f.source),
+            },
+          ],
+          highlight: 0,
+          onHighlight: vi.fn(),
+          source: f.source,
+        }),
+      ),
+    );
     expect(multiline(host)).toHaveLength(1);
     await act(async () => {
       const details = host.querySelector('details')!;
@@ -169,68 +190,5 @@ describe('compendium newline preservation per surface', () => {
       details.dispatchEvent(new Event('toggle'));
     });
     expect(multiline(host)).toHaveLength(2);
-  });
-
-  it('BulkPreview keeps breaks in each proposal source', () => {
-    const f = guided();
-    const entries = reviewQueue(
-      f.editor,
-      f.source,
-      {},
-      emptyProgress(),
-      sourceFingerprint(f.source.tabs),
-    );
-    const proposals = new Map(
-      entries.map((entry) => [entry.hash, proposalFor(entry.base, f.editor, f.source)]),
-    );
-    const preview = createBulkPreview(f.editor, f.source, entries, proposals);
-    const html = renderToStaticMarkup(
-      createElement(BulkPreview, {
-        preview,
-        page: 0,
-        current: true,
-        canEdit: true,
-        onAccept: vi.fn(),
-        onPage: vi.fn(),
-        onCancel: vi.fn(),
-      }),
-    );
-    expect(multiline(dom(html))).toHaveLength(6);
-  });
-
-  it('GuidedPreview keeps breaks in the frozen preview sources', async () => {
-    const f = guided();
-    const host = await mount(
-      createElement(GuidedPreview, { ...f, category: f.categories[0], canEdit: true }),
-    );
-    await click(host, 'Preview all high');
-    expect(multiline(host, '[aria-label="Category acceptance preview"]').length).toBeGreaterThan(0);
-  });
-
-  it('CategoryReview sample review keeps breaks in the proposed source', () => {
-    const f = guided();
-    const guidance = {
-      ready: true,
-      reloading: false,
-      conflict: false,
-      saving: false,
-      diskSaved: false,
-      document: f.document,
-      proposalInput: f.document,
-      planningRevision: 0,
-      persistence: { getSnapshot: () => ({ ready: true, document: f.document }) },
-    } as never;
-    const html = renderToStaticMarkup(
-      createElement(CategoryReview, {
-        categories: f.categories,
-        editor: f.editor,
-        source: f.source,
-        proposals: f.proposals,
-        guidance,
-        onReview: vi.fn(),
-      }),
-    );
-    const sample = dom(html).querySelector('[aria-label="Sample proposed source"]')!;
-    expect(multiline(sample)).toHaveLength(1);
   });
 });

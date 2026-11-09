@@ -5,6 +5,8 @@ import type { displayMatches } from './displayMatches';
 import { applyReviewProgress, type reviewEvidence } from './reviewQueue';
 import type { ReviewProgress } from './reviewProgress';
 import type { ReviewProposal } from './rapidReview';
+import { deriveQueueRows, type QueueRow } from './queueRows';
+import { sortRows, type CategoryInfo } from './queueView';
 
 type Prepared = ReturnType<typeof displayMatches>;
 type Evidence = ReturnType<typeof reviewEvidence>;
@@ -162,4 +164,52 @@ export function warmPreparedProposals(prepared: Prepared, core: Map<number, Revi
     if (idle !== undefined) cancelIdleCallback(idle);
     if (timer !== undefined) clearTimeout(timer);
   };
+}
+
+const rowCache = new WeakMap<
+  ReturnType<typeof applyReviewProgress>,
+  {
+    prepared: Prepared | undefined;
+    proposals: Map<number, ReviewProposal>;
+    restored: ReadonlySet<number>;
+    categories: ReadonlyMap<string, CategoryInfo>;
+    rows: QueueRow[];
+  }
+>();
+const decisionIndex = new WeakMap<Prepared, Map<number, Prepared['decisions'][number]>>();
+
+/** Decisions by hash, built once per prepared display. */
+export function preparedDecisions(prepared: Prepared | undefined) {
+  if (!prepared) return new Map<number, Prepared['decisions'][number]>();
+  let index = decisionIndex.get(prepared);
+  if (!index) decisionIndex.set(prepared, (index = new Map(prepared.decisions.map((d) => [d.hash, d]))));
+  return index;
+}
+
+/**
+ * Queue rows for the Compendium tab, built once per (entries, display, proposals, scope). Selection,
+ * filters, and search narrow this array; they never rebuild it.
+ */
+export function preparedQueueRows(
+  entries: ReturnType<typeof applyReviewProgress>,
+  prepared: Prepared | undefined,
+  proposals: Map<number, ReviewProposal>,
+  restored: ReadonlySet<number>,
+  categories: ReadonlyMap<string, CategoryInfo>,
+): QueueRow[] {
+  const previous = rowCache.get(entries);
+  if (
+    previous &&
+    previous.prepared === prepared &&
+    previous.proposals === proposals &&
+    previous.restored === restored &&
+    previous.categories === categories
+  )
+    return previous.rows;
+  const rows = sortRows(
+    deriveQueueRows({ entries, decisions: preparedDecisions(prepared), proposals, restored }),
+    categories,
+  );
+  rowCache.set(entries, { prepared, proposals, restored, categories, rows });
+  return rows;
 }

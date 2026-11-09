@@ -1,9 +1,6 @@
-import { createElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vitest';
 import { guidedFixture } from '../../../test/guided-fixture';
 import { guidedDecisions, guidedRevision } from './guidedDecisions';
-import { GuidedPreview } from './GuidedPreview';
 import { proposalFor } from './rapidReview';
 import { loadManifestFacts } from './manifestFacts';
 
@@ -257,7 +254,7 @@ it('preserves human overrides and excludes new membership; missing references ar
   ).toContain('Reference 100');
 });
 
-it('withholds fuzzy proposals and makes preview-only scope and spot-check limitations visible', () => {
+it('withholds fuzzy proposals from high-confidence decisions', () => {
   const f = guidedFixture();
   f.proposals.get(102)!.link = undefined;
   const [group] = guidedDecisions(
@@ -269,13 +266,6 @@ it('withholds fuzzy proposals and makes preview-only scope and spot-check limita
     f.scope,
   );
   expect(group.entries[2].confidence).toBe('high');
-  const html = renderToStaticMarkup(
-    createElement(GuidedPreview, { ...f, category: f.categories[0] }),
-  );
-  expect(html).toContain('6 recorded entries');
-  expect(html).toContain('not individual review');
-  expect(html).toContain('local link-only drafts');
-  expect(html).not.toContain('Accept category');
 });
 
 it('one positive sample establishes a tab; negative samples never establish an absence rule', () => {

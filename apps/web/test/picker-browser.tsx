@@ -1,19 +1,15 @@
-import { useState, useSyncExternalStore } from 'react';
+import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import type { CompendiumData, Tooltip } from '@clarity/core';
 import type { EditorData } from '../src/stores/data';
 import { useAuthStore } from '../src/stores/auth';
+import { useDataStore } from '../src/stores/data';
 import { useDraftStore } from '../src/stores/drafts';
-import { CategoryReview } from '../src/features/compendium/CategoryReview';
 import { LinkPicker } from '../src/features/compendium/LinkPicker';
-import { ReviewQueue } from '../src/features/compendium/MatchReviewPage';
-import { GuidancePersistence } from '../src/features/compendium/guidancePersistence';
-import { reviewCategories } from '../src/features/compendium/reviewCategories';
-import { reviewQueue } from '../src/features/compendium/reviewQueue';
-import { emptyProgress, sourceFingerprint } from '../src/features/compendium/reviewProgress';
+import { CompendiumTab } from '../src/features/compendium/CompendiumTab';
+import { CompendiumQueue } from '../src/features/compendium/CompendiumQueue';
 import { useCompendiumStore } from '../src/features/compendium/store';
-import styles from '../src/features/compendium/MatchReview.module.scss';
 import layout from '../src/features/navigation/Layout.module.scss';
 import '../src/ui/global.scss';
 
@@ -65,20 +61,8 @@ const editor: EditorData = {
     tooltips: { 101: base },
   },
 };
-const entries = reviewQueue(editor, source, {}, emptyProgress(), sourceFingerprint(source.tabs));
-const proposals = new Map();
-const categories = reviewCategories(entries, editor, proposals, false);
-let stored: unknown = null;
-const persistence = new GuidancePersistence(
-  'synthetic-picker',
-  'synthetic-memory',
-  { getItem: () => null, setItem: () => {} },
-  async (_input, init) => {
-    if (init?.method === 'POST') stored = JSON.parse(String(init.body)).document;
-    return Response.json({ document: stored, revision: stored ? 'synthetic-revision' : null });
-  },
-);
 useAuthStore.setState({ user: null });
+useDataStore.setState({ data: editor });
 useDraftStore.setState({ hydrated: true, drafts: {} });
 useCompendiumStore.setState({ data: source });
 // This small synthetic fixture exercises the normal synchronous matching fallback.
@@ -87,9 +71,7 @@ Object.defineProperty(window, 'Worker', { value: undefined, configurable: true }
 
 function Fixture() {
   const [ordinary, setOrdinary] = useState(false);
-  const [entriesMode, setEntriesMode] = useState(false);
   const location = useLocation();
-  const state = useSyncExternalStore(persistence.subscribe, persistence.getSnapshot);
   return (
     <div className={`${layout.layout} ${layout.reviewMode}`}>
       <aside className={layout.sidebar} data-open="false">
@@ -101,58 +83,29 @@ function Fixture() {
           <button disabled>Review and save drafts</button>
         </div>
       </aside>
+      <aside className={layout.left}>
+        <CompendiumQueue />
+      </aside>
       <main className={layout.main}>
-        <article
-          className={`${styles.review} ${entriesMode ? styles.entryReview : styles.categoryReview}`}
-        >
-          <header className={styles.heading}>
-            <h1>Synthetic sample review</h1>
-            <button onClick={() => setOrdinary(!ordinary)}>Toggle ordinary picker</button>
-            <button onClick={() => setEntriesMode(!entriesMode)}>Toggle entry review</button>
-          </header>
-          {entriesMode ? (
-            <ReviewQueue editor={editor} source={source} storageKey="synthetic-review-progress" />
-          ) : ordinary ? (
-            <LinkPicker base={base} name="Sample 100" category="weapon-trait" onLinked={() => {}} />
-          ) : (
-            <CategoryReview
-              categories={categories}
-              editor={editor}
-              source={source}
-              proposals={proposals}
-              guidance={{ ...state, persistence }}
-              onReview={() => {}}
-            />
-          )}
-        </article>
+        <button onClick={() => setOrdinary(!ordinary)}>Toggle ordinary picker</button>
+        {ordinary ? (
+          <LinkPicker base={base} name="Sample 100" category="weapon-trait" onLinked={() => {}} />
+        ) : (
+          <CompendiumTab />
+        )}
         <output data-fixture-route>{location.pathname}</output>
       </main>
     </div>
   );
 }
 
-await persistence.start();
-persistence.synchronize(
-  categories.map((category) => ({
-    id: category.id,
-    name: category.name,
-    rule: category.rule,
-    count: category.entries.length,
-    hashes: category.entries.map((entry) => entry.hash),
-    active: true,
-  })),
-  'synthetic-baseline',
-);
 Object.assign(window, {
   pickerFixture: {
-    read: () => ({
-      document: persistence.getSnapshot().document,
-      drafts: useDraftStore.getState().drafts,
-    }),
+    read: () => ({ drafts: useDraftStore.getState().drafts }),
   },
 });
 createRoot(document.getElementById('root')!).render(
-  <MemoryRouter initialEntries={['/compendium?view=entries']}>
+  <MemoryRouter initialEntries={['/compendium']}>
     <Fixture />
   </MemoryRouter>,
 );
