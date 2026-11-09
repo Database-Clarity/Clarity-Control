@@ -16,7 +16,9 @@ State is in the URL: `?lang=` (default: the first available language, never writ
 `?q=` (name, hash, or category; typing is debounced into the URL) and `?state=outdated|missing`. Picking a
 language pushes history; filters replace. Translators see only their assigned languages and no coverage;
 editors and maintainers see every language plus a coverage table (translated, outdated, missing) that also
-picks the language: a side rail when the page has room, otherwise a "Coverage" popover. Read-only: nothing
+picks the language: a side rail when the page has room, otherwise a "Coverage" popover. Its totals
+count only the selected category (labelled "<Category> only", otherwise "All categories"); counts are
+built once per language for every category, so switching the filter is a lookup. Read-only: nothing
 is written, and roles are still enforced by the Worker.
 
 The list is virtualized (fixed rows, a bounded DOM window, one tab stop). Up and Down move the selection,
