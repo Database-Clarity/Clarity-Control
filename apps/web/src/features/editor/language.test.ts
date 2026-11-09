@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { highlightTree, tagHighlighter, tags } from '@lezer/highlight';
 import { clarityLanguage } from './language';
 
@@ -22,7 +22,7 @@ function highlights(text: string) {
 it('retains markup and comment boundaries inside long unstyled prose', () => {
   const prefix = 'Ordinary prose with Unicode 🡅 and punctuation. '.repeat(40);
   const text = [
-    prefix + '#damage ${20+#d} <solar/> [Detail] |b2 end',
+    prefix + '#damage ${20+#d} <solar/> [Detail] end',
     prefix + '<title Label [Detail] />',
     'https://example.test/plain // comment #ignored',
     '/* multiline',
@@ -32,10 +32,10 @@ it('retains markup and comment boundaries inside long unstyled prose', () => {
   expect(ranges).toEqual(
     expect.arrayContaining([
       { text: '#damage', kind: 'variable' },
-      { text: '${20+#d}', kind: 'number' },
+      { text: '${20', kind: 'number' },
+      { text: '+#d}', kind: 'variable' },
       { text: '<solar/>', kind: 'tag' },
       { text: '[Detail]', kind: 'tag' },
-      { text: '|b2', kind: 'type' },
       { text: '#visible', kind: 'variable' },
     ]),
   );
@@ -45,6 +45,7 @@ it('retains markup and comment boundaries inside long unstyled prose', () => {
   expect(ranges.some((r) => r.kind === 'comment' && r.text.includes('#hidden'))).toBe(true);
   expect(ranges.filter((r) => r.kind === 'variable').map((r) => r.text)).toEqual([
     '#damage',
+    '+#d}',
     '#visible',
   ]);
   expect(ranges.some((r) => r.kind === 'comment' && r.text.includes('https:'))).toBe(false);
@@ -58,4 +59,63 @@ it('keeps declaration names highlighted after spaces and punctuation', () => {
   for (const keyword of ['title', 'var', 'export hidden ']) {
     expect(ranges).toContainEqual({ text: keyword, kind: 'keyword' });
   }
+});
+
+describe('enhanced numbers (#e${base+#d})', () => {
+  it('colours the base number as a number and only the rest as the enhanced part', () => {
+    const ranges = highlights('Lasts #e${4.5+#d} seconds and #e${12.5*#d}% more.');
+    expect(ranges).toEqual([
+      { text: '#e', kind: 'variable' },
+      { text: '${4.5', kind: 'number' },
+      { text: '+#d}', kind: 'variable' },
+      { text: '#e', kind: 'variable' },
+      { text: '${12.5', kind: 'number' },
+      { text: '*#d}', kind: 'variable' },
+    ]);
+  });
+
+  it('keeps a lone number and its braces in the base colour', () => {
+    expect(highlights('A ${10} B ${x}')).toEqual([
+      { text: '${10}', kind: 'number' },
+      { text: '${x}', kind: 'number' },
+    ]);
+  });
+
+  it('never carries the enhanced part to the next line, and survives an unclosed brace', () => {
+    const ranges = highlights(['${5+#d', 'plain ${6'].join('\n'));
+    expect(ranges).toEqual([
+      { text: '${5', kind: 'number' },
+      { text: '+#d', kind: 'variable' },
+      { text: '${6', kind: 'number' },
+    ]);
+  });
+
+  it('keeps slash operators out of the comment scanner', () => {
+    const ranges = highlights('${8/*#d} after');
+    expect(ranges).toEqual([
+      { text: '${8', kind: 'number' },
+      { text: '/*#d}', kind: 'variable' },
+    ]);
+  });
+});
+
+describe('pipes', () => {
+  it('leaves stack pipes next to percent signs unhighlighted', () => {
+    const text = [
+      'Bonuses at 1|2|3|4|5 Stacks:',
+      '• 16.7% | 28.6% | 37.5% decreased',
+      '• 2.5%|10%|13%|b2',
+    ].join('\n');
+    expect(highlights(text)).toEqual([]);
+  });
+
+  it('still highlights the cell pipes inside a table block, and stops after it', () => {
+    const text = ['< table x >', '|h Name |c 5', '<$>', 'After 1|2'].join('\n');
+    expect(highlights(text)).toEqual([
+      { text: '< table x >', kind: 'type' },
+      { text: '|h', kind: 'type' },
+      { text: '|c', kind: 'type' },
+      { text: '<$>', kind: 'type' },
+    ]);
+  });
 });

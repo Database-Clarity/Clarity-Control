@@ -97,11 +97,6 @@
   @include theme.mobile-or-coarse {
     display: inline-flex;
   }
-
-  // Raw markup on is a state worth showing on any screen, even when the hints have wrapped away.
-  &[aria-pressed='true'] {
-    display: inline-flex;
-  }
 }
 
 .live {
@@ -132,7 +127,8 @@
     color: var(--danger);
   }
 
-  &[aria-expanded='true'] {
+  &[aria-expanded='true'],
+  &[aria-pressed='true'] {
     color: var(--text);
     background: var(--sel);
   }
