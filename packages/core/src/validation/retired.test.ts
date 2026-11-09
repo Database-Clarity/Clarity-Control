@@ -86,6 +86,15 @@ describe('retired markup census', () => {
 });
 
 describe('retired markup fixes', () => {
+  it('reports the tag as written so two forms on one line can be told apart', () => {
+    expect(
+      findRetiredMarkup('<blue a /> <green b /> <purple/>').map((found) => found.source),
+    ).toEqual(['<blue a />', '<green b />', '<purple/>']);
+    expect(findRetiredMarkup('x\ncatalyst (\ny\n)').map((found) => found.source)).toEqual([
+      'catalyst (',
+    ]);
+  });
+
   it('removes a wrapper and keeps its text, or changes it to yellow', () => {
     const text = 'a <blue Solar Fulmination /> b <green [Controller-Only] /> c';
     expect(fix(text, 0, 'remove-tag')).toBe('a Solar Fulmination b <green [Controller-Only] /> c');

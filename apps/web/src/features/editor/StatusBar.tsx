@@ -258,6 +258,11 @@ export function Overlay({
     // Esc closes it from inside; the editor's own Esc handling covers the caret being in the text.
     const element = root.current;
     if (!element) return;
+    // Opened from a status bar button: focus would stay on that button, outside the panel, so Esc
+    // would do nothing and Tab would skip the panel. Move it into the panel (a click or Enter on
+    // the item, never the caret in the text, which keeps focus).
+    if (element.ownerDocument.activeElement?.closest('[data-editor-status]'))
+      element.focus({ preventScroll: true });
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       event.stopPropagation();
@@ -267,7 +272,14 @@ export function Overlay({
     return () => element.removeEventListener('keydown', onKey);
   }, []);
   return (
-    <section ref={root} id={id} aria-label={label} className={styles.overlay} data-editor-overlay>
+    <section
+      ref={root}
+      id={id}
+      aria-label={label}
+      tabIndex={-1}
+      className={styles.overlay}
+      data-editor-overlay
+    >
       <div className={styles.overlayBody}>{children}</div>
       <button
         type="button"

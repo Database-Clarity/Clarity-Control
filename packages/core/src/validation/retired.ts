@@ -31,6 +31,8 @@ export interface RetiredOccurrence {
   name: string;
   /** How the form reads in the warning: `<blue … />`, `<blue/>`, `catalyst ( … )`, `< table … >`. */
   token: string;
+  /** The text as written (`<blue Solar Fulmination />`, `catalyst (`), for telling occurrences apart. */
+  source: string;
   /** What the editor underlines: the whole token, or the first line of a block. */
   from: number;
   to: number;
@@ -94,6 +96,7 @@ function tokenOccurrence(
       kind: 'marker',
       name,
       token: `<${name}/>`,
+      source: token,
       from,
       to,
       message: retired(`<${name}/>`, 'Remove the marker.'),
@@ -130,6 +133,7 @@ function tokenOccurrence(
     kind: 'wrapper',
     name,
     token: noun(name),
+    source: token,
     from,
     to,
     message: retired(
@@ -162,6 +166,7 @@ function conditionOccurrences(text: string): RetiredOccurrence[] {
         kind: 'condition',
         name,
         token: `${name} ( … )`,
+        source: lines[0]!,
         from,
         to: from + lines[0]!.length,
         message: retired(`${name} ( … )`, 'Remove the block or keep its contents.'),
@@ -200,6 +205,7 @@ function tableOccurrences(text: string): RetiredOccurrence[] {
       kind: 'table',
       name: 'table',
       token: '< table … >',
+      source: rows[0]!,
       from,
       to: from + rows[0]!.length,
       message: retired('< table … >', 'Convert the rows to lines.'),

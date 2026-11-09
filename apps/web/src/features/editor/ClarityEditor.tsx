@@ -180,6 +180,10 @@ export function ClarityEditor({
   const panelOpen = useRef(false);
   panelOpen.current = panel !== null;
   const closePanel = useRef(() => setPanel(null));
+  const closeAndFocus = () => {
+    setPanel(null);
+    view.current?.focus();
+  };
   const [suggestion, setSuggestion] = useState<SuggestSnapshot | null>(null);
   const onSuggest = useRef((snapshot: SuggestSnapshot | null) => setSuggestion(snapshot));
   const [chip, setChip] = useState<Chip | null>(null);
@@ -673,7 +677,7 @@ export function ClarityEditor({
             value={value}
             readOnly={readOnly}
             onReplace={replaceGlyph}
-            onClose={() => setPanel(null)}
+            onClose={closeAndFocus}
           />
         )}
         {open === 'retired' && (
@@ -688,7 +692,7 @@ export function ClarityEditor({
             }}
           />
         )}
-        {open === 'help' && <HelpPanel issues={issues} onClose={() => setPanel(null)} />}
+        {open === 'help' && <HelpPanel issues={issues} onClose={closeAndFocus} />}
         {open === 'conflicts' && (
           <ConflictPanel
             index={Math.min(conflictIndex, conflictCount - 1)}
@@ -709,7 +713,7 @@ export function ClarityEditor({
               jumpToConflict(editor, direction);
               setConflictIndex(conflictsOf(editor.state).active);
             }}
-            onClose={() => setPanel(null)}
+            onClose={closeAndFocus}
           />
         )}
         {compare && (

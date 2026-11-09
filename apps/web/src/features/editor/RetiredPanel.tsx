@@ -14,6 +14,10 @@ const listed = 50;
 /** The same search the editor runs, on the text the panel shows (a conflict's "theirs" is hidden). */
 export const retiredIn = (text: string) => findRetiredMarkup(maskConflicts(text));
 
+/** The tag as written, cut with an ellipsis when long, so two forms on one line read apart. */
+const shorten = (source: string, max = 40) =>
+  source.length > max ? `${source.slice(0, max - 1)}…` : source;
+
 const lineOf = (text: string, at: number) => {
   let line = 1;
   for (
@@ -88,7 +92,9 @@ export function RetiredPanel({
             <li key={key} data-retired-item>
               <div className={styles.row}>
                 <span className={styles.where}>Line {lineOf(value, occurrence.from)}</span>
-                <code className={styles.token}>{occurrence.token}</code>
+                <code className={styles.token} title={occurrence.source}>
+                  {shorten(occurrence.source)}
+                </code>
                 {!readOnly &&
                   occurrence.fixes.map((fix) => (
                     <button

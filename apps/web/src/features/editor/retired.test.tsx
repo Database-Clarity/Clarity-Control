@@ -13,7 +13,7 @@ import { pinTag, toggleRawView } from './symbols';
 const globals: MarkupGlobals = { variables: '', titles: '' };
 // The two retired tags of tooltip 2799418574 (Rites of Ember), with a current yellow beside them.
 const rites =
-  'Daybreak.\n\n<blue Solar Fulmination /> from the <blue Hunter\'s Journal Artifact /> doubles <yellow it />.';
+  "Daybreak.\n\n<blue Solar Fulmination /> from the <blue Hunter's Journal Artifact /> doubles <yellow it />.";
 const clean = 'Daybreak.\n\n<yellow it /> and <bold this />.';
 
 let host: HTMLDivElement;
@@ -103,7 +103,8 @@ describe('retired markup in the editor', () => {
     const items = [...host.querySelectorAll('[data-retired-item]')];
     expect(items).toHaveLength(2);
     expect(items[0]!.textContent).toContain('Line 3');
-    expect(items[0]!.textContent).toContain('<blue … />');
+    expect(items[0]!.textContent).toContain('<blue Solar Fulmination />');
+    expect(items[1]!.textContent).toContain("<blue Hunter's Journal Artifact />");
     const labels = [...items[0]!.querySelectorAll('button')].map((button) => button.textContent);
     expect(labels).toEqual(['Remove tag (keep the text)', 'Change to yellow']);
     expect(q('[data-retired-all]')?.textContent).toBe('Fix all (2)');
@@ -117,6 +118,33 @@ describe('retired markup in the editor', () => {
     click(q('#editor-panel-retired button[aria-label^="Close"]'));
     expect(panel()).toBeNull();
     expect(document.activeElement === q('.cm-content') || view().hasFocus).toBe(true);
+  });
+
+  it('Escape closes the panel right after it is opened from the status item, and focus returns to the text', () => {
+    mount(rites);
+    const item = status()!;
+    act(() => item.focus());
+    click(item);
+    expect(panel()).not.toBeNull();
+    // Focus moved into the panel, so Escape there closes it (and Tab would reach its buttons).
+    expect(panel()!.contains(document.activeElement)).toBe(true);
+    act(() => {
+      document.activeElement!.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+    });
+    expect(panel()).toBeNull();
+    expect(view().hasFocus || document.activeElement === q('.cm-content')).toBe(true);
+  });
+
+  it('cuts a long tag with an ellipsis and keeps the whole text as the title', () => {
+    const long = `<blue ${'word '.repeat(20)}/>`;
+    mount(long);
+    click(status());
+    const code = q('[data-retired-item] code')!;
+    expect(code.textContent!.length).toBeLessThanOrEqual(40);
+    expect(code.textContent).toMatch(/…$/);
+    expect(code.getAttribute('title')).toBe(long);
   });
 
   it('fixes one form, updates the flag, and one undo restores the text', () => {
