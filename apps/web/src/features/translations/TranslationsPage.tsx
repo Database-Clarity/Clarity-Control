@@ -4,7 +4,12 @@ import type { Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
-import { SkeletonRegion, SkeletonRows, SkeletonStatus } from '../../ui/Skeleton';
+import {
+  SkeletonRegion,
+  SkeletonRows,
+  SkeletonStatus,
+  useSkeletonVisible,
+} from '../../ui/Skeleton';
 import { QueueList, rememberOpenedFirst } from './QueueList';
 import {
   categoryOptions,
@@ -132,7 +137,8 @@ export function TranslationsPage() {
   );
   const counts = useMemo(() => countRows(rows), [rows]);
 
-  if (loading || !index) return <Loading />;
+  const showSkeleton = useSkeletonVisible(loading || !index, 'queue', false);
+  if (loading || !index || showSkeleton) return <Loading />;
 
   const translator = user?.role === 'translator';
   const coverage = !translator && available.length > 0;

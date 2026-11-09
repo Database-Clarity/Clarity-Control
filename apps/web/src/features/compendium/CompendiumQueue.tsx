@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { VirtualList } from '../../ui/VirtualList';
+import { useSkeletonVisible } from '../../ui/Skeleton';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { useCompendiumQueueStore } from './queueStore';
 import {
@@ -99,6 +100,7 @@ export function CompendiumQueue() {
   const [params, setParams] = useSearchParams();
   const model = useCompendiumQueueStore((state) => state.model);
   const rows = useCompendiumQueueStore((state) => state.rows);
+  const showSkeleton = useSkeletonVisible(rows === null, 'queue', false);
   const error = useCompendiumQueueStore((state) => state.error);
   const selected = useCompendiumQueueStore((state) => state.selected);
   const reinclude = useCompendiumQueueStore((state) => state.reinclude);
@@ -218,7 +220,7 @@ export function CompendiumQueue() {
         <p role="alert" className={styles.note}>
           {error}
         </p>
-      ) : rows === null ? (
+      ) : rows === null || showSkeleton ? (
         <div className={styles.skeleton} role="status" aria-label="Loading the review queue">
           {Array.from({ length: 12 }, (_, index) => (
             <span key={index} style={{ width: `${55 + ((index * 17) % 35)}%` }} />

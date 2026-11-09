@@ -28,7 +28,7 @@ import {
   canonicalHash,
   classifiedCategory,
   editorName,
-  exoticPiece,
+  previewPiece,
   sharedPerkLabel,
   singleOwnerLabel,
   tooltipFor,
@@ -367,7 +367,7 @@ function TooltipWorkspace({
       hash={hash}
       lang={lang}
       name={nameOf(hash)}
-      piece={baseEntry && exoticPiece(baseEntry)}
+      piece={baseEntry && previewPiece(baseEntry)}
       icon={baseEntry?.icon || undefined}
       categoryLabel={
         readOnly && baseEntry

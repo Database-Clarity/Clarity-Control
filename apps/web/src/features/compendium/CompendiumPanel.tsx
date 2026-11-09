@@ -484,9 +484,11 @@ const PaneContents = memo(function PaneContents({
     if (!waiting) onCommitted(base.hash);
   }, [base.hash, waiting, onCommitted]);
   const retainedPane = useRef<ReturnType<typeof RightPane>>();
-  const hasContent = useRef(false);
   const wasStepping = useRef(false);
+  const hasContent = useRef(false);
   const showSkeleton = useSkeletonVisible(waiting, pendingBase.hash, hasContent.current);
+  // A shown skeleton outlasts the load by its minimum time; until then ready content waits.
+  const holding = waiting || showSkeleton;
   useLayoutEffect(() => {
     if (stepping) wasStepping.current = true;
     else if (!waiting) wasStepping.current = false;
@@ -495,9 +497,9 @@ const PaneContents = memo(function PaneContents({
     const previous = bodyRef.current?.querySelector(
       ':scope > [data-scale]:not([data-pane-skeleton])',
     );
-    previous?.toggleAttribute('inert', waiting);
+    previous?.toggleAttribute('inert', holding);
     bodyRef.current?.previousElementSibling?.removeAttribute('inert');
-  }, [waiting, showSkeleton]);
+  }, [holding]);
   useLayoutEffect(() => {
     if (!waiting)
       rememberPaneSkeleton(base.hash, compendium?.fetchedAt, comparisonBefore, comparisonAfter);
@@ -825,7 +827,7 @@ const PaneContents = memo(function PaneContents({
       hasContent.current = true;
     }
   });
-  if (!waiting) return pane;
+  if (!holding) return pane;
   if (!stepping && !wasStepping.current && !showSkeleton)
     return cloneElement(pane, {
       busy: true,

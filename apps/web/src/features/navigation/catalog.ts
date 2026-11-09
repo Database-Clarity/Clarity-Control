@@ -260,6 +260,14 @@ export function exoticPiece(item: Item): string | undefined {
   return piece === item.name.trim() ? undefined : piece;
 }
 
+/**
+ * The preview header's piece row: exotic armour always has one (empty when the perk is named after
+ * its piece), so stepping through the category never moves the version tabs under the header.
+ */
+export function previewPiece(item: Item): string | undefined {
+  return exoticPiece(item) ?? (item.categoryId === exoticArmourCategory ? '' : undefined);
+}
+
 /** How the editor names the open item: "Piece · Perk" for exotic armour, the item's name otherwise. */
 export function editorName(item: Item): string {
   const piece = exoticPiece(item);
