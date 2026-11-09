@@ -166,6 +166,9 @@ export function ReviewPage() {
       (result) => {
         if (!active) return;
         setEntries(result);
+        // The list kept showing the previous snapshot while this one was compared: nothing picked
+        // there may carry over to saved text nobody has looked at.
+        clearSelection();
         setLoading(false);
       },
       (reason: unknown) => {
@@ -427,9 +430,11 @@ export function ReviewPage() {
           <p role="status">Comparing publishable content...</p>
         ) : !entries.length ? (
           <p className={styles.note}>No saved changes are waiting to go live.</p>
-        ) : !current && !view.contentCount && view.markerCount && !query && !categoryFilter ? (
+        ) : !current && !view.contentCount && view.markerCount ? (
           <p className={styles.note}>
-            No changes made by a person are waiting to go live.{' '}
+            {changeCount
+              ? 'No changes made by a person match these filters.'
+              : 'No changes made by a person are waiting to go live.'}{' '}
             <Link
               to={{ search: markerSearch(searchParams) }}
               replace

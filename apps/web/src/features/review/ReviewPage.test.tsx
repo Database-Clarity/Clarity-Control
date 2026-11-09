@@ -741,31 +741,37 @@ it('reopens a previously viewed marker group when Back returns to its selected r
   }
 });
 
-it('keeps a marker-only queue collapsed on a plain open with no content changes', async () => {
-  bundle.pushed[10] = await publishableHash(tooltip);
-  vi.mocked(loadGenerator).mockResolvedValue({
-    categories: [],
-    items: {
-      10: { hash: 10, name: 'Tooltip 10', categoryId: 'other', icon: '', inGameDescription: '' },
-    } as never,
-    aliases: { 30: { to: 10, kind: 'frame' } },
-  });
-  await useDataStore.getState().load();
-  await pendingTooltips(useDataStore.getState().data!);
-  const router = createMemoryRouter(
-    [{ path: '/review', element: withList(), loader: reviewRoute }],
-    { initialEntries: ['/review'] },
-  );
-  try {
-    await act(async () => root.render(<RouterProvider router={router} />));
-    await waitForReview();
-    expect(host.textContent).toContain('0 changes');
-    expect(host.textContent).toContain('1 marker-only');
-    expect(useReviewQueue.getState().markerOpen).toBe(false);
-  } finally {
-    router.dispose();
-  }
-});
+it.each(['/review', '/review?query=10'])(
+  'keeps a marker-only queue collapsed with an explanatory state on %s',
+  async (initialEntry) => {
+    bundle.pushed[10] = await publishableHash(tooltip);
+    vi.mocked(loadGenerator).mockResolvedValue({
+      categories: [],
+      items: {
+        10: { hash: 10, name: 'Tooltip 10', categoryId: 'other', icon: '', inGameDescription: '' },
+      } as never,
+      aliases: { 30: { to: 10, kind: 'frame' } },
+    });
+    await useDataStore.getState().load();
+    await pendingTooltips(useDataStore.getState().data!);
+    const router = createMemoryRouter(
+      [{ path: '/review', element: withList(), loader: reviewRoute }],
+      { initialEntries: [initialEntry] },
+    );
+    try {
+      await act(async () => root.render(<RouterProvider router={router} />));
+      await waitForReview();
+      expect(host.textContent).toContain('0 changes');
+      expect(host.textContent).toContain('1 marker-only');
+      expect(useReviewQueue.getState().markerOpen).toBe(false);
+      expect(host.querySelector('article')?.textContent).toContain(
+        'No changes made by a person are waiting to go live.',
+      );
+    } finally {
+      router.dispose();
+    }
+  },
+);
 
 it('shows one anonymous notice, leads with friendly categories, and filters canonical IDs', async () => {
   const second = structuredClone(tooltip);
@@ -978,6 +984,39 @@ it('clears reviewed selection on refresh and leaves keyboard events in controls 
   button('Refresh').dispatchEvent(event);
   expect(event.defaultPrevented).toBe(false);
   expect(post).not.toHaveBeenCalled();
+});
+
+it('does not carry selections made against the old sidebar into a refreshed saved snapshot', async () => {
+  await useDataStore.getState().load();
+  await pendingTooltips(useDataStore.getState().data!);
+  await act(async () =>
+    root.render(<MemoryRouter initialEntries={['/review']}>{withList()}</MemoryRouter>),
+  );
+  await waitForReview();
+  await waitFor(() => expect(host.querySelector('input[data-review-toggle="10"]')).not.toBeNull());
+  let resume!: () => void;
+  const paused = new Promise<void>((resolve) => {
+    resume = resolve;
+  });
+  vi.stubGlobal('scheduler', { yield: () => paused });
+  try {
+    await act(async () => {
+      const newer = structuredClone(useDataStore.getState().data!);
+      newer.bundle.tooltips[10].text.en!.text = 'Unreviewed replacement';
+      useDataStore.setState({ data: newer });
+    });
+    expect(host.querySelector('article')?.getAttribute('aria-busy')).toBe('true');
+    // The old sidebar stays mounted while the replacement's fingerprints are pending.
+    await act(async () =>
+      host.querySelector<HTMLInputElement>('input[data-review-toggle="10"]')!.click(),
+    );
+    await act(async () => resume());
+    await waitForReview();
+    expect(useReviewQueue.getState().selected.size).toBe(0);
+    expect(button('Push selected').disabled).toBe(true);
+  } finally {
+    await act(async () => resume());
+  }
 });
 
 it('Space includes the open change, P asks to publish exactly that selection, controls keep their keys', async () => {
