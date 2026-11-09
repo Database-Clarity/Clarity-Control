@@ -1,3 +1,6 @@
+$name-size: 1.3125rem;
+$name-floor: $name-size * 0.75;
+
 // Tooltip colours are tokens. Dark is the in-game look and is the default; the light set is a
 // separate palette (not an inversion) that keeps every pair at 4.5:1 or better on its surface.
 @mixin dark-values {
@@ -171,16 +174,32 @@
   background-color: var(--tp-head-bg);
   color: var(--tp-head-text);
 }
+// The identity beside the icon is one line per row and never wraps: the header keeps its height
+// from item to item. Its inline size is the column's, so the name can size itself against it.
+.identity {
+  flex: 1 1 0;
+  min-width: 0;
+  container-type: inline-size;
+}
+.piece,
+.name,
+.category {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .piece {
   font-weight: 600;
   font-size: 0.8125rem;
   line-height: 1rem;
   opacity: 0.8;
 }
+// The size that makes the name exactly fill the row (--name-em is its width in ems, nameFit.ts),
+// kept between the floor (75% of the full size) and the full size; below the floor it ellipsises.
 .name {
   text-transform: uppercase;
   font-weight: 600;
-  font-size: 1.3125rem;
+  font-size: clamp(#{$name-floor}, calc(98cqw / max(var(--name-em, 1), 0.01)), #{$name-size});
   line-height: 1.5rem;
 }
 .category {

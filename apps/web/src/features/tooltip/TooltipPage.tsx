@@ -409,7 +409,19 @@ function TooltipWorkspace({
       {owner && <NoteRow text={owner} />}
       {shared && <NoteRow text={shared} />}
       {!readOnly && <AssociationsPanel hash={activeHash} suspended={suspended} />}
-      <HistoryPanel hash={activeHash} readOnly={readOnly} suspended={suspended} />
+      <HistoryPanel
+        hash={activeHash}
+        readOnly={readOnly}
+        suspended={suspended}
+        attribution={
+          <LanguageSummary
+            base={activeBase}
+            lang={lang}
+            draft={activeTooltip.text[lang]?.text !== activeBase.text[lang]?.text}
+            plain
+          />
+        }
+      />
     </div>
   );
 
@@ -458,14 +470,6 @@ function TooltipWorkspace({
       reason={pausedOnPhone ? null : access.reason}
       switchTo={access.switchTo}
       onSwitch={changeLanguage}
-      details={
-        <LanguageSummary
-          base={activeBase}
-          lang={lang}
-          draft={activeTooltip.text[lang]?.text !== activeBase.text[lang]?.text}
-          plain
-        />
-      }
       overrides={overrideTargets}
       activeOverride={
         activeVariant === null ? undefined : { hash: activeVariant, name: nameOf(activeVariant) }
@@ -489,18 +493,24 @@ function TooltipWorkspace({
       storedForms={storedForms.map((variant) => ({
         target: { hash: variant, name: nameOf(variant) },
         node: (
-          <ClarityEditor
-            stepping={suspended}
-            value={tooltipFor(variant, data).text[lang]?.text ?? ''}
-            lang={lang}
-            globals={globalsFor(variant)}
-            requireEnglish={false}
-            readOnly
-            readOnlyReason="Stored form: read only"
-            symbols={false}
-            findMemory={false}
-            onChange={() => undefined}
-          />
+          <>
+            <p className={styles.storedNote}>
+              {nameOf(variant)} ({variant}) renders exactly like the base text, so it has nothing to
+              edit. This is what is stored for it (read only).
+            </p>
+            <ClarityEditor
+              stepping={suspended}
+              value={tooltipFor(variant, data).text[lang]?.text ?? ''}
+              lang={lang}
+              globals={globalsFor(variant)}
+              requireEnglish={false}
+              readOnly
+              readOnlyReason="Stored form: read only"
+              symbols={false}
+              findMemory={false}
+              onChange={() => undefined}
+            />
+          </>
         ),
       }))}
     />
