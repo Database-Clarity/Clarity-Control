@@ -129,7 +129,7 @@ describe('TranslationsPage queue', () => {
     expect(text).toContain('Missing');
     expect(text).not.toContain('Current Perk');
     expect(host.querySelector('select option[value="fr"]')).toBeNull();
-    expect(host.querySelector('[role=group][aria-label="Coverage by language"]')).toBeNull();
+    expect(host.querySelector('[role=group][aria-label^="Coverage by language"]')).toBeNull();
     expect(host.querySelector('[role=status]')!.textContent).toBe('3 to translate');
     await act(async () => rows()[1]!.click());
     expect(location.pathname).toBe('/t/1');
@@ -155,13 +155,13 @@ describe('TranslationsPage queue', () => {
   it('shows maintainers and editors per-language coverage that picks the language', async () => {
     for (const role of ['maintainer', 'editor'] as const) {
       await mount('/translations', person(role));
-      const coverage = host.querySelector('[role=group][aria-label="Coverage by language"]')!;
+      const coverage = host.querySelector('[role=group][aria-label^="Coverage by language"]')!;
       const german = coverage.querySelector<HTMLButtonElement>('button[aria-label^="German"]')!;
       expect(german.getAttribute('aria-label')).toBe('German: 1 translated, 1 outdated, 2 missing');
       const french = coverage.querySelector<HTMLButtonElement>('button[aria-label^="French"]')!;
       expect(french.getAttribute('aria-label')).toBe('French: 0 translated, 0 outdated, 4 missing');
     }
-    const coverage = host.querySelector('[role=group][aria-label="Coverage by language"]')!;
+    const coverage = host.querySelector('[role=group][aria-label^="Coverage by language"]')!;
     await act(async () =>
       coverage.querySelector<HTMLButtonElement>('button[aria-label^="French"]')!.click(),
     );
@@ -173,12 +173,88 @@ describe('TranslationsPage queue', () => {
     expect(location.search).toBe('');
   });
 
+  it('scopes coverage totals to the selected category and follows filter changes', async () => {
+    const label = (lang: string) =>
+      host
+        .querySelector(`[role=group][aria-label^="Coverage"] button[aria-label^="${lang}"]`)!
+        .getAttribute('aria-label');
+    const scope = () =>
+      host.querySelector('[role=group][aria-label^="Coverage"]')!.getAttribute('aria-label');
+    await mount('/translations?lang=de&cat=mods', person('maintainer'));
+    expect(scope()).toBe('Coverage by language, mods only');
+    expect(host.textContent).toContain('Mods only');
+    expect(label('German')).toBe('German: 0 translated, 0 outdated, 1 missing');
+    expect(label('French')).toBe('French: 0 translated, 0 outdated, 1 missing');
+    // The category select changes the totals in the same render, keeping the language.
+    const categories = () =>
+      [...host.querySelectorAll('select')].find((el) =>
+        [...el.options].some((option) => option.value === 'perks'),
+      )!;
+    let categorySelect = categories();
+    await act(async () => {
+      categorySelect.value = 'perks';
+      categorySelect.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(location.search).toBe('?lang=de&cat=perks');
+    expect(scope()).toBe('Coverage by language, perks only');
+    expect(label('German')).toBe('German: 1 translated, 1 outdated, 1 missing');
+    expect(host.textContent).toContain('Outdated 1');
+    expect(host.textContent).toContain('Missing 1');
+    // Row -> editor -> Back keeps the filter and its totals.
+    await act(async () => rows()[0]!.click());
+    expect(host.textContent).toContain('Editor');
+    await act(async () => navigate(-1));
+    expect(location.search).toBe('?lang=de&cat=perks');
+    expect(label('German')).toBe('German: 1 translated, 1 outdated, 1 missing');
+    categorySelect = categories();
+    expect(categorySelect.value).toBe('perks');
+    await act(async () => {
+      categorySelect.value = '';
+      categorySelect.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(scope()).toBe('Coverage by language, all categories');
+    expect(label('German')).toBe('German: 1 translated, 1 outdated, 2 missing');
+    // Picking a language clears the category, so the totals return to every category.
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[role=group] button[aria-label^="French"]')!.click(),
+    );
+    expect(location.search).toBe('?lang=fr');
+    expect(scope()).toBe('Coverage by language, all categories');
+  });
+
+  it('keeps a fully translated category scoped and ignores unknown ones', async () => {
+    const done = build(
+      [
+        tooltip(3, 'English three', { source: '2026-02-01T00:00:00.000Z' }),
+        tooltip(4, 'English four'),
+      ],
+      { 3: ['Current Perk', 'perks'], 4: ['Missing Mod', 'mods'] },
+    );
+    await mount('/translations?lang=de&cat=perks', person('editor'), done);
+    expect(host.textContent).toContain('No tooltips match these filters.');
+    expect(
+      host.querySelector('[role=group] button[aria-label^="German"]')!.getAttribute('aria-label'),
+    ).toBe('German: 1 translated, 0 outdated, 0 missing');
+    await mount('/translations?lang=de&cat=nope', person('editor'), done);
+    expect(
+      host.querySelector('[role=group] button[aria-label^="German"]')!.getAttribute('aria-label'),
+    ).toBe('German: 1 translated, 0 outdated, 1 missing');
+    expect(host.textContent).toContain('All categories');
+  });
+
+  it('shows translators no coverage table even with a category filter', async () => {
+    await mount('/translations?cat=perks', person('translator', ['de']));
+    expect(host.querySelector('[role=group][aria-label^="Coverage"]')).toBeNull();
+    expect(names()).toEqual(['Outdated Perk', 'Missing Perk']);
+  });
+
   it('keeps language and filters in the URL and applies them', async () => {
     await mount('/translations?lang=de&state=missing&cat=mods', person('maintainer'));
     expect(names()).toEqual(['Missing Mod']);
     expect(host.querySelector('[role=status]')!.textContent).toBe('1 of 3');
     const pressed = [...host.querySelectorAll('[aria-pressed=true]')].map((b) => b.textContent);
-    expect(pressed).toContain('Missing 2');
+    expect(pressed).toContain('Missing 1');
+    expect(host.textContent).toContain('Outdated 0');
     await mount('/translations?lang=de&q=outdated', person('maintainer'));
     expect(names()).toEqual(['Outdated Perk']);
     await mount('/translations?lang=de&q=nothing', person('maintainer'));

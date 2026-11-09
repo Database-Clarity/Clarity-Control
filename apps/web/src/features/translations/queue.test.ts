@@ -154,6 +154,29 @@ describe('translation queue', () => {
     }
   });
 
+  it('counts coverage per category from the same states, summing to the total', () => {
+    for (const language of ['de', 'fr', 'ja'] as const) {
+      const total = index.coverage(language);
+      const sum = { translated: 0, outdated: 0, missing: 0 };
+      for (const { id } of index.categories) {
+        const part = index.coverage(language, id);
+        const rows = index.queue(language).filter((row) => row.categoryId === id);
+        expect(countRows(rows)).toEqual({ outdated: part.outdated, missing: part.missing });
+        sum.translated += part.translated;
+        sum.outdated += part.outdated;
+        sum.missing += part.missing;
+      }
+      expect(sum).toEqual(total);
+      expect(index.coverage(language, null)).toBe(total);
+      expect(index.coverage(language, 'no-such-category')).toEqual({
+        translated: 0,
+        outdated: 0,
+        missing: 0,
+      });
+    }
+    expect(index.coverage('de', 'mods')).toBe(index.coverage('de', 'mods'));
+  });
+
   it('excludes paired and base-less enhanced parts from work queues and coverage, but keeps enhanced perks', () => {
     const data = fixture();
     const before = translationIndex(data);

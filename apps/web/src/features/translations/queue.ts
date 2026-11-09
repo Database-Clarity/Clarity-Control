@@ -54,7 +54,8 @@ export interface TranslationIndex {
   /** Categories that have translatable tooltips, in finder order. */
   categories: readonly { id: string; label: string }[];
   queue(language: Lang): readonly QueueRow[];
-  coverage(language: Lang): Coverage;
+  /** Counts for one language, over every category or only `category` (zero for an unknown id). */
+  coverage(language: Lang, category?: string | null): Coverage;
 }
 
 const indexes = new WeakMap<EditorData, TranslationIndex>();
@@ -117,7 +118,7 @@ function buildIndex(data: EditorData): TranslationIndex {
     if (!listed.has(entry.categoryId))
       listed.set(entry.categoryId, { id: entry.categoryId, label: entry.category });
   const queues = new Map<Lang, QueueRow[]>();
-  const coverages = new Map<Lang, Coverage>();
+  const coverages = new Map<Lang, LanguageCoverage>();
   return {
     translatable,
     categories: [...listed.values()],
@@ -126,19 +127,35 @@ function buildIndex(data: EditorData): TranslationIndex {
       if (!queue) queues.set(language, (queue = buildQueue(translatable, language)));
       return queue;
     },
-    coverage(language) {
+    coverage(language, category) {
       let coverage = coverages.get(language);
-      if (coverage) return coverage;
-      coverage = { translated: 0, outdated: 0, missing: 0 };
-      for (const entry of translatable) {
-        const { state } = translationStateOf(entry.tooltip, language);
-        if (state === 'current') coverage.translated++;
-        else coverage[state]++;
-      }
-      coverages.set(language, coverage);
-      return coverage;
+      if (!coverage) coverages.set(language, (coverage = buildCoverage(translatable, language)));
+      return category ? (coverage.byCategory.get(category) ?? noCoverage) : coverage.total;
     },
   };
+}
+
+interface LanguageCoverage {
+  total: Coverage;
+  byCategory: Map<string, Coverage>;
+}
+
+const noCoverage: Coverage = Object.freeze({ translated: 0, outdated: 0, missing: 0 });
+
+/** One pass per language gives the total and every category's counts, so a filter is a lookup. */
+function buildCoverage(translatable: readonly Translatable[], language: Lang): LanguageCoverage {
+  const total: Coverage = { translated: 0, outdated: 0, missing: 0 };
+  const byCategory = new Map<string, Coverage>();
+  for (const entry of translatable) {
+    const { state } = translationStateOf(entry.tooltip, language);
+    const key = state === 'current' ? 'translated' : state;
+    let counts = byCategory.get(entry.categoryId);
+    if (!counts)
+      byCategory.set(entry.categoryId, (counts = { translated: 0, outdated: 0, missing: 0 }));
+    counts[key]++;
+    total[key]++;
+  }
+  return { total, byCategory };
 }
 
 /** Outdated first (largest English gap first), then missing in finder order. */
