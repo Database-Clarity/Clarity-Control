@@ -1,4 +1,3 @@
-import { previousCategoryLabel } from '../../services/categoryLabels';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { apiUrl } from '../../services/api';
@@ -11,22 +10,22 @@ import {
   pendingTooltips,
   preparedPending,
   publishSidebar,
-  publishableHashes,
   selectedPending,
-  stepIndex,
-  toggleSelection,
   type PendingTooltip,
 } from './model';
 import { PushConfirm } from './PushConfirm';
 import { ReviewDetail } from './ReviewDetail';
-import { ReviewRow } from './ReviewRow';
 import { acknowledgedMarkers, publishReviewed, useReviewSession } from './session';
 import { publisherEnabled } from '../../services/publisher/flag';
 import { PublishActivity } from './PublishActivity';
 import { queuePublish } from './publishAction';
 import { publishDriver } from './publisher';
-import { activeHashes, usePublishState } from './publishDriver';
 import { workspaceShortcutsBlocked } from '../../ui/interaction';
+import { changeMarks } from './changedFields';
+import { useReviewMarks } from './reviewMarks';
+import { queueView, stepRow } from './queueModel';
+import { useReviewQueue } from './queueStore';
+import { filterParams, useInFlight } from './ReviewSidebar';
 import styles from './Review.module.scss';
 import {
   advanceReviewOpening,
@@ -35,18 +34,7 @@ import {
   useReviewOpening,
 } from './opening';
 
-const pageSize = 15;
 const count = new Intl.NumberFormat('en');
-
-/** The list's URL: the marker-only group on request, never keeping another group's selection. */
-function viewSearch(params: URLSearchParams, marker: boolean) {
-  const next = new URLSearchParams(params);
-  next.delete('hash');
-  if (marker) next.set('marker', '1');
-  else next.delete('marker');
-  const search = next.toString();
-  return search ? `?${search}` : '';
-}
 
 export function ReviewPage() {
   const opening = useReviewOpening((state) => state.warming);
@@ -130,7 +118,12 @@ export function ReviewPage() {
     [data, acknowledgments],
   );
   const [entries, setEntries] = useState<PendingTooltip[]>(prepared ?? []);
-  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const selected = useReviewQueue((state) => state.selected);
+  const toggleRow = useReviewQueue((state) => state.toggle);
+  const clearSelection = useReviewQueue((state) => state.clearSelection);
+  const collapsed = useReviewQueue((state) => state.collapsed);
+  const markerOpen = useReviewQueue((state) => state.markerOpen);
+  const openMarkers = useReviewQueue((state) => state.openMarkers);
   // What the confirm dialog lists is exactly what gets pushed, from the snapshot it was opened on.
   const [confirming, setConfirming] = useState<{ entries: PendingTooltip[]; data: EditorData }>();
   const [loading, setLoading] = useState(!prepared);
@@ -138,12 +131,7 @@ export function ReviewPage() {
   const query = searchParams.get('query') ?? '';
   const categoryFilter = searchParams.get('category') ?? '';
   const publisher = publisherEnabled();
-  const ops = usePublishState((state) => state.ops);
-  // Hashes inside a publish that is still queued or being sent; cannot be picked again.
-  const inFlight = useMemo(
-    () => (publisher ? activeHashes(ops) : new Set<number>()),
-    [ops, publisher],
-  );
+  const inFlight = useInFlight();
   useEffect(() => {
     // Pick up operations another tab started and anything now due, whenever this page opens.
     if (publisher) void publishDriver.refresh();
@@ -165,19 +153,22 @@ export function ReviewPage() {
     if (prepared) {
       setEntries(prepared);
       setLoading(false);
-      setSelected((previous) => (previous.size ? new Set() : previous));
+      clearSelection();
       return;
     }
     const markers = acknowledgedMarkers(data);
     const ready = preparedPending(data, markers);
     setLoading(!ready);
     if (ready) setEntries(ready);
-    setSelected((previous) => (previous.size ? new Set() : previous));
+    clearSelection();
     if (ready) return;
     void pendingTooltips(data, markers).then(
       (result) => {
         if (!active) return;
         setEntries(result);
+        // The list kept showing the previous snapshot while this one was compared: nothing picked
+        // there may carry over to saved text nobody has looked at.
+        clearSelection();
         setLoading(false);
       },
       (reason: unknown) => {
@@ -190,120 +181,101 @@ export function ReviewPage() {
     return () => {
       active = false;
     };
-  }, [data, acknowledgments, prepared]);
-  // Marker-only leftovers are one group of their own, shown on request; the rest are changes.
+  }, [data, acknowledgments, prepared, clearSelection]);
+  const view = useMemo(
+    () => queueView(entries, query, categoryFilter, collapsed, markerOpen),
+    [entries, query, categoryFilter, collapsed, markerOpen],
+  );
+  const { ordered } = view;
+  const changeCount = useMemo(
+    () => entries.filter(({ markerOnly }) => !markerOnly).length,
+    [entries],
+  );
+  const markerTotal = entries.length - changeCount;
   const routedHash = searchParams.get('hash');
-  const routedEntry =
-    routedHash === null ? undefined : entries.find(({ tooltip }) => String(tooltip.hash) === routedHash);
-  const markerView = searchParams.get('marker') === '1' || !!routedEntry?.markerOnly;
-  const changes = useMemo(() => entries.filter(({ markerOnly }) => !markerOnly), [entries]);
-  const markerOnly = useMemo(() => entries.filter(({ markerOnly }) => markerOnly), [entries]);
-  const listed = markerView ? markerOnly : changes;
-  const visibleEntries = useMemo(
-    () =>
-      !categoryFilter && !query
-        ? listed
-        : listed.filter(
-            ({ name, category, categoryId, tooltip }) =>
-              (!categoryFilter || categoryId === categoryFilter) &&
-              (!query ||
-                `${name} ${category} ${categoryId} ${previousCategoryLabel(categoryId)} ${tooltip.hash}`
-                  .toLowerCase()
-                  .includes(query.toLowerCase())),
-          ),
-    [listed, categoryFilter, query],
-  );
-  const categories = useMemo(
-    () =>
-      [
-        ...new Map(
-          listed.map(({ category, categoryId, categoryOrder }) => [
-            categoryId,
-            { id: categoryId, label: category, order: categoryOrder },
-          ]),
-        ).values(),
-      ].sort(
-        (a, b) => a.order - b.order || a.label.localeCompare(b.label) || a.id.localeCompare(b.id),
-      ),
-    [listed],
-  );
   const routedIndex =
     routedHash === null
       ? -1
-      : visibleEntries.findIndex(({ tooltip }) => String(tooltip.hash) === routedHash);
-  const index = routedIndex < 0 ? 0 : routedIndex;
+      : ordered.findIndex(({ tooltip }) => String(tooltip.hash) === routedHash);
+  // `marker=1` (the header's marker-only link) opens the group's first row.
+  const markerRequest = searchParams.get('marker') === '1' && routedIndex < 0;
+  // Without a route or request, open the first change a person made; marker-only leftovers open
+  // only when asked for (the header link, or a URL naming one), never as a default.
+  const index =
+    routedIndex >= 0
+      ? routedIndex
+      : markerRequest && view.markerCount
+        ? view.contentCount
+        : view.contentCount
+          ? 0
+          : -1;
+  const current = index < 0 ? undefined : ordered[index];
+  // Moving the selection onto a marker-only row (URL, Back/Forward, the header link) shows its
+  // collapsed group; collapsing it again while that row stays open is left alone.
+  const previousHash = useRef<number>();
+  useEffect(() => {
+    const hash = current?.tooltip.hash;
+    if (hash === previousHash.current) return;
+    previousHash.current = hash;
+    if (current?.markerOnly) openMarkers();
+  }, [current, openMarkers]);
   const selectIndex = useCallback(
-    (next: number | ((current: number) => number)) => {
-      if (!visibleEntries.length) return;
+    (step: (current: number) => number) => {
+      if (!ordered.length) return;
       const intent = selectionIntent.current;
       const params = new URLSearchParams(intent?.params ?? searchParams);
       const pendingIndex = intent
-        ? visibleEntries.findIndex(({ tooltip }) => String(tooltip.hash) === params.get('hash'))
+        ? ordered.findIndex(({ tooltip }) => String(tooltip.hash) === params.get('hash'))
         : -1;
-      const currentIndex = pendingIndex < 0 ? index : pendingIndex;
-      const requested = typeof next === 'function' ? next(currentIndex) : next;
-      const entry = visibleEntries[stepIndex(requested, 0, visibleEntries.length)];
+      const entry = ordered[step(pendingIndex < 0 ? index : pendingIndex)];
       if (!entry || params.get('hash') === String(entry.tooltip.hash)) return;
+      params.delete('marker');
       params.set('hash', String(entry.tooltip.hash));
       const targets = intent?.targets ?? new Set<string>();
       targets.add(params.toString());
       selectionIntent.current = { params, targets };
       setSearchParams(params, { replace: true });
     },
-    [index, searchParams, setSearchParams, visibleEntries],
+    [index, ordered, searchParams, setSearchParams],
   );
   const shortcuts = useRef<(action: 'include' | 'publish') => void>(() => {});
   const committedSelectIndex = useRef(selectIndex);
+  const committedView = useRef(view);
   useLayoutEffect(() => {
     // Window listeners can run after a commit but before passive effects bind
     // a new closure. Use that commit's selection alongside any queued intent.
     committedSelectIndex.current = selectIndex;
-  }, [selectIndex]);
-  const openCurrentRow = useCallback(
-    (hash: number) => {
-      const next = visibleEntries.findIndex((entry) => entry.tooltip.hash === hash);
-      if (next >= 0) selectIndex(next);
-    },
-    [selectIndex, visibleEntries],
-  );
-  const committedRowOpen = useRef(openCurrentRow);
-  useLayoutEffect(() => {
-    // Retained row handlers must use the filters and URL from the committed UI.
-    committedRowOpen.current = openCurrentRow;
-  }, [openCurrentRow]);
-  const openRow = useCallback((hash: number) => committedRowOpen.current(hash), []);
-  const toggleRow = useCallback(
-    (hash: number) => setSelected((previous) => toggleSelection(previous, hash)),
-    [],
-  );
+    committedView.current = view;
+  }, [selectIndex, view]);
   useEffect(() => {
     if (loading) return;
     publishSidebar(entries);
   }, [entries, loading]);
   useEffect(() => {
     if (loading || selectionIntent.current) return;
-    const current = visibleEntries[index];
     const params = new URLSearchParams(searchParams);
     if (!current) {
-      if (!params.has('hash')) return;
+      if (!params.has('hash') && !params.has('marker')) return;
       params.delete('hash');
+      params.delete('marker');
       setSearchParams(params, { replace: true });
       return;
     }
-    if (searchParams.get('hash') === String(current.tooltip.hash)) return;
+    if (searchParams.get('hash') === String(current.tooltip.hash) && !params.has('marker')) return;
+    params.delete('marker');
     params.set('hash', String(current.tooltip.hash));
     setSearchParams(params, { replace: true });
-  }, [index, loading, searchParams, setSearchParams, visibleEntries]);
-  useEffect(() => {
-    setSelected((previous) => (previous.size ? new Set() : previous));
-  }, [user]);
+  }, [current, loading, searchParams, setSearchParams]);
+  useEffect(() => clearSelection(), [user, clearSelection]);
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
-      if (workspaceShortcutsBlocked(event)) return;
+      if (event.defaultPrevented || workspaceShortcutsBlocked(event)) return;
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || pushing) return;
       if (
         event.target instanceof Element &&
-        event.target.closest('input, textarea, select, button, a, [contenteditable="true"]')
+        event.target.closest(
+          'input, textarea, select, button, a, [contenteditable="true"], [aria-label="Scroll pending saved changes"]',
+        )
       )
         return;
       if (event.key === ' ' || event.key.toLowerCase() === 'p') {
@@ -314,7 +286,8 @@ export function ReviewPage() {
       }
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
       event.preventDefault();
-      committedSelectIndex.current((value) => value + (event.key === 'ArrowDown' ? 1 : -1));
+      const delta = event.key === 'ArrowDown' ? 1 : -1;
+      committedSelectIndex.current((value) => stepRow(committedView.current, value, delta));
     }
     window.addEventListener('keydown', keydown);
     return () => window.removeEventListener('keydown', keydown);
@@ -322,32 +295,6 @@ export function ReviewPage() {
   const hashes = selected.size
     ? selectedPending(selected, entries).filter((hash) => !inFlight.has(hash))
     : [];
-  const start = Math.floor(index / pageSize) * pageSize;
-  const page = visibleEntries.slice(start, start + pageSize);
-  const groups = [...new Set(page.map((entry) => entry.categoryId))];
-
-  function updateFilters(queryValue: string, categoryValue: string) {
-    const params = new URLSearchParams(selectionIntent.current?.params ?? searchParams);
-    selectionIntent.current = undefined;
-    if (queryValue) params.set('query', queryValue);
-    else params.delete('query');
-    if (categoryValue) params.set('category', categoryValue);
-    else params.delete('category');
-    const matching = listed.filter(
-      ({ name, category, categoryId, tooltip }) =>
-        (!categoryValue || categoryId === categoryValue) &&
-        (!queryValue ||
-          `${name} ${category} ${categoryId} ${previousCategoryLabel(categoryId)} ${tooltip.hash}`
-            .toLowerCase()
-            .includes(queryValue.toLowerCase())),
-    );
-    const currentHash = params.get('hash');
-    if (!matching.some(({ tooltip }) => String(tooltip.hash) === currentHash)) {
-      if (matching[0]) params.set('hash', String(matching[0].tooltip.hash));
-      else params.delete('hash');
-    }
-    setSearchParams(params, { replace: true });
-  }
 
   function askToPublish() {
     if (!data || loading || pushing) return;
@@ -355,7 +302,6 @@ export function ReviewPage() {
     if (chosen.length) setConfirming({ entries: chosen, data });
   }
   shortcuts.current = (action) => {
-    const current = visibleEntries[index];
     if (action === 'publish') {
       if (canPush(user) && hashes.length) askToPublish();
     } else if (
@@ -375,8 +321,25 @@ export function ReviewPage() {
       reviewed,
       () => mounted.current,
     );
-    if (succeeded && mounted.current) setSelected(new Set());
+    if (succeeded && mounted.current) clearSelection();
   }
+
+  const markerView = !!current?.markerOnly;
+  const position = current
+    ? markerView
+      ? `${count.format(index - view.contentCount + 1)} / ${count.format(view.markerCount)}`
+      : `${count.format(index + 1)} / ${count.format(view.contentCount)}`
+    : '';
+  const fields = useReviewMarks((state) =>
+    current ? state.fields[current.tooltip.hash] : undefined,
+  );
+  const marks = current ? changeMarks(fields, current) : [];
+  const previous = current ? stepRow(view, index, -1) : -1;
+  const next = current ? stepRow(view, index, 1) : -1;
+  const liveAvailable = Boolean(apiUrl && user?.role);
+  const locked = current
+    ? pushing || !!current.unpublishable || inFlight.has(current.tooltip.hash)
+    : true;
 
   return (
     <>
@@ -385,58 +348,66 @@ export function ReviewPage() {
       </p>
       <article ref={article} aria-busy={loading} className={styles.page}>
         <header className={styles.summary}>
-          <h1>Review changes</h1>
+          <h1 className={styles.readyStatus}>Review changes</h1>
           <p className={styles.counts}>
-            {markerView ? (
-              <Link to={{ search: viewSearch(searchParams, false) }}>
-                {count.format(changes.length)} {changes.length === 1 ? 'change' : 'changes'}
-              </Link>
-            ) : (
+            <b>{count.format(changeCount)}</b> {changeCount === 1 ? 'change' : 'changes'}
+            {markerTotal > 0 && (
               <>
-                {count.format(changes.length)} {changes.length === 1 ? 'change' : 'changes'}
+                {' · '}
+                <Link
+                  to={{ search: markerSearch(searchParams) }}
+                  replace
+                  title="Alias-marker migration leftovers: saved content equals live"
+                  onClick={() => openMarkers()}
+                >
+                  {count.format(markerTotal)} marker-only
+                </Link>
               </>
             )}
             {' · '}
-            {markerView ? (
-              <>{count.format(markerOnly.length)} marker-only</>
-            ) : (
-              <Link to={{ search: viewSearch(searchParams, true) }}>
-                {count.format(markerOnly.length)} marker-only
-              </Link>
-            )}
-            {' · '}
             {hashes.length} selected
+            {hashes.length > 0 && (
+              <>
+                {' · '}
+                <button
+                  type="button"
+                  className={styles.textButton}
+                  disabled={pushing}
+                  onClick={clearSelection}
+                >
+                  Clear
+                </button>
+              </>
+            )}
           </p>
-          <button type="button" disabled={pushing || loading} onClick={() => void load()}>
-            Refresh
-          </button>
-          {canPush(user) && (
-            <button
-              type="button"
-              disabled={pushing || loading || !hashes.length}
-              onClick={askToPublish}
-            >
-              {publisher
-                ? pushing
-                  ? 'Starting...'
-                  : `Publish selected (${hashes.length})`
-                : pushing
-                  ? 'Pushing...'
-                  : `Push selected (${hashes.length})`}
+          <span className={styles.summaryEnd}>
+            <button type="button" disabled={pushing || loading} onClick={() => void load()}>
+              Refresh
             </button>
-          )}
+            {canPush(user) && (
+              <button
+                type="button"
+                className={styles.primary}
+                disabled={pushing || loading || !hashes.length}
+                onClick={askToPublish}
+              >
+                {publisher
+                  ? pushing
+                    ? 'Starting...'
+                    : `Publish selected (${hashes.length})`
+                  : pushing
+                    ? 'Pushing...'
+                    : `Push selected (${hashes.length})`}
+              </button>
+            )}
+          </span>
         </header>
-        {markerView && (
-          <p className={styles.markerNote} role="note">
-            Marker-only: alias-marker migration leftovers. The saved content equals the live
-            version, so these are not changes a person made. A data task clears them; Select page
-            never includes them.
+        {Object.keys(drafts).length > 0 && (
+          <p className={styles.note}>
+            Local drafts are not included. Save them through the tooltip editor first.
           </p>
         )}
-        {Object.keys(drafts).length > 0 && (
-          <p>Local drafts are not included. Save them through the tooltip editor first.</p>
-        )}
-        {(!apiUrl || !user?.role) && (
+        {!liveAvailable && (
           <p className={styles.authNotice} role="note">
             {apiUrl
               ? 'Sign in as a configured member to compare live versions and browse history. Only editors and maintainers may push.'
@@ -455,171 +426,117 @@ export function ReviewPage() {
         {pushError && <p role="alert">{pushError}</p>}
         {notice && <p role="status">{notice}</p>}
         {publisher && canPush(user) && <PublishActivity queue={data?.bundle.publishQueue} />}
-        {!!listed.length && (
-          <div className={styles.filters}>
-            <label>
-              Find saved changes
-              <input
-                type="search"
-                aria-label="Find saved changes"
-                value={query}
-                onChange={(event) => updateFilters(event.target.value, categoryFilter)}
-                placeholder="Name, category or hash"
-              />
-            </label>
-            <label>
-              Category
-              <select
-                data-perf-navigation="true"
-                aria-label="Category"
-                value={categoryFilter}
-                onChange={(event) => updateFilters(query, event.target.value)}
-              >
-                <option value="">All categories</option>
-                {categories.map(({ id, label }) => (
-                  <option key={id} value={id}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <span>
-              Showing {visibleEntries.length} of {listed.length}
-            </span>
-          </div>
-        )}
         {loading ? (
           <p role="status">Comparing publishable content...</p>
         ) : !entries.length ? (
-          <p>No saved changes are waiting to go live.</p>
-        ) : !listed.length ? (
-          <p>
-            No changes made by a person are waiting to go live.{' '}
-            <Link to={{ search: viewSearch(searchParams, true) }}>
-              Show the {count.format(markerOnly.length)} marker-only leftovers
+          <p className={styles.note}>No saved changes are waiting to go live.</p>
+        ) : !current && !view.contentCount && view.markerCount ? (
+          <p className={styles.note}>
+            {changeCount
+              ? 'No changes made by a person match these filters.'
+              : 'No changes made by a person are waiting to go live.'}{' '}
+            <Link
+              to={{ search: markerSearch(searchParams) }}
+              replace
+              onClick={() => openMarkers()}
+            >
+              Show the {count.format(view.markerCount)} marker-only leftovers
             </Link>
           </p>
-        ) : !visibleEntries.length ? (
+        ) : !ordered.length ? (
           <section className={styles.empty}>
             <p>No saved changes match these filters.</p>
-            <button type="button" data-perf-navigation="true" onClick={() => updateFilters('', '')}>
+            <button
+              type="button"
+              data-perf-navigation="true"
+              onClick={() =>
+                setSearchParams(filterParams(searchParams, entries, '', ''), { replace: true })
+              }
+            >
               Clear filters
             </button>
           </section>
         ) : (
-          <>
-            <div className={styles.toolbar}>
-              <button
-                type="button"
-                disabled={!index || pushing}
-                data-perf-navigation="true"
-                onClick={() => selectIndex((value) => stepIndex(value, -1, visibleEntries.length))}
-              >
-                Previous
-              </button>
-              <span>
-                {index + 1} of {visibleEntries.length}
-              </span>
-              <button
-                type="button"
-                disabled={index >= visibleEntries.length - 1 || pushing}
-                data-perf-navigation="true"
-                onClick={() => selectIndex((value) => stepIndex(value, 1, visibleEntries.length))}
-              >
-                Next
-              </button>
-            </div>
-            <div className={styles.workspace}>
-              <section className={styles.card} aria-label="Pending changes">
-                <header className={styles.listHeading}>
-                  <h2>Pending changes</h2>
-                  <div className={styles.toolbar}>
-                    <button
-                      type="button"
-                      disabled={pushing}
-                      onClick={() =>
-                        setSelected(
-                          (previous) =>
-                            new Set([
-                              ...previous,
-                              ...publishableHashes(page).filter((hash) => !inFlight.has(hash)),
-                            ]),
-                        )
-                      }
-                    >
-                      Select page
-                    </button>
-                    <button type="button" disabled={pushing} onClick={() => setSelected(new Set())}>
-                      Clear selection
-                    </button>
-                  </div>
-                </header>
-                {groups.map((categoryId) => {
-                  const category = page.find((entry) => entry.categoryId === categoryId)!;
-                  return (
-                    <section key={categoryId} aria-label={`${category.category} (${categoryId})`}>
-                      <h3 className={styles.categoryHeading}>
-                        {category.category} <small>· {categoryId}</small>
-                      </h3>
-                      <ul className={styles.list}>
-                        {page
-                          .filter((entry) => entry.categoryId === categoryId)
-                          .map((entry) => (
-                            <ReviewRow
-                              key={entry.tooltip.hash}
-                              entry={entry}
-                              checked={selected.has(entry.tooltip.hash)}
-                              active={visibleEntries[index]?.tooltip.hash === entry.tooltip.hash}
-                              disabled={pushing}
-                              publishing={inFlight.has(entry.tooltip.hash)}
-                              historyAvailable={Boolean(apiUrl && user?.role)}
-                              historyDeferred={opening}
-                              onToggle={toggleRow}
-                              onOpen={openRow}
-                            />
-                          ))}
-                      </ul>
-                    </section>
-                  );
-                })}
-                <div className={styles.toolbar}>
-                  <button
-                    type="button"
-                    disabled={!start || pushing}
-                    data-perf-navigation="true"
-                    onClick={() => selectIndex(start - pageSize)}
-                  >
-                    Previous page
-                  </button>
-                  <button
-                    type="button"
-                    disabled={start + pageSize >= visibleEntries.length || pushing}
-                    data-perf-navigation="true"
-                    onClick={() => selectIndex(start + pageSize)}
-                  >
-                    Next page
-                  </button>
-                </div>
-              </section>
-              {visibleEntries[index] && user?.role && apiUrl && (
-                <div className={styles.card}>
-                  <ReviewDetail
-                    key={visibleEntries[index].tooltip.hash}
-                    entry={visibleEntries[index]}
-                    included={selected.has(visibleEntries[index].tooltip.hash)}
-                    selectionLocked={
-                      pushing ||
-                      !!visibleEntries[index].unpublishable ||
-                      inFlight.has(visibleEntries[index].tooltip.hash)
-                    }
-                    onInclude={toggleRow}
-                  />
-                </div>
+          current && (
+            <>
+              <div className={styles.identity}>
+                <button
+                  type="button"
+                  className={styles.step}
+                  aria-label="Previous change"
+                  disabled={previous === index || pushing}
+                  data-perf-navigation="true"
+                  onClick={() => selectIndex((value) => stepRow(view, value, -1))}
+                >
+                  ‹
+                </button>
+                <span className={styles.identityText}>
+                  <span className={styles.muted}>{current.category}</span>
+                  <span className={styles.sep} aria-hidden="true">
+                    ·
+                  </span>
+                  <h2 title={current.name}>{current.name}</h2>
+                  <span className={`${styles.muted} ${styles.hash}`}>{current.tooltip.hash}</span>
+                  {marks.map((mark) => (
+                    <small key={mark} className={styles.mark} data-mark={mark}>
+                      {mark}
+                    </small>
+                  ))}
+                </span>
+                <span className={styles.identityEnd}>
+                  <span className={styles.muted}>{position}</span>
+                  <Link to={`/t/${current.tooltip.hash}`}>Open in editor ↗</Link>
+                </span>
+                <button
+                  type="button"
+                  className={styles.step}
+                  aria-label="Next change"
+                  disabled={next === index || pushing}
+                  data-perf-navigation="true"
+                  onClick={() => selectIndex((value) => stepRow(view, value, 1))}
+                >
+                  ›
+                </button>
+              </div>
+              {markerView && (
+                <p className={styles.markerNote} role="note">
+                  Marker-only: an alias-marker migration leftover. The saved content equals the
+                  live version, so this is not a change a person made. A data task clears these;
+                  group select never includes them.
+                </p>
               )}
-            </div>
-          </>
+              {current.unpublishable && <p className={styles.note}>{current.unpublishable}</p>}
+              {liveAvailable ? (
+                <ReviewDetail
+                  key={current.tooltip.hash}
+                  entry={current}
+                  included={selected.has(current.tooltip.hash)}
+                  selectionLocked={locked}
+                  onInclude={toggleRow}
+                />
+              ) : (
+                <label className={styles.include}>
+                  <input
+                    type="checkbox"
+                    checked={selected.has(current.tooltip.hash)}
+                    disabled={locked}
+                    onChange={() => toggleRow(current.tooltip.hash)}
+                  />{' '}
+                  Include in publish <kbd>Space</kbd>
+                </label>
+              )}
+            </>
+          )
         )}
       </article>
     </>
   );
+}
+
+/** The header's marker-only link: the list's filters stay, the open change does not. */
+function markerSearch(params: URLSearchParams) {
+  const next = new URLSearchParams(params);
+  next.delete('hash');
+  next.set('marker', '1');
+  return `?${next.toString()}`;
 }

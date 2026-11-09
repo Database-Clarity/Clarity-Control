@@ -21,6 +21,8 @@ import { loadBundle, type Bundle } from '../../services/bundle';
 import { useReviewSession } from './session';
 import { pendingTooltips } from './model';
 import { reviewRoute } from './route';
+import { ReviewSidebar } from './ReviewSidebar';
+import { useReviewQueue } from './queueStore';
 
 vi.mock('../../services/generator', () => ({ loadGenerator: vi.fn() }));
 vi.mock('../../services/bundle', () => ({ loadBundle: vi.fn() }));
@@ -61,6 +63,13 @@ async function flush() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
+}
+
+// The group header's checkbox selects every publishable change in the group (no "Select page").
+async function selectAll() {
+  for (const box of host.querySelectorAll<HTMLInputElement>('input[data-review-group-toggle]'))
+    await act(async () => box.click());
+  await flush();
 }
 async function waitFor(check: () => void) {
   // act flushes React updates, but does not await native crypto or transport work.
@@ -128,6 +137,14 @@ async function mount() {
   await waitForReview();
 }
 beforeEach(async () => {
+  // The list's selection, collapse state, and scroll memory live in a module store.
+  useReviewQueue.setState({
+    entries: null,
+    selected: new Set(),
+    collapsed: new Set(),
+    markerOpen: false,
+    scrollTop: 0,
+  });
   useReviewSession.setState({
     acknowledgments: {},
     pushing: false,
@@ -305,7 +322,15 @@ it('keeps main controls usable while the sidebar links warm', async () => {
   }
 });
 
-async function mountDelayedReview(review = <ReviewPage />) {
+// Router tests without the shell still need the left column: the filters and rows live there.
+const withList = (page = <ReviewPage />) => (
+  <>
+    <ReviewSidebar />
+    {page}
+  </>
+);
+
+async function mountDelayedReview(review = withList()) {
   for (const hash of [20, 30]) bundle.tooltips[hash] = { ...structuredClone(tooltip), hash };
   vi.mocked(loadGenerator).mockResolvedValue({
     categories: [],
@@ -379,7 +404,7 @@ it('commits the Review heading and preserves both search letters while live GETs
     expect(router.state.location.search).toBe('?hash=10');
     expect(router.state.navigation.state).toBe('idle');
     expect(host.querySelector('h1')?.textContent).toBe('Review changes');
-    expect(host.querySelector('[aria-label="Selected change"] h2')?.textContent).toBe('Abacus 10');
+    expect(host.querySelector('article h2')?.textContent).toBe('Abacus 10');
     expect(requests).toHaveLength(1);
     expect(
       host.querySelector('[role=status][aria-label="Loading last pushed text"]'),
@@ -409,7 +434,7 @@ it('commits two ArrowDown selections without waiting for any live GET', async ()
       });
       expect(new URLSearchParams(router.state.location.search).get('hash')).toBe(String(hash));
     }
-    expect(host.querySelector('[aria-label="Selected change"] h2')?.textContent).toBe('Abacus 30');
+    expect(host.querySelector('article h2')?.textContent).toBe('Abacus 30');
     expect(requests.map(({ hash }) => hash)).toEqual([10, 20, 30]);
     expect(requests.slice(0, -1).every(({ signal }) => signal.aborted)).toBe(true);
     await act(async () => requests[2].resolve('Newest comparison'));
@@ -441,7 +466,7 @@ it('retains both arrow intents before React effects flush, and resets them for a
       down();
     });
     expect(router.state.location.search).toBe('?hash=30');
-    expect(host.querySelector('[aria-label="Selected change"] h2')?.textContent).toBe('Abacus 30');
+    expect(host.querySelector('article h2')?.textContent).toBe('Abacus 30');
     expect(requests.at(-1)!.hash).toBe(30);
     await act(async () => router.navigate('/review?hash=10&query=Abacus'));
     await act(async () => {
@@ -474,7 +499,7 @@ it('handles the second arrow between a router commit and passive listener effect
     }, [location.search]);
     return <ReviewPage />;
   }
-  const { router, requests } = await mountDelayedReview(<KeyDuringCommit />);
+  const { router, requests } = await mountDelayedReview(withList(<KeyDuringCommit />));
   try {
     await act(async () => {
       document.body.dispatchEvent(
@@ -482,7 +507,7 @@ it('handles the second arrow between a router commit and passive listener effect
       );
     });
     expect(router.state.location.search).toBe('?hash=30');
-    expect(host.querySelector('[aria-label="Selected change"] h2')?.textContent).toBe('Abacus 30');
+    expect(host.querySelector('article h2')?.textContent).toBe('Abacus 30');
     expect(requests.at(-1)!.hash).toBe(30);
   } finally {
     router.dispose();
@@ -510,7 +535,7 @@ it('discards older same-item search responses, and aborts the comparison on unmo
     await act(async () => pending.resolve('After unmount'));
     expect(host.textContent).toBe('Other workspace');
     await act(async () => router.navigate(-1));
-    expect(host.querySelector('[aria-label="Selected change"] h2')?.textContent).toBe('Abacus 20');
+    expect(host.querySelector('article h2')?.textContent).toBe('Abacus 20');
     expect(requests.at(-1)).not.toBe(pending);
     expect(host.textContent).not.toContain('After unmount');
   } finally {
@@ -521,7 +546,9 @@ it('discards older same-item search responses, and aborts the comparison on unmo
 it('keeps pending comparisons and keyboard navigation from mutating behind the push dialog', async () => {
   const { router, requests } = await mountDelayedReview();
   try {
-    await click('Select page');
+    // The list's rows (and their group checkbox) mount once the opening frames have painted.
+    await waitFor(() => expect(host.textContent).toContain('Review ready.'));
+    await selectAll();
     await click('Push selected');
     expect(host.querySelector('dialog[open]')).not.toBeNull();
     const focused = document.activeElement;
@@ -536,7 +563,7 @@ it('keeps pending comparisons and keyboard navigation from mutating behind the p
     expect(useDraftStore.getState().drafts).toEqual({});
     expect(post).not.toHaveBeenCalled();
     await click('Cancel');
-    expect(host.textContent).toContain('3 changes · 0 marker-only · 3 selected');
+    expect(host.textContent).toContain('3 changes · 3 selected');
   } finally {
     router.dispose();
   }
@@ -583,7 +610,7 @@ it('keeps current filters when a retained row opens after the URL changes', asyn
     [
       {
         path: '/review',
-        element: <ReviewPage />,
+        element: withList(),
         loader: reviewRoute,
       },
     ],
@@ -592,17 +619,18 @@ it('keeps current filters when a retained row opens after the URL changes', asyn
   try {
     await act(async () => root.render(<RouterProvider router={router} />));
     await waitForReview();
-    const row = host.querySelector<HTMLButtonElement>('button[aria-label^="Open Tooltip 20,"]')!;
+    await waitFor(() => expect(host.textContent).toContain('Review ready.'));
+    const row = host.querySelector<HTMLAnchorElement>('a[data-review-hash="20"]')!;
     expect(row).not.toBeNull();
     await act(async () => router.navigate('/review?hash=10&query=Tooltip'));
     await waitForReview();
-    expect(host.querySelector('button[aria-label^="Open Tooltip 20,"]')).toBe(row);
+    expect(host.querySelector('a[data-review-hash="20"]')).toBe(row);
     await act(async () => row.click());
     await waitFor(() => {
       const params = new URLSearchParams(router.state.location.search);
       expect(params.get('query')).toBe('Tooltip');
       expect(params.get('hash')).toBe('20');
-      expect(host.querySelector('[aria-label="Selected change"] h2')?.textContent).toBe(
+      expect(host.querySelector('article h2')?.textContent).toBe(
         'Tooltip 20',
       );
     });
@@ -613,33 +641,33 @@ it('keeps current filters when a retained row opens after the URL changes', asyn
 
 it('keeps the acknowledgment without reloading the bundle, then follows manual refreshes', async () => {
   await mount();
-  expect(host.textContent).toContain('1 change · 0 marker-only · 0 selected');
-  await click('Select page');
+  expect(host.textContent).toContain('1 change · 0 selected');
+  await selectAll();
   await push();
   await waitForPush();
   await waitForReview();
   // A push never reloads the bundle: CI/CDN lag would resurrect pre-save text.
   expect(vi.mocked(loadBundle)).toHaveBeenCalledTimes(1);
   expect(post).toHaveBeenCalledTimes(1);
-  expect(host.textContent).toContain('0 changes · 0 marker-only · 0 selected');
+  expect(host.textContent).toContain('0 changes · 0 selected');
   expect(host.textContent).toContain('Pushed 1 tooltip(s) to synthetic-test');
   const request = JSON.parse(post.mock.calls[0][0]!.body as string);
   expect(request).toEqual({ hashes: [10], expected: { 10: await publishableHash(tooltip) } });
   bundle.tooltips[10].text.en!.text = 'New saved content';
   await refresh();
-  expect(host.textContent).toContain('1 change · 0 marker-only · 0 selected');
+  expect(host.textContent).toContain('1 change · 0 selected');
   expect(host.textContent).toContain('New saved content');
   bundle.pushed[10] = await publishableHash(tooltip);
   await refresh();
   expect(useReviewSession.getState().acknowledgments).toEqual({});
-  expect(host.textContent).toContain('1 change · 0 marker-only · 0 selected');
+  expect(host.textContent).toContain('1 change · 0 selected');
   bundle.pushed[10] = await publishableHash(bundle.tooltips[10]);
   await refresh();
-  expect(host.textContent).toContain('0 changes · 0 marker-only · 0 selected');
+  expect(host.textContent).toContain('0 changes · 0 selected');
   // Once retired, the old local acknowledgment cannot hide a later authoritative marker.
   bundle.tooltips[10] = structuredClone(tooltip);
   await refresh();
-  expect(host.textContent).toContain('1 change · 0 marker-only · 0 selected');
+  expect(host.textContent).toContain('1 change · 0 selected');
 });
 
 it('selects pending changes from the sidebar and restores the selected item after returning', async () => {
@@ -648,27 +676,102 @@ it('selects pending changes from the sidebar and restores the selected item afte
   second.text.en!.text = 'Second saved edit';
   bundle.tooltips[20] = second;
   await mount();
-  await waitFor(() => expect(host.textContent).toContain('2 changes · 0 marker-only · 0 selected'));
-  expect(host.textContent).toContain('1 of 2');
+  await waitFor(() => expect(host.textContent).toContain('2 changes · 0 selected'));
+  expect(host.textContent).toContain('1 / 2');
 
   const sidebarLink = host.querySelector<HTMLAnchorElement>(
     '[aria-label="Pending saved changes"] a[href="/review?hash=20"]',
   );
   expect(sidebarLink).not.toBeNull();
   await act(async () => sidebarLink!.click());
-  expect(host.textContent).toContain('2 of 2');
+  expect(host.textContent).toContain('2 / 2');
   expect(
     host.querySelector('[aria-label="Pending saved changes"] a[aria-current="page"]')?.textContent,
   ).toContain('Tooltip 20');
 
   await chooseWorkspace('/compendium');
   await chooseWorkspace('/review');
-  await waitFor(() => expect(host.textContent).toContain('2 changes · 0 marker-only · 0 selected'));
-  expect(host.textContent).toContain('2 of 2');
+  await waitFor(() => expect(host.textContent).toContain('2 changes · 0 selected'));
+  expect(host.textContent).toContain('2 / 2');
   expect(
     host.querySelector('[aria-label="Pending saved changes"] a[aria-current="page"]')?.textContent,
   ).toContain('Tooltip 20');
 });
+
+it('reopens a previously viewed marker group when Back returns to its selected row', async () => {
+  const marker = { ...structuredClone(tooltip), hash: 20 };
+  bundle.tooltips[20] = marker;
+  bundle.pushed[20] = await publishableHash(marker);
+  vi.mocked(loadGenerator).mockResolvedValue({
+    categories: [],
+    items: Object.fromEntries(
+      [10, 20].map((hash) => [
+        hash,
+        {
+          hash,
+          name: `Tooltip ${hash}`,
+          categoryId: 'other',
+          icon: '',
+          inGameDescription: '',
+        },
+      ]),
+    ) as never,
+    aliases: { 30: { to: 20, kind: 'frame' } },
+  });
+  await useDataStore.getState().load();
+  await pendingTooltips(useDataStore.getState().data!);
+  const router = createMemoryRouter(
+    [{ path: '/review', element: withList(), loader: reviewRoute }],
+    { initialEntries: ['/review?hash=10'] },
+  );
+  try {
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await waitForReview();
+    await act(async () => router.navigate('/review?hash=20'));
+    await waitFor(() => expect(useReviewQueue.getState().markerOpen).toBe(true));
+    await act(async () => useReviewQueue.getState().toggleGroup('~marker-only'));
+    expect(useReviewQueue.getState().markerOpen).toBe(false);
+    await act(async () => router.navigate('/review?hash=10'));
+    await act(async () => router.navigate(-1));
+    expect(router.state.location.search).toBe('?hash=20');
+    expect(host.querySelector('article h2')?.textContent).toBe('Tooltip 20');
+    expect(useReviewQueue.getState().markerOpen).toBe(true);
+  } finally {
+    router.dispose();
+  }
+});
+
+it.each(['/review', '/review?query=10'])(
+  'keeps a marker-only queue collapsed with an explanatory state on %s',
+  async (initialEntry) => {
+    bundle.pushed[10] = await publishableHash(tooltip);
+    vi.mocked(loadGenerator).mockResolvedValue({
+      categories: [],
+      items: {
+        10: { hash: 10, name: 'Tooltip 10', categoryId: 'other', icon: '', inGameDescription: '' },
+      } as never,
+      aliases: { 30: { to: 10, kind: 'frame' } },
+    });
+    await useDataStore.getState().load();
+    await pendingTooltips(useDataStore.getState().data!);
+    const router = createMemoryRouter(
+      [{ path: '/review', element: withList(), loader: reviewRoute }],
+      { initialEntries: [initialEntry] },
+    );
+    try {
+      await act(async () => root.render(<RouterProvider router={router} />));
+      await waitForReview();
+      expect(host.textContent).toContain('0 changes');
+      expect(host.textContent).toContain('1 marker-only');
+      expect(useReviewQueue.getState().markerOpen).toBe(false);
+      expect(host.querySelector('article')?.textContent).toContain(
+        'No changes made by a person are waiting to go live.',
+      );
+    } finally {
+      router.dispose();
+    }
+  },
+);
 
 it('shows one anonymous notice, leads with friendly categories, and filters canonical IDs', async () => {
   const second = structuredClone(tooltip);
@@ -700,16 +803,18 @@ it('shows one anonymous notice, leads with friendly categories, and filters cano
   });
   useAuthStore.setState({ user: null, loading: false, load: async () => {} });
   await mount();
-  await waitFor(() => expect(host.textContent).toContain('2 changes · 0 marker-only · 0 selected'));
+  await waitFor(() => expect(host.textContent).toContain('2 changes · 0 selected'));
 
   expect(host.querySelectorAll('[role="note"]')).toHaveLength(1);
   expect(host.textContent).not.toContain('Sign in to see latest change');
   expect(host.textContent).toContain('Friendly weapon traits');
-  expect(host.textContent).toContain('weapon-trait');
-  const weapon = host.querySelector<HTMLButtonElement>(
-    'button[aria-label="Open Weapon sample, Friendly weapon traits, 10"]',
+  // The list's rows mount once the opening frames have painted.
+  await waitFor(() =>
+    expect(
+      host.querySelector('[aria-label="Pending saved changes"] a[aria-label="Weapon sample 10"]')
+        ?.textContent,
+    ).toContain('Weapon sample'),
   );
-  expect(weapon?.textContent).toContain('#10');
   expect(host.querySelectorAll('[aria-label="Selected change"]')).toHaveLength(0);
 
   const category = host.querySelector<HTMLSelectElement>('select[aria-label="Category"]')!;
@@ -717,13 +822,9 @@ it('shows one anonymous notice, leads with friendly categories, and filters cano
     category.value = 'armor-perk';
     category.dispatchEvent(new Event('change', { bubbles: true }));
   });
-  await waitFor(() => expect(host.textContent).toContain('1 of 1'));
+  await waitFor(() => expect(host.textContent).toContain('1 / 1'));
   expect(host.textContent).toContain('Friendly armor effects');
-  expect(
-    host.querySelector<HTMLButtonElement>(
-      'button[aria-label="Open Long sword perk, Friendly armor effects, 20"]',
-    )?.textContent,
-  ).toContain('#20');
+  expect(host.querySelector('article h2')?.textContent).toBe('Long sword perk');
   expect(
     host
       .querySelector<HTMLAnchorElement>(
@@ -742,7 +843,7 @@ it('shows one anonymous notice, leads with friendly categories, and filters cano
 
 it('retires acknowledgment when the bundle reports a superseding marker without catching up first', async () => {
   await mount();
-  await click('Select page');
+  await selectAll();
   await push();
   await waitForPush();
   await waitForReview();
@@ -750,7 +851,7 @@ it('retires acknowledgment when the bundle reports a superseding marker without 
   other.text.en!.text = 'Other live version';
   bundle.pushed[10] = await publishableHash(other);
   await refresh();
-  expect(host.textContent).toContain('1 change · 0 marker-only · 0 selected');
+  expect(host.textContent).toContain('1 change · 0 selected');
   expect(useReviewSession.getState().acknowledgments).toEqual({});
 });
 
@@ -759,13 +860,13 @@ it('suspends pending-review window shortcuts while the Drafts popover is open an
   second.hash = 20;
   bundle.tooltips[20] = second;
   await mount();
-  await waitFor(() => expect(host.textContent).toContain('2 changes · 0 marker-only · 0 selected'));
+  await waitFor(() => expect(host.textContent).toContain('2 changes · 0 selected'));
   await act(async () => host.querySelector<HTMLButtonElement>('[data-drafts-button]')!.click());
   await act(async () =>
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })),
   );
-  expect(host.textContent).toContain('1 of 2');
-  expect(host.textContent).toContain('2 changes · 0 marker-only · 0 selected');
+  expect(host.textContent).toContain('1 / 2');
+  expect(host.textContent).toContain('2 changes · 0 selected');
   expect(post).not.toHaveBeenCalled();
   await act(async () =>
     document.activeElement!.dispatchEvent(
@@ -775,7 +876,7 @@ it('suspends pending-review window shortcuts while the Drafts popover is open an
   await act(async () =>
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })),
   );
-  expect(host.textContent).toContain('2 of 2');
+  expect(host.textContent).toContain('2 / 2');
   expect(
     host.querySelector('[aria-label="Pending saved changes"] a[aria-current="page"]')?.textContent,
   ).toContain('Tooltip 20');
@@ -783,7 +884,7 @@ it('suspends pending-review window shortcuts while the Drafts popover is open an
 
 it('does not reload the bundle after a push, so success is never masked by a refresh', async () => {
   await mount();
-  await click('Select page');
+  await selectAll();
   await push();
   await waitForPush();
   expect(post).toHaveBeenCalledTimes(1);
@@ -791,7 +892,7 @@ it('does not reload the bundle after a push, so success is never masked by a ref
   expect(host.textContent).not.toContain('Cannot load editor data');
   expect(useReviewSession.getState().notice).toContain('Pushed 1');
   expect(useReviewSession.getState().error).toBeUndefined();
-  expect(host.textContent).toContain('0 changes · 0 marker-only · 0 selected');
+  expect(host.textContent).toContain('0 changes · 0 selected');
 });
 
 it('keeps partial-live error details and never acknowledges a failed publish', async () => {
@@ -799,14 +900,14 @@ it('keeps partial-live error details and never acknowledges a failed publish', a
   post.mockResolvedValueOnce(
     new Response('partial live write: liveCommit=synthetic; markers not recorded', { status: 502 }),
   );
-  await click('Select page');
+  await selectAll();
   await push();
   await waitForPush();
   expect(host.textContent).toContain(
     'partial live write: liveCommit=synthetic; markers not recorded',
   );
   expect(host.textContent).toContain('A failed push may have written live data');
-  expect(host.textContent).toContain('1 change · 0 marker-only · 1 selected');
+  expect(host.textContent).toContain('1 change · 1 selected');
   expect(useReviewSession.getState().acknowledgments).toEqual({});
   expect(vi.mocked(loadBundle)).toHaveBeenCalledTimes(1);
 });
@@ -819,7 +920,7 @@ it('holds the submission lock across unmount and account/role transitions', asyn
       resolve = r;
     }),
   );
-  await click('Select page');
+  await selectAll();
   await push();
   await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
   expect(useReviewSession.getState().pushing).toBe(true);
@@ -828,7 +929,7 @@ it('holds the submission lock across unmount and account/role transitions', asyn
   await act(async () => useAuthStore.setState({ user: { ...user, id: 2, login: 'other' } }));
   await mount();
   expect(button('Pushing...').disabled).toBe(true);
-  await click('Select page');
+  await selectAll();
   expect(post).toHaveBeenCalledTimes(1);
   await act(async () => useAuthStore.setState({ user: { ...user, id: 2, role: 'translator' } }));
   await act(async () =>
@@ -845,13 +946,13 @@ it('holds the submission lock across unmount and account/role transitions', asyn
   await waitForReview();
   expect(useReviewSession.getState().pushing).toBe(false);
   expect(useReviewSession.getState().notice).toBeUndefined();
-  expect(host.textContent).toContain('0 changes · 0 marker-only · 0 selected');
+  expect(host.textContent).toContain('0 changes · 0 selected');
   expect(post).toHaveBeenCalledTimes(1);
 });
 
 it('aborts before sending when unmounted or account changes during digest calculation', async () => {
   await mount();
-  await click('Select page');
+  await selectAll();
   await click('Push selected');
   await act(async () => {
     button('Push 1 live').click();
@@ -860,7 +961,7 @@ it('aborts before sending when unmounted or account changes during digest calcul
   await waitForPush();
   expect(post).not.toHaveBeenCalled();
   await act(async () => useAuthStore.setState({ user }));
-  await click('Select page');
+  await selectAll();
   await click('Push selected');
   await act(async () => {
     button('Push 1 live').click();
@@ -874,15 +975,48 @@ it('aborts before sending when unmounted or account changes during digest calcul
 
 it('clears reviewed selection on refresh and leaves keyboard events in controls alone', async () => {
   await mount();
-  await click('Select page');
+  await selectAll();
   bundle.tooltips[10].text.en!.text = 'Unreviewed saved edit';
   await refresh();
-  expect(host.textContent).toContain('1 change · 0 marker-only · 0 selected');
+  expect(host.textContent).toContain('1 change · 0 selected');
   expect(button('Push selected').disabled).toBe(true);
   const event = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true });
-  button('Select page').dispatchEvent(event);
+  button('Refresh').dispatchEvent(event);
   expect(event.defaultPrevented).toBe(false);
   expect(post).not.toHaveBeenCalled();
+});
+
+it('does not carry selections made against the old sidebar into a refreshed saved snapshot', async () => {
+  await useDataStore.getState().load();
+  await pendingTooltips(useDataStore.getState().data!);
+  await act(async () =>
+    root.render(<MemoryRouter initialEntries={['/review']}>{withList()}</MemoryRouter>),
+  );
+  await waitForReview();
+  await waitFor(() => expect(host.querySelector('input[data-review-toggle="10"]')).not.toBeNull());
+  let resume!: () => void;
+  const paused = new Promise<void>((resolve) => {
+    resume = resolve;
+  });
+  vi.stubGlobal('scheduler', { yield: () => paused });
+  try {
+    await act(async () => {
+      const newer = structuredClone(useDataStore.getState().data!);
+      newer.bundle.tooltips[10].text.en!.text = 'Unreviewed replacement';
+      useDataStore.setState({ data: newer });
+    });
+    expect(host.querySelector('article')?.getAttribute('aria-busy')).toBe('true');
+    // The old sidebar stays mounted while the replacement's fingerprints are pending.
+    await act(async () =>
+      host.querySelector<HTMLInputElement>('input[data-review-toggle="10"]')!.click(),
+    );
+    await act(async () => resume());
+    await waitForReview();
+    expect(useReviewQueue.getState().selected.size).toBe(0);
+    expect(button('Push selected').disabled).toBe(true);
+  } finally {
+    await act(async () => resume());
+  }
 });
 
 it('Space includes the open change, P asks to publish exactly that selection, controls keep their keys', async () => {
@@ -897,7 +1031,7 @@ it('Space includes the open change, P asks to publish exactly that selection, co
   expect(host.textContent).toContain('1 selected');
   expect(include().checked).toBe(true);
   // A focused control keeps Space for itself.
-  await press(' ', button('Select page'));
+  await press(' ', button('Refresh'));
   expect(host.textContent).toContain('1 selected');
   await press('p');
   expect(host.textContent).toContain('Push 1 live');
@@ -909,7 +1043,7 @@ it('Space includes the open change, P asks to publish exactly that selection, co
 
 it('does not submit if the saved snapshot changes while digests are being computed', async () => {
   await mount();
-  await click('Select page');
+  await selectAll();
   await click('Push selected');
   await act(async () => {
     button('Push 1 live').click();
@@ -922,12 +1056,12 @@ it('does not submit if the saved snapshot changes while digests are being comput
   await waitForReview();
   expect(post).not.toHaveBeenCalled();
   expect(useReviewSession.getState().pushing).toBe(false);
-  expect(host.textContent).toContain('1 change · 0 marker-only · 0 selected');
+  expect(host.textContent).toContain('1 change · 0 selected');
 });
 
 it('retires acknowledgment when its tooltip is removed from the bundle', async () => {
   await mount();
-  await click('Select page');
+  await selectAll();
   await push();
   await waitForPush();
   await waitForReview();
@@ -1042,7 +1176,7 @@ it('asks first: lists what goes live, and Cancel or Escape pushes nothing', asyn
     aliases: {},
   });
   await mount();
-  await click('Select page');
+  await selectAll();
   await click('Push selected');
   const dialog = host.querySelector('dialog')!;
   expect(dialog.getAttribute('aria-label')).toBe('Push to live');
@@ -1056,7 +1190,7 @@ it('asks first: lists what goes live, and Cancel or Escape pushes nothing', asyn
   await click('Cancel');
   expect(host.querySelector('dialog')).toBeNull();
   expect(post).not.toHaveBeenCalled();
-  expect(host.textContent).toContain('2 changes · 0 marker-only · 2 selected');
+  expect(host.textContent).toContain('2 changes · 2 selected');
   await click('Push selected');
   await act(async () =>
     host.querySelector('dialog')!.dispatchEvent(new Event('cancel', { cancelable: true })),
@@ -1067,7 +1201,7 @@ it('asks first: lists what goes live, and Cancel or Escape pushes nothing', asyn
 
 it('confirms once: a double-click or held Enter cannot send a second push', async () => {
   await mount();
-  await click('Select page');
+  await selectAll();
   await click('Push selected');
   const confirm = button('Push 1 live');
   const held = new KeyboardEvent('keydown', {
@@ -1091,7 +1225,7 @@ it('confirms once: a double-click or held Enter cannot send a second push', asyn
   expect(post).toHaveBeenCalledTimes(1);
 });
 
-it('keeps fifteen complete changes in each selection and confirmation page', async () => {
+it('selects a whole group from its header and confirms exactly that selection', async () => {
   const hashes = [10, ...Array.from({ length: 15 }, (_, index) => index + 20)];
   for (const hash of hashes) bundle.tooltips[hash] = { ...structuredClone(tooltip), hash };
   vi.mocked(loadGenerator).mockResolvedValue({
@@ -1112,23 +1246,31 @@ it('keeps fifteen complete changes in each selection and confirmation page', asy
   });
   await mount();
   await waitFor(() => expect(host.textContent).toContain('16 changes'));
-  const list = host.querySelector('[aria-label="Pending changes"]')!;
-  expect(list.querySelectorAll('input[type="checkbox"]')).toHaveLength(15);
-  for (const identity of list.querySelectorAll('li button[data-perf-navigation]')) {
-    expect(identity.textContent).toMatch(
-      /A complete pending tooltip name with several words \d+ #\d+/,
-    );
-  }
-  await click('Select page');
-  expect(host.textContent).toContain('16 changes · 0 marker-only · 15 selected');
+  const list = host.querySelector('[aria-label="Pending saved changes"]')!;
+  const groupBox = list.querySelector<HTMLInputElement>('input[data-review-group-toggle]')!;
+  expect(groupBox.getAttribute('aria-label')).toBe('Select all 16 in Other: other');
+  // One row's checkbox makes the group's checkbox mixed; the group then selects the rest.
+  await act(async () =>
+    list.querySelector<HTMLInputElement>('input[data-review-toggle="21"]')!.click(),
+  );
+  expect(host.textContent).toContain('16 changes · 1 selected');
+  expect(groupBox.indeterminate).toBe(true);
+  await selectAll();
+  expect(host.textContent).toContain('16 changes · 16 selected');
+  expect(groupBox.checked).toBe(true);
+  expect(groupBox.indeterminate).toBe(false);
   await click('Push selected');
-  expect(host.querySelectorAll('dialog li')).toHaveLength(15);
-  expect(button('Push 15 live')).toBeDefined();
+  expect(host.querySelectorAll('dialog li')).toHaveLength(16);
+  expect(button('Push 16 live')).toBeDefined();
   await click('Cancel');
-  await click('Next page');
-  expect(list.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
-  await click('Select page');
-  expect(host.textContent).toContain('16 changes · 0 marker-only · 16 selected');
+  // The group's checkbox clears what it selected, and Clear empties the whole selection.
+  await selectAll();
+  expect(host.textContent).toContain('16 changes · 0 selected');
+  await act(async () =>
+    list.querySelector<HTMLInputElement>('input[data-review-toggle="22"]')!.click(),
+  );
+  await click('Clear');
+  expect(host.textContent).toContain('16 changes · 0 selected');
 });
 
 it('does not cap the selection at 100', async () => {
@@ -1156,13 +1298,9 @@ it('does not cap the selection at 100', async () => {
   );
   await mount();
   await waitFor(() => expect(host.textContent).toContain('121 changes'));
-  // Select every page, then push all of them.
-  while (!button('Next page').disabled) {
-    await click('Select page');
-    await click('Next page');
-  }
-  await click('Select page');
-  expect(host.textContent).toContain('121 changes · 0 marker-only · 121 selected');
+  // The group's checkbox selects every row, not only the rendered window.
+  await selectAll();
+  expect(host.textContent).toContain('121 changes · 121 selected');
   expect(host.textContent).not.toContain('at most 100');
   expect(button('Push selected').disabled).toBe(false);
   await click('Push selected');
