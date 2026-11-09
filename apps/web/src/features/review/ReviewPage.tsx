@@ -196,15 +196,25 @@ export function ReviewPage() {
       : ordered.findIndex(({ tooltip }) => String(tooltip.hash) === routedHash);
   // `marker=1` (the header's marker-only link) opens the group's first row.
   const markerRequest = searchParams.get('marker') === '1' && routedIndex < 0;
+  // Without a route or request, open the first change a person made; marker-only leftovers open
+  // only when asked for (the header link, or a URL naming one), never as a default.
   const index =
-    routedIndex >= 0 ? routedIndex : markerRequest && view.markerCount ? view.contentCount : 0;
-  const current = ordered[index];
-  // Opening a marker-only row (URL, Back, or the header link) shows its collapsed group.
-  const markerShown = useRef<number>();
+    routedIndex >= 0
+      ? routedIndex
+      : markerRequest && view.markerCount
+        ? view.contentCount
+        : view.contentCount
+          ? 0
+          : -1;
+  const current = index < 0 ? undefined : ordered[index];
+  // Moving the selection onto a marker-only row (URL, Back/Forward, the header link) shows its
+  // collapsed group; collapsing it again while that row stays open is left alone.
+  const previousHash = useRef<number>();
   useEffect(() => {
-    if (!current?.markerOnly || markerShown.current === current.tooltip.hash) return;
-    markerShown.current = current.tooltip.hash;
-    openMarkers();
+    const hash = current?.tooltip.hash;
+    if (hash === previousHash.current) return;
+    previousHash.current = hash;
+    if (current?.markerOnly) openMarkers();
   }, [current, openMarkers]);
   const selectIndex = useCallback(
     (step: (current: number) => number) => {
@@ -417,6 +427,17 @@ export function ReviewPage() {
           <p role="status">Comparing publishable content...</p>
         ) : !entries.length ? (
           <p className={styles.note}>No saved changes are waiting to go live.</p>
+        ) : !current && !view.contentCount && view.markerCount && !query && !categoryFilter ? (
+          <p className={styles.note}>
+            No changes made by a person are waiting to go live.{' '}
+            <Link
+              to={{ search: markerSearch(searchParams) }}
+              replace
+              onClick={() => openMarkers()}
+            >
+              Show the {count.format(view.markerCount)} marker-only leftovers
+            </Link>
+          </p>
         ) : !ordered.length ? (
           <section className={styles.empty}>
             <p>No saved changes match these filters.</p>

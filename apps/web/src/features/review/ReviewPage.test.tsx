@@ -698,6 +698,75 @@ it('selects pending changes from the sidebar and restores the selected item afte
   ).toContain('Tooltip 20');
 });
 
+it('reopens a previously viewed marker group when Back returns to its selected row', async () => {
+  const marker = { ...structuredClone(tooltip), hash: 20 };
+  bundle.tooltips[20] = marker;
+  bundle.pushed[20] = await publishableHash(marker);
+  vi.mocked(loadGenerator).mockResolvedValue({
+    categories: [],
+    items: Object.fromEntries(
+      [10, 20].map((hash) => [
+        hash,
+        {
+          hash,
+          name: `Tooltip ${hash}`,
+          categoryId: 'other',
+          icon: '',
+          inGameDescription: '',
+        },
+      ]),
+    ) as never,
+    aliases: { 30: { to: 20, kind: 'frame' } },
+  });
+  await useDataStore.getState().load();
+  await pendingTooltips(useDataStore.getState().data!);
+  const router = createMemoryRouter(
+    [{ path: '/review', element: withList(), loader: reviewRoute }],
+    { initialEntries: ['/review?hash=10'] },
+  );
+  try {
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await waitForReview();
+    await act(async () => router.navigate('/review?hash=20'));
+    await waitFor(() => expect(useReviewQueue.getState().markerOpen).toBe(true));
+    await act(async () => useReviewQueue.getState().toggleGroup('~marker-only'));
+    expect(useReviewQueue.getState().markerOpen).toBe(false);
+    await act(async () => router.navigate('/review?hash=10'));
+    await act(async () => router.navigate(-1));
+    expect(router.state.location.search).toBe('?hash=20');
+    expect(host.querySelector('article h2')?.textContent).toBe('Tooltip 20');
+    expect(useReviewQueue.getState().markerOpen).toBe(true);
+  } finally {
+    router.dispose();
+  }
+});
+
+it('keeps a marker-only queue collapsed on a plain open with no content changes', async () => {
+  bundle.pushed[10] = await publishableHash(tooltip);
+  vi.mocked(loadGenerator).mockResolvedValue({
+    categories: [],
+    items: {
+      10: { hash: 10, name: 'Tooltip 10', categoryId: 'other', icon: '', inGameDescription: '' },
+    } as never,
+    aliases: { 30: { to: 10, kind: 'frame' } },
+  });
+  await useDataStore.getState().load();
+  await pendingTooltips(useDataStore.getState().data!);
+  const router = createMemoryRouter(
+    [{ path: '/review', element: withList(), loader: reviewRoute }],
+    { initialEntries: ['/review'] },
+  );
+  try {
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await waitForReview();
+    expect(host.textContent).toContain('0 changes');
+    expect(host.textContent).toContain('1 marker-only');
+    expect(useReviewQueue.getState().markerOpen).toBe(false);
+  } finally {
+    router.dispose();
+  }
+});
+
 it('shows one anonymous notice, leads with friendly categories, and filters canonical IDs', async () => {
   const second = structuredClone(tooltip);
   second.hash = 20;
@@ -733,10 +802,13 @@ it('shows one anonymous notice, leads with friendly categories, and filters cano
   expect(host.querySelectorAll('[role="note"]')).toHaveLength(1);
   expect(host.textContent).not.toContain('Sign in to see latest change');
   expect(host.textContent).toContain('Friendly weapon traits');
-  const weapon = host.querySelector<HTMLAnchorElement>(
-    '[aria-label="Pending saved changes"] a[aria-label="Weapon sample 10"]',
+  // The list's rows mount once the opening frames have painted.
+  await waitFor(() =>
+    expect(
+      host.querySelector('[aria-label="Pending saved changes"] a[aria-label="Weapon sample 10"]')
+        ?.textContent,
+    ).toContain('Weapon sample'),
   );
-  expect(weapon?.textContent).toContain('Weapon sample');
   expect(host.querySelectorAll('[aria-label="Selected change"]')).toHaveLength(0);
 
   const category = host.querySelector<HTMLSelectElement>('select[aria-label="Category"]')!;

@@ -85,20 +85,22 @@ const QueueRow = memo(function QueueRow({
 const GroupHeader = memo(function GroupHeader({
   group,
   selectedCount,
+  available,
   locked,
 }: {
   group: QueueGroup;
-  /** How many of the group's publishable rows are selected. */
+  /** How many of the group's selectable rows (publishable, not in flight) are selected. */
   selectedCount: number;
+  /** The group's selectable rows: publishable and not part of a publish under way. */
+  available: number;
   locked: boolean;
 }) {
   const marker = group.id === markerGroup;
   const checkbox = useRef<HTMLInputElement>(null);
-  const all = group.publishable.length > 0 && selectedCount === group.publishable.length;
+  const all = available > 0 && selectedCount === available;
   useLayoutEffect(() => {
-    if (checkbox.current)
-      checkbox.current.indeterminate = selectedCount > 0 && selectedCount < group.publishable.length;
-  }, [selectedCount, group.publishable.length]);
+    if (checkbox.current) checkbox.current.indeterminate = selectedCount > 0 && selectedCount < available;
+  }, [selectedCount, available]);
   return (
     <div className={styles.group} data-marker={marker || undefined}>
       {!marker && (
@@ -108,7 +110,7 @@ const GroupHeader = memo(function GroupHeader({
             type="checkbox"
             checked={all}
             readOnly
-            disabled={locked || !group.publishable.length}
+            disabled={locked}
             data-review-group-toggle={group.id}
             aria-label={`Select all ${group.count} in ${group.label}`}
           />
@@ -341,8 +343,10 @@ export function ReviewQueue({
       setViewport((previous) => ({ ...previous, top: destination }));
     }
   }, [cancelWheel, items, offsets, selectedIndex, total, viewport.height]);
-  // A shorter list (a filter, a collapsed group) can leave the window past its end.
+  // A shorter list (a filter, a collapsed group) can leave the window past its end. A reveal of
+  // the selected row in this same commit already chose an in-range destination: it wins.
   useLayoutEffect(() => {
+    if (pendingReveal.current !== undefined) return;
     const max = Math.max(0, total - observedViewport.current.height);
     if (observedViewport.current.top <= max) return;
     pendingReveal.current = max;
@@ -587,14 +591,22 @@ export function ReviewQueue({
 
   function renderItem(item: QueueItem) {
     if (item.kind === 'group') {
+      // Count against the rows the checkbox acts on: in-flight rows are neither picked nor shown
+      // as part of the group's state.
       let selectedCount = 0;
       let available = 0;
       for (const hash of item.publishable) {
+        if (inFlight?.has(hash)) continue;
+        available++;
         if (selected.has(hash)) selectedCount++;
-        if (!inFlight?.has(hash)) available++;
       }
       return (
-        <GroupHeader group={item} selectedCount={selectedCount} locked={locked || !available} />
+        <GroupHeader
+          group={item}
+          selectedCount={selectedCount}
+          available={available}
+          locked={locked || !available}
+        />
       );
     }
     const hash = item.entry.tooltip.hash;
