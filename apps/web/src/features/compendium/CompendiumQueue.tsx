@@ -1,4 +1,4 @@
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { VirtualList } from '../../ui/VirtualList';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
@@ -120,11 +120,34 @@ export function CompendiumQueue() {
     },
     [params, setParams],
   );
-  const filter = (key: 'show' | 'q', value: string) => {
-    const next = new URLSearchParams(params);
-    if (value && !(key === 'show' && value === 'open')) next.set(key, value);
-    else next.delete(key);
-    setParams(next, { replace: true });
+  const filter = (key: 'show' | 'q', value: string) =>
+    setParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        if (value && !(key === 'show' && value === 'open')) next.set(key, value);
+        else next.delete(key);
+        return next;
+      },
+      { replace: true },
+    );
+  // The box owns what is typed; the URL follows shortly after, so fast typing never loses keys
+  // to a route commit, and an outside change (Clear filters, Back) still lands in the box.
+  const [text, setText] = useState(query);
+  const pushed = useRef(query);
+  const timer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    if (query === pushed.current) return;
+    pushed.current = query;
+    setText(query);
+  }, [query]);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const type = (value: string) => {
+    setText(value);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      pushed.current = value;
+      filter('q', value);
+    }, 150);
   };
   const revealIndex =
     selected === undefined
@@ -145,8 +168,8 @@ export function CompendiumQueue() {
           aria-label="Find entry"
           placeholder="Name or hash   /"
           data-compendium-search=""
-          value={query}
-          onChange={(event) => filter('q', event.target.value)}
+          value={text}
+          onChange={(event) => type(event.target.value)}
         />
         <select
           aria-label="Show"

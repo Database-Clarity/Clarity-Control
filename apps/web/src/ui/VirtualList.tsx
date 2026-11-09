@@ -109,6 +109,16 @@ export function VirtualList<T>({
     element.scrollTop = top;
   }, []);
 
+  // A shorter list (a filter, a collapsed group) can leave the scroll position past its end. The
+  // browser clamps the native scroll without telling a window that is already at the old end.
+  useLayoutEffect(() => {
+    const max = Math.max(0, total - latest.current.viewport.height);
+    if (scrollTop.current <= max && latest.current.viewport.top <= max) return;
+    scrollTop.current = max;
+    host.current!.scrollTop = max;
+    setViewport((previous) => ({ ...previous, top: max }));
+  }, [total]);
+
   // Keep the revealed item in view: render the destination first, then move the native scroll.
   useLayoutEffect(() => {
     if (reveal === undefined || reveal < 0 || reveal >= items.length) return;
