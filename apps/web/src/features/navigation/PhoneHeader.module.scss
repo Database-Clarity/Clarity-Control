@@ -35,8 +35,10 @@ $target: clamp(44px, 2.75rem, 56px);
   min-height: $target;
   margin: 0;
   padding: 0 0.375rem 0 0.5rem;
-  // The page name keeps its whole label at any interface scale: 20px at most, so "Compendium" fits
-  // beside the three 44px+ buttons on a 390px phone at 150%.
+  // The page name keeps its whole label at any interface scale: 20px at most, and a name too wide
+  // for the room left by the buttons (e.g. "Hammerhead" at 150%) shrinks to fit (--title-em is its
+  // width in ems, measured on a canvas), down to a 13px floor; only then does it ellipsise.
+  container-type: inline-size;
   font-size: min(1rem, 20px);
   font-weight: 600;
   background: none;
@@ -44,10 +46,27 @@ $target: clamp(44px, 2.75rem, 56px);
 
   span:first-child {
     min-width: 0;
+    font-size: clamp(
+      min(13px, 1rem),
+      calc((100cqw - 1rem) / max(var(--title-em, 1), 0.01)),
+      min(1rem, 20px)
+    );
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     line-height: 1.125rem;
+  }
+
+  // Without a piece line, a name still too wide at the floor takes a second line before it
+  // ellipsises.
+  span.twoLines {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    white-space: normal;
+    overflow-wrap: break-word;
+    line-height: 1.15;
   }
 
   // Piece over perk, both whole: "Contraverse Hold · Chaotic Exchanger" on one line cuts the perk.

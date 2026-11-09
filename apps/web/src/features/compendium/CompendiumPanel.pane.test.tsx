@@ -309,11 +309,13 @@ describe('Compendium pane', () => {
     expect(skeleton?.querySelector('[aria-hidden="true"]')).toBe(region);
     expect(skeleton?.querySelector('[class*="skeletonCell"]')).toBe(cellRegion);
     expect(skeleton?.textContent).toContain('Latest row');
-    expect(frames.size).toBe(0);
+    // The newer entry gets its own two frames before the minimum restarts for it.
+    expect(frames.size).toBe(1);
     await act(async () =>
       root.render(createElement(CompendiumPanel, { base: newest, stepping: false })),
     );
-    await tick();
+    // The pane commits within the newer entry's two frames, so it shows with no minimum wait.
+    for (let guard = 0; frames.size && guard < 4; guard++) await tick();
     expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
     expect(host.querySelector('[data-match-hash]')?.getAttribute('data-match-hash')).toBe('7');
     expect(host.querySelector('aside')?.hasAttribute('aria-busy')).toBe(false);

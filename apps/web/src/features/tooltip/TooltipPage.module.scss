@@ -191,9 +191,63 @@
   min-width: 0;
   margin-left: auto;
 }
-.storedNote {
-  margin: 0 0 0.375rem;
+// Maintainers' grouped-perks trigger: "Grouped N"; on a phone two stacked squares and N, so the
+// editor's header row keeps to one line (the word stays for screen readers).
+.groupedIcon {
+  display: none;
+  position: relative;
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+  box-shadow:
+    3px -3px 0 -1.5px var(--page),
+    3px -3px 0 0 currentColor;
+}
+// Maintainers' grouped-perks popover: one dense row per manifest hash.
+.grouped {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  li {
+    display: contents;
+  }
+  // No column gap, so each row's divider is one unbroken line; cells pad themselves.
+  li > * {
+    padding: 0.1875rem 0.75rem 0.1875rem 0;
+    border-top: 1px solid var(--line);
+  }
+  li > :nth-child(3) {
+    padding-right: 0;
+  }
+  li:first-child > * {
+    border-top: 0;
+  }
+}
+.groupedHash {
+  font-family: var(--editor-font, Consolas, monospace);
+  font-variant-numeric: tabular-nums;
+  user-select: all;
+}
+.groupedName {
+  min-width: 0;
+}
+.groupedBase,
+.groupedEnhanced {
+  white-space: nowrap;
   color: var(--text2);
+}
+.groupedEnhanced {
+  color: var(--enhanced);
+}
+.groupedHow {
+  grid-column: 2 / -1;
+  padding-top: 0 !important;
+  border-top: 0 !important;
+  color: var(--text2);
+  font-size: 0.75rem;
 }
 .paneToggles {
   display: inline-flex;
@@ -444,6 +498,19 @@
   .ghost {
     min-height: max(44px, 2.75rem);
     min-width: max(44px, 2.75rem);
+  }
+  .paneHeader {
+    column-gap: 0.25rem;
+  }
+  .groupedIcon {
+    display: inline-block;
+  }
+  .groupedWord {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
   }
   // The right-hand buttons stay on the first row; the read-only badge is the only second row.
   .badge {

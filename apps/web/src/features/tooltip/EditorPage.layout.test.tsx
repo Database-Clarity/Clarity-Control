@@ -433,32 +433,29 @@ describe('editor page composition', () => {
     expect(history.textContent).toContain('Legacy tooltip upload');
   });
 
-  it('explains the Stored form: it renders like the base text and is read only', async () => {
+  it('shows maintainers the grouped manifest perks in a popover; Stored form is gone', async () => {
     await render();
-    await act(async () => button('Stored form')!.click());
-    const popover = host.querySelector('[role="dialog"]')!;
-    expect(popover.textContent).toContain('renders exactly like the base text');
-    expect(popover.textContent).toContain('(read only)');
-  });
-
-  it('shows Stored form to maintainers for the derived version, read only, in a popover', async () => {
-    await render();
-    expect(button('Stored form')).toBeDefined();
+    expect(button('Stored form')).toBeUndefined();
+    const trigger = button('Grouped 4')!;
+    expect(trigger).toBeDefined();
     expect(host.querySelector('[role="dialog"]')).toBeNull();
-    await act(async () => button('Stored form')!.click());
+    await act(async () => trigger.click());
     const popover = host.querySelector('[role="dialog"]')!;
-    expect(popover.getAttribute('aria-label')).toBe('Stored form');
-    expect(popover.querySelector('[data-editor="stored"]')?.hasAttribute('data-readonly')).toBe(
-      true,
-    );
-    // Escape closes it.
+    expect(popover.getAttribute('aria-label')).toBe('Grouped manifest perks');
+    const rows = [...popover.querySelectorAll<HTMLElement>('[data-grouped]')];
+    expect(rows.map((row) => row.dataset.grouped)).toEqual(['10', '11', '12', '13']);
+    expect(rows[0].textContent).toContain('Canonical');
+    expect(rows[1].textContent).toContain('Enhanced pair');
+    expect(rows[3].textContent).toContain('Base pointer');
+    // Escape closes it and returns focus to the trigger.
     await act(async () => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
     expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
     signIn('editor');
     await render();
-    expect(button('Stored form')).toBeUndefined();
+    expect(button('Grouped 4')).toBeUndefined();
   });
 
   it('gives a translator the same editor and rows, with English but no Compendium', async () => {
@@ -470,7 +467,7 @@ describe('editor page composition', () => {
     expect(button('Compendium')).toBeUndefined();
     expect(host.querySelector('[data-associations]')).not.toBeNull();
     expect(host.querySelector('[data-history]')).not.toBeNull();
-    expect(button('Stored form')).toBeUndefined();
+    expect(button('Grouped 4')).toBeUndefined();
   });
 
   it('shows the read-only reason as a header badge when signed out, with no Discard or override action', async () => {
