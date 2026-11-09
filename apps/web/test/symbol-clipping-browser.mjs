@@ -147,6 +147,24 @@ async function open(theme, scale) {
     window.location.hash = '#/t/1000?lang=en';
   });
   await page.locator('.cm-content').first().waitFor();
+  // Light draws symbols as masks that load after first paint: wait for every symbol image so the
+  // screenshots show them all.
+  await page.evaluate(async () => {
+    const urls = new Set();
+    for (const sheet of document.styleSheets)
+      for (const rule of sheet.cssRules ?? [])
+        for (const m of rule.cssText.matchAll(/url\("?(https:[^")]+)"?\)/g)) urls.add(m[1]);
+    await Promise.all(
+      [...urls].map(
+        (u) =>
+          new Promise((done) => {
+            const img = new window.Image();
+            img.onload = img.onerror = () => done();
+            img.src = u;
+          }),
+      ),
+    );
+  });
   await page.waitForTimeout(500);
   return { context, page };
 }
@@ -175,8 +193,11 @@ const geometry = (page, where, list) =>
         const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
         const zoom = Number(getComputedStyle(el).zoom) || 1;
         const px = (v) => parseFloat(v);
-        const size = style.backgroundSize.split(' ').map(px);
-        const image = /url\("?([^")]+)"?\)/.exec(style.backgroundImage)?.[1];
+        // Light draws the artwork's alpha as a mask over a token fill; dark as the background image.
+        const masked = style.maskImage && style.maskImage !== 'none';
+        const sizeText = masked ? style.maskSize : style.backgroundSize;
+        const size = sizeText.split(' ').map(px);
+        const image = /url\("?([^")]+)"?\)/.exec(masked ? style.maskImage : style.backgroundImage)?.[1];
         out.push({
           name,
           image,
@@ -185,8 +206,9 @@ const geometry = (page, where, list) =>
           marginL: px(style.marginLeft),
           marginR: px(style.marginRight),
           bgW: size[0],
-          bgH: size[1] ?? size[0],
-          contain: style.backgroundSize === 'contain',
+          // `auto` height keeps the (square) artwork's aspect.
+          bgH: Number.isFinite(size[1]) ? size[1] : size[0],
+          contain: sizeText === 'contain',
           rem,
           zoom,
         });

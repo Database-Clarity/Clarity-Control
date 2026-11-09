@@ -11,10 +11,10 @@
     padding: 0.8rem;
     text-align: left;
     vertical-align: top;
-    border-bottom: 1px solid #555;
+    border-bottom: 1px solid var(--box-edge);
   }
   th {
-    color: #bcbcc5;
+    color: var(--muted);
   }
   small {
     display: block;

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { dateFormats, timeDisplays, type SyncedSettings } from '@clarity/core';
 import {
   useSettingsStore,
+  editorFontSizes,
   editorFonts,
   uiScaleMax,
   uiScaleMin,
@@ -218,6 +219,28 @@ export function SettingsContent() {
           </select>
         </label>
         <p className={styles.hint}>Ligatures are off so typed symbols stay distinct.</p>
+        <label>
+          Editor text size
+          <select
+            value={device.editorFontSize ?? ''}
+            onChange={(event) =>
+              updateDevice({
+                editorFontSize: event.target.value === '' ? null : Number(event.target.value),
+              })
+            }
+          >
+            <option value="">Automatic (follows interface scale)</option>
+            {editorFontSizes.map((size) => (
+              <option key={size} value={size}>
+                {size} px
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className={styles.hint}>
+          Sets the size of the text you edit, on this device only, independent of the interface
+          scale. Touch screens keep at least 16 px so the page does not zoom on focus.
+        </p>
         <label>
           Accept suggestion chips with
           <select

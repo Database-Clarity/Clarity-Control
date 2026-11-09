@@ -23,10 +23,9 @@ const browser = await chromium.launch({
   headless: true,
 });
 
-// Settings lives in the identity menu in the header, on desktop and phone alike.
+// Settings is the gear button in the header, on desktop and phone alike.
 async function openSettings(page) {
-  await page.locator('[data-identity-button]').click();
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.locator('[data-settings-button]').click();
 }
 
 const luminance = ([r, g, b]) => {

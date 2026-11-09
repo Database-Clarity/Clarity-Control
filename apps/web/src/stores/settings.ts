@@ -37,6 +37,8 @@ export type Remembered = z.infer<typeof rememberedSchema>;
 export const uiScaleMin = 85;
 export const uiScaleMax = 150;
 export const uiScaleStep = 5;
+/** Editor text size in CSS pixels; null is automatic (0.875rem, so it follows the interface scale). */
+export const editorFontSizes = [11, 12, 13, 14, 15, 16, 18, 20, 22, 24] as const;
 export const editorFonts = ['default', 'fira-code', 'jetbrains-mono', 'system'] as const;
 /**
  * One resizable pane pair on this device, in CSS pixels. `width` is the size the user chose (a
@@ -67,8 +69,20 @@ export type SuggestAccept = (typeof suggestAcceptKeys)[number];
 /** How a symbol widget shows its markup: in a popover on hover, or as raw text while the caret is on it. */
 export const symbolRevealModes = ['popover', 'caret'] as const;
 export type SymbolReveal = (typeof symbolRevealModes)[number];
+/** Snaps a stored size onto the offered sizes (nearest); anything that is not a number is automatic. */
+export function normalizeEditorFontSize(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return editorFontSizes.reduce((best, size) =>
+    Math.abs(size - value) < Math.abs(best - value) ? size : best,
+  ) as number;
+}
 export const deviceSettingsSchema = z.object({
   editorFont: z.enum(editorFonts),
+  /**
+   * Editor text size in CSS pixels, independent of the interface scale; null (the default) keeps
+   * today's size, which follows the scale. Touch screens never go below 16px (no focus zoom).
+   */
+  editorFontSize: z.number().nullable().transform(normalizeEditorFontSize),
   /** Whole-interface scale in percent (the root font size); 100 is the design size. */
   uiScale: z.number().int().min(uiScaleMin).max(uiScaleMax),
   theme: z.enum(themePreferences),
@@ -82,6 +96,7 @@ export type DeviceSettings = z.infer<typeof deviceSettingsSchema>;
 export const defaultDeviceSettings: DeviceSettings = {
   uiScale: 100,
   editorFont: 'default',
+  editorFontSize: null,
   theme: 'system',
   panes: {},
   compendiumScale: defaultCompendiumScale,
@@ -199,6 +214,10 @@ export function applyDeviceSettings(device: DeviceSettings): void {
   if (typeof document === 'undefined') return;
   applyTheme(device.theme);
   document.documentElement.dataset.editorFont = device.editorFont;
+  // Pixels, not rem: the editor's text size must not follow the interface scale once it is chosen.
+  if (device.editorFontSize === null)
+    document.documentElement.style.removeProperty('--editor-font-size');
+  else document.documentElement.style.setProperty('--editor-font-size', `${device.editorFontSize}px`);
   currentScale = device.uiScale;
   applyScale();
   if (!resizeBound && typeof window !== 'undefined') {
@@ -403,6 +422,7 @@ export function createSettingsStore({
     return {
       uiScale,
       editorFont: editorFont.success ? editorFont.data : 'default',
+      editorFontSize: normalizeEditorFontSize(record.editorFontSize),
       theme: theme.success ? theme.data : 'system',
       panes: readPanes(record.panes),
       compendiumScale: normalizeCompendiumScale(record.compendiumScale),

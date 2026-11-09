@@ -39,9 +39,9 @@
 .card {
   padding: 1.25rem;
   margin: 1rem 0;
-  border: 1px solid #555;
+  border: 1px solid var(--box-edge);
   border-radius: 0.4rem;
-  background: #222228;
+  background: var(--box-bg);
   min-width: 0;
   h2 {
     font-size: 1.2rem;
@@ -53,10 +53,10 @@
 }
 
 .muted {
-  color: #bcbcc5;
+  color: var(--muted);
 }
 .warning {
-  color: #ff9a9a;
+  color: var(--bad-ink);
   font-weight: bold;
 }
 .text {
@@ -75,7 +75,7 @@
   gap: 0.5rem;
   align-items: flex-end;
   button[aria-pressed='true'] {
-    border-color: #ff9a9a;
+    border-color: var(--bad-ink);
     font-weight: bold;
   }
 }
@@ -103,7 +103,7 @@
 .badge {
   display: inline-block;
   padding: 0.1rem 0.5rem;
-  border: 1px solid #777;
+  border: 1px solid var(--badge-edge);
   border-radius: 1rem;
   font-weight: bold;
 }
