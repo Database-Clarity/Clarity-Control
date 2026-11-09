@@ -154,6 +154,30 @@ describe('translation queue', () => {
     }
   });
 
+  it('excludes paired and base-less enhanced parts from work queues and coverage, but keeps enhanced perks', () => {
+    const data = fixture();
+    const before = translationIndex(data);
+    data.items[30] = item(30, 'Enhanced part', 'weapon-perk-enhanced', { baseHash: 1 });
+    data.items[31] = item(31, 'Unpaired enhanced part', 'weapon-perk-enhanced');
+    data.items[32] = item(32, 'Enhanced perk', 'weapon-trait-enhanced', { baseHash: 2 });
+    data.bundle.tooltips[30] = tooltip(30, 'Enhanced part text');
+    data.bundle.tooltips[31] = tooltip(31, 'Unpaired text', {
+      de: { source: '2026-02-01T00:00:00.000Z' },
+    });
+    data.bundle.tooltips[32] = tooltip(32, 'Enhanced perk text');
+    const index = translationIndex({ ...data });
+
+    expect(index.translatable.map((entry) => entry.hash)).not.toContain(30);
+    expect(index.translatable.map((entry) => entry.hash)).not.toContain(31);
+    expect(index.translatable.map((entry) => entry.hash)).toContain(32);
+    expect(index.queue('de').map((entry) => entry.hash)).not.toContain(30);
+    expect(index.queue('de').map((entry) => entry.hash)).not.toContain(31);
+    expect(index.coverage('de')).toEqual({
+      ...before.coverage('de'),
+      missing: before.coverage('de').missing + 1,
+    });
+  });
+
   it('is built once per loaded data set', () => {
     expect(translationIndex(data)).toBe(index);
     expect(translationIndex(fixture())).not.toBe(index);
