@@ -59,8 +59,8 @@ const labels: Record<PreviewMode, string> = {
 };
 
 /**
- * The preview column: ONE perk header, then Base | Enhanced | Compare (only when the item has an
- * enhanced version), then one body. Base and Enhanced are the renders a consumer sees; Compare is
+ * The preview column: ONE perk header, then Base | Enhanced | Compare (the last two dimmed when the
+ * item has no enhanced version), then one body. Base and Enhanced are the renders a consumer sees; Compare is
  * a working view of the two, so only Base and Enhanced ever count as "previewed".
  */
 export function PreviewColumn(props: PreviewColumnProps) {
@@ -160,21 +160,29 @@ const PreviewColumnBody = memo(function PreviewColumnBody({
           }
       : undefined;
 
-  const bar = selected && (
+  // The row is always there, so stepping onto an item with no enhanced version moves nothing: the
+  // views it lacks are dimmed, the chosen view is kept by the page and returns on the next item
+  // that has one.
+  const bar = (
     <div className={styles.bar}>
       <div className={styles.segmented} role="group" aria-label="Preview version">
-        {(['base', 'enhanced', 'compare'] as const).map((value) => (
-          <button
-            key={value}
-            type="button"
-            aria-pressed={effective === value}
-            onClick={() => onMode(value)}
-          >
-            {labels[value]}
-          </button>
-        ))}
+        {(['base', 'enhanced', 'compare'] as const).map((value) => {
+          const missing = !selected && value !== 'base';
+          return (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={effective === value}
+              disabled={missing}
+              title={missing ? 'This item has no enhanced version' : undefined}
+              onClick={() => onMode(value)}
+            >
+              {labels[value]}
+            </button>
+          );
+        })}
       </div>
-      {enhanced.length > 1 && (
+      {selected && enhanced.length > 1 && (
         <select
           className={styles.versions}
           aria-label="Enhanced version"

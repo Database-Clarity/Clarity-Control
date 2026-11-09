@@ -26,7 +26,6 @@ export function EditorPaneHeader({
   reason,
   switchTo,
   onSwitch,
-  details,
   overrides,
   activeOverride,
   onEditOverride,
@@ -44,8 +43,6 @@ export function EditorPaneHeader({
   reason: string | null;
   switchTo?: Lang;
   onSwitch(lang: Lang): void;
-  /** Who edited it and when; opens from the "Details" button. */
-  details: React.ReactNode;
   overrides: OverrideTarget[];
   activeOverride: OverrideTarget | undefined;
   onEditOverride(hash: number): void;
@@ -114,14 +111,6 @@ export function EditorPaneHeader({
           )}
         </span>
       )}
-      <Popover
-        label="Edit history of this text"
-        className={styles.ghost}
-        trigger="Details"
-        triggerTitle="Who last edited this text, and when"
-      >
-        {details}
-      </Popover>
       {markupTools}
       <span className={styles.paneRight}>
         {storedForms.map(({ target, node }) => (
@@ -130,7 +119,7 @@ export function EditorPaneHeader({
             label={`Stored form${storedForms.length > 1 ? `: ${target.name}` : ''}`}
             className={styles.ghost}
             trigger={`Stored form${storedForms.length > 1 ? `: ${target.name}` : ''}`}
-            triggerTitle="The text stored for the enhanced version (read only)"
+            triggerTitle="What is stored for the enhanced version; it renders like the base text (read only)"
           >
             {node}
           </Popover>
