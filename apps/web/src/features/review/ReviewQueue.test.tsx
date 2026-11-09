@@ -5,6 +5,37 @@ import { HashRouter, MemoryRouter, useLocation, useNavigationType } from 'react-
 import { expect, it, vi } from 'vitest';
 import { ReviewQueue } from './ReviewQueue';
 import { advanceReviewOpening, beginReviewOpening, useReviewOpening } from './opening';
+import type { PendingTooltip } from './model';
+import type { QueueView } from './queueModel';
+
+const views = new WeakMap<object, QueueView>();
+/** A flat list of rows (no group headers), so indices match hashes as in the original queue. */
+function listView(changes: { hash: number; name: string; category: string }[]): QueueView {
+  let view = views.get(changes);
+  if (!view) {
+    const entries = changes.map(
+      ({ hash, name, category }) =>
+        ({
+          tooltip: { hash, text: {}, associated: [] },
+          name,
+          category,
+          categoryId: category,
+          categoryOrder: 0,
+          markerOnly: false,
+          isNew: false,
+        }) as PendingTooltip,
+    );
+    view = {
+      items: entries.map((entry) => ({ kind: 'row', entry, group: entry.categoryId })),
+      ordered: entries,
+      shown: new Set(entries.map(({ tooltip }) => tooltip.hash)),
+      contentCount: entries.length,
+      markerCount: 0,
+    };
+    views.set(changes, view);
+  }
+  return view;
+}
 
 it('bounds a long queue, reveals deep URL selections, and keeps keyboard access across windows', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -56,7 +87,7 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
     await act(async () =>
       root.render(
         <MemoryRouter>
-          <ReviewQueue changes={changes} selectedHash="1800" />
+          <ReviewQueue view={listView(changes)} selectedHash="1800" />
         </MemoryRouter>,
       ),
     );
@@ -66,7 +97,8 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
     const scroller = host.querySelector<HTMLElement>(
       '[aria-label="Scroll pending saved changes"]',
     )!;
-    expect(scroller.scrollTop).toBeCloseTo(1800 * 69.12);
+    // A row below the window is revealed with the least scroll: it lands on the bottom edge.
+    expect(scroller.scrollTop).toBeCloseTo(1801 * 69.12 - 1600);
     const windowTop = Number.parseFloat(host.querySelector<HTMLElement>('ul')!.style.top);
     const renderedBottom =
       windowTop +
@@ -94,7 +126,7 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
     expect(selected.closest('li')?.style.height).toBe('96px');
     expect(
       host.querySelector<HTMLElement>('[aria-label="Scroll pending saved changes"]')?.scrollTop,
-    ).toBe(1800 * 96);
+    ).toBe(1801 * 96 - 1600);
     await act(async () => selected.focus());
     await act(async () =>
       selected.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })),
@@ -172,7 +204,7 @@ it('coalesces wheel deltas before scrolling, preserves zoom/chaining, and cancel
     await act(async () =>
       root.render(
         <MemoryRouter>
-          <ReviewQueue changes={changes} selectedHash="0" />
+          <ReviewQueue view={listView(changes)} selectedHash="0" />
         </MemoryRouter>,
       ),
     );
@@ -287,7 +319,7 @@ it('preserves native link modifiers and current-route replacement with one queue
     await act(async () =>
       root.render(
         <MemoryRouter basename="/app" initialEntries={['/app/review']}>
-          <ReviewQueue changes={changes} selectedHash={null} />
+          <ReviewQueue view={listView(changes)} selectedHash={null} />
           <Location />
         </MemoryRouter>,
       ),
@@ -368,7 +400,7 @@ it('retains a keyboard activation and wheel delta during the readonly opening', 
     return (
       <>
         <ReviewQueue
-          changes={changes}
+          view={listView(changes)}
           selectedHash={new URLSearchParams(location.search).get('hash')}
         />
         <output>{location.pathname + location.search}</output>

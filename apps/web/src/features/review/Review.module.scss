@@ -1,14 +1,19 @@
+@use '../../ui/controls';
+@use '../../data/variables' as theme;
+
 .page {
+  // The shell's page padding (Layout .reviewMode .main); the header line and identity bar run
+  // edge to edge inside it, like the Compendium tab's.
+  --main-pad: clamp(1rem, 3vw, 2rem);
   // The shell assigns this width. Keep the route out of ancestor inline sizing.
   contain: inline-size layout;
-}
+  container-type: inline-size;
+  margin-top: calc(-1 * var(--main-pad));
+  font-size: 0.8125rem;
 
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.75rem;
-  margin-block: 1rem;
+  @include theme.mobile {
+    --main-pad: 0.75rem;
+  }
 }
 
 .openingStatus {
@@ -34,108 +39,13 @@
   white-space: nowrap;
 }
 
-.heading {
-  margin-bottom: 1rem;
-
-  h1 {
-    margin-bottom: 0.35rem;
-  }
-
-  p {
-    margin: 0;
-    color: var(--text2);
-  }
-}
-
 .authNotice {
-  padding: 0.75rem 1rem;
-  border: 1px solid #596478;
-  border-left: 3px solid #87beff;
-  border-radius: 0.4rem;
-  background: var(--col);
-}
-
-.filters {
-  display: grid;
-  // The category select always has room for the longest label ("Enhanced Origin Traits").
-  grid-template-columns: minmax(0, 1fr) minmax(13rem, 1fr);
-  align-items: end;
-  gap: 0.75rem;
-  margin-block: 1rem;
-
-  > span {
-    grid-column: 1 / -1;
-  }
-
-  label {
-    display: grid;
-    gap: 0.35rem;
-    min-width: 0;
-  }
-
-  input,
-  select {
-    box-sizing: border-box;
-    min-width: 0;
-    max-width: 100%;
-    width: 100%;
-  }
-}
-
-.workspace {
-  contain: layout;
-  display: grid;
-  // Keep the cards' block sizing independent, rather than stretching both to
-  // the taller card and laying out their contained descendants a second time.
-  align-items: start;
-  // Equivalent one-third/two-thirds split with a definite first track; the
-  // new route does not need an intrinsic sizing pass over both cards.
-  grid-template-columns: max(15rem, calc((100% - 1.5rem) / 3)) minmax(0, 1fr);
-  gap: 1.5rem;
-}
-
-.card {
-  // The workspace assigns the column width. Descendant text does not need to
-  // participate in its parent's intrinsic inline sizing.
-  contain: inline-size layout;
-  min-width: 0;
-  padding: 1rem;
+  margin: 0 0 0.5rem;
+  padding: 0.375rem 0.5rem;
   border: 1px solid var(--line);
-  border-radius: 0.6rem;
+  border-left: 3px solid var(--link);
+  border-radius: 0.1875rem;
   background: var(--col);
-}
-
-.listHeading {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-
-  h2 {
-    margin: 0;
-  }
-
-  .toolbar {
-    margin: 0.25rem 0;
-  }
-}
-
-.categoryHeading {
-  overflow-wrap: anywhere;
-
-  small {
-    color: var(--text2);
-    font-size: 0.75em;
-    font-weight: 400;
-  }
-}
-
-.rowIdentity,
-.detailIdentity {
-  small {
-    color: var(--text2);
-  }
 }
 
 .liveSkeleton {
@@ -170,103 +80,6 @@
 @media (prefers-reduced-motion: reduce) {
   .liveSkeleton span:not(.readyStatus) {
     animation: none;
-  }
-}
-
-.detailIdentity {
-  margin-block: 0 0.4rem;
-  color: var(--text2);
-  font-size: 0.8rem;
-}
-
-.list {
-  list-style: none;
-  padding: 0;
-  overflow-wrap: anywhere;
-
-  li {
-    contain: inline-size layout;
-    // Preserve the complete 15-row page while the browser skips offscreen
-    // descendants; focus, find-in-page, and scrolling reveal their full content.
-    content-visibility: auto;
-    contain-intrinsic-block-size: auto 5rem;
-    padding: 0.65rem;
-    border: 1px solid var(--line);
-    border-radius: 0.4rem;
-    background: var(--raised);
-  }
-
-  li + li {
-    margin-block-start: 1rem;
-  }
-
-  label {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    min-width: 0;
-  }
-
-  button {
-    flex: 1;
-    min-width: 0;
-    max-width: 100%;
-    text-align: left;
-  }
-
-  button > span {
-    display: block;
-    white-space: normal;
-    overflow-wrap: anywhere;
-
-    small {
-      display: block;
-    }
-  }
-
-  li > div {
-    margin-block-start: 0.45rem;
-    font-size: 0.8rem;
-    color: var(--text2);
-    overflow-wrap: anywhere;
-  }
-
-  [aria-current='true'] {
-    outline: 2px solid #f6a14b;
-  }
-}
-
-@media (max-width: 1000px) {
-  .workspace {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-@media (max-width: 700px) {
-  .filters {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .card {
-    padding: 0.75rem;
-  }
-
-  .empty button,
-  .toolbar button,
-  .list button {
-    min-height: max(44px, 2.75rem);
-  }
-
-  .filters input,
-  .filters select {
-    min-height: max(44px, 2.75rem);
-  }
-
-  .list input[type='checkbox'] {
-    width: 2.75rem;
-    height: 2.75rem;
-    flex: 0 0 44px;
-    margin: 0;
   }
 }
 
@@ -333,7 +146,7 @@
   }
 
   li + li {
-    border-top: 1px solid #2c3546;
+    border-top: 1px solid var(--hair);
   }
 
   button {
@@ -353,7 +166,7 @@
   box-sizing: border-box;
   overflow: hidden;
   padding: 0.1rem 0.25rem;
-  border: 1px solid #596478;
+  border: 1px solid var(--ctl-edge);
   border-radius: 0.25rem;
   font-size: 0.8rem;
   font-weight: 600;
@@ -362,23 +175,23 @@
   white-space: nowrap;
 
   [data-tone='busy'] > & {
-    border-color: #87beff;
-    color: #87beff;
+    border-color: var(--link);
+    color: var(--link);
   }
 
   [data-tone='ok'] > & {
-    border-color: #4fbf7a;
-    color: #4fbf7a;
+    border-color: var(--accent-ink);
+    color: var(--accent-ink);
   }
 
   [data-tone='warn'] > & {
-    border-color: #f6a14b;
-    color: #f6a14b;
+    border-color: var(--warn);
+    color: var(--warn);
   }
 
   [data-tone='bad'] > & {
-    border-color: #ee6b6b;
-    color: #ee6b6b;
+    border-color: var(--danger);
+    color: var(--danger);
   }
 }
 
@@ -421,67 +234,6 @@
   }
 }
 
-// ---- header line and detail (dense, one row each) ----
-.summary {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.5rem 0.75rem;
-  margin-bottom: 0.75rem;
-  padding-bottom: 0.375rem;
-  border-bottom: 1px solid var(--hair);
-
-  h1 {
-    margin: 0;
-    font-size: 0.9375rem;
-  }
-
-  button {
-    height: 1.75rem;
-    padding: 0 0.6rem;
-    white-space: nowrap;
-  }
-}
-
-.counts {
-  flex: 1 1 12rem;
-  min-width: 0;
-  margin: 0;
-  color: var(--text2);
-
-  a {
-    color: inherit;
-  }
-}
-
-.markerNote {
-  margin: 0 0 0.75rem;
-  padding: 0.375rem 0.5rem;
-  color: var(--text2);
-  border: 1px solid var(--hair);
-  border-left: 3px solid var(--warn);
-  border-radius: 0.1875rem;
-}
-
-.marks {
-  display: inline-flex;
-  flex: none;
-  gap: 0.25rem;
-  margin-inline-start: auto;
-
-  small {
-    padding: 0 0.25rem;
-    font-size: 0.6875rem;
-    color: var(--text2);
-    border: 1px solid var(--ghost-edge);
-    border-radius: 0.125rem;
-  }
-
-  small[data-mark='New'] {
-    color: var(--accent-ink);
-  }
-}
-
 .changed,
 .savedBy {
   margin: 0.375rem 0 0;
@@ -504,5 +256,282 @@
     color: var(--text2);
     border: 1px solid var(--ghost-edge);
     border-radius: 0.125rem;
+  }
+}
+
+// ---- header line, identity bar, and detail (dense, one row each; no cards) ----
+.summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.375rem 0.75rem;
+  min-height: 2.25rem;
+  margin: 0 calc(-1 * var(--main-pad));
+  padding: 0.25rem var(--main-pad);
+  border-bottom: 1px solid var(--hair);
+}
+
+.counts {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  color: var(--text2);
+  white-space: nowrap;
+
+  b {
+    color: var(--text);
+  }
+}
+
+.summaryEnd {
+  display: flex;
+  flex: none;
+  gap: 0.375rem;
+  margin-inline-start: auto;
+
+  button {
+    @include controls.button;
+    white-space: nowrap;
+  }
+}
+
+.primary {
+  color: var(--pri-text) !important;
+  background: var(--pri-hover) !important;
+  border-color: var(--accent-ink) !important;
+
+  &:disabled {
+    color: var(--text2) !important;
+    background: var(--ctl) !important;
+    border-color: var(--ctl-edge) !important;
+  }
+}
+
+.textButton {
+  padding: 0;
+  font: inherit;
+  color: var(--link);
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  cursor: pointer;
+
+  @include theme.mobile-or-coarse {
+    min-height: max(44px, 2.75rem);
+  }
+}
+
+.note {
+  margin: 0.5rem 0;
+  color: var(--text2);
+}
+
+.empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-block: 0.75rem;
+
+  p {
+    margin: 0;
+  }
+
+  button {
+    @include controls.button;
+  }
+}
+
+.identity {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  min-height: 2rem;
+  margin: 0 calc(-1 * var(--main-pad)) 0.5rem;
+  padding: 0.125rem var(--main-pad);
+  background: var(--strip);
+  border-bottom: 1px solid var(--hair);
+
+  h2 {
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    font-size: 0.9375rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.identityText {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+
+  > .muted:first-child {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.identityEnd {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  gap: 0.75rem;
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--text2);
+}
+
+.sep {
+  color: var(--text3);
+}
+
+.hash {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+// A narrow page keeps the name: the category is the list's group, the hash is in the editor.
+@container (max-width: 40rem) {
+  .identityText > .muted:first-child,
+  .identityText > .sep,
+  .hash {
+    display: none;
+  }
+}
+
+.mark {
+  flex: none;
+  padding: 0 0.25rem;
+  font-size: 0.6875rem;
+  color: var(--text2);
+  border: 1px solid var(--ghost-edge);
+  border-radius: 0.125rem;
+
+  &[data-mark='New'] {
+    color: var(--accent-ink);
+  }
+}
+
+// The ‹ › steppers exist for phones; the keyboard and list do this on a desktop.
+.step {
+  display: none;
+}
+
+.markerNote {
+  margin: 0 0 0.5rem;
+  padding: 0.375rem 0.5rem;
+  color: var(--text2);
+  border: 1px solid var(--hair);
+  border-left: 3px solid var(--warn);
+  border-radius: 0.1875rem;
+}
+
+.changed,
+.savedBy {
+  margin: 0.25rem 0 0;
+}
+
+.savedBy {
+  color: var(--text2);
+  margin-bottom: 0.5rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-block: 0.75rem;
+
+  button {
+    @include controls.button;
+    white-space: nowrap;
+  }
+}
+
+.include {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin: 0;
+  white-space: nowrap;
+
+  kbd {
+    padding: 0 0.25rem;
+    font: inherit;
+    font-size: 0.6875rem;
+    color: var(--text2);
+    border: 1px solid var(--ghost-edge);
+    border-radius: 0.125rem;
+  }
+
+  @include theme.mobile-or-coarse {
+    min-height: max(44px, 2.75rem);
+
+    input {
+      width: 1.125rem;
+      height: 1.125rem;
+    }
+
+    kbd {
+      display: none;
+    }
+  }
+}
+
+@media (max-width: 700px) {
+  // Phone: ‹ name › with `Category · marks` under the name; the position and the editor link
+  // get their own row of 44px targets.
+  .identity {
+    flex-wrap: wrap;
+    gap: 0 0.25rem;
+    padding-inline: 0.5rem;
+  }
+
+  .identityText {
+    flex: 1 1 0;
+    flex-wrap: wrap;
+    row-gap: 0;
+
+    h2 {
+      order: -1;
+      flex: 1 0 100%;
+    }
+
+    > .muted:first-child {
+      display: inline;
+    }
+  }
+
+  .identityEnd {
+    order: 10;
+    flex: 1 0 100%;
+    justify-content: flex-end;
+    align-items: center;
+
+    a {
+      display: inline-flex;
+      align-items: center;
+      min-height: max(44px, 2.75rem);
+    }
+  }
+
+  .step {
+    @include controls.button;
+    display: inline-flex;
+    flex: none;
+    width: max(44px, 2.75rem);
+    padding: 0;
+    font-size: 1.25rem;
   }
 }

@@ -1,0 +1,121 @@
+import { useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { publisherEnabled } from '../../services/publisher/flag';
+import { activeHashes, usePublishState } from './publishDriver';
+import { matchesFilter, queueView } from './queueModel';
+import { useReviewQueue } from './queueStore';
+import { ReviewQueue } from './ReviewQueue';
+import { useReviewSession } from './session';
+import type { PendingTooltip } from './model';
+import styles from './ReviewQueue.module.scss';
+
+/** Hashes inside a publish that is still queued or being sent; they cannot be picked again. */
+export function useInFlight(): ReadonlySet<number> {
+  const publisher = publisherEnabled();
+  const ops = usePublishState((state) => state.ops);
+  return useMemo(() => (publisher ? activeHashes(ops) : new Set<number>()), [ops, publisher]);
+}
+
+/** The filters' URL: keeps the open change when it still matches, else the first that does. */
+export function filterParams(
+  params: URLSearchParams,
+  entries: readonly PendingTooltip[],
+  query: string,
+  category: string,
+): URLSearchParams {
+  const next = new URLSearchParams(params);
+  next.delete('marker');
+  if (query) next.set('query', query);
+  else next.delete('query');
+  if (category) next.set('category', category);
+  else next.delete('category');
+  const hash = next.get('hash');
+  const matching = entries.filter((entry) => matchesFilter(entry, query, category));
+  if (!matching.some(({ tooltip }) => String(tooltip.hash) === hash)) {
+    const first = matching.find(({ markerOnly }) => !markerOnly) ?? matching[0];
+    if (first) next.set('hash', String(first.tooltip.hash));
+    else next.delete('hash');
+  }
+  return next;
+}
+
+/** The Review left column (and the phone's list sheet): filters over the grouped queue. */
+export function ReviewSidebar() {
+  const entries = useReviewQueue((state) => state.entries);
+  const collapsed = useReviewQueue((state) => state.collapsed);
+  const markerOpen = useReviewQueue((state) => state.markerOpen);
+  const pushing = useReviewSession((state) => state.pushing);
+  const inFlight = useInFlight();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const query = searchParams.get('query') ?? '';
+  const categoryFilter = searchParams.get('category') ?? '';
+  const view = useMemo(
+    () => entries && queueView(entries, query, categoryFilter, collapsed, markerOpen),
+    [entries, query, categoryFilter, collapsed, markerOpen],
+  );
+  const categories = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const { categoryId, category } of entries ?? [])
+      if (!seen.has(categoryId)) seen.set(categoryId, category);
+    return [...seen];
+  }, [entries]);
+  const update = (nextQuery: string, nextCategory: string) =>
+    setSearchParams(filterParams(searchParams, entries ?? [], nextQuery, nextCategory), {
+      replace: true,
+    });
+  return (
+    <div className={styles.queue}>
+      {entries === null ? (
+        <p>Loading saved changes…</p>
+      ) : !entries.length ? (
+        <p>No saved changes are waiting to go live.</p>
+      ) : (
+        <>
+          <div className={styles.filters}>
+            <input
+              type="search"
+              aria-label="Find saved changes"
+              placeholder="Find saved change"
+              value={query}
+              onChange={(event) => update(event.target.value, categoryFilter)}
+            />
+            <select
+              data-perf-navigation="true"
+              aria-label="Category"
+              value={categoryFilter}
+              onChange={(event) => update(query, event.target.value)}
+            >
+              <option value="">All categories</option>
+              {categories.map(([id, label]) => (
+                <option key={id} value={id}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+          {view && view.items.length ? (
+            <ReviewQueue
+              view={view}
+              selectedHash={searchParams.get('hash')}
+              locked={pushing}
+              inFlight={inFlight}
+            />
+          ) : (
+            <p className={styles.empty}>
+              Nothing matches.
+              <button type="button" data-perf-navigation="true" onClick={() => update('', '')}>
+                Clear filters
+              </button>
+            </p>
+          )}
+          {view && view.markerCount > 0 && !markerOpen && (
+            <p className={styles.markerNote}>
+              Alias-marker migration leftovers: saved content equals live. A data task clears
+              these; group select never includes them.
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
