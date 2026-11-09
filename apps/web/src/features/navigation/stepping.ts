@@ -2,6 +2,14 @@ import { langSchema } from '@clarity/core';
 
 export type NavigateTo = (path: string, options: { replace: boolean; flushSync?: boolean }) => void;
 
+/** A finder entry: an item under the group it is listed in ('' in a category without groups). */
+export interface Entry {
+  hash: number;
+  group: string;
+}
+export const entryKey = (hash: number, group: string) => (group ? `${hash}:${group}` : `${hash}`);
+export const keyOf = (entry: Entry) => entryKey(entry.hash, entry.group);
+
 export function stepWithinCategory(
   current: number,
   direction: number,
@@ -11,62 +19,136 @@ export function stepWithinCategory(
   return index < 0 ? undefined : hashes[index + direction];
 }
 
-/** Tooltip route that keeps only a valid `?lang=`; `line`/`variant` highlights never carry over. */
-export function tooltipPath(hash: number, search: string): string {
-  const requested = new URLSearchParams(search).get('lang');
+/**
+ * The scope parameter: `all` (every group of the category), `all:<group>` (all, with a shared
+ * entry opened under that group), or a group id. Written only when the item cannot imply it.
+ */
+const scopeParam = /^(all(?::[\w.-]+)?|[\w.-]+)$/;
+export interface RouteScope {
+  all: boolean;
+  group?: string;
+}
+export function parseScope(value: string | null | undefined): RouteScope | undefined {
+  if (!value || !scopeParam.test(value)) return undefined;
+  if (value === 'all') return { all: true };
+  if (value.startsWith('all:')) return { all: true, group: value.slice(4) };
+  return { all: false, group: value };
+}
+/** The `?g=` value that restores `entry` in the scope, or undefined when the item implies it. */
+export function scopeValue(
+  entry: Entry,
+  all: boolean,
+  firstGroup: ReadonlyMap<number, string>,
+): string | undefined {
+  const implied = firstGroup.get(entry.hash) === entry.group;
+  if (all) return implied ? 'all' : `all:${entry.group}`;
+  return implied ? undefined : entry.group;
+}
+/** Where a route is: the scope and the group of its entry, from the route's own item and `g`. */
+export function resolvePlace(
+  route: RouteScope | undefined,
+  hash: number,
+  firstGroup: ReadonlyMap<number, string>,
+  has: (hash: number, group: string) => boolean,
+): { all: boolean; group: string } {
+  const first = firstGroup.get(hash) ?? '';
+  const named = route?.group !== undefined && has(hash, route.group) ? route.group : undefined;
+  return route?.all ? { all: true, group: named ?? first } : { all: false, group: named ?? first };
+}
+
+/**
+ * Tooltip route that keeps only a valid `?lang=` and `?g=`; `line`/`variant` highlights never
+ * carry over. `scope` replaces the route's own `g` (null drops it).
+ */
+export function tooltipPath(hash: number, search: string, scope?: string | null): string {
+  const params = new URLSearchParams(search);
+  const requested = params.get('lang');
   const lang = requested === null ? undefined : langSchema.safeParse(requested).data;
-  return `/t/${hash}${lang ? `?lang=${lang}` : ''}`;
+  const g = scope === undefined ? params.get('g') : scope;
+  const query = [lang && `lang=${lang}`, g && parseScope(g) && `g=${g}`].filter(Boolean).join('&');
+  return `/t/${hash}${query ? `?${query}` : ''}`;
 }
 
 export interface StepTarget {
   /** Full current location (path + query), so history can restore it exactly. */
   from: string;
   to: { path: string; pathname: string; search: string };
+  entry: Entry;
 }
 
-/** Where a Previous/Next step goes from `location`, or undefined at the category ends. */
+/**
+ * Where a Previous/Next step goes from `current` within the scope's list, or undefined at its ends.
+ * `link` builds the route of the entry stepped to (it knows the scope).
+ */
 export function stepTarget(
   location: { pathname: string; search: string },
   direction: number,
-  hashes: readonly number[],
-  indexes?: ReadonlyMap<number, number>,
+  list: readonly Entry[],
+  indexes: ReadonlyMap<string, number>,
+  current: Entry,
+  link: (entry: Entry) => string,
 ): StepTarget | undefined {
-  const current = Number(location.pathname.split('/')[2]);
-  const index = indexes?.get(current);
-  const next = indexes
-    ? index === undefined
-      ? undefined
-      : hashes[index + direction]
-    : stepWithinCategory(current, direction, hashes);
-  if (next === undefined) return undefined;
-  const path = tooltipPath(next, location.search);
+  const index = indexes.get(keyOf(current));
+  const entry = index === undefined ? undefined : list[index + direction];
+  return entry && target(location, entry, link(entry));
+}
+
+export function target(
+  location: { pathname: string; search: string },
+  entry: Entry,
+  path: string,
+): StepTarget {
   const [pathname, search = ''] = path.split('?');
   return {
     from: `${location.pathname}${location.search}`,
     to: { path, pathname, search: search && `?${search}` },
+    entry,
   };
 }
 
 export interface CategoryPosition {
-  /** 1-based position of `current` in the category, or 0 when it is not listed. */
+  /** 1-based position of `current` in the scope, or 0 when it is not listed. */
   index: number;
   total: number;
-  previous: number | undefined;
-  next: number | undefined;
+  previous: Entry | undefined;
+  next: Entry | undefined;
 }
 
-// Targets and counter for the Previous/Next buttons: same rule as `stepWithinCategory`.
-export function categoryPosition(current: number, hashes: readonly number[]): CategoryPosition {
+// Targets and counter for the Previous/Next buttons: same rule as `stepTarget`.
+export function categoryPosition(
+  current: Entry,
+  list: readonly Entry[],
+  indexes: ReadonlyMap<string, number>,
+): CategoryPosition {
+  const index = indexes.get(keyOf(current));
   return {
-    index: hashes.indexOf(current) + 1,
-    total: hashes.length,
-    previous: stepWithinCategory(current, -1, hashes),
-    next: stepWithinCategory(current, 1, hashes),
+    index: index === undefined ? 0 : index + 1,
+    total: list.length,
+    previous: index === undefined ? undefined : list[index - 1],
+    next: index === undefined ? undefined : list[index + 1],
   };
 }
 
-export function positionLabel({ index, total }: Pick<CategoryPosition, 'index' | 'total'>): string {
-  return index ? `${index} of ${total}` : `${total} in category`;
+export function positionLabel(
+  { index, total }: Pick<CategoryPosition, 'index' | 'total'>,
+  name = 'category',
+): string {
+  return index ? `${index} of ${total}` : `${total} in ${name}`;
+}
+
+/**
+ * What a wheel event with Shift steps: `entry` or `group`, and the direction. Plain Shift steps
+ * entries and Alt+Shift steps groups; the device setting swaps them. A category without groups
+ * steps entries either way.
+ */
+export function wheelStep(
+  event: Pick<WheelEvent, 'shiftKey' | 'altKey' | 'ctrlKey' | 'metaKey' | 'deltaX' | 'deltaY'>,
+  options: { swap: boolean; grouped: boolean },
+): { kind: 'entry' | 'group'; direction: number } | undefined {
+  const direction = shiftScrollDirection(event);
+  if (!direction) return undefined;
+  const groups = options.grouped && event.altKey !== options.swap;
+  return { kind: groups ? 'group' : 'entry', direction };
 }
 
 export function shiftScrollDirection(

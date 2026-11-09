@@ -180,7 +180,7 @@ describe('exotic armour in the finder', () => {
     await mount('/t/1');
     expect(field().value).toBe('Contraverse Hold');
     expect(host.querySelector<HTMLSelectElement>('select')!.selectedOptions[0].textContent).toBe(
-      'Exotic Armor Perks (5)',
+      'Exotic Armor Perks',
     );
     await act(async () => root.render(null));
     await mount('/t/4');

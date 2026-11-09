@@ -89,6 +89,8 @@ export const categorySpecs: Readonly<Record<string, CategorySpec>> = {
 
   'armor-trait-exotic': spec('Armor', 200, 'Exotic Armor Perks', 'Armor Trait Exotic'),
   'armor-mod-general': spec('Armor', 220, 'Armor Mods', 'Armor Mod General'),
+  // Editor-derived (see itemClassification): armour mods that only change armour stats.
+  'armor-mod-stat': spec('Armor', 221, 'Stat-only Armor Mods', 'Armor Stat Mods'),
   'armor-set-bonus': spec('Armor', 210, 'Armor Set Bonuses'),
   'armor-mod-combat': spec('Armor', 230, 'Combat Mods', 'Armor Mod Combat'),
   'armor-mod-activity': spec('Armor', 240, 'Activity Mods', 'Armor Mod Activity'),

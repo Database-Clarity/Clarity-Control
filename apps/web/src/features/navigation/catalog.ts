@@ -1,9 +1,16 @@
-import { classifyItem, derivedCategories, isSetSelector } from '../compendium/itemClassification';
+import {
+  classifyItem,
+  derivedCategories,
+  isSetSelector,
+  manifestPlug,
+} from '../compendium/itemClassification';
 import { currentArtifactOwners } from '../compendium/artifactIdentity';
 import { resolveAlias, type Tooltip, type CompendiumData } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import type { Category, Item } from '../../services/generator';
 import { categoryDisplay, groupRank } from '../../services/categoryLabels';
+import { activityDisplay, missingActivity } from '../../services/activityLabels';
+import { entryKey, type Entry } from './stepping';
 
 const canonicalIndexes = new WeakMap<EditorData, Map<number, number>>();
 export function canonicalHash(hash: number, data: EditorData): number {
@@ -263,12 +270,192 @@ export function listName(item: Item, data: EditorData): string {
   return listedItem(item, data).name;
 }
 
+/** What a category's second dropdown groups by: a weapon (exotic owner) or an activity (plug). */
+export type Grouping = 'weapon' | 'activity';
 export interface CategorySection extends Category {
   items: ListedItem[];
+  grouping?: Grouping;
 }
 export interface CategoryGroup {
   name: string;
   sections: CategorySection[];
+}
+
+/**
+ * The finder's "Exotic Weapons" category: each weapon's perks, frames, catalysts, and parts in one
+ * list, grouped by weapon. A presentation category only; the four generator categories keep their
+ * ids, their editor labels, and export.
+ */
+export const exoticWeaponsCategory = 'exotic-weapons';
+const exoticWeaponsSpec: Category = {
+  id: exoticWeaponsCategory,
+  label: 'Exotic Weapons',
+  group: 'Weapons',
+  order: 102,
+};
+/** Kind order within a weapon: Frame, Perk, Catalyst, Part. */
+const exoticWeaponKinds: Readonly<Record<string, { label: string; rank: number }>> = {
+  'weapon-frame-exotic': { label: 'Frame', rank: 0 },
+  'weapon-trait-exotic': { label: 'Perk', rank: 1 },
+  'weapon-catalyst-exotic': { label: 'Catalyst', rank: 2 },
+  'weapon-perk-exotic': { label: 'Part', rank: 3 },
+};
+const activityModCategory = 'armor-mod-activity';
+const groupings: Readonly<Record<string, Grouping>> = {
+  [exoticWeaponsCategory]: 'weapon',
+  [activityModCategory]: 'activity',
+};
+
+/** The finder section a category id is listed in. */
+export function finderCategoryId(categoryId: string): string {
+  return categoryId in exoticWeaponKinds ? exoticWeaponsCategory : categoryId;
+}
+
+/** Kind label of an exotic weapon entry (Frame, Perk, Catalyst, Part). */
+export function exoticWeaponKind(item: Pick<Item, 'categoryId'>): string {
+  return exoticWeaponKinds[item.categoryId]?.label ?? 'Entry';
+}
+
+export interface FinderGroup {
+  /** The owner's lowest hash for its name, or the manifest plug category of an activity. */
+  id: string;
+  label: string;
+  entries: Entry[];
+  index: Map<string, number>;
+}
+/** A grouped category's entries, built once per section: per group, and all of them in group order. */
+export interface GroupedSection {
+  grouping: Grouping;
+  groups: FinderGroup[];
+  byId: Map<string, FinderGroup>;
+  groupIndex: Map<string, number>;
+  all: Entry[];
+  allIndex: Map<string, number>;
+  /** The group an item belongs to when the route names none: its first owner, in generator order. */
+  firstGroup: Map<number, string>;
+  /** Every group a shared item is listed under (only items listed under two or more). */
+  owners: Map<number, FinderGroup[]>;
+  items: Map<number, ListedItem>;
+  allLabel: string;
+  groupLabel: string;
+}
+
+function entryOwnerLabel(owner: number, item: Item, data: EditorData): string {
+  return (
+    data.items[owner]?.name.trim() ||
+    data.bundle.tooltips[owner]?.custom?.name.trim() ||
+    item.ownerNames?.[owner]?.trim() ||
+    (owner === item.itemHash ? item.itemName?.trim() : undefined) ||
+    String(owner)
+  );
+}
+
+const ownerIds = new WeakMap<EditorData, Map<string, number>>();
+/**
+ * Two definitions of one weapon share a name: they are one group, identified by the lowest hash.
+ * Computed over every exotic weapon entry, so a search never renames a group.
+ */
+function weaponOwnerIds(data: EditorData): Map<string, number> {
+  let ids = ownerIds.get(data);
+  if (!ids) {
+    ids = new Map();
+    for (const item of Object.values(data.items)) {
+      if (!(item.categoryId in exoticWeaponKinds)) continue;
+      for (const owner of item.owners ?? (item.itemHash === undefined ? [] : [item.itemHash])) {
+        const name = entryOwnerLabel(owner, item, data);
+        ids.set(name, Math.min(owner, ids.get(name) ?? owner));
+      }
+    }
+    ownerIds.set(data, ids);
+  }
+  return ids;
+}
+
+const groupedSections = new WeakMap<CategorySection, GroupedSection | undefined>();
+export function groupedSection(
+  section: CategorySection,
+  data: EditorData,
+): GroupedSection | undefined {
+  if (!section.grouping) return undefined;
+  if (groupedSections.has(section)) return groupedSections.get(section);
+  const weapon = section.grouping === 'weapon';
+  const groups = new Map<
+    string,
+    { id: string; label: string; order: number; items: ListedItem[] }
+  >();
+  const firstGroup = new Map<number, string>();
+  const itemGroups = new Map<number, string[]>();
+  const add = (id: string, label: string, order: number, item: ListedItem) => {
+    const mine = itemGroups.get(item.hash) ?? [];
+    // Two owners with one name are one weapon: listed once.
+    if (mine.includes(id)) return;
+    mine.push(id);
+    itemGroups.set(item.hash, mine);
+    const group = groups.get(id) ?? { id, label, order, items: [] };
+    group.items.push(item);
+    groups.set(id, group);
+    if (!firstGroup.has(item.hash)) firstGroup.set(item.hash, id);
+  };
+  if (weapon) {
+    const nameIds = weaponOwnerIds(data);
+    for (const item of section.items) {
+      const owners = item.owners ?? (item.itemHash === undefined ? [] : [item.itemHash]);
+      if (!owners.length) add('0', 'No weapon', 0, item);
+      for (const owner of owners) {
+        const name = entryOwnerLabel(owner, item, data);
+        add(String(nameIds.get(name) ?? owner), name, 0, item);
+      }
+    }
+  } else {
+    for (const item of section.items) {
+      const { plug, description } = manifestPlug(item.hash);
+      const spec = activityDisplay(plug, description);
+      add(plug ?? missingActivity, spec.label, spec.order, item);
+    }
+  }
+  const kindRank = (item: ListedItem) => exoticWeaponKinds[item.categoryId]?.rank ?? 9;
+  const built: FinderGroup[] = [...groups.values()]
+    .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label) || a.id.localeCompare(b.id))
+    .map((group) => {
+      const entries = group.items
+        .sort(
+          (a, b) =>
+            (weapon ? kindRank(a) - kindRank(b) : 0) ||
+            a.name.localeCompare(b.name) ||
+            a.hash - b.hash,
+        )
+        .map((item) => ({ hash: item.hash, group: group.id }));
+      return {
+        id: group.id,
+        label: group.label,
+        entries,
+        index: new Map(entries.map((entry, i) => [entryKey(entry.hash, entry.group), i])),
+      };
+    });
+  const all = built.flatMap((group) => group.entries);
+  const byId = new Map(built.map((group) => [group.id, group]));
+  const owners = new Map<number, FinderGroup[]>();
+  for (const [hash, ids] of itemGroups)
+    if (ids.length > 1)
+      owners.set(
+        hash,
+        ids.map((id) => byId.get(id)!),
+      );
+  const result: GroupedSection = {
+    grouping: section.grouping,
+    groups: built,
+    byId,
+    groupIndex: new Map(built.map((group, i) => [group.id, i])),
+    all,
+    allIndex: new Map(all.map((entry, i) => [entryKey(entry.hash, entry.group), i])),
+    firstGroup,
+    owners,
+    items: new Map(section.items.map((item) => [item.hash, item])),
+    allLabel: weapon ? 'All exotic weapons' : 'All activities',
+    groupLabel: weapon ? 'Weapon' : 'Activity',
+  };
+  groupedSections.set(section, result);
+  return result;
 }
 
 export function navigationGroups(data: EditorData, query: string): CategoryGroup[] {
@@ -315,12 +502,14 @@ export function navigationGroups(data: EditorData, query: string): CategoryGroup
     return listedItem(c ? { ...item, categoryId: c.categoryId } : item, data);
   });
   const categories = [
-    ...data.categories,
+    ...data.categories.filter((category) => !(category.id in exoticWeaponKinds)),
     ...derivedCategories.filter((c) => !data.categories.some((existing) => existing.id === c.id)),
+    exoticWeaponsSpec,
   ];
   for (const item of classifiedItems) {
-    if (!categories.some((category) => category.id === item.categoryId)) {
-      categories.push({ id: item.categoryId, ...categoryDisplay(item.categoryId) });
+    const id = finderCategoryId(item.categoryId);
+    if (!categories.some((category) => category.id === id)) {
+      categories.push({ id, ...categoryDisplay(id) });
     }
   }
   const groups = new Map<string, CategoryGroup>();
@@ -329,7 +518,7 @@ export function navigationGroups(data: EditorData, query: string): CategoryGroup
   );
   for (const category of ranked) {
     const entries = classifiedItems
-      .filter((item) => item.categoryId === category.id)
+      .filter((item) => finderCategoryId(item.categoryId) === category.id)
       .sort(
         (a, b) =>
           (a.setName ?? a.name).localeCompare(b.setName ?? b.name) ||
@@ -342,6 +531,7 @@ export function navigationGroups(data: EditorData, query: string): CategoryGroup
     group.sections.push({
       ...category,
       items: entries,
+      ...(groupings[category.id] && { grouping: groupings[category.id] }),
     });
     groups.set(category.group, group);
   }
