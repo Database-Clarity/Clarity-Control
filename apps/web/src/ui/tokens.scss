@@ -168,6 +168,7 @@
   --sheet-edge: #657080;
   --sheet-anchor: #ffd98b;
   --sheet-on: #245a40;
+  --sheet-ink: currentColor;
 }
 
 @mixin light-tokens {
@@ -330,6 +331,7 @@
   --sheet-edge: #657080;
   --sheet-anchor: #ffd98b;
   --sheet-on: #245a40;
+  --sheet-ink: var(--sheet-text);
 }
 
 :root {

@@ -208,16 +208,19 @@
 .grouped {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  column-gap: 0.75rem;
   margin: 0;
   padding: 0;
   list-style: none;
   li {
     display: contents;
   }
+  // No column gap, so each row's divider is one unbroken line; cells pad themselves.
   li > * {
-    padding: 0.1875rem 0;
+    padding: 0.1875rem 0.75rem 0.1875rem 0;
     border-top: 1px solid var(--line);
+  }
+  li > :nth-child(3) {
+    padding-right: 0;
   }
   li:first-child > * {
     border-top: 0;

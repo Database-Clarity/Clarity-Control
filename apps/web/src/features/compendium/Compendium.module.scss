@@ -404,6 +404,9 @@
 .sheet {
   border-collapse: collapse;
   background: var(--sheet-bg);
+  // The sheet stays dark in both themes, so its own text (row numbers, headers) needs light ink
+  // in the light theme; dark keeps the inherited colour.
+  color: var(--sheet-ink);
   td,
   th {
     border: 1px solid var(--sheet-edge);
