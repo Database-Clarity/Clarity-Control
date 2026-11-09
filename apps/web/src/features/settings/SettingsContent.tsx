@@ -7,6 +7,7 @@ import {
   uiScaleMin,
   uiScaleStep,
   type SuggestAccept,
+  type FinderWheel,
   type SymbolReveal,
 } from '../../stores/settings';
 import { themePreferences, type ThemePreference } from '../../ui/theme';
@@ -234,12 +235,20 @@ export function SettingsContent() {
           Show symbol markup
           <select
             value={device.symbolReveal}
-            onChange={(event) =>
-              updateDevice({ symbolReveal: event.target.value as SymbolReveal })
-            }
+            onChange={(event) => updateDevice({ symbolReveal: event.target.value as SymbolReveal })}
           >
             <option value="popover">In a popover on hover (text never moves)</option>
             <option value="caret">As raw text while the caret is on the symbol</option>
+          </select>
+        </label>
+        <label>
+          Finder wheel
+          <select
+            value={device.finderWheel}
+            onChange={(event) => updateDevice({ finderWheel: event.target.value as FinderWheel })}
+          >
+            <option value="entries">Shift steps entries, Alt+Shift steps weapons</option>
+            <option value="groups">Shift steps weapons, Alt+Shift steps entries</option>
           </select>
         </label>
         <label>

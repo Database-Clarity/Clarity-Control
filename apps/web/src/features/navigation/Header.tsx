@@ -52,8 +52,13 @@ export function Header({
 /** The lockup's own proportions (viewBox 6005 x 1020) at the header's 1.75rem height. */
 const LOCKUP_ASPECT = 6005 / 1020;
 const LOCKUP_HEIGHT_REM = 1.75;
-/** The finder slot holds the category select (11rem) and the field: below this the field is under ~14rem. */
+/**
+ * The finder slot holds the category select (12rem), the weapon or activity select where the
+ * category has one (12rem), and the field (at least 12rem, 14rem preferred) with the position
+ * readout: below this the field is under ~14rem.
+ */
 const FINDER_MIN_REM = 25;
+const FINDER_MIN_GROUPED_REM = 37;
 
 /**
  * Whether the lockup would leave the finder under its minimum. Measured from the parts that do not
@@ -69,6 +74,7 @@ function useTightBar(bar: RefObject<HTMLDivElement | null>, compact: boolean): b
       setTight(false);
       return;
     }
+    let grouped = false;
     const measure = () => {
       const tabs = element.querySelector('nav');
       const end = element.lastElementChild;
@@ -88,14 +94,33 @@ function useTightBar(bar: RefObject<HTMLDivElement | null>, compact: boolean): b
         tabs.getBoundingClientRect().width +
         end.getBoundingClientRect().width +
         gap * 3;
-      setTight(element.clientWidth - used < FINDER_MIN_REM * rem);
+      grouped = element.querySelector('[data-grouped]') !== null;
+      setTight(
+        element.clientWidth - used < (grouped ? FINDER_MIN_GROUPED_REM : FINDER_MIN_REM) * rem,
+      );
     };
     measure();
     if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     for (const child of element.children) observer.observe(child);
-    return () => observer.disconnect();
+    // The group select appears and goes with the category: measure again when the finder says so.
+    const mutations =
+      typeof MutationObserver === 'undefined'
+        ? undefined
+        : new MutationObserver(() => {
+            if ((element.querySelector('[data-grouped]') !== null) !== grouped) measure();
+          });
+    mutations?.observe(element, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['data-grouped'],
+    });
+    return () => {
+      observer.disconnect();
+      mutations?.disconnect();
+    };
   }, [bar, compact]);
   return tight;
 }

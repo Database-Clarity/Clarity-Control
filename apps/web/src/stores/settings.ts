@@ -67,6 +67,12 @@ export type SuggestAccept = (typeof suggestAcceptKeys)[number];
 /** How a symbol widget shows its markup: in a popover on hover, or as raw text while the caret is on it. */
 export const symbolRevealModes = ['popover', 'caret'] as const;
 export type SymbolReveal = (typeof symbolRevealModes)[number];
+/**
+ * What plain Shift+wheel steps in the finder: entries (Alt+Shift steps weapons and activities) or
+ * the groups (Alt+Shift steps entries). Per device.
+ */
+export const finderWheelModes = ['entries', 'groups'] as const;
+export type FinderWheel = (typeof finderWheelModes)[number];
 export const deviceSettingsSchema = z.object({
   editorFont: z.enum(editorFonts),
   /** Whole-interface scale in percent (the root font size); 100 is the design size. */
@@ -76,6 +82,7 @@ export const deviceSettingsSchema = z.object({
   compendiumScale: z.number().transform(normalizeCompendiumScale),
   suggestAccept: z.enum(suggestAcceptKeys),
   symbolReveal: z.enum(symbolRevealModes),
+  finderWheel: z.enum(finderWheelModes),
   remembered: rememberedSchema,
 });
 export type DeviceSettings = z.infer<typeof deviceSettingsSchema>;
@@ -87,6 +94,7 @@ export const defaultDeviceSettings: DeviceSettings = {
   compendiumScale: defaultCompendiumScale,
   suggestAccept: 'enter',
   symbolReveal: 'popover',
+  finderWheel: 'entries',
   remembered: {},
 };
 
@@ -411,6 +419,7 @@ export function createSettingsStore({
           ? record.suggestAccept
           : 'enter',
       symbolReveal: record.symbolReveal === 'caret' ? 'caret' : 'popover',
+      finderWheel: record.finderWheel === 'groups' ? 'groups' : 'entries',
       remembered,
     };
   }

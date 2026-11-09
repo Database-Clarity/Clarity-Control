@@ -27,26 +27,39 @@ import {
 } from '../../ui/interaction';
 import {
   classifiedCategory,
+  exoticWeaponKind,
+  finderCategoryId,
   frameGroupSize,
+  groupedSection,
   itemFor,
   listName,
   navigationGroups,
   sharedPerkLabel,
   variantHashes,
   type CategorySection,
+  type GroupedSection,
 } from './catalog';
 import { enhancedPairs } from '../tooltip/variants';
 import { EnhancedArrow } from '../../ui/EnhancedArrow';
 import {
   categoryPosition,
   createStepping,
+  entryKey,
+  keyOf,
+  parseScope,
   positionLabel,
   createWheelStepper,
-  shiftScrollDirection,
+  resolvePlace,
+  scopeValue,
   stepTarget,
+  target as stepRoute,
   tooltipPath,
+  wheelStep,
+  type Entry,
+  type StepTarget,
   type SteppingGuard,
 } from './stepping';
+import { useSettingsStore } from '../../stores/settings';
 import { FinderSheetCloseContext, FinderSheetContext } from './FinderSheetContext';
 import {
   beginSteppingFrame,
@@ -70,9 +83,21 @@ const steppingGuard: SteppingGuard = {
 
 interface Row {
   hash: number;
+  /** Row identity: the hash, or hash:group where a hash is listed under several groups. */
+  key: string;
+  /** The group the row is listed under ('' in a category without groups). */
+  group: string;
   name: string;
-  /** The perk an exotic armour entry opens, shown beside its hash. */
+  /** The perk an exotic armour entry opens, or the entry of a weapon/activity row in All scope. */
   perk?: string;
+  /** Weapon entry kind (Frame, Perk, Catalyst, Part), shown before the hash. */
+  kind?: string;
+  /** Replaces the generic shared-perk mark on a grouped row: "also X" in a group, "shared" in All. */
+  extra?: string;
+  /** The entry's own name, for the two-line phone form of a grouped row. */
+  entry?: string;
+  /** The row sits in an All-scope list: committing it keeps the All scope. */
+  all?: boolean;
   /** The name already lists several pieces, so the row needs no shared-perk mark. */
   listsPieces?: boolean;
   category: string;
@@ -131,6 +156,7 @@ const FinderOption = memo(function FinderOption({
   total,
   virtual,
   rowHeight,
+  twoLine,
 }: {
   row: Row;
   index: number;
@@ -146,12 +172,15 @@ const FinderOption = memo(function FinderOption({
   total: number;
   virtual: boolean;
   rowHeight: number;
+  /** The phone sheet shows a grouped row as entry over "group · kind · hash". */
+  twoLine: boolean;
 }) {
   const item = itemFor(row.hash, data);
   const isDirty = variantHashes(row.hash, data).some((variant) => drafts[variant]);
   const shared = sharedPerkLabel(row.hash, data, source);
   const frames = frameGroupSize(row.hash, data);
   const enhanced = enhancedPairs(row.hash, data).length > 0;
+  const stacked = twoLine && row.entry !== undefined;
   return (
     <li
       id={id}
@@ -174,6 +203,7 @@ const FinderOption = memo(function FinderOption({
       data-current={current || undefined}
       title={shared}
       className={styles.option}
+      data-two-line={stacked || undefined}
       onMouseDown={(event) => event.preventDefault()}
       onMouseMove={() => !active && onActive(index)}
       onClick={() => onCommit.current(row)}
@@ -183,7 +213,7 @@ const FinderOption = memo(function FinderOption({
       </span>
       <span className={styles.name}>
         {isDirty && <span className="sr-only">Unsaved draft: </span>}
-        {row.name}
+        {stacked ? row.entry : row.name}
       </span>
       <small>
         {enhanced && (
@@ -191,11 +221,13 @@ const FinderOption = memo(function FinderOption({
             <EnhancedArrow />
           </span>
         )}
-        {row.perk && <span className={styles.perk}>{row.perk}</span>}
+        {!stacked && row.perk && <span className={styles.perk}>{row.perk}</span>}
         <span className={styles.tail}>
-          {row.perk && ' · '}
+          {stacked ? row.all && `${row.name} · ` : row.perk && ' · '}
+          {row.kind && `${row.kind} · `}
           {row.hash}
-          {shared && !row.listsPieces && ' · shared perk'}
+          {row.extra && ` · ${row.extra}`}
+          {shared && !row.listsPieces && !row.group && ' · shared perk'}
           {frames > 1 && ` ×${frames}`}
           {item && allCategories && ` · ${row.category}`}
         </span>
@@ -211,6 +243,8 @@ interface FinderOptionsProps extends Omit<
   rows: Row[];
   active: number;
   hash: number;
+  /** The group of the open entry, so a hash listed twice marks only the one the route names. */
+  group: string;
   base: string;
   query: string;
   viewportStore: ReturnType<typeof createFinderViewport>;
@@ -225,6 +259,7 @@ const FinderOptions = memo(function FinderOptions({
   rows,
   active,
   hash,
+  group,
   base,
   query,
   viewportStore,
@@ -245,8 +280,8 @@ const FinderOptions = memo(function FinderOptions({
       key={key}
       row={row}
       index={index}
-      id={`${base}-o${row.hash}`}
-      current={row.hash === hash}
+      id={`${base}-o${row.key}`}
+      current={row.hash === hash && (!row.group || row.group === group)}
       active={index === active}
       total={rows.length}
       virtual={rows.length > retainedRowLimit}
@@ -262,7 +297,7 @@ const FinderOptions = memo(function FinderOptions({
     ? 0
     : Math.max(
         0,
-        rows.findIndex((row) => row.hash === hash),
+        rows.findIndex((row) => row.hash === hash && (!row.group || row.group === group)),
       );
   const targetIndex = listLayout.current ? active : initialIndex;
   const targetTop = targetIndex * rowHeight;
@@ -301,6 +336,50 @@ const FinderOptions = memo(function FinderOptions({
   );
 });
 
+const noRows: Row[] = [];
+const plainRow = (item: CategorySection['items'][number], section: CategorySection): Row => ({
+  hash: item.hash,
+  key: String(item.hash),
+  group: '',
+  // The row names the piece and keeps the perk on the right, so a set's rows stay
+  // tellable apart even where the name column truncates.
+  name: item.piece ?? item.name,
+  perk: item.perkName && item.perkName !== (item.piece ?? item.name) ? item.perkName : undefined,
+  listsPieces: (item.pieces ?? 1) > 1,
+  category: section.label,
+});
+
+/**
+ * Rows of a grouped category: one weapon's (or activity's) entries, or every group's in All scope.
+ * A group row leads with the entry; an All row leads with the group, the anchor of the alphabet,
+ * and keeps the entry beside the hash. An entry listed under two weapons names the other one.
+ */
+function groupedRows(
+  section: CategorySection,
+  grouped: GroupedSection,
+  scope: { all: boolean; group: string },
+): Row[] {
+  const entries = scope.all ? grouped.all : (grouped.byId.get(scope.group)?.entries ?? []);
+  return entries.map((entry): Row => {
+    const item = grouped.items.get(entry.hash)!;
+    const owners = grouped.owners.get(entry.hash);
+    const others = owners?.filter((group) => group.id !== entry.group).map((group) => group.label);
+    const label = grouped.byId.get(entry.group)?.label ?? '';
+    return {
+      hash: entry.hash,
+      key: entryKey(entry.hash, entry.group),
+      group: entry.group,
+      name: scope.all ? label : item.name,
+      perk: scope.all ? item.name : undefined,
+      kind: grouped.grouping === 'weapon' ? exoticWeaponKind(item) : undefined,
+      extra: owners ? (scope.all ? 'shared' : `also ${others?.join(', ')}`) : undefined,
+      entry: item.name,
+      all: scope.all,
+      category: section.label,
+    };
+  });
+}
+
 /**
  * The editor's finder: category, a searchable tooltip combobox (the selector itself) and the
  * position in the category. Typing filters, arrows move the highlighted option, Enter commits,
@@ -329,9 +408,14 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     setActive(index);
   }, []);
   const [allCategories, setAllCategories] = useState(false);
+  // Widens a weapon's (or an activity's) list to every group of the category.
+  const [allGroups, setAllGroups] = useState(false);
+  const swapWheel = useSettingsStore((state) => state.device.finderWheel) === 'groups';
+  const swapWheelRef = useRef(swapWheel);
+  swapWheelRef.current = swapWheel;
   const base = useId();
   const listId = `${base}-list`;
-  const optionId = (hash: number) => `${base}-o${hash}`;
+  const optionId = (row: Row) => `${base}-o${row.key}`;
   const groups = useMemo(() => navigationGroups(data, ''), [data]);
   const found = useMemo(
     () => (query.trim() ? navigationGroups(data, query) : groups),
@@ -344,15 +428,45 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   const location = useLocation();
   const urgentTarget = useSteppingActivity((state) => state.target);
   const hash = Number(pathname(urgentTarget ?? location.pathname).split('/')[2]);
+  const routeSearch = urgentTarget ? (urgentTarget.split('?')[1] ?? '') : location.search;
   const sections = useMemo(() => groups.flatMap((group) => group.sections), [groups]);
   const selectedCategory =
     sections.find(
-      (category) => category.id === classifiedCategory(itemFor(hash, data), data)?.id,
+      (category) =>
+        category.id === finderCategoryId(classifiedCategory(itemFor(hash, data), data)?.id ?? ''),
     ) ?? sections[0];
   const items = selectedCategory?.items ?? noItems;
-  const hashes = useMemo(() => items.map((item) => item.hash), [items]);
-  const indexes = useMemo(() => new Map(hashes.map((value, index) => [value, index])), [hashes]);
-  const position = categoryPosition(hash, hashes);
+  const grouped = useMemo(
+    () => (selectedCategory ? groupedSection(selectedCategory, data) : undefined),
+    [selectedCategory, data],
+  );
+  const groupedRef = useRef(grouped);
+  groupedRef.current = grouped;
+  // A category without groups lists its items as entries of no group.
+  const plain = useMemo(() => {
+    const list: Entry[] = grouped ? [] : items.map((item) => ({ hash: item.hash, group: '' }));
+    return { list, index: new Map(list.map((entry, i) => [keyOf(entry), i])) };
+  }, [grouped, items]);
+  /** The scope and group of a route: from `?g=`, else the item's first owner. */
+  const placeOf = (itemHash: number, search: string) => {
+    if (!grouped) return { all: false, group: '' };
+    const param = search ? new URLSearchParams(search).get('g') : null;
+    return resolvePlace(parseScope(param), itemHash, grouped.firstGroup, (h, g) =>
+      grouped.allIndex.has(entryKey(h, g)),
+    );
+  };
+  /** The entries a scope steps through, and where each sits. */
+  const scopeLists = (all: boolean, group: string) => {
+    if (!grouped) return plain;
+    const own = all ? undefined : grouped.byId.get(group);
+    return own
+      ? { list: own.entries, index: own.index }
+      : { list: grouped.all, index: grouped.allIndex };
+  };
+  const place = placeOf(hash, routeSearch);
+  const scope = scopeLists(place.all, place.group);
+  const entry: Entry = { hash, group: place.group };
+  const position = categoryPosition(entry, scope.list, scope.index);
   const current = useRef({ pathname: location.pathname, search: location.search });
   current.current = { pathname: location.pathname, search: location.search };
   const field = useRef<HTMLInputElement>(null);
@@ -430,15 +544,21 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   }, [stepping]);
   const [wheelStepper] = useState(createWheelStepper);
   const step = useRef<(direction: number) => boolean>(() => false);
-  const canStep = useRef<(direction: number) => boolean>(() => false);
+  const stepGroup = useRef<(direction: number) => boolean>(() => false);
+  const canStep = useRef<(direction: number, kind: 'entry' | 'group') => boolean>(() => false);
   const stepLocation = () => {
     const pending = (stepping.target ?? useSteppingActivity.getState().target)?.split('?');
     return pending
       ? { pathname: pending[0], search: pending[1] ? `?${pending[1]}` : '' }
       : current.current;
   };
-  step.current = (direction) => {
-    const target = stepTarget(stepLocation(), direction, hashes, indexes);
+  const stepAt = () => {
+    const where = stepLocation();
+    const at = Number(where.pathname.split('/')[2]);
+    return { where, hash: at, ...placeOf(at, where.search) };
+  };
+  /** Moves to `target` unless there is none (the scope's end) or the guard refuses. */
+  const stepTo = (target: StepTarget | undefined) => {
     if (!target) {
       // A free-spin gesture can reach the category boundary long before its wheel
       // packets stop. Keep pending panel work cancelled until the input rests.
@@ -450,36 +570,57 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     pulseStepping(landNewest, resumeNewest);
     return true;
   };
-  canStep.current = (direction) => {
-    const index = indexes.get(Number(stepLocation().pathname.split('/')[2]));
-    return index !== undefined && hashes[index + direction] !== undefined;
+  const scopeRoute = (entry: Entry, all: boolean, search: string) =>
+    tooltipPath(
+      entry.hash,
+      search,
+      (grouped && scopeValue(entry, all, grouped.firstGroup)) || null,
+    );
+  step.current = (direction) => {
+    const at = stepAt();
+    const { list, index } = scopeLists(at.all, at.group);
+    return stepTo(
+      stepTarget(at.where, direction, list, index, { hash: at.hash, group: at.group }, (next) =>
+        scopeRoute(next, at.all, at.where.search),
+      ),
+    );
+  };
+  /** The neighbouring group's first entry; in a group scope that changes the scope. */
+  const groupTarget = (direction: number) => {
+    const at = stepAt();
+    const index = grouped?.groupIndex.get(at.group);
+    const next = index === undefined ? undefined : grouped?.groups[index + direction];
+    return { at, first: next?.entries[0] };
+  };
+  stepGroup.current = (direction) => {
+    const { at, first } = groupTarget(direction);
+    return stepTo(first && stepRoute(at.where, first, scopeRoute(first, at.all, at.where.search)));
+  };
+  canStep.current = (direction, kind) => {
+    if (kind === 'group') return groupTarget(direction).first !== undefined;
+    const at = stepAt();
+    const { list, index } = scopeLists(at.all, at.group);
+    const found = index.get(entryKey(at.hash, at.group));
+    return found !== undefined && list[found + direction] !== undefined;
   };
 
-  // The list: the current category by default, every category on request.
-  const scoped: CategorySection[] = useMemo(() => {
+  // The list: the current category by default (a weapon's or an activity's entries in a group
+  // scope), every category on request. Only an open list needs rows.
+  const rows: Row[] = useMemo(() => {
+    if (!open) return noRows;
     const all = found.flatMap((group) => group.sections);
-    return allCategories || !selectedCategory
-      ? all
-      : all.filter((section) => section.id === selectedCategory.id);
-  }, [found, allCategories, selectedCategory]);
-  const rows: Row[] = useMemo(
-    () =>
-      scoped.flatMap((section) =>
-        section.items.map((item) => ({
-          hash: item.hash,
-          // The row names the piece and keeps the perk on the right, so a set's rows stay
-          // tellable apart even where the name column truncates.
-          name: item.piece ?? item.name,
-          perk:
-            item.perkName && item.perkName !== (item.piece ?? item.name)
-              ? item.perkName
-              : undefined,
-          listsPieces: (item.pieces ?? 1) > 1,
-          category: section.label,
-        })),
-      ),
-    [scoped],
-  );
+    const listed =
+      allCategories || !selectedCategory
+        ? all
+        : all.filter((section) => section.id === selectedCategory.id);
+    return listed.flatMap((section) => {
+      const grouping = groupedSection(section, data);
+      if (!grouping) return section.items.map((item) => plainRow(item, section));
+      const own = section.id === selectedCategory?.id && !allCategories;
+      const narrow = own && !allGroups && !place.all;
+      return groupedRows(section, grouping, { all: !narrow, group: place.group });
+    });
+  }, [open, found, allCategories, allGroups, selectedCategory, data, place.all, place.group]);
   const currentItem = itemFor(hash, data);
   const currentLabel = currentItem ? listName(currentItem, data) : '';
   const sharedLabel = sharedPerkLabel(hash, data, compendiumSource);
@@ -569,11 +710,13 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     setOpen(false);
     setQuery('');
     setAllCategories(false);
+    setAllGroups(false);
   };
   useEffect(() => {
     setOpen(false);
     setQuery('');
     setAllCategories(false);
+    setAllGroups(false);
   }, [location.pathname]);
   // The phone sheet shows the list as soon as it opens, and starts clean when it closes.
   useEffect(() => {
@@ -583,16 +726,19 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       setOpen(false);
       setQuery('');
       setAllCategories(false);
+      setAllGroups(false);
     }
   }, [variant, sheetOpen]);
   useLayoutEffect(() => {
     if (!open) return;
     pointerHighlight.current = false;
-    const index = rows.findIndex((row) => row.hash === hash);
+    const index = rows.findIndex(
+      (row) => row.hash === hash && (!row.group || row.group === place.group),
+    );
     setActive(query.trim() ? 0 : Math.max(0, index));
     // Only a new query, scope or opening resets the highlight; route changes close the list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, query, allCategories]);
+  }, [open, query, allCategories, allGroups]);
   useLayoutEffect(() => {
     if (!open || pointerHighlight.current) return;
     const element = list.current;
@@ -611,19 +757,22 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     // cancelable listener entirely so its native scrolling stays compositor-led.
     if (open) return;
     const shiftWheel = (event: WheelEvent) => {
-      const direction = shiftScrollDirection(event);
-      if (!direction || workspaceShortcutsBlocked(event)) return;
-      // The gesture still belongs to stepping at either end of the category.
+      const wheel = wheelStep(event, {
+        swap: swapWheelRef.current,
+        grouped: Boolean(groupedRef.current),
+      });
+      if (!wheel || workspaceShortcutsBlocked(event)) return;
+      // The gesture still belongs to stepping at either end of the scope.
       // Letting its default horizontal overscroll escape can navigate Back.
       event.preventDefault();
-      if (!canStep.current(direction)) {
+      if (!canStep.current(wheel.direction, wheel.kind)) {
         // At the boundary the remaining packets still belong to the same gesture.
         // Keep the workspace idle until that physical gesture actually stops.
         if (useSteppingActivity.getState().active) pulseStepping();
         return;
       }
       const stepDirection = wheelStepper.feed(event, event.timeStamp);
-      if (stepDirection) step.current(stepDirection);
+      if (stepDirection) (wheel.kind === 'group' ? stepGroup : step).current(stepDirection);
     };
     window.addEventListener('wheel', shiftWheel, { passive: false, capture: true });
     return () => window.removeEventListener('wheel', shiftWheel, true);
@@ -662,9 +811,9 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     };
   }, [stepping, wheelStepper]);
   /** True when the navigation went ahead (the guard did not refuse it). */
-  function choose(target: number): boolean {
+  function choose(target: number, scopeParam?: string | null): boolean {
     stepping.commit();
-    const path = tooltipPath(target, location.search);
+    const path = tooltipPath(target, location.search, scopeParam);
     if (!steppingGuard.allow(location.pathname, path)) return false;
     pulseStepping();
     navigate(path);
@@ -676,7 +825,13 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     // A refused (guarded) navigation leaves the route; the field shows the current item again.
     // On the phone the chosen row opens its item and the sheet closes (a refused one stays, so
     // the prompt that explains why is not the only thing on screen).
-    if (choose(row.hash) && variant === 'sheet') closeSheet?.();
+    // A row of an All list keeps the All scope; a weapon's own rows keep the weapon's.
+    const scopeParam =
+      grouped && row.group
+        ? (scopeValue({ hash: row.hash, group: row.group }, Boolean(row.all), grouped.firstGroup) ??
+          null)
+        : null;
+    if (choose(row.hash, scopeParam) && variant === 'sheet') closeSheet?.();
   }
   const commitRef = useRef(commit);
   commitRef.current = commit;
@@ -713,11 +868,14 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       return;
     }
     if (!open) {
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-        // Closed, the arrows keep stepping through the category, as the dropdown always did.
+      const paging = (event.key === 'PageDown' || event.key === 'PageUp') && grouped;
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || paging) {
+        // Closed, the arrows keep stepping through the category, as the dropdown always did;
+        // PageUp/PageDown step the weapons or activities.
         event.preventDefault();
         if (!event.shiftKey) {
-          const moved = step.current(event.key === 'ArrowDown' ? 1 : -1);
+          const direction = event.key === 'ArrowDown' || event.key === 'PageDown' ? 1 : -1;
+          const moved = (paging ? stepGroup : step).current(direction);
           if (
             (moved || useSteppingActivity.getState().active) &&
             (!event.repeat || heldKey.current?.key !== event.key)
@@ -756,13 +914,25 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     } else if (event.key === 'Enter') {
       event.preventDefault();
       if (rows.length) commit(rows[active]);
+      else if (query.trim() && grouped && !place.all && !allGroups) setAllGroups(true);
       else if (query.trim() && !allCategories) setAllCategories(true);
     }
   };
 
   const trimmed = query.trim();
+  // A weapon's (or an activity's) own list; widening shows every group of the category.
+  const narrowed = Boolean(grouped) && !place.all && !allGroups && !allCategories;
+  const scopeName = narrowed
+    ? grouped?.byId.get(place.group)?.label
+    : allCategories
+      ? undefined
+      : selectedCategory?.label;
+  const widenGroups = grouped && narrowed ? `Search ${grouped.allLabel.toLowerCase()}` : undefined;
+  // Shared perks list the other weapon, and a long "entry · kind · hash" needs the room.
+  const wideRows =
+    place.all || allGroups || allCategories || (narrowed && Boolean(grouped?.owners.size));
   const listbox = open && (
-    <div className={styles.popup} data-variant={variant}>
+    <div className={styles.popup} data-variant={variant} data-wide={wideRows || undefined}>
       <ul
         ref={list}
         id={listId}
@@ -797,6 +967,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
           rows={rows}
           active={active}
           hash={hash}
+          group={place.group}
           base={base}
           query={query}
           viewportStore={viewportStore}
@@ -810,12 +981,24 @@ export const TooltipNavigation = memo(function TooltipNavigation({
           onActive={hoverActive}
           onCommit={commitRef}
           rowHeight={rowHeight}
+          twoLine={touchRows}
         />
       </ul>
       {!rows.length && (
         <p className={styles.empty}>
-          No tooltips match “{trimmed}”
-          {!allCategories && selectedCategory ? ` in ${selectedCategory.label}` : ''}.
+          No tooltips match “{trimmed}”{scopeName ? ` in ${scopeName}` : ''}.
+          {widenGroups && (
+            <>
+              {' '}
+              <button
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setAllGroups(true)}
+              >
+                {widenGroups}
+              </button>
+            </>
+          )}
           {!allCategories && (
             <>
               {' '}
@@ -834,11 +1017,22 @@ export const TooltipNavigation = memo(function TooltipNavigation({
             onClick={() => {
               setQuery('');
               setAllCategories(false);
+              setAllGroups(false);
             }}
           >
             Clear
           </button>
         </p>
+      )}
+      {rows.length > 0 && trimmed && widenGroups && (
+        <button
+          type="button"
+          className={styles.widen}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => setAllGroups(true)}
+        >
+          {widenGroups}
+        </button>
       )}
       {rows.length > 0 && trimmed && !allCategories && (
         <button
@@ -861,8 +1055,13 @@ export const TooltipNavigation = memo(function TooltipNavigation({
         value={selectedCategory?.id ?? ''}
         disabled={!sections.length}
         onChange={(event) => {
-          const first = sections.find((category) => category.id === event.target.value)?.items[0];
-          if (first) chooseRef.current(first.hash);
+          // A new category opens its first entry, in the scope of every group.
+          const next = sections.find((category) => category.id === event.target.value);
+          const grouping = next && groupedSection(next, data);
+          const first = grouping ? grouping.all[0] : next?.items[0];
+          if (!first) return;
+          const scope = grouping ? scopeValue(first as Entry, true, grouping.firstGroup) : null;
+          chooseRef.current(first.hash, scope);
         }}
       >
         {!sections.length && <option value="">No matching categories</option>}
@@ -870,18 +1069,56 @@ export const TooltipNavigation = memo(function TooltipNavigation({
           <optgroup key={group.name} label={group.name}>
             {group.sections.map((category) => (
               <option key={category.id} value={category.id}>
-                {category.label} ({category.items.length})
+                {category.label}
               </option>
             ))}
           </optgroup>
         ))}
       </select>
     ),
-    [groups, sections, selectedCategory?.id],
+    [groups, sections, selectedCategory?.id, data],
   );
+  const groupOptions = useMemo(
+    () =>
+      grouped && [
+        <option key="all" value="all">
+          {grouped.allLabel}
+        </option>,
+        ...grouped.groups.map((group) => (
+          <option key={group.id} value={group.id}>
+            {group.label}
+          </option>
+        )),
+      ],
+    [grouped],
+  );
+  const groupValue = grouped && !place.all && grouped.byId.has(place.group) ? place.group : 'all';
+  const groupNode = grouped && (
+    <select
+      aria-label={grouped.groupLabel}
+      className={styles.group}
+      value={groupValue}
+      onChange={(event) => {
+        const id = event.target.value;
+        const target = id === 'all' ? undefined : grouped.byId.get(id)?.entries[0];
+        // "All" widens the scope and keeps the item; a group opens its first entry.
+        if (id === 'all') chooseRef.current(hash, scopeValue(entry, true, grouped.firstGroup));
+        else if (target)
+          chooseRef.current(target.hash, scopeValue(target, false, grouped.firstGroup) ?? null);
+      }}
+    >
+      {groupOptions}
+    </select>
+  );
+  const neighbourGroup = (direction: number) => {
+    const at = grouped?.groupIndex.get(place.group);
+    return at === undefined ? undefined : grouped?.groups[at + direction];
+  };
+  const entryKeys = grouped && swapWheel ? 'Alt+Shift' : 'Shift';
+  const groupKeys = swapWheel ? 'Shift' : 'Alt+Shift';
   const positionNode = (
     <span className={styles.position} role="status">
-      {positionLabel(position)}
+      {positionLabel(position, grouped ? selectedCategory?.label : undefined)}
     </span>
   );
   const comboNode = (
@@ -902,7 +1139,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
           aria-label="Tooltip"
           aria-expanded={open}
           aria-controls={open ? listId : undefined}
-          aria-activedescendant={open && rows[active] ? optionId(rows[active].hash) : undefined}
+          aria-activedescendant={open && rows[active] ? optionId(rows[active]) : undefined}
           aria-autocomplete="list"
           aria-haspopup="listbox"
           aria-describedby="tooltip-stepping-help"
@@ -930,12 +1167,42 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     </div>
   );
   return (
-    <section aria-label="Tooltip navigation" className={styles.finder} data-variant={variant}>
+    <section
+      aria-label="Tooltip navigation"
+      className={styles.finder}
+      data-variant={variant}
+      data-grouped={grouped ? '' : undefined}
+    >
       {sheet ? (
         <>
           {comboNode}
           <div className={styles.sheetBar}>
             {categoryNode}
+            {groupNode && (
+              <div
+                role="group"
+                aria-label={`Step ${grouped?.groupLabel.toLowerCase()}`}
+                className={styles.groupRow}
+              >
+                <button
+                  type="button"
+                  aria-label={`Previous ${grouped?.groupLabel.toLowerCase()}`}
+                  disabled={!neighbourGroup(-1)}
+                  onClick={() => stepGroup.current(-1)}
+                >
+                  ‹
+                </button>
+                {groupNode}
+                <button
+                  type="button"
+                  aria-label={`Next ${grouped?.groupLabel.toLowerCase()}`}
+                  disabled={!neighbourGroup(1)}
+                  onClick={() => stepGroup.current(1)}
+                >
+                  ›
+                </button>
+              </div>
+            )}
             {/* Touch screens have no Shift+wheel: one compact row steps through the category. */}
             <div role="group" aria-label="Step within category" className={styles.stepper}>
               <button
@@ -961,6 +1228,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       ) : (
         <>
           {categoryNode}
+          {groupNode}
           {comboNode}
           {positionNode}
         </>
@@ -971,8 +1239,11 @@ export const TooltipNavigation = memo(function TooltipNavigation({
         </small>
       )}
       <small id="tooltip-stepping-help" className="sr-only">
-        Type to search. Shift+Scroll anywhere steps within this category and stops at its ends; the
-        arrow keys step too while the list is closed. * = unsaved draft.
+        Type to search. {entryKeys}+Scroll anywhere steps within this category and stops at its
+        ends; the arrow keys step too while the list is closed.
+        {grouped &&
+          ` ${groupKeys}+Scroll and Page Up/Down step ${grouped.groupLabel.toLowerCase()}s, stopping at the ends.`}{' '}
+        * = unsaved draft.
       </small>
     </section>
   );

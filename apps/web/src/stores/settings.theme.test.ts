@@ -93,6 +93,7 @@ describe('device theme', () => {
       compendiumScale: 100,
       suggestAccept: 'enter',
       symbolReveal: 'popover',
+      finderWheel: 'entries',
       remembered: { markupToolbar: 'open' },
     });
   });

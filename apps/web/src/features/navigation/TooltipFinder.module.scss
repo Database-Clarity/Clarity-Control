@@ -20,14 +20,20 @@
   }
 }
 
-.category {
+// Both dropdowns are sized for their longest label ("Enhanced Origin Traits", "Collective
+// Obligation", "Nightmares (Shadowkeep)"); counts live in the position readout, not here. A longer
+// future label ellipsises natively and never wraps.
+.category,
+.group {
   @include controls.field;
-  flex: 0 1 11rem;
+  flex: 0 0 auto;
+  width: 12rem;
   min-width: 0;
-  width: 100%;
-  max-width: 11rem;
+  max-width: 100%;
+  text-overflow: ellipsis;
 
   .finder[data-variant='sheet'] & {
+    width: 100%;
     max-width: none;
     flex: none;
   }
@@ -35,11 +41,12 @@
 
 .combo {
   position: relative;
-  flex: 1 1 16rem;
-  min-width: 0;
-  max-width: 28rem;
+  flex: 1 1 14rem;
+  min-width: 12rem;
+  max-width: 22rem;
 
   .finder[data-variant='sheet'] & {
+    min-width: 0;
     max-width: none;
     flex: 1 1 auto;
     min-height: 0;
@@ -98,6 +105,18 @@
   @include controls.overlay-surface;
   border-radius: 0.25rem;
   overflow: hidden;
+
+  // Rows that carry a group, an entry, a kind, and a hash need the room.
+  &[data-wide]:not([data-variant='sheet']) {
+    width: max(100%, 30rem);
+
+    // In the band the field is not at the left edge: open towards the viewport, never past it.
+    @media (max-width: 1099px) {
+      left: auto;
+      right: 0;
+      max-width: calc(100vw - 1rem);
+    }
+  }
 
   &[data-variant='sheet'] {
     position: static;
@@ -160,6 +179,28 @@
 
   @include theme.mobile-or-coarse {
     min-height: max(44px, 2.75rem);
+  }
+
+  // The phone sheet cannot fit two names on one line: the entry above, its context below.
+  &[data-two-line] {
+    grid-template-columns: 0.625rem minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    align-content: center;
+    row-gap: 0;
+
+    .mark {
+      grid-row: 1 / span 2;
+    }
+
+    .name,
+    small {
+      grid-column: 2;
+    }
+
+    small {
+      justify-content: flex-start;
+      text-overflow: ellipsis;
+    }
   }
 
   small {
@@ -261,6 +302,30 @@
 
   .stepper {
     align-self: flex-end;
+  }
+}
+
+// One compact row for the weapons or activities: ‹ Weapon ▾ ›
+.groupRow {
+  flex: none;
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  gap: 0.25rem;
+  min-width: 0;
+
+  button {
+    @include controls.button;
+    flex: none;
+    min-width: max(44px, 2.75rem);
+    font-size: 1.25rem;
+    padding: 0;
+  }
+
+  .group {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
   }
 }
 

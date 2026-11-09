@@ -18,10 +18,14 @@ export function isSetSelector(
 export const attachmentCategory = 'weapon-attachment';
 export const effectCategory = 'attachment-effect';
 export const inactiveCategory = 'inactive-placeholder';
+/** Armour mods whose manifest plug only changes armour stats; listed apart from Armor Mods. */
+export const armorStatCategory = 'armor-mod-stat';
+const armorModCategory = 'armor-mod-general';
 export const derivedCategories: Category[] = [
   attachmentCategory,
   effectCategory,
   inactiveCategory,
+  armorStatCategory,
 ].map((id) => ({ id, ...categoryDisplay(id) }));
 export interface ItemClassification {
   categoryId: string;
@@ -68,6 +72,18 @@ function classification(
   priority?: ItemClassification['priority'],
 ): ItemClassification {
   return { categoryId, ruleId, reason, excluded, origin, priority };
+}
+/** Where a stat-only armour mod is listed: apart from Armor Mods, other categories unchanged. */
+function armorStatListing(item: Pick<Item, 'categoryId'>): string {
+  return item.categoryId === armorModCategory ? armorStatCategory : item.categoryId;
+}
+/** The manifest plug category and description of an item, for presentation-only grouping. */
+export function manifestPlug(hash: number): { plug: string | undefined; description: string } {
+  const inventory = facts.items[hash]?.inventory;
+  return {
+    plug: inventory?.plug?.plugCategoryIdentifier || undefined,
+    description: inventory?.description ?? '',
+  };
 }
 export function inferItemClassification(
   item: Item,
@@ -128,7 +144,7 @@ export function inferItemClassification(
     stats.every((s) => playerStats.has(s.statTypeHash) || s.statTypeHash === 3578062600)
   )
     return classification(
-      item.categoryId,
+      armorStatListing(item),
       'manifest-armor-stat',
       'Manifest stat/tuning plug modifies armour stats only.',
     );
@@ -233,7 +249,7 @@ export function classifyItem(item: Item, tooltip?: Tooltip): ItemClassification 
       );
     if (d === 'armor-stat')
       result = classification(
-        item.categoryId,
+        armorStatListing(item),
         record.ruleId,
         'Explicit owner triage: stat-only armour/tuning mod.',
         true,
@@ -299,6 +315,9 @@ export function classifyItem(item: Item, tooltip?: Tooltip): ItemClassification 
       'editor',
       'required',
     );
+  if (tooltip?.custom?.categoryId === armorModCategory && result?.categoryId === armorStatCategory)
+    // An editor move back to Armor Mods changes the listing only; the matching scope stays.
+    return { ...result, categoryId: armorModCategory };
   return result;
 }
 export function categoryLabel(id: string) {
