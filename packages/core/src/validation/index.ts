@@ -86,22 +86,33 @@ export function validateText(
   ];
 }
 
+/**
+ * Validates every language of a tooltip. With `base` (the saved tooltip this one replaces, or
+ * null for a new tooltip), only text the change edits can block: an error in a language whose
+ * text equals the base text is listed as a warning, and an empty unwritten English text is not
+ * reported at all (a link-only or metadata-only change leaves it alone). Without `base`, every
+ * language counts as edited.
+ */
 export function validateTooltip(
   tooltip: Tooltip,
   globalsFor: (lang: Lang) => MarkupGlobals,
+  base?: Tooltip | null,
 ): TooltipValidationIssue[] {
   const languages = new Set<Lang>(['en', ...(Object.keys(tooltip.text) as Lang[])]);
   // Reserved global documents are declaration libraries, not English descriptions.
   const requireEnglish = tooltip.hash > 3;
-  return [...languages].flatMap((lang) =>
-    validateText(
-      tooltip.text[lang]?.text ?? '',
-      lang,
-      globalsFor(lang),
-      requireEnglish,
-      tooltip.hash,
-    ).map((issue) => ({ ...issue, hash: tooltip.hash, lang })),
-  );
+  return [...languages].flatMap((lang) => {
+    const text = tooltip.text[lang]?.text ?? '';
+    const edited = !base || (base.text[lang]?.text ?? '') !== text;
+    return validateText(text, lang, globalsFor(lang), requireEnglish && edited, tooltip.hash).map(
+      (issue) => ({
+        ...issue,
+        severity: edited ? issue.severity : ('warning' as const),
+        hash: tooltip.hash,
+        lang,
+      }),
+    );
+  });
 }
 
 const maxListedTooltips = 8;
