@@ -26,9 +26,11 @@
 .category,
 .group {
   @include controls.field;
-  flex: 0 0 auto;
+  // Full width when the bar has room; a tight bar (four tabs near 1100px) shrinks them, with an
+  // ellipsis, before it would cover the position readout.
+  flex: 0 1 12rem;
   width: 12rem;
-  min-width: 0;
+  min-width: 7.5rem;
   max-width: 100%;
   text-overflow: ellipsis;
 
@@ -42,7 +44,7 @@
 .combo {
   position: relative;
   flex: 1 1 14rem;
-  min-width: 12rem;
+  min-width: 9rem;
   max-width: 22rem;
 
   .finder[data-variant='sheet'] & {
