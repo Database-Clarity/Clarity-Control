@@ -53,3 +53,32 @@ describe('save validation', () => {
     ).toMatchObject([{ hash: 20, lang: 'fr', severity: 'error' }]);
   });
 });
+
+describe('validateTooltip scoped to a base', () => {
+  const revision = { updatedAt: '2026-01-01T00:00:00.000Z', updatedBy: 'a' };
+  const entry = (text: string) => ({ ...revision, text });
+  const bad = 'import main from 999';
+  const globalsFor = () => globals;
+
+  it('lists errors in unchanged text as warnings and skips unwritten English', () => {
+    const base = { hash: 10, text: { fr: entry(bad) }, associated: [] } as never;
+    const next = { hash: 10, text: { fr: entry(bad) }, associated: [1] } as never;
+    const issues = validateTooltip(next, globalsFor, base);
+    expect(issues).toEqual([expect.objectContaining({ lang: 'fr', severity: 'warning' })]);
+  });
+  it('keeps errors for edited text and for a new tooltip', () => {
+    const base = { hash: 10, text: { en: entry('ok') }, associated: [] } as never;
+    const next = { hash: 10, text: { en: entry(bad) }, associated: [] } as never;
+    expect(validateTooltip(next, globalsFor, base)).toMatchObject([{ severity: 'error' }]);
+    expect(validateTooltip(next, globalsFor, null)).toMatchObject([{ severity: 'error' }]);
+    expect(validateTooltip(next, globalsFor)).toMatchObject([{ severity: 'error' }]);
+  });
+  it('blocks editing English to empty but not leaving it empty', () => {
+    const filled = { hash: 10, text: { en: entry('ok') }, associated: [] } as never;
+    const empty = { hash: 10, text: {}, associated: [] } as never;
+    expect(validateTooltip(empty, globalsFor, filled)).toMatchObject([
+      { severity: 'error', lang: 'en' },
+    ]);
+    expect(validateTooltip(empty, globalsFor, empty)).toEqual([]);
+  });
+});

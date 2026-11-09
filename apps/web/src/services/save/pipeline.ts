@@ -89,16 +89,22 @@ export function validateChanges(changes: Change[], data: EditorData): TooltipVal
     return [
       ...conflictMarkerIssues([{ hash: unmasked.hash, base, next: unmasked }]),
       ...validateGlobalAdditions({ base, next }, tooltips),
-      ...validateTooltip(next, (lang) => {
-        const catalog = imports.get(lang)!;
-        const item = data.items[next.hash];
-        return {
-          variables: catalog[2] ?? '',
-          titles: catalog[3] ?? '',
-          imports: catalog,
-          type: data.categories.find((category) => category.id === item?.categoryId)?.legacyType,
-        };
-      }),
+      // Only text this change edits can block the save (errors elsewhere are warnings), so a
+      // link-only change on a tooltip with unwritten English is never refused.
+      ...validateTooltip(
+        next,
+        (lang) => {
+          const catalog = imports.get(lang)!;
+          const item = data.items[next.hash];
+          return {
+            variables: catalog[2] ?? '',
+            titles: catalog[3] ?? '',
+            imports: catalog,
+            type: data.categories.find((category) => category.id === item?.categoryId)?.legacyType,
+          };
+        },
+        base,
+      ),
     ];
   });
 }

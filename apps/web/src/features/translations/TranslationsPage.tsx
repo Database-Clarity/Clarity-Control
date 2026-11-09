@@ -36,31 +36,40 @@ function Coverage({
   index,
   languages,
   language,
+  scope,
   open,
   onPick,
 }: {
   index: TranslationIndex;
   languages: readonly Lang[];
   language: Lang;
+  /** The category filter, when it names a translatable category: counts cover only it. */
+  scope: { id: string; label: string } | undefined;
   open: boolean;
   onPick(language: Lang): void;
 }) {
+  const scopeLabel = scope ? `${scope.label} only` : 'All categories';
   return (
     <div
       id="translation-coverage"
       className={styles.coverage}
       data-open={open ? '' : undefined}
       role="group"
-      aria-label="Coverage by language"
+      aria-label={`Coverage by language, ${scopeLabel.toLowerCase()}`}
     >
-      <div className={styles.coverageHead} aria-hidden="true">
-        <span>Language</span>
-        <span>Translated</span>
-        <span>Outdated</span>
-        <span>Missing</span>
+      <div className={styles.coverageTop} aria-hidden="true">
+        <div className={styles.coverageScope} title={scopeLabel}>
+          {scopeLabel}
+        </div>
+        <div className={styles.coverageHead}>
+          <span>Language</span>
+          <span>Translated</span>
+          <span>Outdated</span>
+          <span>Missing</span>
+        </div>
       </div>
       {languages.map((lang) => {
-        const { translated, outdated, missing } = index.coverage(lang);
+        const { translated, outdated, missing } = index.coverage(lang, scope?.id);
         return (
           <button
             key={lang}
@@ -130,7 +139,11 @@ export function TranslationsPage() {
     () => filterRows(rows, { state, category, query: deferredText }),
     [rows, state, category, deferredText],
   );
-  const counts = useMemo(() => countRows(rows), [rows]);
+  // The state buttons count what the category filter leaves, like the coverage table.
+  const counts = useMemo(
+    () => countRows(category ? filterRows(rows, { state: null, category, query: '' }) : rows),
+    [rows, category],
+  );
 
   if (loading || !index) return <Loading />;
 
@@ -255,6 +268,7 @@ export function TranslationsPage() {
             index={index}
             languages={available}
             language={language}
+            scope={category ? index.categories.find((option) => option.id === category) : undefined}
             open={coverageOpen}
             onPick={pick}
           />
