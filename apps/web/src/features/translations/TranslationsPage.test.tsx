@@ -198,6 +198,8 @@ describe('TranslationsPage queue', () => {
     expect(location.search).toBe('?lang=de&cat=perks');
     expect(scope()).toBe('Coverage by language, perks only');
     expect(label('German')).toBe('German: 1 translated, 1 outdated, 1 missing');
+    expect(host.textContent).toContain('Outdated 1');
+    expect(host.textContent).toContain('Missing 1');
     // Row -> editor -> Back keeps the filter and its totals.
     await act(async () => rows()[0]!.click());
     expect(host.textContent).toContain('Editor');
@@ -251,7 +253,8 @@ describe('TranslationsPage queue', () => {
     expect(names()).toEqual(['Missing Mod']);
     expect(host.querySelector('[role=status]')!.textContent).toBe('1 of 3');
     const pressed = [...host.querySelectorAll('[aria-pressed=true]')].map((b) => b.textContent);
-    expect(pressed).toContain('Missing 2');
+    expect(pressed).toContain('Missing 1');
+    expect(host.textContent).toContain('Outdated 0');
     await mount('/translations?lang=de&q=outdated', person('maintainer'));
     expect(names()).toEqual(['Outdated Perk']);
     await mount('/translations?lang=de&q=nothing', person('maintainer'));

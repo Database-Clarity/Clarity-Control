@@ -139,7 +139,11 @@ export function TranslationsPage() {
     () => filterRows(rows, { state, category, query: deferredText }),
     [rows, state, category, deferredText],
   );
-  const counts = useMemo(() => countRows(rows), [rows]);
+  // The state buttons count what the category filter leaves, like the coverage table.
+  const counts = useMemo(
+    () => countRows(category ? filterRows(rows, { state: null, category, query: '' }) : rows),
+    [rows, category],
+  );
 
   if (loading || !index) return <Loading />;
 

@@ -18,7 +18,8 @@ language pushes history; filters replace. Translators see only their assigned la
 editors and maintainers see every language plus a coverage table (translated, outdated, missing) that also
 picks the language: a side rail when the page has room, otherwise a "Coverage" popover. Its totals
 count only the selected category (labelled "<Category> only", otherwise "All categories"); counts are
-built once per language for every category, so switching the filter is a lookup. Read-only: nothing
+built once per language for every category, so switching the filter is a lookup. The Outdated and
+Missing buttons count the selected category too. Read-only: nothing
 is written, and roles are still enforced by the Worker.
 
 The list is virtualized (fixed rows, a bounded DOM window, one tab stop). Up and Down move the selection,
