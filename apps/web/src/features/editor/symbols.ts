@@ -148,7 +148,7 @@ interface Popover extends Target {
 }
 const setHover = StateEffect.define<Target | null>();
 const setEditing = StateEffect.define<boolean>();
-/** Pins the popover of the colour tag whose enclosed text is the selection (Alt+click only). */
+/** Pins the popover of the colour tag whose enclosed text is the selection (Alt+click or Alt+Enter only). */
 export const pinTag = StateEffect.define<boolean>();
 
 const hovered = StateField.define<Target | null>({
@@ -168,7 +168,7 @@ const editing = StateField.define<boolean>({
 });
 
 /**
- * A colour tag is pinned only by an explicit Alt+click: a double-click, or a keyboard selection that
+ * A colour tag is pinned only by an explicit Alt+click or Alt+Enter: a double-click, or a keyboard selection that
  * happens to be exactly a tag's text (one tinted word), is just a selection, so Backspace deletes
  * that word instead of silently removing the tag. Any later selection change or edit unpins it.
  */
@@ -505,6 +505,31 @@ export function toggleRawView(view: EditorView): boolean {
   return true;
 }
 
+/**
+ * Alt+Enter: the keyboard twin of Alt+click. Pins the colour tag around the caret (or around a
+ * selection inside one tag): its enclosed text is selected and the popover opens, where Enter edits
+ * the tag and Backspace removes it. Without a tag there, the key falls through unhandled. Pressed
+ * again while that tag is pinned it changes nothing, so an open edit input is never reset.
+ */
+export function pinTagAtCaret(view: EditorView): boolean {
+  const { state } = view;
+  if (state.field(rawMode) || state.field(reveal) !== 'popover') return false;
+  const { from, to } = state.selection.main;
+  const line = state.doc.lineAt(from);
+  if (to > line.to) return false;
+  const tag = findTags(line.text, line.from)
+    .filter((t) => t.openTo <= from && to <= t.closeFrom)
+    .pop();
+  if (!tag) return false;
+  if (selectedTag(state)?.from === tag.from) return true;
+  view.dispatch({
+    selection: { anchor: tag.openTo, head: tag.closeFrom },
+    effects: pinTag.of(true),
+    scrollIntoView: true,
+  });
+  return true;
+}
+
 const symbolKeys = keymap.of([
   {
     key: 'Enter',
@@ -517,6 +542,7 @@ const symbolKeys = keymap.of([
   },
   { key: 'Backspace', run: removeSelectedTag },
   { key: 'Delete', run: removeSelectedTag },
+  { key: 'Alt-Enter', run: pinTagAtCaret },
   { key: 'Mod-Shift-.', run: toggleRawView },
   { key: 'Mod-Shift->', run: toggleRawView },
 ]);

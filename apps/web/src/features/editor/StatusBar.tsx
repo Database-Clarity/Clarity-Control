@@ -331,6 +331,11 @@ export function HelpPanel({
         button returns.
       </p>
       <p>
+        Alt+Enter on coloured text (like Alt+click) opens its tag: Enter edits the colour, Backspace
+        removes the tag and keeps the text. Ctrl/Cmd+Shift+. or the Raw button in the markup row
+        shows the markup as stored.
+      </p>
+      <p>
         Native spelling uses your browser&apos;s enabled dictionaries. Right-click a misspelling for
         suggestions.
       </p>

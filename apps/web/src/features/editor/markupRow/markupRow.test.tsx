@@ -425,3 +425,76 @@ describe('Ctrl+. and the remembered row state', () => {
     expect(useSettingsStore.getState().device.remembered.markupToolbar).toBe('open');
   });
 });
+
+describe('the raw markup toggle in the row', () => {
+  const toggle = () => host.querySelector<HTMLButtonElement>('[data-raw-toggle]');
+  const statusToggle = () =>
+    host.querySelector<HTMLButtonElement>('[data-editor-status] button[aria-pressed]');
+  const shortcut = (view: EditorView) =>
+    act(() => {
+      view.contentDOM.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: '.',
+          code: 'Period',
+          ctrlKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+  const render = (open: boolean, symbols = true) =>
+    act(() =>
+      root.render(
+        <ClarityEditor
+          value="<yellow ab /> <arc/>"
+          lang="en"
+          globals={globals}
+          markupRow={open}
+          symbols={symbols}
+          onChange={() => {}}
+        />,
+      ),
+    );
+
+  it('is a pressed-state button with a tooltip that names the shortcut', () => {
+    const view = mount('<yellow ab /> <arc/>');
+    expect(toggle()?.getAttribute('aria-pressed')).toBe('false');
+    expect(toggle()?.title).toContain('Ctrl+Shift+.');
+    expect(host.querySelectorAll('.cm-symbol')).toHaveLength(1);
+    click(toggle()!);
+    expect(toggle()?.getAttribute('aria-pressed')).toBe('true');
+    expect(host.querySelectorAll('.cm-symbol')).toHaveLength(0);
+    expect(view.state.doc.toString()).toBe('<yellow ab /> <arc/>');
+    click(toggle()!);
+    expect(toggle()?.getAttribute('aria-pressed')).toBe('false');
+    expect(host.querySelectorAll('.cm-symbol')).toHaveLength(1);
+  });
+
+  it('stays in sync with the keyboard shortcut', () => {
+    const view = mount('<yellow ab /> <arc/>');
+    shortcut(view);
+    expect(toggle()?.getAttribute('aria-pressed')).toBe('true');
+    shortcut(view);
+    expect(toggle()?.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('is the only toggle while the row is shown, and the status bar takes over when it is hidden', () => {
+    mount('<yellow ab /> <arc/>');
+    expect(statusToggle()).toBeNull();
+    expect(host.querySelector('[data-raw-hint]')).toBeNull();
+    click(toggle()!);
+    render(false);
+    expect(toggle()).toBeNull();
+    expect(statusToggle()?.getAttribute('aria-pressed')).toBe('true');
+    render(true);
+    expect(toggle()?.getAttribute('aria-pressed')).toBe('true');
+    expect(statusToggle()).toBeNull();
+  });
+
+  it('is absent for stored forms that draw no symbols', () => {
+    render(true, false);
+    expect(toggle()).toBeNull();
+    expect(statusToggle()).toBeNull();
+  });
+});

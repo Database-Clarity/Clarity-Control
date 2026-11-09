@@ -4,11 +4,22 @@ import { markupColors, markupEmpty, markupIcons } from '@clarity/core';
 
 const emptyTag = new RegExp(`<(${[...markupIcons, ...markupEmpty].join('|')})/>`);
 const textTag = new RegExp(`<(${markupColors.join('|')})\\b`);
+// Prose runs stop at every possible markup boundary; inside a table also at its cell pipes.
+const prose = /^[^<#$[/]+/;
+const tableProse = /^[^<#$[/|]+/;
 
 export const clarityLanguage = StreamLanguage.define({
-  startState: () => ({ comment: false, declaration: false }),
+  startState: () => ({ comment: false, declaration: false, formula: false, table: false }),
   token(stream, state) {
-    if (stream.sol()) state.declaration = false;
+    if (stream.sol()) {
+      state.declaration = false;
+      state.formula = false;
+    }
+    if (state.formula) {
+      // After the base number of ${base+#d}, the rest is the enhanced part: coloured like #d and #e.
+      state.formula = false;
+      if (stream.match(/[^}]*\}?/)) return 'variableName';
+    }
     if (state.comment) {
       if (stream.skipTo('*/')) {
         stream.match('*/');
@@ -35,13 +46,28 @@ export const clarityLanguage = StreamLanguage.define({
     }
     if (stream.sol() && stream.match(/^\)/)) return 'keyword';
     if (stream.match(/#[a-zA-Z0-9]+/)) return 'variableName';
-    if (stream.match(/\$\{[^}]*\}?/)) return 'number';
-    if (stream.match(textTag) || stream.match(/< table .*?>|<\$>|\|[bchr\d-]*/)) return 'typeName';
+    if (stream.match(/\$\{-?[^}+*/-]*\}?/)) {
+      // The base number (and the braces around a lone one) keeps the number colour; an operator
+      // after it starts the enhanced part, coloured on the next token.
+      if (!stream.eol() && !stream.current().endsWith('}')) state.formula = true;
+      return 'number';
+    }
+    if (stream.match(/< table .*?>/)) {
+      state.table = true;
+      return 'typeName';
+    }
+    if (stream.match('<$>')) {
+      state.table = false;
+      return 'typeName';
+    }
+    // Stack pipes (1|2|3, 5% | 10%) are plain prose; only the cell pipes of a table are markup.
+    if (state.table && stream.match(/\|[bchr\d-]*/)) return 'typeName';
+    if (stream.match(textTag)) return 'typeName';
     if (stream.match(emptyTag) || stream.match(/<(?:title|link) |<\/?|\/>|\[[^\]]*\]/))
       return 'tagName';
     // Plain prose is one unstyled run. Retain every possible markup/comment
     // boundary, while avoiding all of the token expressions for each letter.
-    if (!state.declaration && stream.match(/^[^<#$[/|]+/)) return null;
+    if (!state.declaration && stream.match(state.table ? tableProse : prose)) return null;
     stream.next();
     return null;
   },
