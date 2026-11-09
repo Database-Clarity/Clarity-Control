@@ -91,7 +91,10 @@ it('opens detail, renders old/current text and recovers only into a local draft'
   click('Ricochet Rounds');
   expect(container.textContent).toContain('Current saved text: (blank)');
   expect(container.querySelector('a[href*="/commit/"]')).toBeTruthy();
+  const page = container.querySelector('article')!;
+  page.scrollTop = 200;
   click('Recover as draft');
+  expect(page.scrollTop).toBe(0);
   expect(useDraftStore.getState().drafts[hash].next.text.en?.text).toContain('sharper angles');
   expect(container.textContent).toContain('Recovered as a local draft');
   expect(fetch).not.toHaveBeenCalled();

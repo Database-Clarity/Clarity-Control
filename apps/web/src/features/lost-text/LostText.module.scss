@@ -126,6 +126,11 @@
     height: 100%;
     grid-template-columns: minmax(0, 1fr);
   }
+  .list,
+  .detail {
+    // At either edge, a normal scroll gesture can reveal the page introduction again.
+    overscroll-behavior: auto;
+  }
   .workspace[data-detail='true'] .list {
     display: none;
   }

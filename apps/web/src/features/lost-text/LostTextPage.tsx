@@ -28,6 +28,7 @@ export function LostTextPage() {
   const locked = useSaveState((s) => s.locked);
   const [params, setParams] = useSearchParams();
   const location = useLocation();
+  const pageRef = useRef<HTMLElement>(null);
   const listRef = useRef<HTMLElement>(null);
   const detailRef = useRef<HTMLElement>(null);
   const scrollPositions = useRef(new Map<string, number>());
@@ -54,6 +55,10 @@ export function LostTextPage() {
   const [query, setQuery] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  useLayoutEffect(() => {
+    // Phone notices sit above the workspace and must be visible after an action.
+    if ((notice || error) && pageRef.current) pageRef.current.scrollTop = 0;
+  }, [notice, error]);
   const storageKey = `clarity-lost-text:v1:${user?.id ?? 'anonymous'}`;
   const [stored, setStored] = useState<{ key: string; decisions: Record<string, string> }>({
     key: '',
@@ -128,7 +133,7 @@ export function LostTextPage() {
     }
   }
   return (
-    <article className={styles.page}>
+    <article ref={pageRef} className={styles.page}>
       <h1>Lost-tooltip checker</h1>
       <p>
         Blank saved tooltips with earlier text. Classification is evidence, not a judgment about why
