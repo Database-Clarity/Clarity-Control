@@ -282,8 +282,13 @@ function PreviewHeader(props: PreviewIdentity & { live: boolean }) {
         iconUrl && linkUrl(iconUrl) && <img className={styles.icon} src={iconUrl} alt="" />
       )}
       <div className={styles.identity}>
-        {piece && (
-          <div className={styles.piece} title={piece}>
+        {piece !== undefined && (
+          // An empty piece row still holds its line (exotic armour named after its piece).
+          <div
+            className={styles.piece}
+            title={piece || undefined}
+            aria-hidden={!piece || undefined}
+          >
             {piece}
           </div>
         )}

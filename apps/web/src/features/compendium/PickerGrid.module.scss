@@ -46,13 +46,13 @@ table td.separator {
       position: absolute;
       inset: 0;
       pointer-events: none;
-      border-inline: 3px solid #ffd98b;
+      border-inline: 3px solid var(--sheet-anchor);
     }
     &[data-start='true']::after {
-      border-top: 3px solid #ffd98b;
+      border-top: 3px solid var(--sheet-anchor);
     }
     &[data-end='true']::after {
-      border-bottom: 3px solid #ffd98b;
+      border-bottom: 3px solid var(--sheet-anchor);
     }
   }
 }

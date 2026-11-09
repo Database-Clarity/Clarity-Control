@@ -11,7 +11,12 @@ import { useSaveState } from '../../services/save/state';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
-import { SkeletonBlock, SkeletonRows, SkeletonStatus } from '../../ui/Skeleton';
+import {
+  SkeletonBlock,
+  SkeletonRows,
+  SkeletonStatus,
+  useSkeletonVisible,
+} from '../../ui/Skeleton';
 import { workspaceShortcutsBlocked } from '../../ui/interaction';
 import { approvalEvidence } from './approvalEvidence';
 import { useAdvanceSetting } from './advanceSetting';
@@ -75,6 +80,7 @@ export function CompendiumTab() {
   const [params] = useSearchParams();
   const ready =
     !!editor && !!data && !authLoading && (!!prepared || typeof Worker === 'undefined');
+  const showSkeleton = useSkeletonVisible(!ready && !error, 'tab', false);
   if (params.get('tab') === 'linked')
     return (
       <article className={styles.tab} aria-label="Linked sources changed">
@@ -107,7 +113,7 @@ export function CompendiumTab() {
           {display.error}
         </p>
       )}
-      {ready ? (
+      {ready && !showSkeleton ? (
         <Workspace
           key={storageKey}
           storageKey={storageKey}

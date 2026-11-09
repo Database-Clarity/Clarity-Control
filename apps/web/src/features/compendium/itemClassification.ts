@@ -85,6 +85,19 @@ export function manifestPlug(hash: number): { plug: string | undefined; descript
     description: inventory?.description ?? '',
   };
 }
+/**
+ * The current artifacts whose sockets offer this perk: socket memberships only (the socketed
+ * artifact is `ownerHash`), one per artifact, in manifest order. Empty for perks of earlier
+ * artifact definitions. Presentation-only grouping, like manifestPlug.
+ */
+export function manifestArtifacts(hash: number): { hash: number; name: string }[] {
+  const seen = new Map<number, string>();
+  for (const membership of facts.items[hash]?.artifactMemberships ?? []) {
+    if (membership.source !== 'socket' || seen.has(membership.ownerHash)) continue;
+    seen.set(membership.ownerHash, membership.artifactName?.trim() || String(membership.ownerHash));
+  }
+  return [...seen].map(([owner, name]) => ({ hash: owner, name }));
+}
 export function inferItemClassification(
   item: Item,
   fact: ManifestFacts['items'][string] | undefined,

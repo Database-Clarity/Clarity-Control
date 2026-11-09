@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { User } from '../../services/api';
 import { BrandMark } from './Brand';
 import { DraftButton } from './DraftButton';
@@ -10,6 +10,7 @@ import { WorkspaceList } from './WorkspaceTabs';
 import { useSteppingActivity } from './steppingActivity';
 import { useDataStore } from '../../stores/data';
 import { editorName, exoticPiece, itemFor } from './catalog';
+import { titleWidthEm } from '../preview/nameFit';
 import styles from './PhoneHeader.module.scss';
 
 /**
@@ -77,7 +78,10 @@ export function PhoneHeader({
           aria-expanded={sheet === 'finder'}
           onClick={() => setSheet((value) => (value === 'finder' ? null : 'finder'))}
         >
-          <span>
+          <span
+            className={kicker ? undefined : styles.twoLines}
+            style={{ '--title-em': titleWidthEm(title) } as CSSProperties}
+          >
             {kicker && <span className={styles.kicker}>{kicker}</span>}
             {title}
           </span>
@@ -85,7 +89,12 @@ export function PhoneHeader({
         </button>
       ) : (
         <h1 className={styles.title}>
-          <span>{title}</span>
+          <span
+            className={styles.twoLines}
+            style={{ '--title-em': titleWidthEm(title) } as CSSProperties}
+          >
+            {title}
+          </span>
         </h1>
       )}
       <div className={styles.end}>

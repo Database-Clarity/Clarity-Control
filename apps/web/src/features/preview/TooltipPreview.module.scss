@@ -160,6 +160,7 @@ $name-floor: $name-size * 0.75;
   text-overflow: ellipsis;
 }
 .piece {
+  min-height: 1rem;
   font-weight: 600;
   font-size: 0.8125rem;
   line-height: 1rem;
