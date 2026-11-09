@@ -24,6 +24,8 @@ it('keeps row controls live while metadata waits for the sidebar opening', async
     category: 'Perks',
     categoryId: 'perk',
     categoryOrder: 1,
+    markerOnly: false,
+    isNew: false,
   } as PendingTooltip;
   const render = (historyDeferred: boolean) => (
     <ul>
@@ -83,6 +85,8 @@ it('loads latest-change metadata on proximity without changing row selection', a
     category: 'Perks',
     categoryId: 'perk',
     categoryOrder: 1,
+    markerOnly: false,
+    isNew: false,
     unpublishable: 'No generator entry for this tooltip, so it cannot be pushed.',
   } as PendingTooltip;
   try {

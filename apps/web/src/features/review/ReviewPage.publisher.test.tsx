@@ -47,7 +47,9 @@ let statusAnswer: string;
 let postAnswer: () => Response;
 
 function buttons(label: string) {
-  return [...host.querySelectorAll('button')].filter((b) => b.textContent === label);
+  return [...host.querySelectorAll('button')].filter(
+    (b) => b.textContent === label || b.textContent?.replace(/ \(\d+\)$/, '') === label,
+  );
 }
 function button(label: string) {
   const found = buttons(label)[0];
@@ -182,7 +184,7 @@ const posts = () => calls.filter((c) => c.path === '/publish');
 
 it('confirms, stores and sends one operation, then follows it from Publishing to Published', async () => {
   await mount();
-  expect(host.textContent).toContain('1 pending / 0 selected');
+  expect(host.textContent).toContain('1 change · 0 marker-only · 0 selected');
   await click('Select page');
   await click('Publish selected');
   const dialog = host.querySelector('dialog')!;
@@ -204,7 +206,7 @@ it('confirms, stores and sends one operation, then follows it from Publishing to
     expect(activity.textContent).toContain('1 tooltip');
   });
   // Still pending in the list, but cannot be picked again.
-  expect(host.textContent).toContain('1 pending / 0 selected');
+  expect(host.textContent).toContain('1 change · 0 marker-only · 0 selected');
   expect(host.textContent).toContain('publishing…');
   expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.disabled).toBe(true);
   // The Worker finishes: the next status poll turns it into Published and clears the pending count.
@@ -214,7 +216,7 @@ it('confirms, stores and sends one operation, then follows it from Publishing to
   await waitFor(() => {
     const activity = host.querySelector('[aria-label="Publish activity"]')!;
     expect(activity.textContent).toContain('Published');
-    expect(host.textContent).toContain('0 pending / 0 selected');
+    expect(host.textContent).toContain('0 changes · 0 marker-only · 0 selected');
   });
   expect(vi.mocked(loadBundle)).toHaveBeenCalledTimes(1);
   expect(useReviewSession.getState().acknowledgments[10]).toEqual({
@@ -240,7 +242,7 @@ it('shows stale and failed outcomes and leaves the tooltips pending', async () =
     expect(activity.textContent).toContain('Changed');
     expect(activity.textContent).toContain('Nothing from this request went live');
   });
-  expect(host.textContent).toContain('1 pending / 0 selected');
+  expect(host.textContent).toContain('1 change · 0 marker-only · 0 selected');
   expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.disabled).toBe(false);
   expect(useReviewSession.getState().acknowledgments).toEqual({});
 });

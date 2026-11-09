@@ -1,4 +1,8 @@
 import { memo, useEffect, useState } from 'react';
+import { getHistory, type HistoryCommit } from '../../services/history';
+import { CommitAuthor } from '../history/CommitAuthor';
+import { changedFields, changedSummary } from './changedFields';
+import { useReviewMarks } from './reviewMarks';
 import { Link, useLocation } from 'react-router-dom';
 import type { Tooltip } from '@clarity/core';
 import { preparedReviewLiveValue, takeReviewLiveRequest } from './liveRequest';
@@ -15,7 +19,19 @@ import type { PendingTooltip } from './model';
 import { useReviewOpening } from './opening';
 import styles from './Review.module.scss';
 
-export const ReviewDetail = memo(function ReviewDetail({ entry }: { entry: PendingTooltip }) {
+export const ReviewDetail = memo(function ReviewDetail({
+  entry,
+  included,
+  selectionLocked,
+  onInclude,
+}: {
+  entry: PendingTooltip;
+  /** The change is part of the publish selection. */
+  included: boolean;
+  /** Selection is unavailable (publishing, or nothing publishable here). */
+  selectionLocked: boolean;
+  onInclude(hash: number): void;
+}) {
   const location = useLocation();
   const [live, setLive] = useState<
     { tooltip: Tooltip | null; pushedHash: string | null } | undefined
@@ -24,6 +40,8 @@ export const ReviewDetail = memo(function ReviewDetail({ entry }: { entry: Pendi
   const [attempt, setAttempt] = useState(0);
   const [confirm, setConfirm] = useState(false);
   const [notice, setNotice] = useState<string>();
+  const [saved, setSaved] = useState<HistoryCommit | null>();
+  const record = useReviewMarks((state) => state.record);
   const user = useAuthStore((state) => state.user);
   const catalog = useDataStore((state) => state.data);
   const reviewItem = catalog ? itemFor(entry.tooltip.hash, catalog) : undefined;
@@ -96,6 +114,33 @@ export const ReviewDetail = memo(function ReviewDetail({ entry }: { entry: Pendi
       controller.abort();
     };
   }, [entry.tooltip.hash, location.key, user, attempt]);
+  // The last saver, one request for the open change only (rows ask near the viewport).
+  useEffect(() => {
+    if (!user?.role) return;
+    const controller = new AbortController();
+    setSaved(undefined);
+    void getHistory(entry.tooltip.hash, 1, controller.signal).then(
+      (result) => {
+        if (!controller.signal.aborted) setSaved(result.commits[0] ?? null);
+      },
+      () => {
+        if (!controller.signal.aborted) setSaved(null);
+      },
+    );
+    return () => controller.abort();
+  }, [entry.tooltip.hash, user]);
+  const fields = live ? changedFields(live.tooltip, entry.tooltip) : undefined;
+  useEffect(() => {
+    if (fields) record(entry.tooltip.hash, fields);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live, entry.tooltip, record]);
+  const summary = entry.markerOnly
+    ? 'Alias marker only: the saved content equals the live version'
+    : live && !live.pushedHash
+      ? `${changedSummary(fields!) || 'All saved text'} · never pushed (no live version)`
+      : fields
+        ? changedSummary(fields) || 'No content differs from the live version'
+        : undefined;
   return (
     <section aria-label="Selected change">
       <p className={styles.detailIdentity}>
@@ -105,7 +150,26 @@ export const ReviewDetail = memo(function ReviewDetail({ entry }: { entry: Pendi
         </small>
       </p>
       <h2>{entry.name}</h2>
-      <Link to={`/t/${entry.tooltip.hash}`}>Open tooltip editor and history</Link>
+      <Link to={`/t/${entry.tooltip.hash}`}>Open in editor ↗</Link>
+      {summary && (
+        <p className={styles.changed}>
+          <strong>Changed:</strong> {summary}
+        </p>
+      )}
+      {saved && (
+        <p className={styles.savedBy}>
+          Saved by <CommitAuthor entry={saved} />
+        </p>
+      )}
+      <label className={styles.include}>
+        <input
+          type="checkbox"
+          checked={included}
+          disabled={selectionLocked}
+          onChange={() => onInclude(entry.tooltip.hash)}
+        />{' '}
+        Include in publish <kbd>Space</kbd>
+      </label>
       {error && (
         <p role="alert">
           {error}{' '}

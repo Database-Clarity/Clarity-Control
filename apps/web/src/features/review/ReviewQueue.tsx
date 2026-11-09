@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { useHref, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useHref, useLocation, useNavigate } from 'react-router-dom';
+import { useMarkerQueue } from './markerQueue';
 import type { SidebarPendingChange } from '../navigation/sidebarQueue';
 import styles from './ReviewQueue.module.scss';
 import { requireReviewRows, useReviewOpening } from './opening';
@@ -209,7 +210,9 @@ export function ReviewQueue({
     indices.push(focusIndex);
   useLayoutEffect(() => requireReviewRows(indices.length), [indices.length, openingToken]);
   const renderedIndices = warming ? indices.slice(0, openingLimit) : indices;
+  const markerCount = useMarkerQueue((state) => state.count);
   return (
+    <>
     <div
       ref={host}
       className={styles.viewport}
@@ -372,5 +375,11 @@ export function ReviewQueue({
         })}
       </ul>
     </div>
+    {markerCount > 0 && (
+      <Link className={styles.markerLink} to="/review?marker=1" title="Alias-marker migration leftovers: saved content equals live">
+        Marker-only ({markerCount})
+      </Link>
+    )}
+    </>
   );
 }

@@ -2,6 +2,8 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { getHistory, type HistoryCommit } from '../../services/history';
 import { errorMessage } from '../../services/http';
 import { CommitAuthor } from '../history/CommitAuthor';
+import { changeMarks } from './changedFields';
+import { useReviewMarks } from './reviewMarks';
 import type { PendingTooltip } from './model';
 import styles from './Review.module.scss';
 
@@ -28,6 +30,8 @@ export const ReviewRow = memo(function ReviewRow({
   /** Keep optional row metadata out of the sidebar's bounded opening work. */
   historyDeferred?: boolean;
 }) {
+  const fields = useReviewMarks((state) => state.fields[entry.tooltip.hash]);
+  const marks = changeMarks(fields, entry);
   const [latest, setLatest] = useState<HistoryCommit>();
   const [error, setError] = useState<string>();
   const [loaded, setLoaded] = useState(false);
@@ -109,6 +113,15 @@ export const ReviewRow = memo(function ReviewRow({
             {entry.unpublishable && <small> · unpublishable: no generator entry</small>}
             {publishing && <small> · publishing…</small>}
           </span>
+          {marks.length > 0 && (
+            <span className={styles.marks}>
+              {marks.map((mark) => (
+                <small key={mark} data-mark={mark}>
+                  {mark}
+                </small>
+              ))}
+            </span>
+          )}
         </button>
       </label>
       {historyAvailable && (
