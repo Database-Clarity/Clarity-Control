@@ -1,1 +1,0 @@
-import{c as o}from"./react-B6R2CAyk.js";const a=o(n=>({compendiumCategories:null,pendingChanges:null,setCompendiumCategories:e=>n({compendiumCategories:e}),setPendingChanges:e=>n({pendingChanges:e})}));export{a as u};
