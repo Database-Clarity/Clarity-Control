@@ -266,8 +266,9 @@
     }
   }
 
+  // No checkbox here: line the chevron up with the other groups'.
   &[data-marker] button {
-    padding-inline-start: 0.75rem;
+    padding-inline-start: 2.25rem;
   }
 }
 
@@ -318,8 +319,14 @@
     height: max(44px, 2.75rem);
   }
 
+  // The phone sheet has no padding of its own: inset the filters, rows, and marks like the mock.
   .queue {
     height: 70dvh;
+    padding-inline: 0.5rem;
+  }
+
+  .viewport {
+    margin-inline: 0;
   }
 
   .rowSizer,
@@ -339,6 +346,6 @@
   }
 
   .group[data-marker] button {
-    padding-inline-start: 0.5rem;
+    padding-inline-start: calc(max(44px, 2.75rem) + 0.5rem);
   }
 }

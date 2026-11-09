@@ -55,8 +55,9 @@ export function ReviewSidebar() {
   );
   const categories = useMemo(() => {
     const seen = new Map<string, string>();
-    for (const { categoryId, category } of entries ?? [])
-      if (!seen.has(categoryId)) seen.set(categoryId, category);
+    // Marker-only rows are one group of their own, not a category to filter by.
+    for (const { categoryId, category, markerOnly } of entries ?? [])
+      if (!markerOnly && !seen.has(categoryId)) seen.set(categoryId, category);
     return [...seen];
   }, [entries]);
   const update = (nextQuery: string, nextCategory: string) =>
