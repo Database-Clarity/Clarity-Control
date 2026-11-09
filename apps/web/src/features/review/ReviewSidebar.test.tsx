@@ -80,8 +80,8 @@ const click = (element: Element) => act(async () => (element as HTMLElement).cli
 
 it('lists groups with counts, marker-only collapsed last, and toggles groups open and shut', async () => {
   expect(rows()).toEqual([1, 2, 4]);
-  expect(header('a').textContent).toBe('▾Label a2');
-  expect(header('~marker-only').textContent).toBe('▸Marker-only2');
+  expect(header('a').textContent).toBe('Label a2');
+  expect(header('~marker-only').textContent).toBe('Marker-only2');
   expect(header('~marker-only').getAttribute('aria-expanded')).toBe('false');
   expect(host.textContent).toContain('Alias-marker migration leftovers');
   expect(host.querySelector('a[aria-current="page"]')?.getAttribute('data-review-hash')).toBe('1');

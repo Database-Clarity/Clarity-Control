@@ -1,5 +1,10 @@
 // The left column: one filter row, the counts line, and the virtual list (no card, no hashes).
 .queue {
+  // The Compendium tab's font list and size: the queue opens from there with these fonts already
+  // set up. Every new font configuration (size, weight, numeric features, a fallback font for a
+  // symbol glyph) costs the first layout on Windows, so the list uses two sizes and one weight,
+  // and draws its chevrons in CSS rather than with ▸ ▾ glyphs.
+  font-family: Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', sans-serif;
   display: flex;
   height: 100%;
   flex-direction: column;
@@ -207,7 +212,7 @@
 
   small {
     padding: 0 0.25rem;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     line-height: 1rem;
     color: var(--text2);
     border: 1px solid var(--ghost-edge);
@@ -221,7 +226,6 @@
 
 .group {
   font-size: 0.75rem;
-  font-weight: 600;
   color: var(--text2);
   background: var(--col);
   // Rules drawn inside the box: a border would take a pixel from the 44px phone hit area.
@@ -231,7 +235,7 @@
     box-shadow:
       inset 0 1px 0 var(--hair),
       inset 0 -1px 0 var(--hair);
-    font-weight: 400;
+    color: var(--text3);
   }
 
   button {
@@ -270,7 +274,21 @@
 .chevron {
   flex: none;
   width: 0.75rem;
-  color: var(--text3);
+  height: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  // A small CSS triangle: right when collapsed, down when open.
+  &::before {
+    content: '';
+    border-block: 0.25rem solid transparent;
+    border-inline-start: 0.3125rem solid var(--text3);
+  }
+
+  [aria-expanded='true'] > &::before {
+    transform: rotate(90deg);
+  }
 }
 
 .groupName {
@@ -282,7 +300,6 @@
 
 .groupCount {
   flex: none;
-  font-variant-numeric: tabular-nums;
   color: var(--text3);
 }
 

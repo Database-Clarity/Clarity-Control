@@ -124,9 +124,7 @@ const GroupHeader = memo(function GroupHeader({
             : undefined
         }
       >
-        <span className={styles.chevron} aria-hidden="true">
-          {group.collapsed ? '▸' : '▾'}
-        </span>
+        <span className={styles.chevron} aria-hidden="true" />
         <span className={styles.groupName}>{group.label}</span>
         <span className={styles.groupCount}>{countFormat.format(group.count)}</span>
       </button>

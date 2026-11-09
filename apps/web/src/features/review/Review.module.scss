@@ -10,6 +10,8 @@
   container-type: inline-size;
   margin-top: calc(-1 * var(--main-pad));
   font-size: 0.8125rem;
+  // ‹ › ↗ · use the named symbol fallback too (see ReviewQueue.module.scss).
+  font-family: Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', sans-serif;
 
   @include theme.mobile {
     --main-pad: 0.75rem;
@@ -252,7 +254,7 @@
   kbd {
     padding: 0 0.25rem;
     font: inherit;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--text2);
     border: 1px solid var(--ghost-edge);
     border-radius: 0.125rem;
@@ -397,7 +399,6 @@
 
 .hash {
   flex: none;
-  font-variant-numeric: tabular-nums;
 }
 
 // A narrow page keeps the name: the category is the list's group, the hash is in the editor.
@@ -412,7 +413,7 @@
 .mark {
   flex: none;
   padding: 0 0.25rem;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   color: var(--text2);
   border: 1px solid var(--ghost-edge);
   border-radius: 0.125rem;
@@ -469,7 +470,7 @@
   kbd {
     padding: 0 0.25rem;
     font: inherit;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--text2);
     border: 1px solid var(--ghost-edge);
     border-radius: 0.125rem;
