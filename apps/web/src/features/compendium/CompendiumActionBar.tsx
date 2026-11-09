@@ -1,4 +1,3 @@
-import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { advanceChoices, useAdvanceSetting } from './advanceSetting';
 import styles from './CompendiumTab.module.scss';
 
@@ -38,7 +37,6 @@ export function CompendiumActionBar({
 }: ActionBarProps) {
   const ms = useAdvanceSetting((state) => state.ms);
   const setMs = useAdvanceSetting((state) => state.set);
-  const phone = useMedia(phoneQuery);
   const pause = (
     <label className={styles.advanceSetting}>
       <span>Auto-advance</span>
@@ -55,8 +53,8 @@ export function CompendiumActionBar({
       </select>
     </label>
   );
-  const undo = (
-    <button type="button" disabled={!canUndo} onClick={onUndo}>
+  const undo = (className?: string) => (
+    <button type="button" className={className} disabled={!canUndo} onClick={onUndo}>
       Undo <kbd>U</kbd>
     </button>
   );
@@ -82,18 +80,16 @@ export function CompendiumActionBar({
       <button type="button" disabled={!canDecide} onClick={onSkip}>
         Skip <kbd>S</kbd>
       </button>
-      {phone ? (
-        // A phone keeps the four decisions in reach; the rest sits behind one menu.
-        <details className={styles.more}>
-          <summary aria-label="More actions">⋯</summary>
-          <div className={styles.moreMenu}>
-            {undo}
-            {pause}
-          </div>
-        </details>
-      ) : (
-        undo
-      )}
+      {undo(styles.undoInline)}
+      {/* A narrow bar (small window, phone, large interface scale) keeps the four decisions and
+          folds the rest into one menu; the markup is shared, the container decides. */}
+      <details className={styles.more}>
+        <summary aria-label="More actions">⋯</summary>
+        <div className={styles.moreMenu}>
+          {undo()}
+          {pause}
+        </div>
+      </details>
       {/* The decision announcement survives the phone bar, which hides the visible line. */}
       <span className="sr-only" role="status">
         {message}
@@ -108,7 +104,7 @@ export function CompendiumActionBar({
             {message || readOnlyReason || 'Confirm drafts a link, not a save.'}
           </span>
         )}
-        {!phone && pause}
+        {pause}
       </span>
     </footer>
   );

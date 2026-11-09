@@ -574,6 +574,7 @@ function Workspace({
           {progressError || scope.error}
         </p>
       )}
+      {readOnlyReason && rows !== null && <p className={styles.viewerNote}>{readOnlyReason}</p>}
       {rows === null ? (
         <SkeletonStatus>
           <div className={styles.loading}>
