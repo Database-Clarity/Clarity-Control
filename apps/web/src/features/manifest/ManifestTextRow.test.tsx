@@ -25,6 +25,7 @@ const perks: SandboxPerkText = {
   11: ['Kinetic Siphon', 'Rapid Kinetic weapon final blows create an Orb of Power.'],
   12: ['Shieldcrush', 'While you have an overshield, your melee recharges faster.'],
   13: ['', 'Hidden stat line.'],
+  14: ['-10 Grenade ▼', '-10 Grenade ▼'],
 };
 const items = {
   1: item(1, { name: 'Rampage', inGameDescription: 'Kills grant increased damage.\nStacks 3x.' }),
@@ -153,6 +154,20 @@ describe('ManifestTextRow', () => {
     const terms = [...host.querySelectorAll('dt')].map((term) => term.textContent);
     expect(terms).toEqual(['Kinetic Siphon · 11', 'Shieldcrush · 12', 'Unnamed perk · 13']);
     expect(host.querySelectorAll('dd')[1].textContent).toBe(perks[12][1]);
+  });
+  it('says a stat-line perk once when its description repeats its name', async () => {
+    useDataStore.setState({
+      data: {
+        ...useDataStore.getState().data!,
+        items: { 8: item(8, { name: 'Facet', sandboxPerkHashes: [14, 12] }) },
+      },
+    });
+    await show(8);
+    expect([...host.querySelectorAll('dt')].map((term) => term.textContent)).toEqual([
+      '-10 Grenade ▼ · 14',
+      'Shieldcrush · 12',
+    ]);
+    expect(host.querySelectorAll('dd')).toHaveLength(1);
   });
   it('states that there is no manifest description', async () => {
     await show(4);
