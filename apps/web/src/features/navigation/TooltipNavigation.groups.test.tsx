@@ -369,6 +369,32 @@ describe('Exotic Weapons list', () => {
     expect(rows().map((row) => row.textContent)).toEqual(['Hard LightLight Frame · Frame · 103']);
   });
 
+  it('Enter on an empty list widens one level at a time, and Clear or Escape restore the scope', async () => {
+    await mount('/t/100');
+    await act(async () => field().click());
+    await type('light frame');
+    expect(rows()).toHaveLength(0);
+    await press('Enter');
+    expect(rows().map((row) => row.textContent)).toEqual(['Hard LightLight Frame · Frame · 103']);
+    await type('zzz');
+    expect(rows()).toHaveLength(0);
+    await press('Enter');
+    expect(host.querySelector('p')!.textContent).toContain('No tooltips match “zzz”.');
+    await act(async () =>
+      [...host.querySelectorAll('button')].find((button) => button.textContent === 'Clear')!.click(),
+    );
+    // Cleared: back to the open item's own weapon.
+    expect(rows().map((row) => row.textContent)).toEqual([
+      'Dead FrameFrame · 100',
+      'The FundamentalsPerk · 101 · also Hard Light',
+      'Dead CatalystCatalyst · 102',
+    ]);
+    await press('Escape');
+    expect(rows()).toHaveLength(0);
+    expect(route()).toBe('/t/100');
+    expect(select('Weapon')!.value).toBe('1001');
+  });
+
   it('shows the position as "n in Exotic Weapons" when the open item is outside the category list', async () => {
     await mount('/t/999');
     expect(position().textContent).toMatch(/^\d+ in /);
