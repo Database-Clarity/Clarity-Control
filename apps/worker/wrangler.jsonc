@@ -7,6 +7,7 @@
   "account_id": "c5ec2772673dc72f5e58587ef4c80ff8",
   "vars": {
     "SITE_ORIGIN": "https://database-clarity.github.io",
+    "SITE_ORIGINS": "https://database-clarity.github.io,https://control.d2clarity.com",
     "SITE_URL": "https://database-clarity.github.io/Description-editor/v2/",
     "GITHUB_OWNER": "Database-Clarity",
     "GITHUB_REPO": "Live-Clarity-Database",

@@ -44,13 +44,14 @@
     background: var(--editor);
     color: var(--editor-text);
     min-height: 13.75rem;
-    font-size: 0.875rem;
+    // The Editor text size setting (px, independent of the interface scale); unset keeps 0.875rem.
+    font-size: var(--editor-font-size, 0.875rem);
   }
   @include theme.mobile-or-coarse {
     // 16px stops iOS focus zoom; the gutter's width is better spent on text on a phone.
     :global(.cm-editor) {
       min-height: max(13.75rem, 40dvh);
-      font-size: max(16px, 1rem);
+      font-size: max(16px, var(--editor-font-size, 1rem));
     }
     :global(.cm-gutters) {
       display: none;
@@ -146,6 +147,15 @@
   }
   :global(.cm-symbol-hint) {
     color: var(--text2);
+  }
+  :global(.cm-symbol-retired) {
+    color: var(--diag-warn);
+  }
+  :global(.cm-symbol-fix) {
+    @include controls.button;
+    min-height: 1.25rem;
+    padding: 0 0.375rem;
+    font: inherit;
   }
   :global(.cm-symbol-input) {
     min-width: 10rem;
@@ -422,6 +432,13 @@
 
 .editor :global(.clarity-validation-warning) {
   text-decoration: underline dotted var(--diag-warn);
+  text-underline-offset: 3px;
+}
+
+// Retired markup (core/validation/retired.ts): wavy, so it reads apart from a glyph warning.
+// Decoration only: the text never moves.
+.editor :global(.clarity-validation-retired) {
+  text-decoration: underline wavy var(--diag-warn);
   text-underline-offset: 3px;
 }
 

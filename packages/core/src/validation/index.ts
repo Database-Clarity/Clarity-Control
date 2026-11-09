@@ -11,12 +11,15 @@ import { prepareMarkup } from '../markup/prepare.js';
 import type { MarkupGlobals } from '../markup/types.js';
 import type { Tooltip } from '../schemas.js';
 import { glyphWarnings } from './glyphs.js';
+import { retiredWarnings } from './retired.js';
 
 export interface ValidationIssue {
   severity: 'error' | 'warning';
   message: string;
   from: number;
   to: number;
+  /** Set for issues the editor draws or fixes in its own way (retired markup). */
+  code?: 'retired';
 }
 
 export interface TooltipValidationIssue extends ValidationIssue {
@@ -71,6 +74,14 @@ export function validateText(
       from,
       to,
       message,
+    })),
+    // Retired markup still renders; the warning asks the author to fix it (blocks saving later).
+    ...retiredWarnings(text).map(({ from, to, message }) => ({
+      severity: 'warning' as const,
+      from,
+      to,
+      message,
+      code: 'retired' as const,
     })),
   ];
 }

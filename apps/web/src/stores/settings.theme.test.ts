@@ -88,6 +88,7 @@ describe('device theme', () => {
     expect(make(storage).getState().device).toEqual({
       uiScale: 130,
       editorFont: 'fira-code',
+      editorFontSize: null,
       theme: 'system',
       panes: {},
       compendiumScale: 100,

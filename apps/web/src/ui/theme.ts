@@ -10,7 +10,7 @@ export type ThemePreference = (typeof themePreferences)[number];
 export type ResolvedTheme = 'light' | 'dark';
 
 /** Chrome colour per theme; also the browser's address-bar colour on phones. */
-export const themeColors: Record<ResolvedTheme, string> = { dark: '#1d2024', light: '#d8e7f2' };
+export const themeColors: Record<ResolvedTheme, string> = { dark: '#1d2024', light: '#c3d3df' };
 
 const lightQuery = '(prefers-color-scheme: light)';
 

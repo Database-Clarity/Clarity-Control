@@ -1,6 +1,15 @@
 import { ArchiveIcon } from '../archive/ArchiveIcon';
 import { languageLabel } from '../../languageLabels';
-import { memo, useContext, useEffect, useId, useMemo, useRef, type ReactNode } from 'react';
+import {
+  memo,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import {
   LivePreviewIdentity,
   previewIdentityFor,
@@ -8,6 +17,7 @@ import {
 } from './LivePreviewIdentity';
 import { useSteppingActivity } from '../navigation/steppingActivity';
 import { closeTitlePopover, openTitlePopover } from './titlePopover';
+import { nameWidthEm } from './nameFit';
 import { Link } from 'react-router-dom';
 import {
   markupLanguage,
@@ -271,10 +281,24 @@ function PreviewHeader(props: PreviewIdentity & { live: boolean }) {
       ) : (
         iconUrl && linkUrl(iconUrl) && <img className={styles.icon} src={iconUrl} alt="" />
       )}
-      <div>
-        {piece && <div className={styles.piece}>{piece}</div>}
-        <div className={styles.name}>{name}</div>
-        {categoryLabel && <div className={styles.category}>{categoryLabel}</div>}
+      <div className={styles.identity}>
+        {piece && (
+          <div className={styles.piece} title={piece}>
+            {piece}
+          </div>
+        )}
+        <div
+          className={styles.name}
+          title={name}
+          style={{ '--name-em': nameWidthEm(name) } as CSSProperties}
+        >
+          {name}
+        </div>
+        {categoryLabel && (
+          <div className={styles.category} title={categoryLabel}>
+            {categoryLabel}
+          </div>
+        )}
       </div>
     </header>
   );

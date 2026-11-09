@@ -60,8 +60,20 @@ vi.mock('../compendium/CompendiumPanel', () => ({
     ),
 }));
 vi.mock('../history/HistoryPanel', () => ({
-  HistoryPanel: ({ hash, suspended }: { hash: number; suspended?: boolean }) =>
-    createElement('div', { 'data-history': hash, 'data-suspended': suspended || undefined }),
+  HistoryPanel: ({
+    hash,
+    suspended,
+    attribution,
+  }: {
+    hash: number;
+    suspended?: boolean;
+    attribution?: React.ReactNode;
+  }) =>
+    createElement(
+      'div',
+      { 'data-history': hash, 'data-suspended': suspended || undefined },
+      attribution,
+    ),
 }));
 vi.mock('../associations/AssociationsPanel', () => ({
   AssociationsPanel: ({ hash }: { hash: number }) =>
@@ -360,6 +372,73 @@ describe('editor page composition', () => {
       tooltipHash: 10,
       highlightLine: 1,
     });
+  });
+
+  describe('the preview view while stepping across items with and without an enhanced version', () => {
+    const solo = {
+      ...data,
+      items: { ...data.items, 20: item(20, 'Solo perk', 'trait') },
+      bundle: {
+        ...data.bundle,
+        tooltips: { ...data.bundle.tooltips, 20: tip(20, 'Only a base') },
+      },
+    } as unknown as EditorData;
+    const shown = () => vi.mocked(PreviewColumn).mock.calls.at(-1)![0];
+    const go = async (to: string | number) =>
+      act(async () => (navigateRoute as (to: string | number) => void)(to));
+
+    it('keeps the chosen view, falls back to Base without an enhanced form, and returns to it', async () => {
+      useDataStore.setState({ data: solo });
+      await render('/t/10');
+      expect(shown().mode).toBe('compare');
+      await act(async () => shown().onMode('enhanced'));
+      expect(shown().mode).toBe('enhanced');
+      await go('/t/20');
+      expect(shown()).toMatchObject({ hash: 20, mode: 'base' });
+      expect(shown().enhanced).toEqual([]);
+      await go('/t/10');
+      expect(shown()).toMatchObject({ hash: 10, mode: 'enhanced' });
+      // Back and Forward keep the choice too.
+      await go(-1);
+      expect(shown()).toMatchObject({ hash: 20, mode: 'base' });
+      await go(1);
+      expect(shown()).toMatchObject({ hash: 10, mode: 'enhanced' });
+    });
+
+    it('stays on the desktop default (Compare) when nothing was chosen', async () => {
+      useDataStore.setState({ data: solo });
+      await render('/t/20');
+      expect(shown().mode).toBe('base');
+      await go('/t/10');
+      expect(shown().mode).toBe('compare');
+    });
+
+    it('defaults to Enhanced on a phone and falls back to Base on a base-only item', async () => {
+      phone = true;
+      useDataStore.setState({ data: solo });
+      await render('/t/10');
+      expect(shown().mode).toBe('enhanced');
+      await go('/t/20');
+      expect(shown().mode).toBe('base');
+      await go('/t/10');
+      expect(shown().mode).toBe('enhanced');
+    });
+  });
+
+  it('has no Details button: who last edited this language sits in the History row', async () => {
+    await render();
+    expect(button('Details')).toBeUndefined();
+    const history = host.querySelector('[data-history]')!;
+    expect(history.textContent).toMatch(/Edited by .* ·/);
+    expect(history.textContent).toContain('Legacy tooltip upload');
+  });
+
+  it('explains the Stored form: it renders like the base text and is read only', async () => {
+    await render();
+    await act(async () => button('Stored form')!.click());
+    const popover = host.querySelector('[role="dialog"]')!;
+    expect(popover.textContent).toContain('renders exactly like the base text');
+    expect(popover.textContent).toContain('(read only)');
   });
 
   it('shows Stored form to maintainers for the derived version, read only, in a popover', async () => {

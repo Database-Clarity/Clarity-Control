@@ -54,7 +54,7 @@ function OpenSettings({ layout }: { layout: React.RefObject<HTMLElement | null> 
     return active instanceof HTMLElement && active !== document.body ? active : null;
   });
   const place = () =>
-    anchor(opener ?? document.querySelector('.settings-link, button.settings-link'));
+    anchor(opener ?? document.querySelector('[data-settings-button], .settings-link'));
   const [style, setStyle] = useState(place);
   // Changing the interface scale here resizes the popover and its opener: place it again.
   const uiScale = useSettingsStore((state) => state.device.uiScale);
@@ -94,7 +94,7 @@ function OpenSettings({ layout }: { layout: React.RefObject<HTMLElement | null> 
       const target =
         opener?.isConnected && !opener.closest('[inert]')
           ? opener
-          : document.querySelector<HTMLElement>('.settings-link, [data-identity-button]');
+          : document.querySelector<HTMLElement>('[data-settings-button], .settings-link');
       (target ?? document.getElementById('main-content'))?.focus();
     };
   }, [layout, opener]);

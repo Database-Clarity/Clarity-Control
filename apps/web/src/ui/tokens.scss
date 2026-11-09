@@ -109,47 +109,70 @@
   // Compendium cell on the editor surface (the sheet's text colours are tuned for a dark cell)
   --sheet-bg: #1a1b29;
   --sheet-text: #ccc;
+  // Plain boxes, muted text and found-text marks on the pages that do not have their own tokens
+  --box-edge: #555;
+  --box-bg: #222228;
+  --muted: #bcbcc5;
+  --meta: #b7c1ce;
+  --bad-ink: #ff9a9a;
+  --badge-edge: #777;
+  --status-edge: #888;
+  --diff-edge: #444;
+  --found-bg: #684f16;
+  --found-text: #fff;
   // Overlays
   --shadow: 0 12px 32px rgb(0 0 0 / 0.5);
   --scrim: rgb(0 0 0 / 0.6);
+  // Symbol fills (light only; dark draws the game's own artwork, so these are unused here)
+  --sym-neutral: #fff;
+  --sym-arc: #7fd0ec;
+  --sym-stasis: #4d8bff;
+  --sym-solar: #f0702c;
+  --sym-void: #b78bd0;
+  --sym-strand: #35e366;
+  --sym-special: #35e366;
+  --sym-heavy: #b18cff;
+  --sym-barrier: #e6a23c;
+  --sym-overload: #4a85ff;
+  --sym-unstoppable: #ff5d57;
 }
 
 @mixin light-tokens {
   // Surfaces
-  --page: #eef4f8;
-  --chrome: #d8e7f2;
-  --col: #e3eef6;
-  --raised: #ffffff;
-  --strip: #d9efe6;
-  --decision: #d8e7f2;
-  --hover: #d6e4ee;
-  --sel: #c2e2ee;
+  --page: #d7e1ea;
+  --chrome: #c3d3df;
+  --col: #e2eaf0;
+  --raised: #f6f9fc;
+  --strip: #cfe3da;
+  --decision: #c3d3df;
+  --hover: #c9d9e5;
+  --sel: #a9d3e6;
   // Text and glyphs
-  --text: #14171b;
-  --text2: #4f5a66;
-  --text3: #4c5864;
-  --tab: #3a4450;
-  --glyph: #4c5864;
-  --link: #085e6e;
+  --text: #0f151b;
+  --text2: #3e4c5a;
+  --text3: #4b5a68;
+  --tab: #2b3845;
+  --glyph: #3e4c5a;
+  --link: #09647a;
   // Lines
-  --line: #b5c9d8;
-  --hair: #cfdde8;
-  --pop-edge: #9fb6c6;
-  --ghost-edge: #b5c9d8;
+  --line: #8fa6b8;
+  --hair: #b4c6d3;
+  --pop-edge: #6f8799;
+  --ghost-edge: #8fa6b8;
   --skel: var(--hair);
   --skel-shine: color-mix(in srgb, var(--hair), var(--raised) 65%);
   // Controls and fields
-  --ctl: #ffffff;
-  --ctl-edge: #6a8294;
-  --ctl-hover: #eaf3f9;
-  --ctl-hover-edge: #587286;
-  --ctl-pressed: #d3e2ec;
+  --ctl: #f6f9fc;
+  --ctl-edge: #5c7488;
+  --ctl-hover: #e2eaf0;
+  --ctl-hover-edge: #46617a;
+  --ctl-pressed: #c9d9e5;
   --fld: #ffffff;
-  --fld-edge: #6a8294;
+  --fld-edge: #5c7488;
   // Accent and focus
   --accent: #24ec54;
-  --accent-ink: #0c6e2c;
-  --enhanced: #7a6400;
+  --accent-ink: #0a6b2a;
+  --enhanced: #6e5a00;
   --tag-pve: #1f4fd1;
   --tag-pvp: #b0211c;
   --tag-yellow: #7d5d00;
@@ -157,42 +180,42 @@
   --tag-green: #1a7429;
   --tag-purple: #8a2a9a;
   --on-accent: #0b1a0f;
-  --pri-text: #0c6e2c;
-  --pri-hover: #d9f3e1;
+  --pri-text: #0a6b2a;
+  --pri-hover: #cdebd6;
   --cyan: #1cdcfc;
-  --cyan-edge: #085e6e;
+  --cyan-edge: #09647a;
   // Status
-  --warn: #7a5200;
-  --warn-bg: #ffecb8;
-  --warn-edge: #dfbd66;
+  --warn: #6e4a00;
+  --warn-bg: #f6e3a8;
+  --warn-edge: #cfae4e;
   --danger: #a32020;
   --danger2: #a32020;
-  --alert-bg: #fcd6d6;
-  --alert-edge: #e39797;
-  --stasis: #d1e2f9;
-  --stasis-text: #1f3f6e;
-  --stasis-edge: #7fa8e0;
-  --mark: #c3d9f3;
+  --alert-bg: #f6cfcf;
+  --alert-edge: #d98a8a;
+  --stasis: #c6daf5;
+  --stasis-text: #1b3a66;
+  --stasis-edge: #6f9ad8;
+  --mark: #b7d2f2;
   // Diff
   --del-text: #7a1f1f;
-  --del-bg: #f6d0d0;
+  --del-bg: #f3cfd0;
   --ins: #114d2a;
-  --ins-bg: #cfeedd;
-  --diff-bg: #ffffff;
+  --ins-bg: #c9ecd6;
+  --diff-bg: #f6f9fc;
   // Editor
-  --editor: #ffffff;
-  --editor-edge: #b5c9d8;
-  --editor-text: #1a1d21;
-  --editor-text2: #6b7682;
-  --gutter: #6b7682;
-  --gutter-tint: #3f4a56;
+  --editor: #fbfdfe;
+  --editor-edge: #8fa6b8;
+  --editor-text: #0f151b;
+  --editor-text2: #5a6775;
+  --gutter: #5a6775;
+  --gutter-tint: #2b3845;
   --var: #0e7a55;
   --var-tint: #085e3f;
   --cf-text: #14171b;
-  --active-line: #085e6e12;
-  --glyph-bg: #fff8e6;
-  --editor-sel: #b3d7f2;
-  --editor-sel-ink: #14171b;
+  --active-line: #0b6f8514;
+  --glyph-bg: #f3ecd6;
+  --editor-sel: #a9d3e6;
+  --editor-sel-ink: #0f151b;
   --syn-comment: #3d7a2a;
   --syn-keyword: #8f3f93;
   --syn-type: #0b5f99;
@@ -205,18 +228,42 @@
   --conflict-theirs: #d1e2f9;
   --conflict-marker: #e6ebef;
   // Decision and tables
-  --decision-edge: #b5c9d8;
-  --decision-text: #4f5a66;
-  --grid-bg: #ffffff;
-  --grid-edge: #b5c9d8;
-  --grid-on: #c2e2ee;
-  --grid-text: #2c3640;
-  // The dark cell raised a little so it sits better on the light page; sheet text stays AA on it
-  --sheet-bg: #2a2e44;
-  --sheet-text: #ccc;
+  --decision-edge: #8fa6b8;
+  --decision-text: #3e4c5a;
+  --grid-bg: #f6f9fc;
+  --grid-edge: #8fa6b8;
+  --grid-on: #a9d3e6;
+  --grid-text: #1f2a35;
+  // The default (no-colour) sheet cell on the light editor; the sheet's own cell colours are untouched
+  --sheet-bg: #353a55;
+  --sheet-text: #dfe4ee;
+  // Plain boxes, muted text and found-text marks on the pages that do not have their own tokens
+  --box-edge: #8fa6b8;
+  --box-bg: #f6f9fc;
+  --muted: #3e4c5a;
+  --meta: #3e4c5a;
+  --bad-ink: #a32020;
+  --badge-edge: #5c7488;
+  --status-edge: #5c7488;
+  --diff-edge: #8fa6b8;
+  --found-bg: #f6e3a8;
+  --found-text: #0f151b;
   // Overlays
-  --shadow: 0 8px 24px rgb(20 23 27 / 0.18);
-  --scrim: rgb(20 23 27 / 0.35);
+  --shadow: 0 8px 24px rgb(15 21 27 / 0.22);
+  --scrim: rgb(15 21 27 / 0.4);
+  // Symbol fills: the game's hues, lightness dropped until each is 3:1 on the preview surface.
+  // Kinetic and primary are white in the game; light gives them one neutral slate.
+  --sym-neutral: #5a6775;
+  --sym-arc: #1795c2;
+  --sym-stasis: #3366d6;
+  --sym-solar: #d4500f;
+  --sym-void: #9a5fb8;
+  --sym-strand: #1fa847;
+  --sym-special: #2aa84b;
+  --sym-heavy: #8f5fe8;
+  --sym-barrier: #b37411;
+  --sym-overload: #2f62d9;
+  --sym-unstoppable: #d63b37;
 }
 
 :root {

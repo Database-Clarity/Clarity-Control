@@ -192,8 +192,7 @@ try {
   // The interface scale slider holds still under the pointer during a drag, applies on release.
   for (const theme of ['dark', 'light']) {
     const { context, page, errors } = await open(theme, { width: 1280, height: 800 }, false, 100);
-    await page.locator('[data-identity-button]').first().click();
-    await page.getByText('Settings', { exact: true }).first().click();
+    await page.locator('[data-settings-button]').first().click();
     const dialog = page.getByRole('dialog', { name: 'Settings' });
     await dialog.waitFor();
     const slider = dialog.locator('input[type=range]');

@@ -133,9 +133,11 @@ try {
           .filter((button) => button.dataset.entry.startsWith('icon:'))
           .map((button) => {
             const glyph = button.querySelector('[data-icon]');
-            const image = getComputedStyle(glyph, '::before').backgroundImage;
+            // Light draws the artwork's alpha as a mask over a token fill; dark draws the artwork.
+            const style = getComputedStyle(glyph, '::before');
+            const image = style.backgroundImage !== 'none' || style.maskImage !== 'none';
             const box = button.getBoundingClientRect();
-            return { name: glyph.dataset.icon, image: image !== 'none', box: box.width > 0 };
+            return { name: glyph.dataset.icon, image, box: box.width > 0 };
           });
         const arrow = buttons.find((button) => button.dataset.entry === 'enhanced-arrow');
         return {

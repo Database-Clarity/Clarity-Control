@@ -9,8 +9,8 @@
     overflow-wrap: anywhere;
   }
   mark {
-    color: #fff;
-    background: #684f16;
+    color: var(--found-text);
+    background: var(--found-bg);
   }
 }
 .list {
@@ -23,7 +23,7 @@
     padding: 0.375rem 0;
   }
   span {
-    color: #b7c1ce;
+    color: var(--meta);
   }
 }
 .usages {

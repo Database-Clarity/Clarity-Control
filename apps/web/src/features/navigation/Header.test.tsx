@@ -361,7 +361,7 @@ describe('identity menu', () => {
   const open = async () => click(q('[data-identity-button]'));
   const text = () => q('[data-shell-overlay]').textContent ?? '';
 
-  it('shows who is signed in with the role, the revision, Settings and Sign out', async () => {
+  it('shows who is signed in with the role, the revision and Sign out (Settings has its own gear)', async () => {
     await mount(person('maintainer'));
     expect(q('[data-identity-button]').textContent).toBe('patmaintainer');
     await open();
@@ -369,7 +369,8 @@ describe('identity menu', () => {
     expect(text()).toContain('Data revision abcdef12');
     expect(
       [...document.querySelectorAll('[data-shell-overlay] button')].map((b) => b.textContent),
-    ).toEqual(['Settings', 'Sign out']);
+    ).toEqual(['Sign out']);
+    expect(q('[data-settings-button]').getAttribute('aria-label')).toBe('Settings');
   });
 
   it('explains read-only accounts and translator languages', async () => {

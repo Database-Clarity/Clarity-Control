@@ -1,5 +1,9 @@
 @use '../../ui/controls';
 
+// Header buttons grow with the interface scale from the 44px minimum, up to 56px (about 127%):
+// beyond that the page name would be squeezed to an ellipsis on a 390px phone.
+$target: clamp(44px, 2.75rem, 56px);
+
 .header {
   position: sticky;
   top: 0;
@@ -17,9 +21,9 @@
 .mark {
   @include controls.button;
   flex: none;
-  // A 44px target at any interface scale. 2.75rem would make the three icon buttons 198px wide at
-  // 150% and leave the page title ("Compendium") 96px on a 390px phone.
-  width: max(44px, 2rem);
+  // Square, and as tall as the other header buttons.
+  width: $target;
+  min-height: $target;
   padding: 0;
 }
 
@@ -28,6 +32,7 @@
   flex: 1 1 auto;
   min-width: 0;
   justify-content: space-between;
+  min-height: $target;
   margin: 0;
   padding: 0 0.375rem 0 0.5rem;
   // The page name keeps its whole label at any interface scale: 20px at most, so "Compendium" fits
@@ -78,6 +83,7 @@
   gap: 0.25rem;
 
   button {
-    min-width: max(44px, 2rem);
+    min-width: $target;
+    min-height: $target;
   }
 }

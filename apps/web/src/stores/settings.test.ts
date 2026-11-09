@@ -71,6 +71,7 @@ describe('settings store: local storage', () => {
     expect(JSON.parse(values.get(deviceKey)!)).toEqual({
       uiScale: 125,
       editorFont: 'default',
+      editorFontSize: null,
       theme: 'system',
       panes: {},
       compendiumScale: 100,

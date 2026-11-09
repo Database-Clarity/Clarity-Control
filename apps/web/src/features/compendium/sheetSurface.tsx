@@ -9,11 +9,12 @@ export type CompendiumSurface = 'sheet' | 'editor';
  * The editor-surface colours of a Compendium cell, mirrored from `--sheet-bg` in ui/tokens.scss
  * (sheetSurface.test.ts keeps the two in step). Both themes keep a dark cell, because the sheet's
  * own text colours are tuned for dark cells; the light theme's is raised a little so it sits better
- * on the light page.
+ * on the light page. Only this default (no-colour) cell moves; a cell's own colours are untouched.
  */
-export const sheetSurfaceColors = { dark: '#1a1b29', light: '#2a2e44' } as const;
-/** Text with no colour of its own on the editor surface (`--sheet-text`). */
-export const sheetTextColor = '#cccccc';
+export const sheetSurfaceColors = { dark: '#1a1b29', light: '#353a55' } as const;
+/** Text with no colour of its own on the editor surface (`--sheet-text`), per theme. */
+export const sheetTextColors = { dark: '#cccccc', light: '#dfe4ee' } as const;
+export const sheetTextColor = sheetTextColors.dark;
 
 const channel = (hex: string, at: number) => parseInt(hex.slice(at, at + 2), 16);
 function luminance(hex: string): number {

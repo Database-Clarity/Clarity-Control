@@ -1,3 +1,6 @@
+$name-size: 1.3125rem;
+$name-floor: $name-size * 0.75;
+
 // Tooltip colours are tokens. Dark is the in-game look and is the default; the light set is a
 // separate palette (not an inversion) that keeps every pair at 4.5:1 or better on its surface.
 @mixin dark-values {
@@ -25,10 +28,10 @@
 @mixin light-values {
   --tp-surface: #fdfeff;
   --tp-text: #1a2027;
-  --tp-head-bg: #cfe0ec;
-  --tp-head-text: #1a2027;
-  --tp-rule: #b5c9d8;
-  --tp-tint: hsla(205, 40%, 30%, 0.1);
+  --tp-head-bg: #c3d3df;
+  --tp-head-text: #0f151b;
+  --tp-rule: #8fa6b8;
+  --tp-tint: hsla(205, 40%, 30%, 0.12);
   --tp-pvp: #b0211c;
   --tp-pve: #1f4fd1;
   --tp-green: #1a7429;
@@ -42,34 +45,7 @@
   --tp-assoc-link: #0a5fa0;
   --tp-pop-bg: #ffffff;
   --tp-pop-text: #1a2027;
-  --tp-pop-edge: #6a8294;
-}
-// White game glyphs vanish on a light surface and a dark box behind them looks heavy. The light
-// theme swaps them for pre-processed copies (assets/light): a dark outline traced round the glyph
-// with every enclosed area filled, edges smoothed. Coloured glyphs are used as they are.
-@mixin light-icons {
-  // The outlined copies are drawn a little larger than their glyph; each size keeps the traced
-  // outline inside the 12px box (primary: the 16px ammo box).
-  .kinetic::before {
-    background-image: url('./assets/light/kinetic.png');
-    background-size: 0.8125rem 0.8125rem;
-  }
-  .primary::before {
-    background-image: url('./assets/light/primary.png');
-    background-size: 1.375rem 1.375rem;
-  }
-  .barrier::before {
-    background-image: url('./assets/light/barrier.png');
-    background-size: 0.8125rem 0.8125rem;
-  }
-  .overload::before {
-    background-image: url('./assets/light/overload.png');
-    background-size: 0.8125rem 0.8125rem;
-  }
-  .unstoppable::before {
-    background-image: url('./assets/light/unstoppable.png');
-    background-size: 0.9375rem 0.9375rem;
-  }
+  --tp-pop-edge: #5c7488;
 }
 .preview,
 .snippet {
@@ -81,7 +57,6 @@
     @include light-values;
     outline: 1px solid var(--line);
   }
-  @include light-icons;
 }
 @media (prefers-color-scheme: light) {
   :global(:root:not([data-theme])) {
@@ -90,7 +65,6 @@
       @include light-values;
       outline: 1px solid var(--line);
     }
-    @include light-icons;
   }
 }
 .preview {
@@ -171,16 +145,32 @@
   background-color: var(--tp-head-bg);
   color: var(--tp-head-text);
 }
+// The identity beside the icon is one line per row and never wraps: the header keeps its height
+// from item to item. Its inline size is the column's, so the name can size itself against it.
+.identity {
+  flex: 1 1 0;
+  min-width: 0;
+  container-type: inline-size;
+}
+.piece,
+.name,
+.category {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .piece {
   font-weight: 600;
   font-size: 0.8125rem;
   line-height: 1rem;
   opacity: 0.8;
 }
+// The size that makes the name exactly fill the row (--name-em is its width in ems, nameFit.ts),
+// kept between the floor (75% of the full size) and the full size; below the floor it ellipsises.
 .name {
   text-transform: uppercase;
   font-weight: 600;
-  font-size: 1.3125rem;
+  font-size: clamp(#{$name-floor}, calc(98cqw / max(var(--name-em, 1), 0.01)), #{$name-size});
   line-height: 1.5rem;
 }
 .category {
@@ -335,8 +325,16 @@
 // The artwork must stay inside the box: a background larger than the box is cropped at the sides.
 // The ammo frames are wide (71% of their image), so at the size that reads well they need the whole
 // 16px: the box takes the margins' width ($wide) and the advance stays 16px.
+// Dark draws the game's own artwork. Light uses the artwork's alpha as a mask over a --sym-* fill
+// (the game's hue, darkened to hold 3:1; kinetic and primary share one neutral slate): a static
+// rule on the pseudo-element, no filters. The mask sizes the whole frame into the box ($mask).
 $symbol: 0.75rem;
-@mixin icon($url, $size: 0.75rem 0.75rem, $wide: false) {
+@mixin light-symbol($url, $sym, $mask) {
+  background: var(#{$sym});
+  -webkit-mask: url($url) center / $mask no-repeat;
+  mask: url($url) center / $mask no-repeat;
+}
+@mixin icon($url, $size: 0.75rem 0.75rem, $wide: false, $sym: null, $mask: 0.75rem 0.75rem) {
   &::before {
     content: '';
     display: inline-block;
@@ -351,71 +349,105 @@ $symbol: 0.75rem;
     vertical-align: -1px;
     background: url($url) center / $size no-repeat;
   }
+  @if $sym {
+    :global(:root[data-theme='light']) &::before {
+      @include light-symbol($url, $sym, $mask);
+    }
+    @media (prefers-color-scheme: light) {
+      :global(:root:not([data-theme])) &::before {
+        @include light-symbol($url, $sym, $mask);
+      }
+    }
+  }
 }
 .kinetic {
   @include icon(
-    'https://www.bungie.net/common/destiny2_content/icons/DestinyDamageTypeDefinition_3385a924fd3ccb92c343ade19f19a370.png'
+    'https://www.bungie.net/common/destiny2_content/icons/DestinyDamageTypeDefinition_3385a924fd3ccb92c343ade19f19a370.png',
+    $size: 0.75rem 0.75rem,
+    $sym: --sym-neutral
   );
 }
 .arc {
   @include icon(
-    'https://www.bungie.net/common/destiny2_content/icons/DestinyDamageTypeDefinition_092d066688b879c807c3b460afdd61e6.png'
+    'https://www.bungie.net/common/destiny2_content/icons/DestinyDamageTypeDefinition_092d066688b879c807c3b460afdd61e6.png',
+    $size: 0.75rem 0.75rem,
+    $sym: --sym-arc
   );
 }
 .solar {
   @include icon(
-    'https://www.bungie.net/common/destiny2_content/icons/DestinyDamageTypeDefinition_2a1773e10968f2d088b97c22b22bba9e.png'
+    'https://www.bungie.net/common/destiny2_content/icons/DestinyDamageTypeDefinition_2a1773e10968f2d088b97c22b22bba9e.png',
+    $size: 0.75rem 0.75rem,
+    $sym: --sym-solar
   );
 }
 .void {
   @include icon(
-    'https://www.bungie.net/common/destiny2_content/icons/DestinyDamageTypeDefinition_ceb2f6197dccf3958bb31cc783eb97a0.png'
+    'https://www.bungie.net/common/destiny2_content/icons/DestinyDamageTypeDefinition_ceb2f6197dccf3958bb31cc783eb97a0.png',
+    $size: 0.75rem 0.75rem,
+    $sym: --sym-void
   );
 }
 .stasis {
   @include icon(
-    'https://www.bungie.net/common/destiny2_content/icons/DestinyDamageTypeDefinition_530c4c3e7981dc2aefd24fd3293482bf.png'
+    'https://www.bungie.net/common/destiny2_content/icons/DestinyDamageTypeDefinition_530c4c3e7981dc2aefd24fd3293482bf.png',
+    $size: 0.75rem 0.75rem,
+    $sym: --sym-stasis
   );
 }
 .strand {
   @include icon(
-    'https://www.bungie.net/common/destiny2_content/icons/DestinyDamageTypeDefinition_b2fe51a94f3533f97079dfa0d27a4096.png'
+    'https://www.bungie.net/common/destiny2_content/icons/DestinyDamageTypeDefinition_b2fe51a94f3533f97079dfa0d27a4096.png',
+    $size: 0.75rem 0.75rem,
+    $sym: --sym-strand
   );
 }
 .primary {
   @include icon(
     'https://www.bungie.net/common/destiny2_content/icons/99f3733354862047493d8550e46a45ec.png',
     1.25rem 1.25rem,
-    true
+    true,
+    $sym: --sym-neutral,
+    $mask: 1rem auto
   );
 }
 .special {
   @include icon(
     'https://www.bungie.net/common/destiny2_content/icons/d920203c4fd4571ae7f39eb5249eaecb.png',
     1.25rem 1.25rem,
-    true
+    true,
+    $sym: --sym-special,
+    $mask: 1rem auto
   );
 }
 .heavy {
   @include icon(
     'https://www.bungie.net/common/destiny2_content/icons/78ef0e2b281de7b60c48920223e0f9b1.png',
     1.25rem 1.25rem,
-    true
+    true,
+    $sym: --sym-heavy,
+    $mask: 1rem auto
   );
 }
 .barrier {
   @include icon(
-    'https://www.bungie.net/common/destiny2_content/icons/DestinyBreakerTypeDefinition_07b9ba0194e85e46b258b04783e93d5d.png'
+    'https://www.bungie.net/common/destiny2_content/icons/DestinyBreakerTypeDefinition_07b9ba0194e85e46b258b04783e93d5d.png',
+    $size: 0.75rem 0.75rem,
+    $sym: --sym-barrier
   );
 }
 .overload {
   @include icon(
-    'https://www.bungie.net/common/destiny2_content/icons/DestinyBreakerTypeDefinition_da558352b624d799cf50de14d7cb9565.png'
+    'https://www.bungie.net/common/destiny2_content/icons/DestinyBreakerTypeDefinition_da558352b624d799cf50de14d7cb9565.png',
+    $size: 0.75rem 0.75rem,
+    $sym: --sym-overload
   );
 }
 .unstoppable {
   @include icon(
-    'https://www.bungie.net/common/destiny2_content/icons/DestinyBreakerTypeDefinition_825a438c85404efd6472ff9e97fc7251.png'
+    'https://www.bungie.net/common/destiny2_content/icons/DestinyBreakerTypeDefinition_825a438c85404efd6472ff9e97fc7251.png',
+    $size: 0.75rem 0.75rem,
+    $sym: --sym-unstoppable
   );
 }
 .hunter {

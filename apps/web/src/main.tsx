@@ -3,6 +3,13 @@ import ReactDOM from 'react-dom/client';
 import { createHashRouter, RouterProvider } from 'react-router-dom';
 import './ui/global.scss';
 
+// "Moved" build of the old site (VITE_MOVED_MODE=1; off by default, so this block is removed from
+// the normal build): shows the moved screen and never starts the editor.
+if (import.meta.env.VITE_MOVED_MODE === '1') {
+  await import('./features/migrate/movedEntry');
+  await new Promise<never>(() => undefined);
+}
+
 // Keep vendor initialization and the application/data graph in separate tasks.
 // Every entry route follows the same bootstrap; facts resolve before sync consumers run.
 // Schema constructors account for most of the application graph's synchronous

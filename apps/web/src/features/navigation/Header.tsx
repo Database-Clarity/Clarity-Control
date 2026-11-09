@@ -4,12 +4,13 @@ import { compactQuery, useMedia } from '../../ui/useMedia';
 import { Brand } from './Brand';
 import { DraftButton } from './DraftButton';
 import { IdentityMenu } from './IdentityMenu';
+import { SettingsButton } from './SettingsButton';
 import { WorkspaceTabs } from './WorkspaceTabs';
 import styles from './Header.module.scss';
 
 /**
  * The desktop header, 36px: lockup, workspace tabs for the role, the workspace's finder, drafts,
- * identity. Below 1100px the finder drops to its own 32px band under the bar so the tabs keep
+ * the Settings gear, identity. Below 1100px the finder drops to its own 32px band under the bar so the tabs keep
  * their room. The phone has its own header (PhoneHeader). The lockup gives way to the diamond mark
  * (same height) whenever the bar is too tight to leave the finder its room: decided from the
  * measured width of the bar, never from the device.
@@ -40,6 +41,7 @@ export function Header({
         {!compact && <div className={styles.finder}>{finder}</div>}
         <div className={styles.end}>
           <DraftButton />
+          <SettingsButton />
           <IdentityMenu />
         </div>
       </div>
