@@ -7,10 +7,17 @@ import type { Category } from './generatorSchema';
  *
  * Rules: always plural, modifier before the noun, "Perks" for the trait column, "Parts" for
  * barrels/magazines/scopes/stocks; family order base, Enhanced, Exotic; families in the order
- * Perks, Origin Traits, Frames, Catalysts, Mods, Parts. Group order: Weapons, Armor, Ghost,
- * Subclasses, Other.
+ * Perks, Origin Traits, Frames, Catalysts, Mods, Parts. Group order: Weapons, Armor, Artifact,
+ * Ghost, Subclasses, Other (Artifact Perks have their own group, owner 2026-11-09).
  */
-export const categoryGroups = ['Weapons', 'Armor', 'Ghost', 'Subclasses', 'Other'] as const;
+export const categoryGroups = [
+  'Weapons',
+  'Armor',
+  'Artifact',
+  'Ghost',
+  'Subclasses',
+  'Other',
+] as const;
 export type CategoryGroupName = (typeof categoryGroups)[number];
 
 interface CategorySpec {
@@ -94,7 +101,8 @@ export const categorySpecs: Readonly<Record<string, CategorySpec>> = {
   'armor-set-bonus': spec('Armor', 210, 'Armor Set Bonuses'),
   'armor-mod-combat': spec('Armor', 230, 'Combat Mods', 'Armor Mod Combat'),
   'armor-mod-activity': spec('Armor', 240, 'Activity Mods', 'Armor Mod Activity'),
-  'armor-mod-seasonal': spec('Armor', 250, 'Artifact Perks', 'Armor Mod Seasonal'),
+
+  'armor-mod-seasonal': spec('Artifact', 250, 'Artifact Perks', 'Armor Mod Seasonal'),
 
   'ghost-mod': spec('Ghost', 300, 'Ghost Mods', 'Ghost Mod'),
 

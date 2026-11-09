@@ -60,7 +60,7 @@ const LOCKUP_HEIGHT_REM = 1.75;
  */
 const FINDER_MIN_REM = 25;
 /**
- * With the finder present the slot needs room for the category, the weapon or activity select
+ * With the finder present the slot needs room for the category, the weapon, activity, or artifact select
  * (another 12rem and a gap), the field and the readout, or the readout would sit under the field;
  * the lockup gives way first. It does not depend on the open category, so the header never moves
  * when the category changes.
