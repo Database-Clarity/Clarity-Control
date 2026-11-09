@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import type { DraftStorage, Drafts } from '../../services/draftStorage';
 import { mergePrefs, mergeSnapshot } from './merge';
+import { movedStart } from './moved';
 import { type MessageSource, type PostTarget, startReceiver, startSender, stamp } from './protocol';
 import {
   maxMessageChars,
@@ -437,5 +438,37 @@ describe('sender handshake (old site)', () => {
     page.deliver(popup.target, newOrigin, ready);
     await flush();
     expect(popup.posted).toHaveLength(2);
+  });
+});
+
+describe('moved page start', () => {
+  it('redirects only when nothing is readable AND nothing is unreadable', () => {
+    expect(movedStart({ snapshot: snapshot({}), unreadable: [] })).toEqual({ kind: 'redirect' });
+    expect(movedStart({ snapshot: snapshot({}), unreadable: ['tooltips'] })).toEqual({
+      kind: 'unreadable',
+    });
+    expect(
+      movedStart({ snapshot: snapshot({ tooltips: { '1': draft(1, 'a') } }), unreadable: [] }),
+    ).toEqual({ kind: 'idle', drafts: 1 });
+    expect(
+      movedStart({
+        snapshot: snapshot({ tooltips: { '1': draft(1, 'a') } }),
+        unreadable: ['tooltips:user:7'],
+      }),
+    ).toEqual({ kind: 'unreadable' });
+  });
+
+  it('collectSnapshot reports a bucket that fails validation as unreadable', async () => {
+    const { io } = memoryIO({ tooltips: { '1': draft(1, 'a') } });
+    const broken: MigrateIO = {
+      ...io,
+      open: () => ({
+        read: async () => Promise.reject(new Error('Stored drafts are invalid')),
+        write: async () => undefined,
+      }),
+    };
+    const collected = await collectSnapshot(broken);
+    expect(collected.unreadable).toEqual(['tooltips']);
+    expect(movedStart(collected)).toEqual({ kind: 'unreadable' });
   });
 });

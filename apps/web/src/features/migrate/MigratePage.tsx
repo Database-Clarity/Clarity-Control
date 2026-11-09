@@ -36,10 +36,10 @@ export function MigratePage() {
         fromWindow,
       });
     } catch (error) {
-      setView({
-        kind: 'error',
-        message: `Cannot read this browser's drafts: ${errorMessage(error)}`,
-      });
+      const message = `Cannot read this browser's drafts: ${errorMessage(error)}`;
+      // Tell the old site too, or its page would wait on "Sent" for ever.
+      if (fromWindow) receiver.current?.reply({ ...stamp, type: 'refused', reason: message });
+      setView({ kind: 'error', message });
     }
   };
 
@@ -77,10 +77,9 @@ export function MigratePage() {
           ),
         });
     } catch (error) {
-      setView({
-        kind: 'error',
-        message: `The merge stopped: ${errorMessage(error)}. Nothing was removed anywhere; run it again to continue.`,
-      });
+      const message = `The merge stopped: ${errorMessage(error)}. Nothing was removed anywhere; run it again to continue.`;
+      if (fromWindow) receiver.current?.reply({ ...stamp, type: 'refused', reason: message });
+      setView({ kind: 'error', message });
     }
   };
 

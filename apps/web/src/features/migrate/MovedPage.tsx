@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { errorMessage } from '../../services/http';
 import { downloadSnapshot, exportName } from './file';
 import { newOrigin, startSender } from './protocol';
-import { draftCount, maxMessageChars, serializeSnapshot, type Snapshot } from './snapshot';
+import { maxMessageChars, serializeSnapshot, type Snapshot } from './snapshot';
+import { movedStart } from './moved';
 import { browserIO, clearMoved, collectSnapshot } from './storage';
 import styles from './Migrate.module.scss';
 
@@ -25,16 +26,24 @@ export function MovedPage() {
   const sent = useRef<Snapshot>();
   const sender = useRef<ReturnType<typeof startSender>>();
   const timer = useRef<number>();
+  const sentRef = useRef(false);
   const target = `${newOrigin}/${window.location.hash || '#/'}`;
 
   useEffect(() => {
     let live = true;
     collectSnapshot(browserIO()).then(
-      ({ snapshot }) => {
+      (collected) => {
         if (!live) return;
-        const drafts = draftCount(snapshot);
-        if (drafts === 0) window.location.replace(target);
-        else setView({ kind: 'idle', drafts });
+        const start = movedStart(collected);
+        if (start.kind === 'redirect') window.location.replace(target);
+        else if (start.kind === 'idle') setView({ kind: 'idle', drafts: start.drafts });
+        else
+          setView({
+            kind: 'error',
+            message:
+              'Some drafts in this browser cannot be read, so nothing was moved or removed. Open the new editor yourself if you want to continue.',
+            drafts: -1,
+          });
       },
       // A browser that cannot read its drafts must not be redirected away from them.
       (error: unknown) =>
@@ -65,7 +74,9 @@ export function MovedPage() {
 
   const move = () => {
     // Opened synchronously inside the click so the browser allows it; this window stays the opener.
-    const popup = window.open(`${newOrigin}/#/migrate`, 'clarity-migrate');
+    // The query makes a reused window load the page afresh (a hash-only change would not), so a
+    // retry always meets a new receiver that announces itself.
+    const popup = window.open(`${newOrigin}/?migrate=${Date.now()}#/migrate`, 'clarity-migrate');
     if (!popup) {
       setView({
         kind: 'error',
@@ -76,15 +87,21 @@ export function MovedPage() {
     }
     sender.current?.stop();
     window.clearInterval(timer.current);
+    sentRef.current = false;
     const started = startSender(window, popup, newOrigin, prepare(), {
       onWaiting: () => setView({ kind: 'waiting' }),
-      onSent: () => setView({ kind: 'sent' }),
+      onSent: () => {
+        sentRef.current = true;
+        setView({ kind: 'sent' });
+      },
       onDone: (stored, unplaced) => setView({ kind: 'moved', stored, unplaced, confirming: false }),
       onRefused: (message) => setView({ kind: 'error', message, drafts: -1 }),
       onClosed: () =>
         setView({
           kind: 'error',
-          message: 'The new window was closed before the drafts arrived. Nothing was changed.',
+          message: sentRef.current
+            ? 'The new window was closed before the merge finished. Nothing was removed here; check the new editor, or try again.'
+            : 'The new window was closed before the drafts were sent. Nothing was changed.',
           drafts: -1,
         }),
     });
