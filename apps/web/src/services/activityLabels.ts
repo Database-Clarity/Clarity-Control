@@ -1,5 +1,6 @@
 /**
- * How the finder names and orders the activities behind Activity Mods (owner-approved 2026-11-09).
+ * How the finder names and orders the activities behind Activity Mods (owner-approved 2026-11-09; Crota's End and Salvation's Edge
+ * added 2026-11-09).
  * Keyed by the manifest plug category (`plugCategoryIdentifier`, written `enhancements.<key>` in
  * the manifest; the prefix is ignored), never by item names. Presentation only: category ids,
  * generator data, and export are unchanged.
@@ -17,7 +18,9 @@ export const activitySpecs: Readonly<Record<string, ActivitySpec>> = {
   raid_v600: { label: 'Vow of the Disciple', order: 5 },
   raid_v620: { label: "King's Fall", order: 6 },
   raid_v700: { label: 'Root of Nightmares', order: 7 },
-  season_maverick: { label: 'Nightmares (Shadowkeep)', order: 8 },
+  raid_v720: { label: "Crota's End", order: 8 },
+  raid_v800: { label: "Salvation's Edge", order: 9 },
+  season_maverick: { label: 'Nightmares (Shadowkeep)', order: 10 },
 };
 
 /** Activities the registry does not know sort after the named ones, then by label. */

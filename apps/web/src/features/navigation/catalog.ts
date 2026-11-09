@@ -2,6 +2,7 @@ import {
   classifyItem,
   derivedCategories,
   isSetSelector,
+  manifestArtifacts,
   manifestPlug,
 } from '../compendium/itemClassification';
 import { currentArtifactOwners } from '../compendium/artifactIdentity';
@@ -10,6 +11,7 @@ import type { EditorData } from '../../stores/data';
 import type { Category, Item } from '../../services/generator';
 import { categoryDisplay, groupRank } from '../../services/categoryLabels';
 import { activityDisplay, missingActivity } from '../../services/activityLabels';
+import { artifactOrder, noArtifact, noArtifactLabel } from '../../services/artifactLabels';
 import { entryKey, type Entry } from './stepping';
 
 const canonicalIndexes = new WeakMap<EditorData, Map<number, number>>();
@@ -270,8 +272,11 @@ export function listName(item: Item, data: EditorData): string {
   return listedItem(item, data).name;
 }
 
-/** What a category's second dropdown groups by: a weapon (exotic owner) or an activity (plug). */
-export type Grouping = 'weapon' | 'activity';
+/**
+ * What a category's second dropdown groups by: a weapon (exotic owner), an activity (plug), or
+ * an artifact (the current artifacts whose sockets offer the perk).
+ */
+export type Grouping = 'weapon' | 'activity' | 'artifact';
 export interface CategorySection extends Category {
   items: ListedItem[];
   grouping?: Grouping;
@@ -301,9 +306,16 @@ const exoticWeaponKinds: Readonly<Record<string, { label: string; rank: number }
   'weapon-perk-exotic': { label: 'Part', rank: 3 },
 };
 const activityModCategory = 'armor-mod-activity';
+const artifactPerkCategory = 'armor-mod-seasonal';
 const groupings: Readonly<Record<string, Grouping>> = {
   [exoticWeaponsCategory]: 'weapon',
   [activityModCategory]: 'activity',
+  [artifactPerkCategory]: 'artifact',
+};
+const groupingLabels: Readonly<Record<Grouping, { all: string; group: string }>> = {
+  weapon: { all: 'All exotic weapons', group: 'Weapon' },
+  activity: { all: 'All activities', group: 'Activity' },
+  artifact: { all: 'All artifacts', group: 'Artifact' },
 };
 
 /** The finder section a category id is listed in. */
@@ -317,7 +329,10 @@ export function exoticWeaponKind(item: Pick<Item, 'categoryId'>): string {
 }
 
 export interface FinderGroup {
-  /** The owner's lowest hash for its name, or the manifest plug category of an activity. */
+  /**
+   * The owner's lowest hash for its name, the manifest plug category of an activity, or the
+   * socketed artifact's hash.
+   */
   id: string;
   label: string;
   entries: Entry[];
@@ -406,6 +421,13 @@ export function groupedSection(
         add(String(nameIds.get(name) ?? owner), name, 0, item);
       }
     }
+  } else if (section.grouping === 'artifact') {
+    for (const item of section.items) {
+      const artifacts = manifestArtifacts(item.hash);
+      if (!artifacts.length) add(noArtifact, noArtifactLabel, artifactOrder(undefined), item);
+      for (const artifact of artifacts)
+        add(String(artifact.hash), artifact.name, artifactOrder(artifact.hash), item);
+    }
   } else {
     for (const item of section.items) {
       const { plug, description } = manifestPlug(item.hash);
@@ -451,8 +473,8 @@ export function groupedSection(
     firstGroup,
     owners,
     items: new Map(section.items.map((item) => [item.hash, item])),
-    allLabel: weapon ? 'All exotic weapons' : 'All activities',
-    groupLabel: weapon ? 'Weapon' : 'Activity',
+    allLabel: groupingLabels[section.grouping].all,
+    groupLabel: groupingLabels[section.grouping].group,
   };
   groupedSections.set(section, result);
   return result;

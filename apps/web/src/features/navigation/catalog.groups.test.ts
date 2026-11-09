@@ -3,6 +3,8 @@ import type { Tooltip } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import { armorStatCategory, classifyItem } from '../compendium/itemClassification';
 import { activityDisplay } from '../../services/activityLabels';
+import { artifactOrder, artifactSeasons } from '../../services/artifactLabels';
+import { categoryDisplay } from '../../services/categoryLabels';
 import {
   classifiedCategory,
   exoticWeaponsCategory,
@@ -151,7 +153,7 @@ describe('Activity Mods', () => {
     expect(grouped.groupLabel).toBe('Activity');
   });
 
-  it('names the eight activities and falls back visibly for an unknown plug', () => {
+  it('names the ten activities and falls back visibly for an unknown plug', () => {
     const labels = [
       'season_outlaw',
       'raid_garden',
@@ -160,6 +162,8 @@ describe('Activity Mods', () => {
       'raid_v600',
       'raid_v620',
       'raid_v700',
+      'raid_v720',
+      'raid_v800',
       'season_maverick',
     ].map((plug) => activityDisplay(`enhancements.${plug}`).label);
     expect(labels).toEqual([
@@ -170,8 +174,14 @@ describe('Activity Mods', () => {
       'Vow of the Disciple',
       "King's Fall",
       'Root of Nightmares',
+      "Crota's End",
+      "Salvation's Edge",
       'Nightmares (Shadowkeep)',
     ]);
+    const orders = ['raid_v700', 'raid_v720', 'raid_v800', 'season_maverick'].map(
+      (plug) => activityDisplay(`enhancements.${plug}`).order,
+    );
+    expect(orders).toEqual([...orders].sort((a, b) => a - b));
     expect(activityDisplay('enhancements.raid_v900').label).toBe('Other: enhancements.raid_v900');
     expect(
       activityDisplay('enhancements.raid_v900', 'Active only in the "Hall of Echoes" raid.').label,
@@ -231,5 +241,61 @@ describe('Stat-only Armor Mods', () => {
     expect(result?.categoryId).toBe('armor-mod-general');
     expect(result?.ruleId).toBe('manifest-armor-stat');
     expect(result?.excluded).toBe(true);
+  });
+});
+
+describe('Artifact Perks', () => {
+  // Real manifest hashes (manifest-facts.json): Armorsmith is offered by the sockets of Encrypted
+  // Data Disk and Queensfoil Censer, Dielectric by Encrypted Data Disk only, and Unstoppable Bow
+  // by no current artifact (an earlier Implement of Curiosity definition).
+  const perk = (hash: number, name: string) => item(hash, name, 'armor-mod-seasonal');
+  const artifactData = {
+    ...data,
+    categories: [
+      ...categories,
+      { id: 'armor-mod-seasonal', label: 'Armor Mod Seasonal', group: 'Armor', order: 50 },
+    ].map((category) => ({ ...category, ...categoryDisplay(category.id) })),
+    items: {
+      2903198437: perk(2903198437, 'Armorsmith'),
+      2903198438: perk(2903198438, 'Dielectric'),
+      4217417021: perk(4217417021, 'Unstoppable Bow'),
+      12: item(12, 'Ordinary Mod', 'armor-mod-general'),
+    },
+  } as unknown as EditorData;
+
+  it('is its own category, outside Armor', () => {
+    const groups = navigationGroups(artifactData, '');
+    const owner = groups.find((group) => group.sections.some((s) => s.id === 'armor-mod-seasonal'));
+    expect(owner?.name).toBe('Artifact');
+    expect(groups.map((group) => group.name)).toEqual(['Armor', 'Artifact']);
+    expect(section('armor-mod-seasonal', artifactData)?.label).toBe('Artifact Perks');
+  });
+
+  it('groups by owning artifact, newest first, and lists a shared perk under each', () => {
+    const grouped = groupedSection(section('armor-mod-seasonal', artifactData)!, artifactData)!;
+    expect(grouped.groups.map((group) => [group.id, group.label, names(group.entries)])).toEqual([
+      ['1014202826', 'Encrypted Data Disk', [2903198437, 2903198438]],
+      ['3518286241', 'Queensfoil Censer', [2903198437]],
+      ['none', 'No current artifact', [4217417021]],
+    ]);
+    expect(grouped.owners.get(2903198437)?.map((group) => group.label)).toEqual([
+      'Encrypted Data Disk',
+      'Queensfoil Censer',
+    ]);
+    expect(grouped.firstGroup.get(2903198437)).toBe('1014202826');
+    expect(grouped.allLabel).toBe('All artifacts');
+    expect(grouped.groupLabel).toBe('Artifact');
+  });
+
+  it('orders artifacts newest season first, an unregistered (newer) artifact before them all', () => {
+    const known = Object.entries(artifactSeasons)
+      .sort(([, a], [, b]) => b - a)
+      .map(([hash]) => artifactOrder(Number(hash)));
+    expect(known).toEqual([...known].sort((a, b) => a - b));
+    expect(Object.keys(artifactSeasons).map(Number).sort()).toEqual(
+      [23349941, 1014202826, 1504442987, 3518286241, 2180638678, 1770364095, 3821685388].sort(),
+    );
+    expect(artifactOrder(42)).toBeLessThan(Math.min(...known));
+    expect(artifactOrder(undefined)).toBeGreaterThan(Math.max(...known));
   });
 });
