@@ -106,8 +106,24 @@
 @media (max-width: 700px) {
   .page {
     height: calc(100dvh - var(--header-h, 37px) - 1.5rem);
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  .page > h1 {
+    font-size: 1.125rem;
+    line-height: 1.2;
+  }
+  .page > p {
+    font-size: 0.875rem;
+  }
+  .page > h1,
+  .page > p {
+    flex-shrink: 0;
   }
   .workspace {
+    // Let the introduction scroll away without shrinking the phone workspace.
+    flex: none;
+    height: 100%;
     grid-template-columns: minmax(0, 1fr);
   }
   .workspace[data-detail='true'] .list {
