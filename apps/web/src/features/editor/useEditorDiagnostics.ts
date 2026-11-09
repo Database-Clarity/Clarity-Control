@@ -1,5 +1,5 @@
 import { startTransition, useEffect, useMemo, useRef, useState } from 'react';
-import { glyphWarnings } from '@clarity/core';
+import { findRetiredMarkup, glyphWarnings, maskConflicts } from '@clarity/core';
 import {
   computeDiagnostics,
   type DiagnosticInput,
@@ -8,7 +8,7 @@ import {
 import { hasDiagnosticWorker, requestDiagnostics } from './diagnosticWorker';
 import { validateEditorText } from './diagnostics';
 
-const empty: DiagnosticResult = { issues: [], glyphs: [] };
+const empty: DiagnosticResult = { issues: [], glyphs: [], retired: [] };
 
 export function useEditorDiagnostics(input: DiagnosticInput, active = true) {
   const { text, lang, globals, requireEnglish, selfHash } = input;
@@ -20,6 +20,7 @@ export function useEditorDiagnostics(input: DiagnosticInput, active = true) {
         : {
             issues: validateEditorText(text, lang, globals, requireEnglish, selfHash),
             glyphs: glyphWarnings(text),
+            retired: findRetiredMarkup(maskConflicts(text)),
           },
     [supported, text, lang, globals, requireEnglish, selfHash],
   );
@@ -33,21 +34,23 @@ export function useEditorDiagnostics(input: DiagnosticInput, active = true) {
     let current = true;
     const captured = { text, lang, globals, requireEnglish, selfHash };
     const sameDocument =
-      requestedDocument.current?.lang === lang &&
-      requestedDocument.current.selfHash === selfHash;
+      requestedDocument.current?.lang === lang && requestedDocument.current.selfHash === selfHash;
     // Snapshotting reachable imports parses markup too. Keep it out of render and
     // skip intermediate typing snapshots, while new documents start immediately.
-    const timer = setTimeout(() => {
-      requestedDocument.current = { lang, selfHash };
-      void requestDiagnostics(captured).then(
-        (result) => current && startTransition(() => setCompleted({ input: captured, result })),
-        () =>
-          current &&
-          startTransition(() =>
-            setCompleted({ input: captured, result: computeDiagnostics(captured) }),
-          ),
-      );
-    }, sameDocument ? 40 : 0);
+    const timer = setTimeout(
+      () => {
+        requestedDocument.current = { lang, selfHash };
+        void requestDiagnostics(captured).then(
+          (result) => current && startTransition(() => setCompleted({ input: captured, result })),
+          () =>
+            current &&
+            startTransition(() =>
+              setCompleted({ input: captured, result: computeDiagnostics(captured) }),
+            ),
+        );
+      },
+      sameDocument ? 40 : 0,
+    );
     return () => {
       current = false;
       clearTimeout(timer);

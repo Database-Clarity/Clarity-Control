@@ -11,6 +11,7 @@ import {
   markupImports,
   markupInlineRanges,
   markupLineClasses,
+  markupRetired,
   markupVariableReferences,
   type MarkupGlobals,
 } from '@clarity/core';
@@ -25,13 +26,16 @@ export interface MarkupOption {
 }
 
 export const markupOptions: MarkupOption[] = [
-  ...[...markupColors, 'background'].map((name) => ({
-    id: `inline:${name}`,
-    label: name,
-    group: 'Inline format',
-    kind: 'inline' as const,
-    name,
-  })),
+  // The parser still reads the retired names (below), but nothing offers them.
+  ...[...markupColors, 'background']
+    .filter((name) => !markupRetired.includes(name))
+    .map((name) => ({
+      id: `inline:${name}`,
+      label: name,
+      group: 'Inline format',
+      kind: 'inline' as const,
+      name,
+    })),
   ...markupIcons.map((name) => ({
     id: `icon:${name}`,
     label: name,
@@ -39,13 +43,15 @@ export const markupOptions: MarkupOption[] = [
     kind: 'icon' as const,
     name,
   })),
-  ...[...new Set(markupLineClasses)].map((name) => ({
-    id: `line:${name}`,
-    label: name,
-    group: 'Line style',
-    kind: 'line' as const,
-    name,
-  })),
+  ...[...new Set(markupLineClasses)]
+    .filter((name) => !markupRetired.includes(name))
+    .map((name) => ({
+      id: `line:${name}`,
+      label: name,
+      group: 'Line style',
+      kind: 'line' as const,
+      name,
+    })),
   { id: 'link', label: 'link', group: 'Reference', kind: 'link', name: 'link' },
   { id: 'title', label: 'title', group: 'Reference', kind: 'title', name: 'title' },
 ];

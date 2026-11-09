@@ -1,10 +1,12 @@
 import {
+  findRetiredMarkup,
   glyphWarnings,
   maskConflicts,
   validateText,
   type GlyphWarning,
   type Lang,
   type MarkupGlobals,
+  type RetiredOccurrence,
   type ValidationIssue,
 } from '@clarity/core';
 
@@ -18,6 +20,8 @@ export interface DiagnosticInput {
 export interface DiagnosticResult {
   issues: ValidationIssue[];
   glyphs: GlyphWarning[];
+  /** Retired markup with its fixes (the status bar's list); `issues` carries the same as warnings. */
+  retired: RetiredOccurrence[];
 }
 export function computeDiagnostics(input: DiagnosticInput): DiagnosticResult {
   return {
@@ -29,5 +33,6 @@ export function computeDiagnostics(input: DiagnosticInput): DiagnosticResult {
       input.selfHash,
     ),
     glyphs: glyphWarnings(input.text),
+    retired: findRetiredMarkup(maskConflicts(input.text)),
   };
 }

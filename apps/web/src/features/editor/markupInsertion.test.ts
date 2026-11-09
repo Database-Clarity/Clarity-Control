@@ -7,6 +7,7 @@ import {
   markupColors,
   markupIcons,
   markupLineClasses,
+  markupRetired,
   parseMarkup,
   type MarkupGlobals,
 } from '@clarity/core';
@@ -21,10 +22,22 @@ function preview(text: string, previewGlobals: MarkupGlobals = globals) {
   );
 }
 
-function option(id: string) {
+/**
+ * The retired names are no longer offered (see the last test), but the insertion rules must still
+ * protect and recognise existing retired tokens, so these tests build their options by hand.
+ */
+function option(id: string): MarkupOption {
   const found = markupOptions.find((item) => item.id === id);
-  if (!found) throw new Error(`Missing markup option ${id}`);
-  return found;
+  if (found) return found;
+  const [kind, name] = id.split(':') as ['inline' | 'line', string];
+  if (!markupRetired.includes(name)) throw new Error(`Missing markup option ${id}`);
+  return {
+    id,
+    label: name,
+    group: kind === 'inline' ? 'Inline format' : 'Line style',
+    kind,
+    name,
+  };
 }
 
 function insert(state: EditorState, markup: MarkupOption) {
@@ -35,10 +48,16 @@ function insert(state: EditorState, markup: MarkupOption) {
 
 describe('markup insertion', () => {
   test('offers the parser-defined inline formats, icons and line styles', () => {
-    for (const name of [...markupColors, 'background'])
-      expect(option(`inline:${name}`)).toBeTruthy();
+    const offered = (name: string) => !markupRetired.includes(name);
+    for (const name of [...markupColors, 'background'].filter(offered))
+      expect(markupOptions.find((item) => item.id === `inline:${name}`)).toBeTruthy();
     for (const name of markupIcons) expect(option(`icon:${name}`)).toBeTruthy();
-    for (const name of markupLineClasses) expect(option(`line:${name}`)).toBeTruthy();
+    for (const name of markupLineClasses.filter(offered))
+      expect(markupOptions.find((item) => item.id === `line:${name}`)).toBeTruthy();
+    // Retired names (blue, green, purple, centre, background, break-spaces) are not offered.
+    for (const name of markupRetired)
+      for (const kind of ['inline', 'line'])
+        expect(markupOptions.some((item) => item.id === `${kind}:${name}`)).toBe(false);
     // Tables are retired from the insertion UI: no option writes a table.
     expect(markupOptions.some((item) => item.id.startsWith('table:'))).toBe(false);
     expect(new Set(markupOptions.map((item) => item.id)).size).toBe(markupOptions.length);

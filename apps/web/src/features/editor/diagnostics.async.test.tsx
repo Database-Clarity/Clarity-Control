@@ -63,6 +63,7 @@ const answer = async (text: string, message: string) =>
       job.resolve({
         issues: message ? [{ severity: 'warning', message, from: 0, to: text.length }] : [],
         glyphs: [],
+        retired: [],
       });
   });
 const advance = (ms: number) => act(async () => vi.advanceTimersByTimeAsync(ms));
