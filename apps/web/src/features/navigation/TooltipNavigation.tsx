@@ -1097,6 +1097,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   const groupNode = grouped && (
     <select
       aria-label={grouped.groupLabel}
+      title={grouped.byId.get(groupValue)?.label ?? grouped.allLabel}
       className={styles.group}
       value={groupValue}
       onChange={(event) => {

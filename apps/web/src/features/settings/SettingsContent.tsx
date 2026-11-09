@@ -247,8 +247,8 @@ export function SettingsContent() {
             value={device.finderWheel}
             onChange={(event) => updateDevice({ finderWheel: event.target.value as FinderWheel })}
           >
-            <option value="entries">Shift steps entries, Alt+Shift steps weapons</option>
-            <option value="groups">Shift steps weapons, Alt+Shift steps entries</option>
+            <option value="entries">Shift: entries, Alt+Shift: weapons</option>
+            <option value="groups">Shift: weapons, Alt+Shift: entries</option>
           </select>
         </label>
         <label>
