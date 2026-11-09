@@ -260,14 +260,14 @@
   }
 }
 .removed {
-  background: #a52c3b66;
+  background: var(--sheet-del-bg);
   text-decoration: line-through;
-  text-decoration-color: #ff6b79;
+  text-decoration-color: var(--sheet-del-line);
 }
 .added {
-  background: #23844066;
+  background: var(--sheet-ins-bg);
   text-decoration: underline;
-  text-decoration-color: #76f49c;
+  text-decoration-color: var(--sheet-ins-line);
   // Keep diff markers continuous, without per-glyph ink intersection work.
   text-decoration-skip-ink: none;
 }
@@ -279,7 +279,7 @@
   all: unset;
   display: inline;
   cursor: help;
-  outline: 1px dotted #e7c374;
+  outline: 1px dotted var(--style-edge);
   outline-offset: 2px;
 }
 .styleChange[data-open='true'] > .stylePopover {
@@ -292,9 +292,9 @@
   inset-inline-start: 0;
   top: 100%;
   padding: 0.7rem;
-  border: 1px solid #e7c374;
-  background: #161923;
-  color: #fff;
+  border: 1px solid var(--style-edge);
+  background: var(--style-bg);
+  color: var(--style-text);
   box-sizing: border-box;
   width: min(22rem, calc(100vw - 1rem));
   white-space: normal;
@@ -310,7 +310,7 @@
   display: inline-block;
   width: 1rem;
   height: 1rem;
-  border: 1px solid #fff;
+  border: 1px solid var(--swatch-edge);
   vertical-align: middle;
   margin-right: 0.25rem;
 }
@@ -331,7 +331,7 @@
   content-visibility: auto;
   contain-intrinsic-size: auto 2.25rem;
   padding: 0.5rem;
-  border-bottom: 1px solid #454c5a;
+  border-bottom: 1px solid var(--grid-edge);
 }
 .rows a {
   overflow-wrap: anywhere;
@@ -359,8 +359,8 @@
 .badge {
   border-radius: 1rem;
   padding: 0.15rem 0.5rem;
-  background: #674d21;
-  color: #fff;
+  background: var(--badge-warn-bg);
+  color: var(--badge-warn-text);
 }
 .warning {
   color: var(--warn);
@@ -403,16 +403,16 @@
 }
 .sheet {
   border-collapse: collapse;
-  background: #1a1b29;
+  background: var(--sheet-bg);
   td,
   th {
-    border: 1px solid #657080;
+    border: 1px solid var(--sheet-edge);
     padding: 0.3rem;
     min-width: 5rem;
     vertical-align: top;
   }
   td[data-anchor='true'] {
-    outline: 3px solid #ffd98b;
+    outline: 3px solid var(--sheet-anchor);
     outline-offset: -3px;
   }
   button {
@@ -422,12 +422,12 @@
     white-space: pre-wrap;
     text-align: left;
     background: transparent;
-    color: #ccc;
+    color: var(--sheet-text);
     border: 0;
   }
   button[aria-pressed='true'] {
-    background: #245a40;
-    outline: 2px solid #76f49c;
+    background: var(--sheet-on);
+    outline: 2px solid var(--sheet-ins-line);
   }
 }
 
