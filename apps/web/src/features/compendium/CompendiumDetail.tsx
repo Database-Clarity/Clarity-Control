@@ -187,7 +187,8 @@ export interface DetailProps {
   /** Prev/next for phones, where the queue is behind the list button. */
   onStep?: (direction: -1 | 1) => void;
   onReinclude?: () => void;
-  fromEditor?: boolean;
+  /** Listed only because it is open; the filters would hide it. */
+  outsideFilter?: boolean;
 }
 
 /** The selected entry: what it says now, what it could link to, and where that sits in the sheet. */
@@ -205,7 +206,7 @@ export function CompendiumDetail({
   stale,
   onStep,
   onReinclude,
-  fromEditor,
+  outsideFilter,
 }: DetailProps) {
   const phone = useMedia(phoneQuery);
   const groups = useMemo(() => manifestGroups(manifest), [manifest]);
@@ -234,7 +235,7 @@ export function CompendiumDetail({
         </p>
         <span className={styles.meta}>
           <span className={styles.kindLabel} data-kind={row.kind}>
-            {fromEditor ? 'From editor · ' : ''}
+            {outsideFilter ? 'Outside filter · ' : ''}
             {kindLabels[row.kind]}
           </span>
           {position && (

@@ -13,9 +13,13 @@ export function initialReviewParams(
 ): URLSearchParams {
   const category = params.get('category') ?? '';
   const query = (params.get('query') ?? '').toLowerCase();
+  // The list opens on the changes people made; marker-only leftovers only on request, or when the
+  // route names one of them.
+  const marker = params.get('marker') === '1';
+  const pool = entries.filter((entry) => !!entry.markerOnly === marker);
   const visible =
     category || query
-      ? entries.filter(
+      ? pool.filter(
           (entry) =>
             (!category || entry.categoryId === category) &&
             (!query ||
@@ -23,12 +27,14 @@ export function initialReviewParams(
                 .toLowerCase()
                 .includes(query)),
         )
-      : entries;
+      : pool;
   const requestedHash = params.get('hash');
-  const selected =
-    (requestedHash === null
+  const requested =
+    requestedHash === null
       ? undefined
-      : visible.find((entry) => String(entry.tooltip.hash) === requestedHash)) ?? visible[0];
+      : (visible.find((entry) => String(entry.tooltip.hash) === requestedHash) ??
+        entries.find((entry) => entry.markerOnly && String(entry.tooltip.hash) === requestedHash));
+  const selected = requested ?? visible[0];
   const next = new URLSearchParams(params);
   if (selected) next.set('hash', String(selected.tooltip.hash));
   else next.delete('hash');

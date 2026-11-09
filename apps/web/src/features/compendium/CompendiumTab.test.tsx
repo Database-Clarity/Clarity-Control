@@ -245,7 +245,7 @@ describe('permissions and states', () => {
     await mount();
     expect(barButton('Confirm').hasAttribute('disabled')).toBe(true);
     expect(barButton('Pick row').hasAttribute('disabled')).toBe(true);
-    expect(bar().textContent).toContain('Browsing only');
+    expect(bar().textContent).toContain('Viewing only');
     await press('Enter');
     await press('a');
     expect(useDraftStore.getState().drafts).toEqual({});
@@ -256,7 +256,7 @@ describe('permissions and states', () => {
   it('pins an entry opened from the editor even when the filters hide it', async () => {
     await mount('/compendium?hash=104&show=decided');
     expect(title()).toContain('Sample 104');
-    expect(host.textContent).toContain('From editor');
+    expect(host.textContent).toContain('Outside filter');
     expect(
       useCompendiumQueueStore.getState().model.items.find((item) => item.type === 'row'),
     ).toMatchObject({ pinned: true });

@@ -483,14 +483,18 @@ p.muted {
 
 // Narrow main region (rem-based, so a larger interface scale behaves like a narrower window).
 @container (max-width: 58rem) {
-  .consequence {
+  .advanceSetting > span {
     display: none;
   }
 }
 
 @container (max-width: 40rem) {
+  .consequence {
+    display: none;
+  }
+
   .actionBar kbd,
-  .advanceSetting {
+  .barRight .advanceSetting {
     display: none;
   }
 
@@ -587,6 +591,7 @@ p.muted {
   }
 
   .actionBar {
+    flex-wrap: nowrap;
     gap: 0.25rem;
     padding: 0.25rem 0;
 
@@ -630,6 +635,8 @@ p.muted {
     position: absolute;
     inset: auto 0 calc(100% + 0.25rem) auto;
     z-index: 4;
+    width: max-content;
+    min-width: 11rem;
     display: grid;
     gap: 0.375rem;
     padding: 0.5rem;
@@ -639,6 +646,10 @@ p.muted {
 
     button {
       flex: none;
+    }
+
+    .advanceSetting > span {
+      display: inline;
     }
   }
 

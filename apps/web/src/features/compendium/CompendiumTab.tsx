@@ -530,7 +530,7 @@ function Workspace({
   const empty = rows !== null && !selected;
   const readOnlyReason = canEdit
     ? undefined
-    : 'Browsing only · linking needs a configured API and a signed-in editor, trial, or maintainer. Skip and Not needed stay in this browser.';
+    : 'Viewing only: sign in as an editor to link.';
   const categoryOf = (id: string) => categories.get(id)?.label ?? `Other: ${id}`;
   const fromEditor = model.items.some(
     (item) =>
@@ -593,7 +593,7 @@ function Workspace({
           source={source}
           approved={approved}
           stale={selectedEntry?.stale}
-          fromEditor={fromEditor}
+          outsideFilter={fromEditor}
           onReinclude={
             selected.kind === 'not-needed' && canEdit !== undefined ? () => reinclude(selected) : undefined
           }

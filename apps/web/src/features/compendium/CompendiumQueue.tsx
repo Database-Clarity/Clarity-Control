@@ -63,7 +63,7 @@ const Row = memo(function Row({
         </button>
       ) : (
         <span className={styles.kind}>
-          {pinned && !decidedKinds.includes(row.kind) ? 'from editor' : kindLabels[row.kind]}
+          {pinned && !decidedKinds.includes(row.kind) ? 'outside filter' : kindLabels[row.kind]}
         </span>
       )}
     </div>
@@ -160,6 +160,36 @@ export function CompendiumQueue() {
     },
     [model.items],
   );
+  const filtersActive = !!query || show !== 'open' || !!params.get('group');
+  const noMatches = (
+    <p className={styles.note}>
+      {filtersActive ? (
+        <>
+          Nothing matches.{' '}
+          <button
+            type="button"
+            className={styles.link}
+            onClick={() => {
+              setText('');
+              pushed.current = '';
+              setParams(
+                (previous) => {
+                  const next = new URLSearchParams(previous);
+                  for (const key of ['show', 'q', 'group']) next.delete(key);
+                  return next;
+                },
+                { replace: true },
+              );
+            }}
+          >
+            Clear filters
+          </button>
+        </>
+      ) : (
+        'Nothing needs review.'
+      )}
+    </p>
+  );
   return (
     <nav aria-label="Compendium review queue" className={styles.queue}>
       <div className={styles.filters}>
@@ -195,27 +225,10 @@ export function CompendiumQueue() {
           ))}
         </div>
       ) : model.items.length === 0 ? (
-        <p className={styles.note}>
-          {query || show !== 'open' || params.get('group') ? (
-            <>
-              Nothing matches.{' '}
-              <button
-                type="button"
-                className={styles.link}
-                onClick={() => {
-                  const next = new URLSearchParams(params);
-                  for (const key of ['show', 'q', 'group']) next.delete(key);
-                  setParams(next, { replace: true });
-                }}
-              >
-                Clear filters
-              </button>
-            </>
-          ) : (
-            'Nothing needs review.'
-          )}
-        </p>
+        noMatches
       ) : (
+        <>
+          {model.visible === 0 && filtersActive && noMatches}
         <VirtualList
           className={styles.list}
           role="tree"
@@ -245,6 +258,7 @@ export function CompendiumQueue() {
             )
           }
         />
+        </>
       )}
     </nav>
   );

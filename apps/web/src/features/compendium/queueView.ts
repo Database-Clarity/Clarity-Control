@@ -160,7 +160,11 @@ export function buildQueue({ rows, filters, categories, toggled, hash }: BuildIn
         steps.push(row);
       }
   }
-  return { items, steps, visible: shown.length + notNeeded.length };
+  return {
+    items,
+    steps,
+    visible: shown.filter((row) => !hidden(row)).length + notNeeded.length,
+  };
 }
 
 /** The row to select: the route's, else the first stepped row. */

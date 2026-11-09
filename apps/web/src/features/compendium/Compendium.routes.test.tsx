@@ -220,7 +220,7 @@ describe('Compendium route and linked-source view', () => {
     expect(title()).toContain('Sample 105');
     expect(route().searchParams.get('hash')).toBe('105');
     expect(host.querySelector('[role="treeitem"][aria-selected="true"]')?.textContent).toContain(
-      'from editor',
+      'outside filter',
     );
   });
 

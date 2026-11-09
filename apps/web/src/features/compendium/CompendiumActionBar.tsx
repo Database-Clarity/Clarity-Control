@@ -101,11 +101,11 @@ export function CompendiumActionBar({
       <span className={styles.barRight}>
         {advancing ? (
           <span className={styles.next}>
-            Next: <strong>{advancing.name}</strong> · Esc to stay
+            Next: <strong>{advancing.name}</strong> · Esc stays
           </span>
         ) : (
-          <span className={styles.consequence}>
-            {message || readOnlyReason || 'Confirm drafts a link, not a save · Skip and Not needed stay in this browser.'}
+          <span className={styles.consequence} title={message || readOnlyReason}>
+            {message || readOnlyReason || 'Confirm drafts a link, not a save.'}
           </span>
         )}
         {!phone && pause}

@@ -162,3 +162,19 @@ it('aborts the selected request when its navigation is canceled', async () => {
   expect(signal.aborted).toBe(true);
   expect(preparedReviewLiveValue(1)).toBeUndefined();
 });
+
+it('opens on the changes people made, not the marker-only leftovers, unless asked or named', () => {
+  const entry = (hash: number, markerOnly: boolean) =>
+    ({
+      tooltip: { hash },
+      name: `E${hash}`,
+      category: 'C',
+      categoryId: 'c',
+      markerOnly,
+    }) as unknown as PendingTooltip;
+  const mixed = [entry(1, true), entry(2, false), entry(3, true)];
+  expect(initialReviewParams(new URLSearchParams(), mixed).get('hash')).toBe('2');
+  expect(initialReviewParams(new URLSearchParams('marker=1'), mixed).get('hash')).toBe('1');
+  expect(initialReviewParams(new URLSearchParams('hash=3'), mixed).get('hash')).toBe('3');
+  expect(initialReviewParams(new URLSearchParams(), [entry(1, true)]).has('hash')).toBe(false);
+});
