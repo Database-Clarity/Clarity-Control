@@ -200,17 +200,24 @@ export function CompendiumDetail({
     <section className={styles.detail} aria-label="Entry to review" data-kind={row.kind}>
       <header className={styles.identity}>
         {onStep && (
-          <button type="button" className={styles.step} aria-label="Previous entry" onClick={() => onStep(-1)}>
+          <button
+            type="button"
+            className={styles.step}
+            aria-label="Previous entry"
+            data-perf-navigation="true"
+            onClick={() => onStep(-1)}
+          >
             ‹
           </button>
         )}
-        <h2 className={styles.title} title={row.name}>
+        {/* A paragraph with a heading role: the shared walk harness reads the first paragraph as the entry token. */}
+        <p role="heading" aria-level={2} className={styles.title} title={row.name}>
           <span className={styles.category}>{categoryLabel}</span>
           <span className={styles.sep}> · </span>
           <span className={styles.entryName}>{row.name}</span>
           <span className={styles.sep}> · </span>
           <span className={styles.hash}>{row.hash}</span>
-        </h2>
+        </p>
         <span className={styles.kindLabel} data-kind={row.kind}>
           {fromEditor ? 'From editor · ' : ''}
           {kindLabels[row.kind]}
@@ -221,7 +228,13 @@ export function CompendiumDetail({
           </span>
         )}
         {onStep && (
-          <button type="button" className={styles.step} aria-label="Next entry" onClick={() => onStep(1)}>
+          <button
+            type="button"
+            className={styles.step}
+            aria-label="Next entry"
+            data-perf-navigation="true"
+            onClick={() => onStep(1)}
+          >
             ›
           </button>
         )}

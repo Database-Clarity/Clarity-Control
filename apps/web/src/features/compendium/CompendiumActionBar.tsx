@@ -1,3 +1,4 @@
+import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { advanceChoices, useAdvanceSetting } from './advanceSetting';
 import styles from './CompendiumTab.module.scss';
 
@@ -37,6 +38,28 @@ export function CompendiumActionBar({
 }: ActionBarProps) {
   const ms = useAdvanceSetting((state) => state.ms);
   const setMs = useAdvanceSetting((state) => state.set);
+  const phone = useMedia(phoneQuery);
+  const pause = (
+    <label className={styles.advanceSetting}>
+      <span>Auto-advance</span>
+      <select
+        aria-label="Auto-advance pause"
+        value={ms}
+        onChange={(event) => setMs(Number(event.target.value))}
+      >
+        {advanceChoices.map((choice) => (
+          <option key={choice} value={choice}>
+            {advanceLabel(choice)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+  const undo = (
+    <button type="button" disabled={!canUndo} onClick={onUndo}>
+      Undo <kbd>U</kbd>
+    </button>
+  );
   return (
     <footer className={styles.actionBar} aria-label="Review actions">
       {advancing && (
@@ -59,33 +82,33 @@ export function CompendiumActionBar({
       <button type="button" disabled={!canDecide} onClick={onSkip}>
         Skip <kbd>S</kbd>
       </button>
-      <button type="button" disabled={!canUndo} onClick={onUndo}>
-        Undo <kbd>U</kbd>
-      </button>
+      {phone ? (
+        // A phone keeps the four decisions in reach; the rest sits behind one menu.
+        <details className={styles.more}>
+          <summary aria-label="More actions">⋯</summary>
+          <div className={styles.moreMenu}>
+            {undo}
+            {pause}
+          </div>
+        </details>
+      ) : (
+        undo
+      )}
+      {/* The decision announcement survives the phone bar, which hides the visible line. */}
+      <span className="sr-only" role="status">
+        {message}
+      </span>
       <span className={styles.barRight}>
         {advancing ? (
           <span className={styles.next}>
             Next: <strong>{advancing.name}</strong> · Esc to stay
           </span>
         ) : (
-          <span className={styles.consequence} role="status">
+          <span className={styles.consequence}>
             {message || readOnlyReason || 'Confirm drafts a link, not a save · Skip and Not needed stay in this browser.'}
           </span>
         )}
-        <label className={styles.advanceSetting}>
-          <span>Auto-advance</span>
-          <select
-            aria-label="Auto-advance pause"
-            value={ms}
-            onChange={(event) => setMs(Number(event.target.value))}
-          >
-            {advanceChoices.map((choice) => (
-              <option key={choice} value={choice}>
-                {advanceLabel(choice)}
-              </option>
-            ))}
-          </select>
-        </label>
+        {!phone && pause}
       </span>
     </footer>
   );

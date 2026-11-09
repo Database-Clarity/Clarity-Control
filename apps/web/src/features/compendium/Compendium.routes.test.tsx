@@ -196,7 +196,8 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-const title = () => host.querySelector('[aria-label="Entry to review"] h2')?.textContent ?? '';
+const title = () =>
+  host.querySelector('[aria-label="Entry to review"] [role="heading"]')?.textContent ?? '';
 
 describe('Compendium route and linked-source view', () => {
   it('lists the queue beside the first entry and keeps selection in the URL', async () => {

@@ -71,7 +71,12 @@ export function candidateBlocks({ decision, proposal, source, hints }: BlockInpu
       match: proposed,
       location: matchLocation(proposed, source),
       link: link ?? confirmCompendiumSelection(proposed, source),
-      rule: [decision?.ruleId, decision?.reason].filter(Boolean).join(' · ') || undefined,
+      // Only a medium decision's own rule explains its proposal; an unresolved owner decision
+      // says why nothing was confirmed, and the live resolver is what proposed this row.
+      rule:
+        decision?.action === 'link'
+          ? [decision.ruleId, decision.reason].filter(Boolean).join(' · ') || undefined
+          : 'resolver proposal · confirm the scope',
     });
   }
   for (const candidate of proposal?.candidates ?? []) {

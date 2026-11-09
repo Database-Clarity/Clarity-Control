@@ -3,7 +3,14 @@ import { useSearchParams } from 'react-router-dom';
 import { VirtualList } from '../../ui/VirtualList';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { useCompendiumQueueStore } from './queueStore';
-import { kindGlyphs, kindLabels, parseShow, showOptions, type QueueRow } from './queueRows';
+import {
+  decidedKinds,
+  kindGlyphs,
+  kindLabels,
+  parseShow,
+  showOptions,
+  type QueueRow,
+} from './queueRows';
 import type { QueueItem } from './queueView';
 import styles from './CompendiumQueue.module.scss';
 
@@ -33,6 +40,7 @@ const Row = memo(function Row({
       aria-selected={selected}
       className={styles.row}
       data-kind={row.kind}
+      data-perf-navigation="true"
       data-selected={selected || undefined}
       title={`${row.name} · ${row.hash}`}
       onClick={() => onSelect(row.hash)}
@@ -54,7 +62,9 @@ const Row = memo(function Row({
           Re-include
         </button>
       ) : (
-        <span className={styles.kind}>{pinned ? 'from editor' : kindLabels[row.kind]}</span>
+        <span className={styles.kind}>
+          {pinned && !decidedKinds.includes(row.kind) ? 'from editor' : kindLabels[row.kind]}
+        </span>
       )}
     </div>
   );
@@ -72,6 +82,7 @@ function Header({
       type="button"
       className={styles.header}
       aria-expanded={!item.collapsed}
+      data-perf-navigation="true"
       onClick={() => onToggle(item.group)}
     >
       <span className={styles.chevron} aria-hidden="true">
@@ -139,6 +150,7 @@ export function CompendiumQueue() {
         />
         <select
           aria-label="Show"
+          data-perf-navigation="true"
           value={show}
           onChange={(event) => filter('show', event.target.value)}
         >

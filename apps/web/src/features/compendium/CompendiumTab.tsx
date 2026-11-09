@@ -20,7 +20,7 @@ import { CompendiumActionBar } from './CompendiumActionBar';
 import { CompendiumDetail } from './CompendiumDetail';
 import { LinkPicker } from './LinkPicker';
 import { PickerStage } from './PickerStage';
-import { openKinds, parseShow, queueCounts, type QueueRow } from './queueRows';
+import { decidedKinds, openKinds, parseShow, queueCounts, type QueueRow } from './queueRows';
 import { useCompendiumQueueStore } from './queueStore';
 import {
   buildQueue,
@@ -344,6 +344,12 @@ function Workspace({
     !!selected && (openKinds.includes(selected.kind) || selected.kind === 'skipped');
   const advanceFrom = (row: QueueRow) => {
     const next = nextOpenRow(model.steps, row.hash);
+    // The decided entry stays open (and listed) until the move, so the pause shows what happened.
+    if (routeHash !== row.hash) {
+      const held = new URLSearchParams(params);
+      held.set('hash', String(row.hash));
+      setParams(held, { replace: true });
+    }
     if (advanceMs === 0) {
       select(next?.hash);
       return;
@@ -526,11 +532,17 @@ function Workspace({
     ? undefined
     : 'Browsing only · linking needs a configured API and a signed-in editor, trial, or maintainer. Skip and Not needed stay in this browser.';
   const categoryOf = (id: string) => categories.get(id)?.label ?? `Other: ${id}`;
-  const showAll = selected && !model.steps.some((row) => row.hash === selected.hash);
+  const fromEditor = model.items.some(
+    (item) =>
+      item.type === 'row' &&
+      item.pinned &&
+      item.row.hash === selected?.hash &&
+      !decidedKinds.includes(item.row.kind),
+  );
   return (
     <>
       <header className={styles.summary}>
-        <h1 className={styles.heading}>Compendium</h1>
+        <h1 className="sr-only">Compendium</h1>
         <p className={styles.counts}>
           <Link to={linkTo('open')}>{number.format(counts.open)} to review</Link>
           {' · '}
@@ -541,7 +553,8 @@ function Workspace({
           <Link to={linkTo('all')}>{number.format(counts.notNeeded)} not needed</Link>
         </p>
         <Link className={styles.linked} to={{ search: withTab(params) }}>
-          Linked sources changed ({linkedChanges})
+          <span className={styles.long}>Linked sources changed</span>
+          <span className={styles.short}>Linked</span> ({linkedChanges})
         </Link>
         <button
           type="button"
@@ -576,7 +589,7 @@ function Workspace({
           source={source}
           approved={approved}
           stale={selectedEntry?.stale}
-          fromEditor={!!showAll}
+          fromEditor={fromEditor}
           onReinclude={
             selected.kind === 'not-needed' && canEdit !== undefined ? () => reinclude(selected) : undefined
           }

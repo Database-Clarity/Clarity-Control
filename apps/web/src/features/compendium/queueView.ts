@@ -20,7 +20,7 @@ export type QueueItem =
       type: 'row';
       key: number;
       row: QueueRow;
-      /** The entry was opened from the editor and is hidden by the current filters. */
+      /** Listed only because it is open: the current filters would hide it. */
       pinned?: boolean;
     };
 
@@ -38,15 +38,24 @@ function matchesQuery(row: QueueRow, query: string): boolean {
   return `${row.name} ${row.hash}`.toLowerCase().includes(query);
 }
 
-/** Rows passing the filters, in catalog order then name. `rows` is already sorted that way. */
-export function filterRows(rows: readonly QueueRow[], filters: QueueFilters): QueueRow[] {
+/**
+ * Rows passing the filters, in catalog order then name. `rows` is already sorted that way. The
+ * `keep` entry (the open one) stays listed in its place when the filters would drop it, so a
+ * decision or a link from the editor never leaves the list without its current row.
+ */
+export function filterRows(
+  rows: readonly QueueRow[],
+  filters: QueueFilters,
+  keep?: number,
+): QueueRow[] {
   const query = filters.query.trim().toLowerCase();
   return rows.filter(
     (row) =>
       row.kind !== 'not-needed' &&
-      showMatches(filters.show, row.kind) &&
-      (!filters.group || row.category === filters.group) &&
-      matchesQuery(row, query),
+      ((showMatches(filters.show, row.kind) &&
+        (!filters.group || row.category === filters.group) &&
+        matchesQuery(row, query)) ||
+        row.hash === keep),
   );
 }
 
@@ -98,20 +107,17 @@ export interface QueueModel {
 
 /** The flat list model: group headers and rows, with collapsed groups folded away. */
 export function buildQueue({ rows, filters, categories, toggled, hash }: BuildInput): QueueModel {
-  const shown = filterRows(rows, filters);
+  const shown = filterRows(rows, filters, hash);
   const notNeeded = notNeededRows(rows, filters);
   const items: QueueItem[] = [];
   const steps: QueueRow[] = [];
-  const pinned =
-    hash !== undefined &&
-    !shown.some((row) => row.hash === hash) &&
-    !notNeeded.some((row) => row.hash === hash)
-      ? rows.find((row) => row.hash === hash)
-      : undefined;
-  if (pinned) {
-    items.push({ type: 'row', key: pinned.hash, row: pinned, pinned: true });
-    steps.push(pinned);
-  }
+  const hidden = (row: QueueRow) =>
+    row.hash === hash &&
+    !(
+      showMatches(filters.show, row.kind) &&
+      (!filters.group || row.category === filters.group) &&
+      matchesQuery(row, filters.query.trim().toLowerCase())
+    );
   let index = 0;
   while (index < shown.length) {
     const category = shown[index].category;
@@ -128,7 +134,12 @@ export function buildQueue({ rows, filters, categories, toggled, hash }: BuildIn
     });
     if (!isCollapsed)
       for (let i = index; i < end; i++) {
-        items.push({ type: 'row', key: shown[i].hash, row: shown[i] });
+        items.push({
+          type: 'row',
+          key: shown[i].hash,
+          row: shown[i],
+          ...(hidden(shown[i]) ? { pinned: true } : {}),
+        });
         steps.push(shown[i]);
       }
     index = end;

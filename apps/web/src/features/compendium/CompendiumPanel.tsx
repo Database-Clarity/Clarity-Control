@@ -45,6 +45,9 @@ import styles from './Compendium.module.scss';
 import { confirmCompendiumSelection } from './selection';
 import { usePaneMatch } from './usePaneMatch';
 import { useDisplayMatches } from './useDisplayMatches';
+import { preparedDecisions } from './reviewViewCache';
+import { matchLocation } from './sourceLocation';
+import { usePaneStatus } from './paneStatus';
 import { createPaneDecodeGuard } from './paneDecodeActivity';
 import { useSteppingActivity } from '../navigation/steppingActivity';
 import { openDraftSaveReview } from '../../services/save/openReview';
@@ -260,6 +263,7 @@ export function CompendiumPanel({
     matches,
     loading: matching,
     error: matchError,
+    reviewPrepared,
   } = useDisplayMatches(editor, source, drafts, userId, base.hash);
   const incomingMatch =
     base.compendium || drafts[base.hash]?.next.compendium ? undefined : matches?.get(base.hash);
@@ -323,6 +327,9 @@ export function CompendiumPanel({
   // row until the handoff commits.
   const previousMatch = useRef({ base: displayed, value: currentMatch });
   const navigating = displayed !== base;
+  // Entries the shipped decisions rule out need no Compendium row: the pane then offers the tab, not a review.
+  const decisionAction = preparedDecisions(reviewPrepared).get(displayed.hash)?.action;
+  const excluded = decisionAction === 'out-of-scope' || decisionAction === 'no-equivalent';
   const matched =
     navigating && previousMatch.current.base === displayed
       ? previousMatch.current.value
@@ -348,6 +355,7 @@ export function CompendiumPanel({
       link={retainedLink.current.value}
       draft={!!draft && !!link}
       matched={matched}
+      excluded={excluded}
       matching={matching}
       matchError={matchError}
       onCommitted={decodeGuard.committed}
@@ -368,6 +376,7 @@ const PaneContents = memo(function PaneContents({
   link,
   draft,
   matched,
+  excluded,
   matching,
   matchError,
   onCommitted,
@@ -382,6 +391,8 @@ const PaneContents = memo(function PaneContents({
   link: Tooltip['compendium'];
   draft: boolean;
   matched: ReturnType<typeof usePaneMatch>;
+  /** The entry needs no Compendium row; the pane offers the tab without asking for a review. */
+  excluded: boolean;
   matching: boolean;
   matchError?: string;
   onCommitted(hash: number): void;
@@ -440,12 +451,35 @@ const PaneContents = memo(function PaneContents({
         : undefined,
     [link, matched, item, base.hash],
   );
+  // Opens the tab on this entry; a plain hash link, so Back returns to the editor where it was.
+  const matchedWhere = useMemo(
+    () => (matched ? matchLocation(matched, compendium) : undefined),
+    [matched, compendium],
+  );
+  const linkedWhere = useMemo(
+    () => (match ? matchLocation(match, compendium) : undefined),
+    [match, compendium],
+  );
+  const handoff = `#/compendium?hash=${base.hash}&show=all`;
   const approvalChanged = approved && matched && !sameCell(approved, matched.row.cell);
   const comparisonBefore = link && match ? link.snapshot : !link ? approved : undefined;
   const comparisonAfter = link && match ? match.row.cell : !link ? matched?.row.cell : undefined;
   const preparedDiff = usePreparedPaneDiff(comparisonBefore, comparisonAfter, diffMode, stepping);
   const pending = navigating || preparedDiff.pending;
   const waiting = stepping || pending || loading || (!link && matching && !matched);
+  // The tab's dot: linked or matched text, or an entry that needs a decision. Quiet while loading.
+  const setPaneStatus = usePaneStatus((state) => state.set);
+  const paneStatus =
+    waiting || matchError
+      ? undefined
+      : link || matched
+        ? ('matched' as const)
+        : excluded
+          ? undefined
+          : ('review' as const);
+  useEffect(() => {
+    if (!waiting) setPaneStatus(base.hash, paneStatus);
+  }, [setPaneStatus, base.hash, paneStatus, waiting]);
   useEffect(() => {
     if (!waiting) onCommitted(base.hash);
   }, [base.hash, waiting, onCommitted]);
@@ -540,12 +574,21 @@ const PaneContents = memo(function PaneContents({
                 >
                   Matched
                 </span>{' '}
-                {matched.tab.name} / {matched.row.name}
+                {matched.tab.name} / {matched.row.name}{' '}
+                <a className={styles.handoff} href={handoff}>
+                  Compendium →
+                </a>
               </>
             ) : matching ? (
               'Matching Compendium…'
             ) : !loading && !matchError ? (
-              'No Compendium row linked yet.'
+              <>
+                No Compendium row linked yet.{' '}
+                {!excluded && <strong className={styles.needsReview}>Needs review</strong>}{' '}
+                <a className={styles.handoff} href={handoff}>
+                  {excluded ? 'Compendium →' : 'Review in Compendium →'}
+                </a>
+              </>
             ) : null}
           </p>
         )}
@@ -559,11 +602,12 @@ const PaneContents = memo(function PaneContents({
                   : 'Matches the approval evidence.'
                 : 'No saved snapshot to compare.'}{' '}
               <a
-                href={`https://docs.google.com/spreadsheets/d/1WaxvbLx7UoSZaBqdFr1u32F2uWVLo-CJunJB4nlGUE4/htmlview#gid=${matched.tab.gid}`}
+                href={matchedWhere?.href}
                 target="_blank"
                 rel="noreferrer"
+                title="Open in the sheet"
               >
-                Open source tab
+                {matchedWhere?.label} ↗
               </a>
             </p>
             <div style={{ contain: 'layout style' }}>
@@ -637,11 +681,12 @@ const PaneContents = memo(function PaneContents({
                         ? 'Matches the local draft snapshot.'
                         : 'Matches the saved snapshot.'}{' '}
                   <a
-                    href={`https://docs.google.com/spreadsheets/d/1WaxvbLx7UoSZaBqdFr1u32F2uWVLo-CJunJB4nlGUE4/htmlview#gid=${match.tab.gid}`}
+                    href={linkedWhere?.href}
                     target="_blank"
                     rel="noreferrer"
+                    title="Open in the sheet"
                   >
-                    Open source tab
+                    {linkedWhere?.label} ↗
                   </a>
                 </p>
                 {!roomy && <div className={styles.diffModes}>{diffToggle}</div>}
