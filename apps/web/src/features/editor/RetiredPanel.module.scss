@@ -8,17 +8,28 @@
 }
 
 ul.list {
+  container-type: inline-size;
   padding-left: 0;
   list-style: none;
 }
 
 .row {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 0.25rem 0.5rem;
 
+  // Wide panels keep one line per occurrence: the tag shrinks (ellipsis), the buttons never do.
+  // Touch layouts have 44px buttons, so there the row wraps instead.
+  @include theme.mobile-or-coarse {
+    flex-wrap: wrap;
+  }
+  // A narrow editor pane has no room for the tag beside both buttons either.
+  @container (max-width: 26rem) {
+    flex-wrap: wrap;
+  }
+
   button {
+    flex: none;
     @include controls.button;
     min-height: 1.25rem;
     padding: 0 0.5rem;
@@ -33,11 +44,17 @@ ul.list {
 }
 
 .where {
+  flex: none;
   color: var(--text3);
   font-variant-numeric: tabular-nums;
 }
 
 .token {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--editor-font, Consolas, monospace);
   font-variant-ligatures: none;
   color: var(--var);

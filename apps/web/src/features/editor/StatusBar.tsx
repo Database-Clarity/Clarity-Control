@@ -252,8 +252,14 @@ export function Overlay({
   children: ReactNode;
 }) {
   const root = useRef<HTMLElement>(null);
-  const close = useRef(onClose);
-  close.current = onClose;
+  // Where focus was when the panel opened (the text, or the bar item that opened it): closing
+  // puts it back there, never somewhere new (a phone must not get its keyboard from a Close).
+  const opener = useRef<HTMLElement | null>(null);
+  const close = useRef(() => undefined as void);
+  close.current = () => {
+    onClose();
+    if (opener.current?.isConnected) opener.current.focus({ preventScroll: true });
+  };
   useEffect(() => {
     // Esc closes it from inside; the editor's own Esc handling covers the caret being in the text.
     const element = root.current;
@@ -261,8 +267,10 @@ export function Overlay({
     // Opened from a status bar button: focus would stay on that button, outside the panel, so Esc
     // would do nothing and Tab would skip the panel. Move it into the panel (a click or Enter on
     // the item, never the caret in the text, which keeps focus).
-    if (element.ownerDocument.activeElement?.closest('[data-editor-status]'))
-      element.focus({ preventScroll: true });
+    const active = element.ownerDocument.activeElement;
+    opener.current =
+      active instanceof HTMLElement && active !== element.ownerDocument.body ? active : null;
+    if (active?.closest('[data-editor-status]')) element.focus({ preventScroll: true });
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       event.stopPropagation();
@@ -285,7 +293,7 @@ export function Overlay({
         type="button"
         className={styles.close}
         aria-label={`Close ${label}`}
-        onClick={onClose}
+        onClick={() => close.current()}
       >
         ×
       </button>

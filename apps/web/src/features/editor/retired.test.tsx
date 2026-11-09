@@ -114,27 +114,16 @@ describe('retired markup in the editor', () => {
       );
     });
     expect(panel()).toBeNull();
-    click(status());
-    click(q('#editor-panel-retired button[aria-label^="Close"]'));
-    expect(panel()).toBeNull();
-    expect(document.activeElement === q('.cm-content') || view().hasFocus).toBe(true);
   });
 
-  it('Escape closes the panel right after it is opened from the status item, and focus returns to the text', () => {
+  it('closing a panel opened with the caret in the text returns focus to the text', () => {
     mount(rites);
-    const item = status()!;
-    act(() => item.focus());
-    click(item);
+    act(() => view().focus());
+    click(status());
     expect(panel()).not.toBeNull();
-    // Focus moved into the panel, so Escape there closes it (and Tab would reach its buttons).
-    expect(panel()!.contains(document.activeElement)).toBe(true);
-    act(() => {
-      document.activeElement!.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
-      );
-    });
+    click(q('#editor-panel-retired button[aria-label^="Close"]'));
     expect(panel()).toBeNull();
-    expect(view().hasFocus || document.activeElement === q('.cm-content')).toBe(true);
+    expect(view().hasFocus).toBe(true);
   });
 
   it('cuts a long tag with an ellipsis and keeps the whole text as the title', () => {

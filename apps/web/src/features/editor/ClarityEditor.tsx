@@ -180,10 +180,7 @@ export function ClarityEditor({
   const panelOpen = useRef(false);
   panelOpen.current = panel !== null;
   const closePanel = useRef(() => setPanel(null));
-  const closeAndFocus = () => {
-    setPanel(null);
-    view.current?.focus();
-  };
+  const closeAndFocus = () => setPanel(null);
   const [suggestion, setSuggestion] = useState<SuggestSnapshot | null>(null);
   const onSuggest = useRef((snapshot: SuggestSnapshot | null) => setSuggestion(snapshot));
   const [chip, setChip] = useState<Chip | null>(null);
