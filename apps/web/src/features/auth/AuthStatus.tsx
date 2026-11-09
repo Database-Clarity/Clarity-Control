@@ -1,5 +1,5 @@
 import { languageLabel } from '../../languageLabels';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { apiUrl, loginUrl, rememberSignIn, subscribeSession } from '../../services/api';
 import { rememberReturnPath } from '../../services/returnPath';
@@ -39,17 +39,11 @@ export function identitySummary(state: {
 
 /**
  * The identity states as menu content: who is signed in (role, languages, read-only reasons),
- * the `settings` row the menu passes in, then sign-out; signed out, the GitHub sign-in as the
+ * then sign-out; signed out, the GitHub sign-in as the
  * primary row with its "keep me signed in" choice; a login problem with its retry. Rows are the
  * menu's buttons and links; the revision line is the menu's own.
  */
-export function IdentityStatus({
-  onAction,
-  settings,
-}: {
-  onAction?: () => void;
-  settings?: ReactNode;
-}) {
+export function IdentityStatus({ onAction }: { onAction?: () => void }) {
   const { user, loading, error, load, logout } = useAuthStore();
   const location = useLocation();
   const [remember, setRemember] = useState(false);
@@ -59,7 +53,6 @@ export function IdentityStatus({
         <p role="status" data-note>
           Read-only: VITE_API_URL is not configured. Local drafts are kept.
         </p>
-        {settings}
       </>
     );
   if (loading)
@@ -68,7 +61,6 @@ export function IdentityStatus({
         <p role="status" data-note>
           Checking login…
         </p>
-        {settings}
       </>
     );
   if (error)
@@ -80,7 +72,6 @@ export function IdentityStatus({
             Retry login status
           </button>
         </div>
-        {settings}
       </>
     );
   if (user)
@@ -98,7 +89,6 @@ export function IdentityStatus({
             </p>
           )}
         </div>
-        {settings}
         <button
           type="button"
           onClick={() => {
@@ -133,7 +123,6 @@ export function IdentityStatus({
         />
         Keep me signed in on this device
       </label>
-      {settings}
     </>
   );
 }

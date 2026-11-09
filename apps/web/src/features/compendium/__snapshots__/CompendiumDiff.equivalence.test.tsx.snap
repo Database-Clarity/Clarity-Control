@@ -171,7 +171,7 @@ exports[`preserves 'rich runs and links' styles, alignment, text, controls, and 
   {
     "closed": {
       "controls": 3,
-      "digest": "5935f5dfe151eab3ca3021d24ce70fac1279a94b7db4e273782927cdb3f101dc",
+      "digest": "4653ae440c0a07df887050503a754feb64f74d88b3edb61a19ddd6b56934684b",
       "popovers": 3,
       "text": ""Removed: red strike-through. Added: green underline. Dotted: tap or hover for style changes.Boldcolour: #ff0000 → #0000ffSnapshot Current Snapshot: Bold colour: #ff0000 → #0000ffSnapshot Current Snapshot:  linked plainitalic: true → false; underline: false → trueSnapshot Current Snapshot: plain"",
     },
@@ -180,15 +180,15 @@ exports[`preserves 'rich runs and links' styles, alignment, text, controls, and 
   {
     "mode": "changes",
     "opened": [
-      "0bed290bcede5e64bc2de69a5ad589b1e561a589444ca8bc4930e46814beacfa",
-      "5a0130945dac36ab518edc403515564e90de87af52d1e4c650c560bb3ed09923",
-      "2de47efee18849214e3b77e7a2c8715a5a2b1d9af7a3d622397a4beb3c0f9805",
+      "3880c0ede623a42f6ba893d7db3a5ed48e3b2d2fbde22c415854749acfd7e7b5",
+      "07e89fe0ef39b86403cd9c82406b16ac0bc26738e90d8ed7e7bb35af4b9b4382",
+      "b86cf84637b15240ec31ae8a0c28f604d90471f3cc86341a5869d62db6072aac",
     ],
   },
   {
     "closed": {
       "controls": 0,
-      "digest": "7922b44703c982b9b3f5d06a9af7dc75bad312795f022136d78b72b1fc95127d",
+      "digest": "aa89683254f0f1d4c87bebb181d3808b5146ff6e9ac86c499378ffdedb6850ec",
       "popovers": 0,
       "text": ""SnapshotBold linked plainCurrentBold linked plain"",
     },

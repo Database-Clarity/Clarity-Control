@@ -175,8 +175,11 @@ const geometry = (page, where, list) =>
         const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
         const zoom = Number(getComputedStyle(el).zoom) || 1;
         const px = (v) => parseFloat(v);
-        const size = style.backgroundSize.split(' ').map(px);
-        const image = /url\("?([^")]+)"?\)/.exec(style.backgroundImage)?.[1];
+        // Light draws the artwork's alpha as a mask over a token fill; dark as the background image.
+        const masked = style.maskImage && style.maskImage !== 'none';
+        const sizeText = masked ? style.maskSize : style.backgroundSize;
+        const size = sizeText.split(' ').map(px);
+        const image = /url\("?([^")]+)"?\)/.exec(masked ? style.maskImage : style.backgroundImage)?.[1];
         out.push({
           name,
           image,
@@ -185,8 +188,9 @@ const geometry = (page, where, list) =>
           marginL: px(style.marginLeft),
           marginR: px(style.marginRight),
           bgW: size[0],
-          bgH: size[1] ?? size[0],
-          contain: style.backgroundSize === 'contain',
+          // `auto` height keeps the (square) artwork's aspect.
+          bgH: Number.isFinite(size[1]) ? size[1] : size[0],
+          contain: sizeText === 'contain',
           rem,
           zoom,
         });

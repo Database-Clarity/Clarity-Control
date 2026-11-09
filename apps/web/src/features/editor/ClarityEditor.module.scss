@@ -44,13 +44,14 @@
     background: var(--editor);
     color: var(--editor-text);
     min-height: 13.75rem;
-    font-size: 0.875rem;
+    // The Editor text size setting (px, independent of the interface scale); unset keeps 0.875rem.
+    font-size: var(--editor-font-size, 0.875rem);
   }
   @include theme.mobile-or-coarse {
     // 16px stops iOS focus zoom; the gutter's width is better spent on text on a phone.
     :global(.cm-editor) {
       min-height: max(13.75rem, 40dvh);
-      font-size: max(16px, 1rem);
+      font-size: max(16px, var(--editor-font-size, 1rem));
     }
     :global(.cm-gutters) {
       display: none;

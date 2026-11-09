@@ -3,14 +3,12 @@ import { useLocation } from 'react-router-dom';
 import { identitySummary, IdentityStatus, useAuthSession } from '../auth/AuthStatus';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
-import { useSettingsPanel } from '../settings/panel';
 import { ShellOverlay } from './ShellOverlay';
 import styles from './IdentityMenu.module.scss';
 
 /**
- * The identity button and its menu: account state, Settings, the data revision. The button is
- * the stable anchor: Settings opens from it and focus returns to it, even though the menu item
- * that opened Settings is gone by then. Owns the once-only login load.
+ * The identity button and its menu: account state, sign in or out, the data revision. Settings has
+ * its own gear button (SettingsButton). Owns the once-only login load.
  */
 export function IdentityMenu() {
   useAuthSession();
@@ -50,22 +48,7 @@ export function IdentityMenu() {
         align="end"
       >
         <div className={styles.menu}>
-          <IdentityStatus
-            onAction={close}
-            settings={
-              <button
-                type="button"
-                data-autofocus
-                aria-haspopup="dialog"
-                onClick={() => {
-                  close();
-                  useSettingsPanel.getState().show(button.current);
-                }}
-              >
-                Settings
-              </button>
-            }
-          />
+          <IdentityStatus onAction={close} />
           {dataError && (
             <div role="alert" data-note>
               <p>Cannot load editor data: {dataError}</p>

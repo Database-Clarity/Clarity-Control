@@ -3,6 +3,7 @@ import type { User } from '../../services/api';
 import { BrandMark } from './Brand';
 import { DraftButton } from './DraftButton';
 import { IdentityMenu } from './IdentityMenu';
+import { SettingsButton } from './SettingsButton';
 import { ShellOverlay } from './ShellOverlay';
 import { FinderSheetCloseContext, FinderSheetContext } from './FinderSheetContext';
 import { WorkspaceList } from './WorkspaceTabs';
@@ -89,6 +90,7 @@ export function PhoneHeader({
       )}
       <div className={styles.end}>
         <DraftButton iconOnly />
+        <SettingsButton />
         <IdentityMenu />
       </div>
       <ShellOverlay

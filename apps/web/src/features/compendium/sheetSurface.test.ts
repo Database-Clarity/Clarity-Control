@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { contrastRatio, readableOn, sheetSurfaceColors, sheetTextColor } from './sheetSurface';
+import { contrastRatio, readableOn, sheetSurfaceColors, sheetTextColors } from './sheetSurface';
 
 const tokens = readFileSync(new URL('../../ui/tokens.scss', import.meta.url), 'utf8');
 const sheetBg = [...tokens.matchAll(/--sheet-bg:\s*(#[0-9a-f]{6})/gi)].map((m) => m[1]);
@@ -11,14 +11,17 @@ describe('Compendium editor surface', () => {
   it('keeps the TypeScript colours in step with the dark and light tokens', () => {
     expect(sheetBg).toEqual([sheetSurfaceColors.dark, sheetSurfaceColors.light]);
     expect(sheetText).toHaveLength(2);
-    for (const text of sheetText)
-      expect(text.toLowerCase().replace(/^#(.)(.)(.)$/, '#$1$1$2$2$3$3')).toBe(sheetTextColor);
+    expect(
+      sheetText.map((text) => text.toLowerCase().replace(/^#(.)(.)(.)$/, '#$1$1$2$2$3$3')),
+    ).toEqual([sheetTextColors.dark, sheetTextColors.light]);
   });
 
   it('raises the light theme cell a little, and the default text is AA on both', () => {
     expect(red(sheetSurfaceColors.light)).toBeGreaterThan(red(sheetSurfaceColors.dark));
-    expect(contrastRatio(sheetTextColor, sheetSurfaceColors.dark)).toBeGreaterThanOrEqual(4.5);
-    expect(contrastRatio(sheetTextColor, sheetSurfaceColors.light)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(sheetTextColors.dark, sheetSurfaceColors.dark)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(sheetTextColors.light, sheetSurfaceColors.light)).toBeGreaterThanOrEqual(
+      4.5,
+    );
   });
 
   it('readableOn leaves AA colours alone and lifts the rest to AA, keeping them coloured', () => {
