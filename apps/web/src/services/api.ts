@@ -63,8 +63,18 @@ async function failure(response: Response): Promise<never> {
   throw new Error(`API HTTP ${response.status}: ${await response.text()}`);
 }
 
+const legacyOrigin = 'https://database-clarity.github.io';
+
+/**
+ * The sign-in URL. The legacy site and local development send nothing extra (the Worker returns
+ * them to its primary site, as before); any other site names itself so sign-in returns to it.
+ */
 export function loginUrl(): string {
-  return endpoint('/auth/login');
+  const url = endpoint('/auth/login');
+  if (typeof location === 'undefined') return url;
+  const { origin, hostname } = location;
+  if (origin === legacyOrigin || /^(localhost|127\.0\.0\.1|\[::1\])$/.test(hostname)) return url;
+  return origin.startsWith('http') ? `${url}?site=${encodeURIComponent(origin)}` : url;
 }
 
 export async function getMe(): Promise<User | null> {
