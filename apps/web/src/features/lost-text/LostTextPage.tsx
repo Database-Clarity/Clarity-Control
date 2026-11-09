@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Link, Navigate, useSearchParams } from 'react-router-dom';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import artifact from './lost-text.json';
 import {
   artifactSchema,
@@ -27,11 +27,42 @@ export function LostTextPage() {
   const { drafts, hydrated } = useDraftStore();
   const locked = useSaveState((s) => s.locked);
   const [params, setParams] = useSearchParams();
+  const location = useLocation();
+  const pageRef = useRef<HTMLElement>(null);
+  const listRef = useRef<HTMLElement>(null);
+  const detailRef = useRef<HTMLElement>(null);
+  const scrollPositions = useRef(new Map<string, number>());
+  const lastScroll = useRef(0);
+  const lastSelected = useRef<string | null>(null);
+  const item = params.get('item');
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const scrollTop = scrollPositions.current.get(location.key) ?? lastScroll.current;
+    // Remember even unscrolled entries so Back restores their original position.
+    scrollPositions.current.set(location.key, scrollTop);
+    lastScroll.current = scrollTop;
+    list.scrollTop = scrollTop;
+    if (window.matchMedia?.('(max-width: 700px)').matches) {
+      if (item) detailRef.current?.focus({ preventScroll: true });
+      else if (lastSelected.current) {
+        const row = Array.from(list.querySelectorAll<HTMLButtonElement>('button')).find(
+          (button) => button.dataset.record === lastSelected.current,
+        );
+        (row ?? list).focus({ preventScroll: true });
+      }
+    }
+    lastSelected.current = item;
+  }, [location.key, item, data]);
   const [showDismissed, setShowDismissed] = useState(false);
   const [classFilter, setClassFilter] = useState('');
   const [query, setQuery] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  useLayoutEffect(() => {
+    // Phone notices sit above the workspace and must be visible after an action.
+    if ((notice || error) && pageRef.current) pageRef.current.scrollTop = 0;
+  }, [notice, error]);
   const storageKey = `clarity-lost-text:v1:${user?.id ?? 'anonymous'}`;
   const [stored, setStored] = useState<{ key: string; decisions: Record<string, string> }>({
     key: '',
@@ -106,7 +137,7 @@ export function LostTextPage() {
     }
   }
   return (
-    <article className={styles.page}>
+    <article ref={pageRef} className={styles.page}>
       <h1>Lost-tooltip checker</h1>
       <p>
         Blank saved tooltips with earlier text. Classification is evidence, not a judgment about why
@@ -121,7 +152,18 @@ export function LostTextPage() {
       {(error || progress.error) && <p role="alert">{error || progress.error}</p>}
       {notice && <p role="status">{notice}</p>}
       <div className={styles.workspace} data-detail={Boolean(selected)}>
-        <section className={styles.list} aria-label="Possibly lost text">
+        <section
+          ref={listRef}
+          className={styles.list}
+          aria-label="Possibly lost text"
+          tabIndex={0}
+          onScroll={(event) => {
+            // Hiding the phone list can reset its DOM scroll offset; keep the visible position.
+            if (!event.currentTarget.getClientRects().length) return;
+            lastScroll.current = event.currentTarget.scrollTop;
+            scrollPositions.current.set(location.key, lastScroll.current);
+          }}
+        >
           <label>
             Filter by name or hash
             <input value={query} onChange={(e) => setQuery(e.target.value)} />
@@ -165,6 +207,7 @@ export function LostTextPage() {
               type="button"
               className={styles.row}
               key={recordKey(r)}
+              data-record={recordKey(r)}
               aria-pressed={selected && recordKey(selected) === recordKey(r)}
               onClick={() => {
                 setParams({ item: recordKey(r) });
@@ -180,7 +223,12 @@ export function LostTextPage() {
           ))}
         </section>
         {selected && (
-          <section className={styles.detail} aria-label="Historical text detail">
+          <section
+            ref={detailRef}
+            className={styles.detail}
+            aria-label="Historical text detail"
+            tabIndex={-1}
+          >
             <button type="button" onClick={() => setParams({})}>
               Back to list
             </button>
