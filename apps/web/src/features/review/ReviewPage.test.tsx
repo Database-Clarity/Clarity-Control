@@ -885,6 +885,28 @@ it('clears reviewed selection on refresh and leaves keyboard events in controls 
   expect(post).not.toHaveBeenCalled();
 });
 
+it('Space includes the open change, P asks to publish exactly that selection, controls keep their keys', async () => {
+  await mount();
+  const include = () => host.querySelector<HTMLInputElement>('label input[type="checkbox"][aria-label^="Include"], section[aria-label="Selected change"] input[type="checkbox"]')!;
+  expect(host.textContent).toContain('0 selected');
+  const press = async (key: string, target: EventTarget = document.body) =>
+    act(async () => {
+      target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    });
+  await press(' ');
+  expect(host.textContent).toContain('1 selected');
+  expect(include().checked).toBe(true);
+  // A focused control keeps Space for itself.
+  await press(' ', button('Select page'));
+  expect(host.textContent).toContain('1 selected');
+  await press('p');
+  expect(host.textContent).toContain('Push 1 live');
+  expect(post).not.toHaveBeenCalled();
+  await click('Cancel');
+  await press(' ');
+  expect(host.textContent).toContain('0 selected');
+});
+
 it('does not submit if the saved snapshot changes while digests are being computed', async () => {
   await mount();
   await click('Select page');

@@ -261,7 +261,7 @@ describe('Compendium route and linked-source view', () => {
     await mount('/compendium?hash=100&show=all');
     expect(title()).toContain('Sample 100');
 
-    await clickLink('Linked sources changed (2)');
+    await clickLink('Linked (2)');
     expect(route().searchParams.get('tab')).toBe('linked');
     expect(button('Linked sources changed (2)')).toBeTruthy();
     expect(button('Tooltips without links (4)')).toBeTruthy();

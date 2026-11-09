@@ -552,7 +552,11 @@ function Workspace({
           {' · '}
           <Link to={linkTo('all')}>{number.format(counts.notNeeded)} not needed</Link>
         </p>
-        <Link className={styles.linked} to={{ search: withTab(params) }}>
+        <Link
+          className={styles.linked}
+          to={{ search: withTab(params) }}
+          aria-label={`Linked sources changed (${linkedChanges})`}
+        >
           <span className={styles.long}>Linked sources changed</span>
           <span className={styles.short}>Linked</span> ({linkedChanges})
         </Link>
