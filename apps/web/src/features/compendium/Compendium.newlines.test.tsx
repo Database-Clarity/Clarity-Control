@@ -2,7 +2,6 @@
 // Regression: every surface that shows Compendium text keeps its line breaks and blank lines.
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CompendiumCell, CompendiumData, CompendiumSheet, Tooltip } from '@clarity/core';
 import { guidedFixture } from '../../../test/guided-fixture';
@@ -15,9 +14,6 @@ import { matchLocation } from './sourceLocation';
 import { MemoryRouter } from 'react-router-dom';
 import { CompendiumDiff } from './CompendiumDiff';
 import { CompendiumPanel } from './CompendiumPanel';
-import { reviewQueue } from './reviewQueue';
-import { emptyProgress, sourceFingerprint } from './reviewProgress';
-import { proposalFor } from './rapidReview';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -38,11 +34,6 @@ async function mount(node: React.ReactElement) {
   await act(async () => root.render(node));
   return host;
 }
-const dom = (html: string) => {
-  const host = document.createElement('div');
-  host.innerHTML = html;
-  return host;
-};
 /** Wrappers flagged multiline (pre-wrap via RichCell.module.scss) whose text keeps TEXT verbatim. */
 const multiline = (root: ParentNode, within = '*') =>
   [...root.querySelectorAll<HTMLElement>(`${within} [data-multiline]`)].filter((node) =>

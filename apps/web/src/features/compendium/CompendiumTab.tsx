@@ -60,7 +60,7 @@ type Undo = {
 /** The Compendium tab: the review queue's detail, decisions, and header counts. */
 export function CompendiumTab() {
   const editor = useDataStore((state) => state.data);
-  const { data, load, loading, error } = useCompendiumStore();
+  const { data, load, error } = useCompendiumStore();
   const { user, loading: authLoading } = useAuthStore();
   const drafts = useDraftStore((state) => state.drafts);
   const display = useDisplayMatches(editor, data, drafts, user?.id);
