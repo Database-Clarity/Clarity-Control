@@ -38,7 +38,11 @@ export function LostTextPage() {
   useLayoutEffect(() => {
     const list = listRef.current;
     if (!list) return;
-    list.scrollTop = scrollPositions.current.get(location.key) ?? lastScroll.current;
+    const scrollTop = scrollPositions.current.get(location.key) ?? lastScroll.current;
+    // Remember even unscrolled entries so Back restores their original position.
+    scrollPositions.current.set(location.key, scrollTop);
+    lastScroll.current = scrollTop;
+    list.scrollTop = scrollTop;
     if (window.matchMedia?.('(max-width: 700px)').matches) {
       if (item) detailRef.current?.focus({ preventScroll: true });
       else if (lastSelected.current) {

@@ -194,3 +194,16 @@ it('keeps a focusable list region and restores selection and scroll through hist
   expect(container.querySelector('section[aria-label="Historical text detail"]')).toBeTruthy();
   expect(list.scrollTop).toBe(460);
 });
+
+it('restores an unscrolled history entry to the top after scrolling a later entry', () => {
+  render();
+  const list = container.querySelector<HTMLElement>('section[aria-label="Possibly lost text"]')!;
+  vi.spyOn(list, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
+  click('Ricochet Rounds');
+  list.scrollTop = 460;
+  act(() => list.dispatchEvent(new Event('scroll')));
+  click('Browser back');
+  expect(list.scrollTop).toBe(0);
+  click('Browser forward');
+  expect(list.scrollTop).toBe(460);
+});
