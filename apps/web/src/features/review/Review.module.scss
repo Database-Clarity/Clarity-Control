@@ -283,6 +283,15 @@
   b {
     color: var(--text);
   }
+
+  // The marker-only link and Clear are tap targets on a phone.
+  @include theme.mobile-or-coarse {
+    a {
+      display: inline-flex;
+      align-items: center;
+      min-height: max(44px, 2.75rem);
+    }
+  }
 }
 
 .summaryEnd {
