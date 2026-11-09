@@ -50,6 +50,7 @@ import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { HistoryPanel } from '../history/HistoryPanel';
 import { useSaveState } from '../../services/save/state';
 import { AssociationsPanel } from '../associations/AssociationsPanel';
+import { ManifestTextRow } from '../manifest/ManifestTextRow';
 import { PanelRow } from '../../ui/PanelRow';
 import { languageLabel } from '../../languageLabels';
 import { editorAccess } from './access';
@@ -408,6 +409,7 @@ function TooltipWorkspace({
       {!readOnly && item && <AttachmentCategoryControl base={primaryBase} item={item} />}
       {owner && <NoteRow text={owner} />}
       {shared && <NoteRow text={shared} />}
+      <ManifestTextRow hash={activeHash} />
       {!readOnly && <AssociationsPanel hash={activeHash} suspended={suspended} />}
       <HistoryPanel
         hash={activeHash}

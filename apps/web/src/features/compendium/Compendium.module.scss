@@ -365,6 +365,13 @@
 .warning {
   color: var(--warn);
 }
+// The sheet location under a pane notice: always its own line, never run into the sentence.
+.sourceLink {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
 .spinner {
   display: inline-block;
   width: 0.8rem;
