@@ -487,6 +487,9 @@ describe('the raw markup toggle in the row', () => {
     render(false);
     expect(toggle()).toBeNull();
     expect(statusToggle()?.getAttribute('aria-pressed')).toBe('true');
+    // It is a plain bar item, not the touch-only Suggest style, so it shows on desktop too.
+    expect(statusToggle()?.className).not.toContain('suggest');
+    expect(statusToggle()?.textContent).toBe('Raw');
     render(true);
     expect(toggle()?.getAttribute('aria-pressed')).toBe('true');
     expect(statusToggle()).toBeNull();

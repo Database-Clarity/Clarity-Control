@@ -126,13 +126,13 @@ export function StatusBar({
       {rawView !== undefined && onRawView && (
         <button
           type="button"
-          className={`${styles.item} ${styles.suggest}`}
-          title="Ctrl+Shift+. toggles raw markup"
+          className={styles.item}
+          title="Show the raw markup instead of symbols and colours (Ctrl+Shift+.)"
           aria-pressed={rawView}
           onMouseDown={(event) => event.preventDefault()}
           onClick={onRawView}
         >
-          {rawView ? 'Symbols' : 'Markup'}
+          Raw
         </button>
       )}
       {/* A live region so a warning that appears while typing is announced without moving focus. */}
