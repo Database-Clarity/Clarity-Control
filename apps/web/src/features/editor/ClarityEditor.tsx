@@ -223,7 +223,11 @@ export function ClarityEditor({
     },
     !suspended,
   );
-  const issues = diagnostics.issues;
+  // Retired markup has its own status item and panel; the generic count would double it.
+  const issues = useMemo(
+    () => diagnostics.issues.filter((issue) => issue.code !== 'retired'),
+    [diagnostics.issues],
+  );
   const conflictCount = useMemo(() => countConflicts(value), [value]);
   const compact = useMedia(`${phoneQuery}, (pointer: coarse)`);
   const [compare, setCompare] = useState<CompareData | null>(null);

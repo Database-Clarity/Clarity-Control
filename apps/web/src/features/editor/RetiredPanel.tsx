@@ -63,6 +63,24 @@ export function RetiredPanel({
         Retired markup still renders but is no longer supported. It will block saving once the
         existing tooltips are clean.
       </p>
+      {!readOnly && simple > 0 && (
+        <div className={styles.all}>
+          <button
+            type="button"
+            data-retired-all
+            title="Applies each form's first fix: tags are removed and their text kept"
+            onClick={onFixAll}
+          >
+            Fix all ({simple})
+          </button>
+          {found.length > simple && (
+            <span className={styles.note}>
+              {found.length - simple} block or table form{found.length - simple === 1 ? '' : 's'}{' '}
+              stay for you to preview.
+            </span>
+          )}
+        </div>
+      )}
       <ul aria-label="Retired markup" className={styles.list}>
         {found.slice(0, listed).map((occurrence) => {
           const key = `${occurrence.from}:${occurrence.token}`;
@@ -122,24 +140,6 @@ export function RetiredPanel({
         })}
       </ul>
       {found.length > listed && <p>{found.length - listed} more underlined in the editor.</p>}
-      {!readOnly && simple > 0 && (
-        <div className={styles.all}>
-          <button
-            type="button"
-            data-retired-all
-            title="Applies each form's first fix: tags are removed and their text kept"
-            onClick={onFixAll}
-          >
-            Fix all ({simple})
-          </button>
-          {found.length > simple && (
-            <span className={styles.note}>
-              {found.length - simple} block or table form{found.length - simple === 1 ? '' : 's'}{' '}
-              stay for you to preview.
-            </span>
-          )}
-        </div>
-      )}
     </Overlay>
   );
 }

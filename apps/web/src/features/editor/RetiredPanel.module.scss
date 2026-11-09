@@ -91,9 +91,7 @@ ul.list {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
-  margin-top: 0.375rem;
-  padding-top: 0.375rem;
-  border-top: 1px solid var(--line);
+  margin: 0.375rem 0;
 
   button {
     @include controls.button;

@@ -417,9 +417,12 @@ function popoverDom(view: EditorView, popover: Popover) {
       }
       const hint = document.createElement('span');
       hint.className = 'cm-symbol-hint';
-      hint.textContent = tag
-        ? 'Enter edit · Backspace remove tag'
-        : 'Enter edit · Backspace remove';
+      // The two fixes are buttons, so a retired tag's hint stays short (the popover must fit).
+      hint.textContent = retired
+        ? 'Enter edit'
+        : tag
+          ? 'Enter edit · Backspace remove tag'
+          : 'Enter edit · Backspace remove';
       dom.append(hint);
     } else if (retired) {
       const hint = document.createElement('span');
