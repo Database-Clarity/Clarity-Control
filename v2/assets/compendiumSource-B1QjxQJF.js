@@ -1,0 +1,1 @@
+import{c as n,a as s,b as r,i}from"./proposals.worker-BQ5j-VIz.js";async function u(o){const a=await fetch(o,{cache:"no-cache"});if(!a.ok)throw new Error(`Compendium HTTP ${a.status}`);const e=await a.json();return n(`source-v1:${await s(e)}`,async()=>{const t=r.parse(e);return{...t,tabs:t.tabs.filter(c=>i(c.name))}})}export{u as fetchCompendiumSource};
