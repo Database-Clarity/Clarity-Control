@@ -136,7 +136,17 @@ export function RetiredPanel({
                       >
                         Apply: {fix.label}
                       </button>
-                      <button type="button" onClick={() => setPreviewing(null)}>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          // The preview is about to unmount: focus goes back to the button that opened it.
+                          event.currentTarget
+                            .closest<HTMLElement>('[data-retired-item]')
+                            ?.querySelector<HTMLElement>(`[data-retired-fix="${fix.id}"]`)
+                            ?.focus();
+                          setPreviewing(null);
+                        }}
+                      >
                         Cancel
                       </button>
                     </div>

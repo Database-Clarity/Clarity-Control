@@ -199,6 +199,8 @@ describe('retired markup in the editor', () => {
     expect(preview.textContent).toContain('(nothing)');
     click([...preview.querySelectorAll('button')].find((b) => b.textContent === 'Cancel')!);
     expect(q('[data-retired-preview]')).toBeNull();
+    // Keyboard focus is not lost: Cancel hands it back to the button that opened the preview.
+    expect(document.activeElement).toBe(remove);
     expect(doc()).toBe(text);
     click(fixes('keep-contents')[0]!);
     expect(q('[data-retired-preview]')?.textContent).toContain('only catalyst text');
