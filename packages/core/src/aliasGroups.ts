@@ -340,7 +340,13 @@ export function enhancedWordingNeeded(
 ) {
   const result = new Map<number, { baseHash: number; enhancedHashes: number[] }>();
   for (const item of Object.values(items)) {
-    if (!enhanced(item) || item.baseHash === undefined) continue;
+    // Enhanced weapon parts never need wording of their own (owner 2026-11-09).
+    if (
+      !enhanced(item) ||
+      item.baseHash === undefined ||
+      item.categoryId === 'weapon-perk-enhanced'
+    )
+      continue;
     const base = items[item.baseHash];
     if (!base || item.inGameDescription === base.inGameDescription) continue;
     const baseHash = aliasCanonicalHash(item.hash, items, aliases);

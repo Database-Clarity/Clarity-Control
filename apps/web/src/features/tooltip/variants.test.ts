@@ -240,3 +240,65 @@ describe('enhanced pairs, override candidates and blank copies', () => {
     expect(previewedVariants(10, data)).toEqual([11, 12, 15]);
   });
 });
+
+describe('enhanced weapon parts', () => {
+  // 30 is a part; 31 its enhanced version. 40 and 41 are same-name twin parts in one alias
+  // group (canonical 40); 42 is the enhanced version of the non-canonical twin. 50 is an enhanced
+  // part with no base; 61 is an enhanced weapon mod hanging off a part (not a part pair).
+  const parts = (): EditorData => {
+    const data = build(
+      [tip(2, { en: '' }), tip(3, { en: '' }), tip(30, { en: 'Part' }), tip(40, { en: 'Twin' })],
+      { 41: { to: 40, kind: 'name' } },
+      {
+        30: item(30, 'weapon-perk'),
+        31: item(31, 'weapon-perk-enhanced', { baseHash: 30 }),
+        40: item(40, 'weapon-perk'),
+        41: item(41, 'weapon-perk'),
+        42: item(42, 'weapon-perk-enhanced', { baseHash: 41 }),
+        50: item(50, 'weapon-perk-enhanced'),
+        60: item(60, 'weapon-perk'),
+        61: item(61, 'weapon-mod-enhanced', { baseHash: 60 }),
+      },
+    );
+    data.categories.push(
+      { id: 'weapon-perk', label: 'P', group: 'W', order: 5, legacyType: 'Weapon Perk' },
+      {
+        id: 'weapon-perk-enhanced',
+        label: 'PE',
+        group: 'W',
+        order: 6,
+        legacyType: 'Weapon Trait Enhanced',
+      },
+      {
+        id: 'weapon-mod-enhanced',
+        label: 'ME',
+        group: 'W',
+        order: 7,
+        legacyType: 'Weapon Trait Enhanced',
+      },
+    );
+    return data;
+  };
+
+  it('pairs an enhanced part with its base, from either hash', () => {
+    const data = parts();
+    expect(enhancedPairs(30, data)).toEqual([31]);
+    expect(enhancedPairs(31, data)).toEqual([31]);
+    expect(previewedVariants(30, data)).toEqual([31]);
+    expect(variantForm(30, 31, data)).toBe('override');
+  });
+
+  it('pairs an enhanced part of a grouped twin with the group canonical', () => {
+    const data = parts();
+    expect(enhancedPairs(40, data)).toEqual([42]);
+    expect(enhancedPairs(41, data)).toEqual([42]);
+    expect(enhancedPairs(42, data)).toEqual([42]);
+  });
+
+  it('leaves an enhanced part without a base on its own and mods off parts unpaired', () => {
+    const data = parts();
+    expect(enhancedPairs(50, data)).toEqual([]);
+    expect(enhancedVariants(50, data)).toEqual([]);
+    expect(isEnhancedPair(60, 61, data)).toBe(false);
+  });
+});

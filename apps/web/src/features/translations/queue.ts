@@ -8,6 +8,7 @@ import {
 import {
   classifyItem,
   derivedCategories,
+  enhancedPartCategory,
   inactiveCategory,
   isSetSelector,
 } from '../compendium/itemClassification';
@@ -60,8 +61,8 @@ const indexes = new WeakMap<EditorData, TranslationIndex>();
 
 /**
  * Everything the Translations tab needs, built once per loaded data set. Placeholders (set
- * selectors, Inactive & Placeholder Items), aliases, archived tooltips and tooltips without
- * English text are never translatable. State per language comes from core's `translationStateOf`,
+ * selectors, Inactive & Placeholder Items), enhanced weapon parts, aliases, archived tooltips, and
+ * tooltips without English text are never translatable. State per language comes from core's `translationStateOf`,
  * the same rule the editor's translator diff uses.
  */
 export function translationIndex(data: EditorData): TranslationIndex {
@@ -87,7 +88,7 @@ function buildIndex(data: EditorData): TranslationIndex {
     if (item) {
       if (isSetSelector(item)) continue;
       const classified = classifyItem(item, tooltip)?.categoryId ?? item.categoryId;
-      if (classified === inactiveCategory) continue;
+      if (classified === inactiveCategory || classified === enhancedPartCategory) continue;
       categoryId = classified;
       name = listName(item, data) || name;
     }
