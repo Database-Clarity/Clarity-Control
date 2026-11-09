@@ -58,10 +58,13 @@ const LOCKUP_HEIGHT_REM = 1.75;
  */
 const FINDER_MIN_REM = 25;
 /**
- * With the weapon or activity select (another 12rem and a gap) the slot needs room for all three
- * controls and the readout, or the readout would sit under the field; the lockup gives way first.
+ * With the finder present the slot needs room for the category, the weapon or activity select
+ * (another 12rem and a gap), the field and the readout, or the readout would sit under the field;
+ * the lockup gives way first. It does not depend on the open category, so the header never moves
+ * when the category changes.
  */
-const FINDER_MIN_GROUPED_REM = 41;
+const FINDER_MIN_WITH_FINDER_REM = 41;
+const finderSelector = 'section[aria-label="Tooltip navigation"]';
 
 /**
  * Whether the lockup would leave the finder under its minimum. Measured from the parts that do not
@@ -77,7 +80,7 @@ function useTightBar(bar: RefObject<HTMLDivElement | null>, compact: boolean): b
       setTight(false);
       return;
     }
-    let grouped = false;
+    let present = false;
     const measure = () => {
       const tabs = element.querySelector('nav');
       const end = element.lastElementChild;
@@ -97,9 +100,9 @@ function useTightBar(bar: RefObject<HTMLDivElement | null>, compact: boolean): b
         tabs.getBoundingClientRect().width +
         end.getBoundingClientRect().width +
         gap * 3;
-      grouped = element.querySelector('[data-grouped]') !== null;
+      present = element.querySelector(finderSelector) !== null;
       setTight(
-        element.clientWidth - used < (grouped ? FINDER_MIN_GROUPED_REM : FINDER_MIN_REM) * rem,
+        element.clientWidth - used < (present ? FINDER_MIN_WITH_FINDER_REM : FINDER_MIN_REM) * rem,
       );
     };
     measure();
@@ -107,19 +110,14 @@ function useTightBar(bar: RefObject<HTMLDivElement | null>, compact: boolean): b
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     for (const child of element.children) observer.observe(child);
-    // The group select appears and goes with the category: measure again when the finder says so.
+    // The finder comes and goes with the workspace: measure again when it does.
     const mutations =
       typeof MutationObserver === 'undefined'
         ? undefined
         : new MutationObserver(() => {
-            if ((element.querySelector('[data-grouped]') !== null) !== grouped) measure();
+            if ((element.querySelector(finderSelector) !== null) !== present) measure();
           });
-    mutations?.observe(element, {
-      subtree: true,
-      childList: true,
-      attributes: true,
-      attributeFilter: ['data-grouped'],
-    });
+    mutations?.observe(element, { subtree: true, childList: true });
     return () => {
       observer.disconnect();
       mutations?.disconnect();

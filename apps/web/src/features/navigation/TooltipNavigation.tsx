@@ -204,6 +204,7 @@ const FinderOption = memo(function FinderOption({
       title={shared}
       className={styles.option}
       data-two-line={stacked || undefined}
+      data-grouped={row.group || undefined}
       onMouseDown={(event) => event.preventDefault()}
       onMouseMove={() => !active && onActive(index)}
       onClick={() => onCommit.current(row)}
@@ -274,7 +275,7 @@ const FinderOptions = memo(function FinderOptions({
     viewportStore.getSnapshot,
   );
   const { rowHeight } = rowProps;
-  const option = (row: Row, index: number, key: string | number = row.hash) => (
+  const option = (row: Row, index: number, key: string | number = row.key) => (
     <FinderOption
       {...rowProps}
       key={key}
@@ -1167,12 +1168,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     </div>
   );
   return (
-    <section
-      aria-label="Tooltip navigation"
-      className={styles.finder}
-      data-variant={variant}
-      data-grouped={grouped ? '' : undefined}
-    >
+    <section aria-label="Tooltip navigation" className={styles.finder} data-variant={variant}>
       {sheet ? (
         <>
           {comboNode}

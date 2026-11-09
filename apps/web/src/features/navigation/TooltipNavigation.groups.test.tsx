@@ -381,7 +381,9 @@ describe('Exotic Weapons list', () => {
     await press('Enter');
     expect(host.querySelector('p')!.textContent).toContain('No tooltips match “zzz”.');
     await act(async () =>
-      [...host.querySelectorAll('button')].find((button) => button.textContent === 'Clear')!.click(),
+      [...host.querySelectorAll('button')]
+        .find((button) => button.textContent === 'Clear')!
+        .click(),
     );
     // Cleared: back to the open item's own weapon.
     expect(rows().map((row) => row.textContent)).toEqual([
@@ -393,6 +395,21 @@ describe('Exotic Weapons list', () => {
     expect(rows()).toHaveLength(0);
     expect(route()).toBe('/t/100');
     expect(select('Weapon')!.value).toBe('1001');
+  });
+
+  it('keeps one row per listing while typing, so a hash listed twice never leaves a stale copy', async () => {
+    await mount('/t/101?g=all:1002');
+    await act(async () => field().click());
+    for (const text of ['f', 'fu', 'fun', 'fund', 'fundamentals']) await type(text);
+    expect(rows().map((row) => row.textContent)).toEqual([
+      'Dead MessengerThe Fundamentals · Perk · 101 · shared',
+      'Hard LightThe Fundamentals · Perk · 101 · shared',
+    ]);
+    expect(new Set(rows().map((row) => row.id)).size).toBe(2);
+    expect(rows().filter((row) => row.hasAttribute('data-current'))).toHaveLength(1);
+    await type('light');
+    expect(rows().length).toBeGreaterThan(0);
+    expect(new Set(rows().map((row) => row.id)).size).toBe(rows().length);
   });
 
   it('shows the position as "n in Exotic Weapons" when the open item is outside the category list', async () => {
