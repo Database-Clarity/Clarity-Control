@@ -102,10 +102,13 @@ summary offers refresh when linked data is over one hour old. Refreshes are auth
 by the Worker and run in the separate public Compendium-data repository; failed runs
 are explicit and unchanged successful runs finish without requiring a data commit.
 
-`#/compendium/review` defaults to representative sample resolution: select a category,
-accept a proposed source, pick another, mark no equivalent or skip, then optionally
-add sample notes and category guidance. This local planning works without sign-in
-and does not create tooltip drafts or change normal save permissions. During Vite
+`#/compendium` is the review queue: it lists only the entries that need a person
+(a proposal to confirm, candidates, no candidate, or changed evidence), grouped by
+category, with the detail and one action bar beside it. Confident matches are counted
+and shown automatically, not listed. Confirm creates a local link draft (not a save);
+Skip and Not needed stay in this browser. `#/compendium/review` redirects to the tab.
+The dev-only review-guidance endpoint below still stores the owner's category guidance
+that the matching decisions read; its editing UI is gone. During Vite
 development, examples and comments autosave to the
 gitignored `apps/web/review-guidance.json` so agents can read them without export,
 including comments entered on a phone using the same server. Disk status and
@@ -116,10 +119,10 @@ This dev-only endpoint is absent from production/preview and never saves
 Tooltip data. See `features/compendium/README.md` for persistence and the later
 agent-proposal/category-approval stages.
 
-Individual entry review keeps the selected hash and query/category/status/proposal filters
-in the route. Fresh category links start unresolved with cleared filters; changing filters
-within a category still permits revisiting and reopening local decisions. Back/Forward
-restores the route's selection and filters, and Undo restores the pre-decision entry.
+The selected entry (`hash`), `show`, `q`, and `group` live in the route: selecting replaces
+history, arriving from the Editor pane pushes (Back returns to the editor), and Undo restores
+the pre-decision entry. After a decision the tab pauses (default 0.6 s, set in the action bar;
+Esc stays) before the next open entry; decision keys are ignored during the pause.
 
 ## Worker connection
 
@@ -179,8 +182,3 @@ middleware shares the core Compendium link schema; `@clarity/core` exports TypeS
 so the default bundled config's externalized Node import cannot resolve its `.js` source imports.
 The runner transpiles linked workspace modules without duplicating the schema or emitting core files.
 
-For signed-out sample review acceptance, use `test/compendium-samples.html#/compendium/review`
-on an owned strict-port dev server in a dedicated checkout with synthetic guidance only.
-The fixture renders the real app with 24 synthetic categories, blocks all fetches except that
-checkout's local guidance endpoint, and preserves its seeded legacy/archived comments across reloads.
-Never run it on a server/checkout containing real owner guidance.
