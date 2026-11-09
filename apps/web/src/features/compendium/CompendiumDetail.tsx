@@ -1,4 +1,5 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useMemo, useState, type ReactNode } from 'react';
+import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { Link } from 'react-router-dom';
 import type { CompendiumCell, CompendiumData } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
@@ -158,6 +159,18 @@ const Candidate = memo(function Candidate({
   );
 });
 
+/** A phone folds what the entry says now into one block the reviewer can collapse. */
+function Tooltip({ phone, children }: { phone: boolean; children: ReactNode }) {
+  return phone ? (
+    <details className={styles.tooltip} open>
+      <summary className={styles.fold}>Manifest and current tooltip</summary>
+      {children}
+    </details>
+  ) : (
+    <div className={styles.tooltip}>{children}</div>
+  );
+}
+
 export interface DetailProps {
   row: QueueRow;
   categoryLabel: string;
@@ -194,6 +207,7 @@ export function CompendiumDetail({
   onReinclude,
   fromEditor,
 }: DetailProps) {
+  const phone = useMedia(phoneQuery);
   const groups = useMemo(() => manifestGroups(manifest), [manifest]);
   const owners = useMemo(() => exoticOwners(manifest), [manifest]);
   return (
@@ -218,15 +232,23 @@ export function CompendiumDetail({
           <span className={styles.sep}> · </span>
           <span className={styles.hash}>{row.hash}</span>
         </p>
-        <span className={styles.kindLabel} data-kind={row.kind}>
-          {fromEditor ? 'From editor · ' : ''}
-          {kindLabels[row.kind]}
-        </span>
-        {position && (
-          <span className={styles.position} aria-label={`Entry ${position.index} of ${position.total}`}>
-            {position.index} / {position.total}
+        <span className={styles.meta}>
+          <span className={styles.kindLabel} data-kind={row.kind}>
+            {fromEditor ? 'From editor · ' : ''}
+            {kindLabels[row.kind]}
           </span>
-        )}
+          {position && (
+            <span
+              className={styles.position}
+              aria-label={`Entry ${position.index} of ${position.total}`}
+            >
+              {position.index} / {position.total}
+            </span>
+          )}
+          <Link className={styles.openEditor} to={`/t/${row.hash}`}>
+            Open in editor ↗
+          </Link>
+        </span>
         {onStep && (
           <button
             type="button"
@@ -238,13 +260,10 @@ export function CompendiumDetail({
             ›
           </button>
         )}
-        <Link className={styles.openEditor} to={`/t/${row.hash}`}>
-          Open in editor ↗
-        </Link>
       </header>
       {stale && <p className={styles.warn}>Source evidence changed since this was reviewed.</p>}
       <div className={styles.columns}>
-        <div className={styles.tooltip}>
+        <Tooltip phone={phone}>
           <h3>Manifest</h3>
           {groups.length ? (
             groups.map((group) => (
@@ -262,7 +281,7 @@ export function CompendiumDetail({
           {owners.length > 0 && <p className={styles.muted}>Owner: {owners.join(', ')}</p>}
           <h3>Current tooltip</h3>
           <p className={styles.current}>{currentText?.trim() ? currentText : 'No text yet'}</p>
-        </div>
+        </Tooltip>
         <div className={styles.candidates}>
           {row.kind === 'not-needed' ? (
             <div className={styles.empty}>

@@ -165,6 +165,17 @@
   }
 }
 
+.meta {
+  display: contents;
+}
+
+.fold {
+  margin-bottom: 0.375rem;
+  color: var(--text2);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
 .position {
   flex: none;
   color: var(--text3);
@@ -494,33 +505,50 @@ p.muted {
     display: none;
   }
 
-  // Name between the step buttons on the first line; kind, position, and the editor link below.
+  // ‹ name · meta › : the step buttons span both lines, the name gets what is left.
   .identity {
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    column-gap: 0.5rem;
     row-gap: 0;
   }
 
-  .title {
-    order: 1;
-    flex: 1 1 calc(100% - 6rem);
-  }
-
   .step:first-child {
-    order: 0;
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    align-self: stretch;
+    height: auto;
   }
 
   .step:not(:first-child) {
-    order: 2;
+    grid-column: 3;
+    grid-row: 1 / span 2;
+    align-self: stretch;
+    height: auto;
   }
 
-  .kindLabel,
-  .position,
-  .openEditor {
-    order: 3;
+  .title {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .meta {
+    display: flex;
+    grid-column: 2;
+    grid-row: 2;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 0.5rem;
+    min-width: 0;
+    font-size: 0.75rem;
   }
 
   .openEditor {
     margin-inline-start: auto;
+  }
+
+  .rowWord {
+    display: none;
   }
 
   .short {
@@ -531,9 +559,18 @@ p.muted {
     gap: 0.5rem;
   }
 
+  .summary {
+    flex-wrap: wrap;
+  }
+
   .counts {
+    flex: 1 1 100%;
     font-size: 0.75rem;
     white-space: normal;
+  }
+
+  .linked {
+    margin-inline-start: auto;
   }
 }
 
@@ -554,9 +591,10 @@ p.muted {
     padding: 0.25rem 0;
 
     button {
-      flex: 1 1 0;
+      flex: 1 1 auto;
       min-width: 0;
       padding: 0 0.25rem;
+      font-size: 0.75rem;
     }
   }
 
@@ -615,5 +653,13 @@ p.muted {
 
   .detail {
     padding-bottom: 4rem;
+  }
+}
+
+// A phone at a large interface scale: the labels shrink before they clip.
+@container (max-width: 24rem) {
+  .actionBar button {
+    font-size: 0.6875rem;
+    padding: 0 0.25rem;
   }
 }

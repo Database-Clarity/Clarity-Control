@@ -36,6 +36,7 @@ import {
 } from './opening';
 
 const pageSize = 15;
+const count = new Intl.NumberFormat('en');
 
 /** The list's URL: the marker-only group on request, never keeping another group's selection. */
 function viewSearch(params: URLSearchParams, marker: boolean) {
@@ -388,19 +389,19 @@ export function ReviewPage() {
           <p className={styles.counts}>
             {markerView ? (
               <Link to={{ search: viewSearch(searchParams, false) }}>
-                {changes.length} {changes.length === 1 ? 'change' : 'changes'}
+                {count.format(changes.length)} {changes.length === 1 ? 'change' : 'changes'}
               </Link>
             ) : (
               <>
-                {changes.length} {changes.length === 1 ? 'change' : 'changes'}
+                {count.format(changes.length)} {changes.length === 1 ? 'change' : 'changes'}
               </>
             )}
             {' · '}
             {markerView ? (
-              <>{markerOnly.length} marker-only</>
+              <>{count.format(markerOnly.length)} marker-only</>
             ) : (
               <Link to={{ search: viewSearch(searchParams, true) }}>
-                {markerOnly.length} marker-only
+                {count.format(markerOnly.length)} marker-only
               </Link>
             )}
             {' · '}
@@ -495,7 +496,7 @@ export function ReviewPage() {
           <p>
             No changes made by a person are waiting to go live.{' '}
             <Link to={{ search: viewSearch(searchParams, true) }}>
-              Show the {markerOnly.length} marker-only leftovers
+              Show the {count.format(markerOnly.length)} marker-only leftovers
             </Link>
           </p>
         ) : !visibleEntries.length ? (

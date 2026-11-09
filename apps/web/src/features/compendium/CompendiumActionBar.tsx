@@ -74,7 +74,7 @@ export function CompendiumActionBar({
         Confirm <kbd>⏎</kbd>
       </button>
       <button type="button" disabled={!canPick} onClick={onPick}>
-        Pick row <kbd>P</kbd>
+        Pick<span className={styles.rowWord}> row</span> <kbd>P</kbd>
       </button>
       <button type="button" disabled={!canDecide} onClick={onNone}>
         Not needed <kbd>N</kbd>

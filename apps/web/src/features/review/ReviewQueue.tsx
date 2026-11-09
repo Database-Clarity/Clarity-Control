@@ -377,7 +377,7 @@ export function ReviewQueue({
     </div>
     {markerCount > 0 && (
       <Link className={styles.markerLink} to="/review?marker=1" title="Alias-marker migration leftovers: saved content equals live">
-        Marker-only ({markerCount})
+        Marker-only ({markerCount.toLocaleString('en')})
       </Link>
     )}
     </>
