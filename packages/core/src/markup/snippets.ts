@@ -1,4 +1,4 @@
-import { markupEmpty, markupIcons } from './syntax.js';
+import { markupEmpty, markupIcons, markupRetiredLineStyles } from './syntax.js';
 
 /**
  * The editor's snippet catalogue. A template is plain markup with tab stops written `{{1:default}}`
@@ -7,8 +7,7 @@ import { markupEmpty, markupIcons } from './syntax.js';
  * menu, the markup row and the chips can all share it.
  */
 
-export type SnippetGroup =
-  'Values' | 'Enhanced' | 'Icons' | 'References' | 'Format' | 'Blocks';
+export type SnippetGroup = 'Values' | 'Enhanced' | 'Icons' | 'References' | 'Format' | 'Blocks';
 
 export interface Snippet {
   /** Stable; used for the recently-used list and the usage-count cache. */
@@ -335,7 +334,7 @@ const styleAbout: Record<string, string> = {
  * Line styles the parser and renderer still read (so existing tooltips keep working) but the
  * editor no longer offers: nobody reaches for them.
  */
-const retiredLineStyles = ['center', 'background', 'breakSpaces'];
+const retiredLineStyles = markupRetiredLineStyles;
 
 export const markupSymbols: readonly SymbolEntry[] = [
   ...markupIcons.map((name) => ({
@@ -345,11 +344,13 @@ export const markupSymbols: readonly SymbolEntry[] = [
     usage: new RegExp(`<${name}/>`),
     about: iconAbout[name] ?? 'Icon.',
   })),
-  ...markupEmpty.filter((name) => !retiredLineStyles.includes(name)).map((name) => ({
-    id: `style:${name}`,
-    name,
-    keywords: `${name} line style`,
-    usage: new RegExp(`<${name}/>`),
-    about: styleAbout[name] ?? 'Line style.',
-  })),
+  ...markupEmpty
+    .filter((name) => !retiredLineStyles.includes(name))
+    .map((name) => ({
+      id: `style:${name}`,
+      name,
+      keywords: `${name} line style`,
+      usage: new RegExp(`<${name}/>`),
+      about: styleAbout[name] ?? 'Line style.',
+    })),
 ];

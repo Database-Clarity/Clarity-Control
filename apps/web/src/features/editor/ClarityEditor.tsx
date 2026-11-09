@@ -4,6 +4,7 @@ import {
   history,
   historyKeymap,
   indentWithTab,
+  isolateHistory,
   toggleComment,
 } from '@codemirror/commands';
 import { bracketMatching, indentOnInput } from '@codemirror/language';
@@ -24,11 +25,14 @@ import {
 } from '@codemirror/view';
 import {
   countConflicts,
+  fixAllRetired,
   glyphWarnings,
   canReplaceGlyph,
   markupLanguage,
   type Lang,
   type MarkupGlobals,
+  type RetiredFix,
+  type RetiredOccurrence,
 } from '@clarity/core';
 import { clarityHighlighting, clarityLanguage } from './language';
 import { tableFormattingTransaction } from './formatTable';
@@ -38,6 +42,7 @@ import { rememberSearch, restoreSearch } from './searchMemory';
 import { rawMode, setSymbolReveal, symbolExtensions, toggleRaw, toggleRawView } from './symbols';
 import { hasImportDependencies, validationDiagnostics } from './diagnostics';
 import { useEditorDiagnostics } from './useEditorDiagnostics';
+import { RetiredPanel, retiredIn } from './RetiredPanel';
 import { createCursorPosition } from './cursorPosition';
 import { MarkupRow } from './markupRow/MarkupRow';
 import { SuggestChip } from './markupRow/SuggestChip';
@@ -267,6 +272,52 @@ export function ClarityEditor({
     editor.dispatch({
       changes: { from, to: from + character.length, insert: replacement },
       selection: { anchor: from + replacement.length },
+      scrollIntoView: true,
+    });
+    editor.focus();
+  }
+
+  /** One undo step; the occurrence is found again on the live text, so a late click is harmless. */
+  function applyRetired(occurrence: RetiredOccurrence, fix: RetiredFix) {
+    const editor = view.current;
+    if (!editor || editor.state.readOnly) return;
+    const live = retiredIn(editor.state.doc.toString())
+      .find((found) => found.from === occurrence.from && found.token === occurrence.token)
+      ?.fixes.find((candidate) => candidate.id === fix.id);
+    if (!live) return;
+    editor.dispatch({
+      changes: live.edits,
+      selection: { anchor: Math.min(...live.edits.map((edit) => edit.from)) },
+      annotations: isolateHistory.of('full'),
+      scrollIntoView: true,
+    });
+    editor.focus();
+  }
+
+  /** Fix all as one change from the first fixed form to the last, so a single undo restores it. */
+  function fixAllRetiredMarkup() {
+    const editor = view.current;
+    if (!editor || editor.state.readOnly) return;
+    const before = editor.state.doc.toString();
+    const { text: after, fixed } = fixAllRetired(before, retiredIn);
+    if (!fixed) return;
+    let start = 0;
+    while (start < before.length && start < after.length && before[start] === after[start]) start++;
+    let end = 0;
+    while (
+      end < before.length - start &&
+      end < after.length - start &&
+      before[before.length - 1 - end] === after[after.length - 1 - end]
+    )
+      end++;
+    editor.dispatch({
+      changes: {
+        from: start,
+        to: before.length - end,
+        insert: after.slice(start, after.length - end),
+      },
+      selection: { anchor: start },
+      annotations: isolateHistory.of('full'),
       scrollIntoView: true,
     });
     editor.focus();
@@ -586,9 +637,12 @@ export function ClarityEditor({
   }, [highlightLine, tooltipHash, lang]);
 
   const glyphCount = glyphs.reduce((sum, group) => sum + group.count, 0);
+  const retiredCount = diagnostics.retired.length;
   // A panel for something that has gone away closes itself.
   const open =
-    (panel === 'glyphs' && glyphCount === 0) || (panel === 'conflicts' && conflictCount === 0)
+    (panel === 'glyphs' && glyphCount === 0) ||
+    (panel === 'conflicts' && conflictCount === 0) ||
+    (panel === 'retired' && retiredCount === 0)
       ? null
       : panel;
   return (
@@ -616,6 +670,18 @@ export function ClarityEditor({
             readOnly={readOnly}
             onReplace={replaceGlyph}
             onClose={() => setPanel(null)}
+          />
+        )}
+        {open === 'retired' && (
+          <RetiredPanel
+            value={value}
+            readOnly={readOnly}
+            onApply={applyRetired}
+            onFixAll={fixAllRetiredMarkup}
+            onClose={() => {
+              setPanel(null);
+              view.current?.focus();
+            }}
           />
         )}
         {open === 'help' && <HelpPanel issues={issues} onClose={() => setPanel(null)} />}
@@ -669,6 +735,7 @@ export function ClarityEditor({
         readOnlyReason={readOnlyReason}
         issues={issues}
         glyphCount={glyphCount}
+        retiredCount={retiredCount}
         cursor={cursor}
         preview={preview}
         conflicts={

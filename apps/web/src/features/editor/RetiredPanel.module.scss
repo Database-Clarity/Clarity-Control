@@ -1,0 +1,112 @@
+@use '../../ui/controls';
+@use '../../data/variables' as theme;
+
+// The retired-markup list opens upward over the text like the other status panels (StatusBar's
+// Overlay); one dense line per occurrence, buttons wrap instead of shrinking.
+.lead {
+  color: var(--warn);
+}
+
+ul.list {
+  padding-left: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+
+  button {
+    @include controls.button;
+    min-height: 1.25rem;
+    padding: 0 0.5rem;
+    white-space: nowrap;
+
+    @include theme.mobile-or-coarse {
+      min-width: max(44px, 2.75rem);
+      min-height: max(44px, 2.75rem);
+      font-size: max(16px, 1rem);
+    }
+  }
+}
+
+.where {
+  color: var(--text3);
+  font-variant-numeric: tabular-nums;
+}
+
+.token {
+  font-family: var(--editor-font, Consolas, monospace);
+  font-variant-ligatures: none;
+  color: var(--var);
+}
+
+.preview {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 0.25rem 0.5rem;
+  align-items: start;
+  margin: 0.25rem 0 0.5rem;
+  padding: 0.25rem 0.5rem;
+  background: var(--ctl);
+  border: 1px solid var(--ctl-edge);
+
+  pre {
+    margin: 0;
+    max-height: 7rem;
+    overflow: auto;
+    font-family: var(--editor-font, Consolas, monospace);
+    font-variant-ligatures: none;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  @include theme.mobile-or-coarse {
+    grid-template-columns: 1fr;
+  }
+}
+
+.confirm {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+
+  button {
+    @include controls.button;
+    padding: 0 0.625rem;
+
+    @include theme.mobile-or-coarse {
+      min-width: max(44px, 2.75rem);
+      min-height: max(44px, 2.75rem);
+      font-size: max(16px, 1rem);
+    }
+  }
+}
+
+.all {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.375rem;
+  padding-top: 0.375rem;
+  border-top: 1px solid var(--line);
+
+  button {
+    @include controls.button;
+    padding: 0 0.625rem;
+
+    @include theme.mobile-or-coarse {
+      min-width: max(44px, 2.75rem);
+      min-height: max(44px, 2.75rem);
+      font-size: max(16px, 1rem);
+    }
+  }
+}
+
+.note {
+  color: var(--text3);
+}

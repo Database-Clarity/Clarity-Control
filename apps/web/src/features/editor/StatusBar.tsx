@@ -10,7 +10,7 @@ import { canReplaceGlyph, type GlyphWarning, type ValidationIssue } from '@clari
 import styles from './StatusBar.module.scss';
 import type { CursorPositionStore } from './cursorPosition';
 
-export type StatusPanel = 'help' | 'glyphs' | 'conflicts';
+export type StatusPanel = 'help' | 'glyphs' | 'conflicts' | 'retired';
 
 export const CursorStatusBar = memo(function CursorStatusBar({
   cursor,
@@ -54,6 +54,7 @@ export function StatusBar({
   issues,
   validating = false,
   glyphCount,
+  retiredCount = 0,
   line,
   column,
   preview,
@@ -68,6 +69,8 @@ export function StatusBar({
   issues: readonly ValidationIssue[];
   validating?: boolean;
   glyphCount: number;
+  /** Retired markup forms in the text (core/validation/retired.ts); each is also a warning. */
+  retiredCount?: number;
   line: number;
   column: number;
   preview?: PreviewStatus;
@@ -137,6 +140,25 @@ export function StatusBar({
       )}
       {/* A live region so a warning that appears while typing is announced without moving focus. */}
       <span role="status" aria-live="polite" className={styles.live}>
+        {retiredCount > 0 && (
+          <button
+            type="button"
+            className={styles.item}
+            data-severity="warning"
+            data-status-retired
+            aria-expanded={panel === 'retired'}
+            aria-controls="editor-panel-retired"
+            title="Retired markup: still renders, no longer supported. Click to see the fixes."
+            aria-label={`${retiredCount} retired markup`}
+            onClick={() => toggle('retired')}
+          >
+            <span>
+              <span aria-hidden="true">⚠</span> {retiredCount}{' '}
+              <span className={styles.long}>retired markup</span>
+              <span className={styles.short}>retired</span>
+            </span>
+          </button>
+        )}
         {glyphCount > 0 && (
           <button
             type="button"

@@ -147,6 +147,15 @@
   :global(.cm-symbol-hint) {
     color: var(--text2);
   }
+  :global(.cm-symbol-retired) {
+    color: var(--diag-warn);
+  }
+  :global(.cm-symbol-fix) {
+    @include controls.button;
+    min-height: 1.25rem;
+    padding: 0 0.375rem;
+    font: inherit;
+  }
   :global(.cm-symbol-input) {
     min-width: 10rem;
     font: inherit;
@@ -422,6 +431,13 @@
 
 .editor :global(.clarity-validation-warning) {
   text-decoration: underline dotted var(--diag-warn);
+  text-underline-offset: 3px;
+}
+
+// Retired markup (core/validation/retired.ts): wavy, so it reads apart from a glyph warning.
+// Decoration only: the text never moves.
+.editor :global(.clarity-validation-retired) {
+  text-decoration: underline wavy var(--diag-warn);
   text-underline-offset: 3px;
 }
 

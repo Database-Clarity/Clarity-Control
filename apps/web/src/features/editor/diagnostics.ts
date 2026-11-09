@@ -50,7 +50,7 @@ const decorationsFor = (issues: readonly ValidationIssue[]) =>
       .sort((a, b) => a.from - b.from || a.to - b.to)
       .map((issue) =>
         Decoration.mark({
-          class: `clarity-validation-${issue.severity}`,
+          class: `clarity-validation-${issue.severity}${issue.code === 'retired' ? ' clarity-validation-retired' : ''}`,
           attributes: { title: `${issue.severity}: ${issue.message}` },
         }).range(issue.from, issue.to),
       ),

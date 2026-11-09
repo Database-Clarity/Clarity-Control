@@ -18,6 +18,13 @@ export const markupIcons = [
 ];
 export const markupEmpty = ['background', 'breakSpaces', 'bold'];
 export const markupLineClasses = [...markupColors, ...markupEmpty];
+/**
+ * Retired markup (owner 2026-11-09): the parser still reads these, so old text renders as before,
+ * but no editor surface offers them and the validator flags them (validation/retired.ts).
+ */
+export const markupRetiredColors = ['blue', 'green', 'purple'];
+export const markupRetiredLineStyles = ['center', 'breakSpaces', 'background'];
+export const markupRetired = [...markupRetiredColors, ...markupRetiredLineStyles];
 export const markupTableClasses = [
   'background_1',
   'background_2',

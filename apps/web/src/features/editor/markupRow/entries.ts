@@ -34,7 +34,7 @@ export type EntryGlyph =
   | { kind: 'pvp' }
   | { kind: 'arrow'; text: string }
   | { kind: 'bold' }
-  | { kind: 'colour'; colour: 'yellow' | 'blue' | 'green' | 'purple' };
+  | { kind: 'colour'; colour: 'yellow' };
 
 export type EntryResult = 'inserted' | 'read-only' | 'composing' | Rejection;
 
