@@ -586,7 +586,13 @@ function SteppingCompendium({
       clearTimeout(timer);
     };
   }, [base, painted, ready]);
-  return <CompendiumPanel base={painted} stepping={active || !ready || painted !== base} />;
+  return (
+    <CompendiumPanel
+      base={painted}
+      target={base.hash}
+      stepping={active || !ready || painted !== base}
+    />
+  );
 }
 
 /** One line of context under the preview; the full text is the tooltip. */

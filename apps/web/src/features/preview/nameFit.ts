@@ -43,3 +43,28 @@ export function nameWidthEm(name: string): number {
   }
   return width;
 }
+
+const titleCache = new Map<string, number>();
+const titleFont = '600 100px Arial, Helvetica, sans-serif';
+let titleMeasure: ((text: string) => number) | null | undefined;
+
+/** A phone header title's width in ems (Arial semi-bold, as typed), for the same shrink-to-fit. */
+export function titleWidthEm(text: string): number {
+  let width = titleCache.get(text);
+  if (width === undefined) {
+    if (titleMeasure === undefined) {
+      titleMeasure = null;
+      if (typeof document !== 'undefined' && !/jsdom/i.test(navigator.userAgent)) {
+        const context = document.createElement('canvas').getContext('2d');
+        if (context) {
+          context.font = titleFont;
+          titleMeasure = (value) => context.measureText(value).width / 100;
+        }
+      }
+    }
+    width = titleMeasure?.(text) ?? text.length * 0.56;
+    if (titleCache.size > 2000) titleCache.clear();
+    titleCache.set(text, width);
+  }
+  return width;
+}

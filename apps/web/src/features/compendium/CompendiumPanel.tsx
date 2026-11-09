@@ -211,9 +211,15 @@ function usePaneFrame(
 export function CompendiumPanel({
   base: incomingBase,
   stepping = false,
+  target,
 }: {
   base: Tooltip;
   stepping?: boolean;
+  /**
+   * The entry the route already shows, when `base` follows it a frame later: the loading
+   * skeleton's identity, so one step is one entry for its timing (not two).
+   */
+  target?: number;
 }) {
   const retainedBase = useRef(incomingBase);
   const base = stepping ? retainedBase.current : incomingBase;
@@ -343,6 +349,7 @@ export function CompendiumPanel({
       pending={displayed !== base}
       stepping={stepping}
       pendingBase={incomingBase}
+      target={target ?? incomingBase.hash}
       pendingLink={
         stepping
           ? drafts[incomingBase.hash]
@@ -370,6 +377,7 @@ const PaneContents = memo(function PaneContents({
   pending: navigating,
   stepping,
   pendingBase,
+  target,
   pendingLink,
   pendingDraft,
   pendingCell,
@@ -385,6 +393,7 @@ const PaneContents = memo(function PaneContents({
   pending: boolean;
   stepping: boolean;
   pendingBase: Tooltip;
+  target: number;
   pendingLink: Tooltip['compendium'];
   pendingDraft: boolean;
   pendingCell?: CompendiumCell;
@@ -486,7 +495,7 @@ const PaneContents = memo(function PaneContents({
   const retainedPane = useRef<ReturnType<typeof RightPane>>();
   const wasStepping = useRef(false);
   const hasContent = useRef(false);
-  const showSkeleton = useSkeletonVisible(waiting, pendingBase.hash, hasContent.current);
+  const showSkeleton = useSkeletonVisible(waiting, target, hasContent.current);
   // A shown skeleton outlasts the load by its minimum time; until then ready content waits.
   const holding = waiting || showSkeleton;
   useLayoutEffect(() => {

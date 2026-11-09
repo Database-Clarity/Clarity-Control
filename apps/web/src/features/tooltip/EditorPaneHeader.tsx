@@ -118,7 +118,13 @@ export function EditorPaneHeader({
           <Popover
             label="Grouped manifest perks"
             className={styles.ghost}
-            trigger={`Grouped ${grouped.length}`}
+            trigger={
+              <>
+                <span className={styles.groupedIcon} aria-hidden="true" />
+                <span className={styles.groupedWord}>Grouped </span>
+                {grouped.length}
+              </>
+            }
             triggerTitle="Which manifest perks open this editor entry, and how each joined (maintainers)"
           >
             <GroupedPerks perks={grouped} />
