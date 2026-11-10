@@ -264,13 +264,19 @@
   .workspace[data-mode='toggle'] .paneHeader:has(> .queue) {
     flex-wrap: wrap;
     row-gap: 2px;
+    // min-width: the longest label ("Not in queue · 1691 left") ellipsises, the buttons stay in view.
     .queue {
       order: 2;
       flex: 1 1 100%;
+      min-width: 0;
       margin-left: 0;
     }
     .queuePosition {
       flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
   }
 }
@@ -638,6 +644,8 @@
   .queue {
     order: 2;
     flex: 1 1 100%;
+    // Without this the row is as wide as its longest label, and Next leaves the screen.
+    min-width: 0;
     margin-left: 0;
   }
   .queuePosition {
@@ -645,6 +653,7 @@
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
   // Compact phone size (owner 2026-11-10): about 36px, not a new 44px minimum.
   .queueBack,
