@@ -15,7 +15,20 @@ function dom(html: string) {
   host.innerHTML = html;
   return host;
 }
-const markup = (html: string) => dom(html).innerHTML;
+const markup = (html: string) => {
+  const host = dom(html);
+  // The picker has no editor scale. Compare the equivalent 1× font spelling
+  // without changing text, escaping, alignment, other styles, or link markup.
+  for (const element of host.querySelectorAll('[style]')) {
+    element.setAttribute(
+      'style',
+      element
+        .getAttribute('style')!
+        .replace(/(\bfont-size:\s*)calc\(([\d.]+pt) \* var\(--cell-scale, 1\)\)/g, '$1$2'),
+    );
+  }
+  return host.innerHTML;
+};
 describe('picker presentation without per-cell React reconciliation', () => {
   it('matches RichCell text, styles, alignment, and blank/trailing lines with inert links', () => {
     const samples: CompendiumCell[] = [
