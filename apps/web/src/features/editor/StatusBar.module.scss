@@ -79,7 +79,7 @@
       display: none;
     }
     .item {
-      padding: 0 6px;
+      padding: 0 var(--page-x);
     }
     @container (max-width: 260px) {
       .roomy {
@@ -209,7 +209,7 @@
   @include theme.mobile-or-coarse {
     min-height: var(--tap-sm);
     min-width: var(--tap-sm);
-    padding: 0 6px;
+    padding: 0 var(--page-x);
     font-size: inherit;
 
     kbd {

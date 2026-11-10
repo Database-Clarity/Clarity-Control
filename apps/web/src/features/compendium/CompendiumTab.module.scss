@@ -673,8 +673,26 @@ p.muted {
 
   .counts,
   .linked,
-  .meta {
+  .meta,
+  .fold,
+  .nearby,
+  .advanceSetting {
     font-size: var(--ctl-text);
+  }
+
+  // A candidate's sheet link wraps whole onto a second line instead of cutting its path.
+  .source {
+    white-space: normal;
+
+    > a {
+      display: inline;
+      white-space: normal;
+
+      > * {
+        overflow: visible;
+        white-space: normal;
+      }
+    }
   }
 
   // Name and status on the left; one joined stepper [‹][N of M][›] on the right with Open in
