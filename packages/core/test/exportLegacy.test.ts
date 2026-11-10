@@ -3,6 +3,18 @@ import { exportLegacy, translationMaxAge } from '../src/exportLegacy.js';
 import { migrateLegacy } from '../src/migrateLegacy.js';
 import { database, exportCanonical, tooltip } from './helpers.js';
 
+test.each(['kinetic', 'arc', 'solar', 'void', 'stasis', 'strand', 'prismatic'])(
+  'passes %s markup unchanged into both consumer editor fields',
+  (icon) => {
+    const value = tooltip();
+    value.text.en!.text = `<${icon}/>Transcendence`;
+    expect(exportCanonical([value], 0)['42'].editor.en).toEqual({
+      main: `<${icon}/>Transcendence`,
+      secondary: `<${icon}/>Transcendence`,
+    });
+  },
+);
+
 test('exports main into both editor fields, including explicitly empty text', () => {
   const value = tooltip();
   value.text.de = { ...value.text.en!, text: '' };

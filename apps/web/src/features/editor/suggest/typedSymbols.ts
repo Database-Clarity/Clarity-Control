@@ -5,6 +5,22 @@ import { useDataStore, type EditorData } from '../../../stores/data';
 import { loadManifestFacts } from '../../compendium/manifestFacts';
 
 const icons = new Set(markupIcons);
+// Hand-kept keyword fallback, only when the catalogue provides no element.
+// Apply after grouping duplicate names so any data-derived element wins.
+const keywordElements: Readonly<Record<string, string>> = {
+  radiant: 'solar',
+  restoration: 'solar',
+  blind: 'arc',
+  'bolt charge': 'arc',
+  devour: 'void',
+  invisibility: 'void',
+  suppression: 'void',
+  weaken: 'void',
+  sever: 'strand',
+  threadling: 'strand',
+  shatter: 'stasis',
+  slow: 'stasis',
+};
 const categories = new Set([
   'verbs',
   'subclass-aspect',
@@ -78,7 +94,12 @@ function indexNames(data: EditorData | null): Index {
   }
   for (const [original, known] of named) {
     if (known.icons.size > 1) known.icons.delete('prismatic');
-    const icon = known.icons.size === 1 ? [...known.icons][0]! : null;
+    const icon =
+      known.icons.size === 1
+        ? [...known.icons][0]!
+        : known.icons.size === 0 && known.keyword && Object.hasOwn(keywordElements, original)
+          ? (keywordElements[original] ?? null)
+          : null;
     for (const name of known.keyword && icon ? wordForms(original) : [original]) {
       const key = name.split(' ').at(-1)!;
       const entries = endings.get(key) ?? [];
