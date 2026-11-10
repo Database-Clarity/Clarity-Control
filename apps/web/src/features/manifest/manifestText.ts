@@ -45,6 +45,14 @@ export function manifestText(
   return lines.length ? { kind: 'sandbox', perks: lines } : { kind: 'none', perkHashes };
 }
 
+/**
+ * A sandbox perk's own display name: `undefined` when the bundled text does not list the hash,
+ * empty when Bungie's definition has no display name.
+ */
+export function sandboxPerkName(hash: number, perks: SandboxPerkText): string | undefined {
+  return perks[hash]?.[0].trim();
+}
+
 /** One line for the collapsed row. */
 export function manifestSummary(text: ManifestText): string {
   switch (text.kind) {
