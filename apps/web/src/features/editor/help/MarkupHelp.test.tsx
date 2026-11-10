@@ -265,6 +265,43 @@ describe('the sheet in the editor', () => {
     expect(view.state.doc.toString()).toBe('Deals');
   });
 
+  it('builds the sheet hidden once the editor is quiet (a key restarts the wait); F1 reveals it', async () => {
+    vi.stubGlobal('requestIdleCallback', (run: IdleRequestCallback) =>
+      window.setTimeout(() => run({ didTimeout: false, timeRemaining: () => 50 }), 0),
+    );
+    vi.stubGlobal('cancelIdleCallback', (id: number) => window.clearTimeout(id));
+    const wait = (ms: number) => act(() => new Promise((done) => setTimeout(done, ms)));
+    const kept = () => document.querySelector<HTMLElement>('section[aria-label="Markup help"]');
+    const view = await mount(adagio);
+    act(() => {
+      view.focus();
+      view.dispatch({ selection: { anchor: 40 } });
+    });
+    const content = host.querySelector('.cm-content')!;
+    await wait(1000);
+    await press(content, 'ArrowRight');
+    await wait(1000);
+    // 2 s after mounting but only 1 s after the key: not built yet.
+    expect(kept()).toBeNull();
+    for (let i = 0; i < 40 && !kept(); i++) await wait(50);
+    const parked = kept()!;
+    expect(parked).not.toBeNull();
+    expect(parked.hasAttribute('inert')).toBe(true);
+    expect(parked.getAttribute('aria-hidden')).toBe('true');
+    expect(document.querySelector('#editor-panel-help, [data-editor-overlay], [data-markup-help]')).toBeNull();
+    act(() => view.dispatch({ selection: { anchor: 40 } }));
+    await press(content, 'F1');
+    expect(sheet()).toBe(parked);
+    expect(parked.id).toBe('editor-panel-help');
+    expect(parked.hasAttribute('inert')).toBe(false);
+    expect(active()).toBe('enhanced-formula');
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Filter markup and keys');
+    await press(document.activeElement!, 'Escape');
+    expect(kept()).toBe(parked);
+    expect(parked.hasAttribute('inert')).toBe(true);
+    expect(document.activeElement).toBe(content);
+  });
+
   it('a bare Tab and the removed table-align keys change nothing', async () => {
     const view = await mount('< table x >\n| a | b |\n<$>');
     act(() => {

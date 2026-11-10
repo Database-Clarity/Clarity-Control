@@ -1,5 +1,6 @@
 import {
   lazy,
+  startTransition,
   Suspense,
   useCallback,
   useEffect,
@@ -88,21 +89,71 @@ import type { UsageCorpus } from './suggest/usage';
 import type { ReferenceSources } from './references';
 import styles from './ClarityEditor.module.scss';
 
-// The markup help is code only its first open needs; it loads once the page is idle.
+// The markup help is code only its first open needs. Once the editor has been input-quiet for a
+// while, in idle time, the help loads, parses its examples, and builds its sheet hidden, so F1
+// only reveals it. Any key or press restarts the wait; nothing runs on the typing path itself.
 const loadHelp = () => import('./help/MarkupHelp');
 const MarkupHelp = lazy(loadHelp);
-let helpRequested = false;
-function prefetchHelp() {
-  if (helpRequested || typeof requestIdleCallback !== 'function') return;
-  helpRequested = true;
-  requestIdleCallback(
-    () =>
-      void loadHelp()
-        // Its rows and example renders too, in a later idle period: F1 then only renders.
-        .then(({ warmHelp }) => requestIdleCallback(warmHelp, { timeout: 5000 }))
-        .catch(() => (helpRequested = false)),
-    { timeout: 5000 },
-  );
+const quietMs = 1500;
+/** One parked sheet per page: the first editor to go quiet builds it. */
+let helpParkClaimed = false;
+function parkHelpWhenQuiet(ready: () => boolean, park: () => void): () => void {
+  if (typeof requestIdleCallback !== 'function') return () => undefined;
+  let lastInput = performance.now();
+  let generation = 0;
+  let timer = 0;
+  let idle = 0;
+  let stopped = false;
+  const onInput = () => {
+    lastInput = performance.now();
+    generation += 1;
+  };
+  const stop = () => {
+    stopped = true;
+    clearTimeout(timer);
+    if (idle) cancelIdleCallback(idle);
+    removeEventListener('keydown', onInput, true);
+    removeEventListener('pointerdown', onInput, true);
+  };
+  // Each step runs in its own idle period, and only while no input came since the wait began.
+  const step = (mine: number, run: (deadline: IdleDeadline) => void) => {
+    idle = requestIdleCallback((deadline) => {
+      idle = 0;
+      if (stopped) return;
+      if (mine !== generation || !ready()) wait();
+      else run(deadline);
+    });
+  };
+  const wait = () => {
+    const left = quietMs - (performance.now() - lastInput);
+    timer = window.setTimeout(() => {
+      if (performance.now() - lastInput < quietMs) return wait();
+      const mine = generation;
+      step(mine, () =>
+        void loadHelp().then(
+          ({ warmHelp }) => {
+            if (stopped) return;
+            // The examples parse over as many idle periods as they need, then the sheet builds.
+            const warm = (deadline: IdleDeadline) => {
+              if (!warmHelp(deadline)) return step(mine, warm);
+              step(mine, () => {
+                if (helpParkClaimed) return stop();
+                helpParkClaimed = true;
+                stop();
+                park();
+              });
+            };
+            step(mine, warm);
+          },
+          () => stop(),
+        ),
+      );
+    }, Math.max(0, left));
+  };
+  addEventListener('keydown', onInput, true);
+  addEventListener('pointerdown', onInput, true);
+  wait();
+  return stop;
 }
 
 // Loading another saved/draft document must never call the authoring callback.
@@ -235,6 +286,28 @@ export function ClarityEditor({
     setHelpStart(null);
     setPanel(next);
   }, []);
+  // The help's sheet, built hidden once the editor is input-quiet (see parkHelpWhenQuiet).
+  const [helpParked, setHelpParked] = useState(false);
+  const parkedHere = useRef(false);
+  // Read only by Insert: a change of globals while typing never re-renders the hidden sheet.
+  const helpGlobals = useRef(globals);
+  helpGlobals.current = globals;
+  useEffect(() => {
+    if (helpParked || suspended) return;
+    return parkHelpWhenQuiet(
+      () => view.current !== null,
+      () => {
+        parkedHere.current = true;
+        startTransition(() => setHelpParked(true));
+      },
+    );
+  }, [helpParked, suspended]);
+  useEffect(
+    () => () => {
+      if (parkedHere.current) helpParkClaimed = false;
+    },
+    [],
+  );
   // The Changes view. Closed, it costs one string comparison per render (is anything unsaved?);
   // the comparison itself runs only inside the open panel. The other fields keep their object
   // identity while typing, so they are compared again only when one of them is edited.
@@ -482,7 +555,6 @@ export function ClarityEditor({
   }, [tooltipHash, referenceSources, onOpenTooltip]);
   useEffect(() => {
     if (suspended || view.current || !host.current) return;
-    prefetchHelp();
     const initialConfiguration = config.current.of(
       configuration(
         initial.current.lang,
@@ -837,11 +909,12 @@ export function ClarityEditor({
           />
         )}
         {open === 'issues' && <IssuesPanel issues={issues} onClose={closeAndFocus} />}
-        {open === 'help' && (
+        {(open === 'help' || helpParked) && (
           <Suspense fallback={null}>
             <MarkupHelp
+              open={open === 'help'}
               view={view}
-              globals={globals}
+              globals={helpGlobals}
               readOnly={readOnly}
               start={helpStart}
               onClose={closePanel.current}

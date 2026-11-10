@@ -25,6 +25,17 @@
   }
 }
 
+// Built ahead of the first open and kept: laid out once while hidden (so opening only reveals
+// it), then skipped by style, layout, and paint until it opens.
+.parked {
+  visibility: hidden;
+  pointer-events: none;
+
+  &[data-laid] {
+    content-visibility: hidden;
+  }
+}
+
 // As wide as the editor and the pane beside it, ending on the status bar's top edge.
 .wide {
   bottom: var(--help-bottom, 1.5rem);

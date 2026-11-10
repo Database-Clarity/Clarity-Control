@@ -45,17 +45,24 @@ function linesOf(text: string, enhanced: boolean) {
 }
 
 /**
- * Builds the rows and parses every example ahead of the first open, in idle time (the editor
- * calls it after loading this module), so F1 only renders.
+ * Builds the rows and parses every example ahead of the first open, in idle time, a few at a time
+ * while the idle period lasts. Returns true once everything is parsed.
  */
-export function warmHelp(): void {
+export function warmHelp(deadline?: { timeRemaining(): number }): boolean {
+  const texts: [string, boolean][] = [];
   for (const row of helpRows())
-    if (row.example && !row.plain && !row.note && !isKey(row)) linesOf(row.example, false);
+    if (row.example && !row.plain && !row.note && !isKey(row)) texts.push([row.example, false]);
   for (const block of Object.values(helpBlocks)) {
     const text = block.lines.map((line) => line.text).join('\n');
-    linesOf(text, false);
-    if (block.enhanced) linesOf(text, true);
+    texts.push([text, false]);
+    if (block.enhanced) texts.push([text, true]);
   }
+  for (const [text, enhanced] of texts) {
+    if (parsed.has(`${enhanced ? 'E' : 'B'}${text}`)) continue;
+    if (deadline && deadline.timeRemaining() < 2) return false;
+    linesOf(text, enhanced);
+  }
+  return true;
 }
 
 function Render({ text, enhanced = false }: { text: string; enhanced?: boolean }) {
@@ -84,6 +91,8 @@ function Keys({ keys }: { keys: string }) {
   );
 }
 
+const frameOf = (editor: EditorView | null) =>
+  editor?.dom.closest<HTMLElement>('[data-view]') ?? null;
 const isKey = (row: HelpRow) => row.keys !== undefined;
 const isCell = (row: HelpRow) => row.id.startsWith('icon:');
 const optionId = (id: string) => `markup-help-${id.replace(/[^a-zA-Z0-9-]/g, '-')}`;
@@ -91,17 +100,22 @@ const optionId = (id: string) => `markup-help-${id.replace(/[^a-zA-Z0-9-]/g, '-'
 /**
  * The markup help: a reference sheet of what you write beside what it draws, with the keys. On a
  * desktop it opens upward from the status bar over the lower text and the pane beside it; on a
- * phone it is a bottom sheet. Mounted only while open.
+ * phone it is a bottom sheet. The editor builds it hidden ahead of the first open, in idle time,
+ * and keeps it: closed, it is skipped by layout and paint (content-visibility), inert, and
+ * hidden from assistive technology, and listens to nothing.
  */
 export const MarkupHelp = memo(function MarkupHelp({
+  open,
   view,
   globals,
   readOnly,
   start,
   onClose,
 }: {
+  open: boolean;
   view: RefObject<EditorView | null>;
-  globals: MarkupGlobals;
+  /** Read by Insert only, so a change while typing never re-renders the hidden sheet. */
+  globals: { readonly current: MarkupGlobals };
   readOnly: boolean;
   /** The row to open on (F1 over the Ctrl+Space menu); else the markup under the caret. */
   start: string | null;
@@ -116,15 +130,8 @@ export const MarkupHelp = memo(function MarkupHelp({
   const [message, setMessage] = useState('');
   const rows = helpRows();
   // The frame the desktop sheet spans: the editor and the pane beside it (never the preview).
-  const [frame] = useState<HTMLElement | null>(
-    () => view.current?.dom.closest<HTMLElement>('[data-view]') ?? null,
-  );
-  const [active, setActive] = useState(() => {
-    const editor = view.current;
-    const at = editor ? helpIdAt(editor.state, editor.state.selection.main.head) : null;
-    const wanted = start ?? at;
-    return rows.find((row) => row.id === wanted)?.id ?? rows[0]!.id;
-  });
+  const [frame, setFrame] = useState<HTMLElement | null>(() => frameOf(view.current));
+  const [active, setActive] = useState(rows[0]!.id);
 
   // A phone has no keys to press: its sheet lists markup only, in one column.
   const columns = useMemo(() => (phone ? [phoneGroups] : helpColumns), [phone]);
@@ -164,7 +171,7 @@ export const MarkupHelp = memo(function MarkupHelp({
   };
   useEffect(() => {
     const element = root.current;
-    if (!element) return;
+    if (!element || !open) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' && event.key !== 'F1') return;
       event.preventDefault();
@@ -185,7 +192,7 @@ export const MarkupHelp = memo(function MarkupHelp({
       document.removeEventListener('pointerdown', outside, true);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [open]);
 
   // Keeps the active row inside the list by moving the list's own scroll (never the page's).
   const reveal = (id: string) => {
@@ -202,10 +209,11 @@ export const MarkupHelp = memo(function MarkupHelp({
   };
 
   // Where the sheet goes, read while the page's layout is still clean (in the render that opens
-  // it), so opening forces no layout. The desktop sheet sits on the status bar's top edge, as wide
-  // as the editor and its pane, and leaves at least four lines of text above it. A phone's sheet
-  // starts on the tool row's lower edge, so it covers the text and nothing else.
-  const [place] = useState(() => {
+  // it, and in the idle render that builds it), so opening forces no layout. The desktop sheet
+  // sits on the status bar's top edge, as wide as the editor and its pane, and leaves at least
+  // four lines of text above it. A phone's sheet starts on the tool row's lower edge, so it
+  // covers the text and nothing else.
+  const measure = (frame: HTMLElement | null): Record<string, string> => {
     const editor = view.current;
     if (!editor) return {};
     if (phone) {
@@ -224,7 +232,27 @@ export const MarkupHelp = memo(function MarkupHelp({
       '--help-bottom': `${Math.max(0, box.bottom - scroller.bottom)}px`,
       '--help-room': `${scroller.height}px`,
     };
-  });
+  };
+  const [place, setPlace] = useState(() => measure(frame));
+
+  // Opening starts fresh: no filter, on the markup under the caret (or the menu's option), placed
+  // where the editor is now.
+  const [shown, setShown] = useState(false);
+  if (open !== shown) {
+    setShown(open);
+    if (open) {
+      const editor = view.current;
+      const at = editor ? helpIdAt(editor.state, editor.state.selection.main.head) : null;
+      const wanted = start ?? at;
+      setActive(rows.find((row) => row.id === wanted)?.id ?? rows[0]!.id);
+      setQuery('');
+      setMessage('');
+      const now = frameOf(editor);
+      if (now !== frame) setFrame(now);
+      const next = measure(now);
+      if (Object.entries(next).some(([key, value]) => place[key] !== value)) setPlace(next);
+    }
+  }
 
   // After each layout of the sheet (a ResizeObserver runs after the browser's own layout, so its
   // reads cost nothing): the text gets room below its end as tall as the sheet (the Changes
@@ -232,7 +260,7 @@ export const MarkupHelp = memo(function MarkupHelp({
   useLayoutEffect(() => {
     const editor = view.current;
     const panel = root.current;
-    if (!panel) return;
+    if (!panel || !open) return;
     // Where focus was (the text, or the button that opened it): closing gives it back.
     const focused = panel.ownerDocument.activeElement;
     opener.current =
@@ -281,12 +309,28 @@ export const MarkupHelp = memo(function MarkupHelp({
       editor.requestMeasure();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phone]);
+  }, [phone, open]);
+
+  // Hidden, it is laid out once (the first frame after it is built), then skipped until it opens.
+  useLayoutEffect(() => {
+    const panel = root.current;
+    if (!panel || open || panel.hasAttribute('data-laid')) return;
+    if (typeof ResizeObserver === 'undefined') {
+      panel.setAttribute('data-laid', '');
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      observer.disconnect();
+      panel.setAttribute('data-laid', '');
+    });
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [open]);
 
   const insert = () => {
     const editor = view.current;
     if (!editor || !entry) return;
-    const result = entry.run(editor, globals);
+    const result = entry.run(editor, globals.current);
     if (result !== 'inserted') {
       setMessage(entryMessage(result));
       return;
@@ -470,14 +514,16 @@ export const MarkupHelp = memo(function MarkupHelp({
   const sheet = (
     <section
       ref={root}
-      id="editor-panel-help"
+      id={open ? 'editor-panel-help' : undefined}
       aria-label="Markup help"
       tabIndex={-1}
-      className={`${styles.panel} ${phone ? styles.sheet : frame ? styles.wide : ''}`}
+      className={`${styles.panel} ${phone ? styles.sheet : frame ? styles.wide : ''} ${open ? '' : styles.parked}`}
       style={place as CSSProperties}
-      data-editor-overlay
-      data-editor-portal={!phone && frame ? '' : undefined}
-      data-markup-help
+      // Closed: hidden and out of reach until F1 or Help reveals it.
+      {...(open ? {} : { inert: '', 'aria-hidden': true })}
+      data-editor-overlay={open ? '' : undefined}
+      data-editor-portal={open && !phone && frame ? '' : undefined}
+      data-markup-help={open ? '' : undefined}
       onKeyDown={(event) => {
         if (event.target === root.current) onKeys(event);
       }}
