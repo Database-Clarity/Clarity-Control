@@ -16,10 +16,6 @@
     max-width: 100%;
     font: inherit;
   }
-  // A field after its label text on the same line keeps a gap from it ("View [Removed]").
-  label > select {
-    margin-inline-start: 0.5rem;
-  }
   ul {
     list-style: none;
     padding: 0;
@@ -80,6 +76,10 @@
     input,
     select {
       @include controls.ios-field-text;
+    }
+    // A field after its label text on the same line keeps a gap from it ("View [Removed]").
+    label > select {
+      margin-inline-start: 0.5rem;
     }
   }
 }
