@@ -27,6 +27,8 @@ export interface TooltipValidationIssue extends ValidationIssue {
   lang: Lang;
 }
 
+export const emptyEnglishMessage = 'English text must not be empty.';
+
 export function validateText(
   text: string,
   lang: Lang,
@@ -44,7 +46,7 @@ export function validateText(
     }
   }
   if (requireEnglish && lang === 'en' && !text.trim()) {
-    add('error', 'English text must not be empty.');
+    add('error', emptyEnglishMessage);
   }
   for (const diagnostic of parseMarkup(text, globals).diagnostics) {
     const token = diagnostic.message.match(/Unknown variable (#[a-zA-Z0-9]+)/)?.[1];

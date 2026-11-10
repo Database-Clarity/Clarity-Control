@@ -2,6 +2,7 @@ import { languageLabel } from '../../languageLabels';
 import {
   type CompendiumData,
   countConflicts,
+  emptyEnglishMessage,
   languages,
   type Lang,
   maskConflicts,
@@ -72,6 +73,9 @@ export function conflictMarkerIssues(changes: Change[]): TooltipValidationIssue[
   );
 }
 
+export const noTooltipYet =
+  'This item has no tooltip yet. A Compendium link or other change can be saved once English text is written.';
+
 export function validateChanges(changes: Change[], data: EditorData): TooltipValidationIssue[] {
   const tooltips = { ...data.bundle.tooltips };
   for (const change of changes) {
@@ -117,6 +121,12 @@ export function validateChanges(changes: Change[], data: EditorData): TooltipVal
         globalsIn(imports, next.hash),
         base,
         globalsIn(importsBefore, next.hash),
+      ).map((issue) =>
+        // Saving never creates a tooltip without English text. Say so where the user acts: a
+        // Compendium link on an item with no saved tooltip is refused for this reason alone.
+        !base && issue.lang === 'en' && issue.message === emptyEnglishMessage
+          ? { ...issue, message: noTooltipYet }
+          : issue,
       ),
     ];
   });

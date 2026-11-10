@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Me } from '../api';
-import { permissionError, prepareChanges, validateChanges } from './pipeline';
+import { noTooltipYet, permissionError, prepareChanges, validateChanges } from './pipeline';
 import { editorData, english, tooltip } from './fixtures.testSupport';
 
 const user: Me = { id: 1, login: 'user', role: 'editor' };
@@ -191,7 +191,7 @@ describe('validation is scoped to text the change edits', () => {
           editorData(),
         ),
       ),
-    ).toEqual([expect.objectContaining({ hash: 124, lang: 'en' })]);
+    ).toEqual([expect.objectContaining({ hash: 124, lang: 'en', message: noTooltipYet })]);
   });
 });
 

@@ -188,6 +188,23 @@ try {
     assert.deepEqual(errors, []);
     console.log('PASS 4: recovered draft uses its own base for the empty-English diagnostic');
   }
+  // 5. An item with no saved tooltip: Confirm drafts the link, the review refuses the save and
+  // says why in plain words; the editor shows no empty-English error for it.
+  {
+    const { page, errors } = await open('#/compendium?hash=103');
+    const confirm = page.getByRole('button', { name: /^Confirm/ });
+    await confirm.waitFor();
+    await confirm.click();
+    await reviewDrafts(page);
+    const save = page.getByRole('button', { name: 'Save changes' });
+    await save.waitFor();
+    assert.equal(await save.isDisabled(), true, 'a link on an item without a tooltip is refused');
+    await page.getByText('This item has no tooltip yet.').first().waitFor();
+    assert.equal(await page.getByText('must not be empty').count(), 0);
+    assert.equal(await page.evaluate(() => window.linkSave.saves.length), 0);
+    assert.deepEqual(errors, []);
+    console.log('PASS 5: item without a saved tooltip is refused with a plain explanation');
+  }
 } finally {
   await browser?.close();
   await server?.close();

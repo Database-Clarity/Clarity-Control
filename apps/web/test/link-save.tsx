@@ -61,11 +61,11 @@ useDataStore.setState({
       ...fixture.editor.bundle,
       // Entries whose English is not written yet are saved tooltips with no text (not new ones).
       tooltips: {
+        // 103 has no saved tooltip at all (as 209 real items): its link cannot be saved yet.
         ...Object.fromEntries(
-          Object.keys(fixture.editor.items).map((hash) => [
-            hash,
-            { hash: Number(hash), text: {}, associated: [] } as Tooltip,
-          ]),
+          Object.keys(fixture.editor.items)
+            .filter((hash) => hash !== '103')
+            .map((hash) => [hash, { hash: Number(hash), text: {}, associated: [] } as Tooltip]),
         ),
         // Someone else has written English for 102 since the recovered draft was made.
         102: { hash: 102, text: text('Written by someone else'), associated: [] },
