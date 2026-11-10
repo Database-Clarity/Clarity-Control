@@ -18,6 +18,7 @@ import {
 import { insertionRejection } from '../markupInsertion';
 import type { SuggestItem } from '../suggest/source';
 import { insertItem, suggestState } from '../suggest/state';
+import { englishSymbols, longestSymbolName, subclassSymbol } from '../suggest/typedSymbols';
 import type { EntryGlyph } from './entries';
 
 /**
@@ -25,7 +26,7 @@ import type { EntryGlyph } from './entries';
  * is something the markup can express better. It is only an offer: it takes no focus, moves no
  * text, and does nothing until the accept key is pressed while it is showing.
  *
- * - a typed word that is an icon name (insert the icon before it) or `pve` / `pvp` (the tag);
+ * - an icon name (replace it), a subclass name (prefix it), or `pve` / `pvp` (the tag);
  * - a selection one of the selection transforms understands (`6.5 [5]` becomes the PvE/PvP pair).
  */
 
@@ -106,31 +107,32 @@ function wordChip(state: EditorState, globals: MarkupGlobals): Chip | null {
   const line = state.doc.lineAt(main.head);
   // Only a known icon/tag can become a chip. Inspect its maximum length plus
   // one boundary character instead of matching every word on the edited line.
-  const before = state.doc.sliceString(Math.max(line.from, main.head - longestWord - 1), main.head);
+  const english = englishSymbols(state);
+  const limit = english ? Math.max(longestWord, longestSymbolName()) : longestWord;
+  const before = state.doc.sliceString(Math.max(line.from, main.head - limit - 1), main.head);
   let start = before.length;
   while (start > 0) {
     const code = before.charCodeAt(start - 1);
     if (!((code >= 65 && code <= 90) || (code >= 97 && code <= 122))) break;
     start--;
   }
-  if (start === before.length || before.length - start > longestWord) return null;
+  if (start === before.length || before.length - start > limit) return null;
   if (start > 0) {
-    const previous = before.charCodeAt(start - 1);
-    if (
-      (previous >= 48 && previous <= 57) ||
-      previous === 95 ||
-      '<#$/{|'.includes(before[start - 1]!)
-    )
+    if (/[\p{L}\p{N}_]/u.test(before[start - 1]!) || '<#$/{|'.includes(before[start - 1]!))
       return null;
   }
   // Only at the end of the word: more letters after the caret means the author is mid-word.
   const next = state.doc.sliceString(main.head, Math.min(line.to, main.head + 1));
-  if (/[\w]/.test(next)) return null;
-  const word = before.slice(start);
+  if (/[\p{L}\p{N}_]/u.test(next)) return null;
+  const lastWord = before.slice(start);
+  const subclass = english ? subclassSymbol(before, lastWord) : null;
+  const word = subclass?.word ?? lastWord;
   const from = main.head - word.length;
-  const icon = iconByName.get(word.toLowerCase());
+  const icon = subclass?.icon ?? iconByName.get(word.toLowerCase());
   if (icon && word.length >= 3) {
-    const rejection = insertionRejection(state, { from, to: from }, globals, { typed: false });
+    const keep = Boolean(subclass) || !english;
+    const to = keep ? from : main.head;
+    const rejection = insertionRejection(state, { from, to }, globals, { typed: !keep });
     if (rejection) return null;
     return {
       key: `icon:${icon}:${from}`,
@@ -138,14 +140,14 @@ function wordChip(state: EditorState, globals: MarkupGlobals): Chip | null {
         id: `icon:${icon}`,
         label: `<${icon}/>`,
         from,
-        to: from,
+        to,
         insert: `<${icon}/>`,
       }),
-      typed: false,
-      keepSelection: { from: main.head, to: main.head },
+      typed: !keep,
+      keepSelection: keep ? { from: main.head, to: main.head } : undefined,
       glyph: { kind: 'icon', name: icon },
       markup: `<${icon}/>`,
-      text: `icon before “${word}”`,
+      text: keep ? `${icon} symbol before “${word}”` : `${icon} symbol`,
       covers: { from, to: main.head },
     };
   }

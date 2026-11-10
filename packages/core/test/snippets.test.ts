@@ -39,6 +39,17 @@ describe('snippet templates', () => {
 });
 
 describe('the catalogue', () => {
+  test('Prismatic is a symbol, renders as an icon, and supports the word transform', () => {
+    expect(markupSymbols.find((symbol) => symbol.name === 'prismatic')?.id).toBe('icon:prismatic');
+    const parsed = parseMarkup('<prismatic/>Transcendence');
+    expect(parsed.diagnostics).toEqual([]);
+    expect(JSON.stringify(parsed.lines)).toContain('prismatic');
+    expect(JSON.stringify(parsed.lines)).not.toContain('<prismatic/>');
+    expect(
+      applicableTransforms('Prismatic').find((entry) => entry.transform.id === 'element-icon')
+        ?.output,
+    ).toBe('<prismatic/>Prismatic');
+  });
   test('has separate PvE and PvP tags next to the pair preset, and no tables', () => {
     const ids = markupSnippets.map((snippet) => snippet.id);
     expect(ids).toEqual(expect.arrayContaining(['pve', 'pvp', 'pair', 'pvp-override']));

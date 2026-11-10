@@ -93,7 +93,7 @@ export const markupTransforms: readonly MarkupTransform[] = [
     id: 'element-icon',
     label: 'Word to icon and word',
     about: 'An element, ammo, champion or class word gets its icon in front.',
-    usage: /<(?:kinetic|arc|solar|void|stasis|strand|heavy|primary|special)\/>/,
+    usage: /<(?:kinetic|arc|solar|void|stasis|strand|prismatic|heavy|primary|special)\/>/,
     apply: (input) => {
       const word = input.trim();
       const name = iconNames.get(word.toLowerCase());

@@ -2,12 +2,16 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { EditorView, runScopeHandlers } from '@codemirror/view';
+import { undo, redo } from '@codemirror/commands';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { markupIcons, type MarkupGlobals } from '@clarity/core';
 import { ClarityEditor } from '../ClarityEditor';
 import { useSettingsStore } from '../../../stores/settings';
 import { chipState, type Chip } from './chips';
 import { placeChip } from './SuggestChip';
+import { useDataStore, type EditorData } from '../../../stores/data';
+import { loadManifestFacts } from '../../compendium/manifestFacts';
+import { openSuggest, acceptSuggestion, suggestState } from '../suggest/state';
 
 const globals: MarkupGlobals = { variables: 'var damage = 25', titles: '' };
 
@@ -45,6 +49,7 @@ afterEach(() => {
   host.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  useDataStore.setState({ data: null });
 });
 
 function mount(doc: string, extra: Partial<Parameters<typeof ClarityEditor>[0]> = {}) {
@@ -98,7 +103,7 @@ describe('suggestion chips for a typed tag word', () => {
     }
   });
 
-  it('offers the icon for “Kinetic” and inserts it before the word on Enter, keeping the caret after it', () => {
+  it('replaces “Kinetic” with its icon on Enter, keeping the caret after it', () => {
     const view = mount('Deals ');
     type(view, 'Kinetic');
     expect(chipNode()).not.toBeNull();
@@ -107,7 +112,7 @@ describe('suggestion chips for a typed tag word', () => {
     // Offering it changed nothing.
     expect(view.state.doc.toString()).toBe('Deals Kinetic');
     expect(press(view, 'Enter')).toBe(true);
-    expect(view.state.doc.toString()).toBe('Deals <kinetic/>Kinetic');
+    expect(view.state.doc.toString()).toBe('Deals <kinetic/>');
     expect(view.state.selection.main.head).toBe(view.state.doc.length);
     expect(chipNode()).toBeNull();
   });
@@ -158,7 +163,7 @@ describe('suggestion chips for a typed tag word', () => {
     type(view, 'Void');
     expect(chipNode()!.textContent).toContain('Tab');
     expect(press(view, 'Tab')).toBe(true);
-    expect(view.state.doc.toString()).toBe('Deals <void/>Void');
+    expect(view.state.doc.toString()).toBe('Deals <void/>');
   });
 
   it('with the Tab setting, Enter never takes the chip', () => {
@@ -285,5 +290,203 @@ describe('where the chip floats', () => {
       bottom: 716,
     });
     expect(placeChip(view, chip(6, 13), { width: 280, height: 26 })).toBeNull();
+  });
+});
+
+describe('typed symbol placement', () => {
+  function catalogue() {
+    const items: EditorData['items'] = {};
+    const tooltips: EditorData['bundle']['tooltips'] = {};
+    for (const [hash, { inventory }] of Object.entries(loadManifestFacts().items)) {
+      const plug = inventory?.plug?.plugCategoryIdentifier ?? '';
+      const group = plug.split('.').at(-1);
+      const categoryId = (
+        {
+          aspects: 'subclass-aspect',
+          fragments: 'subclass-fragment',
+          totems: 'subclass-aspect',
+          trinkets: 'subclass-fragment',
+          supers: 'subclass-super',
+          grenades: 'subclass-grenade',
+          melee: 'subclass-melee',
+          class_abilities: 'subclass-class',
+        } as Record<string, string>
+      )[group ?? ''];
+      if (categoryId && inventory?.displayName)
+        items[hash] = {
+          hash: Number(hash),
+          name: inventory.displayName,
+          categoryId,
+          icon: '',
+          inGameDescription: '',
+        };
+    }
+    // Real keyword names and in-game descriptions from DestinyTraitDefinition.
+    items[106947924] = {
+      hash: 106947924,
+      name: 'Frost Armor',
+      categoryId: 'verbs',
+      icon: '',
+      inGameDescription: 'You are fortified by layers of durable [Stasis] Stasis matter.',
+    };
+    items[3221118171] = {
+      hash: 3221118171,
+      name: 'Jolted',
+      categoryId: 'verbs',
+      icon: '',
+      inGameDescription: 'The target is energized with destructive [Arc] Arc Light.',
+    };
+    items[500183315] = {
+      hash: 500183315,
+      name: 'Blind',
+      categoryId: 'verbs',
+      icon: '',
+      inGameDescription: '',
+    };
+    tooltips[500183315] = {
+      hash: 500183315,
+      associated: [],
+      text: {
+        en: {
+          text: '<arc/>Blind',
+          updatedAt: '2026-11-10T00:00:00Z',
+          updatedBy: 'fixture',
+        },
+      },
+    };
+    items[345967499] = {
+      hash: 345967499,
+      name: 'Transcendence',
+      categoryId: 'verbs',
+      icon: '',
+      inGameDescription: '',
+    };
+    useDataStore.setState({ data: { items, bundle: { tooltips } } as EditorData });
+  }
+
+  it.each(markupIcons)('replaces %s, restores it in one undo, and redoes the symbol', (icon) => {
+    const view = mount('Deals ');
+    type(view, icon);
+    expect(chipState(view.state)?.text).toBe(`${icon} symbol`);
+    press(view, 'Enter');
+    expect(view.state.doc.toString()).toBe(`Deals <${icon}/>`);
+    expect(view.state.selection.main.head).toBe(view.state.doc.length);
+    act(() => {
+      expect(undo(view)).toBe(true);
+    });
+    expect(view.state.doc.toString()).toBe(`Deals ${icon}`);
+    expect(chipState(view.state)).toBeNull();
+    act(() => {
+      expect(redo(view)).toBe(true);
+    });
+    expect(view.state.doc.toString()).toBe(`Deals <${icon}/>`);
+  });
+
+  it.each([
+    ['Blind', 'arc'],
+    ['Jolt', 'arc'],
+    ['Jolted', 'arc'],
+    ['Jolting', 'arc'],
+    ['Jolts', 'arc'],
+    ['Frost Armor', 'stasis'],
+    ['fRoSt ArMoR', 'stasis'],
+    ['Ember of Ashes', 'solar'],
+    ['Touch of Flame', 'solar'],
+    ['Thundercrash', 'arc'],
+    ['Pulse Grenade', 'arc'],
+  ])('keeps the whole catalogue name %s after its symbol', (name, icon) => {
+    catalogue();
+    const view = mount('Grants ');
+    type(view, name);
+    expect(chipState(view.state)?.text).toBe(`${icon} symbol before “${name}”`);
+    press(view, 'Enter');
+    expect(view.state.doc.toString()).toBe(`Grants <${icon}/>${name}`);
+    expect(view.state.selection.main.head).toBe(view.state.doc.length);
+    act(() => {
+      undo(view);
+    });
+    expect(view.state.doc.toString()).toBe(`Grants ${name}`);
+  });
+
+  it('does not offer inside longer words, across newlines, or for non-English subclass names', () => {
+    catalogue();
+    const view = mount('');
+    type(view, 'arcing xFrost Armor');
+    expect(chipState(view.state)).toBeNull();
+    type(view, '\nFrost\nArmor');
+    expect(chipState(view.state)).toBeNull();
+    const translated = mount('', { lang: 'de' });
+    type(translated, 'Frost Armor');
+    expect(chipState(translated.state)).toBeNull();
+    type(translated, ' Arc');
+    press(translated, 'Enter');
+    expect(translated.state.doc.toString()).toBe('Frost Armor <arc/>Arc');
+  });
+
+  it('uses the same whole-name rule on request, and permits symbols when the element is unknown', () => {
+    catalogue();
+    const view = mount('Frost Armor');
+    act(() => openSuggest(view));
+    let snapshot = suggestState(view.state)!;
+    expect(snapshot.context.query).toBe('Frost Armor');
+    const index = snapshot.items.findIndex((item) => item.id === 'icon:stasis');
+    expect(snapshot.items[index]!.hint).toBe('before Frost Armor');
+    act(() => {
+      acceptSuggestion(view, index);
+    });
+    expect(view.state.doc.toString()).toBe('<stasis/>Frost Armor');
+    const unknown = mount('Transcendence');
+    act(() => openSuggest(unknown));
+    snapshot = suggestState(unknown.state)!;
+    expect(snapshot.items.filter((item) => item.id.startsWith('icon:'))).toHaveLength(
+      markupIcons.length,
+    );
+    act(() => {
+      acceptSuggestion(
+        unknown,
+        snapshot.items.findIndex((item) => item.id === 'icon:arc'),
+      );
+    });
+    expect(unknown.state.doc.toString()).toBe('<arc/>Transcendence');
+  });
+
+  it('rebuilds the name index when the catalogue changes', () => {
+    catalogue();
+    const view = mount('');
+    type(view, 'Frost Armor');
+    expect(chipState(view.state)).not.toBeNull();
+    useDataStore.setState({ data: null });
+    type(view, ' Frost Armor');
+    expect(chipState(view.state)).toBeNull();
+  });
+
+  it('leaves elementless keywords and abilities shared across elements to Ctrl+Space', () => {
+    catalogue();
+    const view = mount('');
+    type(view, 'Transcendence');
+    expect(chipState(view.state)).toBeNull();
+    type(view, ' Healing Rift');
+    expect(chipState(view.state)).toBeNull();
+  });
+
+  it('accepts a later chip with its button, and clears it on blur', () => {
+    catalogue();
+    const view = mount('');
+    type(view, 'arc');
+    act(() => {
+      chipNode()!.querySelector<HTMLButtonElement>('button')!.click();
+    });
+    type(view, ' Frost Armor');
+    act(() => {
+      chipNode()!.querySelector<HTMLButtonElement>('button')!.click();
+    });
+    expect(view.state.doc.toString()).toBe('<arc/> <stasis/>Frost Armor');
+    type(view, ' solar');
+    act(() => {
+      view.contentDOM.dispatchEvent(new FocusEvent('blur'));
+    });
+    expect(chipState(view.state)).toBeNull();
+    act(() => view.focus());
+    expect(chipState(view.state)).toBeNull();
   });
 });

@@ -15,6 +15,7 @@ import {
 } from '@clarity/core';
 import { insertionChecker, type Rejection } from '../markupInsertion';
 import { locateBlocks, locateVariables } from '../references';
+import { englishSymbols, subclassSymbol } from './typedSymbols';
 
 export type SuggestCategory =
   'Transforms' | 'Snippets' | 'Tags' | 'Symbols' | 'Variables' | 'Globals';
@@ -43,6 +44,8 @@ export interface SuggestContext {
    * typed from there on is the query, not the word before it.
    */
   atCaret?: boolean;
+  /** A catalogue subclass name: retain it when a matching symbol is chosen. Null means no known element. */
+  subclassIcon?: string | null;
 }
 
 export interface SuggestItem {
@@ -162,6 +165,16 @@ export function suggestContext(state: EditorState, explicit: boolean): SuggestCo
     found('import-name', triggers.importName) ??
     found('tag', triggers.tag) ??
     (explicit ? found('word', triggers.word) : null);
+  if (context?.kind === 'word' && englishSymbols(state)) {
+    const subclass = subclassSymbol(before, context.query);
+    if (subclass)
+      return {
+        ...context,
+        from: main.head - subclass.word.length,
+        query: subclass.word,
+        subclassIcon: subclass.icon,
+      };
+  }
   return context;
 }
 
@@ -426,17 +439,23 @@ function build(
     for (const symbol of markupSymbols) {
       if (skip?.has(symbol.id)) continue;
       const tag = `<${symbol.name}/>`;
+      const keepWord =
+        context.kind === 'word' &&
+        context.subclassIcon !== undefined &&
+        symbol.id.startsWith('icon:') &&
+        (context.subclassIcon === null || context.subclassIcon === symbol.name);
       push({
         id: symbol.id,
         category: 'Symbols',
         label: tag,
         ...(symbol.id.startsWith('style:') ? { hint: 'whole line', lineStyle: symbol.name } : {}),
-        about: symbol.about,
-        insert: tag,
+        about: keepWord ? `${symbol.name} symbol before ${query}.` : symbol.about,
+        insert: keepWord ? tag + query : tag,
+        ...(keepWord ? { hint: `before ${query}` } : {}),
         // With a selection the symbol goes in front of it and the selection stays.
         ...(insertAtStart ? { from: context.from, to: context.from } : {}),
         usage: symbol.usage,
-        keys: symbol.keywords,
+        keys: keepWord ? `${symbol.keywords} ${query}` : symbol.keywords,
       });
     }
     for (const tag of markupTags) addSnippet(snippetOf(tag), 'Tags');

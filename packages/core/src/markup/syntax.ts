@@ -6,6 +6,7 @@ export const markupIcons = [
   'stasis',
   'void',
   'strand',
+  'prismatic',
   'heavy',
   'primary',
   'special',
