@@ -1,6 +1,5 @@
 import {
   compendiumCellAt,
-  compendiumTabs,
   normaliseCompendiumName,
   type CompendiumData,
   type CompendiumLink,
@@ -193,52 +192,14 @@ export function descriptionCells(
 }
 
 /**
- * The rows a multipart excerpt combines, in sheet order: rows of that name in the same section
- * category (the combiner never mixes categories) whose text leads, in order, in the combined
- * excerpt, with a repeated card (same text) counted once. Undefined unless exactly the excerpt's
- * part count is proven, so an unrelated same-name row is never named.
- */
-function partRows(sheet: CompendiumSheet, row: CompendiumMatch['row'], count: number) {
-  const categories = compendiumTabs[sheet.gid]?.sectionCategories;
-  const category = categories?.[row.section ?? ''];
-  const combined = row.cell.plain;
-  const named = sheet.rows
-    .filter(
-      (other) =>
-        other.nameNorm === row.nameNorm &&
-        (!category ||
-          !categories?.[other.section ?? ''] ||
-          categories[other.section ?? ''] === category),
-    )
-    .sort((a, b) => a.rowIndex - b.rowIndex || (a.anchor?.col ?? 0) - (b.anchor?.col ?? 0));
-  const inOrder = (rows: typeof named) => {
-    let at = 0;
-    return rows.filter((other) => {
-      // Its first line: a cooldown shared by several parts is written once in the excerpt.
-      const lead = other.cell.plain.split(String.fromCharCode(10))[0];
-      const found = lead ? combined.indexOf(lead, at) : -1;
-      if (found < 0) return false;
-      at = found + lead.length;
-      return true;
-    });
-  };
-  const all = inOrder(named);
-  if (all.length === count) return all;
-  const distinct = inOrder(
-    named.filter(
-      (other, index) =>
-        !named.slice(0, index).some((previous) => previous.cell.plain === other.cell.plain),
-    ),
-  );
-  return distinct.length === count ? distinct : undefined;
-}
-
-/**
  * Where a candidate sits in the sheet, as text and an `edit#gid=&range=` link. The match's own tab
  * is compacted (no grid) in worker replies, so spans come from the loaded source by gid.
  */
 export function matchLocation(
-  match: Pick<CompendiumMatch, 'tab' | 'row' | 'cells' | 'sourceAnchor' | 'parts'>,
+  match: Pick<
+    CompendiumMatch,
+    'tab' | 'row' | 'cells' | 'sourceAnchor' | 'parts' | 'componentRows'
+  >,
   source?: CompendiumData | null,
 ): SourceLocation {
   const sheet = source?.tabs.find((tab) => tab.gid === match.tab.gid) ?? match.tab;
@@ -252,15 +213,29 @@ export function matchLocation(
     )
       .map(regionRange)
       .join(', ');
-  } else if (anchor && match.parts && match.parts.length > 1 && sheet.rows.length) {
-    // A multipart excerpt joins every row of the same name in this tab, each under a heading:
-    // name each part's own description cells, in order.
-    range = partRows(sheet, match.row, match.parts.length)
-      ?.map((part) => {
-        const cells = part.anchor && descriptionCells(sheet, part.anchor, part.cell.plain);
-        return cells ? cells.map(regionRange).join(', ') : `${part.rowIndex}:${part.rowIndex}`;
-      })
-      .join(', ');
+  } else if (match.parts && match.parts.length > 1) {
+    // Only the resolver knows which same-name rows contributed to this excerpt. Never infer
+    // membership from names, categories, headings, or substrings of the combined text.
+    const parts = match.componentRows;
+    const loaded = source ? source.tabs.find((tab) => tab.gid === match.tab.gid) : sheet;
+    if (parts?.length === match.parts.length && loaded) {
+      const regions = parts.map((part) => {
+        // Worker/cache results can outlive a source snapshot. Verify the exact physical row
+        // and its content in the loaded snapshot before naming its description cells.
+        const current = loaded.rows.find(
+          (row) =>
+            row.rowIndex === part.rowIndex &&
+            row.anchor?.row === part.anchor?.row &&
+            row.anchor?.col === part.anchor?.col &&
+            row.name === part.name &&
+            row.section === part.section &&
+            JSON.stringify(row.cell) === JSON.stringify(part.cell),
+        );
+        return current?.anchor && descriptionCells(loaded, current.anchor, current.cell.plain);
+      });
+      if (regions.every((cells) => !!cells?.length))
+        range = regions.flatMap((cells) => cells!.map(regionRange)).join(', ');
+    }
   } else if (anchor) {
     // A parsed row is anchored on its NAME cell; the excerpt shown is its description cells.
     const cells = descriptionCells(sheet, anchor, match.row.cell.plain);

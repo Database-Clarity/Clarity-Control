@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { CompendiumData, CompendiumMatch } from '@clarity/core';
+import {
+  combineCompendiumMatches,
+  resolveCompendiumLink,
+  snapshotCompendium,
+  type CompendiumData,
+  type CompendiumMatch,
+} from '@clarity/core';
+import { compactMatch } from './compactMatches';
 import {
   cellLocation,
   columnLabel,
@@ -253,14 +260,11 @@ describe('source labels and links', () => {
         { row: 20, col: 2, colSpan: 4, cell: cell('Second') },
       ],
     };
-    const match = {
-      tab: { ...sheet, grid: undefined },
-      row: {
-        ...part(12, ''),
-        cell: cell(['H1', 'First', 'H2', 'Second'].join(String.fromCharCode(10))),
-      },
-      parts: ['H1', 'H2'],
-    } as unknown as CompendiumMatch;
+    const match = compactMatch(
+      combineCompendiumMatches(sheet.rows.map((row) => ({ tab: sheet, row })))!,
+    );
+    expect(match.componentRows?.map((part) => part.rowIndex)).toEqual([12, 20]);
+    expect(snapshotCompendium(match)).not.toHaveProperty('componentRows');
     expect(matchLocation(match, { fetchedAt: '', tabs: [sheet] }).range).toBe('C12:F12, C20:F20');
   });
 
@@ -298,18 +302,64 @@ describe('source labels and links', () => {
         { row: r, col: 2, cell: cell(['First', 'Second', 'Other'][i]) },
       ]),
     };
-    const match = {
-      tab: { ...sheet, grid: undefined },
-      row: {
-        ...part(12, '', 'Intrinsic Traits'),
-        cell: cell(['A', 'First', 'B', 'Second'].join(String.fromCharCode(10))),
-      },
-      parts: ['A', 'B'],
-    } as unknown as CompendiumMatch;
     const source = { fetchedAt: '', tabs: [sheet] };
+    const link = {
+      ...snapshotCompendium({ tab: sheet, row: sheet.rows[0] }),
+      snapshot: cell('Old'),
+    };
+    const resolved = resolveCompendiumLink(link, source);
+    if (!('row' in resolved)) throw new Error('Expected resolved multipart match');
+    const match = compactMatch(resolved);
+    expect(match.componentRows?.map((part) => part.rowIndex)).toEqual([12, 20]);
     expect(matchLocation(match, source).range).toBe('C12, C20');
-    // Parts that cannot be proven are not guessed.
-    const unproven = { ...match, parts: ['A', 'B', 'C'] } as unknown as CompendiumMatch;
-    expect(matchLocation(unproven, source).unknown).toBe(true);
+    // Missing provenance (including old worker caches) never triggers reconstruction.
+    expect(matchLocation({ ...match, componentRows: undefined }, source).unknown).toBe(true);
+    expect(matchLocation({ ...match, parts: ['A', 'B', 'C'] }, source).unknown).toBe(true);
+  });
+
+  it('uses resolver provenance rather than an uncategorized same-name leading substring (F1)', () => {
+    const sheet = {
+      gid: '1662574278',
+      name: 'Weapon Perks',
+      rows: [
+        [12, 'Intrinsic Traits', 'First'],
+        [15, 'Unclassified', 'Second\nUnrelated body'],
+        [20, 'Intrinsic Traits', 'Second'],
+        [30, 'Weapon Traits', 'Other'],
+      ].map(([rowIndex, section, plain]) => ({
+        ...row('Rampage', { row: Number(rowIndex), col: 0 }),
+        section: String(section),
+        cell: cell(String(plain)),
+      })),
+      grid: [] as NonNullable<CompendiumMatch['tab']['grid']>,
+    };
+    sheet.grid = sheet.rows.flatMap((part) => [
+      { ...part.anchor!, cell: cell('Rampage') },
+      { row: part.rowIndex, col: 2, cell: part.cell },
+    ]);
+    const source = { fetchedAt: '', tabs: [sheet] };
+    const resolved = resolveCompendiumLink(
+      { ...snapshotCompendium({ tab: sheet, row: sheet.rows[0] }), snapshot: cell('Old') },
+      source,
+    );
+    if (!('row' in resolved)) throw new Error('Expected resolved multipart match');
+    const match = structuredClone(compactMatch(resolved));
+    expect(match.parts).toHaveLength(2);
+    expect(match.componentRows?.map((part) => part.rowIndex)).toEqual([12, 20]);
+    expect(matchLocation(match, source).range).toBe('C12, C20');
+    expect(matchLocation(match, source).href).toContain('range=C12');
+    // Stale or unavailable source cannot silently supply a different physical component.
+    const changed = structuredClone(source);
+    changed.tabs[0].rows[2].cell = cell('New content');
+    for (const unavailable of [
+      changed,
+      { ...source, tabs: [] },
+      { ...source, tabs: [{ ...sheet, grid: undefined }] },
+    ]) {
+      const location = matchLocation(match, unavailable);
+      expect(location.unknown).toBe(true);
+      expect(location.href).toBe(sourceHref(sheet.gid));
+    }
+    expect(matchLocation(match).unknown).toBe(true); // compact worker result, no loaded grid
   });
 });

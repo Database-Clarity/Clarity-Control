@@ -86,6 +86,8 @@ export interface CompendiumMatch {
   tab: CompendiumSheet;
   row: CompendiumRow;
   parts?: string[];
+  /** Read-only provenance of a combined result, in the resolver's component order. Not saved. */
+  readonly componentRows?: readonly Readonly<CompendiumRow>[];
   cells?: CompendiumLink['cells'];
   sourceAnchor?: CompendiumLink['sourceAnchor'];
   setBonusPieces?: 2 | 4;
@@ -464,6 +466,7 @@ export function combineCompendiumMatches(matches: CompendiumMatch[]): Compendium
   return {
     tab: first.tab,
     parts,
+    componentRows: sorted.map(({ row }) => row),
     row: {
       ...first.row,
       cell: withBackground(
