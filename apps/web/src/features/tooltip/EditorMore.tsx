@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Popover } from '../../ui/Popover';
 import type { GroupedPerk } from './grouping';
@@ -74,20 +74,13 @@ export function EditorMore({
               </li>
             )}
             {draft && (
-              <li>
-                <button
-                  type="button"
-                  data-danger
-                  disabled={saving}
-                  aria-label="Discard this tooltip's draft"
-                  onClick={() => {
-                    onDiscard();
-                    close();
-                  }}
-                >
-                  Discard draft
-                </button>
-              </li>
+              <DiscardRow
+                saving={saving}
+                onDiscard={() => {
+                  onDiscard();
+                  close();
+                }}
+              />
             )}
             {grouped && (
               <li>
@@ -130,5 +123,50 @@ export function EditorMore({
         </div>
       )}
     </Popover>
+  );
+}
+
+/**
+ * Discard asks first, in place (the Drafts list confirms in a dialog): the row becomes the question
+ * with Discard and Cancel, focus on Cancel. It lives inside the sheet, so it resets when the sheet
+ * closes.
+ */
+function DiscardRow({ saving, onDiscard }: { saving: boolean; onDiscard(): void }) {
+  const [asking, setAsking] = useState(false);
+  const cancel = useRef<HTMLButtonElement>(null);
+  const ask = useRef<HTMLButtonElement>(null);
+  const was = useRef(false);
+  useEffect(() => {
+    if (asking) cancel.current?.focus();
+    else if (was.current) ask.current?.focus();
+    was.current = asking;
+  }, [asking]);
+  if (!asking)
+    return (
+      <li>
+        <button
+          ref={ask}
+          type="button"
+          data-danger
+          disabled={saving}
+          aria-label="Discard this tooltip's draft"
+          onClick={() => setAsking(true)}
+        >
+          Discard draft
+        </button>
+      </li>
+    );
+  return (
+    <li className={styles.confirm} role="group" aria-label="Discard this tooltip's draft?">
+      <span>Discard this draft? Its unsaved changes are lost.</span>
+      <span className={styles.confirmActions}>
+        <button type="button" data-danger disabled={saving} onClick={onDiscard}>
+          Discard
+        </button>
+        <button ref={cancel} type="button" onClick={() => setAsking(false)}>
+          Cancel
+        </button>
+      </span>
+    </li>
   );
 }

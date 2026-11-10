@@ -59,7 +59,7 @@
     min-height: 1.375rem;
     padding: 0 0.5rem;
     @include theme.mobile-or-coarse {
-      min-height: max(44px, 2.75rem);
+      min-height: var(--tap);
     }
   }
 
@@ -71,7 +71,7 @@
     background: none;
     border-color: transparent;
     @include theme.mobile-or-coarse {
-      min-width: max(44px, 2.75rem);
+      min-width: var(--tap);
     }
   }
 }

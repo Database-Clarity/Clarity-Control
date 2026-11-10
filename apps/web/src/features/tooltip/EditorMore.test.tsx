@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { workspaceShortcutsBlocked } from '../../ui/interaction';
 import { EditorPaneHeader } from './EditorPaneHeader';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -115,7 +116,19 @@ describe('More (phone tool row)', () => {
     ]);
     await click(button('Markup bar'));
     expect(spies.toggle).toHaveBeenCalledTimes(1);
+    // Discard asks first, in place; Cancel puts the row back with nothing discarded.
     await click(button('Discard this tooltip'));
+    expect(spies.onDiscard).not.toHaveBeenCalled();
+    expect(document.activeElement?.textContent).toBe('Cancel');
+    await click(button('Cancel'));
+    expect(spies.onDiscard).not.toHaveBeenCalled();
+    expect(document.activeElement?.getAttribute('aria-label')).toBe("Discard this tooltip's draft");
+    await click(button('Discard this tooltip'));
+    await click(
+      [...host.querySelectorAll<HTMLElement>('[role="dialog"] button')].find(
+        (element) => element.textContent === 'Discard',
+      ),
+    );
     expect(spies.onDiscard).toHaveBeenCalledTimes(1);
     expect(q('[role="dialog"]')).toBeNull();
     await openMore();
@@ -131,7 +144,11 @@ describe('More (phone tool row)', () => {
   it('shows Discard only with a draft, and closes on Escape with focus back on More', async () => {
     phone(true);
     await mount(handlers(), { draft: false });
+    const shortcuts = () => workspaceShortcutsBlocked(new KeyboardEvent('keydown'));
+    expect(shortcuts()).toBe(false);
     await openMore();
+    // While More is open it owns the workspace shortcuts (Alt+PageDown does not step behind it).
+    expect(shortcuts()).toBe(true);
     expect(button('Discard')).toBeUndefined();
     await act(
       async () =>
@@ -139,6 +156,7 @@ describe('More (phone tool row)', () => {
     );
     expect(q('[role="dialog"]')).toBeNull();
     expect(document.activeElement).toBe(q('button[aria-label="More editor tools"]'));
+    expect(shortcuts()).toBe(false);
   });
 
   it('keeps every inline button on desktop', async () => {

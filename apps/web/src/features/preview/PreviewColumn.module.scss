@@ -2,6 +2,7 @@
 // the game surface: one 28px strip, nothing wraps. On a phone it is the pane switch's text tabs at
 // the small touch size (var(--tap-sm)); the change count takes its own line when it does not fit.
 @use '../../data/variables' as theme;
+@use '../../ui/controls';
 @use '../../ui/tabs';
 
 .column {
@@ -109,6 +110,8 @@
     max-width: none;
     height: var(--tap-sm);
     font-size: var(--ctl-text);
+    // After the local size: iOS still gets 16 px, so focusing the select does not zoom the page.
+    @include controls.ios-field-text;
   }
 }
 

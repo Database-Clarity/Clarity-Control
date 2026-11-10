@@ -8,6 +8,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react';
+import { useWorkspaceShortcutOwner } from './interaction';
 import styles from './Popover.module.scss';
 
 /**
@@ -39,8 +40,9 @@ export function Popover({
   /** The content runs edge to edge (a menu of rows with its own header): no body padding. */
   flush?: boolean;
   /**
-   * A sheet of actions (More): opening moves focus to its first row (after a Close button) and Tab
-   * cycles inside it, like the shell's sheets.
+   * A sheet of actions (More): opening moves focus to its first row (after a Close button), Tab
+   * cycles inside it, and it owns the workspace shortcuts while open (Alt+PageDown does not step the
+   * page behind it), like the shell's sheets.
    */
   contain?: boolean;
 }) {
@@ -49,6 +51,7 @@ export function Popover({
   const button = useRef<HTMLButtonElement>(null);
   const surface = useRef<HTMLDivElement>(null);
   const id = useId();
+  useWorkspaceShortcutOwner(surface, open && contain);
   const close = useCallback((restoreFocus: boolean) => {
     setOpen(false);
     if (restoreFocus) button.current?.focus();
@@ -87,14 +90,15 @@ export function Popover({
   }, [open, close]);
   useEffect(() => {
     if (!open || !contain) return;
-    const focusable = () =>
-      [
-        ...(surface.current?.querySelectorAll<HTMLElement>(
-          'button:not(:disabled), a[href], select:not(:disabled), input:not(:disabled)',
-        ) ?? []),
-      ];
+    const focusable = () => [
+      ...(surface.current?.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), a[href], select:not(:disabled), input:not(:disabled)',
+      ) ?? []),
+    ];
     const items = focusable();
-    (items.find((item) => !item.getAttribute('aria-label')?.startsWith('Close')) ?? items[0])?.focus();
+    (
+      items.find((item) => !item.getAttribute('aria-label')?.startsWith('Close')) ?? items[0]
+    )?.focus();
     const tab = (event: KeyboardEvent) => {
       if (event.key !== 'Tab') return;
       const list = focusable();

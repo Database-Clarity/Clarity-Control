@@ -105,3 +105,33 @@
   padding: 0 var(--page-x) 0.5rem;
   font-size: 0.8125rem;
 }
+
+// Discard's question in place of its row: the text, then Discard and Cancel on the page edge.
+.confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.375rem 0.5rem;
+  padding: 0.375rem var(--page-x);
+
+  > span:first-child {
+    flex: 1 1 10rem;
+  }
+}
+
+.confirmActions {
+  display: flex;
+  gap: 0.5rem;
+  margin-inline-start: auto;
+
+  button {
+    @include controls.button;
+    min-height: var(--tap);
+    font-size: var(--ctl-text);
+
+    &[data-danger] {
+      color: var(--danger);
+    }
+  }
+}

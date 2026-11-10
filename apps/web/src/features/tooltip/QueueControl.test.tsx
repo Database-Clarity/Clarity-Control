@@ -255,7 +255,8 @@ describe('queue control on a phone', () => {
     await mount('/translations');
     const total = rows().length;
     await click(rows()[0]!);
-    const segments = [...host.querySelectorAll('[data-queue] > :not([role="status"])')];
+    // Only the visible segments are in the joined group (its first and last are the arrows).
+    const segments = [...host.querySelectorAll('[data-queue] > *')];
     expect(segments.map((segment) => segment.getAttribute('aria-label'))).toEqual([
       'Previous in queue',
       `Back to the translation queue, 1 of ${total}`,
@@ -263,18 +264,20 @@ describe('queue control on a phone', () => {
     ]);
     expect(segments[1]!.textContent).toBe(`1 of ${total}`);
     // The status line stays for screen readers only.
-    expect(host.querySelector('[data-queue] [role="status"]')!.className).toBe('sr-only');
+    expect(host.querySelector('[data-queue] [role="status"]')).toBeNull();
+    expect(host.querySelector('[role="status"].sr-only')!.textContent).toBe(`1 of ${total}`);
     const press = (init: KeyboardEventInit) =>
       act(async () => {
         window.dispatchEvent(
           new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }),
         );
       });
+    const status = () => host.querySelector('[role="status"].sr-only')?.textContent;
     await press({ key: 'PageDown', altKey: true });
     expect(location.pathname).toBe('/t/2');
-    expect(position()).toBe(`2 of ${total}`);
+    expect(status()).toBe(`2 of ${total}`);
     await press({ key: 'PageUp', altKey: true });
-    expect(position()).toBe(`1 of ${total}`);
+    expect(status()).toBe(`1 of ${total}`);
     await click(link('Back to the translation queue')!);
     expect(location.pathname).toBe('/translations');
   });

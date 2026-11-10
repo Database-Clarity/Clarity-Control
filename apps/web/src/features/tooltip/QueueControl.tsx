@@ -109,40 +109,43 @@ export const QueueControl = memo(function QueueControl({
   const label = placeLabel(place);
   if (phone) {
     // Phones: one joined stepper `[‹][12 of 148][›]`; the middle segment is the way back to the
-    // queue and reads the position. The status line stays for screen readers only.
+    // queue and reads the position. The status line stays for screen readers only, outside the joined
+    // group so the group's first and last segments are the visible ones.
     return (
-      <span
-        className={`${styles.queue} ${styles.queueStepper}`}
-        role="group"
-        aria-label="Translation queue"
-        data-queue
-      >
+      <>
         <span className="sr-only" role="status">
           {label}
         </span>
-        {done ? (
-          <Link
-            to={queuePath(context, user)}
-            className={styles.queueBack}
-            title="Back to the translation queue, with its filters"
-          >
-            Back to queue
-          </Link>
-        ) : (
-          <>
-            {step(place.previous, previous, 'Previous in queue', 'Alt+PageUp', '‹')}
+        <span
+          className={`${styles.queue} ${styles.queueStepper}`}
+          role="group"
+          aria-label="Translation queue"
+          data-queue
+        >
+          {done ? (
             <Link
               to={queuePath(context, user)}
               className={styles.queueBack}
-              aria-label={`Back to the translation queue, ${label}`}
               title="Back to the translation queue, with its filters"
             >
-              {label}
+              Back to queue
             </Link>
-            {step(place.next, next, 'Next in queue', 'Alt+PageDown', '›')}
-          </>
-        )}
-      </span>
+          ) : (
+            <>
+              {step(place.previous, previous, 'Previous in queue', 'Alt+PageUp', '‹')}
+              <Link
+                to={queuePath(context, user)}
+                className={styles.queueBack}
+                aria-label={`Back to the translation queue, ${label}`}
+                title="Back to the translation queue, with its filters"
+              >
+                {label}
+              </Link>
+              {step(place.next, next, 'Next in queue', 'Alt+PageDown', '›')}
+            </>
+          )}
+        </span>
+      </>
     );
   }
   const back = (
