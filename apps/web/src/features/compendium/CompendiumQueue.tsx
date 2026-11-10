@@ -2,7 +2,8 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { VirtualList } from '../../ui/VirtualList';
 import { useSkeletonVisible } from '../../ui/Skeleton';
-import { phoneQuery, useMedia } from '../../ui/useMedia';
+import { touchQuery, useMedia } from '../../ui/useMedia';
+import { useScaleFactor } from '../../ui/usePaneDivider';
 import { useSettingsStore } from '../../stores/settings';
 import { useCompendiumQueueStore } from './queueStore';
 import {
@@ -106,13 +107,15 @@ export function CompendiumQueue() {
   const selected = useCompendiumQueueStore((state) => state.selected);
   const reinclude = useCompendiumQueueStore((state) => state.reinclude);
   const toggleGroup = useCompendiumQueueStore((state) => state.toggleGroup);
-  const phone = useMedia(phoneQuery);
-  // Phone rows are the touch size (2.25rem, 2.75rem with Large); the list measures rem, so it
-  // follows the interface scale too.
-  const touchRem = useSettingsStore((state) => state.device.touchSize) === 'large' ? 2.75 : 2.25;
+  // Touch rows (phones and coarse pointers) are var(--tap): 2.25rem, or max(44px, 2.75rem) with
+  // Large, so they follow the interface scale and keep the 44px floor below 100%.
+  const touch = useMedia(touchQuery);
+  const scale = useScaleFactor();
+  const large = useSettingsStore((state) => state.device.touchSize) === 'large';
+  const touchRem = large ? Math.max(44 / (16 * scale), 2.75) : 2.25;
   const itemHeight = useCallback(
-    (item: QueueItem) => (item.type === 'header' ? headerRem : phone ? touchRem : 2),
-    [phone, touchRem],
+    (item: QueueItem) => (item.type === 'header' ? headerRem : touch ? touchRem : 2),
+    [touch, touchRem],
   );
   const show = parseShow(params.get('show'));
   const query = params.get('q') ?? '';

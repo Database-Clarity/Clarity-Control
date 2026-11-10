@@ -5,7 +5,7 @@ import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { workspaceShortcutsBlocked } from '../../ui/interaction';
 import { EditorPaneHeader } from './EditorPaneHeader';
-import { fitTools } from './EditorMore';
+import { fitTools, phoneFit } from './EditorMore';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -181,6 +181,22 @@ describe('inline tools (phone tool row)', () => {
     // No room: every tool in More.
     expect(fitTools([60, 60], 6, 40, 42)).toBe(0);
     expect(fitTools([], 6, 0, 42)).toBe(0);
+    // A lone tool stays inline however narrow the row (the row wraps; More never holds one).
+    expect(fitTools([60], 6, 10, 42)).toBe(1);
+  });
+
+  it('fits from sizes the answer cannot change (no back-and-forth when the queue wraps)', () => {
+    const layout = { gap: 6, headerGap: 6, more: 36, queue: 0 };
+    // No queue: More shares the tools' line.
+    expect(phoneFit([60, 60, 60], { ...layout, room: 192 })).toBe(3);
+    expect(phoneFit([60, 60, 60], { ...layout, room: 150 })).toBe(1);
+    // With a queue: all on one line when it fits beside the tools...
+    expect(phoneFit([60, 60], { ...layout, queue: 120, room: 6 + 126 + 120 })).toBe(2);
+    // ...otherwise the queue (and More) wrap below and the tools get the whole line.
+    expect(phoneFit([60, 60], { ...layout, queue: 120, room: 130 })).toBe(2);
+    expect(phoneFit([60, 60, 60], { ...layout, queue: 120, room: 130 })).toBe(1);
+    // A lone tool never goes to More, queue or not.
+    expect(phoneFit([60], { ...layout, queue: 300, room: 40 })).toBe(1);
   });
 
   it('shows what fits inline with the same handlers, and More only for the overflow', async () => {
@@ -199,13 +215,17 @@ describe('inline tools (phone tool row)', () => {
         disconnect() {}
       },
     );
+    // The header line is `room` wide; every tool and More's square are 60px; nothing else counts.
     let room = 1000;
     const rect = vi
       .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
       .mockImplementation(function (this: HTMLElement) {
-        const width = this.dataset.label || this.hasAttribute('data-more') ? 60 : room;
+        const width = this.dataset.label || this.hasAttribute('data-more') ? 60 : 0;
         return { width, height: 36, top: 0, left: 0, right: width, bottom: 36 } as DOMRect;
       });
+    const line = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockImplementation(() => room);
     const spies = handlers();
     await mount(spies);
     await act(async () => {});
@@ -226,6 +246,18 @@ describe('inline tools (phone tool row)', () => {
       ),
     );
     expect(spies.onDiscard).toHaveBeenCalledTimes(1);
+    // Inline Grouped is a sheet like More: it owns the workspace shortcuts while open (Alt+PageDown
+    // does not step the page behind it).
+    const shortcuts = () => workspaceShortcutsBlocked(new KeyboardEvent('keydown'));
+    expect(shortcuts()).toBe(false);
+    await click(button('Grouped'));
+    expect(q('[role="dialog"][aria-label="Grouped manifest perks"]')).not.toBeNull();
+    expect(shortcuts()).toBe(true);
+    await act(
+      async () =>
+        void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+    );
+    expect(shortcuts()).toBe(false);
     // Room for two tools beside More: the other two (Grouped, Edit override) move into More.
     room = 2 * 60 + 6 + 60 + 6;
     await act(async () => callback?.());
@@ -242,5 +274,6 @@ describe('inline tools (phone tool row)', () => {
       'Back to queueGerman, all categories',
     ]);
     rect.mockRestore();
+    line.mockRestore();
   });
 });

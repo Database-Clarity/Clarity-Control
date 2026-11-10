@@ -5,7 +5,9 @@
 .tools {
   position: relative;
   display: inline-flex;
-  flex: 1 1 0;
+  // Content-sized for line breaking: when the tools and the queue do not share a line, the queue
+  // wraps below (the fit in EditorMore.tsx assumes exactly that), then the tools take the line.
+  flex: 1 1 auto;
   align-items: center;
   justify-content: flex-end;
   gap: 0.375rem;
@@ -50,6 +52,12 @@
 }
 
 // The queue stepper and More: one group on the right edge (it wraps as a unit at 150%).
+.queue {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+}
+
 .right {
   display: inline-flex;
   flex: none;

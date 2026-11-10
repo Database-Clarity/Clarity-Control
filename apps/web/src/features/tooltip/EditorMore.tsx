@@ -206,6 +206,8 @@ export type ToolId = 'markup' | 'discard' | 'grouped' | `override:${number}`;
  * more tool with it.
  */
 export function fitTools(widths: readonly number[], gap: number, room: number, more: number) {
+  // A lone tool never goes to More: it stays inline (the row wraps instead).
+  if (widths.length <= 1) return widths.length;
   const total = (count: number) =>
     widths.slice(0, count).reduce((sum, width) => sum + width, 0) + gap * Math.max(0, count - 1);
   if (total(widths.length) <= room) return widths.length;
@@ -216,7 +218,31 @@ export function fitTools(widths: readonly number[], gap: number, room: number, m
 
 type MoreProps = Parameters<typeof EditorMore>[0];
 type Tool = { id: ToolId; label: string };
-type Layout = { widths: Record<string, number>; gap: number; room: number; more: number };
+type Layout = {
+  widths: Record<string, number>;
+  /** The gap between tools, and between the header's items. */
+  gap: number;
+  headerGap: number;
+  /** The header line's width after the items before the tools (language, draft dot). */
+  room: number;
+  /** More's square, and the queue stepper's width (0 without a queue). */
+  more: number;
+  queue: number;
+};
+
+/**
+ * How many tools show inline, from sizes that do not depend on the answer (the header line, the
+ * items before the tools, the queue, each tool's own width), so a fit never feeds back into the
+ * next measurement. Without a queue, More sits on the tools' line. With one, either everything
+ * fits on one line, or the queue (and More) wrap below and the tools get the whole line.
+ */
+export function phoneFit(widths: readonly number[], layout: Omit<Layout, 'widths'>) {
+  const { gap, headerGap, room, more, queue } = layout;
+  if (!queue) return fitTools(widths, gap, room, more + headerGap);
+  const all = widths.reduce((sum, width) => sum + width, 0) + gap * Math.max(0, widths.length - 1);
+  if (all + headerGap + queue <= room) return widths.length;
+  return fitTools(widths, gap, room, 0);
+}
 
 /**
  * The phone tool row's actions: inline while they fit, the overflow (two or more tools) in More.
@@ -241,43 +267,62 @@ export function PhoneTools(props: MoreProps & { queue?: React.ReactNode }) {
   const key = all.map((tool) => tool.label).join('|');
   const slot = useRef<HTMLSpanElement>(null);
   const measure = useRef<HTMLSpanElement>(null);
+  const queueBox = useRef<HTMLSpanElement>(null);
+  const hasQueue = Boolean(props.queue);
   const [layout, setLayout] = useState<Layout | null>(null);
-  // Whether More shows now: the slot's room then excludes More's square, which the fit adds back.
-  const moreShown = useRef(false);
   useLayoutEffect(() => {
     const row = slot.current;
     const copy = measure.current;
-    if (!row || !copy || typeof ResizeObserver !== 'function') return;
+    const header = row?.parentElement;
+    if (!row || !copy || !header || typeof ResizeObserver !== 'function') return;
     let first = true;
+    let last = '';
+    // Every size read here is independent of the fit (never the tools slot or the line it wraps
+    // to), so an answer cannot change the next measurement: no back-and-forth, no idle work.
     const observer = new ResizeObserver(() => {
       const widths: Record<string, number> = {};
       for (const child of copy.children as HTMLCollectionOf<HTMLElement>)
         if (child.dataset.label) widths[child.dataset.label] = child.getBoundingClientRect().width;
       const square = copy.querySelector('[data-more]')?.getBoundingClientRect().width ?? 0;
       const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
-      const room = row.getBoundingClientRect().width + (moreShown.current ? square + gap : 0);
-      const next = { widths, gap, room, more: square + gap };
+      const box = getComputedStyle(header);
+      const headerGap = parseFloat(box.columnGap) || 0;
+      let room =
+        header.clientWidth -
+        (parseFloat(box.paddingLeft) || 0) -
+        (parseFloat(box.paddingRight) || 0);
+      for (const item of header.children) {
+        if (item === row) break;
+        const width = item.getBoundingClientRect().width;
+        if (width) room -= width + headerGap;
+      }
+      const queue = queueBox.current?.getBoundingClientRect().width ?? 0;
+      const next = { widths, gap, headerGap, room, more: square, queue };
+      const id = JSON.stringify(next);
+      if (id === last) return;
+      last = id;
       // The first answer lands before the first paint (no frame of everything in More).
       if (first) flushSync(() => setLayout(next));
       else setLayout(next);
       first = false;
     });
     // The copy is a 0x0 clip: its tools (whole width, no wrap) are what change size.
-    observer.observe(row);
+    observer.observe(header);
+    for (const item of header.children) if (item !== row) observer.observe(item);
     for (const child of copy.children) observer.observe(child);
+    if (queueBox.current) observer.observe(queueBox.current);
     return () => observer.disconnect();
-  }, [key]);
-  // Unmeasured (no layout yet, or no ResizeObserver): every tool in More.
+  }, [key, hasQueue]);
+  // Unmeasured (no layout yet, or no ResizeObserver): every tool in More (a lone one inline).
   const count = layout
-    ? fitTools(
+    ? phoneFit(
         tools.map((tool) => layout.widths[tool.label] ?? 0),
-        layout.gap,
-        layout.room,
-        layout.more,
+        layout,
       )
-    : 0;
+    : tools.length <= 1
+      ? tools.length
+      : 0;
   const overflow = new Set(tools.slice(count).map((tool) => tool.id));
-  moreShown.current = overflow.size > 0;
   return (
     <>
       <span ref={slot} className={styles.tools}>
@@ -294,7 +339,11 @@ export function PhoneTools(props: MoreProps & { queue?: React.ReactNode }) {
         </span>
       </span>
       <span className={styles.right}>
-        {props.queue}
+        {props.queue && (
+          <span ref={queueBox} className={styles.queue}>
+            {props.queue}
+          </span>
+        )}
         {overflow.size > 0 && (
           <EditorMore
             {...{ markup, draft, saving, onDiscard, grouped, overrides, onEditOverride }}
@@ -354,6 +403,7 @@ function InlineTool({ tool, ...props }: { tool: Tool } & MoreProps) {
       <Popover
         label="Grouped manifest perks"
         className={styles.tool}
+        contain
         trigger={tool.label}
         triggerTitle="Which manifest perks open this editor entry, and how each joined (maintainers)"
       >

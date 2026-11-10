@@ -660,7 +660,9 @@ p.muted {
   }
 }
 
-@media (max-width: 700px) {
+// Touch sizes (phones and coarse pointers, Large included): controls on var(--tap), text on
+// --ctl-text, links and folds with a var(--tap) hit height. The phone layout follows below.
+@media (max-width: 700px), (pointer: coarse) {
   // Controls and links read --ctl-text like every other phone screen.
   .tab {
     font-size: var(--ctl-text);
@@ -680,6 +682,35 @@ p.muted {
     font-size: var(--ctl-text);
   }
 
+  // A candidate's header: the radio and its source link on one var(--tap-sm) line.
+  .candidate > header {
+    min-height: var(--tap-sm);
+  }
+
+  .pick input {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+
+  // Touch targets: links and folds get a var(--tap) hit height without taking more room.
+  .counts a,
+  .linked,
+  .openEditor,
+  .fold,
+  .nearby summary,
+  .source > a {
+    padding-block: max(0px, (var(--tap) - 1lh) / 2);
+    margin-block: min(0px, (1lh - var(--tap)) / 2);
+  }
+
+  .more summary {
+    width: var(--tap);
+    height: var(--tap);
+  }
+}
+
+// The phone layout.
+@media (max-width: 700px) {
   // A candidate's sheet link wraps whole onto a second line instead of cutting its path.
   .source {
     white-space: normal;
@@ -767,40 +798,12 @@ p.muted {
     margin-inline-start: 0;
   }
 
-  // A candidate's header: the radio and its source link on one var(--tap-sm) line.
-  .candidate > header {
-    min-height: var(--tap-sm);
-  }
-
-  .pick input {
-    width: 1.125rem;
-    height: 1.125rem;
-  }
-
   @include compact-bar;
 
-  // Touch targets: links and folds get a var(--tap) hit height without taking more room.
-  .counts a,
-  .linked,
-  .openEditor,
-  .fold,
-  .nearby summary,
-  .source > a {
-    padding-block: max(0px, (var(--tap) - 1lh) / 2);
-    margin-block: min(0px, (1lh - var(--tap)) / 2);
-  }
-
-  .more summary {
-    width: var(--tap);
-    height: var(--tap);
-  }
-
   .actionBar {
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     gap: 0.25rem;
     padding: 0.25rem 0;
-
-    flex-wrap: wrap;
 
     button {
       flex: 1 1 auto;

@@ -205,7 +205,10 @@
   .queue {
     height: 70dvh;
   }
+}
 
+// Touch sizes (phones and coarse pointers); the rows' height comes from CompendiumQueue.tsx.
+@media (max-width: 700px), (pointer: coarse) {
   .filters input,
   .filters select {
     height: var(--tap);
