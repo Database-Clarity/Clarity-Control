@@ -315,7 +315,9 @@ describe('Compendium pane', () => {
     expect(host.querySelector('[data-pane-skeleton]')).toBe(skeleton);
     expect(skeleton?.querySelector('[aria-hidden="true"]')).toBe(region);
     expect(skeleton?.querySelector('[class*="skeletonCell"]')).toBe(cellRegion);
-    expect(skeleton?.textContent).toContain('2 Nov 2026');
+    expect(skeleton?.querySelector('time')?.getAttribute('datetime')).toBe(
+      newest.compendium.snapshotAt,
+    );
     // The newer entry gets its own two frames before the minimum restarts for it.
     expect(frames.size).toBe(1);
     await act(async () =>
