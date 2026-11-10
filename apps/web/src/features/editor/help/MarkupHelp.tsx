@@ -219,11 +219,17 @@ export const MarkupHelp = memo(function MarkupHelp({
     if (phone) {
       const tools = (frame ?? document).querySelector<HTMLElement>('[aria-label="Editor tools"]');
       const below = tools?.getBoundingClientRect().bottom ?? 0;
+      // The app's sticky header (first in the page): the sheet never covers any of it.
+      const header = document.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
       const height = window.innerHeight;
-      // Only while the tool row is on screen and leaves the sheet a useful height.
-      return below > 0 && height - below >= height * 0.5
-        ? { '--help-top': `${Math.round(below)}px`, '--help-height': 'auto' }
-        : {};
+      // On the tool row's lower edge while it is on screen and leaves the sheet a useful height;
+      // else the default height (85% of the screen, at most 44rem), but never above the header.
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      const top =
+        below > header && height - below >= height * 0.5
+          ? below
+          : Math.max(header, height - Math.min(height * 0.85, 44 * rem));
+      return { '--help-top': `${Math.round(top)}px`, '--help-height': 'auto' };
     }
     if (!frame) return {};
     const scroller = editor.scrollDOM.getBoundingClientRect();
@@ -263,8 +269,12 @@ export const MarkupHelp = memo(function MarkupHelp({
     if (!panel || !open) return;
     // Where focus was (the text, or the button that opened it): closing gives it back.
     const focused = panel.ownerDocument.activeElement;
+    // Opened with a pointer, nothing kept focus (Help takes none): Help gets it back.
     opener.current =
-      focused instanceof HTMLElement && focused !== panel.ownerDocument.body ? focused : null;
+      focused instanceof HTMLElement && focused !== panel.ownerDocument.body
+        ? focused
+        : ((frame ?? panel.ownerDocument).querySelector<HTMLElement>('[data-status-help]') ??
+          panel.ownerDocument.querySelector<HTMLElement>('[data-status-help]'));
     if (!editor) return;
     const host = panel.parentElement!;
     const area = phone ? null : (editor.dom.parentElement?.parentElement ?? null);

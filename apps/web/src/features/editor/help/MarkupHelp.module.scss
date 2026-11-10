@@ -154,11 +154,10 @@
 .close {
   @include controls.button;
   flex: none;
+  // Boxed like Insert beside it: one button style per row.
   width: 1.5rem;
   min-height: 1.5rem;
   padding: 0;
-  background: transparent;
-  border-color: transparent;
 }
 
 .list {
@@ -566,5 +565,10 @@
 
   .sheet .insert {
     grid-area: 1 / 2;
+  }
+
+  // A worked example's render, now under its lines, keeps the sheet's 8px edge.
+  .sheet .block .out {
+    padding-left: var(--help-x);
   }
 }
