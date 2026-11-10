@@ -66,19 +66,22 @@ describe('light theme tokens (theme design spec §2-§3)', () => {
 
   it('fills symbols in the game hues at 3:1 on the preview surface; slate for the white glyphs', () => {
     const symbols = Object.keys(light).filter((key) => key.startsWith('sym-'));
-    expect(symbols).toHaveLength(11);
+    expect(symbols).toHaveLength(12);
     for (const key of symbols)
       expect(contrastRatio(light[key], previewSurface), key).toBeGreaterThanOrEqual(3);
     expect(light['sym-neutral']).toBe('#5a6775');
     expect(light['sym-arc']).toBe('#1795c2');
     expect(light['sym-stasis']).toBe('#3366d6');
+    expect(light['sym-prismatic']).toBe('#a32766');
     expect(contrastRatio(light['sym-neutral'], light['editor'])).toBeGreaterThanOrEqual(3);
     // Arc and Stasis stay distinguishable side by side.
     expect(contrastRatio(light['sym-arc'], light['sym-stasis'])).toBeGreaterThanOrEqual(1.5);
   });
 
-  it('defines every token in both themes (dark draws the game artwork and ignores --sym-*)', () => {
+  it('defines every token in both themes (Prismatic uses its tint in both)', () => {
     expect(declared('dark-tokens')).toEqual(declared('light-tokens'));
-    expect(declared('dark-tokens').filter((name) => name.startsWith('sym-'))).toHaveLength(11);
+    expect(declared('dark-tokens').filter((name) => name.startsWith('sym-'))).toHaveLength(12);
+    const dark = block('dark-tokens');
+    expect(contrastRatio(dark['sym-prismatic'], dark['editor'])).toBeGreaterThanOrEqual(3);
   });
 });

@@ -403,6 +403,19 @@ $symbol: 0.75rem;
     $sym: --sym-strand
   );
 }
+// Artwork: DestinyItemManager/dim-custom-symbols, svg/uF0156-prismatic.svg.
+.prismatic {
+  &::before {
+    content: '';
+    display: inline-block;
+    width: $symbol;
+    height: $symbol;
+    margin: 0 0.125rem;
+    vertical-align: -1px;
+    background: var(--sym-prismatic);
+    mask: url('./assets/prismatic.svg') center / contain no-repeat;
+  }
+}
 .primary {
   @include icon(
     'https://www.bungie.net/common/destiny2_content/icons/99f3733354862047493d8550e46a45ec.png',

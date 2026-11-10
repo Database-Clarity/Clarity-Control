@@ -368,8 +368,8 @@ export function suggestExtension(): Extension {
         { key: 'Escape', run: whenOpen((view) => (closeSuggest(view), true)) },
       ]),
     ),
-    EditorView.contentAttributes.compute([suggestField], (state) => {
-      const snapshot = suggestState(state);
+    EditorView.contentAttributes.of((view) => {
+      const snapshot = suggestState(view.state);
       const attributes: Record<string, string> = snapshot
         ? {
             'aria-haspopup': 'listbox',
