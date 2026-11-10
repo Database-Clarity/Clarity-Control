@@ -168,6 +168,32 @@ describe('validation is scoped to text the change edits', () => {
       ];
       expect(errors(validateChanges(changes, state)).map((issue) => issue.hash)).toEqual([123]);
     });
+    it('is not hidden when the batch repairs one broken import and breaks another', () => {
+      const newline = String.fromCharCode(10);
+      const lines = (...parts: string[]) => parts.join(newline);
+      const hidden = (name: string, body: string) =>
+        entry(lines(`export hidden ${name} (`, body, ')'));
+      const { state } = data();
+      const foo = { ...tooltip, hash: 124, text: { en: hidden('foo', 'import bad from 999') } };
+      const bar = { ...tooltip, hash: 125, text: { en: hidden('bar', 'Shared') } };
+      const dependent = {
+        ...tooltip,
+        text: { en: entry(lines('import foo from 124', 'import bar from 125')) },
+      };
+      state.bundle.tooltips[123] = dependent;
+      state.bundle.tooltips[124] = foo;
+      state.bundle.tooltips[125] = bar;
+      const changes = [
+        { hash: 123, base: dependent, next: { ...dependent, associated: [30] } },
+        { hash: 124, base: foo, next: { ...foo, text: { en: hidden('foo', 'Shared') } } },
+        {
+          hash: 125,
+          base: bar,
+          next: { ...bar, text: { en: hidden('bar', 'import bad from 999') } },
+        },
+      ];
+      expect(errors(validateChanges(changes, state)).map((issue) => issue.hash)).toContain(123);
+    });
     it('does not turn an error that already existed into a blocker', () => {
       const { state, donor } = data();
       const broken = { ...tooltip, text: { en: entry('import gone from 124') } };
