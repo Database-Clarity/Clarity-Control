@@ -23,6 +23,7 @@ import { pendingTooltips } from './model';
 import { reviewRoute } from './route';
 import { ReviewSidebar } from './ReviewSidebar';
 import { useReviewQueue } from './queueStore';
+import { beginReviewOpening, useReviewOpening } from './opening';
 
 vi.mock('../../services/generator', () => ({ loadGenerator: vi.fn() }));
 vi.mock('../../services/bundle', () => ({ loadBundle: vi.fn() }));
@@ -137,6 +138,15 @@ async function mount() {
   await waitForReview();
 }
 beforeEach(async () => {
+  // A route test can unmount between opening frames. Its unfinished row slice
+  // must not leak into the next test's independently mounted workspace.
+  useReviewOpening.setState({
+    token: 0,
+    warming: false,
+    limit: Infinity,
+    required: 0,
+    ready: true,
+  });
   // The list's selection, collapse state, and scroll memory live in a module store.
   useReviewQueue.setState({
     entries: null,
@@ -630,9 +640,7 @@ it('keeps current filters when a retained row opens after the URL changes', asyn
       const params = new URLSearchParams(router.state.location.search);
       expect(params.get('query')).toBe('Tooltip');
       expect(params.get('hash')).toBe('20');
-      expect(host.querySelector('article h2')?.textContent).toBe(
-        'Tooltip 20',
-      );
+      expect(host.querySelector('article h2')?.textContent).toBe('Tooltip 20');
     });
   } finally {
     router.dispose();
@@ -773,73 +781,87 @@ it.each(['/review', '/review?query=10'])(
   },
 );
 
-it('shows one anonymous notice, leads with friendly categories, and filters canonical IDs', async () => {
-  const second = structuredClone(tooltip);
-  second.hash = 20;
-  second.text.en!.text = 'Second saved edit';
-  bundle.tooltips[20] = second;
-  vi.mocked(loadGenerator).mockResolvedValue({
-    categories: [
-      { id: 'weapon-trait', label: 'Friendly weapon traits', group: 'Weapons', order: 1 },
-      { id: 'armor-perk', label: 'Friendly armor effects', group: 'Armor', order: 2 },
-    ],
-    items: {
-      10: {
-        hash: 10,
-        name: 'Weapon sample',
-        icon: '',
-        categoryId: 'weapon-trait',
-        inGameDescription: 'Weapon evidence',
+it.each([false, true])(
+  'shows one anonymous notice, leads with friendly categories, and filters canonical IDs (opening: %s)',
+  async (opening) => {
+    if (opening) {
+      // Keep the opening frames slower than the detail's filter update.
+      vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
+        window.setTimeout(() => callback(performance.now()), 50),
+      );
+      vi.stubGlobal('cancelAnimationFrame', (id: number) => window.clearTimeout(id));
+      beginReviewOpening(false);
+    }
+    const second = structuredClone(tooltip);
+    second.hash = 20;
+    second.text.en!.text = 'Second saved edit';
+    bundle.tooltips[20] = second;
+    vi.mocked(loadGenerator).mockResolvedValue({
+      categories: [
+        { id: 'weapon-trait', label: 'Friendly weapon traits', group: 'Weapons', order: 1 },
+        { id: 'armor-perk', label: 'Friendly armor effects', group: 'Armor', order: 2 },
+      ],
+      items: {
+        10: {
+          hash: 10,
+          name: 'Weapon sample',
+          icon: '',
+          categoryId: 'weapon-trait',
+          inGameDescription: 'Weapon evidence',
+        },
+        20: {
+          hash: 20,
+          name: 'Long sword perk',
+          icon: '',
+          categoryId: 'armor-perk',
+          inGameDescription: 'Armor evidence',
+        },
       },
-      20: {
-        hash: 20,
-        name: 'Long sword perk',
-        icon: '',
-        categoryId: 'armor-perk',
-        inGameDescription: 'Armor evidence',
-      },
-    },
-    aliases: {},
-  });
-  useAuthStore.setState({ user: null, loading: false, load: async () => {} });
-  await mount();
-  await waitFor(() => expect(host.textContent).toContain('2 changes · 0 selected'));
+      aliases: {},
+    });
+    useAuthStore.setState({ user: null, loading: false, load: async () => {} });
+    await mount();
+    await waitFor(() => expect(host.textContent).toContain('2 changes · 0 selected'));
 
-  expect(host.querySelectorAll('[role="note"]')).toHaveLength(1);
-  expect(host.textContent).not.toContain('Sign in to see latest change');
-  expect(host.textContent).toContain('Friendly weapon traits');
-  // The list's rows mount once the opening frames have painted.
-  await waitFor(() =>
-    expect(
-      host.querySelector('[aria-label="Pending saved changes"] a[aria-label="Weapon sample 10"]')
-        ?.textContent,
-    ).toContain('Weapon sample'),
-  );
-  expect(host.querySelectorAll('[aria-label="Selected change"]')).toHaveLength(0);
+    expect(host.querySelectorAll('[role="note"]')).toHaveLength(1);
+    expect(host.textContent).not.toContain('Sign in to see latest change');
+    expect(host.textContent).toContain('Friendly weapon traits');
+    // The list's rows mount once the opening frames have painted.
+    await waitFor(() =>
+      expect(
+        host.querySelector('[aria-label="Pending saved changes"] a[aria-label="Weapon sample 10"]')
+          ?.textContent,
+      ).toContain('Weapon sample'),
+    );
+    expect(host.querySelectorAll('[aria-label="Selected change"]')).toHaveLength(0);
 
-  const category = host.querySelector<HTMLSelectElement>('select[aria-label="Category"]')!;
-  await act(async () => {
-    category.value = 'armor-perk';
-    category.dispatchEvent(new Event('change', { bubbles: true }));
-  });
-  await waitFor(() => expect(host.textContent).toContain('1 / 1'));
-  expect(host.textContent).toContain('Friendly armor effects');
-  expect(host.querySelector('article h2')?.textContent).toBe('Long sword perk');
-  expect(
-    host
-      .querySelector<HTMLAnchorElement>(
-        '[aria-label="Pending saved changes"] a[aria-current="page"]',
-      )
-      ?.getAttribute('href'),
-  ).toContain('hash=20');
+    const category = host.querySelector<HTMLSelectElement>('select[aria-label="Category"]')!;
+    await act(async () => {
+      category.value = 'armor-perk';
+      category.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await waitFor(() => expect(host.textContent).toContain('1 / 1'));
+    expect(host.textContent).toContain('Friendly armor effects');
+    expect(host.querySelector('article h2')?.textContent).toBe('Long sword perk');
+    // The detail can update while opening still mounts the filtered sidebar rows.
+    await waitFor(() =>
+      expect(
+        host
+          .querySelector<HTMLAnchorElement>(
+            '[aria-label="Pending saved changes"] a[aria-current="page"]',
+          )
+          ?.getAttribute('href'),
+      ).toContain('hash=20'),
+    );
 
-  await act(async () => useAuthStore.setState({ user }));
-  await waitFor(() => expect(host.querySelectorAll('[role="note"]')).toHaveLength(0));
-  await act(async () =>
-    useAuthStore.setState({ user: null, loading: false, load: async () => {} }),
-  );
-  await waitFor(() => expect(host.querySelectorAll('[role="note"]')).toHaveLength(1));
-});
+    await act(async () => useAuthStore.setState({ user }));
+    await waitFor(() => expect(host.querySelectorAll('[role="note"]')).toHaveLength(0));
+    await act(async () =>
+      useAuthStore.setState({ user: null, loading: false, load: async () => {} }),
+    );
+    await waitFor(() => expect(host.querySelectorAll('[role="note"]')).toHaveLength(1));
+  },
+);
 
 it('retires acknowledgment when the bundle reports a superseding marker without catching up first', async () => {
   await mount();
@@ -1021,7 +1043,10 @@ it('does not carry selections made against the old sidebar into a refreshed save
 
 it('Space includes the open change, P asks to publish exactly that selection, controls keep their keys', async () => {
   await mount();
-  const include = () => host.querySelector<HTMLInputElement>('label input[type="checkbox"][aria-label^="Include"], section[aria-label="Selected change"] input[type="checkbox"]')!;
+  const include = () =>
+    host.querySelector<HTMLInputElement>(
+      'label input[type="checkbox"][aria-label^="Include"], section[aria-label="Selected change"] input[type="checkbox"]',
+    )!;
   expect(host.textContent).toContain('0 selected');
   const press = async (key: string, target: EventTarget = document.body) =>
     act(async () => {
