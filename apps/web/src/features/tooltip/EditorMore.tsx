@@ -41,6 +41,7 @@ export function EditorMore({
       label="Editor tools"
       className={styles.trigger}
       flush
+      contain
       triggerLabel="More editor tools"
       triggerTitle="More editor tools"
       trigger={<span className={styles.dots} aria-hidden="true" />}

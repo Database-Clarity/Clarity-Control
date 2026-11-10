@@ -100,6 +100,8 @@ describe('More (phone tool row)', () => {
     const spies = handlers();
     await mount(spies);
     await openMore();
+    // Focus moves into the sheet, onto its first row.
+    expect(document.activeElement?.textContent).toBe('Markup barOn');
     expect(
       [...host.querySelectorAll('[role="dialog"] li > button, [role="dialog"] li > a')].map(
         (row) => row.textContent,

@@ -93,10 +93,10 @@
       min-width: 0;
     }
 
+    // Fills the line up to the count, or to the edge once the count wraps.
     .categories {
       flex: 1 1 9rem;
       min-width: 9rem;
-      max-width: 11rem;
     }
 
     .languagePicker select,

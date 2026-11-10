@@ -24,6 +24,7 @@ export function Popover({
   triggerTitle,
   triggerLabel,
   flush = false,
+  contain = false,
 }: {
   /** Names both the trigger's popup and the surface. */
   label: string;
@@ -37,6 +38,11 @@ export function Popover({
   triggerLabel?: string;
   /** The content runs edge to edge (a menu of rows with its own header): no body padding. */
   flush?: boolean;
+  /**
+   * A sheet of actions (More): opening moves focus to its first row (after a Close button) and Tab
+   * cycles inside it, like the shell's sheets.
+   */
+  contain?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [style, setStyle] = useState<CSSProperties>();
@@ -79,6 +85,33 @@ export function Popover({
       document.removeEventListener('keydown', escape, true);
     };
   }, [open, close]);
+  useEffect(() => {
+    if (!open || !contain) return;
+    const focusable = () =>
+      [
+        ...(surface.current?.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), a[href], select:not(:disabled), input:not(:disabled)',
+        ) ?? []),
+      ];
+    const items = focusable();
+    (items.find((item) => !item.getAttribute('aria-label')?.startsWith('Close')) ?? items[0])?.focus();
+    const tab = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab') return;
+      const list = focusable();
+      if (!list.length) return;
+      const first = list[0];
+      const last = list[list.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', tab, true);
+    return () => document.removeEventListener('keydown', tab, true);
+  }, [open, contain]);
   return (
     <>
       <button
