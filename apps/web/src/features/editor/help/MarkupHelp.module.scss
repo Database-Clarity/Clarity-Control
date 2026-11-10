@@ -45,12 +45,9 @@
 }
 
 // Phone: a bottom sheet over the page, its top on the tool row's lower edge (set on open), so it
-// covers the text and nothing else. The sizes are PHONE-COMPACT's tokens, with fallbacks until
-// they land: --tap ordinary controls, --tap-sm the rows (a reference: a tap only selects).
+// covers the text and nothing else. The sizes are the touch tokens (ui/tokens.scss; a phone is
+// always in their scope): --tap ordinary controls, --tap-sm the rows (a tap only selects).
 .sheet {
-  --help-tap: var(--tap, max(36px, 2.25rem));
-  --help-tap-sm: var(--tap-sm, 28px);
-  --help-x: var(--page-x, 8px);
   position: fixed;
   top: var(--help-top, auto);
   right: 0;
@@ -445,27 +442,27 @@
 .sheet {
   .head {
     gap: 0.5rem;
-    min-height: var(--bar, 44px);
-    padding: 0 var(--help-x);
+    min-height: var(--bar);
+    padding: 0 var(--page-x);
   }
 
   .filter {
     flex: 1 1 auto;
-    min-height: var(--help-tap);
-    font-size: var(--ctl-text, 0.875rem);
+    min-height: var(--tap);
+    font-size: var(--ctl-text);
   }
 
   .close {
-    width: var(--help-tap);
-    min-height: var(--help-tap);
+    width: var(--tap);
+    min-height: var(--tap);
     font-size: 1rem;
     background: var(--ctl);
     border-color: var(--ctl-edge);
   }
 
   .insert {
-    min-height: var(--help-tap);
-    font-size: var(--ctl-text, 0.875rem);
+    min-height: var(--tap);
+    font-size: var(--ctl-text);
 
     kbd {
       display: none;
@@ -473,7 +470,7 @@
   }
 
   .statusLine {
-    padding-inline: var(--help-x);
+    padding-inline: var(--page-x);
   }
 
   .cols {
@@ -485,43 +482,43 @@
     top: 0;
     z-index: 1;
     margin-top: 0;
-    padding-inline: var(--help-x);
+    padding-inline: var(--page-x);
     line-height: 1.375rem;
   }
 
   .row {
-    padding-inline: var(--help-x);
+    padding-inline: var(--page-x);
   }
 
   .row:not(.block),
   .cell {
     align-items: center;
-    min-height: var(--help-tap-sm);
+    min-height: var(--tap-sm);
   }
 
   .block {
     padding-inline: 0;
 
     .syntax {
-      padding-inline: var(--help-x) 0.25rem;
-      line-height: var(--help-tap-sm);
+      padding-inline: var(--page-x) 0.25rem;
+      line-height: var(--tap-sm);
     }
 
     .out {
       padding-block: 0.25rem;
-      padding-right: var(--help-x);
+      padding-right: var(--page-x);
     }
   }
 
   .cells {
     grid-template-columns: repeat(auto-fill, minmax(5.75rem, 1fr));
-    padding-inline: calc(var(--help-x) - 0.25rem);
+    padding-inline: calc(var(--page-x) - 0.25rem);
   }
 
   .foot {
     height: auto;
     min-height: 3rem;
-    padding: 0.25rem var(--help-x);
+    padding: 0.25rem var(--page-x);
   }
 
   // The foot grows with its text: the explanation is never cut to a line count.
@@ -540,7 +537,7 @@
   .sheet .foot {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-rows: var(--help-tap) auto;
+    grid-template-rows: var(--tap) auto;
     gap: 0 0.5rem;
     align-items: center;
     height: auto;
@@ -569,6 +566,6 @@
 
   // A worked example's render, now under its lines, keeps the sheet's 8px edge.
   .sheet .block .out {
-    padding-left: var(--help-x);
+    padding-left: var(--page-x);
   }
 }

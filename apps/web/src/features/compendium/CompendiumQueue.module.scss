@@ -208,10 +208,10 @@
 
   .filters input,
   .filters select {
-    height: 2.75rem;
+    height: var(--tap);
   }
 
   .reinclude {
-    height: 2.25rem;
+    height: var(--tap);
   }
 }

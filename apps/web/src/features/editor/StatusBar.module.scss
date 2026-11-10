@@ -61,10 +61,13 @@
     flex: none;
   }
 
+  // Touch: a 28px item row (44px with Large) with no side padding, so the first item's text
+  // (Changes) starts on the editor's text column.
   @include theme.mobile-or-coarse {
-    height: 3.25rem;
-    padding: 0 0.25rem 0 0.5rem;
-    font-size: 0.8125rem;
+    gap: 0;
+    height: calc(var(--tap-sm) + 0.25rem);
+    padding: 0;
+    font-size: var(--ctl-text);
   }
 }
 
@@ -183,13 +186,9 @@
   }
 
   @include theme.mobile-or-coarse {
-    min-height: max(44px, 2.75rem);
-    // A 44px target at any interface scale; 2.75rem would be 66px at 150% and push the last
-    // item (Suggest) out of a 390px phone.
-    min-width: max(44px, 2rem);
-    // Tight sides: with an issue count, Markup, a character warning and Suggest all showing, the
-    // bar still fits a 390px phone at 150% (the touch target is the min-width and height).
-    padding: 0 0.25rem;
+    min-height: var(--tap-sm);
+    min-width: var(--tap-sm);
+    padding: 0 6px;
     font-size: inherit;
 
     kbd {
@@ -288,7 +287,7 @@
   max-height: min(
     60%,
     20rem,
-    calc(var(--visible-h, 100dvh) - var(--header-h, 3rem) - max(44px, 2.75rem) - 7.25rem)
+    calc(var(--visible-h, 100dvh) - var(--header-h, 3rem) - var(--tap, max(44px, 2.75rem)) - 7.25rem)
   );
   padding: 0;
   overflow: hidden;
@@ -342,8 +341,8 @@
   border-color: transparent;
 
   @include theme.mobile-or-coarse {
-    min-height: max(44px, 2.75rem);
-    min-width: max(44px, 2.75rem);
+    min-height: var(--tap);
+    min-width: var(--tap);
   }
 }
 
@@ -357,9 +356,9 @@
     padding: 0 0.625rem;
 
     @include theme.mobile-or-coarse {
-      min-width: max(44px, 2.75rem);
-      min-height: max(44px, 2.75rem);
-      font-size: max(16px, 1rem);
+      min-width: var(--tap);
+      min-height: var(--tap);
+      font-size: var(--ctl-text);
     }
   }
 }

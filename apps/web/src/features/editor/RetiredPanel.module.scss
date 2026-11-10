@@ -36,9 +36,9 @@ ul.list {
     white-space: nowrap;
 
     @include theme.mobile-or-coarse {
-      min-width: max(44px, 2.75rem);
-      min-height: max(44px, 2.75rem);
-      font-size: max(16px, 1rem);
+      min-width: var(--tap);
+      min-height: var(--tap);
+      font-size: var(--ctl-text);
     }
   }
 }
@@ -96,9 +96,9 @@ ul.list {
     padding: 0 0.625rem;
 
     @include theme.mobile-or-coarse {
-      min-width: max(44px, 2.75rem);
-      min-height: max(44px, 2.75rem);
-      font-size: max(16px, 1rem);
+      min-width: var(--tap);
+      min-height: var(--tap);
+      font-size: var(--ctl-text);
     }
   }
 }
@@ -115,9 +115,9 @@ ul.list {
     padding: 0 0.625rem;
 
     @include theme.mobile-or-coarse {
-      min-width: max(44px, 2.75rem);
-      min-height: max(44px, 2.75rem);
-      font-size: max(16px, 1rem);
+      min-width: var(--tap);
+      min-height: var(--tap);
+      font-size: var(--ctl-text);
     }
   }
 }

@@ -67,7 +67,7 @@
   }
 }
 // One control language in the pane body: the same bordered 24px-at-100% controls as the header
-// (44px on touch). Only the pane's own buttons and the row picker's top level are styled here;
+// (var(--tap) on touch). Only the pane's own buttons and the row picker's top level are styled here;
 // the cell picker's grid keeps its own.
 .zoom {
   .actions button,
@@ -78,7 +78,7 @@
     padding: 0 0.5rem;
     font-size: 0.75rem;
     @include theme.mobile-or-coarse {
-      min-height: max(44px, 2.75rem);
+      min-height: var(--tap);
     }
   }
 }
@@ -106,8 +106,9 @@
       margin-top: 0.125rem;
       font-size: 0.75rem;
       @include theme.mobile-or-coarse {
-        min-height: max(44px, 2.75rem);
-        font-size: 16px;
+        min-height: var(--tap);
+        font-size: var(--ctl-text);
+        @include controls.ios-field-text;
       }
     }
     > details {
@@ -121,7 +122,7 @@
       padding: 0 0.5rem;
       font-size: 0.75rem;
       @include theme.mobile-or-coarse {
-        min-height: max(44px, 2.75rem);
+        min-height: var(--tap);
       }
     }
     > ul li {
@@ -190,7 +191,7 @@
     background: var(--ctl-pressed);
   }
   @include theme.mobile-or-coarse {
-    min-height: max(44px, 2.75rem);
+    min-height: var(--tap);
   }
 }
 .surfaceToggle {
@@ -204,8 +205,8 @@
     color: var(--accent-ink);
   }
   @include theme.mobile-or-coarse {
-    min-width: max(44px, 2.75rem);
-    min-height: max(44px, 2.75rem);
+    min-width: var(--tap);
+    min-height: var(--tap);
   }
 }
 .scale {
@@ -220,8 +221,8 @@
     font-size: 0.875rem;
     line-height: 1;
     @include theme.mobile-or-coarse {
-      min-width: max(44px, 2.75rem);
-      min-height: max(44px, 2.75rem);
+      min-width: var(--tap);
+      min-height: var(--tap);
     }
   }
   output {
@@ -363,7 +364,7 @@
     outline-offset: -2px;
   }
   @include theme.mobile-or-coarse {
-    min-height: max(44px, 2.75rem);
+    min-height: var(--tap);
   }
 }
 .styleChange {
@@ -404,8 +405,8 @@
       content: '';
       position: absolute;
       inset: 50% auto auto 50%;
-      width: max(44px, 2.75rem);
-      height: max(44px, 2.75rem);
+      width: var(--tap-sm);
+      height: var(--tap-sm);
       translate: -50% -50%;
     }
   }
@@ -482,7 +483,7 @@
   .rows a {
     display: inline-flex;
     align-items: center;
-    min-height: max(44px, 2.75rem);
+    min-height: var(--tap);
   }
 }
 .rows button {
@@ -607,7 +608,7 @@
     min-width: 0;
   }
   .phoneCells button {
-    min-height: max(44px, 2.75rem);
+    min-height: var(--tap);
     width: 100%;
     white-space: normal;
     overflow-wrap: anywhere;

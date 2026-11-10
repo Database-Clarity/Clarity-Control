@@ -221,7 +221,7 @@
     font-size: max(14px, 0.875rem);
   }
   .menu {
-    --suggest-option: max(44px, 2.75rem);
+    --suggest-option: var(--tap);
   }
   .keys {
     display: none;

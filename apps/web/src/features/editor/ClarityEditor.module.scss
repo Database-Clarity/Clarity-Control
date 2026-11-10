@@ -223,12 +223,13 @@
       :global(.fw-toggle),
       :global(.fw-button),
       :global(.fw-expand) {
-        min-width: 44px;
-        min-height: 44px;
+        min-width: var(--tap);
+        min-height: var(--tap);
       }
       :global(.fw-input) {
-        min-height: 44px;
-        font-size: max(16px, 1rem);
+        min-height: var(--tap);
+        font-size: var(--ctl-text);
+        @include controls.ios-field-text;
       }
     }
   }
@@ -500,7 +501,7 @@
 .editor :global(.cm-conflict-actions button:hover) {
   background: var(--hover);
 }
-// A tap target of 44px on touch without making the line taller: the chip stays small, its hit area
+// A touch-size tap target (var(--tap)) without making the line taller: the chip stays small, its hit area
 // (invisible) reaches above and below it.
 @media (pointer: coarse), (max-width: 700px) {
   .editor :global(.cm-conflict-actions button) {
@@ -511,7 +512,7 @@
     top: 50%;
     right: -0.375rem;
     left: -0.375rem;
-    height: max(44px, 2.75rem);
+    height: var(--tap);
     content: '';
     transform: translateY(-50%);
   }

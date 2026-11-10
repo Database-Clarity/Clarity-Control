@@ -19,8 +19,8 @@
     button,
     select,
     input {
-      min-height: max(44px, 2.75rem);
-      min-width: max(44px, 2.75rem);
+      min-height: var(--tap);
+      min-width: var(--tap);
     }
   }
 }
@@ -124,7 +124,7 @@
   .next {
     display: inline-flex;
     align-items: center;
-    min-height: max(44px, 2.75rem);
+    min-height: var(--tap);
     padding: 0 0.65rem;
   }
 }

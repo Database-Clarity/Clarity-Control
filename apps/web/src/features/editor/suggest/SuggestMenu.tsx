@@ -109,14 +109,17 @@ const overscan = 4;
 
 /**
  * The line heights before any menu has been measured, worked out from the stylesheet's own sizes
- * (1.5rem options, 44px at least on a phone or touch screen; 1.25rem headings) so that opening
+ * (1.5rem options, var(--tap) on a phone or touch screen; 1.25rem headings) so that opening
  * never has to ask the layout. Every menu checks them against the real lines once it has painted.
  */
 function expectedMetrics(): Metrics {
   if (typeof window.matchMedia !== 'function' || typeof ResizeObserver !== 'function') return 'all';
   const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
   const touch = window.matchMedia(`${phoneQuery}, (pointer: coarse)`).matches;
-  return { option: touch ? Math.max(44, 2.75 * rem) : 1.5 * rem, heading: 1.25 * rem };
+  // The touch size: 36px (44px with Large, data-touch on the root), never under its rem size.
+  const large = document.documentElement.dataset.touch === 'large';
+  const option = large ? Math.max(44, 2.75 * rem) : Math.max(36, 2.25 * rem);
+  return { option: touch ? option : 1.5 * rem, heading: 1.25 * rem };
 }
 
 const rowTop = (row: Row, metrics: { option: number; heading: number }) =>

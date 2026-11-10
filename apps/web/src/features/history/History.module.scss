@@ -87,7 +87,7 @@
   @include controls.button;
   white-space: nowrap;
   @media (pointer: coarse) {
-    min-height: 44px;
+    min-height: var(--tap);
   }
 }
 
@@ -216,7 +216,7 @@
 @media (pointer: coarse) {
   .entryButton,
   .revision button {
-    min-height: 44px;
+    min-height: var(--tap);
   }
 }
 

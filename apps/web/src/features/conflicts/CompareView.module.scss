@@ -44,8 +44,8 @@
   }
 
   @include theme.mobile-or-coarse {
-    min-height: max(44px, 2.75rem);
-    min-width: max(44px, 2.75rem);
+    min-height: var(--tap);
+    min-width: var(--tap);
 
     kbd {
       display: none;

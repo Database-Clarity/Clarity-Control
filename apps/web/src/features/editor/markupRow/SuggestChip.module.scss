@@ -1,7 +1,7 @@
 @use '../../../data/variables' as theme;
 @use '../../../ui/controls';
 
-// The suggestion chip: one 26px line (40px on touch), fixed to the window beside the text. It is
+// The suggestion chip: one 26px line (var(--tap) on touch), fixed to the window beside the text. It is
 // drawn outside the editor, so it can neither push nor cover the text it is about.
 .chip {
   position: fixed;
@@ -22,8 +22,8 @@
   box-shadow: var(--shadow);
 
   @include theme.mobile-or-coarse {
-    height: 2.5rem;
-    font-size: max(14px, 0.875rem);
+    height: var(--tap);
+    font-size: var(--ctl-text);
   }
 }
 

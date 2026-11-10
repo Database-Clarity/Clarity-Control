@@ -11,7 +11,7 @@ import styles from './MarkupRow.module.scss';
 const numbered = 9;
 
 /**
- * The markup row: a 30px strip at the top of the editor (52px on touch) with the options an
+ * The markup row: a 30px strip at the top of the editor (44px on touch) with the options an
  * author reaches for most, and "All" pinned at its end for every other one. The buttons never take
  * focus from the text, so the selection they act on stays put; keyboard users move along the row
  * with the arrow keys, insert with Enter or a number, and land back in the text. "Raw", beside

@@ -658,7 +658,7 @@ p.muted {
   .tab {
     button,
     select {
-      height: 2.75rem;
+      height: var(--tap);
     }
   }
 
@@ -680,12 +680,12 @@ p.muted {
   }
 
   .step {
-    min-height: 2.75rem;
+    min-height: var(--tap);
   }
 
   .more summary {
-    width: 2.75rem;
-    height: 2.75rem;
+    width: var(--tap);
+    height: var(--tap);
   }
 
   .actionBar {

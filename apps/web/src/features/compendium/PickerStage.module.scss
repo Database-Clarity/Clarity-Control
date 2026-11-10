@@ -33,7 +33,7 @@
   input,
   select,
   summary {
-    min-height: max(44px, 2.75rem);
+    min-height: var(--tap, max(44px, 2.75rem));
     box-sizing: border-box;
   }
   button {

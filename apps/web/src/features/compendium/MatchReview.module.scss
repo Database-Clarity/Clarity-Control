@@ -297,7 +297,7 @@
   text-align: center;
 }
 .actionBar button {
-  min-height: max(44px, 2.75rem);
+  min-height: var(--tap, max(44px, 2.75rem));
 }
 .review .primary {
   background: var(--mr-on-bg);
@@ -360,7 +360,7 @@
     select,
     textarea,
     summary {
-      min-height: max(44px, 2.75rem);
+      min-height: var(--tap);
       box-sizing: border-box;
     }
   }
@@ -374,14 +374,14 @@
   .heading > a {
     display: inline-flex;
     align-items: center;
-    min-height: max(44px, 2.75rem);
+    min-height: var(--tap);
     font-size: 0.8rem;
   }
   .help summary {
-    min-width: max(44px, 2.75rem);
+    min-width: var(--tap);
   }
   .tabs a {
-    min-height: max(44px, 2.75rem);
+    min-height: var(--tap);
     flex: 1 1 10rem;
     justify-content: center;
   }

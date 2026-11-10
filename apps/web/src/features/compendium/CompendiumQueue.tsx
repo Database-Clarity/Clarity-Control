@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { VirtualList } from '../../ui/VirtualList';
 import { useSkeletonVisible } from '../../ui/Skeleton';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
+import { useSettingsStore } from '../../stores/settings';
 import { useCompendiumQueueStore } from './queueStore';
 import {
   decidedKinds,
@@ -106,10 +107,12 @@ export function CompendiumQueue() {
   const reinclude = useCompendiumQueueStore((state) => state.reinclude);
   const toggleGroup = useCompendiumQueueStore((state) => state.toggleGroup);
   const phone = useMedia(phoneQuery);
-  // Touch rows are 44px; the list measures rem, so it follows the interface scale too.
+  // Phone rows are the touch size (2.25rem, 2.75rem with Large); the list measures rem, so it
+  // follows the interface scale too.
+  const touchRem = useSettingsStore((state) => state.device.touchSize) === 'large' ? 2.75 : 2.25;
   const itemHeight = useCallback(
-    (item: QueueItem) => (item.type === 'header' ? headerRem : phone ? 2.75 : 2),
-    [phone],
+    (item: QueueItem) => (item.type === 'header' ? headerRem : phone ? touchRem : 2),
+    [phone, touchRem],
   );
   const show = parseShow(params.get('show'));
   const query = params.get('q') ?? '';

@@ -9,8 +9,8 @@
   button,
   input,
   select {
-    min-height: max(44px, 2.75rem);
-    min-width: max(44px, 2.75rem);
+    min-height: var(--tap, max(44px, 2.75rem));
+    min-width: var(--tap, max(44px, 2.75rem));
     max-width: 100%;
     font: inherit;
   }

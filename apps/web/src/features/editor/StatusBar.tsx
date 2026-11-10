@@ -45,7 +45,7 @@ export interface GlyphGroup {
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /**
- * The line under the editor text: 24px (52px on a phone, where every control is a 44px target),
+ * The line under the editor text: 24px (32px on a phone, where items are 28px targets; 48px Large),
  * one line, and only the flexible texts (read-only reason, key hints) ever ellipsise. It never
  * changes height, and the panels it opens (issues, character warnings, markup help) draw upward
  * over the text instead of resizing the editor, so the text above never moves.
@@ -452,7 +452,7 @@ export function IssuesPanel({
 
 /**
  * Phone / touch version of the conflict actions: the in-text widget is one chip, and this panel
- * (44px targets) opens upward over the text with the same choices.
+ * (touch-size targets) opens upward over the text with the same choices.
  */
 export function ConflictPanel({
   index,

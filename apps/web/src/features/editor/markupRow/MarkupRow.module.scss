@@ -1,8 +1,8 @@
 @use '../../../data/variables' as theme;
 @use '../../../ui/controls';
 
-// The markup row: 30px (52px on touch) at the top of the editor, one line, never wrapping. The
-// buttons scroll sideways under an edge fade; "All" is pinned. Toggling the row is a user action
+// The markup row: 30px (var(--bar) on touch: 44px, 52px with Large) at the top of the editor, one
+// line, never wrapping. The buttons scroll sideways under an edge fade; "All" is pinned. Toggling the row is a user action
 // (a listed reflow exception); nothing inside it ever changes the row's height.
 .row {
   position: relative;
@@ -17,7 +17,7 @@
   color: var(--editor-text2);
 
   @include theme.mobile-or-coarse {
-    height: 3.25rem;
+    height: var(--bar);
   }
 }
 
@@ -70,8 +70,8 @@
   }
 
   @include theme.mobile-or-coarse {
-    gap: 0.375rem;
-    padding: 0 0.5rem;
+    gap: 4px;
+    padding: 0 var(--page-x);
   }
 }
 
@@ -83,7 +83,7 @@
   background: var(--editor-edge);
 
   @include theme.mobile-or-coarse {
-    height: 1.75rem;
+    height: var(--tap-sm);
   }
 }
 
@@ -119,10 +119,10 @@
   }
 
   @include theme.mobile-or-coarse {
-    min-width: max(44px, 2.75rem);
-    height: max(44px, 2.75rem);
-    padding: 0 0.625rem;
-    font-size: max(15px, 0.9375rem);
+    min-width: var(--tap);
+    height: var(--tap);
+    padding: 0 0.5rem;
+    font-size: var(--ctl-text);
   }
 }
 
@@ -156,8 +156,8 @@
   }
 
   @include theme.mobile-or-coarse {
-    padding: 0 0.75rem;
-    font-size: max(14px, 0.875rem);
+    padding: 0 var(--page-x);
+    font-size: var(--ctl-text);
   }
 }
 
@@ -228,8 +228,8 @@
   }
 
   @include theme.mobile-or-coarse {
-    padding: 0 0.75rem;
-    font-size: max(14px, 0.875rem);
+    padding: 0 var(--page-x);
+    font-size: var(--ctl-text);
   }
 }
 
@@ -341,9 +341,9 @@
   }
 
   @include theme.mobile-or-coarse {
-    height: max(44px, 2.75rem);
-    padding: 0 0.75rem;
-    font-size: max(14px, 0.875rem);
+    height: var(--tap);
+    padding: 0 0.625rem;
+    font-size: var(--ctl-text);
   }
 }
 
