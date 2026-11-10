@@ -79,7 +79,8 @@
   color: var(--text2);
 }
 
-kbd {
+// Scoped to the chip: a bare kbd rule here would dim and hide every kbd on the page.
+.chip kbd {
   flex: none;
   padding: 0 0.1875rem;
   font: 0.6875rem/0.875rem var(--editor-font, Consolas, monospace);

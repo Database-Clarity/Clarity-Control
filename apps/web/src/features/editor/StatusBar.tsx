@@ -9,8 +9,9 @@ import {
 import { canReplaceGlyph, type GlyphWarning, type ValidationIssue } from '@clarity/core';
 import styles from './StatusBar.module.scss';
 import type { CursorPositionStore } from './cursorPosition';
+import { keyOf } from './help/reference';
 
-export type StatusPanel = 'help' | 'glyphs' | 'conflicts' | 'retired' | 'diff';
+export type StatusPanel = 'help' | 'issues' | 'glyphs' | 'conflicts' | 'retired' | 'diff';
 
 export const CursorStatusBar = memo(function CursorStatusBar({
   cursor,
@@ -46,8 +47,8 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 /**
  * The line under the editor text: 24px (52px on a phone, where every control is a 44px target),
  * one line, and only the flexible texts (read-only reason, key hints) ever ellipsise. It never
- * changes height, and the two panels it opens (character warnings, markup help) draw upward over
- * the text instead of resizing the editor, so the text above never moves.
+ * changes height, and the panels it opens (issues, character warnings, markup help) draw upward
+ * over the text instead of resizing the editor, so the text above never moves.
  */
 export function StatusBar({
   readOnlyReason,
@@ -148,31 +149,34 @@ export function StatusBar({
       <button
         type="button"
         className={styles.item}
-        data-severity={errors > 0 ? 'error' : issues.length > 0 ? 'warning' : undefined}
+        data-status-help
         aria-expanded={panel === 'help'}
         aria-controls="editor-panel-help"
-        title="Markup issues and editor help"
-        aria-label={
-          validating
-            ? 'Checking markup'
-            : issues.length
-              ? plural(issues.length, 'markup issue')
-              : 'Markup help'
-        }
+        aria-keyshortcuts="F1"
+        aria-label="Markup help"
+        title="Markup help: what you write and what it draws, and the keys (F1)"
+        // With the caret in the text, the caret stays there (F1 there opens on its markup).
+        onMouseDown={(event) => event.preventDefault()}
         onClick={() => toggle('help')}
       >
-        {issues.length ? (
-          <span>
-            {issues.length} <span className={styles.long}>markup </span>
-            {issues.length === 1 ? 'issue' : 'issues'}
-          </span>
-        ) : (
-          <span>
-            <span className={styles.long}>Markup help</span>
-            <span className={styles.short}>Help</span>
-          </span>
-        )}
+        <span className={styles.long}>Markup help</span>
+        <span className={styles.short}>Help</span>
       </button>
+      {issues.length > 0 && (
+        <button
+          type="button"
+          className={styles.item}
+          data-severity={errors > 0 ? 'error' : 'warning'}
+          data-status-issues
+          aria-expanded={panel === 'issues'}
+          aria-controls="editor-panel-issues"
+          title="Markup issues in this text"
+          aria-label={validating ? 'Checking markup' : plural(issues.length, 'markup issue')}
+          onClick={() => toggle('issues')}
+        >
+          {issues.length} {issues.length === 1 ? 'issue' : 'issues'}
+        </button>
+      )}
       {rawView !== undefined && onRawView && (
         <button
           type="button"
@@ -253,13 +257,13 @@ export function StatusBar({
       {/* Whole hints only: one that does not fit wraps out of the one-line box instead of cutting. */}
       <span className={styles.hints} aria-hidden="true">
         {rawView !== undefined && (
-          <span data-raw-hint>{rawView ? 'Symbols' : 'Ctrl+Shift+. markup'}</span>
+          <span data-raw-hint>{rawView ? 'Symbols' : `${keyOf('key-raw')} markup`}</span>
         )}
-        <span>Ctrl+Space all markup</span>
-        <span>Ctrl+F find</span>
-        <span>F12 go to definition</span>
-        <span>Esc then Tab leaves the editor</span>
-        {conflicts && conflicts.count > 0 && <span>F8 next conflict</span>}
+        <span>{keyOf('key-suggest')} all markup</span>
+        <span>{keyOf('key-find')} find</span>
+        <span>{keyOf('key-definition')} go to definition</span>
+        <span>{keyOf('key-leave')} leaves the editor</span>
+        {conflicts && conflicts.count > 0 && <span>{keyOf('key-conflict')} next conflict</span>}
       </span>
       {preview && (preview.unpreviewed > 0 || preview.collapsed) && (
         <span className={styles.preview} data-attention={preview.unpreviewed > 0 || undefined}>
@@ -424,7 +428,8 @@ export function GlyphPanel({
   );
 }
 
-export function HelpPanel({
+/** The markup issues in the text; it closes itself once there are none. */
+export function IssuesPanel({
   issues,
   onClose,
 }: {
@@ -432,39 +437,15 @@ export function HelpPanel({
   onClose(): void;
 }) {
   return (
-    <Overlay id="editor-panel-help" label="Markup help" onClose={onClose}>
-      {issues.length > 0 && (
-        <ul aria-label="Markup issues">
-          {issues.slice(0, 50).map((issue, index) => (
-            <li key={index} data-severity={issue.severity}>
-              {issue.severity}: {issue.message}
-            </li>
-          ))}
-          {issues.length > 50 && (
-            <li>{issues.length - 50} more issues highlighted in the editor.</li>
-          )}
-        </ul>
-      )}
-      <p>
-        Ctrl/Cmd+F: find and replace. Ctrl/Cmd+Space: complete. Ctrl/Cmd+Z: undo. Ctrl/Cmd+/:
-        comment. Scroll Lock or Ctrl/Cmd+Shift+F: align tables. Tab indents; to leave the editor
-        with the keyboard, press Esc, then Tab.
-      </p>
-      <p>Ctrl/Cmd+K, then D: show or hide what changed since the last save.</p>
-      <p>
-        Hover a #variable, [title] or import to see what it contains (Ctrl/Cmd+K, Ctrl/Cmd+I does
-        the same from the caret). Ctrl/Cmd+Click or F12 jumps to its definition; the browser Back
-        button returns.
-      </p>
-      <p>
-        Alt+Enter on coloured text (like Alt+click) opens its tag: Enter edits the colour, Backspace
-        removes the tag and keeps the text. Ctrl/Cmd+Shift+. or the Raw button in the markup row
-        shows the markup as stored.
-      </p>
-      <p>
-        Native spelling uses your browser&apos;s enabled dictionaries. Right-click a misspelling for
-        suggestions.
-      </p>
+    <Overlay id="editor-panel-issues" label="Markup issues" onClose={onClose}>
+      <ul aria-label="Markup issues">
+        {issues.slice(0, 50).map((issue, index) => (
+          <li key={index} data-severity={issue.severity}>
+            {issue.severity}: {issue.message}
+          </li>
+        ))}
+        {issues.length > 50 && <li>{issues.length - 50} more issues highlighted in the editor.</li>}
+      </ul>
     </Overlay>
   );
 }

@@ -2,7 +2,6 @@ import { describe, expect, test } from 'vitest';
 import { EditorState } from '@codemirror/state';
 import { markupLanguage, type MarkupGlobals } from '@clarity/core';
 import { suggestContext, suggestItems } from './suggest/source';
-import { formatMarkupTables, tableFormattingTransaction } from './formatTable';
 import { coverMargins, editorScrollMargins } from './scrollMargins';
 
 const globals: MarkupGlobals = {
@@ -35,45 +34,10 @@ describe('shared parser symbols drive completion', () => {
   });
 });
 
-test('table formatting is stable and preserves content and row flags', () => {
-  const input = '< table background_1 >\n|b2 A | Long text\n| Z |c Q <background/>\n<$>';
-  const formatted = formatMarkupTables(input);
-  expect(formatted).toContain('|b2 A |  Long text');
-  expect(formatted).toContain('<background/>');
-  expect(formatMarkupTables(formatted)).toBe(formatted);
-  expect(formatMarkupTables('Plain text')).toBe('Plain text');
-});
-
 test('legacy language keys map to native browser BCP-47 tags', () => {
   expect(markupLanguage('zh-chs')).toBe('zh-Hans');
   expect(markupLanguage('zh-cht')).toBe('zh-Hant');
   expect(markupLanguage('es-mx')).toBe('es-mx');
-});
-
-test('table formatting keeps the caret on its line and column and is one undoable change', async () => {
-  const { history, undo } = await import('@codemirror/commands');
-  const text = 'Heading\n< table wide >\n|b Label | Value\n| Long label | 2\n<$>\nFooter';
-  let state = EditorState.create({
-    doc: text,
-    selection: { anchor: text.indexOf('Value') },
-    extensions: history(),
-  });
-  const line = state.doc.lineAt(state.selection.main.head);
-  const column = state.selection.main.head - line.from;
-  state = state.update(tableFormattingTransaction(state) ?? {}).state;
-  expect(state.doc.toString()).not.toBe(text);
-  const nextLine = state.doc.lineAt(state.selection.main.head);
-  expect(nextLine.number).toBe(line.number);
-  expect(state.selection.main.head - nextLine.from).toBe(column);
-  expect(
-    undo({
-      state,
-      dispatch: (transaction) => {
-        state = transaction.state;
-      },
-    }),
-  ).toBe(true);
-  expect(state.doc.toString()).toBe(text);
 });
 
 describe('editor scroll margins', () => {

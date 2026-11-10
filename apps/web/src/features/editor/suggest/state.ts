@@ -207,6 +207,17 @@ export function openSuggest(view: EditorView): void {
 export function closeSuggest(view: EditorView): void {
   if (suggestState(view.state)) view.dispatch({ effects: closeEffect.of(null) });
 }
+/**
+ * F1 over the open menu: closes it and returns the highlighted option's id, so the markup help can
+ * open on that option (available or not). Null with no menu open.
+ */
+export function takeSuggestion(view: EditorView): string | null {
+  const snapshot = suggestState(view.state);
+  if (!snapshot) return null;
+  const id = snapshot.items[snapshot.index]?.id ?? null;
+  closeSuggest(view);
+  return id;
+}
 /** Move by `delta` options (wraps), or to the absolute option when `absolute` is set. */
 export function moveSuggest(view: EditorView, delta: number, absolute = false): void {
   const snapshot = suggestState(view.state);

@@ -1,9 +1,17 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   defaultKeymap,
   history,
   historyKeymap,
-  indentWithTab,
   isolateHistory,
   toggleComment,
 } from '@codemirror/commands';
@@ -35,7 +43,6 @@ import {
   type RetiredOccurrence,
 } from '@clarity/core';
 import { clarityHighlighting, clarityLanguage } from './language';
-import { tableFormattingTransaction } from './formatTable';
 import { editorScrollMargins } from './scrollMargins';
 import { findWidgetExtension, findWidgetPanel, openReplace } from './findWidget';
 import { rememberSearch, restoreSearch } from './searchMemory';
@@ -51,7 +58,7 @@ import { useSettingsStore, type SuggestAccept } from '../../stores/settings';
 import {
   ConflictPanel,
   GlyphPanel,
-  HelpPanel,
+  IssuesPanel,
   CursorStatusBar,
   type PreviewStatus,
   type StatusPanel,
@@ -73,11 +80,25 @@ import {
   openSuggest,
   suggestConfiguration,
   suggestExtension,
+  takeSuggestion,
   type SuggestSnapshot,
 } from './suggest/state';
+import { helpIdForSuggestion } from './help/reference';
 import type { UsageCorpus } from './suggest/usage';
 import type { ReferenceSources } from './references';
 import styles from './ClarityEditor.module.scss';
+
+// The markup help is code only its first open needs; it loads once the page is idle.
+const loadHelp = () => import('./help/MarkupHelp');
+const MarkupHelp = lazy(loadHelp);
+let helpRequested = false;
+function prefetchHelp() {
+  if (helpRequested || typeof requestIdleCallback !== 'function') return;
+  helpRequested = true;
+  requestIdleCallback(() => void loadHelp().catch(() => (helpRequested = false)), {
+    timeout: 5000,
+  });
+}
 
 // Loading another saved/draft document must never call the authoring callback.
 const documentLoad = Annotation.define<boolean>();
@@ -190,6 +211,25 @@ export function ClarityEditor({
   panelOpen.current = panel !== null;
   const closePanel = useRef(() => setPanel(null));
   const closeAndFocus = () => setPanel(null);
+  // The help row to open on, when F1 came over the Ctrl+Space menu; else the caret's markup.
+  const [helpStart, setHelpStart] = useState<string | null>(null);
+  const helpOpen = useRef(false);
+  helpOpen.current = panel === 'help';
+  /** F1: the help on the markup under the caret, or on the menu's highlighted option; again closes. */
+  const toggleHelp = useRef((editor: EditorView) => {
+    if (helpOpen.current) {
+      setPanel(null);
+      return true;
+    }
+    const option = takeSuggestion(editor);
+    setHelpStart(option ? helpIdForSuggestion(option) : null);
+    setPanel('help');
+    return true;
+  });
+  const onPanel = useCallback((next: StatusPanel | null) => {
+    setHelpStart(null);
+    setPanel(next);
+  }, []);
   // The Changes view. Closed, it costs one string comparison per render (is anything unsaved?);
   // the comparison itself runs only inside the open panel. The other fields keep their object
   // identity while typing, so they are compared again only when one of them is edited.
@@ -437,12 +477,7 @@ export function ClarityEditor({
   }, [tooltipHash, referenceSources, onOpenTooltip]);
   useEffect(() => {
     if (suspended || view.current || !host.current) return;
-    const format = (editor: EditorView) => {
-      if (editor.state.readOnly) return false;
-      const transaction = tableFormattingTransaction(editor.state);
-      if (transaction) editor.dispatch(transaction);
-      return true;
-    };
+    prefetchHelp();
     const initialConfiguration = config.current.of(
       configuration(
         initial.current.lang,
@@ -495,14 +530,16 @@ export function ClarityEditor({
         // VS Code's "Compare with Saved". Ctrl may stay held for the D, as with Ctrl+K Ctrl+I.
         { key: 'Mod-k d', run: () => toggleDiff.current() },
         { key: 'Mod-k Mod-d', run: () => toggleDiff.current() },
-        { key: 'ScrollLock', run: format },
-        { key: 'Mod-Shift-f', run: format },
+        { key: 'F1', run: (editor) => toggleHelp.current(editor), preventDefault: true },
         { key: 'Mod-/', run: toggleComment },
         { key: 'Mod-h', run: openReplace, scope: 'editor search-panel', preventDefault: true },
         ...searchKeymap,
         ...historyKeymap,
         ...defaultKeymap,
-        indentWithTab,
+        // A bare Tab does nothing: focus stays in the text (snippet blanks and chips take Tab
+        // first, at a higher precedence). Esc, then Tab still leaves: CodeMirror lets that Tab
+        // through to the page without consulting the keymap.
+        { key: 'Tab', run: () => true, shift: () => true, preventDefault: true },
       ]),
       initialConfiguration,
       EditorView.updateListener.of((update) => {
@@ -591,7 +628,8 @@ export function ClarityEditor({
       return;
     }
     if (switched) {
-      setPanel(null);
+      // The markup help is about markup, not this text: stepping on leaves it open, untouched.
+      setPanel((now) => (now === 'help' ? now : null));
       setSuggestion(null);
       setChip(null);
       setCompare(null);
@@ -711,7 +749,8 @@ export function ClarityEditor({
   const open =
     (panel === 'glyphs' && glyphCount === 0) ||
     (panel === 'conflicts' && conflictCount === 0) ||
-    (panel === 'retired' && retiredCount === 0)
+    (panel === 'retired' && retiredCount === 0) ||
+    (panel === 'issues' && issues.length === 0)
       ? null
       : panel;
   // The open Changes view covers the bottom of the text. While it is open the text gets that
@@ -792,7 +831,18 @@ export function ClarityEditor({
             onClose={closeAndFocus}
           />
         )}
-        {open === 'help' && <HelpPanel issues={issues} onClose={closeAndFocus} />}
+        {open === 'issues' && <IssuesPanel issues={issues} onClose={closeAndFocus} />}
+        {open === 'help' && (
+          <Suspense fallback={null}>
+            <MarkupHelp
+              view={view}
+              globals={globals}
+              readOnly={readOnly}
+              start={helpStart}
+              onClose={closePanel.current}
+            />
+          </Suspense>
+        )}
         {open === 'diff' && workingDiff && (
           <WorkingDiffPanel
             key={`${tooltipHash}:${lang}`}
@@ -866,7 +916,7 @@ export function ClarityEditor({
         }
         changes={workingDiff ? changed : undefined}
         panel={open}
-        onPanel={setPanel}
+        onPanel={onPanel}
         onSuggest={readOnly ? undefined : () => view.current && openSuggest(view.current)}
         // The markup row carries this toggle; the bar keeps it only while the row is not shown.
         rawView={symbols && !(markupRow && !readOnly) ? rawView : undefined}

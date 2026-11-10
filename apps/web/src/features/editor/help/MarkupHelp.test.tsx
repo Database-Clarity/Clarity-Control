@@ -1,0 +1,283 @@
+// @vitest-environment jsdom
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { EditorState } from '@codemirror/state';
+import { EditorView } from '@codemirror/view';
+import { findRetiredMarkup, parseMarkup, type MarkupGlobals } from '@clarity/core';
+import { ClarityEditor } from '../ClarityEditor';
+import { markupEntries } from '../markupRow/entries';
+import { moveSuggest, openSuggest, suggestState } from '../suggest/state';
+import {
+  editorKeys,
+  helpBlocks,
+  helpEnhancedGlobals,
+  helpGlobals,
+  helpIdAt,
+  helpIdForSuggestion,
+  helpRows,
+  keyOf,
+  retiredAnswer,
+} from './reference';
+import './MarkupHelp';
+
+const globals: MarkupGlobals = { variables: 'var e = 🡅', titles: '' };
+const adagio =
+  'Weapon Kills grant the following for #e${7+#d} seconds:\n• 10 Range\n\nenhanced (\nvar d = 1\n#e Buff duration is increased by 1 second.\n)';
+
+describe('the help reads one registry', () => {
+  const rows = helpRows();
+  const ids = new Set(rows.map((row) => row.id));
+
+  it('gives every static markup entry a row, and every row entry resolves', () => {
+    const entries = markupEntries(globals).filter((entry) => !entry.id.startsWith('var:'));
+    for (const entry of entries) {
+      expect(entry.help, entry.id).toBeDefined();
+      expect(ids.has(entry.id), entry.id).toBe(true);
+    }
+    for (const row of rows.filter((row) => row.entry))
+      expect(entries.some((entry) => entry.id === row.entry!.id)).toBe(true);
+    // Row names and explanations are the entry's own.
+    const yellow = rows.find((row) => row.id === 'inline:yellow')!;
+    const entry = entries.find((item) => item.id === 'inline:yellow')!;
+    expect([yellow.label, yellow.about]).toEqual([entry.label, entry.about]);
+  });
+
+  it('draws every example without an error and without retired markup', () => {
+    const texts = [
+      ...rows.filter((row) => row.example && !row.plain).map((row) => row.example!),
+      ...Object.values(helpBlocks).map((block) => block.lines.map((line) => line.text).join('\n')),
+    ];
+    for (const text of texts) {
+      for (const lookup of [helpGlobals, helpEnhancedGlobals]) {
+        const parsed = parseMarkup(text, lookup);
+        expect(
+          parsed.diagnostics.filter((d) => d.severity === 'error'),
+          text,
+        ).toEqual([]);
+      }
+      expect(findRetiredMarkup(text), text).toEqual([]);
+    }
+    for (const row of rows.filter((row) => row.example && !row.plain && !row.note)) {
+      const lines = parseMarkup(row.example!, helpGlobals).lines;
+      expect(
+        lines.some((line) => line.linesContent?.length),
+        row.id,
+      ).toBe(true);
+    }
+  });
+
+  it('lists no retired or removed behaviour, and short key labels', () => {
+    for (const row of rows)
+      expect(`${row.label} ${row.about} ${row.keys ?? ''}`).not.toMatch(
+        /Scroll Lock|align|indent|Ctrl\+Z/i,
+      );
+    expect(ids.has('style:center')).toBe(false);
+    for (const name of ['blue', 'green', 'purple', 'center', 'background', 'breakSpaces'])
+      expect(rows.some((row) => row.example?.includes(`<${name}`))).toBe(false);
+    for (const key of editorKeys) expect(key.keys.length).toBeLessThanOrEqual(19);
+    expect(keyOf('key-leave')).toBe('Esc then Tab');
+  });
+
+  it('answers a retired name with retired.ts wording and the replacement row', () => {
+    const blue = retiredAnswer('blue')!;
+    expect(blue.message).toContain('<blue … />');
+    expect(blue.instead).toBe('inline:yellow');
+    expect(retiredAnswer('bl')).toBeNull();
+    expect(retiredAnswer('table')?.message).toContain('table');
+  });
+
+  it('finds the construct under the caret', () => {
+    const at = (doc: string, line: number, column: number) => {
+      const state = EditorState.create({ doc });
+      return helpIdAt(state, state.doc.line(line).from + column);
+    };
+    expect(at(adagio, 1, 40)).toBe('enhanced-formula');
+    expect(at(adagio, 1, 3)).toBeNull();
+    expect(at(adagio, 2, 1)).toBe('bullet');
+    expect(at(adagio, 3, 0)).toBe('blank');
+    expect(at(adagio, 6, 1)).toBe('enhanced-arrow');
+    expect(at(adagio, 6, 20)).toBe('enhanced-block');
+    expect(at('A <pve 1 /> <pvp [2] /> b', 1, 14)).toBe('pair');
+    expect(at('Lasts 1 <pvp [2] /> s', 1, 10)).toBe('pvp-override');
+    expect(at('<bold/>Only', 1, 2)).toBe('line:bold');
+    expect(at('<yellow Gjallarhorn />', 1, 3)).toBe('inline:yellow');
+    expect(at('Applies <arc/>Jolt', 1, 10)).toBe('icon-word');
+    expect(at('Uses <arc/> here', 1, 7)).toBe('icon:arc');
+    expect(at('title Jolt (\nChains.\n)', 2, 2)).toBe('decl-title');
+    expect(at('Uses #Zoom', 1, 6)).toBe('decl-var');
+    expect(at('x // note <bold y />', 1, 15)).toBe('comment');
+    expect(at('Get ${10 * 2}%', 1, 6)).toBe('math');
+  });
+
+  it('maps menu options to their rows', () => {
+    expect(helpIdForSuggestion('tag:yellow')).toBe('inline:yellow');
+    expect(helpIdForSuggestion('snippet:enhanced-block')).toBe('enhanced-block');
+    expect(helpIdForSuggestion('icon:solar')).toBe('icon:solar');
+    expect(helpIdForSuggestion('style:bold')).toBe('line:bold');
+    expect(helpIdForSuggestion('var:damage')).toBe('decl-var');
+    expect(helpIdForSuggestion('transform:wrap')).toBeNull();
+  });
+});
+
+describe('the sheet in the editor', () => {
+  let host: HTMLDivElement;
+  let root: Root;
+  beforeEach(() => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    // jsdom draws nothing: CodeMirror's caret measurements get empty boxes.
+    const rects = () => Object.assign([] as DOMRect[], { item: () => null });
+    Range.prototype.getClientRects = rects as unknown as Range['getClientRects'];
+    Range.prototype.getBoundingClientRect = () => new DOMRect();
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+  });
+
+  const mount = async (doc: string, readOnly = false) => {
+    await act(async () =>
+      root.render(
+        <ClarityEditor
+          value={doc}
+          lang="en"
+          onChange={() => undefined}
+          globals={globals}
+          readOnly={readOnly}
+          markupRow
+        />,
+      ),
+    );
+    return EditorView.findFromDOM(host.querySelector<HTMLElement>('.cm-editor')!)!;
+  };
+  const sheet = () => document.querySelector<HTMLElement>('[data-markup-help]');
+  const active = () => sheet()?.querySelector('[aria-selected="true"]')?.getAttribute('data-help-row');
+  const press = async (target: Element, key: string, init: KeyboardEventInit = {}) => {
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init });
+    await act(async () => {
+      target.dispatchEvent(event);
+    });
+    return event;
+  };
+
+  it('F1 opens on the markup under the caret, F1 closes, and Esc gives focus back', async () => {
+    const view = await mount(adagio);
+    act(() => {
+      view.focus();
+      view.dispatch({ selection: { anchor: 40 } });
+    });
+    const content = host.querySelector('.cm-content')!;
+    const event = await press(content, 'F1');
+    expect(event.defaultPrevented).toBe(true);
+    expect(sheet()).not.toBeNull();
+    expect(active()).toBe('enhanced-formula');
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Filter markup and keys');
+    await press(document.activeElement!, 'Escape');
+    expect(sheet()).toBeNull();
+    expect(document.activeElement).toBe(content);
+    expect(view.state.selection.main.head).toBe(40);
+    await press(content, 'F1');
+    expect(sheet()).not.toBeNull();
+    await press(document.activeElement!, 'F1');
+    expect(sheet()).toBeNull();
+  });
+
+  it('F1 over the Ctrl+Space menu closes it and opens on the highlighted option', async () => {
+    const view = await mount('Deals ');
+    act(() => {
+      view.focus();
+      view.dispatch({ selection: { anchor: 6 } });
+      openSuggest(view);
+    });
+    const snapshot = suggestState(view.state)!;
+    const target = snapshot.items.findIndex((item) => item.id === 'tag:yellow');
+    expect(target).toBeGreaterThanOrEqual(0);
+    act(() => moveSuggest(view, target, true));
+    await press(host.querySelector('.cm-content')!, 'F1');
+    expect(suggestState(view.state)).toBeNull();
+    expect(active()).toBe('inline:yellow');
+  });
+
+  it('Enter inserts what the markup row inserts, as one step, and returns to the text', async () => {
+    const view = await mount('Deals ');
+    act(() => {
+      view.focus();
+      view.dispatch({ selection: { anchor: 6 } });
+    });
+    await press(host.querySelector('.cm-content')!, 'F1');
+    const field = document.activeElement as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      setter.call(field, 'yellow');
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(active()).toBe('inline:yellow');
+    await press(field, 'Enter');
+    expect(sheet()).toBeNull();
+    const viaHelp = view.state.doc.toString();
+    // The same entry run straight from the registry on the same text.
+    const other = new EditorView({
+      state: EditorState.create({ doc: 'Deals ', selection: { anchor: 6 } }),
+      parent: document.body,
+    });
+    markupEntries(globals)
+      .find((entry) => entry.id === 'inline:yellow')!
+      .run(other, globals);
+    expect(viaHelp).toBe(other.state.doc.toString());
+    other.destroy();
+  });
+
+  it('a retired name answers in the status and dims nothing it replaces', async () => {
+    const view = await mount('Deals ');
+    act(() => view.focus());
+    await press(host.querySelector('.cm-content')!, 'F1');
+    const field = document.activeElement as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      setter.call(field, 'blue');
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(sheet()!.querySelector('[data-status]')?.textContent).toContain('<blue … />');
+    expect(active()).toBe('inline:yellow');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      setter.call(field, 'zzz');
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(sheet()!.querySelector('[data-status]')?.textContent).toBe(
+      'No markup or key matches “zzz”.',
+    );
+  });
+
+  it('read-only: the same sheet without Insert', async () => {
+    const view = await mount('Deals', true);
+    act(() => view.focus());
+    await press(host.querySelector('.cm-content')!, 'F1');
+    expect(sheet()).not.toBeNull();
+    expect([...sheet()!.querySelectorAll('button')].some((b) => /Insert/.test(b.textContent ?? ''))).toBe(
+      false,
+    );
+    await press(document.activeElement!, 'Enter');
+    expect(view.state.doc.toString()).toBe('Deals');
+  });
+
+  it('a bare Tab and the removed table-align keys change nothing', async () => {
+    const view = await mount('< table x >\n| a | b |\n<$>');
+    act(() => {
+      view.focus();
+      view.dispatch({ selection: { anchor: 3 } });
+    });
+    const content = host.querySelector('.cm-content')!;
+    const before = view.state.doc.toString();
+    const tab = await press(content, 'Tab');
+    // Handled (so the browser does not move focus), and the text is untouched.
+    expect(tab.defaultPrevented).toBe(true);
+    await press(content, 'ScrollLock');
+    await press(content, 'F', { ctrlKey: true, shiftKey: true });
+    expect(view.state.doc.toString()).toBe(before);
+  });
+});

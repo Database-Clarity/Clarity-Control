@@ -9,6 +9,7 @@ import {
   markupSymbols,
   markupTags,
   type MarkupGlobals,
+  type MarkupHelpExample,
   type Snippet,
 } from '@clarity/core';
 import {
@@ -52,6 +53,8 @@ export interface MarkupEntry {
   /** Counts uses across the corpus, for the popover footer. */
   usage?: RegExp;
   about: string;
+  /** Its row in the markup help (help/reference.ts places it); entries without one have none. */
+  help?: MarkupHelpExample;
   run(view: EditorView, globals: MarkupGlobals): EntryResult;
 }
 
@@ -153,6 +156,7 @@ function viaTemplate(
 ): MarkupEntry {
   const { plain, ...entry } = rest;
   return {
+    help: snippet.help,
     ...entry,
     run(view) {
       const blocked = guard(view);
@@ -256,6 +260,7 @@ export function markupEntries(globals: MarkupGlobals, documentText = ''): Markup
       keys: 'bullet list point dot',
       glyph: { kind: 'text', text: '•' },
       about: 'A bullet at the start of the line.',
+      help: { example: '• 10 Range' },
       run: insertBullet,
     },
     viaTemplate(pair, {
@@ -307,6 +312,7 @@ export function markupEntries(globals: MarkupGlobals, documentText = ''): Markup
         glyph: { kind: 'icon', name: symbol.name },
         usage: symbol.usage,
         about: symbol.about,
+        help: { example: `<${symbol.name}/>` },
       }),
     ),
     viaTemplate(snippetById('icon-word'), {
@@ -328,6 +334,7 @@ export function markupEntries(globals: MarkupGlobals, documentText = ''): Markup
       glyph: { kind: 'arrow', text: '#e' },
       about: 'The enhanced arrow, written #e.',
       usage: /#e(?![a-zA-Z0-9])/,
+      help: { block: 'enhanced' },
       plain: true,
     }),
     viaTemplate(snippetById('enhanced-formula'), {
@@ -358,6 +365,7 @@ export function markupEntries(globals: MarkupGlobals, documentText = ''): Markup
       glyph: { kind: 'mono', text: '[link]' },
       usage: tagById('tag:link').usage,
       about: tagById('tag:link').about,
+      help: { example: '<link wiki [https://…] />' },
     }),
     viaOption('title', {
       group: 'References',
@@ -367,6 +375,7 @@ export function markupEntries(globals: MarkupGlobals, documentText = ''): Markup
       glyph: { kind: 'mono', text: '[title]' },
       usage: tagById('tag:title').usage,
       about: tagById('tag:title').about,
+      help: { block: 'title' },
     }),
     viaOption('inline:bold', {
       group: 'Format',
@@ -376,6 +385,7 @@ export function markupEntries(globals: MarkupGlobals, documentText = ''): Markup
       glyph: { kind: 'bold' },
       usage: tagById('tag:bold').usage,
       about: tagById('tag:bold').about,
+      help: { example: '<bold Special Note: />' },
     }),
     ...colours.map((colour) =>
       viaOption(`inline:${colour}`, {
@@ -386,6 +396,7 @@ export function markupEntries(globals: MarkupGlobals, documentText = ''): Markup
         glyph: { kind: 'colour', colour },
         usage: tagById(`tag:${colour}`).usage,
         about: tagById(`tag:${colour}`).about,
+        help: { example: `<${colour} Gjallarhorn />` },
       }),
     ),
     ...styleSymbols.map((symbol) =>
@@ -397,6 +408,7 @@ export function markupEntries(globals: MarkupGlobals, documentText = ''): Markup
         glyph: { kind: 'mono', text: `<${symbol.name}/>` },
         usage: symbol.usage,
         about: symbol.about,
+        help: { example: `<${symbol.name}/>In PvP only:` },
       }),
     ),
     ...(

@@ -1,0 +1,532 @@
+@use '../../../ui/controls';
+@use '../../../data/variables' as theme;
+
+// A reference sheet, not a list to scroll: every construct is written and rendered on one line,
+// in three columns that fit the height. It opens upward from the status bar, over the lower text.
+.panel {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  max-height: calc(100% - 5.5rem);
+  font-size: 0.75rem;
+  color: var(--text);
+  background: var(--raised);
+  border-top: 1px solid var(--pop-edge);
+  box-shadow: var(--shadow);
+  container: help / inline-size;
+
+  &:focus {
+    outline: none;
+  }
+}
+
+// As wide as the editor and the pane beside it, ending on the status bar's top edge.
+.wide {
+  bottom: var(--help-bottom, 1.5rem);
+  max-height: calc(var(--help-room, 100%) - 5.5rem);
+  border: 1px solid var(--pop-edge);
+  border-bottom: 0;
+}
+
+// Phone: a bottom sheet over the page, its top on the tool row's lower edge (set on open), so it
+// covers the text and nothing else. The sizes are PHONE-COMPACT's tokens, with fallbacks until
+// they land: --tap ordinary controls, --tap-sm the rows (a reference: a tap only selects).
+.sheet {
+  --help-tap: var(--tap, max(36px, 2.25rem));
+  --help-tap-sm: var(--tap-sm, 28px);
+  --help-x: var(--page-x, 8px);
+  position: fixed;
+  top: var(--help-top, auto);
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 60;
+  height: var(--help-height, min(85dvh, 44rem));
+  max-height: none;
+  border: 0;
+  border-top: 1px solid var(--pop-edge);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.head {
+  display: flex;
+  flex: none;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.1875rem 0.25rem 0.1875rem 0.5rem;
+  border-bottom: 1px solid var(--hair);
+}
+
+.filter {
+  @include controls.field;
+  flex: 0 0 12rem;
+  min-width: 0;
+  min-height: 1.5rem;
+  font-size: 0.75rem;
+
+  // The field holds focus the whole time the sheet is open: the ring sits on its own edge.
+  &:focus-visible {
+    outline-offset: -1px;
+  }
+}
+
+// Beside the field, where the eye is while typing: the match count, a retired answer, a refusal,
+// and (where the sheet is wide enough for one line) the active row's name and explanation.
+.info {
+  display: flex;
+  flex: 1 1 0;
+  gap: 0.5rem;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.6875rem;
+  color: var(--text2);
+  white-space: nowrap;
+
+  [data-warn] {
+    color: var(--warn);
+  }
+
+  [data-status]:empty {
+    display: none;
+  }
+
+  b {
+    margin-right: 0.5rem;
+    color: var(--text);
+  }
+}
+
+.inline {
+  display: none;
+  min-width: 0;
+}
+
+.statusLine {
+  margin: 0;
+  padding: 0.375rem 0.5rem;
+  color: var(--text2);
+  border-bottom: 1px solid var(--hair);
+
+  &[data-warn] {
+    color: var(--warn);
+  }
+}
+
+.insert {
+  @include controls.button;
+  flex: none;
+  min-height: 1.5rem;
+  font-size: 0.75rem;
+}
+
+.close {
+  @include controls.button;
+  flex: none;
+  width: 1.5rem;
+  min-height: 1.5rem;
+  padding: 0;
+  background: transparent;
+  border-color: transparent;
+}
+
+.list {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0 0.5rem;
+  padding: 0 0.25rem 0.25rem;
+}
+
+.col {
+  min-width: 0;
+}
+
+.groupTitle {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 0.125rem;
+  padding: 0 0.25rem;
+  font-size: 0.6875rem;
+  line-height: 1.125rem;
+  color: var(--text3);
+  background: var(--raised);
+  border-bottom: 1px solid var(--hair);
+
+  code {
+    font-family: var(--editor-font, ui-monospace, monospace);
+    font-size: 0.6875rem;
+  }
+}
+
+// One line per construct: what you write, and what it draws.
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 3fr);
+  gap: 0 0.5rem;
+  align-items: start;
+  min-height: 1.25rem;
+  padding: 0 0.25rem;
+  cursor: default;
+}
+
+.row[aria-selected='true'],
+.cell[aria-selected='true'],
+.syntax[data-on] {
+  background: var(--sel);
+  box-shadow: inset 2px 0 0 var(--accent-ink);
+}
+
+// Filtering moves nothing: what does not match dims where it stands.
+[data-dim] {
+  opacity: 0.28;
+}
+
+.syntax {
+  min-width: 0;
+  margin: 0;
+  font-family: var(--editor-font, ui-monospace, monospace);
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.plain {
+  line-height: 1.25rem;
+  color: var(--text2);
+  font-style: italic;
+}
+
+.out {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  padding-block: 1px;
+}
+
+// The tooltip's own surface, so the example reads as the real thing in both themes.
+.snippet {
+  max-width: 100%;
+  padding: 0 0.3125rem;
+  border-radius: 2px;
+}
+
+.tag,
+.note {
+  font-size: 0.6875rem;
+  line-height: 1.125rem;
+  color: var(--text3);
+}
+
+.tag {
+  line-height: 0.875rem;
+}
+
+// A worked example: the lines of the rows it teaches, highlighted line by line.
+.block {
+  // The example takes the width its longest line needs; the two renders get the rest.
+  grid-template-columns: fit-content(62.5%) minmax(0, 1fr);
+  padding: 0;
+
+  .source {
+    min-width: 0;
+  }
+
+  .syntax {
+    padding: 0 0.25rem;
+  }
+}
+
+.keys {
+  white-space: nowrap;
+  color: var(--text3);
+}
+
+.row kbd,
+.insert kbd {
+  // SuggestChip.module.scss has an unscoped `kbd` rule (0.7 opacity, hidden on touch) that
+  // reaches every kbd on the page; the implementer scopes that rule instead.
+  display: inline-block;
+  opacity: 1;
+  padding: 0 0.1875rem;
+  font: inherit;
+  font-size: 0.6875rem;
+  line-height: 0.9375rem;
+  color: var(--text2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+
+.keyRow {
+  grid-template-columns: 6.25rem minmax(0, 1fr);
+  align-items: center;
+  white-space: nowrap;
+}
+
+.cells {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(5.375rem, 1fr));
+}
+
+.cell {
+  display: flex;
+  gap: 0.3125rem;
+  align-items: center;
+  min-width: 0;
+  min-height: 1.25rem;
+  padding: 0 0.25rem;
+  font-size: 0.6875rem;
+  white-space: nowrap;
+  cursor: default;
+}
+
+// One fixed line: the active row's name and what to know about it.
+.foot {
+  display: flex;
+  flex: none;
+  gap: 0.5rem;
+  align-items: center;
+  height: 1.375rem;
+  padding: 0 0.5rem;
+  border-top: 1px solid var(--hair);
+}
+
+.about {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 0.6875rem;
+  line-height: 1.375rem;
+  color: var(--text2);
+  white-space: nowrap;
+
+  b {
+    margin-right: 0.5rem;
+    color: var(--text);
+  }
+}
+
+// Two columns of markup, with the keys in three short columns beneath them.
+@container help (min-width: 34rem) {
+  .cols {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .col + .col {
+    padding-left: 0.5rem;
+    border-left: 1px solid var(--hair);
+  }
+
+  .col[data-col='3'] {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0 0.5rem;
+    margin-top: 0.125rem;
+    padding-left: 0;
+    border-top: 1px solid var(--hair);
+    border-left: 0;
+  }
+
+  .keyRow {
+    grid-template-columns: 6rem minmax(0, 1fr);
+  }
+}
+
+// Three columns: in the line, declared around it, and the keys.
+@container help (min-width: 54rem) {
+  .cols {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.9fr);
+  }
+
+  // One line holds the explanation here, so it sits beside the field and the foot line goes.
+  .inline {
+    display: block;
+  }
+
+  .foot {
+    display: none;
+  }
+
+  .keyRow {
+    grid-template-columns: 6.25rem minmax(0, 1fr);
+  }
+
+  .col[data-col='3'] {
+    display: block;
+    grid-column: auto;
+    margin-top: 0;
+    padding-left: 0.5rem;
+    border-top: 0;
+    border-left: 1px solid var(--hair);
+  }
+}
+
+// Too narrow for the pair on one line: the render goes under what you write.
+@container help (max-width: 20rem) {
+  .row:not(.keyRow),
+  .block {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+// Under two columns the explanation may take two lines; the line keeps a fixed height.
+@container help (max-width: 34rem) {
+  .foot {
+    height: 2.5rem;
+  }
+
+  .about {
+    display: -webkit-box;
+    line-height: 1.3;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+}
+
+// Phone: one 8px edge (--page-x) for the field, the group labels, the rows, and the foot; the
+// close and Insert end 8px from the right.
+.sheet {
+  .head {
+    gap: 0.5rem;
+    min-height: var(--bar, 44px);
+    padding: 0 var(--help-x);
+  }
+
+  .filter {
+    flex: 1 1 auto;
+    min-height: var(--help-tap);
+    font-size: var(--ctl-text, 0.875rem);
+  }
+
+  .close {
+    width: var(--help-tap);
+    min-height: var(--help-tap);
+    font-size: 1rem;
+    background: var(--ctl);
+    border-color: var(--ctl-edge);
+  }
+
+  .insert {
+    min-height: var(--help-tap);
+    font-size: var(--ctl-text, 0.875rem);
+
+    kbd {
+      display: none;
+    }
+  }
+
+  .statusLine {
+    padding-inline: var(--help-x);
+  }
+
+  .cols {
+    padding: 0 0 0.25rem;
+  }
+
+  .groupTitle {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    margin-top: 0;
+    padding-inline: var(--help-x);
+    line-height: 1.375rem;
+  }
+
+  .row {
+    padding-inline: var(--help-x);
+  }
+
+  .row:not(.block),
+  .cell {
+    align-items: center;
+    min-height: var(--help-tap-sm);
+  }
+
+  .block {
+    padding-inline: 0;
+
+    .syntax {
+      padding-inline: var(--help-x) 0.25rem;
+      line-height: var(--help-tap-sm);
+    }
+
+    .out {
+      padding-block: 0.25rem;
+      padding-right: var(--help-x);
+    }
+  }
+
+  .cells {
+    grid-template-columns: repeat(auto-fill, minmax(5.75rem, 1fr));
+    padding-inline: calc(var(--help-x) - 0.25rem);
+  }
+
+  .foot {
+    height: auto;
+    min-height: 3rem;
+    padding: 0.25rem var(--help-x);
+  }
+
+  // The foot grows with its text: the explanation is never cut to a line count.
+  .about {
+    display: block;
+    font-size: 0.75rem;
+    line-height: 1.3;
+    white-space: normal;
+    -webkit-line-clamp: none;
+  }
+}
+
+// A phone at a large interface scale: the name and Insert share a line, and the explanation runs
+// the full width under them.
+@container help (max-width: 20rem) {
+  .sheet .foot {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: var(--help-tap) auto;
+    gap: 0 0.5rem;
+    align-items: center;
+    height: auto;
+  }
+
+  .sheet .about {
+    display: contents;
+
+    b {
+      grid-area: 1 / 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    span {
+      grid-area: 2 / 1 / 3 / -1;
+      align-self: start;
+      padding-bottom: 0.25rem;
+    }
+  }
+
+  .sheet .insert {
+    grid-area: 1 / 2;
+  }
+}
