@@ -257,13 +257,41 @@
     white-space: normal;
     overflow-wrap: anywhere;
   }
-  // The title repeats the selected option, which the list shows.
-  .menu[data-short] .detail > :not(.head),
-  .menu[data-short] .title {
-    display: none;
-  }
-  .menu[data-short] .detail {
-    max-height: none;
+  // A short menu (the keyboard is open, a large UI scale) gives the options its whole height: the
+  // detail shrinks to its Close button, at the side. The list scrolls by whole lines.
+  .menu[data-short] {
+    flex-direction: row;
+    // Every line as tall as an option, so the list always shows whole lines.
+    --suggest-heading: var(--suggest-option);
+    .list {
+      flex: 1 1 auto;
+      border-bottom: 0;
+      border-right: 1px solid var(--hair);
+      scroll-snap-type: y mandatory;
+    }
+    .option,
+    .category {
+      scroll-snap-align: start;
+    }
+    .category {
+      display: flex;
+      align-items: center;
+      padding-block: 0;
+    }
+    .detail {
+      flex: none;
+      max-height: none;
+      padding: 0.25rem;
+      > :not(.head) {
+        display: none;
+      }
+    }
+    // Only crumbs of the title, kind, and description would fit beside the names.
+    .title,
+    .kind,
+    .hint {
+      display: none;
+    }
   }
   .markup {
     display: none;

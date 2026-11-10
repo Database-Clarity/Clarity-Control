@@ -38,8 +38,11 @@ export function measureTopChrome(owner: Document = document): void {
 /** Follows a docked bar's height until the returned function is called. */
 export function observeDock(bar: HTMLElement): () => void {
   docks += 1;
+  const root = bar.ownerDocument.documentElement;
   const read = () => {
     barHeight = bar.offsetHeight;
+    // The room the editor leaves under itself: the bar as drawn (a Large bar is taller than --bar).
+    root.style.setProperty('--dock-h', `${barHeight}px`);
     measureTopChrome(bar.ownerDocument);
   };
   const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(read);
@@ -48,6 +51,8 @@ export function observeDock(bar: HTMLElement): () => void {
   return () => {
     observer?.disconnect();
     docks -= 1;
-    if (!docks) barHeight = 0;
+    if (docks) return;
+    barHeight = 0;
+    root.style.removeProperty('--dock-h');
   };
 }

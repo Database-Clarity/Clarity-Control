@@ -147,6 +147,10 @@ export function SuggestMenu({
   const [placement, setPlacement] = useState<Placement | null>(null);
   const [metrics, setMetrics] = useState<Metrics>(() => lastMetrics ?? expectedMetrics());
   const phone = useMedia(phoneQuery);
+  // A phone with the keyboard open can leave room for only a few lines: the detail shrinks to
+  // its Close button at the side, and the options get the rest.
+  const short =
+    phone && placement !== null && metrics !== 'all' && placement.maxHeight < metrics.option * 5;
   /** The lines drawn once the list has scrolled; until then it is the top of the list. */
   const [range, setRange] = useState<{ start: number; end: number } | null>(null);
   /** Where the list is scrolled to and how tall it is, kept here so nothing has to ask the layout. */
@@ -246,7 +250,7 @@ export function SuggestMenu({
       cancelAnimationFrame(frame);
       window.clearTimeout(timer);
     };
-  }, [shown, rows, placement, metrics]);
+  }, [shown, rows, placement, metrics, short]);
 
   useLayoutEffect(() => {
     const node = list.current;
@@ -270,7 +274,18 @@ export function SuggestMenu({
       const bottom = rowTop(row, metrics) + metrics.option;
       let next = scrolled.current;
       if (top < next) next = top;
-      else if (bottom > next + viewHeight.current) next = bottom - viewHeight.current;
+      else if (bottom > next + viewHeight.current) {
+        next = bottom - viewHeight.current;
+        // A short phone menu scrolls by whole lines (CSS snap): start on the next line's top.
+        if (surface.current?.hasAttribute('data-short'))
+          for (const line of rows) {
+            const lineTop = rowTop(line, metrics);
+            if (lineTop >= next - 0.5) {
+              next = lineTop;
+              break;
+            }
+          }
+      }
       if (next !== scrolled.current) {
         node.scrollTop = next;
         scrolled.current = next;
@@ -316,9 +331,6 @@ export function SuggestMenu({
   if (selectedRow < start || selectedRow >= end) drawn.push(rows[selectedRow]!);
   const above = rows[start]!;
   const note = snapshot.message ?? selected.unavailable;
-  // A phone with the keyboard open can leave room for only a few lines: the detail keeps its
-  // title and Close, and the options get the rest.
-  const short = phone && metrics !== 'all' && placement.maxHeight < metrics.option * 5;
   return createPortal(
     <div
       ref={surface}

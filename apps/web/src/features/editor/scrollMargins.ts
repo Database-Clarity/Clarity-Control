@@ -113,9 +113,10 @@ export function keepParagraphInView(view: EditorView, band: { top: number; botto
   const head = view.state.selection.main.head;
   const paragraph = paragraphAt(view.state, head);
   const height = view.lineBlockAt(paragraph.to).bottom - view.lineBlockAt(paragraph.from).top;
-  const margins = dockMargins() ?? { top: 8, bottom: 8 };
-  // `band` already leaves out the docked bar; its margin's own gap is what stays.
-  const room = band.bottom - band.top - margins.top - 8;
+  const margins = dockMargins(view) ?? { top: 8, bottom: 8 };
+  // `band` already leaves out the docked bar; what stays is its margin's own gap, or the status bar
+  // under the last line (a paragraph that fits only by hiding it is taller than the room).
+  const room = band.bottom - band.top - margins.top - (margins.bottom - dockedBarHeight());
   if (height <= room) {
     view.dispatch({
       effects: EditorView.scrollIntoView(EditorSelection.range(paragraph.to, paragraph.from), {

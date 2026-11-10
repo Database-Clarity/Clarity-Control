@@ -32,7 +32,12 @@
   // shrinks the visual viewport (iOS), its height is added (--kb-room), so the last lines can scroll
   // above it too. The room is below all text: no text moves when the keyboard opens.
   &[data-docked] {
-    margin-bottom: calc(var(--bar) + env(safe-area-inset-bottom, 0px) + var(--kb-room, 0px));
+    // Less the page's own bottom padding on a phone (Layout .main, 0.75rem), so at the end of the
+    // page the status bar sits flush on the bar.
+    margin-bottom: calc(
+      var(--dock-h, calc(var(--bar) + env(safe-area-inset-bottom, 0px))) + var(--kb-room, 0px) -
+        0.75rem
+    );
   }
   .host {
     display: flex;
