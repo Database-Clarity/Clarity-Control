@@ -43,4 +43,13 @@ describe('SourceRef', () => {
     expect(a.textContent).not.toContain('77');
     expect(a.getAttribute('href')).toBe(sourceHref('77'));
   });
+
+  it('names the first of many regions and how many follow, never cutting an address', () => {
+    const range = ['D36:M36', 'N35:N36', 'D40:M40', 'N39:N40', 'D44:M44'].join(', ');
+    const many = { ...location, range, label: `Arc · ${range}` };
+    const a = link(<SourceRef location={many} />);
+    expect(text(a)).toContain('D36:M36 +4 more');
+    expect(a.title).toContain(range);
+    expect(a.querySelector('.sr-only')!.textContent).toContain(range);
+  });
 });

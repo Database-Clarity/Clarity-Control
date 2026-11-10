@@ -1,5 +1,6 @@
 import {
   compendiumCellAt,
+  compendiumTabs,
   normaliseCompendiumName,
   type CompendiumData,
   type CompendiumLink,
@@ -192,18 +193,44 @@ export function descriptionCells(
 }
 
 /**
- * The rows a multipart excerpt combines: every row of that name in the tab, in sheet order, with a
- * repeated card (same text) counted once, as the combiner does.
+ * The rows a multipart excerpt combines, in sheet order: rows of that name in the same section
+ * category (the combiner never mixes categories) whose text leads, in order, in the combined
+ * excerpt, with a repeated card (same text) counted once. Undefined unless exactly the excerpt's
+ * part count is proven, so an unrelated same-name row is never named.
  */
-function partRows(sheet: CompendiumSheet, nameNorm: string, count: number) {
-  const rows = sheet.rows
-    .filter((row) => row.nameNorm === nameNorm)
+function partRows(sheet: CompendiumSheet, row: CompendiumMatch['row'], count: number) {
+  const categories = compendiumTabs[sheet.gid]?.sectionCategories;
+  const category = categories?.[row.section ?? ''];
+  const combined = row.cell.plain;
+  const named = sheet.rows
+    .filter(
+      (other) =>
+        other.nameNorm === row.nameNorm &&
+        (!category ||
+          !categories?.[other.section ?? ''] ||
+          categories[other.section ?? ''] === category),
+    )
     .sort((a, b) => a.rowIndex - b.rowIndex || (a.anchor?.col ?? 0) - (b.anchor?.col ?? 0));
-  if (rows.length === count) return rows;
-  const distinct = rows.filter(
-    (row, index) => !rows.slice(0, index).some((other) => other.cell.plain === row.cell.plain),
+  const inOrder = (rows: typeof named) => {
+    let at = 0;
+    return rows.filter((other) => {
+      // Its first line: a cooldown shared by several parts is written once in the excerpt.
+      const lead = other.cell.plain.split(String.fromCharCode(10))[0];
+      const found = lead ? combined.indexOf(lead, at) : -1;
+      if (found < 0) return false;
+      at = found + lead.length;
+      return true;
+    });
+  };
+  const all = inOrder(named);
+  if (all.length === count) return all;
+  const distinct = inOrder(
+    named.filter(
+      (other, index) =>
+        !named.slice(0, index).some((previous) => previous.cell.plain === other.cell.plain),
+    ),
   );
-  return distinct.length === count ? distinct : rows;
+  return distinct.length === count ? distinct : undefined;
 }
 
 /**
@@ -228,8 +255,8 @@ export function matchLocation(
   } else if (anchor && match.parts && match.parts.length > 1 && sheet.rows.length) {
     // A multipart excerpt joins every row of the same name in this tab, each under a heading:
     // name each part's own description cells, in order.
-    range = partRows(sheet, match.row.nameNorm, match.parts.length)
-      .map((part) => {
+    range = partRows(sheet, match.row, match.parts.length)
+      ?.map((part) => {
         const cells = part.anchor && descriptionCells(sheet, part.anchor, part.cell.plain);
         return cells ? cells.map(regionRange).join(', ') : `${part.rowIndex}:${part.rowIndex}`;
       })
@@ -244,8 +271,9 @@ export function matchLocation(
     tab: match.tab.name,
     section,
     range,
+    unknown: !range || undefined,
     gid: match.tab.gid,
-    label: [match.tab.name, section, range].filter(Boolean).join(' · '),
+    label: [match.tab.name, section, range ?? unknownPosition].filter(Boolean).join(' · '),
     // The sheet takes one range in the hash; several regions open on the first.
     href: sourceHref(match.tab.gid, range?.split(', ')[0]),
   };

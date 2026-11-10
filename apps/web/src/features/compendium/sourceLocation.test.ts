@@ -255,8 +255,11 @@ describe('source labels and links', () => {
     };
     const match = {
       tab: { ...sheet, grid: undefined },
-      row: part(12, 'First'),
-      parts: [{}, {}],
+      row: {
+        ...part(12, ''),
+        cell: cell(['H1', 'First', 'H2', 'Second'].join(String.fromCharCode(10))),
+      },
+      parts: ['H1', 'H2'],
     } as unknown as CompendiumMatch;
     expect(matchLocation(match, { fetchedAt: '', tabs: [sheet] }).range).toBe('C12:F12, C20:F20');
   });
@@ -273,5 +276,40 @@ describe('source labels and links', () => {
     );
     expect(gone.unknown).toBe(true);
     expect(gone.href).not.toContain('range=');
+  });
+
+  it('names only the parts of one section category, never a same-named row of another', () => {
+    const part = (rowIndex: number, plain: string, section: string) => ({
+      ...row('Rampage', { row: rowIndex, col: 0 }),
+      rowIndex,
+      section,
+      cell: cell(plain),
+    });
+    const sheet = {
+      gid: '1662574278', // Weapon Perks: Intrinsic Traits (frame) vs Weapon Traits (trait)
+      name: 'Weapon Perks',
+      rows: [
+        part(12, 'First', 'Intrinsic Traits'),
+        part(20, 'Second', 'Intrinsic Traits'),
+        part(30, 'Other', 'Weapon Traits'),
+      ],
+      grid: [12, 20, 30].flatMap((r, i) => [
+        { row: r, col: 0, cell: cell('Rampage') },
+        { row: r, col: 2, cell: cell(['First', 'Second', 'Other'][i]) },
+      ]),
+    };
+    const match = {
+      tab: { ...sheet, grid: undefined },
+      row: {
+        ...part(12, '', 'Intrinsic Traits'),
+        cell: cell(['A', 'First', 'B', 'Second'].join(String.fromCharCode(10))),
+      },
+      parts: ['A', 'B'],
+    } as unknown as CompendiumMatch;
+    const source = { fetchedAt: '', tabs: [sheet] };
+    expect(matchLocation(match, source).range).toBe('C12, C20');
+    // Parts that cannot be proven are not guessed.
+    const unproven = { ...match, parts: ['A', 'B', 'C'] } as unknown as CompendiumMatch;
+    expect(matchLocation(unproven, source).unknown).toBe(true);
   });
 });
