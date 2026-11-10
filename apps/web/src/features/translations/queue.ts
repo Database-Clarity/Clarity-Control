@@ -206,6 +206,18 @@ export function filterRows(rows: readonly QueueRow[], filters: QueueFilters): re
   );
 }
 
+/**
+ * The rows one queue view lists, in its order. The Translations tab and the editor's queue control
+ * both take their list from here, so Next in the editor is always the next row of the tab.
+ */
+export function queueFor(
+  index: TranslationIndex,
+  language: Lang,
+  filters: QueueFilters,
+): readonly QueueRow[] {
+  return filterRows(index.queue(language), filters);
+}
+
 /** Categories that have rows, in finder order, with row counts. */
 export function categoryOptions(
   rows: readonly QueueRow[],

@@ -33,6 +33,7 @@ export function EditorPaneHeader({
   onBack,
   grouped,
   markupTools,
+  queue,
 }: {
   lang: Lang;
   onLanguage(lang: Lang): void;
@@ -52,6 +53,8 @@ export function EditorPaneHeader({
   grouped?: GroupedPerk[];
   /** The button that shows and hides the markup row. */
   markupTools?: React.ReactNode;
+  /** Queue mode only: position, Previous, Next, and the way back to the Translations queue. */
+  queue?: React.ReactNode;
 }) {
   return (
     <>
@@ -113,6 +116,7 @@ export function EditorPaneHeader({
         </span>
       )}
       {markupTools}
+      {queue}
       <span className={styles.paneRight}>
         {grouped && (
           <Popover

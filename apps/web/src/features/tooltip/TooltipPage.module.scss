@@ -22,6 +22,8 @@
 // slot through the pane header; phone is one view at a time. The grid never reorders the DOM.
 .workspace {
   display: grid;
+  // Queue mode asks this width in toggle mode, where the pane header spans it (see .queue).
+  container: workspace / inline-size;
   grid-template-columns: minmax(0, 1fr);
   column-gap: 0;
   row-gap: 2px;
@@ -107,6 +109,8 @@
   overflow: hidden;
   white-space: nowrap;
   font-size: 0.8125rem;
+  // Queue mode asks the header's width, to make room for its control (see .queue).
+  container: pane-header / inline-size;
   > * {
     flex: none;
   }
@@ -190,6 +194,97 @@
   gap: 0.375rem;
   min-width: 0;
   margin-left: auto;
+}
+// ---- queue mode: "Queue  12 of 148  < >", right-aligned before the pane's own actions ----
+.queue {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: auto;
+  + .paneRight {
+    margin-left: 0;
+  }
+}
+.queueBack,
+.queueStep {
+  @include controls.button;
+  min-height: 1.5rem;
+  padding: 0 0.5rem;
+  font-size: 0.75rem;
+  text-decoration: none;
+  background: transparent;
+  border-color: var(--ghost-edge);
+}
+.queueStep {
+  min-width: 1.5rem;
+  padding: 0;
+  font-size: 1rem;
+  line-height: 1;
+  &[aria-disabled='true'] {
+    opacity: 0.45;
+    cursor: default;
+    pointer-events: none;
+  }
+}
+.queuePosition {
+  padding-inline: 0.125rem;
+  color: var(--text2);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+// The control has to fit beside a draft's Discard in the narrowest editor (480px). As the header
+// narrows, queue mode first drops the shortcut hint, then shortens the language field, and lets an
+// override's button ellipsise; the control itself never shrinks or clips.
+@container pane-header (max-width: 44rem) {
+  .paneHeader:has(> .queue) .key {
+    display: none;
+  }
+}
+@container pane-header (max-width: 38rem) {
+  .paneHeader:has(> .queue) {
+    gap: 0.375rem;
+    .langSelect {
+      max-width: 6rem;
+      text-overflow: ellipsis;
+    }
+    .paneRight > button {
+      display: block;
+      flex: 0 1 auto;
+      min-width: 2.5rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
+}
+// Toggle mode adds the English and Compendium buttons to the same line. Below this width the
+// line cannot hold them and the control (48.5rem with a draft and an override), so the control
+// takes a row of its own, as on a phone.
+// The row is there for the whole visit: nothing moves when a draft appears.
+@container workspace (max-width: 49rem) {
+  .workspace[data-mode='toggle'] .paneHeader:has(> .queue) {
+    flex-wrap: wrap;
+    row-gap: 2px;
+    .queue {
+      order: 2;
+      flex: 1 1 100%;
+      margin-left: 0;
+    }
+    .queuePosition {
+      flex: 1 1 auto;
+    }
+  }
+}
+// A queued entry that no longer exists: one line, with the way on.
+.queueGone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  font-size: 0.8125rem;
+  .queue {
+    margin-left: 0;
+  }
 }
 // Maintainers' grouped-perks trigger: "Grouped N"; on a phone two stacked squares and N, so the
 // editor's header row keeps to one line (the word stays for screen readers).
@@ -366,6 +461,10 @@
       min-height: 0;
     }
   }
+  // Translate mode: English or the Compendium, whichever tab is open.
+  .side .panel[data-active='false'] {
+    display: none;
+  }
   .divider {
     display: block;
     grid-column: 2;
@@ -533,5 +632,23 @@
     flex: 0 1 auto;
     flex-wrap: nowrap;
     margin-left: auto;
+  }
+  // Queue mode adds one row of its own (after the read-only badge), so nothing else moves when
+  // a draft appears: "Queue  12 of 148 ........ < >".
+  .queue {
+    order: 2;
+    flex: 1 1 100%;
+    margin-left: 0;
+  }
+  .queuePosition {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .queueBack,
+  .queueStep {
+    min-height: max(44px, 2.75rem);
+    min-width: max(44px, 2.75rem);
   }
 }
