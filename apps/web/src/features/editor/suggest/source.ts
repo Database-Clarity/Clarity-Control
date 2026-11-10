@@ -91,6 +91,17 @@ const triggers = {
   word: /\w*$/,
 };
 
+/** The definitions of each document still in use: a menu reopened on the same text reads nothing twice. */
+const definitions = new WeakMap<object, string>();
+function stateDefinitions(state: EditorState): string {
+  let found = definitions.get(state.doc);
+  if (found === undefined) {
+    found = documentDefinitions(state.doc.toString());
+    definitions.set(state.doc, found);
+  }
+  return found;
+}
+
 export function documentDefinitions(text: string): string {
   return [
     ...[...locateVariables(text).values()].map((found) => found.raw),
@@ -107,7 +118,7 @@ export function suggestContext(state: EditorState, explicit: boolean): SuggestCo
   const base = {
     lineFrom: firstLine.from,
     lineText: doc.sliceString(firstLine.from, lastLine.to),
-    definitions: documentDefinitions(doc.toString()),
+    definitions: stateDefinitions(state),
   };
   if (!main.empty) {
     // A selection only opens the menu on request; typing replaces it like any selection.
@@ -203,13 +214,43 @@ export function suggestItems(
  * has nowhere to go here (a declaration in the middle of a line, a transform that does not fit) is
  * then still listed, marked unavailable.
  */
+/** What the options need from the text and the globals, read once per document state. */
+function documentFacts(state: EditorState, globals: MarkupGlobals) {
+  const cached = facts.get(state.doc);
+  if (cached?.globals === globals) return cached;
+  const text = state.doc.toString();
+  const documentVariables = extractVariables(text);
+  const titles = { ...extractBlocks(text, 'title'), ...extractBlocks(globals.titles, 'title') };
+  const read = {
+    globals,
+    documentVariables,
+    variables: { ...documentVariables, ...extractVariables(globals.variables) },
+    titles,
+    titleNames: Object.keys(titles),
+  };
+  facts.set(state.doc, read);
+  return read;
+}
+const facts = new WeakMap<
+  object,
+  {
+    globals: MarkupGlobals;
+    documentVariables: Record<string, string>;
+    variables: Record<string, string>;
+    titles: Record<string, string>;
+    titleNames: string[];
+  }
+>();
+
 function build(
   context: SuggestContext,
   state: EditorState,
   globals: MarkupGlobals,
   every: boolean,
+  /** Options already listed (the pinned ones): not built a second time. */
+  skip?: ReadonlySet<string>,
 ): SuggestItem[] {
-  const text = state.doc.toString();
+  const { documentVariables, variables, titles, titleNames } = documentFacts(state, globals);
   const items: SuggestItem[] = [];
   const previewOf = (from: number, to: number, insert: string) =>
     context.lineText.slice(0, from - context.lineFrom) +
@@ -240,10 +281,9 @@ function build(
   };
   const query = context.query;
 
-  const documentVariables = extractVariables(text);
-  const variables = { ...documentVariables, ...extractVariables(globals.variables) };
   /** A variable defined in this tooltip is a document variable; the rest come from the globals. */
   const variableItem = (name: string, value: string) =>
+    !skip?.has(`var:${name}`) &&
     push({
       id: `var:${name}`,
       category: name in documentVariables ? 'Variables' : 'Globals',
@@ -258,17 +298,16 @@ function build(
       reference: true,
       keys: value,
     });
-  const titles = { ...extractBlocks(text, 'title'), ...extractBlocks(globals.titles, 'title') };
-  const titleNames = Object.keys(titles);
-
   const addSnippet = (snippet: Snippet, category: SuggestCategory) => {
     // A multi-line declaration needs a line of its own.
+    const id = `${category === 'Tags' ? '' : 'snippet:'}${snippet.id}`;
+    if (skip?.has(id)) return;
     const noLine = snippet.block && (!context.lineIsFree || context.kind === 'selection');
     if (noLine && !every) return;
     const expanded = expandSnippet(snippet, noLine ? '' : context.selection);
     if (!every && context.kind === 'selection' && !snippet.wraps && !snippet.fromSelection) return;
     push({
-      id: `${category === 'Tags' ? '' : 'snippet:'}${snippet.id}`,
+      id,
       category,
       label: snippet.label,
       about: snippet.about,
@@ -291,7 +330,7 @@ function build(
     );
     for (const transform of markupTransforms) {
       const output = outputs.get(transform.id);
-      if (output === undefined && !every) continue;
+      if ((output === undefined && !every) || skip?.has(`transform:${transform.id}`)) continue;
       push({
         id: `transform:${transform.id}`,
         category: 'Transforms',
@@ -380,6 +419,7 @@ function build(
   if (every || context.kind === 'selection' || context.kind === 'tag' || context.kind === 'word') {
     const insertAtStart = context.kind === 'selection';
     for (const symbol of markupSymbols) {
+      if (skip?.has(symbol.id)) continue;
       const tag = `<${symbol.name}/>`;
       push({
         id: symbol.id,
@@ -405,6 +445,7 @@ function build(
       // A title reference for each known title whose name matches what was typed.
       if (query || every) {
         for (const name of titleNames) {
+          if (skip?.has(`ref:${name}`)) continue;
           // A selection becomes the text that carries the reference.
           const expanded = expandTemplate(`<title {{1:Text}} [${name}] />`, context.selection);
           push({
@@ -442,8 +483,8 @@ const everyOrder: readonly SuggestCategory[] = [
 /**
  * The on-request menu (Ctrl+Space, the touch Suggest control): every option there is. What the
  * context calls for comes first, exactly as `suggestItems` orders it (so Enter does what it always
- * did); everything else follows by category. A typed query filters both parts. An option the
- * insertion rules decline at this caret stays listed, marked with the reason.
+ * did); everything else follows by category. A typed query filters both parts. Whether the
+ * insertion rules let each option in at this caret is `judgeItems`' job, done once the menu shows.
  */
 export function requestItems(
   context: SuggestContext,
@@ -453,25 +494,43 @@ export function requestItems(
 ): SuggestItem[] {
   const pinned = suggestItems(context, state, globals, recent);
   const taken = new Set(pinned.map((item) => item.id));
-  const others = build(context, state, globals, true).filter(
-    (item) => !taken.has(item.id) && (!context.query || matchScore(item, context.query) > 0),
+  const others = build(context, state, globals, true, taken).filter(
+    (item) => !context.query || matchScore(item, context.query) > 0,
   );
-  const rest = everyOrder.flatMap((category) =>
-    others.filter((item) => item.category === category),
-  );
+  for (const item of pinned) item.pinned = true;
+  return [
+    ...pinned,
+    ...everyOrder.flatMap((category) => others.filter((item) => item.category === category)),
+  ];
+}
+
+/**
+ * Marks every option the insertion rules decline at this caret with the reason, so it shows as
+ * unavailable instead of failing on Enter. This reads the whole document under the markup-safety
+ * rules, which is why the menu opens first and asks afterwards. The same array comes back when
+ * every option may go in.
+ */
+export function judgeItems(
+  items: SuggestItem[],
+  context: SuggestContext,
+  state: EditorState,
+  globals: MarkupGlobals,
+): SuggestItem[] {
   const check = insertionChecker(state, globals);
   const selection = context.kind === 'selection';
-  const judged = (item: SuggestItem, isPinned: boolean): SuggestItem => {
-    const marked = isPinned ? { ...item, pinned: true } : item;
+  let changed = false;
+  const judged = items.map((item) => {
     // A reference to something already defined is not held to the markup-safety rules.
-    if (marked.unavailable || marked.reference) return marked;
+    if (item.unavailable || item.reference) return item;
     const rejection = check(
       { from: item.from, to: item.to },
       { typed: !selection || item.from === item.to, link: item.link, lineStyle: item.lineStyle },
     );
-    return rejection ? { ...marked, unavailable: unavailableReasons[rejection] } : marked;
-  };
-  return [...pinned.map((item) => judged(item, true)), ...rest.map((item) => judged(item, false))];
+    if (!rejection) return item;
+    changed = true;
+    return { ...item, unavailable: unavailableReasons[rejection] };
+  });
+  return changed ? judged : items;
 }
 
 /**

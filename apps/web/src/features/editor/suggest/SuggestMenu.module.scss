@@ -37,20 +37,30 @@
   border-right: 1px solid var(--hair);
 }
 
+// The whole list's height, so the scrollbar is right although only the lines on screen exist.
 .rows {
   position: relative;
   height: calc(var(--suggest-option) * var(--options) + var(--suggest-heading) * var(--headings));
 }
 
+// Stands for every line above the ones drawn.
+.skipped {
+  height: calc(var(--suggest-option) * var(--options) + var(--suggest-heading) * var(--headings));
+}
+
 .category,
 .option {
+  box-sizing: border-box;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+// The selected option after the list has been scrolled away from it: still there, at its place.
+.apart {
   position: absolute;
   left: 0;
   right: 0;
   top: calc(var(--suggest-option) * var(--options) + var(--suggest-heading) * var(--headings));
-  box-sizing: border-box;
-  overflow: hidden;
-  white-space: nowrap;
 }
 
 .category {

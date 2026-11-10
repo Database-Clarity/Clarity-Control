@@ -304,14 +304,28 @@ interface InsertionOptions {
   lineStyle?: string;
 }
 
+type InsertionCheck = (
+  range: { from: number; to: number },
+  options?: InsertionOptions,
+) => Rejection | null;
+
+/** The checker of each document still in use: the rules depend on the text and the globals alone. */
+const checkers = new WeakMap<object, { globals: MarkupGlobals; check: InsertionCheck }>();
+
 /**
- * `insertionRejection` for many options at one document state: the document is analysed once per
- * distinct text it is judged against, not once per option.
+ * `insertionRejection` for many questions about one document: the text is analysed once per
+ * distinct text it is judged against, not once per question, and asking about the same document
+ * again (a menu that lists every option, then the Enter that inserts one) analyses nothing twice.
  */
-export function insertionChecker(
-  state: EditorState,
-  globals: MarkupGlobals,
-): (range: { from: number; to: number }, options?: InsertionOptions) => Rejection | null {
+export function insertionChecker(state: EditorState, globals: MarkupGlobals): InsertionCheck {
+  const known = checkers.get(state.doc);
+  if (known?.globals === globals) return known.check;
+  const check = createChecker(state, globals);
+  checkers.set(state.doc, { globals, check });
+  return check;
+}
+
+function createChecker(state: EditorState, globals: MarkupGlobals): InsertionCheck {
   const analysed = new Map<string, { probe: EditorState; analysis: ReturnType<typeof analyse> }>();
   return (range, options = {}) => {
     const removes = options.typed && range.from !== range.to;

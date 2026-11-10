@@ -1,10 +1,19 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 import { createPortal } from 'react-dom';
 import type { EditorView } from '@codemirror/view';
 import { parseMarkup, type Lang, type MarkupGlobals } from '@clarity/core';
 import { MarkupSnippet } from '../../preview/TooltipPreview';
 import { acceptSuggestion, closeSuggest, moveSuggest, type SuggestSnapshot } from './state';
 import type { SuggestContext, SuggestItem } from './source';
+import { phoneQuery } from '../../../ui/useMedia';
 import type { UsageCorpus } from './usage';
 import styles from './SuggestMenu.module.scss';
 
@@ -28,6 +37,8 @@ interface Placement {
 
 const edge = 8;
 const gap = 4;
+/** The tallest the menu is ever placed. */
+const tallest = 340;
 
 function place(view: EditorView, context: SuggestContext, width: number): Placement | null {
   const anchor = view.coordsAtPos(context.kind === 'selection' ? context.to : context.from);
@@ -40,7 +51,7 @@ function place(view: EditorView, context: SuggestContext, width: number): Placem
   const below = bottomEdge - anchor.bottom - gap - edge;
   const above = anchor.top - gap - edge;
   const useBelow = below >= 240 || below >= above;
-  const space = Math.max(120, Math.min(useBelow ? below : above, 340));
+  const space = Math.max(120, Math.min(useBelow ? below : above, tallest));
   return {
     left: Math.min(Math.max(edge, anchor.left), Math.max(edge, window.innerWidth - width - edge)),
     // Above the line the menu hangs from this edge (translateY(-100%) in the stylesheet).
@@ -87,13 +98,23 @@ function listRows(items: readonly SuggestItem[]): { rows: Row[]; rowOf: number[]
   return { rows, rowOf };
 }
 
-/** The two line heights in pixels; `all` where nothing can be measured (no layout): draw every line. */
-type Metrics = { option: number; heading: number } | 'all' | null;
+/** The two line heights in pixels; `all` where there is no layout to window against: draw every line. */
+type Metrics = { option: number; heading: number } | 'all';
 /** What the last menu measured, so the next one draws the right lines the first time. */
-let lastMetrics: Metrics = null;
-/** Lines drawn before any height is known: more than the tallest menu can show. */
-const unmeasured = 40;
+let lastMetrics: Metrics | null = null;
 const overscan = 4;
+
+/**
+ * The line heights before any menu has been measured, worked out from the stylesheet's own sizes
+ * (1.5rem options, 44px at least on a phone or touch screen; 1.25rem headings) so that opening
+ * never has to ask the layout. Every menu checks them against the real lines once it has painted.
+ */
+function expectedMetrics(): Metrics {
+  if (typeof window.matchMedia !== 'function' || typeof ResizeObserver !== 'function') return 'all';
+  const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const touch = window.matchMedia(`${phoneQuery}, (pointer: coarse)`).matches;
+  return { option: touch ? Math.max(44, 2.75 * rem) : 1.5 * rem, heading: 1.25 * rem };
+}
 
 const rowTop = (row: Row, metrics: { option: number; heading: number }) =>
   row.options * metrics.option + row.headings * metrics.heading;
@@ -114,10 +135,20 @@ export function SuggestMenu({
   const surface = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const [placement, setPlacement] = useState<Placement | null>(null);
-  const [metrics, setMetrics] = useState<Metrics>(lastMetrics);
-  const [range, setRange] = useState({ start: 0, end: unmeasured });
+  const [metrics, setMetrics] = useState<Metrics>(() => lastMetrics ?? expectedMetrics());
+  /** The lines drawn once the list has scrolled; until then it is the top of the list. */
+  const [range, setRange] = useState<{ start: number; end: number } | null>(null);
+  /** Where the list is scrolled to and how tall it is, kept here so nothing has to ask the layout. */
+  const scrolled = useRef(0);
+  const viewHeight = useRef(0);
   /** The pointer chose the option: it is under the pointer already, so the list must not move. */
   const byPointer = useRef(false);
+  /** How many lines the unscrolled list draws: what fits the tallest the menu ever is. */
+  const [topLines] = useState(() =>
+    metrics === 'all'
+      ? 0
+      : Math.ceil(tallest / Math.min(metrics.option, metrics.heading)) + overscan,
+  );
   const { rows, rowOf } = useMemo(() => listRows(snapshot.items), [snapshot.items]);
   const selected = snapshot.items[snapshot.index];
   const { context } = snapshot;
@@ -140,48 +171,55 @@ export function SuggestMenu({
     };
   }, [view, context, itemCount]);
 
-  /** Which lines the scrolled list shows right now. */
-  const showVisible = useCallback(() => {
-    const node = list.current;
-    if (!node || !metrics || metrics === 'all') return;
-    const top = node.scrollTop;
-    const bottom = top + node.clientHeight;
-    let start = rows.findIndex((row) => rowTop(row, metrics) + metrics.option > top);
-    if (start < 0) start = Math.max(0, rows.length - 1);
-    let end = rows.findIndex((row, at) => at >= start && rowTop(row, metrics) >= bottom);
-    if (end < 0) end = rows.length;
-    start = Math.max(0, start - overscan);
-    end = Math.min(rows.length, end + overscan);
-    setRange((now) => (now.start === start && now.end === end ? now : { start, end }));
-  }, [rows, metrics]);
+  /** Draws the lines a list scrolled to `top` shows. */
+  const show = useCallback(
+    (top: number) => {
+      if (metrics === 'all' || !viewHeight.current) return;
+      const bottom = top + viewHeight.current;
+      let start = rows.findIndex((row) => rowTop(row, metrics) + metrics.option > top);
+      if (start < 0) start = Math.max(0, rows.length - 1);
+      let end = rows.findIndex((row, at) => at >= start && rowTop(row, metrics) >= bottom);
+      if (end < 0) end = rows.length;
+      start = Math.max(0, start - overscan);
+      end = Math.min(rows.length, end + overscan);
+      setRange((now) => (now && now.start === start && now.end === end ? now : { start, end }));
+    },
+    [rows, metrics],
+  );
 
   const shown = placement !== null;
-  useLayoutEffect(() => {
+  // The real line heights (they follow the UI scale and the touch layout, and may be fractions
+  // of a pixel) and the list's height. Asking for them makes the browser lay the menu out, so
+  // they are asked for only after the menu has painted, when the answer is already there.
+  useEffect(() => {
     const node = list.current;
-    if (!node) return;
-    // The real line heights: they follow the UI scale and the touch layout, and may be fractions
-    // of a pixel. No layout at all (nothing has a height): every line is drawn.
-    const height = (selector: string) => {
-      const found = node.querySelector<HTMLElement>(selector);
-      return found?.offsetHeight ? found.getBoundingClientRect().height : 0;
-    };
-    const option = height('[role=option]');
-    const heading = height('[data-suggest-heading]');
-    setMetrics((now) => {
-      const known = now && now !== 'all' ? now : null;
-      // Scrolled deep into one category no heading is drawn: its last known height stands.
-      const next: Metrics = option
-        ? { option, heading: heading || known?.heading || option }
-        : 'all';
-      lastMetrics =
-        next !== 'all' && known && known.option === next.option && known.heading === next.heading
-          ? known
-          : next === 'all' && now === 'all'
-            ? now
-            : next;
-      return lastMetrics;
+    if (!node || metrics === 'all') return;
+    let timer = 0;
+    const frame = requestAnimationFrame(() => {
+      timer = window.setTimeout(() => {
+        const height = (selector: string) => {
+          const found = node.querySelector<HTMLElement>(selector);
+          return found?.offsetHeight ? found.getBoundingClientRect().height : 0;
+        };
+        const option = height('[role=option]');
+        // Scrolled deep into one category no heading is drawn: its known height stands.
+        const heading = height('[data-suggest-heading]') || metrics.heading;
+        viewHeight.current = node.clientHeight;
+        const next: Metrics =
+          option === metrics.option && heading === metrics.heading
+            ? metrics
+            : option
+              ? { option, heading }
+              : 'all';
+        lastMetrics = next;
+        setMetrics(next);
+      });
     });
-  }, [shown, rows]);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [shown, rows, placement, metrics]);
 
   useLayoutEffect(() => {
     const node = list.current;
@@ -189,25 +227,30 @@ export function SuggestMenu({
     if (!node || !row) return;
     const pointed = byPointer.current;
     byPointer.current = false;
-    if (!metrics) return;
     if (metrics === 'all') {
       node
         .querySelector<HTMLElement>(`#editor-suggest-option-${snapshot.index}`)
         ?.scrollIntoView?.({ block: 'nearest' });
       return;
     }
+    // Just opened: the selected option is in the lines at the top, which are drawn already.
+    if (!viewHeight.current) return;
     if (!pointed) {
       // Keep the option's heading (and the divider above it) in view with it.
       let top = rowTop(row, metrics);
       for (let at = rowOf[snapshot.index]! - 1; at >= 0 && rows[at]!.kind !== 'option'; at -= 1)
         top -= metrics.heading;
       const bottom = rowTop(row, metrics) + metrics.option;
-      if (top < node.scrollTop) node.scrollTop = top;
-      else if (bottom > node.scrollTop + node.clientHeight)
-        node.scrollTop = bottom - node.clientHeight;
+      let next = scrolled.current;
+      if (top < next) next = top;
+      else if (bottom > next + viewHeight.current) next = bottom - viewHeight.current;
+      if (next !== scrolled.current) {
+        node.scrollTop = next;
+        scrolled.current = next;
+      }
     }
-    showVisible();
-  }, [snapshot.index, rows, rowOf, metrics, shown, showVisible]);
+    show(scrolled.current);
+  }, [snapshot.index, rows, rowOf, metrics, show]);
 
   // An option that cannot go here still shows what it is: its own markup, rendered by itself.
   const previewSource = selected?.unavailable
@@ -234,12 +277,19 @@ export function SuggestMenu({
     '--menu-max': `${placement.maxHeight}px`,
   } as CSSProperties;
   const last = rows[rows.length - 1]!;
-  const drawn =
+  // The lines on screen sit in normal flow below one spacer that stands for everything above
+  // them. The selected option is always in the document (the editor points at it): when it has
+  // been scrolled away it is drawn apart, at its own place.
+  const [start, end] =
     metrics === 'all'
-      ? rows
-      : rows.filter(
-          (row, at) => (at >= range.start && at < range.end) || row.index === snapshot.index,
-        );
+      ? [0, rows.length]
+      : range
+        ? [range.start, range.end]
+        : [0, Math.min(rows.length, topLines)];
+  const selectedRow = rowOf[snapshot.index] ?? 0;
+  const drawn = rows.slice(start, end);
+  if (selectedRow < start || selectedRow >= end) drawn.push(rows[selectedRow]!);
+  const above = rows[start]!;
   const note = snapshot.message ?? selected.unavailable;
   return createPortal(
     <div
@@ -256,21 +306,32 @@ export function SuggestMenu({
         role="listbox"
         id="editor-suggest-list"
         aria-label="Markup suggestions"
-        onScroll={showVisible}
+        onScroll={(event) => {
+          scrolled.current = event.currentTarget.scrollTop;
+          show(scrolled.current);
+        }}
       >
         <div
           className={styles.rows}
           role="none"
           style={{ '--options': last.options + 1, '--headings': last.headings } as CSSProperties}
         >
-          {drawn.map((row) => {
-            const at = { '--options': row.options, '--headings': row.headings } as CSSProperties;
+          {start > 0 && (
+            <div
+              className={styles.skipped}
+              style={{ '--options': above.options, '--headings': above.headings } as CSSProperties}
+            />
+          )}
+          {drawn.map((row, order) => {
+            const apart = order >= end - start;
+            const at = apart
+              ? ({ '--options': row.options, '--headings': row.headings } as CSSProperties)
+              : undefined;
             if (row.kind !== 'option')
               return (
                 <div
                   key={`${row.kind}:${row.options}`}
                   className={`${styles.category} ${row.kind === 'divider' ? styles.divider : ''}`}
-                  style={at}
                   role="presentation"
                   data-suggest-heading={row.kind}
                 >
@@ -287,7 +348,7 @@ export function SuggestMenu({
                 aria-disabled={item.unavailable ? true : undefined}
                 aria-setsize={snapshot.items.length}
                 aria-posinset={row.index + 1}
-                className={styles.option}
+                className={apart ? `${styles.option} ${styles.apart}` : styles.option}
                 style={at}
                 data-category={item.category}
                 data-pinned={item.pinned ? '' : undefined}

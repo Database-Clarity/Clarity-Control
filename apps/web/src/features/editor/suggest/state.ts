@@ -15,12 +15,14 @@ import { insertionMessages, insertionRejection, type Rejection } from '../markup
 import { recentSuggestions, rememberSuggestion } from './recent';
 import {
   caretContext,
+  judgeItems,
   nextCategoryIndex,
   requestItems,
   suggestContext,
   suggestItems,
   type SuggestContext,
   type SuggestItem,
+  unavailableReasons,
 } from './source';
 import { setStops, stopsExtension } from './stops';
 
@@ -33,6 +35,12 @@ export interface SuggestSnapshot {
   explicit: boolean;
   /** Why the last Enter did not insert, until the next move. */
   message: string | null;
+  /**
+   * The options the insertion rules decline here are marked. An on-request menu shows first and
+   * is judged right after (reading the document under those rules must not hold the menu up);
+   * Enter is held to the rules either way.
+   */
+  judged: boolean;
 }
 
 export interface SuggestHost {
@@ -50,6 +58,7 @@ const closeEffect = StateEffect.define<null>();
 const moveEffect = StateEffect.define<number>();
 const categoryEffect = StateEffect.define<null>();
 const messageEffect = StateEffect.define<string | null>();
+const judgeEffect = StateEffect.define<null>();
 
 const typedTriggers = new Set(['<', '#', '[']);
 
@@ -88,7 +97,14 @@ function derive(
         0,
         items.findIndex((item) => !item.unavailable),
       );
-  return { context, items, index: kept < 0 ? first : kept, explicit, message: null };
+  return {
+    context,
+    items,
+    index: kept < 0 ? first : kept,
+    explicit,
+    message: null,
+    judged: !explicit,
+  };
 }
 
 /** True when this transaction just typed one of the characters that opens the menu. */
@@ -132,6 +148,17 @@ export const suggestField = StateField.define<SuggestSnapshot | null>({
         next = { ...next, index: nextCategoryIndex(next.items, next.index), message: null };
       } else if (effect.is(messageEffect)) {
         next = { ...next, message: effect.value };
+      } else if (effect.is(judgeEffect) && !next.judged) {
+        next = {
+          ...next,
+          judged: true,
+          items: judgeItems(
+            next.items,
+            next.context,
+            transaction.state,
+            transaction.state.facet(suggestHost).globals,
+          ),
+        };
       }
     }
     return next;
@@ -152,6 +179,15 @@ export function moveSuggest(view: EditorView, delta: number, absolute = false): 
   const snapshot = suggestState(view.state);
   if (!snapshot) return;
   view.dispatch({ effects: moveEffect.of(absolute ? delta : snapshot.index + delta) });
+}
+
+/**
+ * Marks the options that cannot go at this caret, if the open menu still waits for that. The
+ * editor does this by itself once the menu has painted; nothing else needs to call it.
+ */
+export function judgeSuggestions(view: EditorView): void {
+  const snapshot = suggestState(view.state);
+  if (snapshot && !snapshot.judged) view.dispatch({ effects: judgeEffect.of(null) });
 }
 
 export type AcceptResult = 'inserted' | 'none' | 'unavailable' | Rejection;
@@ -223,7 +259,12 @@ export function acceptSuggestion(view: EditorView, index?: number): AcceptResult
       : undefined,
   });
   if (rejection) {
-    view.dispatch({ effects: messageEffect.of(insertionMessages[rejection]) });
+    // The on-request menu gives the same short reason its greyed options carry.
+    view.dispatch({
+      effects: messageEffect.of(
+        snapshot.explicit ? unavailableReasons[rejection] : insertionMessages[rejection],
+      ),
+    });
     return rejection;
   }
   return 'inserted';
@@ -300,10 +341,30 @@ export function suggestExtension(): Extension {
     }),
     ViewPlugin.fromClass(
       class {
+        private frame = 0;
+        private timer: ReturnType<typeof setTimeout> | undefined;
+        private waiting = false;
+        constructor(private readonly view: EditorView) {}
         update(update: { startState: EditorState; state: EditorState }) {
           const before = suggestState(update.startState);
           const after = suggestState(update.state);
           if (before !== after) update.state.facet(suggestHost).onChange?.(after);
+          if (!after || after.judged || this.waiting) return;
+          // After the frame that shows the menu: opening never waits for the safety rules.
+          this.waiting = true;
+          const judge = () => {
+            this.waiting = false;
+            judgeSuggestions(this.view);
+          };
+          if (typeof requestAnimationFrame === 'function')
+            this.frame = requestAnimationFrame(() => {
+              this.timer = setTimeout(judge);
+            });
+          else this.timer = setTimeout(judge);
+        }
+        destroy() {
+          if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(this.frame);
+          clearTimeout(this.timer);
         }
       },
     ),

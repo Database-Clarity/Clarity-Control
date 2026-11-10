@@ -11,6 +11,7 @@ import {
 } from '@clarity/core';
 import { insertionRejection } from '../markupInsertion';
 import {
+  judgeItems,
   nextCategoryIndex,
   requestItems,
   suggestContext,
@@ -20,6 +21,7 @@ import {
 } from './source';
 import {
   acceptSuggestion,
+  judgeSuggestions,
   openSuggest,
   suggestConfiguration,
   suggestExtension,
@@ -48,7 +50,8 @@ function stateAt(doc: string, anchor = doc.length, head = anchor) {
 function requested(doc: string, anchor?: number, head?: number) {
   const state = stateAt(doc, anchor, head);
   const context = suggestContext(state, true)!;
-  return { state, context, items: requestItems(context, state, globals) };
+  const listed = requestItems(context, state, globals);
+  return { state, context, items: judgeItems(listed, context, state, globals) };
 }
 
 /** Every option the registry holds. The Format wraps and the PvE/PvP snippets are the same markup as a tag, which lists them. */
@@ -215,6 +218,27 @@ describe('the menu in the editor', () => {
     expect(acceptSuggestion(view, greyed)).toBe('unavailable');
     expect(view.state.doc.toString()).toBe('Gains #damage ');
     expect(suggestState(view.state)!.message).toBe(unavailableReasons.noSelection);
+    view.destroy();
+  });
+
+  test('the menu shows before the insertion rules are asked; Enter is held to them either way', () => {
+    const view = editor('Gains #damage ');
+    openSuggest(view);
+    const shown = suggestState(view.state)!;
+    const tag = shown.items.findIndex((item) => item.id === 'tag:pve');
+    expect(shown.judged).toBe(false);
+    expect(shown.items[tag]!.unavailable).toBeUndefined();
+    // Not judged yet, and Enter still inserts nothing the rules decline.
+    expect(acceptSuggestion(view, tag)).toBe('context');
+    expect(view.state.doc.toString()).toBe('Gains #damage ');
+    expect(suggestState(view.state)!.message).toBe(unavailableReasons.context);
+    judgeSuggestions(view);
+    const judged = suggestState(view.state)!;
+    expect(judged.judged).toBe(true);
+    expect(judged.index).toBe(shown.index);
+    expect(judged.items[tag]!.unavailable).toBe(unavailableReasons.context);
+    expect(acceptSuggestion(view, tag)).toBe('unavailable');
+    expect(view.state.doc.toString()).toBe('Gains #damage ');
     view.destroy();
   });
 
