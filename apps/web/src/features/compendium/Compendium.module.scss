@@ -279,6 +279,8 @@
     margin-inline-start: 0;
     border-color: currentColor;
     color: var(--warn);
+    // The key line is smaller than the sheet text; keep the sample the size it had there.
+    font-size: 0.91em;
     cursor: default;
   }
 }
@@ -387,7 +389,7 @@
   }
   color: var(--style-edge);
   font:
-    600 0.625rem/1.4 system-ui,
+    600 0.75em/1.4 system-ui,
     sans-serif;
   letter-spacing: 0.02em;
   vertical-align: 0.1em;
