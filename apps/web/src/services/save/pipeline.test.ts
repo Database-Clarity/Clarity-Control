@@ -225,6 +225,60 @@ describe('validation is scoped to text the change edits', () => {
         expect(issues).toContainEqual(expect.objectContaining({ hash: 123, severity: 'warning' }));
       }
     });
+    describe('attributes errors to the import line that raises them', () => {
+      const newline = String.fromCharCode(10);
+      const lines = (...parts: string[]) => parts.join(newline);
+      const batch = (
+        dependentText: string,
+        donors: Record<number, [string, string]>,
+      ): ReturnType<typeof validateChanges> => {
+        const { state } = data();
+        const dependent = { ...tooltip, text: { en: entry(dependentText) } };
+        state.bundle.tooltips[123] = dependent;
+        const changes = [{ hash: 123, base: dependent, next: { ...dependent, associated: [30] } }];
+        for (const [hash, [before, after]] of Object.entries(donors)) {
+          const base = { ...tooltip, hash: Number(hash), text: { en: entry(before) } };
+          state.bundle.tooltips[Number(hash)] = base;
+          changes.push({
+            hash: Number(hash),
+            base,
+            next: { ...base, text: { en: entry(after) } },
+          });
+        }
+        return validateChanges(changes, state);
+      };
+      it('blocks a commented-out path that becomes visible', () => {
+        const issues = batch(lines('import bad from 999', 'import foo from 124'), {
+          124: [
+            lines('export hidden foo (', '/*', 'import bad from 999', '*/', ')'),
+            lines('export hidden foo (', 'import bad from 999', ')'),
+          ],
+        });
+        expect(errors(issues).map((issue) => issue.hash)).toContain(123);
+      });
+      it('does not block when the new import stays invisible', () => {
+        const issues = batch(lines('import bad from 999', 'import main from 124'), {
+          124: [
+            lines('export hidden spare (', 'Shared', ')', 'Healthy'),
+            lines('export hidden spare (', 'import bad from 999', ')', 'Healthy'),
+          ],
+        });
+        expect(errors(issues)).toEqual([]);
+      });
+      it('blocks a newly broken import self when another dependency is repaired', () => {
+        const issues = batch(lines('import foo from 124', 'import bar from 125'), {
+          124: [
+            lines('export hidden foo (', 'import self', ')'),
+            lines('export hidden foo (', 'Shared', ')'),
+          ],
+          125: [
+            lines('export hidden bar (', 'Shared', ')'),
+            lines('export hidden bar (', 'import self', ')'),
+          ],
+        });
+        expect(errors(issues).map((issue) => issue.hash)).toContain(123);
+      });
+    });
     it('does not turn an error that already existed into a blocker', () => {
       const { state, donor } = data();
       const broken = { ...tooltip, text: { en: entry('import gone from 124') } };

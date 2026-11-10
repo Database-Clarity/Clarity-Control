@@ -7,8 +7,7 @@ import {
   markupDefinitions,
   parseMarkup,
 } from '../markup/index.js';
-import { markupImports, prepareMarkup } from '../markup/prepare.js';
-import { extractBlocks } from '../markup/syntax.js';
+import { prepareMarkup } from '../markup/prepare.js';
 import type { MarkupGlobals } from '../markup/types.js';
 import type { Tooltip } from '../schemas.js';
 import { glyphWarnings } from './glyphs.js';
@@ -118,23 +117,22 @@ export function validateTooltip(
       requireEnglish && edited,
       tooltip.hash,
     );
-    // An error in unchanged text is not this save's doing if it was already raised the same way
-    // before the save. Messages alone cannot say which dependency fails (validateText lists a
-    // repeated message once, and one repaired import can hide another that breaks), so an
-    // unresolved import is attributed to the chain of import lines that reaches it, and any other
-    // error to a count of its raw occurrences.
+    // An error in unchanged text is not this save's doing if the same error was already raised
+    // through the same import line before the save. Messages alone cannot say which dependency
+    // fails (validateText lists a repeated message once, and one repaired import can hide another
+    // that breaks), so each top-level import line is held responsible for the errors it adds.
     const hasError = !edited && issues.some((issue) => issue.severity === 'error');
     const now = hasError ? failures(text, globalsFor(lang), tooltip.hash) : undefined;
     const then = hasError ? failures(text, baseGlobalsFor(lang), tooltip.hash) : undefined;
     const caused = (message: string) => {
+      let seen = 0;
       for (const [key, count] of now!) {
-        if (key.startsWith(message + pathMark) && count > (then!.get(key) ?? 0)) return true;
+        if (!key.endsWith(pathMark + message)) continue;
+        seen += count;
+        if (count > (then!.get(key) ?? 0)) return true;
       }
-      return (
-        sum(now!, message) > sum(then!, message) ||
-        // A message the failures could not attribute (none seen now): stay safe, block.
-        sum(now!, message) === 0
-      );
+      // An error no import line accounts for and that was not raised before: stay safe, block.
+      return seen === 0;
     };
     return issues.map((issue) => ({
       ...issue,
@@ -149,51 +147,62 @@ export function validateTooltip(
 }
 
 const pathMark = ' @ ';
-const sum = (counts: Map<string, number>, message: string) => {
-  let total = 0;
-  for (const [key, count] of counts) if (key.startsWith(message + pathMark)) total += count;
-  return total;
-};
+
+const importPatterns = [/^import [A-z0-9 ]+? from (\d+|global) *?$/gm, /^import self *?$/gm];
+
+/** The spans of the text's top-level import lines, in document order. */
+function importSpans(text: string): { line: string; from: number; to: number }[] {
+  return importPatterns
+    .flatMap((pattern) =>
+      [...text.matchAll(pattern)].map((match) => ({
+        line: match[0],
+        from: match.index!,
+        to: match.index! + match[0].length,
+      })),
+    )
+    .sort((a, b) => a.from - b.from);
+}
 
 /**
- * How often each error is raised for this text, keyed by its message and, for an unresolved
- * import, by the chain of import lines that reaches it (the resolver's five passes). Other errors
- * (parser, global name clashes) have an empty chain. Counting happens before validateText merges
- * repeated messages.
+ * How often each error is raised for this text, keyed by the top-level import line responsible
+ * and the message. A line is responsible for the errors that disappear when only that line is
+ * removed, so comment, hidden-block, visibility, and pass semantics are the real resolver's. The
+ * errors left with every import line removed (parser errors, global name clashes) are keyed
+ * 'text'. Counting happens before validateText merges repeated messages.
  */
 function failures(text: string, globals: MarkupGlobals, selfHash: number): Map<string, number> {
-  const counts = new Map<string, number>();
-  const add = (message: string, chain = '') => {
-    const key = message + pathMark + chain;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  };
-  const walk = (source: string, chain: string[]) => {
-    if (chain.length >= 5) return;
-    for (const line of markupImports(source)) {
-      if (line.includes('import self')) continue;
-      const name = line.match(/(?<=import) .+ (?=from)/)?.[0].trim() ?? '';
-      const from = line.match(/(?<=from) (\d+|global)/)?.[0].trim() ?? '';
-      const document =
-        globals.imports?.[from] ?? (from === 'global' ? globals.imports?.['1'] : undefined);
-      const imported =
-        name === 'main' || name === 'secondary'
-          ? document
-          : extractBlocks(document ?? '', 'export')[name];
-      const here = [...chain, line.trim()];
-      if (imported === undefined)
-        add(`Unresolved import "${name}" from ${from}.`, here.join(' > '));
-      else walk(imported, here);
+  const errorsOf = (source: string) => {
+    const counts = new Map<string, number>();
+    const add = (message: string) => counts.set(message, (counts.get(message) ?? 0) + 1);
+    for (const diagnostic of parseMarkup(source, globals).diagnostics) {
+      if (diagnostic.severity === 'error') add(diagnostic.message);
     }
+    return counts;
   };
-  walk(text, []);
-  const unresolved = /^Unresolved import /;
-  for (const diagnostic of parseMarkup(text, globals).diagnostics) {
-    if (diagnostic.severity === 'error' && !unresolved.test(diagnostic.message)) {
-      add(diagnostic.message);
+  const counts = new Map<string, number>();
+  const add = (owner: string, message: string, count = 1) => {
+    const key = owner + pathMark + message;
+    counts.set(key, (counts.get(key) ?? 0) + count);
+  };
+  const total = errorsOf(text);
+  const spans = importSpans(text);
+  const seenLines = new Map<string, number>();
+  for (const span of spans) {
+    const occurrence = (seenLines.get(span.line) ?? 0) + 1;
+    seenLines.set(span.line, occurrence);
+    if (!total.size) continue;
+    const without = errorsOf(text.slice(0, span.from) + text.slice(span.to));
+    for (const [message, count] of total) {
+      const added = count - (without.get(message) ?? 0);
+      if (added > 0) add(`${span.line.trim()} #${occurrence}`, message, added);
     }
   }
+  let rest = text;
+  for (const span of [...spans].reverse()) rest = rest.slice(0, span.from) + rest.slice(span.to);
+  for (const [message, count] of errorsOf(rest)) add('text', message, count);
   if (selfHash !== globalVariablesHash && selfHash !== globalTitlesHash) {
-    for (const clash of findGlobalNameClashes(text, globals)) add(describeGlobalClash(clash));
+    for (const clash of findGlobalNameClashes(text, globals))
+      add('text', describeGlobalClash(clash));
   }
   return counts;
 }
