@@ -28,7 +28,12 @@
   flex: none;
 }
 // Its own line under a notice: one line, so it takes exactly the line the skeleton reserves.
+// Touch: a var(--tap-sm) hit height that reaches above and below the line without moving it.
 .block {
   display: flex;
   width: fit-content;
+  @media (max-width: 700px), (pointer: coarse) {
+    padding-block: max(0px, (var(--tap-sm) - 1lh) / 2);
+    margin-block: min(0px, (1lh - var(--tap-sm)) / 2);
+  }
 }
