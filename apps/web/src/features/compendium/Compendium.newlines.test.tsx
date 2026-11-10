@@ -46,6 +46,21 @@ const click = async (host: HTMLElement, text: string) => {
 };
 
 describe('compendium newline preservation per surface', () => {
+  it('diff: the key line appears only when the cell differs', async () => {
+    const same = await mount(
+      createElement(CompendiumDiff, { before: cellOf(TEXT), after: cellOf(TEXT), mode: 'changes' }),
+    );
+    expect(same.querySelector('[data-multiline]')?.textContent).toBe(TEXT);
+    expect(same.textContent).not.toContain('removed');
+    const changed = await mount(
+      createElement(CompendiumDiff, {
+        before: cellOf(TEXT),
+        after: cellOf(`${TEXT} changed`),
+        mode: 'changes',
+      }),
+    );
+    expect(changed.querySelector('p')?.textContent).toContain('removed');
+  });
   it('diff: inline mode and BOTH side-by-side panes keep exact multiline text', async () => {
     const before = cellOf(TEXT);
     const after = cellOf('line1\nline2\n\nline4 changed');
