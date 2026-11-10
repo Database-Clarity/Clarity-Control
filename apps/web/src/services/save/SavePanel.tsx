@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import type { CompendiumData } from '@clarity/core';
+import { resolveCompendiumLink, type CompendiumData } from '@clarity/core';
 import { apiUrl, save } from '../api';
 import { loadCompendium } from '../compendium';
 import { errorMessage } from '../http';
@@ -15,6 +15,8 @@ import {
 import { useDraftStore } from '../../stores/drafts';
 import { usePreviewReviewStore } from '../../stores/previewReview';
 import { CompendiumDiff } from '../../features/compendium/CompendiumDiff';
+import { SourceRef } from '../../features/compendium/SourceRef';
+import { linkLocation, matchLocation } from '../../features/compendium/sourceLocation';
 import { useCompendiumStore } from '../../features/compendium/store';
 import { Dialog } from '../../ui/Dialog';
 import { acceptSaved } from './drafts';
@@ -149,6 +151,7 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
   const [error, setError] = useState<string | null>(null);
   // Linked Compendium cells that changed since they were shown, and the ones the reviewer ticked.
   const [changedSource, setChangedSource] = useState<ChangedSource[]>([]);
+  const [freshSource, setFreshSource] = useState<CompendiumData | null>(null);
   const [acknowledged, setAcknowledged] = useState<string | null>(null);
   const needsAcknowledgement =
     changedSource.length > 0 && acknowledged !== sourceKey(changedSource);
@@ -215,6 +218,7 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         if (accountChanged(generation)) return;
         const found = changedSources(changes, useCompendiumStore.getState().data, source);
         setChangedSource(found);
+        setFreshSource(source);
         if (found.length && acknowledged !== sourceKey(found)) {
           setError(
             'The Compendium changed since it was last shown. Review the differences below and tick the box to continue; nothing was saved.',
@@ -312,17 +316,31 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
             The Compendium changed after it was last shown to you. Saving records the new text as
             reviewed.
           </p>
-          {changedSource.map(({ hash, shown, fresh }) => (
-            <section key={hash} aria-label={`Compendium change for ${hash}`}>
-              <h4>
-                {data.items[hash]?.name ??
-                  changes.find((c) => c.hash === hash)?.next.custom?.name ??
-                  hash}{' '}
-                ({hash})
-              </h4>
-              <CompendiumDiff before={shown} after={fresh} />
-            </section>
-          ))}
+          {changedSource.map(({ hash, shown, fresh }) => {
+            const link = changes.find((change) => change.hash === hash)?.next.compendium;
+            const resolved = link && freshSource && resolveCompendiumLink(link, freshSource);
+            const location =
+              link &&
+              (resolved && 'row' in resolved
+                ? matchLocation(resolved, freshSource)
+                : linkLocation(link, freshSource, { stale: true }));
+            return (
+              <section key={hash} aria-label={`Compendium change for ${hash}`}>
+                <h4>
+                  {data.items[hash]?.name ??
+                    changes.find((c) => c.hash === hash)?.next.custom?.name ??
+                    hash}{' '}
+                  ({hash})
+                </h4>
+                {location && (
+                  <p>
+                    Compendium source: <SourceRef location={location} />
+                  </p>
+                )}
+                <CompendiumDiff before={shown} after={fresh} />
+              </section>
+            );
+          })}
           <label>
             <input
               type="checkbox"
