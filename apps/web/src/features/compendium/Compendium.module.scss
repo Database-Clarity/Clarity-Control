@@ -270,8 +270,12 @@
   color: var(--text2);
   font-size: 0.6875rem;
   line-height: 1.5;
+  // The sample is read as a word, so it keeps full strength in both themes.
+  .removed {
+    opacity: 1;
+  }
   // On the page surface the marker takes the theme's warning colour.
-  .styleMark {
+  .styleMark.styleMark.styleMark {
     margin-inline-start: 0;
     border-color: currentColor;
     color: var(--warn);
@@ -323,20 +327,33 @@
     margin-block-end: 0;
   }
 }
-.unfold {
+// The fold and the marker are part of the sheet text, not controls of whichever surface hosts the
+// diff (pane, History, save dialog): the tripled class outranks a host's `button` rules, and every
+// property those rules set is owned here.
+.unfold.unfold.unfold {
   appearance: none;
+  display: block;
   width: 100%;
-  border-block: 0;
-  border-inline-end: 0;
+  min-width: 0;
+  min-height: 0;
+  margin: 0 0 1px;
+  border: 0;
+  border-inline-start: 3px solid var(--sheet-del-line);
   border-radius: 0;
-  padding-block: 0 0.125rem;
+  padding: 0 0 0.125rem calc(0.8rem - 3px);
+  background: color-mix(in srgb, var(--sheet-del-bg) 33%, transparent);
   color: var(--sheet-del-line);
   font: inherit;
-  font-size: 0.6875rem;
+  // Sized from the sheet text beside it, so UI scale does not outgrow the cell.
+  font-size: 0.85em;
   line-height: 1.5;
   text-align: start;
+  white-space: normal;
   cursor: pointer;
-  &:hover {
+  &:hover:not(:disabled),
+  &:active:not(:disabled) {
+    border-color: var(--sheet-del-line);
+    background: color-mix(in srgb, var(--sheet-del-bg) 33%, transparent);
     text-decoration: underline;
   }
   &:focus-visible {
@@ -351,16 +368,23 @@
   display: inline;
   position: relative;
 }
-.styleMark {
+.styleMark.styleMark.styleMark {
   appearance: none;
   display: inline-block;
   position: relative;
+  min-width: 0;
+  min-height: 0;
   margin: 0;
   margin-inline-start: 0.35em;
   padding: 0 0.2em;
   border: 1px dotted var(--style-edge);
   border-radius: 2px;
   background: none;
+  &:hover:not(:disabled),
+  &:active:not(:disabled) {
+    border-color: var(--style-edge);
+    background: none;
+  }
   color: var(--style-edge);
   font:
     600 0.625rem/1.4 system-ui,

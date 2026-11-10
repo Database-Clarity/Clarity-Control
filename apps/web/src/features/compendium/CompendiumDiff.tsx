@@ -281,6 +281,10 @@ export function CompendiumDiff({
     () => (sideBySide ? undefined : preparedLines(before, after)),
     [before, after, sideBySide],
   );
+  const differs =
+    !!prepared &&
+    (!!prepared.cellStyle ||
+      prepared.lines.some((line) => line.kind !== 'equal' || line.style !== undefined));
   return (
     <section aria-label="Styled Compendium diff">
       {given === undefined && (
@@ -305,19 +309,22 @@ export function CompendiumDiff({
         </div>
       ) : (
         <>
-          <p className={styles.key}>
-            <span className={styles.removed}>removed</span>
-            <span className={styles.added}>added</span>
-            <span>
-              <span className={styles.styleMark} aria-hidden="true">
-                Aa
-              </span>{' '}
-              style changed, hover for detail
-            </span>
-            {prepared.cellStyle && (
-              <span className={styles.cellStyle}>Whole cell: {prepared.cellStyle}</span>
-            )}
-          </p>
+          {/* Nothing to explain when the cell matches: the key appears only with a difference. */}
+          {differs && (
+            <p className={styles.key}>
+              <span className={styles.removed}>removed</span>
+              <span className={styles.added}>added</span>
+              <span>
+                <span className={styles.styleMark} aria-hidden="true">
+                  Aa
+                </span>{' '}
+                style changed, hover for detail
+              </span>
+              {prepared.cellStyle && (
+                <span className={styles.cellStyle}>Whole cell: {prepared.cellStyle}</span>
+              )}
+            </p>
+          )}
           <SheetCell background={background}>
             <Multiline>
               {prepared.lines.map((line, index) => (
