@@ -266,11 +266,14 @@ export function CompendiumDiff({
   before,
   after,
   mode: given,
+  scale,
 }: {
   before: CompendiumCell;
   after: CompendiumCell;
   /** The view, when the caller shows the toggle itself; without it the diff brings its own. */
   mode?: CompendiumDiffMode;
+  /** Only the editor pane supplies its device cell scale. */
+  scale?: number;
 }) {
   const [remembered, setRemembered] = useCompendiumDiffMode();
   const mode = given ?? remembered;
@@ -296,15 +299,19 @@ export function CompendiumDiff({
         <div className={styles.comparison}>
           <section>
             <h4>Snapshot</h4>
-            <SheetCell background={background}>
-              <RichCell cell={before} />
-            </SheetCell>
+            <CellScale scale={scale}>
+              <SheetCell background={background}>
+                <RichCell cell={before} />
+              </SheetCell>
+            </CellScale>
           </section>
           <section>
             <h4>Current</h4>
-            <SheetCell background={background}>
-              <RichCell cell={after} />
-            </SheetCell>
+            <CellScale scale={scale}>
+              <SheetCell background={background}>
+                <RichCell cell={after} />
+              </SheetCell>
+            </CellScale>
           </section>
         </div>
       ) : (
@@ -325,15 +332,37 @@ export function CompendiumDiff({
               )}
             </p>
           )}
-          <SheetCell background={background}>
-            <Multiline>
-              {prepared.lines.map((line, index) => (
-                <DiffLineView key={index} line={line} last={index === prepared.lines.length - 1} />
-              ))}
-            </Multiline>
-          </SheetCell>
+          <CellScale scale={scale}>
+            <SheetCell background={background}>
+              <Multiline>
+                {prepared.lines.map((line, index) => (
+                  <DiffLineView
+                    key={index}
+                    line={line}
+                    last={index === prepared.lines.length - 1}
+                  />
+                ))}
+              </Multiline>
+            </SheetCell>
+          </CellScale>
         </>
       )}
     </section>
+  );
+}
+
+/** Constrain sheet overflow locally; other Compendium surfaces keep their existing layout. */
+export function CellScale({ children, scale }: { children: ReactNode; scale?: number }) {
+  if (scale === undefined) return <>{children}</>;
+  return (
+    <div className={styles.cellScroll}>
+      <div
+        className={styles.cellScale}
+        data-cell-scale={scale}
+        style={{ zoom: scale / 100, width: `${Math.max(100, scale)}%` }}
+      >
+        {children}
+      </div>
+    </div>
   );
 }

@@ -66,7 +66,7 @@
   }
 }
 
-// CSS zoom on the pane body is the device's Compendium scale; the header never scales.
+// Pane UI stays at interface size; cellScale alone carries the device cell scale.
 .zoom {
   // Name the fonts Chromium already uses for the sheet's emoji and Katakana,
   // so their first appearance does not search the system font catalogue.
@@ -676,4 +676,13 @@
   margin: 0.25rem 0;
   color: var(--text2);
   font-size: 0.75rem;
+}
+
+.cellScroll {
+  min-width: 0;
+  max-width: 100%;
+  overflow: auto;
+}
+.cellScale {
+  width: 100%;
 }

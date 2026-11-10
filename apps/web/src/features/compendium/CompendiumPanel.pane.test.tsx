@@ -768,23 +768,37 @@ describe('Compendium pane', () => {
     expect(host.querySelector('[data-picker]')).toBeNull();
   });
 
-  it('steps the zoom 100 to 70, clamps at both ends, and keeps it on this device', async () => {
+  it('steps the cell scale 70 to 150, clamps at both ends, and keeps it on this device', async () => {
     const host = await mount();
     const zoomed = () => host.querySelector<HTMLElement>('[data-scale]')!;
     const smaller = button(host, 'Smaller') as HTMLButtonElement;
     const larger = button(host, 'Larger') as HTMLButtonElement;
-    expect(larger.disabled).toBe(true);
+    expect(larger.disabled).toBe(false);
     for (const expected of [90, 80, 70]) {
       await act(async () => smaller.click());
       expect(header(host).querySelector('output')?.textContent).toBe(`${expected}%`);
       expect(zoomed().dataset.scale).toBe(String(expected));
-      expect(zoomed().style.zoom).toBe(String(expected / 100));
+      expect(zoomed().style.zoom).toBeFalsy();
+      const cells = zoomed().querySelectorAll<HTMLElement>('[data-cell-scale]');
+      expect(cells.length).toBeGreaterThan(0);
+      for (const cell of cells) {
+        expect(cell.style.zoom).toBe(String(expected / 100));
+        expect(cell.querySelector('[data-surface]')).not.toBeNull();
+      }
+      for (const control of host.querySelectorAll('[aria-label="Compendium tools"] button'))
+        expect(control.closest('[data-cell-scale]')).toBeNull();
     }
     expect(smaller.disabled).toBe(true);
     expect(useSettingsStore.getState().device.compendiumScale).toBe(70);
     expect(useSettingsStore.getState().pending).toEqual([]);
     await act(async () => larger.click());
     expect(useSettingsStore.getState().device.compendiumScale).toBe(80);
+    for (const expected of [90, 100, 110, 120, 130, 140, 150]) {
+      await act(async () => larger.click());
+      expect(header(host).querySelector('output')?.textContent).toBe(`${expected}%`);
+      expect(zoomed().style.zoom).toBeFalsy();
+    }
+    expect(larger.disabled).toBe(true);
   });
 
   it('resetting pane widths puts the zoom back to 100 %', async () => {
