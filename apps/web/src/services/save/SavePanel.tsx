@@ -19,7 +19,9 @@ import { useCompendiumStore } from '../../features/compendium/store';
 import { Dialog } from '../../ui/Dialog';
 import { acceptSaved } from './drafts';
 import { useSaveNotice } from './notice';
-import { permissionError, prepareChanges, validateChanges } from './pipeline';
+import { permissionError, prepareChanges } from './pipeline';
+import { requestSaveValidation } from './validationWorker';
+import type { TooltipValidationIssue } from '@clarity/core';
 import { useSaveState, type SaveReview } from './state';
 import { openDraftSaveReview } from './openReview';
 import { changedSources, linksCompendium, sourceKey, type ChangedSource } from './compendiumSource';
@@ -150,13 +152,32 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
   const [acknowledged, setAcknowledged] = useState<string | null>(null);
   const needsAcknowledgement =
     changedSource.length > 0 && acknowledged !== sourceKey(changedSource);
-  const validation = useMemo(() => {
-    try {
-      return { issues: data ? validateChanges(changes, data) : [], error: null };
-    } catch (error) {
-      return { issues: [], error: errorMessage(error) };
+  const validationKey = useMemo(() => JSON.stringify(changes), [changes]);
+  const [validated, setValidated] = useState<{
+    data: typeof data;
+    key: string;
+    issues: TooltipValidationIssue[];
+    error: string | null;
+  } | null>(null);
+  const validation =
+    validated?.data === data && validated?.key === validationKey ? validated : null;
+  useEffect(() => {
+    let current = true;
+    if (data) {
+      void requestSaveValidation(changes, data).then(
+        (issues) => {
+          if (current) setValidated({ data, key: validationKey, issues, error: null });
+        },
+        (error: unknown) => {
+          if (current)
+            setValidated({ data, key: validationKey, issues: [], error: errorMessage(error) });
+        },
+      );
     }
-  }, [changes, data]);
+    return () => {
+      current = false;
+    };
+  }, [changes, data, validationKey]);
   const denied = permissionError(changes, user);
   // Marker blocks are also caught by validation; this covers a conflict's non-text rows.
   const unresolved = openConflicts.some((conflict) =>
@@ -167,8 +188,9 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
     denied ||
     unresolved ||
     paused ||
-    validation.error ||
-    validation.issues.some((issue) => issue.severity === 'error') ||
+    !validation ||
+    validation?.error ||
+    validation?.issues.some((issue) => issue.severity === 'error') ||
     changes.length > 100,
   );
   async function submit() {
@@ -200,7 +222,12 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
           return;
         }
       }
+      // A catalogue refresh during storage/source awaits invalidates the reviewed verdict.
+      if (useDataStore.getState().data !== data || useSaveState.getState().review !== review)
+        throw new Error('The save snapshot changed. Review the current validation before saving.');
       const prepared = await prepareChanges(changes, user, data, source);
+      if (useDataStore.getState().data !== data || useSaveState.getState().review !== review)
+        throw new Error('The save snapshot changed. Review the current validation before saving.');
       if (accountChanged(generation)) return;
       // The request reads the session token when it is sent: refuse unless it is still the one
       // this user was loaded with (another tab may have signed in as someone else meanwhile).
@@ -268,7 +295,7 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
             disabled={pending || blocked || !data || Boolean(remoteCommit) || needsAcknowledgement}
             onClick={() => void submit()}
           >
-            {pending ? 'Saving...' : 'Save changes'}
+            {pending ? 'Saving...' : !validation && data ? 'Validating...' : 'Save changes'}
           </button>
           <button type="button" disabled={pending} onClick={close}>
             Cancel; keep local drafts
@@ -276,7 +303,8 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         </>
       }
     >
-      {data && <SaveSummary changes={changes} issues={validation.issues} data={data} />}
+      {!validation && data && <p role="status">Validating save...</p>}
+      {data && <SaveSummary changes={changes} issues={validation?.issues ?? []} data={data} />}
       {changedSource.length > 0 && data && (
         <section aria-label="Compendium source changed">
           <h3>Compendium source changed</h3>
@@ -308,8 +336,8 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
           </label>
         </section>
       )}
-      {(denied || validation.error || error) && (
-        <p role="alert">{denied || validation.error || error}</p>
+      {(denied || validation?.error || error) && (
+        <p role="alert">{denied || validation?.error || error}</p>
       )}
       {unresolved && <p role="alert">Resolve the open conflicts before saving.</p>}
       {paused && (
@@ -318,7 +346,7 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
       {changes.length > 100 && (
         <p role="alert">At most 100 tooltips can be saved at once. Reduce your drafts first.</p>
       )}
-      {validation.issues.some((issue) => issue.severity === 'warning') && (
+      {validation?.issues.some((issue) => issue.severity === 'warning') && (
         <p>Warnings do not block saving.</p>
       )}
       <details>

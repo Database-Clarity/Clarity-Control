@@ -636,3 +636,52 @@ describe('reverse dependents outside the batch', () => {
     expect(errors(validateChanges(changes, data))).toEqual([]);
   });
 });
+
+vi.mock('./validationWorker', () => ({
+  requestSaveValidation: async (
+    changes: import('../api').Change[],
+    data: import('../../stores/data').EditorData,
+  ) => {
+    const { validateChanges } = await import('./validation');
+    return validateChanges(changes, data);
+  },
+}));
+
+describe('saved catalogue baseline cache', () => {
+  const doc = (hash: number, text: string) => ({
+    ...tooltip,
+    hash,
+    text: { en: { ...english, text } },
+  });
+  it('invalidates when a new dependent is loaded at the same source commit', () => {
+    const data = editorData();
+    const donor = doc(124, 'export hidden foo (\nShared\n)');
+    data.bundle.tooltips = { 124: donor };
+    const changes = [{ hash: 124, base: donor, next: doc(124, 'Removed export') }];
+    expect(validateChanges(changes, data).filter((issue) => issue.severity === 'error')).toEqual(
+      [],
+    );
+    const fresh = {
+      ...data,
+      bundle: {
+        ...data.bundle,
+        tooltips: {
+          ...data.bundle.tooltips,
+          123: doc(123, 'import foo from 124'),
+        },
+      },
+    };
+    expect(validateChanges(changes, fresh)).toContainEqual(
+      expect.objectContaining({ hash: 123, severity: 'error' }),
+    );
+  });
+  it('keeps recovered draft bases independent of an already-cached saved baseline', () => {
+    const data = editorData();
+    const donor = doc(124, 'export hidden foo (\nShared\n)');
+    data.bundle.tooltips = { 124: donor, 123: doc(123, 'import foo from 124') };
+    const changes = [{ hash: 124, base: donor, next: doc(124, 'Removed export') }];
+    const initial = validateChanges(changes, data);
+    validateChanges([{ hash: 124, base: doc(124, 'Older saved text'), next: donor }], data);
+    expect(validateChanges(changes, data)).toEqual(initial);
+  });
+});
