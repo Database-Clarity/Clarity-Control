@@ -106,7 +106,7 @@ describe('retired markup in the editor', () => {
     expect(items[0]!.textContent).toContain('<blue Solar Fulmination />');
     expect(items[1]!.textContent).toContain("<blue Hunter's Journal Artifact />");
     const labels = [...items[0]!.querySelectorAll('button')].map((button) => button.textContent);
-    expect(labels).toEqual(['Remove tag (keep the text)', 'Change to yellow']);
+    expect(labels).toEqual(['Remove tag (keep the text)']);
     expect(q('[data-retired-all]')?.textContent).toBe('Fix all (2)');
     act(() => {
       q('.cm-content')!.dispatchEvent(
@@ -156,8 +156,8 @@ describe('retired markup in the editor', () => {
     expect(latest).toBe(doc());
     expect(status()?.getAttribute('aria-label')).toBe('1 retired markup');
     expect(host.querySelectorAll('[data-retired-item]')).toHaveLength(1);
-    click(fixes('to-yellow')[0]!);
-    expect(doc()).toContain("<yellow Hunter's Journal Artifact />");
+    click(fixes('remove-tag')[0]!);
+    expect(doc()).toContain("Hunter's Journal Artifact");
     expect(status()).toBeNull();
     expect(panel()).toBeNull();
     act(() => {
@@ -187,22 +187,21 @@ describe('retired markup in the editor', () => {
   });
 
   it('previews a structural fix before applying it, and Cancel changes nothing', () => {
-    const text = 'Before\ncatalyst (\nonly catalyst text\n)\nAfter';
+    const text = 'Before\n< table >\n|only catalyst text\n<$>\nAfter';
     mount(text);
     click(status());
-    const remove = fixes('remove-block')[0]!;
+    const remove = fixes('rows-to-lines')[0]!;
     expect(q('[data-retired-all]')).toBeNull();
     click(remove);
     expect(doc()).toBe(text);
     const preview = q('[data-retired-preview]')!;
     expect(preview.textContent).toContain('only catalyst text');
-    expect(preview.textContent).toContain('(nothing)');
     click([...preview.querySelectorAll('button')].find((b) => b.textContent === 'Cancel')!);
     expect(q('[data-retired-preview]')).toBeNull();
     // Keyboard focus is not lost: Cancel hands it back to the button that opened the preview.
     expect(document.activeElement).toBe(remove);
     expect(doc()).toBe(text);
-    click(fixes('keep-contents')[0]!);
+    click(fixes('rows-to-lines')[0]!);
     expect(q('[data-retired-preview]')?.textContent).toContain('only catalyst text');
     click(q('[data-retired-apply]'));
     expect(doc()).toBe('Before\nonly catalyst text\nAfter');
@@ -211,6 +210,21 @@ describe('retired markup in the editor', () => {
       undo(view());
     });
     expect(doc()).toBe(text);
+  });
+
+  it('shows refusal reasons and skipped counts before and after Fix all, with one undo', () => {
+    const text = '<blue-x />\n<green good />';
+    mount(text);
+    click(status());
+    expect(panel()?.textContent).toContain('Fix by hand:');
+    expect(panel()?.textContent).toContain('1 skipped');
+    click(q('[data-retired-all]'));
+    expect(doc()).toBe('<blue-x />\ngood');
+    expect(panel()?.textContent).toContain('1 skipped');
+    expect(q('[data-retired-all]')).toBeNull();
+    act(() => { undo(view()); });
+    expect(doc()).toBe(text);
+    expect(q('[data-retired-all]')).not.toBeNull();
   });
 
   it('stepping to another tooltip updates the flag and closes a panel that has nothing to show', () => {
@@ -254,26 +268,21 @@ describe('the colour-tag popover on a retired tag', () => {
   const buttons = () =>
     [...host.querySelectorAll<HTMLElement>('.cm-symbol-fix')].map((button) => button.textContent);
 
-  it('offers the same two fixes as the status bar, and only for a retired colour', () => {
+  it('offers the same verified fixes as the status bar, and only for a retired colour', () => {
     mount(text);
     pin(text.indexOf('cd'));
     expect(buttons()).toEqual([]);
     pin(text.indexOf('ab'));
     expect(host.querySelector('.cm-symbol-retired')?.textContent).toBe('Retired');
-    expect(buttons()).toEqual(['Remove tag (keep the text)', 'Change to yellow']);
+    expect(buttons()).toEqual(['Remove tag (keep the text)']);
   });
 
-  it('Change to yellow retags in place and keeps the tag pinned; undo restores it', () => {
+  it('refuses Change to yellow with the verification reason', () => {
     mount(text);
     pin(text.indexOf('ab'));
-    click(host.querySelectorAll<HTMLElement>('.cm-symbol-fix')[1]!);
-    expect(doc()).toBe('x <yellow ab /> y <yellow cd /> z');
-    expect(buttons()).toEqual([]);
-    expect(host.querySelector('.cm-symbol-popover code')?.textContent).toBe('<yellow … />');
-    act(() => {
-      undo(view());
-    });
+    expect(host.querySelector('.cm-symbol-popover')?.textContent).toContain('Fix by hand: Change to yellow');
     expect(doc()).toBe(text);
+    expect(buttons()).toEqual(['Remove tag (keep the text)']);
   });
 
   it('Remove tag keeps the text, and Backspace still does the same', () => {

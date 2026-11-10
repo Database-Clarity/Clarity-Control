@@ -1,4 +1,6 @@
-import { markupCommentContext } from '../markup/prepare.js';
+import { parseMarkup } from '../markup/parse.js';
+import type { MarkupLine } from '../markup/types.js';
+import { prepareMarkup, markupConditions, markupCommentContext } from '../markup/prepare.js';
 import {
   markupLineClasses,
   markupRetiredColors,
@@ -43,6 +45,8 @@ export interface RetiredOccurrence {
   message: string;
   /** In the concept's order: the first one is what Fix all applies. */
   fixes: RetiredFix[];
+  refusalReason?: string;
+  manualFixes?: { label: string; reason: string }[];
 }
 
 const retiredColours = markupRetiredColors;
@@ -55,7 +59,6 @@ const quick =
 const converterToken = /<.+?\/>/g;
 const marker = new RegExp(`^<(${retiredMarkers.join('|')})\\s*/>$`);
 const wrapper = new RegExp(`^<(${retiredWrappers.join('|')})\\s+([\\s\\S]*?)\\s*/>$`);
-const conditions = ['catalyst', 'exotic perk'];
 
 const noun = (name: string) => `<${name} … />`;
 const retired = (token: string, advice: string) =>
@@ -112,13 +115,10 @@ function tokenOccurrence(
       edits: [{ from, to, insert: inner }],
     },
   ];
-  if (retiredColours.includes(name))
-    fixes.push({
-      id: 'to-yellow',
-      label: 'Change to yellow',
-      structural: false,
-      edits: [{ from, to, insert: `<yellow ${inner} />` }],
-    });
+  if (retiredColours.includes(name)) fixes.push({
+    id: 'to-yellow', label: 'Change to yellow', structural: false,
+    edits: [{ from, to, insert: `<yellow ${inner} />` }],
+  });
   return {
     kind: 'wrapper',
     name,
@@ -134,50 +134,6 @@ function tokenOccurrence(
     ),
     fixes,
   };
-}
-
-function conditionOccurrences(text: string, source: string): RetiredOccurrence[] {
-  const found: RetiredOccurrence[] = [];
-  for (const name of conditions) {
-    // The same block pattern the converter uses (prepare.ts).
-    for (const match of text.matchAll(new RegExp(`^${name} \\([\\s\\S]*?\\n\\) *$`, 'gm'))) {
-      const closingFrom = match.index + match[0].lastIndexOf('\n') + 1;
-      if (
-        markupCommentContext(source.slice(closingFrom, match.index + match[0].length)).text !== ')'
-      )
-        continue;
-      const from = match.index;
-      const end = from + match[0].length;
-      const lines = source.slice(from, end).split('\n');
-      const contents = lines.slice(1, -1).join('\n');
-      // Dropping the block drops its line break too; the last line of the text takes the one before.
-      const gone: RetiredEdit =
-        text[end] === '\n'
-          ? { from, to: end + 1, insert: '' }
-          : from > 0
-            ? { from: from - 1, to: end, insert: '' }
-            : { from, to: end, insert: '' };
-      found.push({
-        kind: 'condition',
-        name,
-        token: `${name} ( … )`,
-        source: lines[0]!,
-        from,
-        to: from + lines[0]!.length,
-        message: retired(`${name} ( … )`, 'Remove the block or keep its contents.'),
-        fixes: [
-          { id: 'remove-block', label: 'Remove block', structural: true, edits: [gone] },
-          {
-            id: 'keep-contents',
-            label: 'Keep contents',
-            structural: true,
-            edits: [{ from, to: end, insert: contents }],
-          },
-        ],
-      });
-    }
-  }
-  return found;
 }
 
 function tableRowToLine(row: string): string {
@@ -218,7 +174,7 @@ function tableOccurrences(text: string, source: string): RetiredOccurrence[] {
 }
 
 /** Every retired form in the text, with edits mapped back to the authored source. */
-export function findRetiredMarkup(source: string): RetiredOccurrence[] {
+function placementCandidates(source: string): RetiredOccurrence[] {
   if (!quick.test(source) && !source.includes('/*')) return [];
   const context = markupCommentContext(source);
   const { text, offsets } = context;
@@ -228,60 +184,64 @@ export function findRetiredMarkup(source: string): RetiredOccurrence[] {
     const from = positions[item.from]!;
     const to = positions[item.to - 1]! + 1;
     const token = source.slice(from, to);
-    const comments = context.comments.filter((comment) => comment.from >= from && comment.to <= to);
-    const preservedComments = comments
-      .map((comment) => source.slice(comment.from, comment.to))
-      .join('');
     item.fixes = item.fixes.map((fix) => ({
       ...fix,
-      edits: fix.edits.map((edit) => {
-        let editFrom = positions[edit.from] ?? source.length;
-        let editTo = edit.to ? positions[edit.to - 1]! + 1 : 0;
-        let insert = edit.insert;
-        if (item.kind === 'marker') {
-          // Neighbour removal must inspect actual source characters, never deleted comments.
-          const lineStart = from === 0 || source[from - 1] === '\n';
-          const lineEnd = to === source.length || source[to] === '\n';
-          editFrom = lineEnd && source[from - 1] === ' ' ? from - 1 : from;
-          editTo = lineStart && source[to] === ' ' ? to + 1 : to;
-          insert = preservedComments;
-        } else if (item.kind === 'wrapper') {
-          const compact = positions
-            .slice(item.from, item.to)
-            .map((position) => source[position])
-            .join('');
-          const content = wrapper.exec(compact)?.[2] ?? '';
-          const contentAt = compact.indexOf(content, compact.indexOf(item.name) + item.name.length);
-          const contentFrom = positions[item.from + contentAt] ?? to;
-          const contentTo = content.length
-            ? positions[item.from + contentAt + content.length - 1]! + 1
-            : contentFrom;
-          // Keep every authored comment, including comments splitting the tag name or padding.
-          const before = comments
-            .filter((comment) => comment.to <= contentFrom)
-            .map((comment) => source.slice(comment.from, comment.to))
-            .join('');
-          const after = comments
-            .filter((comment) => comment.from >= contentTo)
-            .map((comment) => source.slice(comment.from, comment.to))
-            .join('');
-          const inner =
-            (before && content ? before + ' ' : before) +
-            source.slice(contentFrom, contentTo) +
-            after;
-          insert = fix.id === 'to-yellow' ? `<yellow ${inner} />` : inner;
-        } else if (fix.id === 'keep-contents' || fix.id === 'rows-to-lines') {
-          const original = source.slice(editFrom, editTo).split('\n');
-          const rows = original.slice(1, -1);
-          insert =
-            fix.id === 'keep-contents' ? rows.join('\n') : rows.map(tableRowToLine).join('\n');
+      edits: fix.edits.flatMap((edit) => {
+        const editFrom = positions[edit.from] ?? source.length;
+        const editTo = edit.to ? positions[edit.to - 1]! + 1 : 0;
+        const insert = edit.insert;
+        if (fix.id === 'to-yellow') return [{ from, to, insert }];
+        if (item.kind === 'wrapper' || item.kind === 'marker') {
+          // Delete only characters belonging to the token. Removed comments and supported
+          // markers are absent from positions, so they cannot be consumed by an unwrap.
+          const compact = positions.slice(item.from, item.to).map((at) => source[at]).join('');
+          const content = item.kind === 'wrapper' ? wrapper.exec(compact)?.[2] : undefined;
+          if (item.kind === 'wrapper' && content === undefined) return [];
+          const contentAt = content === undefined ? -1
+            : compact.indexOf(content, compact.indexOf(item.name) + item.name.length);
+          const deleted = positions.slice(item.from, item.to).filter((_, index) =>
+            contentAt < 0 || index < contentAt || index >= contentAt + content!.length);
+          if (item.kind === 'marker') {
+            const lineStart = from === 0 || source[from - 1] === '\n';
+            const lineEnd = to === source.length || source[to] === '\n';
+            if (lineStart && source[to] === ' ') deleted.push(to);
+            else if (lineEnd && source[from - 1] === ' ') deleted.unshift(from - 1);
+          }
+          const edits: RetiredEdit[] = [];
+          for (const at of deleted) {
+            const previous = edits.at(-1);
+            if (previous?.to === at) previous.to++;
+            else edits.push({ from: at, to: at + 1, insert: '' });
+          }
+          return edits;
         }
-        return { from: editFrom, to: editTo, insert };
+        if (fix.id === 'rows-to-lines') {
+          const block = source.slice(editFrom, editTo);
+          const lines = block.split('\n');
+          const edits: RetiredEdit[] = [{ from: editFrom, to: editFrom + lines[0]!.length + 1, insert: '' }];
+          let at = editFrom + lines[0]!.length + 1;
+          for (const row of lines.slice(1, -1)) {
+            const next = tableRowToLine(row);
+            let prefix = 0;
+            while (prefix < row.length && prefix < next.length && row[prefix] === next[prefix]) prefix++;
+            let suffix = 0;
+            while (suffix < row.length - prefix && suffix < next.length - prefix
+              && row[row.length - 1 - suffix] === next[next.length - 1 - suffix]) suffix++;
+            if (row !== next) edits.push({
+              from: at + prefix, to: at + row.length - suffix,
+              insert: next.slice(prefix, next.length - suffix),
+            });
+            at += row.length + 1;
+          }
+          edits.push({ from: at - 1, to: editTo, insert: '' });
+          return edits;
+        }
+        return [{ from: editFrom, to: editTo, insert }];
       }),
     }));
     found.push({ ...item, from, to, source: token });
   };
-  for (const item of [...conditionOccurrences(text, text), ...tableOccurrences(text, text)])
+  for (const item of tableOccurrences(text, text))
     mapOccurrence(item);
   let lineFrom = 0;
   for (const line of text.split('\n')) {
@@ -303,6 +263,176 @@ export function findRetiredMarkup(source: string): RetiredOccurrence[] {
       if (item) mapOccurrence(item, positions);
     }
     lineFrom += line.length + 1;
+  }
+  return found.sort((a, b) => a.from - b.from || a.to - b.to);
+}
+
+/** Walk the actual parser output, including table rows, cells, and nested title bodies. */
+function parserNames(lines: MarkupLine[]): string[] {
+  const names: string[] = [];
+  const classes = (values?: (string | undefined)[]) => {
+    for (const name of values ?? [])
+      if (name && (retiredMarkers.includes(name) || name === 'table')) names.push(name);
+  };
+  const spans = (values: NonNullable<MarkupLine['linesContent']>) => {
+    for (const span of values) {
+      classes(span.classNames);
+      if (span.title) names.push(...parserNames(span.title));
+    }
+  };
+  for (const line of lines) {
+    classes(line.classNames);
+    spans(line.linesContent ?? []);
+    for (const row of line.table ?? []) {
+      classes(row.classNames);
+      for (const cell of row.rowContent ?? []) {
+        classes(cell.classNames);
+        spans(cell.cellContent);
+      }
+    }
+  }
+  return names;
+}
+
+function stripRetired(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    const items = value.map(stripRetired);
+    const merged: unknown[] = [];
+    for (const item of items) {
+      const previous = merged.at(-1);
+      if (item && previous && typeof item === 'object' && typeof previous === 'object'
+          && 'text' in item && 'text' in previous
+          && typeof item.text === 'string' && typeof previous.text === 'string') {
+        const { text: currentText, ...attributes } = item;
+        const { text: previousText, ...previousAttributes } = previous;
+        if (JSON.stringify(attributes) === JSON.stringify(previousAttributes)) {
+          merged[merged.length - 1] = { text: previousText + currentText, ...attributes };
+          continue;
+        }
+      }
+      merged.push(item);
+    }
+    return merged;
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).flatMap(([key, item]) => {
+      if (key === 'classNames') {
+        const classes = ((item ?? []) as (string | undefined)[]).filter(
+          (name) => name && !retiredMarkers.includes(name),
+        );
+        return classes.length ? [[key, classes]] : [];
+      }
+      return item === undefined ? [] : [[key, stripRetired(item)]];
+    }));
+  }
+  return value;
+}
+
+/** A structural comparison flattens rows to lines, while keeping cell text and styles. */
+function normalizedLines(lines: MarkupLine[]): unknown {
+  return lines.flatMap((line) => {
+    if (!line.table) return [stripRetired(line)];
+    return line.table.map((row) => ({
+      classNames: (line.classNames ?? []).filter((name) => name !== 'table'),
+      linesContent: (row.rowContent ?? []).flatMap((cell, index) => [
+        ...(index ? [{ text: ' | ' }] : []),
+        ...cell.cellContent.map((span) => ({
+          ...span,
+          classNames: [...(row.classNames ?? []), ...(cell.classNames ?? []), ...(span.classNames ?? [])],
+        })),
+      ]),
+    })).map(stripRetired);
+  });
+}
+
+function commentBytes(source: string): string[] {
+  return markupCommentContext(source).comments.sort((a, b) => a.from - b.from)
+    .map(({ from, to }) => source.slice(from, to));
+}
+
+/** Non-retired marker and wrapper openings must survive independently of rendered equivalence. */
+function supportedTokens(source: string): string[] {
+  return [...markupCommentContext(source).text.matchAll(/<([a-zA-Z]+)(\/?>|\s)?/g)]
+    .filter((match) => !retiredMarkers.includes(match[1]!))
+    .map((match) => match[0]);
+}
+
+function verifyFix(source: string, occurrence: RetiredOccurrence, fix: RetiredFix): string | undefined {
+  const next = applyRetiredEdits(source, fix.edits);
+  if (JSON.stringify(commentBytes(source)) !== JSON.stringify(commentBytes(next)))
+    return 'The edit would change a source comment.';
+  if (JSON.stringify(supportedTokens(source)) !== JSON.stringify(supportedTokens(next)))
+    return 'The edit would change supported markup.';
+  const type = markupConditions.find(([name]) => name === occurrence.name)?.[1];
+  const before = parseMarkup(source, { variables: '', titles: '', type }).lines;
+  const after = parseMarkup(next, { variables: '', titles: '', type }).lines;
+  const normalize = fix.structural ? normalizedLines : stripRetired;
+  if (JSON.stringify(stripRetired(normalize(before))) !== JSON.stringify(stripRetired(normalize(after))))
+    return 'The parser cannot confirm unchanged text and supported styles.';
+  if (next === source || parserNames(parseMarkup(next).lines).length >= parserNames(parseMarkup(source).lines).length
+      && occurrence.kind !== 'condition')
+    return 'The edit does not remove a retired parser finding.';
+  return undefined;
+}
+
+/** Recognition comes exclusively from the production pipeline; regexes only place source edits. */
+export function findRetiredMarkup(source: string): RetiredOccurrence[] {
+  const names = parserNames(parseMarkup(source).lines);
+  const candidates = placementCandidates(source);
+  const found: RetiredOccurrence[] = [];
+  for (const name of names) {
+    const count = names.filter((value) => value === name).length;
+    const index = candidates.findIndex((item) => item.name === name &&
+      parserNames(parseMarkup(source.slice(0, item.from) + source.slice(item.to)).lines)
+        .filter((value) => value === name).length < count);
+    const candidate = index < 0 ? undefined : candidates.splice(index, 1)[0];
+    found.push(candidate ?? {
+      kind: name === 'table' ? 'table' : 'wrapper', name, token: noun(name),
+      source, from: 0, to: source.length,
+      message: retired(noun(name), 'Fix by hand: an exact source token could not be mapped.'),
+      fixes: [], refusalReason: 'An exact source token could not be mapped.',
+    });
+  }
+  // Observe recognition in prepareMarkup itself: preceding condition removals can hide nested
+  // blocks. Searching the raw source independently would incorrectly resurrect those blocks.
+  prepareMarkup(source, { variables: '', titles: '' }, [], (name, block) => {
+    if (name === 'enhanced') return;
+    const from = source.indexOf(block);
+    const mapped = from >= 0 && source.lastIndexOf(block) === from;
+    const end = mapped ? from + block.length : source.length;
+    const openEnd = from + block.indexOf('\n');
+    const closeFrom = from + block.lastIndexOf('\n');
+    found.push({
+      kind: 'condition', name, token: `${name} ( … )`, source: mapped ? block : source,
+      from: mapped ? from : 0, to: end,
+      message: retired(`${name} ( … )`, 'Keep its contents, or fix by hand.'),
+      fixes: mapped ? [{ id: 'keep-contents', label: 'Keep contents', structural: true, edits: [
+        { from, to: openEnd + 1, insert: '' }, { from: closeFrom, to: end, insert: '' },
+      ] }] : [],
+    });
+  });
+  for (const occurrence of found) {
+    let reason = occurrence.refusalReason;
+    occurrence.fixes = occurrence.fixes.filter((fix) => {
+      const blockFrom = Math.min(occurrence.from, ...fix.edits.map((edit) => edit.from));
+      const blockEnd = Math.max(occurrence.to, ...fix.edits.map((edit) => edit.to));
+      const newline = source.indexOf('\n', blockEnd);
+      const blockTo = newline < 0 ? source.length : newline;
+      const refusal = fix.structural && markupCommentContext(source).comments.some(
+        (comment) => comment.from < blockTo && comment.to > blockFrom,
+      )
+        ? 'Blocks containing comments must be fixed by hand.'
+        : verifyFix(source, occurrence, fix);
+      if (refusal) {
+        reason = refusal;
+        (occurrence.manualFixes ??= []).push({ label: fix.label, reason: refusal });
+      }
+      return !refusal;
+    });
+    if (!occurrence.fixes.length) {
+      occurrence.refusalReason = reason ?? 'A lossless source edit could not be verified.';
+      occurrence.message = retired(occurrence.token, `Fix by hand: ${occurrence.refusalReason}`);
+    }
   }
   return found.sort((a, b) => a.from - b.from || a.to - b.to);
 }
@@ -333,7 +463,7 @@ export function fixAllRetired(
   // together could overlap. Each pass removes one form, so the loop always ends.
   for (;;) {
     const found = find(text);
-    const next = found.find((occurrence) => !occurrence.fixes[0]!.structural);
+    const next = found.find((occurrence) => occurrence.fixes[0] && !occurrence.fixes[0].structural);
     if (!next) return { text, fixed, remaining: found.length };
     text = applyRetiredEdits(text, next.fixes[0]!.edits);
     fixed++;
