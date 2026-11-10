@@ -3,7 +3,12 @@ import { languages, langSchema, type Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { Popover } from '../../ui/Popover';
 import { EnhancedArrow } from '../../ui/EnhancedArrow';
-import { loadSandboxPerkText, sandboxPerkName, useSandboxPerkText } from '../manifest/manifestText';
+import {
+  loadSandboxPerkText,
+  sandboxPerkName,
+  sandboxPerkTextFailed,
+  useSandboxPerkText,
+} from '../manifest/manifestText';
 import type { GroupedPerk } from './grouping';
 import styles from './TooltipPage.module.scss';
 
@@ -165,6 +170,8 @@ export function GroupedPerks({ perks }: { perks: GroupedPerk[] }) {
   const nameOf = (perk: GroupedPerk) => {
     if (perk.name) return perk.name;
     if (!sandbox) return <em>Loading name…</em>;
+    // A failed load leaves the text empty: that says nothing about the perk itself.
+    if (sandboxPerkTextFailed()) return <em>Name unavailable</em>;
     // A sandbox alias comes from the manifest by construction; some definitions are blank.
     const name = sandboxPerkName(perk.hash, sandbox);
     if (name) return name;
