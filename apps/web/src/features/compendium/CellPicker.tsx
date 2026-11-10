@@ -13,6 +13,8 @@ import {
 import { confirmCompendiumSelection } from './selection';
 import { Multiline, RichCell } from './RichCell';
 import { PickerGrid } from './PickerGrid';
+import { SourceRef } from './SourceRef';
+import { matchLocation } from './sourceLocation';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import styles from './Compendium.module.scss';
 
@@ -193,7 +195,15 @@ export const CellPicker = memo(function CellPicker({
               }
             />
           )}
-          <p>{offsets.length} selected</p>
+          <p>
+            {offsets.length} selected
+            {selection && offsets.length > 0 && (
+              <>
+                {' · '}
+                <SourceRef location={matchLocation(selection, data)} />
+              </>
+            )}
+          </p>
           {preview && (
             <div className={styles.cell}>
               <RichCell cell={preview} />

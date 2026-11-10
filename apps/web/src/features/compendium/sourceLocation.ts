@@ -35,7 +35,9 @@ export function regionRange({ row, col, rows, cols }: Region): string {
 }
 
 /** Cell positions merged into rectangles (adjacent columns per row, then identical runs on adjacent rows). */
-export function regionsOf(cells: readonly (CompendiumPosition & { rows?: number; cols?: number })[]) {
+export function regionsOf(
+  cells: readonly (CompendiumPosition & { rows?: number; cols?: number })[],
+) {
   const byRow = new Map<number, [number, number][]>();
   for (const { row, col, rows = 1, cols = 1 } of cells) {
     for (let r = row; r < row + rows; r++) {
@@ -85,15 +87,33 @@ export interface SourceLocation {
   /** Shorter label without the range, for narrow rows. */
   tab: string;
   section?: string;
+  /** A1 ranges of each region in order; absent when the position is unknown. */
   range?: string;
+  /** True when the sheet position is not known (no saved position, a stale snapshot). */
+  unknown?: boolean;
   gid: string;
   href: string;
 }
+
+/** Shown in place of the range when the sheet position is not known; never an invented range. */
+export const unknownPosition = 'position unknown';
 
 export function sourceHref(gid: string, range?: string): string {
   return `https://docs.google.com/spreadsheets/d/${compendiumSheetId}/edit#gid=${encodeURIComponent(
     gid,
   )}${range ? `&range=${encodeURIComponent(range)}` : ''}`;
+}
+
+/** One cell or merged region of a tab (e.g. the sheet cells around a candidate). */
+export function cellLocation(tab: { gid: string; name: string }, region: Region): SourceLocation {
+  const range = regionRange(region);
+  return {
+    tab: tab.name,
+    range,
+    gid: tab.gid,
+    label: `${tab.name} · ${range}`,
+    href: sourceHref(tab.gid, range),
+  };
 }
 
 function spanAt(sheet: CompendiumSheet | undefined, position: CompendiumPosition) {
@@ -116,7 +136,9 @@ export function matchLocation(
   let range: string | undefined;
   if (anchor && match.cells?.length) {
     range = regionsOf(
-      match.cells.map(({ dRow, dCol }) => spanAt(sheet, { row: anchor.row + dRow, col: anchor.col + dCol })),
+      match.cells.map(({ dRow, dCol }) =>
+        spanAt(sheet, { row: anchor.row + dRow, col: anchor.col + dCol }),
+      ),
     )
       .map(regionRange)
       .join(', ');
@@ -134,13 +156,17 @@ export function matchLocation(
   };
 }
 
-/** The saved link's own place (a draft or saved Compendium link). */
+/**
+ * The saved link's own place (a draft or saved Compendium link). `stale` marks a snapshot whose row
+ * no longer resolves: its saved position may be wrong, so only the tab is linked.
+ */
 export function linkLocation(
   link: Pick<CompendiumLink, 'gid' | 'section' | 'sourceAnchor' | 'cells'>,
   source?: CompendiumData | null,
+  { stale = false }: { stale?: boolean } = {},
 ): SourceLocation {
   const sheet = source?.tabs.find((tab) => tab.gid === link.gid);
-  const anchor = link.sourceAnchor;
+  const anchor = stale ? undefined : link.sourceAnchor;
   const range = anchor
     ? link.cells?.length
       ? regionsOf(
@@ -152,13 +178,15 @@ export function linkLocation(
           .join(', ')
       : regionRange(spanAt(sheet, anchor))
     : undefined;
-  const tab = sheet?.name ?? `Tab ${link.gid}`;
+  // The tab's name comes from the loaded source; a raw gid is never shown.
+  const tab = sheet?.name ?? (source ? 'Removed sheet tab' : 'Sheet tab');
   return {
     tab,
     section: link.section,
     range,
+    unknown: !range || undefined,
     gid: link.gid,
-    label: [tab, link.section, range].filter(Boolean).join(' · '),
+    label: [tab, link.section, range ?? unknownPosition].filter(Boolean).join(' · '),
     href: sourceHref(link.gid, range?.split(', ')[0]),
   };
 }

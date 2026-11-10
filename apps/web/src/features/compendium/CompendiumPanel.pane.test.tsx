@@ -292,7 +292,9 @@ describe('Compendium pane', () => {
     expect(skeleton).not.toBeNull();
     expect(host.querySelector('[data-scale]')).toBe(content);
     expect(content?.hasAttribute('hidden')).toBe(true);
-    expect(skeleton?.textContent).toContain('Name');
+    // No raw row key or tab gid: the sheet location is a sized placeholder until the pane is ready.
+    expect(skeleton?.textContent).not.toContain('Name');
+    expect(skeleton?.textContent).not.toMatch(/tab -?\d/);
     expect(skeleton?.textContent).toContain('Snapshot');
     expect(skeleton?.querySelector('button')?.disabled).toBe(true);
     const region = skeleton?.querySelector('[aria-hidden="true"]');
@@ -300,7 +302,12 @@ describe('Compendium pane', () => {
     const newest = {
       ...linked,
       hash: 7,
-      compendium: { ...linked.compendium!, rowKey: 'Latest row', gid: 'g2' },
+      compendium: {
+        ...linked.compendium!,
+        rowKey: 'Latest row',
+        gid: 'g2',
+        snapshotAt: '2026-11-02T00:00:00.000Z',
+      },
     };
     await act(async () =>
       root.render(createElement(CompendiumPanel, { base: newest, stepping: true })),
@@ -308,7 +315,7 @@ describe('Compendium pane', () => {
     expect(host.querySelector('[data-pane-skeleton]')).toBe(skeleton);
     expect(skeleton?.querySelector('[aria-hidden="true"]')).toBe(region);
     expect(skeleton?.querySelector('[class*="skeletonCell"]')).toBe(cellRegion);
-    expect(skeleton?.textContent).toContain('Latest row');
+    expect(skeleton?.textContent).toContain('2 Nov 2026');
     // The newer entry gets its own two frames before the minimum restarts for it.
     expect(frames.size).toBe(1);
     await act(async () =>

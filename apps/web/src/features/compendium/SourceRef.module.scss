@@ -1,0 +1,31 @@
+// A sheet location link: one line, the place shrinks with an ellipsis, the range stays whole.
+.ref {
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  vertical-align: bottom;
+  color: var(--link);
+  white-space: nowrap;
+}
+.place {
+  flex: 0 100 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.range {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.unknown {
+  flex: none;
+  color: var(--text3);
+  font-style: italic;
+}
+.block {
+  display: flex;
+  width: fit-content;
+}

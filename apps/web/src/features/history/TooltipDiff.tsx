@@ -1,8 +1,11 @@
 import type { Item } from '../../services/generator';
 import { useEffect, useState } from 'react';
 import { languageLabel } from '../../languageLabels';
-import { languages, sameCell, type Tooltip } from '@clarity/core';
+import { languages, sameCell, type CompendiumLink, type Tooltip } from '@clarity/core';
 import { CompendiumDiff } from '../compendium/CompendiumDiff';
+import { SourceRef } from '../compendium/SourceRef';
+import { linkLocation } from '../compendium/sourceLocation';
+import { useCompendiumStore } from '../compendium/store';
 import { HistoryWordDiff } from './HistoryWordDiff';
 import {
   attachmentCategory,
@@ -109,10 +112,13 @@ export function TooltipDiff({
           before?.compendium?.snapshot ?? emptyCell,
           current.compendium?.snapshot ?? emptyCell,
         ) && (
-          <CompendiumDiff
-            before={before?.compendium?.snapshot ?? emptyCell}
-            after={current.compendium?.snapshot ?? emptyCell}
-          />
+          <>
+            <CompendiumSources before={before?.compendium} after={current.compendium} />
+            <CompendiumDiff
+              before={before?.compendium?.snapshot ?? emptyCell}
+              after={current.compendium?.snapshot ?? emptyCell}
+            />
+          </>
         )}
       {!changed.length && <p>No language text changes.</p>}
       {JSON.stringify(before?.associated ?? []) !== JSON.stringify(current.associated) && (
@@ -128,5 +134,27 @@ export function TooltipDiff({
         <p key={line}>{line}</p>
       ))}
     </div>
+  );
+}
+
+/** Where each side's Compendium snapshot came from in the sheet (names from the loaded source only). */
+function CompendiumSources({ before, after }: { before?: CompendiumLink; after?: CompendiumLink }) {
+  const source = useCompendiumStore((state) => state.data);
+  const from = before && linkLocation(before, source);
+  const to = after && linkLocation(after, source);
+  if (!from && !to) return null;
+  return (
+    <p className={styles.compendiumSource}>
+      Compendium source:{' '}
+      {from && to && from.label !== to.label ? (
+        <>
+          <SourceRef location={from} /> → <SourceRef location={to} />
+        </>
+      ) : (
+        <SourceRef location={(to ?? from)!} />
+      )}
+      {from && !to && ' (link removed)'}
+      {!from && to && ' (link added)'}
+    </p>
   );
 }

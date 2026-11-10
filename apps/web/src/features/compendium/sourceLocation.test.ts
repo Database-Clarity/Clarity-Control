@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CompendiumData, CompendiumMatch } from '@clarity/core';
 import {
+  cellLocation,
   columnLabel,
   compendiumSheetId,
   linkLocation,
@@ -66,7 +67,10 @@ describe('source labels and links', () => {
   const source: CompendiumData = { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] };
 
   it('uses the loaded grid span for the anchor even when the match tab is compact', () => {
-    const match = { tab: { ...tab, grid: undefined }, row: row('Mod', { row: 12, col: 2 }) } as CompendiumMatch;
+    const match = {
+      tab: { ...tab, grid: undefined },
+      row: row('Mod', { row: 12, col: 2 }),
+    } as CompendiumMatch;
     const location = matchLocation(match, source);
     expect(location.label).toBe('Armor Mods · Raid Specific · C12:E12');
     expect(location.href).toBe(
@@ -100,6 +104,53 @@ describe('source labels and links', () => {
       source,
     );
     expect(location.label).toBe('Armor Mods · Seasonal · C12:E12');
-    expect(sourceHref('9')).toBe(`https://docs.google.com/spreadsheets/d/${compendiumSheetId}/edit#gid=9`);
+    expect(sourceHref('9')).toBe(
+      `https://docs.google.com/spreadsheets/d/${compendiumSheetId}/edit#gid=9`,
+    );
+  });
+
+  it("lists a saved link's regions in order and expands merged cells", () => {
+    const location = linkLocation(
+      {
+        gid: '77',
+        sourceAnchor: { row: 12, col: 2 },
+        cells: [
+          { dRow: 0, dCol: 0 },
+          { dRow: 3, dCol: -2 },
+          { dRow: 4, dCol: -2 },
+        ],
+      },
+      source,
+    );
+    expect(location.range).toBe('C12:E12, A15:A16');
+    expect(location.label).toBe('Armor Mods · C12:E12, A15:A16');
+    expect(location.href).toContain('gid=77&range=C12%3AE12');
+    expect(location.unknown).toBeUndefined();
+  });
+
+  it('says the position is unknown without inventing a range', () => {
+    const old = linkLocation({ gid: '77', section: 'Seasonal' }, source);
+    expect(old.range).toBeUndefined();
+    expect(old.unknown).toBe(true);
+    expect(old.label).toBe('Armor Mods · Seasonal · position unknown');
+    expect(old.href).toBe(sourceHref('77'));
+
+    const stale = linkLocation({ gid: '77', sourceAnchor: { row: 12, col: 2 } }, source, {
+      stale: true,
+    });
+    expect(stale.label).toBe('Armor Mods · position unknown');
+    expect(stale.href).not.toContain('range=');
+  });
+
+  it('never shows a raw gid as the tab name', () => {
+    expect(linkLocation({ gid: '123456' }, source).tab).toBe('Removed sheet tab');
+    expect(linkLocation({ gid: '123456' }).tab).toBe('Sheet tab');
+    expect(linkLocation({ gid: '123456' }).label).not.toContain('123456');
+  });
+
+  it('labels one sheet cell by its A1 address', () => {
+    const location = cellLocation(tab, { row: 14, col: 27, rows: 2, cols: 1 });
+    expect(location.label).toBe('Armor Mods · AB14:AB15');
+    expect(location.href).toContain('range=AB14%3AAB15');
   });
 });

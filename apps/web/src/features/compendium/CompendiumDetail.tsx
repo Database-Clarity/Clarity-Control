@@ -7,6 +7,8 @@ import { CompendiumDiff } from './CompendiumDiff';
 import { RichCell } from './RichCell';
 import { SheetCell } from './sheetSurface';
 import type { CandidateBlock } from './candidateBlocks';
+import { SourceRef } from './SourceRef';
+import { cellLocation } from './sourceLocation';
 import { kindLabels, type QueueRow } from './queueRows';
 import styles from './CompendiumTab.module.scss';
 
@@ -42,13 +44,7 @@ export function exoticOwners(items: readonly Item[]): string[] {
   ];
 }
 
-function Nearby({
-  block,
-  source,
-}: {
-  block: CandidateBlock;
-  source: CompendiumData;
-}) {
+function Nearby({ block, source }: { block: CandidateBlock; source: CompendiumData }) {
   const [open, setOpen] = useState(false);
   const { match } = block;
   const grid = source.tabs.find((tab) => tab.gid === match.tab.gid)?.grid ?? match.tab.grid;
@@ -73,7 +69,13 @@ function Nearby({
       {cells?.map((cell) => (
         <div key={`${cell.row}:${cell.col}`}>
           <small>
-            R{cell.row} C{cell.col + 1}
+            <SourceRef
+              location={cellLocation(
+                { gid: block.location.gid, name: block.location.tab },
+                { row: cell.row, col: cell.col, rows: cell.rowSpan ?? 1, cols: cell.colSpan ?? 1 },
+              )}
+              show="range"
+            />
           </small>
           <RichCell cell={cell.cell} />
         </div>
@@ -123,21 +125,9 @@ const Candidate = memo(function Candidate({
             {index + 1}
           </span>
         </label>
-        <a
-          className={styles.source}
-          href={location.href}
-          target="_blank"
-          rel="noreferrer"
-          title={`${location.tab}${location.section ? ` · ${location.section}` : ''}${location.range ? ` · ${location.range}` : ''}`}
-        >
-          <span className={styles.sourceText}>
-            {location.tab}
-            {location.section ? ` · ${location.section}` : ''}
-          </span>
-          {location.range && <span className={styles.range}> · {location.range}</span>}
-          <span aria-hidden="true"> ↗</span>
-          <span className="sr-only"> (opens the sheet)</span>
-        </a>
+        <span className={styles.source}>
+          <SourceRef location={location} />
+        </span>
       </header>
       <p className={styles.rowName}>{match.row.name}</p>
       {approved ? (

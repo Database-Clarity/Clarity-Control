@@ -10,6 +10,8 @@ import { useDraftStore } from '../../stores/drafts';
 import { errorMessage } from '../../services/http';
 import { useCompendiumStore } from './store';
 import { When } from '../../ui/When';
+import { SourceRef } from './SourceRef';
+import { matchLocation } from './sourceLocation';
 import styles from './Compendium.module.scss';
 import { CellPicker } from './CellPicker';
 import { confirmCompendiumSelection } from './selection';
@@ -219,7 +221,7 @@ export function LinkPicker({
                   setAnchorRow(suggestionAnchor(target, hint));
                 }}
               >
-                {data.tabs.find((entry) => entry.gid === hint.gid)?.name ?? hint.gid}{' '}
+                {data.tabs.find((entry) => entry.gid === hint.gid)?.name ?? 'Removed sheet tab'}{' '}
                 {hint.section && `/ ${hint.section}`}
               </button>
               <p>{hint.rationale}</p>
@@ -247,8 +249,11 @@ export function LinkPicker({
             <li key={`${row.rowIndex}:${row.name}`}>
               <button type="button" disabled={!canEdit} onClick={() => choose({ tab, row })}>
                 {exact.has(row) && 'Exact match: '}
-                {row.name} {row.section && ` / ${row.section}`} <small>(row {row.rowIndex})</small>
-              </button>
+                {row.name} {row.section && ` / ${row.section}`}
+              </button>{' '}
+              <small>
+                <SourceRef location={matchLocation({ tab, row }, data)} show="range" />
+              </small>
               <button type="button" onClick={() => setAnchorRow(row)}>
                 Pick description cells near this name
               </button>
