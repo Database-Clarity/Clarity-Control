@@ -83,25 +83,40 @@ describe('validateTooltip scoped to a base', () => {
   });
 });
 
-describe('validateTooltip errors this save causes', () => {
+describe('validateTooltip with an unedited text that uses something the save changes', () => {
   const revision = { updatedAt: '2026-01-01T00:00:00.000Z', updatedBy: 'a' };
-  const entry = (text: string) => ({ ...revision, text });
-  const text = 'import foo from 124';
-  const tooltip = { hash: 10, text: { fr: entry(text) }, associated: [] } as never;
-  const withImport = () => ({ ...globals, imports: { '124': 'export foo (\nShared\n)' } });
-  const withoutImport = () => ({ ...globals, imports: { '124': 'Nothing exported' } });
+  const tooltip = {
+    hash: 10,
+    text: { fr: { ...revision, text: 'import main from 999' } },
+    associated: [],
+  } as never;
 
-  it('blocks unchanged text whose import this save removed', () => {
-    expect(validateTooltip(tooltip, withoutImport, tooltip, withImport)).toMatchObject([
-      { lang: 'fr', severity: 'error', message: 'Unresolved import "foo" from 124.' },
+  it('keeps the error, with the reason, when reach names what it uses', () => {
+    expect(
+      validateTooltip(
+        tooltip,
+        () => globals,
+        tooltip,
+        () => '"Donor" (124)',
+      ),
+    ).toMatchObject([
+      {
+        severity: 'error',
+        message: expect.stringContaining('uses "Donor" (124), which this save changes'),
+      },
     ]);
   });
-  it('only warns when the same error exists without this save', () => {
-    expect(validateTooltip(tooltip, withoutImport, tooltip, withoutImport)).toMatchObject([
-      { lang: 'fr', severity: 'warning' },
+  it('only warns without a reach, or when reach finds nothing', () => {
+    expect(validateTooltip(tooltip, () => globals, tooltip)).toMatchObject([
+      { severity: 'warning' },
     ]);
-    expect(validateTooltip(tooltip, withoutImport, tooltip)).toMatchObject([
-      { lang: 'fr', severity: 'warning' },
-    ]);
+    expect(
+      validateTooltip(
+        tooltip,
+        () => globals,
+        tooltip,
+        () => undefined,
+      ),
+    ).toMatchObject([{ severity: 'warning' }]);
   });
 });

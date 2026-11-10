@@ -111,187 +111,145 @@ describe('validation is scoped to text the change edits', () => {
     );
     expect(errors(issues).map((issue) => issue.hash)).toEqual([124]);
   });
-  describe('a sibling change in the same batch', () => {
-    const exporter = (body: string) => `export foo (\n${body}\n)`;
-    const data = () => {
-      const donor = { ...tooltip, hash: 124, text: { en: entry(exporter('Shared')) } };
-      const user123 = { ...tooltip, text: { en: entry('import foo from 124') } };
+  describe('an error in unchanged text (rule A: blocks only if it uses something this save changes)', () => {
+    const newline = String.fromCharCode(10);
+    const lines = (...parts: string[]) => parts.join(newline);
+    const hidden = (name: string, ...body: string[]) =>
+      lines(`export hidden ${name} (`, ...body, ')');
+    type Edit = [hash: number, before: string | null, after: string];
+    /** Saves a link-only change on 123 (unchanged text) with the given edits in the same batch. */
+    const save = (dependentText: string, saved: Record<number, string>, edits: Edit[] = []) => {
       const state = editorData();
-      state.bundle.tooltips[124] = donor;
-      state.bundle.tooltips[123] = user123;
-      return { state, donor, user123 };
+      const dependent = { ...tooltip, text: { en: entry(dependentText) } };
+      state.bundle.tooltips[123] = dependent;
+      for (const [hash, text] of Object.entries(saved)) {
+        state.bundle.tooltips[Number(hash)] = {
+          ...tooltip,
+          hash: Number(hash),
+          text: { en: entry(text) },
+        };
+      }
+      const changes = [{ hash: 123, base: dependent, next: { ...dependent, associated: [30] } }];
+      for (const [hash, before, after] of edits) {
+        const base = before === null ? null : { ...tooltip, hash, text: { en: entry(before) } };
+        if (base) state.bundle.tooltips[hash] = base;
+        changes.push({
+          hash,
+          base,
+          next: { ...tooltip, hash, text: { en: entry(after) } },
+        } as never);
+      }
+      return { state, changes, issues: validateChanges(changes, state) };
     };
-    it('that removes an import the unchanged text uses blocks the save', async () => {
-      const { state, donor, user123 } = data();
-      expect(errors(validateChanges([{ hash: 123, base: user123, next: user123 }], state))).toEqual(
-        [],
-      );
-      const changes = [
-        { hash: 123, base: user123, next: { ...user123, associated: [30] } },
-        { hash: 124, base: donor, next: { ...donor, text: { en: entry('No export now') } } },
-      ];
-      expect(errors(validateChanges(changes, state))).toEqual([
+    const blocks123 = (issues: ReturnType<typeof validateChanges>) =>
+      errors(issues).some((issue) => issue.hash === 123);
+    const warns123 = (issues: ReturnType<typeof validateChanges>) =>
+      errors(issues).length === 0 &&
+      issues.some((issue) => issue.hash === 123 && issue.severity === 'warning');
+    const foo = hidden('foo', 'Shared');
+
+    it('blocks when a sibling removes the export the text imports, with the reason', async () => {
+      const run = save('import foo from 124', { 124: foo }, [[124, foo, 'No export now']]);
+      expect(errors(run.issues)).toEqual([
         expect.objectContaining({
           hash: 123,
-          lang: 'en',
-          message: 'Unresolved import "foo" from 124.',
+          message: expect.stringContaining('uses "Tooltip 124" (124), which this save changes'),
         }),
       ]);
-      await expect(prepareChanges(changes, user, state)).rejects.toThrow('Validation');
+      await expect(prepareChanges(run.changes, user, run.state)).rejects.toThrow('Validation');
     });
-    it('that keeps the import working does not block', () => {
-      const { state, donor, user123 } = data();
-      const changes = [
-        { hash: 123, base: user123, next: { ...user123, associated: [30] } },
-        { hash: 124, base: donor, next: { ...donor, text: { en: entry(exporter('Changed')) } } },
-      ];
-      expect(errors(validateChanges(changes, state))).toEqual([]);
+    it('does not block when the import keeps working', () => {
+      const run = save('import foo from 124', { 124: foo }, [[124, foo, hidden('foo', 'Changed')]]);
+      expect(errors(run.issues)).toEqual([]);
     });
-    it('is not hidden by an older error with the same message', () => {
-      const newline = String.fromCharCode(10);
-      const { state, donor } = data();
-      const hidden = (body: string) => entry(['export hidden foo (', body, ')'].join(newline));
-      const sharing = { ...donor, text: { en: hidden('Shared') } };
-      const dependent = {
-        ...tooltip,
-        text: { en: entry(['import bad from 999', 'import foo from 124'].join(newline)) },
-      };
-      state.bundle.tooltips[124] = sharing;
-      state.bundle.tooltips[123] = dependent;
-      const changes = [
-        { hash: 123, base: dependent, next: { ...dependent, associated: [30] } },
-        {
-          hash: 124,
-          base: sharing,
-          next: { ...sharing, text: { en: hidden('import bad from 999') } },
-        },
-      ];
-      expect(errors(validateChanges(changes, state)).map((issue) => issue.hash)).toEqual([123]);
+    it('blocks a second path to the same missing import (P7)', () => {
+      const run = save(lines('import bad from 999', 'import foo from 124'), { 124: foo }, [
+        [124, foo, hidden('foo', 'import bad from 999')],
+      ]);
+      expect(blocks123(run.issues)).toBe(true);
     });
-    it('is not hidden when the batch repairs one broken import and breaks another', () => {
-      const newline = String.fromCharCode(10);
-      const lines = (...parts: string[]) => parts.join(newline);
-      const hidden = (name: string, body: string) =>
-        entry(lines(`export hidden ${name} (`, body, ')'));
-      const { state } = data();
-      const foo = { ...tooltip, hash: 124, text: { en: hidden('foo', 'import bad from 999') } };
-      const bar = { ...tooltip, hash: 125, text: { en: hidden('bar', 'Shared') } };
-      const dependent = {
-        ...tooltip,
-        text: { en: entry(lines('import foo from 124', 'import bar from 125')) },
-      };
-      state.bundle.tooltips[123] = dependent;
-      state.bundle.tooltips[124] = foo;
-      state.bundle.tooltips[125] = bar;
-      const changes = [
-        { hash: 123, base: dependent, next: { ...dependent, associated: [30] } },
-        { hash: 124, base: foo, next: { ...foo, text: { en: hidden('foo', 'Shared') } } },
-        {
-          hash: 125,
-          base: bar,
-          next: { ...bar, text: { en: hidden('bar', 'import bad from 999') } },
-        },
-      ];
-      expect(errors(validateChanges(changes, state)).map((issue) => issue.hash)).toContain(123);
-    });
-    it('keeps an old missing import a warning when an unrelated global or healthy export changes', () => {
-      const { state, donor } = data();
-      const newline = String.fromCharCode(10);
-      const broken = {
-        ...tooltip,
-        text: { en: entry(['import bad from 999', 'import foo from 124'].join(newline)) },
-      };
-      state.bundle.tooltips[123] = broken;
-      state.bundle.tooltips[2] = {
-        ...tooltip,
-        hash: 2,
-        text: { en: entry('var unused = One') },
-      };
-      const link = { hash: 123, base: broken, next: { ...broken, associated: [30] } };
-      const global = state.bundle.tooltips[2]!;
-      const unrelatedGlobal = {
-        hash: 2,
-        base: global,
-        next: { ...global, text: { en: entry('var unused = Two') } },
-      };
-      const healthySibling = {
-        hash: 124,
-        base: donor,
-        next: { ...donor, text: { en: entry(['export foo (', 'Changed', ')'].join(newline)) } },
-      };
-      for (const sibling of [unrelatedGlobal, healthySibling]) {
-        const issues = validateChanges([link, sibling], state);
-        expect(errors(issues)).toEqual([]);
-        expect(issues).toContainEqual(expect.objectContaining({ hash: 123, severity: 'warning' }));
-      }
-    });
-    describe('attributes errors to the import line that raises them', () => {
-      const newline = String.fromCharCode(10);
-      const lines = (...parts: string[]) => parts.join(newline);
-      const batch = (
-        dependentText: string,
-        donors: Record<number, [string, string]>,
-      ): ReturnType<typeof validateChanges> => {
-        const { state } = data();
-        const dependent = { ...tooltip, text: { en: entry(dependentText) } };
-        state.bundle.tooltips[123] = dependent;
-        const changes = [{ hash: 123, base: dependent, next: { ...dependent, associated: [30] } }];
-        for (const [hash, [before, after]] of Object.entries(donors)) {
-          const base = { ...tooltip, hash: Number(hash), text: { en: entry(before) } };
-          state.bundle.tooltips[Number(hash)] = base;
-          changes.push({
-            hash: Number(hash),
-            base,
-            next: { ...base, text: { en: entry(after) } },
-          });
-        }
-        return validateChanges(changes, state);
-      };
-      it('blocks a commented-out path that becomes visible', () => {
-        const issues = batch(lines('import bad from 999', 'import foo from 124'), {
-          124: [
-            lines('export hidden foo (', '/*', 'import bad from 999', '*/', ')'),
-            lines('export hidden foo (', 'import bad from 999', ')'),
-          ],
-        });
-        expect(errors(issues).map((issue) => issue.hash)).toContain(123);
-      });
-      it('does not block when the new import stays invisible', () => {
-        const issues = batch(lines('import bad from 999', 'import main from 124'), {
-          124: [
-            lines('export hidden spare (', 'Shared', ')', 'Healthy'),
-            lines('export hidden spare (', 'import bad from 999', ')', 'Healthy'),
-          ],
-        });
-        expect(errors(issues)).toEqual([]);
-      });
-      it('blocks a newly broken import self when another dependency is repaired', () => {
-        const issues = batch(lines('import foo from 124', 'import bar from 125'), {
-          124: [
-            lines('export hidden foo (', 'import self', ')'),
-            lines('export hidden foo (', 'Shared', ')'),
-          ],
-          125: [
-            lines('export hidden bar (', 'Shared', ')'),
-            lines('export hidden bar (', 'import self', ')'),
-          ],
-        });
-        expect(errors(issues).map((issue) => issue.hash)).toContain(123);
-      });
-    });
-    it('does not turn an error that already existed into a blocker', () => {
-      const { state, donor } = data();
-      const broken = { ...tooltip, text: { en: entry('import gone from 124') } };
-      state.bundle.tooltips[123] = broken;
-      const changes = [
-        { hash: 123, base: broken, next: { ...broken, associated: [30] } },
-        { hash: 124, base: donor, next: { ...donor, text: { en: entry('Other text') } } },
-      ];
-      const issues = validateChanges(changes, state);
-      expect(errors(issues)).toEqual([]);
-      expect(issues).toContainEqual(
-        expect.objectContaining({ hash: 123, lang: 'en', severity: 'warning' }),
+    it('blocks when the batch repairs one broken import and breaks another', () => {
+      const bar = hidden('bar', 'Shared');
+      const brokenFoo = hidden('foo', 'import bad from 999');
+      const run = save(
+        lines('import foo from 124', 'import bar from 125'),
+        { 124: brokenFoo, 125: bar },
+        [
+          [124, brokenFoo, foo],
+          [125, bar, hidden('bar', 'import bad from 999')],
+        ],
       );
+      expect(blocks123(run.issues)).toBe(true);
+    });
+    it('blocks a nested repair and break under one import line (F1)', () => {
+      const left = hidden('left', 'import bad from 999');
+      const right = hidden('right', 'Shared');
+      const run = save(
+        'import foo from 124',
+        {
+          124: hidden('foo', 'import left from 125', 'import right from 126'),
+          125: left,
+          126: right,
+        },
+        [
+          [125, left, hidden('left', 'Shared')],
+          [126, right, hidden('right', 'import bad from 999')],
+        ],
+      );
+      expect(blocks123(run.issues)).toBe(true);
+    });
+    it('only warns for two untouched import cycles on a metadata-only save (F2)', () => {
+      const run = save(lines('import foo from 124', 'import bar from 125'), {
+        124: hidden('foo', 'import foo from 124'),
+        125: hidden('bar', 'import bar from 125'),
+      });
+      expect(warns123(run.issues)).toBe(true);
+    });
+    it('blocks a commented-out path that becomes visible', () => {
+      const commented = hidden('foo', '/*', 'import bad from 999', '*/');
+      const run = save(lines('import bad from 999', 'import foo from 124'), { 124: commented }, [
+        [124, commented, hidden('foo', 'import bad from 999')],
+      ]);
+      expect(blocks123(run.issues)).toBe(true);
+    });
+    it('blocks a repaired dependency beside a newly broken import self', () => {
+      const brokenFoo = hidden('foo', 'import self');
+      const bar = hidden('bar', 'Shared');
+      const run = save(
+        lines('import foo from 124', 'import bar from 125'),
+        { 124: brokenFoo, 125: bar },
+        [
+          [124, brokenFoo, foo],
+          [125, bar, hidden('bar', 'import self')],
+        ],
+      );
+      expect(blocks123(run.issues)).toBe(true);
+    });
+    it('blocks when a target it already failed to import is added in the batch', () => {
+      const run = save('import foo from 125', {}, [
+        [125, null, hidden('foo', 'import bad from 999')],
+      ]);
+      expect(blocks123(run.issues)).toBe(true);
+    });
+    it('only warns when the batch changes nothing the text uses', () => {
+      const run = save('import bad from 999', { 130: 'Other' }, [[130, 'Other', 'Other, edited']]);
+      expect(warns123(run.issues)).toBe(true);
+    });
+    it('only warns for a changed global the text never mentions', () => {
+      const run = save('import bad from 999', {}, [[2, 'var unused = One', 'var unused = Two']]);
+      expect(warns123(run.issues)).toBe(true);
+    });
+    it('blocks when the batch changes a global the text mentions', () => {
+      const run = save(lines('import bad from 999', '#unused'), {}, [
+        [2, 'var unused = One', 'var unused = Two'],
+      ]);
+      expect(blocks123(run.issues)).toBe(true);
+    });
+    it('blocks when the batch adds a global the text also defines locally', () => {
+      const run = save(lines('import bad from 999', 'var range = 1'), {}, [
+        [2, 'var other = 1', lines('var other = 1', 'var range = 2')],
+      ]);
+      expect(blocks123(run.issues)).toBe(true);
     });
   });
   it('a new tooltip with empty English still blocks', () => {

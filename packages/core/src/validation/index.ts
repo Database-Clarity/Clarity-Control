@@ -90,19 +90,18 @@ export function validateText(
 
 /**
  * Validates every language of a tooltip. With `base` (the saved tooltip this one replaces, or
- * null for a new tooltip), an error blocks only if the change is responsible for it: the
- * language's text is edited, or the error is raised more often than when this unchanged text is
- * validated against `baseGlobalsFor` (the globals and imports before the whole save, so a sibling change
- * that removes an import, variable, or title this text uses makes the save fail). Any other
- * error in unchanged text is listed as a warning, and an empty unwritten English text is not
- * reported at all (a link-only or metadata-only change leaves it alone). Without `base`, every
- * language counts as edited. `baseGlobalsFor` defaults to `globalsFor` (nothing else changed).
+ * null for a new tooltip), an error in a language whose text this change does not edit is listed
+ * as a warning, and an empty unwritten English text is not reported at all (a link-only or
+ * metadata-only change leaves it alone). The exception is `reach`, which says what an unedited
+ * text uses that the same save changes (see batchReach): such an error stays an error, with the
+ * reason added to its message, because the save may have caused it. Without `base`, every
+ * language counts as edited.
  */
 export function validateTooltip(
   tooltip: Tooltip,
   globalsFor: (lang: Lang) => MarkupGlobals,
   base?: Tooltip | null,
-  baseGlobalsFor: (lang: Lang) => MarkupGlobals = globalsFor,
+  reach?: (lang: Lang, text: string) => string | undefined,
 ): TooltipValidationIssue[] {
   const languages = new Set<Lang>(['en', ...(Object.keys(tooltip.text) as Lang[])]);
   // Reserved global documents are declaration libraries, not English descriptions.
@@ -117,95 +116,28 @@ export function validateTooltip(
       requireEnglish && edited,
       tooltip.hash,
     );
-    // An error in unchanged text is not this save's doing if the same error was already raised
-    // through the same import line before the save. Messages alone cannot say which dependency
-    // fails (validateText lists a repeated message once, and one repaired import can hide another
-    // that breaks), so each top-level import line is held responsible for the errors it adds.
-    const hasError = !edited && issues.some((issue) => issue.severity === 'error');
-    const now = hasError ? failures(text, globalsFor(lang), tooltip.hash) : undefined;
-    const then = hasError ? failures(text, baseGlobalsFor(lang), tooltip.hash) : undefined;
-    const caused = (message: string) => {
-      let seen = 0;
-      for (const [key, count] of now!) {
-        if (!key.endsWith(pathMark + message)) continue;
-        seen += count;
-        if (count > (then!.get(key) ?? 0)) return true;
-      }
-      // An error no import line accounts for and that was not raised before: stay safe, block.
-      return seen === 0;
-    };
-    return issues.map((issue) => ({
-      ...issue,
-      severity:
-        edited || issue.severity === 'warning' || caused(issue.message)
-          ? issue.severity
-          : ('warning' as const),
-      hash: tooltip.hash,
-      lang,
-    }));
+    const uses =
+      !edited && issues.some((issue) => issue.severity === 'error')
+        ? reach?.(lang, text)
+        : undefined;
+    return issues.map((issue) => {
+      const blocked = edited || issue.severity === 'warning' || uses !== undefined;
+      return {
+        ...issue,
+        ...(uses !== undefined && issue.severity === 'error'
+          ? {
+              message: `${issue.message} It already had an error and uses ${uses}, which this save changes. Fix it, or save it separately.`,
+            }
+          : {}),
+        severity: blocked ? issue.severity : ('warning' as const),
+        hash: tooltip.hash,
+        lang,
+      };
+    });
   });
 }
 
-const pathMark = ' @ ';
-
-const importPatterns = [/^import [A-z0-9 ]+? from (\d+|global) *?$/gm, /^import self *?$/gm];
-
-/** The spans of the text's top-level import lines, in document order. */
-function importSpans(text: string): { line: string; from: number; to: number }[] {
-  return importPatterns
-    .flatMap((pattern) =>
-      [...text.matchAll(pattern)].map((match) => ({
-        line: match[0],
-        from: match.index!,
-        to: match.index! + match[0].length,
-      })),
-    )
-    .sort((a, b) => a.from - b.from);
-}
-
-/**
- * How often each error is raised for this text, keyed by the top-level import line responsible
- * and the message. A line is responsible for the errors that disappear when only that line is
- * removed, so comment, hidden-block, visibility, and pass semantics are the real resolver's. The
- * errors left with every import line removed (parser errors, global name clashes) are keyed
- * 'text'. Counting happens before validateText merges repeated messages.
- */
-function failures(text: string, globals: MarkupGlobals, selfHash: number): Map<string, number> {
-  const errorsOf = (source: string) => {
-    const counts = new Map<string, number>();
-    const add = (message: string) => counts.set(message, (counts.get(message) ?? 0) + 1);
-    for (const diagnostic of parseMarkup(source, globals).diagnostics) {
-      if (diagnostic.severity === 'error') add(diagnostic.message);
-    }
-    return counts;
-  };
-  const counts = new Map<string, number>();
-  const add = (owner: string, message: string, count = 1) => {
-    const key = owner + pathMark + message;
-    counts.set(key, (counts.get(key) ?? 0) + count);
-  };
-  const total = errorsOf(text);
-  const spans = importSpans(text);
-  const seenLines = new Map<string, number>();
-  for (const span of spans) {
-    const occurrence = (seenLines.get(span.line) ?? 0) + 1;
-    seenLines.set(span.line, occurrence);
-    if (!total.size) continue;
-    const without = errorsOf(text.slice(0, span.from) + text.slice(span.to));
-    for (const [message, count] of total) {
-      const added = count - (without.get(message) ?? 0);
-      if (added > 0) add(`${span.line.trim()} #${occurrence}`, message, added);
-    }
-  }
-  let rest = text;
-  for (const span of [...spans].reverse()) rest = rest.slice(0, span.from) + rest.slice(span.to);
-  for (const [message, count] of errorsOf(rest)) add('text', message, count);
-  if (selfHash !== globalVariablesHash && selfHash !== globalTitlesHash) {
-    for (const clash of findGlobalNameClashes(text, globals))
-      add('text', describeGlobalClash(clash));
-  }
-  return counts;
-}
+export { batchReach, type BatchChange, type BatchDocuments } from './reach.js';
 
 const maxListedTooltips = 8;
 

@@ -1,6 +1,7 @@
 import { languageLabel } from '../../languageLabels';
 import {
   type CompendiumData,
+  batchReach,
   countConflicts,
   emptyEnglishMessage,
   languages,
@@ -87,7 +88,7 @@ export function validateChanges(changes: Change[], data: EditorData): TooltipVal
     tooltips[change.hash] = withoutMarkers(change.next);
   }
   // The same catalogue before this save: every change replaced by its base (a new tooltip
-  // removed). An error in unchanged text that exists there too is not this save's doing.
+  // removed). batchReach follows imports through both, so a removed or new target counts.
   const before = { ...data.bundle.tooltips };
   for (const change of changes) {
     if (change.base) before[change.hash] = withoutMarkers(change.base);
@@ -107,21 +108,25 @@ export function validateChanges(changes: Change[], data: EditorData): TooltipVal
       type: data.categories.find((category) => category.id === item?.categoryId)?.legacyType,
     };
   };
+  const reach = batchReach(
+    changes,
+    {
+      before: (lang, hash) => importsBefore.get(lang)![String(hash)],
+      after: (lang, hash) => imports.get(lang)![String(hash)],
+    },
+    data.aliases,
+    (hash) => data.items[hash]?.name ?? `Tooltip ${hash}`,
+  );
   return changes.flatMap(({ base, next: unmasked }) => {
     const next = tooltips[unmasked.hash]!;
     return [
       ...conflictMarkerIssues([{ hash: unmasked.hash, base, next: unmasked }]),
       ...validateGlobalAdditions({ base, next }, tooltips),
-      // An error blocks only if this save is responsible for it: the tooltip's text there is
-      // edited, or the error is new compared with the catalogue before the save (a sibling
-      // change removed what the text uses). Older errors in unchanged text only warn, so a
-      // link-only change on a tooltip with unwritten English is never refused.
-      ...validateTooltip(
-        next,
-        globalsIn(imports, next.hash),
-        base,
-        globalsIn(importsBefore, next.hash),
-      ).map((issue) =>
+      // An error blocks if the tooltip's text there is edited, or if the text uses something this
+      // same save changes (an imported document, a global it mentions): then the save may have
+      // caused it. Any other error in unchanged text only warns, so a link-only change on a
+      // tooltip with unwritten English is never refused.
+      ...validateTooltip(next, globalsIn(imports, next.hash), base, reach).map((issue) =>
         // Saving never creates a tooltip without English text. Say so where the user acts: a
         // Compendium link on an item with no saved tooltip is refused for this reason alone.
         !base && issue.lang === 'en' && issue.message === emptyEnglishMessage
