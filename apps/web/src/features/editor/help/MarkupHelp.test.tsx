@@ -108,6 +108,11 @@ describe('the help reads one registry', () => {
     expect(at('Uses #Zoom', 1, 6)).toBe('decl-var');
     expect(at('x // note <bold y />', 1, 15)).toBe('comment');
     expect(at('Get ${10 * 2}%', 1, 6)).toBe('math');
+    // Comments as production reads them: a URL's `//` is not one, and `/* */` spans lines.
+    expect(at('See <link wiki [https://example.com] /> here', 1, 24)).toBe('link');
+    expect(at('/* first\nsecond\n*/\nText', 2, 3)).toBe('comment');
+    expect(at('// whole line', 1, 4)).toBe('comment');
+    expect(at('/* first\nsecond\n*/\nText', 4, 2)).toBeNull();
   });
 
   it('maps menu options to their rows', () => {
@@ -300,6 +305,59 @@ describe('the sheet in the editor', () => {
     expect(kept()).toBe(parked);
     expect(parked.hasAttribute('inert')).toBe(true);
     expect(document.activeElement).toBe(content);
+  });
+
+  it('a sheet open across the phone width follows it: tap-outside closes only on a phone', async () => {
+    let phone = false;
+    const listeners = new Set<(event: { type: string; matches: boolean }) => void>();
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      get matches() {
+        return query === '(max-width: 700px)' && phone;
+      },
+      media: query,
+      addEventListener: (_: string, run: (event: { type: string; matches: boolean }) => void) =>
+        listeners.add(run),
+      removeEventListener: (_: string, run: (event: { type: string; matches: boolean }) => void) =>
+        listeners.delete(run),
+    }));
+    const view = await mount(adagio);
+    act(() => view.focus());
+    const content = host.querySelector('.cm-content')!;
+    await press(content, 'F1');
+    const tap = async (target: Element) =>
+      act(async () => {
+        target.dispatchEvent(new Event('pointerdown', { bubbles: true, cancelable: true }));
+      });
+    // A desktop: a press in the text leaves it open.
+    await tap(content);
+    expect(sheet()).not.toBeNull();
+    await act(async () => {
+      phone = true;
+      listeners.forEach((run) => run({ type: 'change', matches: phone }));
+    });
+    expect(sheet()).not.toBeNull();
+    await tap(content);
+    expect(sheet()).toBeNull();
+    // Back to a desktop while open: a press in the text leaves it open again.
+    await press(content, 'F1');
+    await act(async () => {
+      phone = false;
+      listeners.forEach((run) => run({ type: 'change', matches: phone }));
+    });
+    await tap(content);
+    expect(sheet()).not.toBeNull();
+  });
+
+  it('the issues panel closed by its last fix stays closed when an issue returns', async () => {
+    await mount('Uses #missing');
+    const item = () => host.querySelector<HTMLElement>('[data-status-issues]');
+    await act(async () => item()!.click());
+    expect(document.querySelector('#editor-panel-issues')).not.toBeNull();
+    await mount('Valid text');
+    expect(document.querySelector('#editor-panel-issues')).toBeNull();
+    await mount('Uses #missing');
+    expect(item()).not.toBeNull();
+    expect(document.querySelector('#editor-panel-issues')).toBeNull();
   });
 
   it('a bare Tab and the removed table-align keys change nothing', async () => {

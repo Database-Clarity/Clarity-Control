@@ -1,5 +1,10 @@
 import type { EditorState } from '@codemirror/state';
-import { findRetiredMarkup, markupIcons, type MarkupGlobals } from '@clarity/core';
+import {
+  findRetiredMarkup,
+  markupCommentContext,
+  markupIcons,
+  type MarkupGlobals,
+} from '@clarity/core';
 import { markupEntries, type MarkupEntry } from '../markupRow/entries';
 
 /**
@@ -413,9 +418,6 @@ const within = (column: number, match: RegExpMatchArray) =>
 
 /** The help row for a construct on one line, with the caret at `column`. */
 function rowInLine(line: string, column: number): string | null {
-  const comment = line.indexOf('//');
-  if (comment >= 0 && column > comment) return 'comment';
-  for (const match of line.matchAll(/\/\*.*?(\*\/|$)/g)) if (within(column, match)) return 'comment';
   for (const match of line.matchAll(/#e\$\{[^}]*\}|\$\{[^}]*\}/g))
     if (within(column, match)) return match[0].startsWith('#e') ? 'enhanced-formula' : 'math';
   for (const match of line.matchAll(/<([a-zA-Z]+)(?:\s[^<>]*?)?\/>/g)) {
@@ -452,6 +454,13 @@ function rowInLine(line: string, column: number): string | null {
  * block the line sits in (an enhanced section, a title body, an export), else none.
  */
 export function helpIdAt(state: EditorState, pos: number): string | null {
+  // Comments as production reads them (`//` at a line start or after a space, `/* */` across
+  // lines), so `https://` in a link is not one.
+  const doc = state.doc.toString();
+  for (const { from, to } of markupCommentContext(doc).comments) {
+    const end = doc[to - 1] === '\n' ? to - 1 : to;
+    if (pos >= from && pos <= end) return 'comment';
+  }
   const line = state.doc.lineAt(pos);
   const here = rowInLine(line.text, pos - line.from);
   if (here) return here;

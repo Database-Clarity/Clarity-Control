@@ -823,6 +823,14 @@ export function ClarityEditor({
   const glyphCount = glyphs.reduce((sum, group) => sum + group.count, 0);
   const retiredCount = diagnostics.retired.length;
   // A panel for something that has gone away closes itself.
+  // The issues panel closes for good at zero issues (a later issue never reopens it over the text);
+  // focus it held goes back to the text.
+  useLayoutEffect(() => {
+    if (panel !== 'issues' || issues.length) return;
+    setPanel(null);
+    const page = globalThis.document;
+    if (page.activeElement === page.body) view.current?.focus();
+  }, [panel, issues.length]);
   const open =
     (panel === 'glyphs' && glyphCount === 0) ||
     (panel === 'conflicts' && conflictCount === 0) ||

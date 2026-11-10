@@ -191,8 +191,8 @@ export const MarkupHelp = memo(function MarkupHelp({
       element.removeEventListener('keydown', onKey);
       document.removeEventListener('pointerdown', outside, true);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+    // Again when the window crosses the phone width while open: tap-outside is a phone's alone.
+  }, [open, phone]);
 
   // Keeps the active row inside the list by moving the list's own scroll (never the page's).
   const reveal = (id: string) => {
@@ -280,10 +280,13 @@ export const MarkupHelp = memo(function MarkupHelp({
     const help =
       (frame ?? panel.ownerDocument).querySelector<HTMLElement>('[data-status-help]') ??
       panel.ownerDocument.querySelector<HTMLElement>('[data-status-help]');
-    opener.current =
-      !phone && focused instanceof HTMLElement && focused !== panel.ownerDocument.body
-        ? focused
-        : help;
+    // Run again while open (the window crossed the phone width), focus is already inside: the
+    // opener stays.
+    if (!(focused instanceof Node && panel.contains(focused)))
+      opener.current =
+        !phone && focused instanceof HTMLElement && focused !== panel.ownerDocument.body
+          ? focused
+          : help;
     if (!editor) return;
     const host = panel.parentElement!;
     const area = phone ? null : (editor.dom.parentElement?.parentElement ?? null);
@@ -297,7 +300,12 @@ export const MarkupHelp = memo(function MarkupHelp({
         (phone ? panel : field.current)?.focus({ preventScroll: true });
         reveal(active);
       }
-      if (phone) return;
+      if (phone) {
+        // The bars above it can move (a resize, the page scrolling under it): it stays under them.
+        for (const [name, value] of Object.entries(measure(frame)))
+          panel.style.setProperty(name, value);
+        return;
+      }
       const scroller = editor.scrollDOM.getBoundingClientRect();
       const box = host.getBoundingClientRect();
       const sheet = panel.getBoundingClientRect();
