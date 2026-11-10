@@ -218,7 +218,13 @@ export const MarkupRow = memo(function MarkupRow({
           Suggest
         </button>
       )}
-      <AllPopover view={view} globals={globals} usage={usage} onResult={setMessage} />
+      <AllPopover
+        view={view}
+        globals={globals}
+        usage={usage}
+        onResult={setMessage}
+        docked={docked}
+      />
       {message && (
         <div className={styles.note} role="status">
           {message}

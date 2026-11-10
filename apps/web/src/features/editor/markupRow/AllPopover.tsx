@@ -161,11 +161,14 @@ export function AllPopover({
   globals,
   usage,
   onResult,
+  docked = false,
 }: {
   view: RefObject<EditorView | null>;
   globals: MarkupGlobals;
   usage?: UsageCorpus;
   onResult(message: string): void;
+  /** On the docked bar (bottom of the page) the sheet rises from the bottom, not from the trigger. */
+  docked?: boolean;
 }) {
   return (
     <Popover
@@ -177,7 +180,7 @@ export function AllPopover({
         </>
       }
       triggerTitle="Every markup option, grouped, with a filter"
-      sheetFromTrigger
+      sheetFromTrigger={!docked}
     >
       {(close) => (
         <AllList view={view} globals={globals} usage={usage} close={close} onResult={onResult} />

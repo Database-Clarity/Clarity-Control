@@ -192,6 +192,16 @@ describe('the docked keyboard bar', () => {
     expect(statusButton('Raw')).toBeDefined();
   });
 
+  it('opens All as a bottom sheet when docked, not hanging from the trigger', () => {
+    mount();
+    const all = bar()!.querySelector<HTMLButtonElement>('button[aria-haspopup]')!;
+    act(() => all.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    const sheet = document.body.querySelector('[role=dialog][aria-label="All markup"]');
+    expect(sheet).not.toBeNull();
+    expect(sheet!.hasAttribute('data-sheet-top')).toBe(false);
+    act(() => all.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  });
+
   it('shows the bar on an empty text', () => {
     mount({ value: '' });
     expect(bar()?.hasAttribute('data-docked')).toBe(true);
