@@ -13,6 +13,9 @@ const location = {
   href: sourceHref('77', 'C12:E14'),
 };
 
+// The separators carry non-breaking spaces; compare plain text.
+const text = (node: Element) => node.textContent!.split(String.fromCharCode(160)).join(' ');
+
 function link(element: React.ReactElement) {
   const host = document.createElement('div');
   host.innerHTML = renderToStaticMarkup(element);
@@ -22,7 +25,7 @@ function link(element: React.ReactElement) {
 describe('SourceRef', () => {
   it('links the full label into the sheet in a new tab', () => {
     const a = link(<SourceRef location={location} />);
-    expect(a.textContent).toContain('Armor Mods · Raid Specific · C12:E14, A20');
+    expect(text(a)).toContain('Armor Mods · Raid Specific · C12:E14, A20');
     expect(a.getAttribute('href')).toBe(location.href);
     expect(a.getAttribute('target')).toBe('_blank');
     expect(a.getAttribute('rel')).toContain('noopener');
@@ -36,7 +39,7 @@ describe('SourceRef', () => {
 
   it('says plainly when the position is unknown', () => {
     const a = link(<SourceRef location={linkLocation({ gid: '77' }, null)} />);
-    expect(a.textContent).toContain('Sheet tab · position unknown');
+    expect(text(a)).toContain('Sheet tab · position unknown');
     expect(a.textContent).not.toContain('77');
     expect(a.getAttribute('href')).toBe(sourceHref('77'));
   });

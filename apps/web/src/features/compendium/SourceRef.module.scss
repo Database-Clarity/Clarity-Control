@@ -1,4 +1,4 @@
-// A sheet location link: one line, the place shrinks with an ellipsis, the range stays whole.
+// A sheet location link on one line: the place shrinks with an ellipsis first, then the range.
 .ref {
   display: inline-flex;
   max-width: 100%;
@@ -25,7 +25,10 @@
   color: var(--text3);
   font-style: italic;
 }
+// On its own line the whole label stays readable: it wraps between words instead of truncating.
 .block {
-  display: flex;
+  display: block;
   width: fit-content;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }

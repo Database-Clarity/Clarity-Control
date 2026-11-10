@@ -1,6 +1,9 @@
 import { unknownPosition, type SourceLocation } from './sourceLocation';
 import styles from './SourceRef.module.scss';
 
+// Flex items drop their edge spaces, so the separators carry non-breaking ones.
+const nbsp = String.fromCharCode(160);
+
 /**
  * Where Compendium content sits in the sheet, as a link opening the sheet itself at that tab and
  * range: `Armor Mods · Raid Specific · C12:E14 ↗`. Narrow rows show the tab only (`show="tab"`) and
@@ -20,7 +23,7 @@ export function SourceRef({
   const { tab, section, range, href, label } = location;
   const position = (
     <span className={location.unknown ? styles.unknown : styles.range}>
-      {show === 'full' && ' · '}
+      {show === 'full' && `${nbsp}· `}
       {range ?? unknownPosition}
     </span>
   );
@@ -40,7 +43,7 @@ export function SourceRef({
         </span>
       )}
       {show !== 'tab' && position}
-      <span aria-hidden="true"> ↗</span>
+      <span aria-hidden="true">{`${nbsp}↗`}</span>
       <span className="sr-only">{show === 'full' ? '' : `, ${label}`} (opens the sheet)</span>
     </a>
   );
