@@ -125,7 +125,19 @@ describe('source labels and links', () => {
           { dRow: 4, dCol: -2 },
         ],
       },
-      source,
+      {
+        ...source,
+        tabs: [
+          {
+            ...tab,
+            grid: [
+              ...tab.grid,
+              { row: 15, col: 0, cell: cell('a') },
+              { row: 16, col: 0, cell: cell('b') },
+            ],
+          },
+        ],
+      },
     );
     expect(location.range).toBe('C12:E12, A15:A16');
     expect(location.label).toBe('Armor Mods · C12:E12, A15:A16');
@@ -222,5 +234,44 @@ describe('source labels and links', () => {
       source,
     );
     expect(same.range).toBe('C12:E12');
+  });
+
+  it('names each part of a multipart excerpt by its own description cells', () => {
+    const part = (rowIndex: number, plain: string) => ({
+      ...row('Mod', { row: rowIndex, col: 0 }),
+      rowIndex,
+      cell: cell(plain),
+    });
+    const sheet = {
+      gid: '5',
+      name: 'Cards',
+      rows: [part(20, 'Second'), part(12, 'First')],
+      grid: [
+        { row: 12, col: 0, cell: cell('Mod') },
+        { row: 12, col: 2, colSpan: 4, cell: cell('First') },
+        { row: 20, col: 0, cell: cell('Mod') },
+        { row: 20, col: 2, colSpan: 4, cell: cell('Second') },
+      ],
+    };
+    const match = {
+      tab: { ...sheet, grid: undefined },
+      row: part(12, 'First'),
+      parts: [{}, {}],
+    } as unknown as CompendiumMatch;
+    expect(matchLocation(match, { fetchedAt: '', tabs: [sheet] }).range).toBe('C12:F12, C20:F20');
+  });
+
+  it('treats a saved selection whose description cell was deleted as position unknown', () => {
+    const gone = linkLocation(
+      {
+        gid: '77',
+        rowKey: 'Mod',
+        sourceAnchor: { row: 12, col: 0 },
+        cells: [{ dRow: 0, dCol: 9 }],
+      },
+      source,
+    );
+    expect(gone.unknown).toBe(true);
+    expect(gone.href).not.toContain('range=');
   });
 });

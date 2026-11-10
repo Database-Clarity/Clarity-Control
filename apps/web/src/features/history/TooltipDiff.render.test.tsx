@@ -135,3 +135,34 @@ it('shows a Compendium link that moved even when its snapshot text is unchanged'
     await act(async () => root.unmount());
   }
 });
+
+it('shows a Compendium link relinked to another row of the same name cell and snapshot', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const stamp = { updatedAt: '2026-11-04T00:00:00Z', updatedBy: 'test' };
+  const snapshot = { plain: 'Same', runs: [{ text: 'Same' }] };
+  const link = (rowKey: string) => ({
+    gid: '77',
+    rowKey,
+    snapshot,
+    snapshotAt: '2026-11-01T00:00:00.000Z',
+    sourceAnchor: { row: 5, col: 0 },
+    cells: [{ dRow: 0, dCol: 2 }],
+  });
+  const tooltip = { hash: 1, associated: [], text: { en: { text: 'Same', ...stamp } } };
+  try {
+    await act(async () =>
+      root.render(
+        <TooltipDiff
+          raw={false}
+          before={{ ...tooltip, compendium: link('Rampage') }}
+          current={{ ...tooltip, compendium: link('Rampage Spec') }}
+        />,
+      ),
+    );
+    expect(host.querySelectorAll('[data-source-ref]')).toHaveLength(2);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

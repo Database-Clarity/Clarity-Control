@@ -143,11 +143,13 @@ export function TooltipDiff({
   );
 }
 
-/** The same place in the sheet: tab, section, anchor, and cells (labels can coincide across tabs). */
+/** The same place in the sheet: tab, row, section, anchor, and cells (labels can coincide across tabs). */
 function sameSource(a?: CompendiumLink, b?: CompendiumLink) {
   if (!a || !b) return a === b;
   return (
     a.gid === b.gid &&
+    // Legacy links have no anchor or cells: their row name is their place.
+    a.rowKey === b.rowKey &&
     a.section === b.section &&
     JSON.stringify(a.sourceAnchor ?? null) === JSON.stringify(b.sourceAnchor ?? null) &&
     JSON.stringify(a.cells ?? null) === JSON.stringify(b.cells ?? null)

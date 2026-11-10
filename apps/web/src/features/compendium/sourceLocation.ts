@@ -192,11 +192,26 @@ export function descriptionCells(
 }
 
 /**
+ * The rows a multipart excerpt combines: every row of that name in the tab, in sheet order, with a
+ * repeated card (same text) counted once, as the combiner does.
+ */
+function partRows(sheet: CompendiumSheet, nameNorm: string, count: number) {
+  const rows = sheet.rows
+    .filter((row) => row.nameNorm === nameNorm)
+    .sort((a, b) => a.rowIndex - b.rowIndex || (a.anchor?.col ?? 0) - (b.anchor?.col ?? 0));
+  if (rows.length === count) return rows;
+  const distinct = rows.filter(
+    (row, index) => !rows.slice(0, index).some((other) => other.cell.plain === row.cell.plain),
+  );
+  return distinct.length === count ? distinct : rows;
+}
+
+/**
  * Where a candidate sits in the sheet, as text and an `edit#gid=&range=` link. The match's own tab
  * is compacted (no grid) in worker replies, so spans come from the loaded source by gid.
  */
 export function matchLocation(
-  match: Pick<CompendiumMatch, 'tab' | 'row' | 'cells' | 'sourceAnchor'>,
+  match: Pick<CompendiumMatch, 'tab' | 'row' | 'cells' | 'sourceAnchor' | 'parts'>,
   source?: CompendiumData | null,
 ): SourceLocation {
   const sheet = source?.tabs.find((tab) => tab.gid === match.tab.gid) ?? match.tab;
@@ -209,6 +224,15 @@ export function matchLocation(
       ),
     )
       .map(regionRange)
+      .join(', ');
+  } else if (anchor && match.parts && match.parts.length > 1 && sheet.rows.length) {
+    // A multipart excerpt joins every row of the same name in this tab, each under a heading:
+    // name each part's own description cells, in order.
+    range = partRows(sheet, match.row.nameNorm, match.parts.length)
+      .map((part) => {
+        const cells = part.anchor && descriptionCells(sheet, part.anchor, part.cell.plain);
+        return cells ? cells.map(regionRange).join(', ') : `${part.rowIndex}:${part.rowIndex}`;
+      })
       .join(', ');
   } else if (anchor) {
     // A parsed row is anchored on its NAME cell; the excerpt shown is its description cells.
@@ -230,7 +254,8 @@ export function matchLocation(
 /**
  * The saved link's own place (a draft or saved Compendium link). `stale` marks a snapshot whose row
  * no longer resolves: its saved position may be wrong, so only the tab is linked. The same holds,
- * with the source loaded, when the saved anchor cell is gone or no longer holds the row's name.
+ * with the source loaded, when the saved anchor cell is gone or no longer holds the row's name, or
+ * when any selected description cell is gone.
  */
 export function linkLocation(
   link: Pick<CompendiumLink, 'gid' | 'section' | 'sourceAnchor' | 'cells'> &
@@ -248,7 +273,18 @@ export function linkLocation(
       (link.rowKey !== undefined &&
         normaliseCompendiumName(anchorCell.cell.plain.trim()) !==
           normaliseCompendiumName(link.rowKey)));
-  const anchor = stale || moved ? undefined : link.sourceAnchor;
+  // ...and so is a selection whose description cells are no longer in the sheet.
+  const lostCells =
+    !!sheet &&
+    !!link.sourceAnchor &&
+    !!link.cells?.some(
+      ({ dRow, dCol }) =>
+        !compendiumCellAt(sheet, {
+          row: link.sourceAnchor!.row + dRow,
+          col: link.sourceAnchor!.col + dCol,
+        }),
+    );
+  const anchor = stale || moved || lostCells ? undefined : link.sourceAnchor;
   const range = anchor
     ? link.cells?.length
       ? regionsOf(
