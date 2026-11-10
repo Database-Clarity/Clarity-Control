@@ -30,7 +30,12 @@ import { compendiumScales, useSettingsStore } from '../../stores/settings';
 import { apiUrl } from '../../services/api';
 import { reviewSaveChanges, useSaveState } from '../../services/save/state';
 import { canonicalHash, itemFor } from '../navigation/catalog';
-import { CompendiumDiff, CompendiumDiffModeToggle, useCompendiumDiffMode } from './CompendiumDiff';
+import {
+  CellScale,
+  CompendiumDiff,
+  CompendiumDiffModeToggle,
+  useCompendiumDiffMode,
+} from './CompendiumDiff';
 import { RichCell } from './RichCell';
 import { SheetCell, SheetColoursToggle } from './sheetSurface';
 import { LinkPicker } from './LinkPicker';
@@ -123,7 +128,7 @@ function InlineLinkPicker({ children, onStep }: { children: ReactNode; onStep():
   );
 }
 
-/** Compendium zoom (70–100 %), kept on this device: − / value / +. */
+/** Compendium zoom (70–150 %), kept on this device: − / value / +. */
 function ScaleControl({ disabled = false }: { disabled?: boolean } = {}) {
   const scale = useSettingsStore((state) => state.device.compendiumScale);
   const updateDevice = useSettingsStore((state) => state.updateDevice);
@@ -551,7 +556,6 @@ const PaneContents = memo(function PaneContents({
     >
       <div
         className={styles.zoom}
-        style={{ zoom: scale / 100 }}
         data-scale={scale}
         data-match-hash={base.hash}
         data-match-state={
@@ -628,20 +632,25 @@ const PaneContents = memo(function PaneContents({
                   {!roomy && <div className={styles.diffModes}>{diffToggle}</div>}
                   {preparedDiff.pair ? (
                     <ApprovalDiff
+                      scale={scale}
                       before={preparedDiff.pair.before}
                       after={preparedDiff.pair.after}
                       mode={diffMode}
                     />
                   ) : (
-                    <SheetCell background={matched.row.cell.background}>
-                      <RichCell cell={matched.row.cell} />
-                    </SheetCell>
+                    <CellScale scale={scale}>
+                      <SheetCell background={matched.row.cell.background}>
+                        <RichCell cell={matched.row.cell} />
+                      </SheetCell>
+                    </CellScale>
                   )}
                 </>
               ) : (
-                <SheetCell background={matched.row.cell.background}>
-                  <RichCell cell={matched.row.cell} />
-                </SheetCell>
+                <CellScale scale={scale}>
+                  <SheetCell background={matched.row.cell.background}>
+                    <RichCell cell={matched.row.cell} />
+                  </SheetCell>
+                </CellScale>
               )}
             </div>
             {canEdit && (
@@ -694,14 +703,17 @@ const PaneContents = memo(function PaneContents({
                 {!roomy && <div className={styles.diffModes}>{diffToggle}</div>}
                 {preparedDiff.pair ? (
                   <CompendiumDiff
+                    scale={scale}
                     before={preparedDiff.pair.before}
                     after={preparedDiff.pair.after}
                     mode={diffMode}
                   />
                 ) : (
-                  <SheetCell background={match.row.cell.background}>
-                    <RichCell cell={match.row.cell} />
-                  </SheetCell>
+                  <CellScale scale={scale}>
+                    <SheetCell background={match.row.cell.background}>
+                      <RichCell cell={match.row.cell} />
+                    </SheetCell>
+                  </CellScale>
                 )}
                 {canReview && (
                   <div className={styles.actions}>
@@ -747,9 +759,11 @@ const PaneContents = memo(function PaneContents({
                         match)
                         <SourceRef location={matchLocation(candidate, compendium)} block />
                       </p>
-                      <SheetCell background={candidate.row.cell.background}>
-                        <RichCell cell={candidate.row.cell} />
-                      </SheetCell>
+                      <CellScale scale={scale}>
+                        <SheetCell background={candidate.row.cell.background}>
+                          <RichCell cell={candidate.row.cell} />
+                        </SheetCell>
+                      </CellScale>
                       {canEdit && (
                         <button
                           type="button"
@@ -795,9 +809,11 @@ const PaneContents = memo(function PaneContents({
               </p>
             )}
             {!match && (
-              <SheetCell>
-                <RichCell cell={link.snapshot} />
-              </SheetCell>
+              <CellScale scale={scale}>
+                <SheetCell>
+                  <RichCell cell={link.snapshot} />
+                </SheetCell>
+              </CellScale>
             )}
           </>
         )}

@@ -55,8 +55,8 @@ export const paneStateSchema = z.object({
 export type PaneState = z.infer<typeof paneStateSchema>;
 /** Pane keys are `<page type>:<pair>`, for example `editor:left`. */
 export const paneKeyPattern = /^[a-z][a-z0-9-]{0,31}:[a-z][a-z0-9-]{0,31}$/;
-/** Compendium pane zoom, in percent: 70 to 100 in steps of 10; 100 is the pane's natural size. */
-export const compendiumScales = [70, 80, 90, 100] as const;
+/** Compendium pane zoom, in percent: 70 to 150 in steps of 10; 100 is the pane's natural size. */
+export const compendiumScales = [70, 80, 90, 100, 110, 120, 130, 140, 150] as const;
 export const defaultCompendiumScale = 100;
 /** Snaps a stored value onto the scale (nearest step); anything that is not a number is the default. */
 export function normalizeCompendiumScale(value: unknown): number {

@@ -22,8 +22,8 @@ const scaleOf = (raw: unknown) =>
     .device.compendiumScale;
 
 describe('device Compendium scale', () => {
-  it('is 70 to 100 in steps of 10, defaulting to the natural size', () => {
-    expect([...compendiumScales]).toEqual([70, 80, 90, 100]);
+  it('is 70 to 150 in steps of 10, defaulting to the natural size', () => {
+    expect([...compendiumScales]).toEqual([70, 80, 90, 100, 110, 120, 130, 140, 150]);
     expect(defaultCompendiumScale).toBe(100);
     expect(make(memoryStorage().storage).getState().device.compendiumScale).toBe(100);
   });
@@ -36,7 +36,7 @@ describe('device Compendium scale', () => {
     ).toMatchObject({ compendiumScale: 100, theme: 'system' });
     expect(scaleOf(10)).toBe(70);
     expect(scaleOf(-5)).toBe(70);
-    expect(scaleOf(500)).toBe(100);
+    expect(scaleOf(500)).toBe(150);
     expect(scaleOf(Number.POSITIVE_INFINITY)).toBe(100);
     expect(scaleOf(84)).toBe(80);
     expect(scaleOf(85)).toBe(90);
@@ -61,10 +61,10 @@ describe('device Compendium scale', () => {
   it('saves on this device only, survives a reload, and resets with the pane widths', () => {
     const { storage, values } = memoryStorage();
     const store = make(storage);
-    store.getState().updateDevice({ compendiumScale: 80 });
-    expect(JSON.parse(values.get(deviceKey)!).compendiumScale).toBe(80);
+    store.getState().updateDevice({ compendiumScale: 150 });
+    expect(JSON.parse(values.get(deviceKey)!).compendiumScale).toBe(150);
     expect(store.getState().pending).toEqual([]);
-    expect(make(storage).getState().device.compendiumScale).toBe(80);
+    expect(make(storage).getState().device.compendiumScale).toBe(150);
     expect(store.getState().resetPaneWidths()).toBe(true);
     expect(store.getState().device.compendiumScale).toBe(100);
     expect(JSON.parse(values.get(deviceKey)!).compendiumScale).toBe(100);

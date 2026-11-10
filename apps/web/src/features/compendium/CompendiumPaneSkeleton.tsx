@@ -8,7 +8,7 @@ import {
   type SkeletonTextShape,
 } from '../../ui/Skeleton';
 import { When } from '../../ui/When';
-import type { CompendiumDiffMode } from './CompendiumDiff';
+import { CellScale, type CompendiumDiffMode } from './CompendiumDiff';
 import styles from './Compendium.module.scss';
 
 const shapes = new WeakMap<CompendiumCell, SkeletonTextShape>();
@@ -43,14 +43,24 @@ export function rememberPaneSkeleton(
   entries.set(hash, { revision, before: before && shapeFor(before), after: shapeFor(after) });
 }
 
-function Cell({ shape, textWidth }: { shape?: SkeletonTextShape; textWidth: number }) {
+function Cell({
+  shape,
+  textWidth,
+  scale,
+}: {
+  shape?: SkeletonTextShape;
+  textWidth: number;
+  scale: number;
+}) {
   const lines = shape ? skeletonLineWidths(shape, textWidth) : [92, 78, 85, 60, 0, 92, 78, 55];
   return (
-    <SkeletonRegion className={styles.skeletonCell}>
-      {lines.map((width, index) => (
-        <SkeletonLine key={index} width={width} />
-      ))}
-    </SkeletonRegion>
+    <CellScale scale={scale}>
+      <SkeletonRegion className={styles.skeletonCell}>
+        {lines.map((width, index) => (
+          <SkeletonLine key={index} width={width} />
+        ))}
+      </SkeletonRegion>
+    </CellScale>
   );
 }
 
@@ -92,16 +102,11 @@ export function CompendiumPaneSkeleton({
   const before = snapshot ?? previous?.before;
   const comparison = !!before;
   const twoColumns = comparison && mode === 'before-after';
-  const bodyWidth = (width && width > 0 ? width : 384) / (scale / 100);
+  const bodyWidth = (width && width > 0 ? width : 384) / Math.min(scale / 100, 1);
   const columnWidth = twoColumns && !phone ? (bodyWidth - 0.75 * remPx) / 2 : bodyWidth;
   const textWidth = Math.max(32, columnWidth - 2 * 0.8 * remPx);
   return (
-    <div
-      className={styles.zoom}
-      style={{ zoom: scale / 100 }}
-      data-scale={scale}
-      data-pane-skeleton="true"
-    >
+    <div className={styles.zoom} data-scale={scale} data-pane-skeleton="true">
       <p className={styles.meta}>
         {link && (
           <>
@@ -137,15 +142,15 @@ export function CompendiumPaneSkeleton({
         <div key="comparison" className={styles.comparison}>
           <section>
             <h4>Snapshot</h4>
-            <Cell shape={before} textWidth={textWidth} />
+            <Cell scale={scale} shape={before} textWidth={textWidth} />
           </section>
           <section>
             <h4>Current</h4>
-            <Cell shape={current} textWidth={textWidth} />
+            <Cell scale={scale} shape={current} textWidth={textWidth} />
           </section>
         </div>
       ) : (
-        <Cell key="cell" shape={current} textWidth={textWidth} />
+        <Cell scale={scale} key="cell" shape={current} textWidth={textWidth} />
       )}
       {link && canReview && (
         <div className={styles.actions}>
