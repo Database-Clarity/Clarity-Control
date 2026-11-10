@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import {
   applyRetiredEdits,
   findRetiredMarkup,
@@ -7,9 +7,11 @@ import {
   type RetiredOccurrence,
 } from '@clarity/core';
 import { Overlay } from './StatusBar';
+import { useEditorDiagnostics } from './useEditorDiagnostics';
 import styles from './RetiredPanel.module.scss';
 
 const listed = 50;
+const emptyGlobals = { variables: '', titles: '' };
 
 /** The same search the editor runs, on the text the panel shows (a conflict's "theirs" is hidden). */
 export const retiredIn = (text: string) => findRetiredMarkup(maskConflicts(text));
@@ -41,8 +43,7 @@ export function previewFix(text: string, fix: RetiredFix): { before: string; aft
 }
 
 /**
- * Every retired form in the text, each with its fixes in the concept's order (Remove tag, then
- * Change to yellow), and Fix all. A fix that rewrites a block or table shows its result first and
+ * Every retired form in the text, each with its verified fixes and manual-fix reasons, and Fix all. A fix that rewrites a block or table shows its result first and
  * applies on a second click. The list is computed from the text itself, so it is never stale.
  */
 export function RetiredPanel({
@@ -58,38 +59,37 @@ export function RetiredPanel({
   onFixAll(): void;
   onClose(): void;
 }) {
-  const found = useMemo(() => retiredIn(value), [value]);
+  const { retired: found } = useEditorDiagnostics({
+    text: value, lang: 'en', globals: emptyGlobals, requireEnglish: false,
+  });
   const [previewing, setPreviewing] = useState<string | null>(null);
-  const simple = found.filter((occurrence) => !occurrence.fixes[0]!.structural).length;
+  const simple = found.filter((occurrence) => occurrence.fixes[0] && !occurrence.fixes[0].structural).length;
   return (
     <Overlay id="editor-panel-retired" label="Retired markup" onClose={onClose}>
       <p className={styles.lead}>
         Retired markup still renders but is no longer supported. It will block saving once the
         existing tooltips are clean.
       </p>
-      {!readOnly && simple > 0 && (
+      {!readOnly && found.length > 0 && (
         <div className={styles.all}>
-          <button
+          {simple > 0 && <button
             type="button"
             data-retired-all
             title="Applies each form's first fix: tags are removed and their text kept"
             onClick={onFixAll}
           >
             Fix all ({simple})
-          </button>
+          </button>}
           {found.length > simple && (
             <span className={styles.note}>
-              {found.length - simple === 1
-                ? '1 block or table form stays'
-                : `${found.length - simple} block or table forms stay`}{' '}
-              for you to preview.
+              {found.length - simple} skipped; preview or fix by hand.
             </span>
           )}
         </div>
       )}
       <ul aria-label="Retired markup" className={styles.list}>
-        {found.slice(0, listed).map((occurrence) => {
-          const key = `${occurrence.from}:${occurrence.token}`;
+        {found.slice(0, listed).map((occurrence, index) => {
+          const key = `${occurrence.from}:${occurrence.token}:${index}`;
           return (
             <li key={key} data-retired-item>
               <div className={styles.row}>
@@ -117,6 +117,9 @@ export function RetiredPanel({
                     </button>
                   ))}
               </div>
+              {occurrence.refusalReason && (
+                <p className={styles.note}>Fix by hand: {occurrence.refusalReason}</p>
+              )}
               {occurrence.fixes.map((fix) => {
                 if (!fix.structural || previewing !== `${key}:${fix.id}`) return null;
                 const { before, after } = previewFix(value, fix);

@@ -1,3 +1,5 @@
+import { prepareMarkup, markupCommentContext } from '../markup/prepare.js';
+import { parseMarkup } from '../markup/parse.js';
 import { describe, expect, it } from 'vitest';
 import { validateText } from './index.js';
 import {
@@ -66,86 +68,159 @@ describe('retired markup census', () => {
     expect(tokens(retiredCensus['4185339856']!)).toHaveLength(2);
   });
 
-  it('flags every other retired form, with whitespace variants', () => {
-    expect(tokens('<center/>a\n<breakSpaces/>b\n<background/>c\n<blue />d\n<center />e')).toEqual([
-      '<center/>',
-      '<breakSpaces/>',
-      '<background/>',
-      '<blue/>',
-      '<center/>',
-    ]);
-    expect(tokens('<blue  two spaces /> <green\tx /> <background text /> <center text />')).toEqual(
-      ['<blue … />', '<green … />', '<background … />', '<center … />'],
-    );
-    expect(tokens('catalyst (\nOnly with the catalyst\n)\nexotic perk (\nperk\n)')).toEqual([
-      'catalyst ( … )',
-      'exotic perk ( … )',
-    ]);
-    expect(tokens('< table background_1 >\n|b Name|c Value\n|Row|1\n<$>')).toEqual(['< table … >']);
+  it('counts cell styles independently of the retired table', () => {
+    expect(findRetiredMarkup('< table wide >\n|bc Name|hr Value\n<$>').map((x) => x.name).sort())
+      .toEqual(['background', 'center', 'table']);
   });
 });
 
-describe('retired markup fixes', () => {
-  it('reports the tag as written so two forms on one line can be told apart', () => {
-    expect(
-      findRetiredMarkup('<blue a /> <green b /> <purple/>').map((found) => found.source),
-    ).toEqual(['<blue a />', '<green b />', '<purple/>']);
-    expect(findRetiredMarkup('x\ncatalyst (\ny\n)').map((found) => found.source)).toEqual([
-      'catalyst (',
-    ]);
+const names = ['blue', 'green', 'purple', 'center', 'background', 'breakSpaces'];
+function oracle(source: string): string[] {
+  const found: string[] = [];
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) { value.forEach(visit); return; }
+    if (!value || typeof value !== 'object') return;
+    for (const [key, item] of Object.entries(value)) {
+      if (key === 'classNames') {
+        for (const name of (item ?? []) as string[]) if ([...names, 'table'].includes(name)) found.push(name);
+      } else visit(item);
+    }
+  };
+  visit(parseMarkup(source).lines);
+  prepareMarkup(source, { variables: '', titles: '' }, [], (name) => {
+    if (name !== 'enhanced') found.push(name);
+  });
+  return found.sort();
+}
+
+describe('parser-truth detection and verified edits', () => {
+  it.each(names)('handles every round-one counterexample for %s', (name) => {
+    for (const source of [
+      `<${name}-x />`, `<${name}>x`, `<${name} / >`,
+      `<${name.slice(0, 2)}/* note */${name.slice(2)} x />`,
+      `<<yellow/>${name} x />`, `<<bold/>${name} x />`,
+      `<yellow a <${name}/> b />`,
+      `< table wide >\n|<yellow a <${name}/> b />\n<$>`,
+      `// <${name}/>`, `/* <${name}/> */`,
+      `title info (\n<${name} x />\n)\n<title See [info] />`,
+      `catalyst (\n<${name} x />\n)`,
+    ]) expect(findRetiredMarkup(source).map((x) => x.name).sort(), source).toEqual(oracle(source));
   });
 
-  it('removes a wrapper and keeps its text, or changes it to yellow', () => {
-    const text = 'a <blue Solar Fulmination /> b <green [Controller-Only] /> c';
-    expect(fix(text, 0, 'remove-tag')).toBe('a Solar Fulmination b <green [Controller-Only] /> c');
-    expect(fix(text, 0, 'to-yellow')).toBe(
-      'a <yellow Solar Fulmination /> b <green [Controller-Only] /> c',
-    );
-    expect(fix(text, 1, 'remove-tag')).toBe('a <blue Solar Fulmination /> b [Controller-Only] c');
-    expect(findRetiredMarkup(text)[0]!.fixes.map((candidate) => candidate.id)).toEqual([
-      'remove-tag',
-      'to-yellow',
-    ]);
+  it('bounds unmapped findings to the containing source line or table', () => {
+    for (const name of names) {
+      const source = `Before\n<${name}>x\nAfter`;
+      const finding = findRetiredMarkup(source)[0]!;
+      expect(finding).toMatchObject({ from: 7, to: 7 + `<${name}>x`.length, source: `<${name}>x` });
+    }
+    const table = '< table >\n|c Value\n<$>';
+    const source = `Before\n${table}\nAfter`;
+    expect(findRetiredMarkup(source).find((item) => item.name === 'center'))
+      .toMatchObject({ from: 7, to: 7 + table.length, source: table });
   });
 
-  it('offers only Remove tag for background and centre wrappers', () => {
-    const found = findRetiredMarkup('<background x /> <center y />');
-    expect(found.map((one) => one.fixes.map((candidate) => candidate.id))).toEqual([
-      ['remove-tag'],
-      ['remove-tag'],
-    ]);
+  it('has bidirectional parity over 512 generated mixes', () => {
+    let seed = 0x1e71eed;
+    const random = (n: number) => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed % n; };
+    const pieces = [
+      ...names.flatMap((name) => [`<${name}/>`, `<${name} x />`, `<${name}-x />`, `<${name}>x`,
+        `<${name} / >`, `<<yellow/>${name} x />`, `<yellow a <${name}/> b />`]),
+      '/* keep |blue */', '// <green/>', '<bold/>', '<yellow a />', 'plain',
+      '< table wide >\n|bc x|hr <purple p />\n<$>',
+      'catalyst (\nx\n)', 'exotic perk (\n<green x />\n)',
+      'enhanced (\ncatalyst (\nx\n)\n)',
+      'title info (\n<blue x />\n)\n<title See [info] />',
+    ];
+    for (let index = 0; index < 512; index++) {
+      const source = Array.from({ length: 1 + random(8) }, () => pieces[random(pieces.length)]).join(random(2) ? '\n' : ' ');
+      expect(findRetiredMarkup(source).map((x) => x.name).sort(), source).toEqual(oracle(source));
+    }
   });
 
-  it('removes a marker with one neighbouring space and nothing else', () => {
+  it('makes minimal wrapper edits, keeping supported markers at every position', () => {
+    for (const supported of ['yellow', 'bold']) {
+      for (const source of [`<<${supported}/>blue x />`, `<blue <${supported}/>x />`, `<blue x<${supported}/> />`]) {
+        const occurrence = findRetiredMarkup(source).find((x) => x.name === 'blue')!;
+        expect(occurrence.fixes.length, source).toBeGreaterThan(0);
+        const after = applyRetiredEdits(source, occurrence.fixes[0]!.edits);
+        expect(after).toContain(`<${supported}/>`);
+        expect(JSON.stringify(parseMarkup(after).lines)).toContain(supported);
+        expect(occurrence.fixes[0]!.edits.every((edit) => edit.insert === '')).toBe(true);
+      }
+    }
+  });
+
+  it('keeps comments byte for byte, including split names and delimiter padding', () => {
+    for (const source of ['<blue a /* keep */ b />',
+      '<bl/* note */ue x />', '<blue/>/* keep */x', 'x/* keep */<blue/>']) {
+      const first = findRetiredMarkup(source)[0]!;
+      expect(first.fixes.length, source).toBeGreaterThan(0);
+      const after = applyRetiredEdits(source, first.fixes[0]!.edits);
+      const comments = (text: string) => markupCommentContext(text).comments.map(({from, to}) => text.slice(from, to));
+      expect(comments(after)).toEqual(comments(source));
+    }
+  });
+
+  it('refuses structural fixes for all comment positions, including both P1 and P2 probes', () => {
+    for (const source of [
+      '< table /* keep\n note */wide >\n|x\n<$>',
+      '< table wide >\n|x /* keep |blue */|value\n<$>',
+      '< table wide >\n|x\n<$> // keep',
+      'catalyst (\n// keep\nx\n)', 'exotic perk (\nx /* keep */\n)',
+    ]) {
+      const occurrences = findRetiredMarkup(source);
+      expect(occurrences.length, source).toBeGreaterThan(0);
+      for (const occurrence of occurrences) {
+        expect(occurrence.fixes, source).toEqual([]);
+        expect(occurrence.refusalReason).toBeTruthy();
+      }
+      expect(fixAllRetired(source).text).toBe(source);
+    }
+  });
+
+  it('refuses malformed spans and any conversion losing supported styles or visible text', () => {
+    for (const source of ['<blue-x />', '<blue>x', '<blue / >', '<blue /* keep */ />',
+      '< table wide >\n|b Name|value\n<$>', '< table >\n|b Name\n<$>']) {
+      const found = findRetiredMarkup(source);
+      expect(found.length).toBeGreaterThan(0);
+      expect(found.every((x) => x.fixes.length === 0), source).toBe(true);
+      expect(found.every((x) => x.message.includes('Fix by hand'))).toBe(true);
+    }
+  });
+
+  it('uses production condition recognition before comment removal', () => {
+    expect(findRetiredMarkup('catalyst (\nx\n) // end')).toEqual([]);
+    expect(findRetiredMarkup('catalyst (\nx\n)   ')).toEqual([]);
+    for (const name of ['catalyst', 'exotic perk']) {
+      const source = `Before\n${name} (\ntext\n)\nAfter`;
+      expect(findRetiredMarkup(source)[0]!.fixes).toEqual([]);
+      expect(findRetiredMarkup(source)[0]!.refusalReason).toContain('parser');
+    }
+  });
+
+  it('offers only fixes verified to remove retired classes without introducing yellow', () => {
+    const source = 'a <blue Solar Fulmination /> b <green x /> c';
+    expect(fix(source, 0, 'remove-tag')).toBe('a Solar Fulmination b <green x /> c');
+    expect(findRetiredMarkup(source)[0]!.fixes.map((x) => x.id)).toEqual(['remove-tag']);
     expect(fix('<purple/> While this heals', 0, 'remove-marker')).toBe('While this heals');
     expect(fix('Heals fully <purple/>', 0, 'remove-marker')).toBe('Heals fully');
-    expect(fix('a <center/> b', 0, 'remove-marker')).toBe('a  b');
-    expect(fix('<breakSpaces/>x  ', 0, 'remove-marker')).toBe('x  ');
   });
 
-  it('marks block and table fixes as structural and rewrites them exactly', () => {
-    const block = 'before\ncatalyst (\nline one\nline two\n)\nafter';
-    const [found] = findRetiredMarkup(block);
-    expect(found!.fixes.every((candidate) => candidate.structural)).toBe(true);
-    expect(fix(block, 0, 'remove-block')).toBe('before\nafter');
-    expect(fix(block, 0, 'keep-contents')).toBe('before\nline one\nline two\nafter');
-    expect(fix('x\ncatalyst (\ny\n)', 0, 'remove-block')).toBe('x');
-    const table = 'Intro\n< table wide >\n|b Name|c Value\n|Reload| 100\n<$>\nOutro';
-    expect(fix(table, 0, 'rows-to-lines')).toBe('Intro\nName | Value\nReload | 100\nOutro');
-  });
-
-  it('Fix all clears every simple form, leaves structural ones, and is idempotent', () => {
-    for (const text of Object.values(retiredCensus)) {
-      const first = fixAllRetired(text);
-      expect(findRetiredMarkup(first.text)).toEqual([]);
-      expect(first.remaining).toBe(0);
-      expect(fixAllRetired(first.text)).toEqual({ text: first.text, fixed: 0, remaining: 0 });
+  it('Fix all skips refused/structural forms and is idempotent across the real census', () => {
+    for (const source of [...Object.values(retiredCensus), '<blue-x /> <green good />',
+      'catalyst (\nx\n)\n<blue y />']) {
+      const first = fixAllRetired(source);
+      expect(fixAllRetired(first.text)).toEqual({ text: first.text, fixed: 0, remaining: first.remaining });
+      expect(first.remaining).toBe(findRetiredMarkup(first.text).length);
     }
-    expect(fixAllRetired(retiredCensus['2799418574']!).text).toContain(
-      "Solar Fulmination from the Hunter's Journal Artifact doubles",
-    );
-    expect(fixAllRetired('<purple/> <blue/> a <green x />').text).toBe('a x');
-    const mixed = 'catalyst (\nx\n)\n<blue y />';
-    expect(fixAllRetired(mixed)).toEqual({ text: 'catalyst (\nx\n)\ny', fixed: 1, remaining: 1 });
+    const result = fixAllRetired('<blue-x />\n<green good />');
+    expect(result).toEqual({ text: '<blue-x />\ngood', fixed: 1, remaining: 1 });
+  });
+
+  it('records verification cost on the largest real tooltip', () => {
+    const source = Object.values(retiredCensus).sort((a, b) => b.length - a.length)[0]!;
+    const start = performance.now();
+    for (let index = 0; index < 20; index++) findRetiredMarkup(source);
+    console.info(`retired verification: largest census tooltip ${source.length} chars; ${((performance.now() - start) / 20).toFixed(3)} ms/scan (20 scans)`);
   });
 });

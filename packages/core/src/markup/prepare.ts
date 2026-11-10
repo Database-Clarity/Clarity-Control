@@ -20,6 +20,11 @@ export const markupConditions = [
   ['exotic perk', 'Weapon Perk Exotic'],
 ] as const;
 
+/** Shared recognition, including the production pre-comment boundary rules. */
+export function markupConditionMatches(text: string, keyword: string): RegExpMatchArray[] {
+  return [...text.matchAll(new RegExp(`^${keyword} \\([\\s\\S]*?\\n\\)$`, 'gm'))];
+}
+
 const markupCommentPatterns = [/\/\*[^]*\*\/\n?/g, /^ *?\/\/.*$\n?| +\/\/.*$/gm];
 
 export function markupCommentContext(text: string): {
@@ -125,12 +130,15 @@ export function prepareMarkup(
   text: string,
   globals: MarkupGlobals,
   diagnostics: MarkupDiagnostic[],
+  onCondition?: (name: string, block: string) => void,
 ) {
   text = resolveImports(text, globals, diagnostics);
   for (const [keyword, type] of markupConditions) {
-    const pattern = new RegExp(`^${keyword} \\([\\s\\S]*?\\n\\)$`, 'gm');
-    if (pattern.test(text) && globals.type !== type) {
-      text = text.replace(pattern, '');
+    const matches = markupConditionMatches(text, keyword);
+    for (const match of matches) onCondition?.(keyword, match[0]);
+    if (matches.length && globals.type !== type) {
+      for (const match of matches.reverse())
+        text = text.slice(0, match.index) + text.slice(match.index! + match[0].length);
       if (keyword === 'enhanced') text = text.replaceAll('#e', '');
     }
   }
