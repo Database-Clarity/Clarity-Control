@@ -627,8 +627,9 @@ describe('mounted Editor navigation interaction ownership', () => {
   });
 
   describe.each([
+    // Both are anchored popovers now (no phone sheet): neither locks the page's scroll.
     { shape: 'popover', phone: false },
-    { shape: 'sheet', phone: true },
+    { shape: 'phone popover', phone: true },
   ])('$shape', ({ phone }) => {
     beforeEach(() => {
       if (phone) {
@@ -661,7 +662,7 @@ describe('mounted Editor navigation interaction ownership', () => {
 
         await click(opener());
         expect(shellRoot.hasAttribute('inert')).toBe(true);
-        expect(document.body.style.overflow).toBe(phone ? 'hidden' : owner ? 'clip' : '');
+        expect(document.body.style.overflow).toBe(owner ? 'clip' : '');
 
         await escape();
         expect(shellRoot.getAttribute('inert')).toBe(shell ? 'before' : null);

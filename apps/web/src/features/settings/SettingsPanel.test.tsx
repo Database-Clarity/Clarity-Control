@@ -342,13 +342,15 @@ describe('Settings popover', () => {
     expect(popover()).not.toBeNull();
   });
 
-  it('becomes a full-screen sheet with a clear Close button on phones', async () => {
+  it('opens by its opener, the page width less the edge, with a clear Close button on phones', async () => {
     vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('700px') }));
     await render();
     await openSettings();
     const dialog = popover()!;
-    // No anchoring on phones: the stylesheet makes it fill the screen.
-    expect(dialog.getAttribute('style')).toBeNull();
+    // Anchored like every popover: under the opener (jsdom rects are 0), 8px from each side.
+    expect(dialog.style.top).toBe('4px');
+    expect(dialog.style.left).toBe('8px');
+    expect(dialog.style.width).toBe(`${window.innerWidth - 16}px`);
     // The one sheet close: a square ×, named by its label.
     expect(closeButton().textContent).toBe('×');
     expect(closeButton().getAttribute('aria-label')).toBe('Close settings');

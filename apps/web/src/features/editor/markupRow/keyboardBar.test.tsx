@@ -192,13 +192,20 @@ describe('the docked keyboard bar', () => {
     expect(statusButton('Raw')).toBeDefined();
   });
 
-  it('opens All as a bottom sheet when docked, not hanging from the trigger', () => {
+  it('opens All flush above the docked bar, by its trigger', () => {
     mount();
     const all = bar()!.querySelector<HTMLButtonElement>('button[aria-haspopup]')!;
+    const bottom = window.innerHeight;
+    all.getBoundingClientRect = () =>
+      ({ top: bottom - 44, bottom, left: 300, right: 360, width: 60, height: 44 }) as DOMRect;
     act(() => all.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-    const sheet = document.body.querySelector('[role=dialog][aria-label="All markup"]');
+    const sheet = document.body.querySelector<HTMLElement>(
+      '[role=dialog][aria-label="All markup"]',
+    );
     expect(sheet).not.toBeNull();
-    expect(sheet!.hasAttribute('data-sheet-top')).toBe(false);
+    // Held by its bottom edge on the trigger's top (gap 0), never hanging below the screen.
+    expect(sheet!.style.top).toBe('auto');
+    expect(sheet!.style.bottom).toBe('44px');
     act(() => all.dispatchEvent(new MouseEvent('click', { bubbles: true })));
   });
 
@@ -315,16 +322,19 @@ describe('the docked keyboard bar', () => {
     expect(scrolls.mock.calls).toEqual([[0, { y: 'start' }]]);
   });
 
-  it.each([true, false])('keeps the entry top visible when a stepping burst lands (phone=%s)', (isPhone) => {
-    phone = isPhone;
-    const view = mount({ tooltipHash: 1, value: 'entry text' });
-    mount({ tooltipHash: 1, value: 'entry text', stepping: true });
-    act(() => view.dispatch({ selection: { anchor: 5 } }));
-    const scrolls = vi.spyOn(EditorView, 'scrollIntoView');
-    mount({ tooltipHash: 1, value: 'entry text', stepping: false });
-    expect(scrolls.mock.calls).toEqual([[0, { y: isPhone ? 'nearest' : 'start' }]]);
-    expect(view.state.selection.main.head).toBe(0);
-  });
+  it.each([true, false])(
+    'keeps the entry top visible when a stepping burst lands (phone=%s)',
+    (isPhone) => {
+      phone = isPhone;
+      const view = mount({ tooltipHash: 1, value: 'entry text' });
+      mount({ tooltipHash: 1, value: 'entry text', stepping: true });
+      act(() => view.dispatch({ selection: { anchor: 5 } }));
+      const scrolls = vi.spyOn(EditorView, 'scrollIntoView');
+      mount({ tooltipHash: 1, value: 'entry text', stepping: false });
+      expect(scrolls.mock.calls).toEqual([[0, { y: isPhone ? 'nearest' : 'start' }]]);
+      expect(view.state.selection.main.head).toBe(0);
+    },
+  );
 
   it('shows the bar on an empty text', () => {
     mount({ value: '' });

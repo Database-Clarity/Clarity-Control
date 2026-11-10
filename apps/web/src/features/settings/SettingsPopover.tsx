@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigationType } from 'react-router-dom';
 import { useSettingsStore } from '../../stores/settings';
+import { followPlacement, placeAnchored, visibleArea } from '../../ui/anchorPlacement';
 import { scaledPx } from '../../ui/scale';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { useSettingsPanel } from './panel';
@@ -18,9 +19,29 @@ const gap = 6;
 // Keep a visible bottom edge: never run the popover to the viewport edge.
 const edge = 20;
 
-/** Fixed position under (or, in the lower half of the screen, above) the opening button. */
+/**
+ * Fixed position under (or, in the lower half of the screen, above) the opening button. A phone
+ * uses the shared popover placement: the page width less the edge inset, below the button (the
+ * Clarity menu) or above it, clear of the keyboard, at most as tall as that room.
+ */
 function anchor(button: Element | null): CSSProperties {
-  if (!button || window.matchMedia?.(phone).matches) return {};
+  if (!button) return {};
+  if (window.matchMedia?.(phone).matches) {
+    const placed = placeAnchored({
+      trigger: button.getBoundingClientRect(),
+      area: visibleArea(window),
+      width: Infinity,
+      height: Infinity,
+      align: 'start',
+    });
+    return {
+      left: placed.left,
+      width: placed.width,
+      top: placed.top,
+      bottom: placed.bottom,
+      maxHeight: placed.maxHeight,
+    };
+  }
   const rect = button.getBoundingClientRect();
   // The popover is 30rem wide (at most the window less a margin), whatever the interface scale.
   const wide = Math.min(scaledPx(width), window.innerWidth - margin * 2);
@@ -64,12 +85,16 @@ function OpenSettings({ layout }: { layout: React.RefObject<HTMLElement | null> 
     setStyle(place());
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `place` only reads the opener.
   }, [uiScale]);
-  useEffect(() => {
-    const onResize = () => setStyle(place());
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+  // A resize, the keyboard (the visual viewport), or a scroll behind it: place it again.
+  useEffect(
+    () =>
+      followPlacement(
+        () => panel.current,
+        () => setStyle(place()),
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `place` only reads the opener.
-  }, []);
+    [],
+  );
   const close = () => useSettingsPanel.getState().hide();
   // Back/Forward (or a hash change) moves the page behind a modal; close it instead of leaving a
   // stale, click-blocking popover. The /settings redirect itself is a REPLACE and stays open.

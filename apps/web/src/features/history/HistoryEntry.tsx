@@ -18,6 +18,13 @@ import { TooltipDiff } from './TooltipDiff';
 import type { RevisionCache, RevisionDiffSource } from './revisions';
 import popover from '../../ui/Popover.module.scss';
 import styles from './History.module.scss';
+import {
+  applyPlacement,
+  isPhone,
+  naturalHeight,
+  placeAnchored,
+  visibleArea,
+} from '../../ui/anchorPlacement';
 
 const HOVER_DELAY = 120;
 const LEAVE_DELAY = 160;
@@ -272,6 +279,20 @@ function RevisionPopover({
     const place = () => {
       if (!geometry) return;
       const { rect } = geometry;
+      if (isPhone()) {
+        // A phone: by the entry, the page width less the edge inset, below it or above it
+        // (whichever fits), clear of the keyboard; the shared popover placement.
+        applyPlacement(
+          element,
+          placeAnchored({
+            trigger: rect,
+            area: visibleArea(window),
+            width: Infinity,
+            height: naturalHeight(element, element.firstElementChild as HTMLElement | null),
+          }),
+        );
+        return;
+      }
       const edge = 8;
       const width = Math.min(geometry.width, window.innerWidth - edge * 2);
       const beside = rect.right + 6 + width <= window.innerWidth - edge;

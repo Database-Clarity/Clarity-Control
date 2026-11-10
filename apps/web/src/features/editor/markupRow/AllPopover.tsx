@@ -4,6 +4,7 @@ import type { MarkupGlobals } from '@clarity/core';
 import { Popover } from '../../../ui/Popover';
 import { fuzzyScore } from '../suggest/source';
 import type { UsageCorpus } from '../suggest/usage';
+import { stickyChromeBottom } from './dock';
 import { EntryGlyph } from './EntryGlyph';
 import { entryGroups, entryMessage, markupEntries, type MarkupEntry } from './entries';
 import styles from './MarkupRow.module.scss';
@@ -170,7 +171,11 @@ function AllList({
   );
 }
 
-/** "All": every markup option, grouped and filterable, in a popover (a bottom sheet on a phone). */
+/**
+ * "All": every markup option, grouped and filterable, in a popover by its trigger. On the docked bar
+ * it stands flush on the bar and reaches up to the sticky header and tabs at most, so its top edge
+ * sits on a row boundary instead of cutting a line of the text behind it.
+ */
 export function AllPopover({
   view,
   globals,
@@ -182,7 +187,7 @@ export function AllPopover({
   globals: MarkupGlobals;
   usage?: UsageCorpus;
   onResult(message: string): void;
-  /** On the docked bar (bottom of the page) the sheet rises from the bottom, not from the trigger. */
+  /** On the docked bar (bottom of the page): flush on the bar, below the sticky chrome. */
   docked?: boolean;
 }) {
   return (
@@ -195,7 +200,8 @@ export function AllPopover({
         </>
       }
       triggerTitle="Every markup option, grouped, with a filter"
-      sheetFromTrigger={!docked}
+      gap={docked ? 0 : 4}
+      clearTop={docked ? stickyChromeBottom : undefined}
     >
       {(close) => (
         <AllList

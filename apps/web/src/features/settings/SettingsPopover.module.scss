@@ -48,19 +48,11 @@
 }
 
 @include theme.mobile {
-  .popover {
-    inset: 0 !important;
-    width: 100%;
-    max-height: none;
-    height: 100dvh;
-    border: 0;
-    border-radius: 0;
-    box-shadow: none;
-  }
-  // The sheet header: one bar, the title like a page title, the square close on the right edge.
+  // Placed by its opener like every popover (SettingsPopover.tsx `anchor`).
+  // The header: one bar, the title like a page title, the square close on the right edge.
   .header {
-    min-height: calc(var(--bar) + env(safe-area-inset-top, 0px));
-    padding: env(safe-area-inset-top, 0px) var(--page-x) 0;
+    min-height: var(--bar);
+    padding: 0 0.25rem 0 var(--page-x);
     h2 {
       font-size: 1rem;
     }
@@ -71,9 +63,6 @@
       font-size: 1.125rem;
       line-height: 1;
     }
-  }
-  .body {
-    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }
 

@@ -5,17 +5,26 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type CSSProperties,
   type ReactNode,
 } from 'react';
+import {
+  applyPlacement,
+  followPlacement,
+  isPhone,
+  naturalHeight,
+  placeAnchored,
+  visibleArea,
+} from './anchorPlacement';
 import { useWorkspaceShortcutOwner } from './interaction';
 import styles from './Popover.module.scss';
 
 /**
- * A small non-modal surface anchored to its trigger: it floats under the button (right-aligned,
- * kept inside the viewport) and becomes a bottom sheet on a phone. Esc or a press outside closes
- * it and returns focus to the trigger. It is positioned `fixed`, so no pane header or scroller
- * clips it, and it takes no space in the flow (opening it moves nothing).
+ * A small non-modal surface anchored to its trigger on every screen size: it floats under the
+ * button (right-aligned), or above it when the content fits better there, inside the visible area
+ * (on a phone: the page width less the edge inset, clear of the keyboard and the docked bar; see
+ * anchorPlacement.ts). Esc or a press outside closes it and returns focus to the trigger. It is
+ * positioned `fixed`, so no pane header or scroller clips it, and it takes no space in the flow
+ * (opening it moves nothing). It follows its trigger while the page scrolls or the keyboard moves.
  */
 export function Popover({
   label,
@@ -26,7 +35,8 @@ export function Popover({
   triggerLabel,
   flush = false,
   contain = false,
-  sheetFromTrigger = false,
+  gap = 4,
+  clearTop,
 }: {
   /** Names both the trigger's popup and the surface. */
   label: string;
@@ -46,14 +56,15 @@ export function Popover({
    * page behind it), like the shell's sheets.
    */
   contain?: boolean;
+  /** Space between the trigger and the surface (0: flush on a bar). */
+  gap?: number;
   /**
-   * On a phone the sheet reaches up to the trigger's lower edge (the markup bar's All), so its top
-   * never cuts a row of the content behind it.
+   * Phones: the lowest y the surface may reach up to (the sticky header's lower edge), read on each
+   * placement; the surface then never covers that chrome.
    */
-  sheetFromTrigger?: boolean;
+  clearTop?: () => number;
 }) {
   const [open, setOpen] = useState(false);
-  const [style, setStyle] = useState<CSSProperties>();
   const button = useRef<HTMLButtonElement>(null);
   const surface = useRef<HTMLDivElement>(null);
   const id = useId();
@@ -62,20 +73,30 @@ export function Popover({
     setOpen(false);
     if (restoreFocus) button.current?.focus();
   }, []);
+  const clearTopRef = useRef(clearTop);
+  clearTopRef.current = clearTop;
   useLayoutEffect(() => {
-    if (!open || !button.current) return;
-    const rect = button.current.getBoundingClientRect();
-    const edge = 8;
-    const width = Math.min(560, window.innerWidth - edge * 2);
-    const left = Math.min(Math.max(edge, rect.right - width), window.innerWidth - width - edge);
-    setStyle({
-      left,
-      top: rect.bottom + 4,
-      width,
-      maxHeight: Math.max(160, window.innerHeight - rect.bottom - 4 - edge),
-      ...(sheetFromTrigger && { '--sheet-top': `${rect.bottom}px` }),
-    } as CSSProperties);
-  }, [open, sheetFromTrigger]);
+    if (!open) return;
+    const place = () => {
+      const element = surface.current;
+      if (!element || !button.current) return;
+      const phone = isPhone();
+      const area = visibleArea(window, phone ? clearTopRef.current?.() : undefined);
+      const input = {
+        trigger: button.current.getBoundingClientRect(),
+        area,
+        width: phone ? Infinity : 560,
+        gap,
+      };
+      // Below first, at the final width, so the content's height is measured as it will wrap.
+      const below = placeAnchored(input);
+      applyPlacement(element, below);
+      const height = naturalHeight(element, element.firstElementChild as HTMLElement | null);
+      if (height > below.maxHeight) applyPlacement(element, placeAnchored({ ...input, height }));
+    };
+    place();
+    return followPlacement(() => surface.current, place);
+  }, [open, gap]);
   useEffect(() => {
     if (!open) return;
     const outside = (event: PointerEvent) => {
@@ -142,15 +163,7 @@ export function Popover({
         {trigger}
       </button>
       {open && (
-        <div
-          ref={surface}
-          id={id}
-          role="dialog"
-          aria-label={label}
-          className={styles.surface}
-          data-sheet-top={sheetFromTrigger || undefined}
-          style={style}
-        >
+        <div ref={surface} id={id} role="dialog" aria-label={label} className={styles.surface}>
           <div className={flush ? `${styles.body} ${styles.flush}` : styles.body}>
             {typeof children === 'function'
               ? children((restore = true) => close(restore))
