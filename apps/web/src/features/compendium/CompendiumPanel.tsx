@@ -611,8 +611,9 @@ const PaneContents = memo(function PaneContents({
                 ? approvalChanged
                   ? 'Compendium sheet changed since approval.'
                   : 'Matches the approval evidence.'
-                : 'No saved snapshot to compare.'}{' '}
+                : 'No saved snapshot to compare.'}
               <a
+                className={styles.sourceLink}
                 href={matchedWhere?.href}
                 target="_blank"
                 rel="noreferrer"
@@ -690,8 +691,9 @@ const PaneContents = memo(function PaneContents({
                       ? 'Compendium text or styling has changed.'
                       : draft && !base.compendium
                         ? 'Matches the local draft snapshot.'
-                        : 'Matches the saved snapshot.'}{' '}
+                        : 'Matches the saved snapshot.'}
                   <a
+                    className={styles.sourceLink}
                     href={linkedWhere?.href}
                     target="_blank"
                     rel="noreferrer"
