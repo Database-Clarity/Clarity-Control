@@ -1,3 +1,4 @@
+import { removeMarkupComments } from '../markup/prepare.js';
 import { parseLines } from '../markup/lines.js';
 import { describe, expect, it } from 'vitest';
 import { validateText } from './index.js';
@@ -122,6 +123,40 @@ describe('retired markup fixes', () => {
       'a /* keep */ | value',
     );
   });
+
+  it('preserves comments at marker and wrapper boundaries', () => {
+    for (const [text, expected] of [
+      ['<blue/>/* keep */x', '/* keep */x'],
+      ['x/* keep */<blue/>', 'x/* keep */'],
+      ['<blue /* keep */ />', '/* keep */'],
+      ['<blue/* keep */ x />', '/* keep */ x'],
+    ]) {
+      expect(fixAllRetired(text!).text).toBe(expected);
+      const item = findRetiredMarkup(text!)[0]!;
+      expect(applyRetiredEdits(text!, item.fixes[0]!.edits)).toBe(expected);
+    }
+  });
+
+  it.each(['blue', 'green', 'purple', 'center', 'background', 'breakSpaces'])(
+    'matches parser names through comments and nested markers for %s',
+    (name) => {
+      for (const text of [
+        `<${name.slice(0, 2)}/* note */${name.slice(2)} x />`,
+        `<${name} x /* note */\n/>`,
+        `<<green/>${name} x />`,
+        `<<yellow/>${name} x />`,
+        `<${name}Suffix x />`,
+        `// <${name}/>`,
+      ]) {
+        const clean = removeMarkupComments(text);
+        const parsed = JSON.stringify(parseLines(clean, {}));
+        expect(
+          findRetiredMarkup(text).some((item) => item.name === name),
+          text,
+        ).toBe(parsed.includes(`"${name}"`));
+      }
+    },
+  );
 
   it.each(['blue', 'green', 'purple', 'center', 'background', 'breakSpaces'])(
     'matches the real parser for %s markers and wrappers',

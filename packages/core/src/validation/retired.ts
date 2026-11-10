@@ -1,5 +1,9 @@
 import { markupCommentContext } from '../markup/prepare.js';
-import { markupRetiredColors, markupRetiredLineStyles } from '../markup/syntax.js';
+import {
+  markupLineClasses,
+  markupRetiredColors,
+  markupRetiredLineStyles,
+} from '../markup/syntax.js';
 
 /**
  * Retired markup (owner 2026-11-09): the colours blue, green, and purple, the line styles centre,
@@ -46,7 +50,7 @@ const retiredWrappers = [...retiredColours, 'center', 'background', 'breakSpaces
 const retiredMarkers = [...retiredColours, ...markupRetiredLineStyles];
 
 const quick =
-  /<(?:blue|green|purple|center|breakSpaces|background)\b|^(?:catalyst|exotic perk) \(|^< table /m;
+  /(?:blue|green|purple|center|breakSpaces|background)\b|^(?:catalyst|exotic perk) \(|^< table /m;
 /** The converter's tokenizer: a token runs from a `<` to the first `/>` after it, per line. */
 const converterToken = /<.+?\/>/g;
 const marker = new RegExp(`^<(${retiredMarkers.join('|')})\\s*/>$`);
@@ -56,21 +60,6 @@ const conditions = ['catalyst', 'exotic perk'];
 const noun = (name: string) => `<${name} … />`;
 const retired = (token: string, advice: string) =>
   `Retired markup ${token}: no longer supported. ${advice}`;
-
-/** Comments never reach the exporter, so they are blanked (offsets and line breaks stay). */
-function withoutComments(text: string): string {
-  const { comments } = markupCommentContext(text);
-  if (!comments.length) return text;
-  let masked = '';
-  let last = 0;
-  // Block and line comments are collected separately, so they arrive out of order.
-  for (const { from, to } of [...comments].sort((a, b) => a.from - b.from)) {
-    if (from < last) continue;
-    masked += text.slice(last, from) + text.slice(from, to).replace(/[^\n]/g, ' ');
-    last = to;
-  }
-  return masked + text.slice(last);
-}
 
 /** A removed line marker also takes one neighbouring space, so no stray gap is left behind. */
 function markerEdit(line: string, lineFrom: number, from: number, to: number): RetiredEdit {
@@ -228,39 +217,90 @@ function tableOccurrences(text: string, source: string): RetiredOccurrence[] {
   return found;
 }
 
-/** Every retired form in the text, in document order. Fixes are exact edits on this text. */
+/** Every retired form in the text, with edits mapped back to the authored source. */
 export function findRetiredMarkup(source: string): RetiredOccurrence[] {
-  if (!quick.test(source)) return [];
-  const text = withoutComments(source);
-  const found: RetiredOccurrence[] = [
-    ...conditionOccurrences(text, source),
-    ...tableOccurrences(text, source),
-  ];
+  if (!quick.test(source) && !source.includes('/*')) return [];
+  const context = markupCommentContext(source);
+  const { text, offsets } = context;
+  if (!quick.test(text)) return [];
+  const found: RetiredOccurrence[] = [];
+  const mapOccurrence = (item: RetiredOccurrence, positions = offsets) => {
+    const from = positions[item.from]!;
+    const to = positions[item.to - 1]! + 1;
+    const token = source.slice(from, to);
+    const comments = context.comments.filter((comment) => comment.from >= from && comment.to <= to);
+    const preservedComments = comments
+      .map((comment) => source.slice(comment.from, comment.to))
+      .join('');
+    item.fixes = item.fixes.map((fix) => ({
+      ...fix,
+      edits: fix.edits.map((edit) => {
+        let editFrom = positions[edit.from] ?? source.length;
+        let editTo = edit.to ? positions[edit.to - 1]! + 1 : 0;
+        let insert = edit.insert;
+        if (item.kind === 'marker') {
+          // Neighbour removal must inspect actual source characters, never deleted comments.
+          const lineStart = from === 0 || source[from - 1] === '\n';
+          const lineEnd = to === source.length || source[to] === '\n';
+          editFrom = lineEnd && source[from - 1] === ' ' ? from - 1 : from;
+          editTo = lineStart && source[to] === ' ' ? to + 1 : to;
+          insert = preservedComments;
+        } else if (item.kind === 'wrapper') {
+          const compact = positions
+            .slice(item.from, item.to)
+            .map((position) => source[position])
+            .join('');
+          const content = wrapper.exec(compact)?.[2] ?? '';
+          const contentAt = compact.indexOf(content, compact.indexOf(item.name) + item.name.length);
+          const contentFrom = positions[item.from + contentAt] ?? to;
+          const contentTo = content.length
+            ? positions[item.from + contentAt + content.length - 1]! + 1
+            : contentFrom;
+          // Keep every authored comment, including comments splitting the tag name or padding.
+          const before = comments
+            .filter((comment) => comment.to <= contentFrom)
+            .map((comment) => source.slice(comment.from, comment.to))
+            .join('');
+          const after = comments
+            .filter((comment) => comment.from >= contentTo)
+            .map((comment) => source.slice(comment.from, comment.to))
+            .join('');
+          const inner =
+            (before && content ? before + ' ' : before) +
+            source.slice(contentFrom, contentTo) +
+            after;
+          insert = fix.id === 'to-yellow' ? `<yellow ${inner} />` : inner;
+        } else if (fix.id === 'keep-contents' || fix.id === 'rows-to-lines') {
+          const original = source.slice(editFrom, editTo).split('\n');
+          const rows = original.slice(1, -1);
+          insert =
+            fix.id === 'keep-contents' ? rows.join('\n') : rows.map(tableRowToLine).join('\n');
+        }
+        return { from: editFrom, to: editTo, insert };
+      }),
+    }));
+    found.push({ ...item, from, to, source: token });
+  };
+  for (const item of [...conditionOccurrences(text, text), ...tableOccurrences(text, text)])
+    mapOccurrence(item);
   let lineFrom = 0;
   for (const line of text.split('\n')) {
-    const markers = new Set<number>();
-    for (const match of line.matchAll(converterToken)) {
-      const occurrence = tokenOccurrence(
-        match[0],
-        line,
-        lineFrom,
-        lineFrom + match.index,
-        source.slice(lineFrom + match.index, lineFrom + match.index + match[0].length),
-      );
-      if (occurrence) {
-        found.push(occurrence);
-        if (occurrence.kind === 'marker') markers.add(occurrence.from);
+    let clean = line;
+    const positions = offsets.slice(lineFrom, lineFrom + line.length);
+    // The parser removes the first exact marker of each name before tokenizing spans.
+    for (const name of markupLineClasses) {
+      const token = `<${name}/>`;
+      const index = clean.indexOf(token);
+      if (index !== -1) {
+        if (retiredMarkers.includes(name))
+          mapOccurrence(tokenOccurrence(token, clean, 0, index)!, positions);
+        clean = clean.slice(0, index) + clean.slice(index + token.length);
+        positions.splice(index, token.length);
       }
     }
-    // Line classes are recognised anywhere, independently of inline token boundaries.
-    for (const name of retiredMarkers) {
-      const token = `<${name}/>`;
-      let index = line.indexOf(token);
-      while (index !== -1) {
-        const from = lineFrom + index;
-        if (!markers.has(from)) found.push(tokenOccurrence(token, line, lineFrom, from)!);
-        index = line.indexOf(token, index + token.length);
-      }
+    for (const match of clean.matchAll(converterToken)) {
+      const item = tokenOccurrence(match[0], clean, 0, match.index);
+      if (item) mapOccurrence(item, positions);
     }
     lineFrom += line.length + 1;
   }
