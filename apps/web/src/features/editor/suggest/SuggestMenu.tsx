@@ -1,18 +1,10 @@
-import {
-  Fragment,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-} from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import type { EditorView } from '@codemirror/view';
 import { parseMarkup, type Lang, type MarkupGlobals } from '@clarity/core';
 import { MarkupSnippet } from '../../preview/TooltipPreview';
 import { acceptSuggestion, closeSuggest, moveSuggest, type SuggestSnapshot } from './state';
-import type { SuggestContext } from './source';
+import type { SuggestContext, SuggestItem } from './source';
 import type { UsageCorpus } from './usage';
 import styles from './SuggestMenu.module.scss';
 
@@ -58,6 +50,54 @@ function place(view: EditorView, context: SuggestContext, width: number): Placem
   };
 }
 
+/**
+ * One line of the list. Every line is one of two heights (an option, or a heading), so a line's
+ * place is two counts: the options and the headings above it. The stylesheet turns the counts
+ * into a position, and only the lines on screen are drawn.
+ */
+interface Row {
+  kind: 'heading' | 'divider' | 'option';
+  text: string;
+  /** The option's index in the snapshot. */
+  index: number;
+  options: number;
+  headings: number;
+}
+
+function listRows(items: readonly SuggestItem[]): { rows: Row[]; rowOf: number[] } {
+  const rows: Row[] = [];
+  const rowOf: number[] = [];
+  let options = 0;
+  let headings = 0;
+  const heading = (kind: 'heading' | 'divider', text: string) => {
+    rows.push({ kind, text, index: -1, options, headings });
+    headings += 1;
+  };
+  for (const [index, item] of items.entries()) {
+    const before = items[index - 1];
+    // The options this spot calls for sit above a divider; everything else follows it.
+    const leavesPinned = before?.pinned && !item.pinned;
+    if (leavesPinned) heading('divider', 'Other options');
+    if (!before || leavesPinned || before.category !== item.category)
+      heading('heading', item.category);
+    rowOf.push(rows.length);
+    rows.push({ kind: 'option', text: item.label, index, options, headings });
+    options += 1;
+  }
+  return { rows, rowOf };
+}
+
+/** The two line heights in pixels; `all` where nothing can be measured (no layout): draw every line. */
+type Metrics = { option: number; heading: number } | 'all' | null;
+/** What the last menu measured, so the next one draws the right lines the first time. */
+let lastMetrics: Metrics = null;
+/** Lines drawn before any height is known: more than the tallest menu can show. */
+const unmeasured = 40;
+const overscan = 4;
+
+const rowTop = (row: Row, metrics: { option: number; heading: number }) =>
+  row.options * metrics.option + row.headings * metrics.heading;
+
 export function SuggestMenu({
   snapshot,
   view,
@@ -72,7 +112,13 @@ export function SuggestMenu({
   usage?: UsageCorpus;
 }) {
   const surface = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLDivElement>(null);
   const [placement, setPlacement] = useState<Placement | null>(null);
+  const [metrics, setMetrics] = useState<Metrics>(lastMetrics);
+  const [range, setRange] = useState({ start: 0, end: unmeasured });
+  /** The pointer chose the option: it is under the pointer already, so the list must not move. */
+  const byPointer = useRef(false);
+  const { rows, rowOf } = useMemo(() => listRows(snapshot.items), [snapshot.items]);
   const selected = snapshot.items[snapshot.index];
   const { context } = snapshot;
   const itemCount = snapshot.items.length;
@@ -94,19 +140,88 @@ export function SuggestMenu({
     };
   }, [view, context, itemCount]);
 
-  useEffect(() => {
-    surface.current
-      ?.querySelector<HTMLElement>(`#editor-suggest-option-${snapshot.index}`)
-      ?.scrollIntoView?.({ block: 'nearest' });
-  }, [snapshot.index, snapshot.items]);
+  /** Which lines the scrolled list shows right now. */
+  const showVisible = useCallback(() => {
+    const node = list.current;
+    if (!node || !metrics || metrics === 'all') return;
+    const top = node.scrollTop;
+    const bottom = top + node.clientHeight;
+    let start = rows.findIndex((row) => rowTop(row, metrics) + metrics.option > top);
+    if (start < 0) start = Math.max(0, rows.length - 1);
+    let end = rows.findIndex((row, at) => at >= start && rowTop(row, metrics) >= bottom);
+    if (end < 0) end = rows.length;
+    start = Math.max(0, start - overscan);
+    end = Math.min(rows.length, end + overscan);
+    setRange((now) => (now.start === start && now.end === end ? now : { start, end }));
+  }, [rows, metrics]);
 
+  const shown = placement !== null;
+  useLayoutEffect(() => {
+    const node = list.current;
+    if (!node) return;
+    // The real line heights: they follow the UI scale and the touch layout, and may be fractions
+    // of a pixel. No layout at all (nothing has a height): every line is drawn.
+    const height = (selector: string) => {
+      const found = node.querySelector<HTMLElement>(selector);
+      return found?.offsetHeight ? found.getBoundingClientRect().height : 0;
+    };
+    const option = height('[role=option]');
+    const heading = height('[data-suggest-heading]');
+    setMetrics((now) => {
+      const known = now && now !== 'all' ? now : null;
+      // Scrolled deep into one category no heading is drawn: its last known height stands.
+      const next: Metrics = option
+        ? { option, heading: heading || known?.heading || option }
+        : 'all';
+      lastMetrics =
+        next !== 'all' && known && known.option === next.option && known.heading === next.heading
+          ? known
+          : next === 'all' && now === 'all'
+            ? now
+            : next;
+      return lastMetrics;
+    });
+  }, [shown, rows]);
+
+  useLayoutEffect(() => {
+    const node = list.current;
+    const row = rows[rowOf[snapshot.index] ?? -1];
+    if (!node || !row) return;
+    const pointed = byPointer.current;
+    byPointer.current = false;
+    if (!metrics) return;
+    if (metrics === 'all') {
+      node
+        .querySelector<HTMLElement>(`#editor-suggest-option-${snapshot.index}`)
+        ?.scrollIntoView?.({ block: 'nearest' });
+      return;
+    }
+    if (!pointed) {
+      // Keep the option's heading (and the divider above it) in view with it.
+      let top = rowTop(row, metrics);
+      for (let at = rowOf[snapshot.index]! - 1; at >= 0 && rows[at]!.kind !== 'option'; at -= 1)
+        top -= metrics.heading;
+      const bottom = rowTop(row, metrics) + metrics.option;
+      if (top < node.scrollTop) node.scrollTop = top;
+      else if (bottom > node.scrollTop + node.clientHeight)
+        node.scrollTop = bottom - node.clientHeight;
+    }
+    showVisible();
+  }, [snapshot.index, rows, rowOf, metrics, shown, showVisible]);
+
+  // An option that cannot go here still shows what it is: its own markup, rendered by itself.
+  const previewSource = selected?.unavailable
+    ? selected.preview === null
+      ? null
+      : selected.insert
+    : selected?.preview;
   const previewText = useMemo(() => {
-    if (!selected?.preview) return null;
+    if (!previewSource) return null;
     const text = snapshot.context.definitions
-      ? `${snapshot.context.definitions}\n${selected.preview}`
-      : selected.preview;
+      ? `${snapshot.context.definitions}\n${previewSource}`
+      : previewSource;
     return parses(text, globals) ? text : null;
-  }, [selected, snapshot.context.definitions, globals]);
+  }, [previewSource, snapshot.context.definitions, globals]);
   const used = useMemo(
     () => (selected?.usage && usage ? usage.count(selected.usage) : undefined),
     [selected, usage],
@@ -118,7 +233,14 @@ export function SuggestMenu({
     '--menu-top': `${placement.top}px`,
     '--menu-max': `${placement.maxHeight}px`,
   } as CSSProperties;
-  let lastCategory = '';
+  const last = rows[rows.length - 1]!;
+  const drawn =
+    metrics === 'all'
+      ? rows
+      : rows.filter(
+          (row, at) => (at >= range.start && at < range.end) || row.index === snapshot.index,
+        );
+  const note = snapshot.message ?? selected.unavailable;
   return createPortal(
     <div
       ref={surface}
@@ -129,36 +251,60 @@ export function SuggestMenu({
       onMouseDown={(event) => event.preventDefault()}
     >
       <div
+        ref={list}
         className={styles.list}
         role="listbox"
         id="editor-suggest-list"
         aria-label="Markup suggestions"
+        onScroll={showVisible}
       >
-        {snapshot.items.map((item, index) => {
-          const header = item.category !== lastCategory;
-          lastCategory = item.category;
-          return (
-            <Fragment key={item.id}>
-              {header && (
-                <div className={styles.category} role="presentation">
-                  {item.category}
+        <div
+          className={styles.rows}
+          role="none"
+          style={{ '--options': last.options + 1, '--headings': last.headings } as CSSProperties}
+        >
+          {drawn.map((row) => {
+            const at = { '--options': row.options, '--headings': row.headings } as CSSProperties;
+            if (row.kind !== 'option')
+              return (
+                <div
+                  key={`${row.kind}:${row.options}`}
+                  className={`${styles.category} ${row.kind === 'divider' ? styles.divider : ''}`}
+                  style={at}
+                  role="presentation"
+                  data-suggest-heading={row.kind}
+                >
+                  {row.text}
                 </div>
-              )}
+              );
+            const item = snapshot.items[row.index]!;
+            return (
               <div
-                id={`editor-suggest-option-${index}`}
+                key={item.id}
+                id={`editor-suggest-option-${row.index}`}
                 role="option"
-                aria-selected={index === snapshot.index}
+                aria-selected={row.index === snapshot.index}
+                aria-disabled={item.unavailable ? true : undefined}
+                aria-setsize={snapshot.items.length}
+                aria-posinset={row.index + 1}
                 className={styles.option}
+                style={at}
                 data-category={item.category}
-                onMouseMove={() => index !== snapshot.index && moveSuggest(view, index, true)}
-                onClick={() => acceptSuggestion(view, index)}
+                data-pinned={item.pinned ? '' : undefined}
+                title={item.unavailable}
+                onMouseMove={() => {
+                  if (row.index === snapshot.index) return;
+                  byPointer.current = true;
+                  moveSuggest(view, row.index, true);
+                }}
+                onClick={() => acceptSuggestion(view, row.index)}
               >
                 <span className={styles.label}>{item.label}</span>
                 {item.hint && <span className={styles.hint}>{item.hint}</span>}
               </div>
-            </Fragment>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
       <div className={styles.detail} data-suggest-detail>
         <div className={styles.head}>
@@ -169,9 +315,11 @@ export function SuggestMenu({
             Close
           </button>
         </div>
-        <pre className={styles.markup} lang={undefined}>
-          {selected.insert}
-        </pre>
+        {selected.insert && (
+          <pre className={styles.markup} lang={undefined}>
+            {selected.insert}
+          </pre>
+        )}
         {previewText && (
           <div className={styles.rendered} aria-label="Preview">
             <MarkupSnippet text={previewText} lang={lang} globals={globals} />
@@ -185,9 +333,14 @@ export function SuggestMenu({
               : `Used in ${new Intl.NumberFormat().format(used)} ${used === 1 ? 'tooltip' : 'tooltips'}`}
           </p>
         )}
-        {snapshot.message && (
-          <p className={styles.note} role="alert">
-            {snapshot.message}
+        {note && (
+          // Announced once Enter was refused; before that it is the reason the option is greyed.
+          <p
+            className={styles.note}
+            role={snapshot.message ? 'alert' : undefined}
+            data-suggest-note
+          >
+            {note}
           </p>
         )}
         <p className={styles.keys}>↑↓ choose · Enter or Tab inserts · Esc closes</p>

@@ -293,21 +293,50 @@ export function insertionRejection(
   state: EditorState,
   range: { from: number; to: number },
   globals: MarkupGlobals,
-  options: { typed?: boolean; link?: boolean; lineStyle?: string } = {},
+  options: InsertionOptions = {},
 ): Rejection | null {
-  const probe =
-    options.typed && range.from !== range.to
-      ? state.update({ changes: { from: range.from, to: range.to } }).state
-      : state;
-  const analysis = analyse(probe, globals);
-  if (!analysis) return 'expansion';
-  const to = options.typed ? range.from : range.to;
-  if (options.link && analysis.preparedTables.some((table) => intersects(range.from, to, table)))
-    return 'table-link';
-  const selected = options.typed ? '' : probe.sliceDoc(range.from, to);
-  if (analysis.tokens.some((token) => intersects(range.from, to, token)) || selected.includes('/>'))
-    return 'context';
-  return options.lineStyle ? lineStyleRejection(analysis, [range.from], options.lineStyle) : null;
+  return insertionChecker(state, globals)(range, options);
+}
+
+interface InsertionOptions {
+  typed?: boolean;
+  link?: boolean;
+  lineStyle?: string;
+}
+
+/**
+ * `insertionRejection` for many options at one document state: the document is analysed once per
+ * distinct text it is judged against, not once per option.
+ */
+export function insertionChecker(
+  state: EditorState,
+  globals: MarkupGlobals,
+): (range: { from: number; to: number }, options?: InsertionOptions) => Rejection | null {
+  const analysed = new Map<string, { probe: EditorState; analysis: ReturnType<typeof analyse> }>();
+  return (range, options = {}) => {
+    const removes = options.typed && range.from !== range.to;
+    const key = removes ? `${range.from}:${range.to}` : '';
+    let entry = analysed.get(key);
+    if (!entry) {
+      const probe = removes
+        ? state.update({ changes: { from: range.from, to: range.to } }).state
+        : state;
+      entry = { probe, analysis: analyse(probe, globals) };
+      analysed.set(key, entry);
+    }
+    const { probe, analysis } = entry;
+    if (!analysis) return 'expansion';
+    const to = options.typed ? range.from : range.to;
+    if (options.link && analysis.preparedTables.some((table) => intersects(range.from, to, table)))
+      return 'table-link';
+    const selected = options.typed ? '' : probe.sliceDoc(range.from, to);
+    if (
+      analysis.tokens.some((token) => intersects(range.from, to, token)) ||
+      selected.includes('/>')
+    )
+      return 'context';
+    return options.lineStyle ? lineStyleRejection(analysis, [range.from], options.lineStyle) : null;
+  };
 }
 
 export const insertionMessages: Record<Rejection, string> = {

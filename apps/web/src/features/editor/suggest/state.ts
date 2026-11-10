@@ -14,7 +14,9 @@ import type { MarkupGlobals } from '@clarity/core';
 import { insertionMessages, insertionRejection, type Rejection } from '../markupInsertion';
 import { recentSuggestions, rememberSuggestion } from './recent';
 import {
+  caretContext,
   nextCategoryIndex,
+  requestItems,
   suggestContext,
   suggestItems,
   type SuggestContext,
@@ -57,7 +59,7 @@ function derive(
   previous: SuggestSnapshot | null,
 ): SuggestSnapshot | null {
   if (state.readOnly) return null;
-  const context = suggestContext(state, explicit);
+  let context = suggestContext(state, explicit);
   if (!context) return null;
   // A menu opened on a bare word is about that word: once the caret is in another one it is done.
   if (
@@ -66,12 +68,27 @@ function derive(
     context.from !== previous.context.from
   )
     return null;
-  const items = suggestItems(context, state, state.facet(suggestHost).globals, recentSuggestions());
+  const globals = state.facet(suggestHost).globals;
+  // On request the menu lists every option; the one that opens while typing only what fits.
+  const list = explicit ? requestItems : suggestItems;
+  let items = list(context, state, globals, recentSuggestions());
+  if (!items.length && explicit && !previous && context.query) {
+    // Asked for beside a word no option matches: the whole list, going in at the caret.
+    context = caretContext(context, state);
+    items = list(context, state, globals, recentSuggestions());
+  }
   if (!items.length) return null;
   const kept = previous
     ? items.findIndex((item) => item.id === previous.items[previous.index]?.id)
     : -1;
-  return { context, items, index: kept < 0 ? 0 : kept, explicit, message: null };
+  // Nothing pinned: start on the first option that can go here rather than on a greyed one.
+  const first = items[0]?.pinned
+    ? 0
+    : Math.max(
+        0,
+        items.findIndex((item) => !item.unavailable),
+      );
+  return { context, items, index: kept < 0 ? first : kept, explicit, message: null };
 }
 
 /** True when this transaction just typed one of the characters that opens the menu. */
@@ -137,7 +154,7 @@ export function moveSuggest(view: EditorView, delta: number, absolute = false): 
   view.dispatch({ effects: moveEffect.of(absolute ? delta : snapshot.index + delta) });
 }
 
-export type AcceptResult = 'inserted' | 'none' | Rejection;
+export type AcceptResult = 'inserted' | 'none' | 'unavailable' | Rejection;
 
 /** What an insertion needs to know about the selection it happens beside. */
 export interface InsertionTarget {
@@ -193,6 +210,11 @@ export function acceptSuggestion(view: EditorView, index?: number): AcceptResult
   const snapshot = suggestState(view.state);
   const item = snapshot?.items[index ?? snapshot.index];
   if (!snapshot || !item) return 'none';
+  if (item.unavailable) {
+    // Listed, but it has nowhere to go here: the text stays as it is and the menu says why.
+    view.dispatch({ effects: messageEffect.of(item.unavailable) });
+    return 'unavailable';
+  }
   const keepsSelection = snapshot.context.kind === 'selection' && item.from === item.to;
   const rejection = insertItem(view, item, {
     typed: snapshot.context.kind !== 'selection' || item.from === item.to,
@@ -222,7 +244,12 @@ export const suggestConfiguration = (host: SuggestHost): Extension => suggestHos
  */
 function accept(view: EditorView, snapshot: SuggestSnapshot): boolean {
   const item = snapshot.items[snapshot.index];
-  if (item && !item.stops.length && item.insert === view.state.sliceDoc(item.from, item.to)) {
+  if (
+    item &&
+    !item.unavailable &&
+    !item.stops.length &&
+    item.insert === view.state.sliceDoc(item.from, item.to)
+  ) {
     closeSuggest(view);
     return false;
   }

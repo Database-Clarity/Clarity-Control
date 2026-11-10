@@ -8,13 +8,16 @@ import {
   markupSnippets,
   markupSymbols,
   markupTags,
+  markupTransforms,
   type ExpandedTemplate,
   type MarkupGlobals,
   type Snippet,
 } from '@clarity/core';
+import { insertionChecker, type Rejection } from '../markupInsertion';
 import { locateBlocks, locateVariables } from '../references';
 
-export type SuggestCategory = 'Transforms' | 'Snippets' | 'Tags' | 'Symbols' | 'Variables' | 'Globals';
+export type SuggestCategory =
+  'Transforms' | 'Snippets' | 'Tags' | 'Symbols' | 'Variables' | 'Globals';
 
 export type ContextKind =
   'selection' | 'tag' | 'variable' | 'title-name' | 'import-source' | 'import-name' | 'word';
@@ -62,7 +65,22 @@ export interface SuggestItem {
   lineStyle?: string;
   /** Fuzzy haystack beyond the label. */
   keys: string;
+  /** In the on-request menu: one of the options this spot calls for, listed above the rest. */
+  pinned?: boolean;
+  /** In the on-request menu: why this option cannot go here. It stays listed; Enter leaves the text alone. */
+  unavailable?: string;
 }
+
+/** The short reason an option shows when it cannot go at the caret. */
+export const unavailableReasons = {
+  context: 'Cannot go inside this markup.',
+  expansion: 'An import or variable here may change the markup.',
+  'table-link': 'Links cannot go in table cells.',
+  'line-style': 'This line already has that style.',
+  line: 'Needs an empty line.',
+  noSelection: 'Select the text to transform first.',
+  noFit: 'Does not fit the selected text.',
+} as const satisfies Record<Rejection | 'line' | 'noSelection' | 'noFit', string>;
 
 const triggers = {
   variable: /#[a-zA-Z0-9]*$/,
@@ -176,6 +194,21 @@ export function suggestItems(
   globals: MarkupGlobals,
   recent: readonly string[] = [],
 ): SuggestItem[] {
+  return rank(build(context, state, globals, false), context, recent);
+}
+
+/**
+ * The options at a caret. Normally only what the context calls for; with `every`, the whole
+ * registry plus every variable and title, whatever the context, in a fixed order. An option that
+ * has nowhere to go here (a declaration in the middle of a line, a transform that does not fit) is
+ * then still listed, marked unavailable.
+ */
+function build(
+  context: SuggestContext,
+  state: EditorState,
+  globals: MarkupGlobals,
+  every: boolean,
+): SuggestItem[] {
   const text = state.doc.toString();
   const items: SuggestItem[] = [];
   const previewOf = (from: number, to: number, insert: string) =>
@@ -229,9 +262,11 @@ export function suggestItems(
   const titleNames = Object.keys(titles);
 
   const addSnippet = (snippet: Snippet, category: SuggestCategory) => {
-    if (snippet.block && (!context.lineIsFree || context.kind === 'selection')) return;
-    const expanded = expandSnippet(snippet, context.selection);
-    if (context.kind === 'selection' && !snippet.wraps && !snippet.fromSelection) return;
+    // A multi-line declaration needs a line of its own.
+    const noLine = snippet.block && (!context.lineIsFree || context.kind === 'selection');
+    if (noLine && !every) return;
+    const expanded = expandSnippet(snippet, noLine ? '' : context.selection);
+    if (!every && context.kind === 'selection' && !snippet.wraps && !snippet.fromSelection) return;
     push({
       id: `${category === 'Tags' ? '' : 'snippet:'}${snippet.id}`,
       category,
@@ -239,30 +274,46 @@ export function suggestItems(
       about: snippet.about,
       insert: expanded.text,
       stops: expanded.stops,
-      preview: snippet.group === 'Blocks' ? null : undefined,
+      preview: snippet.group === 'Blocks' || noLine ? null : undefined,
+      ...(noLine ? { unavailable: unavailableReasons.line } : {}),
       usage: snippet.usage,
       link: snippet.id === 'link-ref' || snippet.id === 'tag:link',
       keys: snippet.keywords,
     });
   };
 
-  if (context.kind === 'selection') {
-    for (const { transform, output } of applicableTransforms(context.selection, {
-      titles: titleNames,
-    })) {
+  if (context.kind === 'selection' || every) {
+    const outputs = new Map(
+      applicableTransforms(context.selection, { titles: titleNames }).map((result) => [
+        result.transform.id,
+        result.output,
+      ]),
+    );
+    for (const transform of markupTransforms) {
+      const output = outputs.get(transform.id);
+      if (output === undefined && !every) continue;
       push({
         id: `transform:${transform.id}`,
         category: 'Transforms',
         label: transform.label,
         about: transform.about,
-        insert: output,
+        insert: output ?? '',
+        ...(output === undefined
+          ? {
+              preview: null,
+              unavailable:
+                context.kind === 'selection'
+                  ? unavailableReasons.noFit
+                  : unavailableReasons.noSelection,
+            }
+          : {}),
         usage: transform.usage,
         keys: transform.label,
       });
     }
   }
 
-  if (context.kind === 'variable') {
+  if (context.kind === 'variable' && !every) {
     for (const [name, value] of Object.entries(variables)) {
       variableItem(name, value);
     }
@@ -272,7 +323,7 @@ export function suggestItems(
     );
   }
 
-  if (context.kind === 'title-name') {
+  if (context.kind === 'title-name' && !every) {
     for (const [name, body] of Object.entries(titles)) {
       const before = context.lineText.slice(0, context.from - context.lineFrom);
       push({
@@ -290,7 +341,7 @@ export function suggestItems(
     }
   }
 
-  if (context.kind === 'import-source') {
+  if (context.kind === 'import-source' && !every) {
     const sources = new Set(Object.keys(globals.imports ?? {}));
     if (globals.imports?.['1']) sources.add('global');
     for (const name of sources) {
@@ -306,7 +357,7 @@ export function suggestItems(
     }
   }
 
-  if (context.kind === 'import-name') {
+  if (context.kind === 'import-name' && !every) {
     const names = new Set([
       'main',
       ...Object.values(globals.imports ?? {}).flatMap((source) =>
@@ -326,7 +377,7 @@ export function suggestItems(
     }
   }
 
-  if (context.kind === 'selection' || context.kind === 'tag' || context.kind === 'word') {
+  if (every || context.kind === 'selection' || context.kind === 'tag' || context.kind === 'word') {
     const insertAtStart = context.kind === 'selection';
     for (const symbol of markupSymbols) {
       const tag = `<${symbol.name}/>`;
@@ -345,16 +396,17 @@ export function suggestItems(
     }
     for (const tag of markupTags) addSnippet(snippetOf(tag), 'Tags');
     for (const snippet of markupSnippets) {
-      if (snippet.id === 'enhanced-formula') continue;
+      if (snippet.id === 'enhanced-formula' && !every) continue;
       // The Tags category carries the single tags (colours, PvE, PvP).
       if (snippet.group === 'Format' || snippet.id === 'pve' || snippet.id === 'pvp') continue;
       addSnippet(snippet, 'Snippets');
     }
-    if (context.kind !== 'selection') {
+    if (context.kind !== 'selection' || every) {
       // A title reference for each known title whose name matches what was typed.
-      if (query) {
+      if (query || every) {
         for (const name of titleNames) {
-          const expanded = expandTemplate(`<title {{1:Text}} [${name}] />`);
+          // A selection becomes the text that carries the reference.
+          const expanded = expandTemplate(`<title {{1:Text}} [${name}] />`, context.selection);
           push({
             id: `ref:${name}`,
             category: 'Globals',
@@ -368,13 +420,82 @@ export function suggestItems(
         }
       }
       for (const [name, value] of Object.entries(variables)) {
-        if (!query) break;
+        if (!query && !every) break;
         variableItem(name, value);
       }
     }
   }
 
-  return rank(items, context, recent);
+  return items;
+}
+
+/** The fixed order of everything below the pinned options: the same every time, so it can be learned. */
+const everyOrder: readonly SuggestCategory[] = [
+  'Transforms',
+  'Snippets',
+  'Tags',
+  'Symbols',
+  'Variables',
+  'Globals',
+];
+
+/**
+ * The on-request menu (Ctrl+Space, the touch Suggest control): every option there is. What the
+ * context calls for comes first, exactly as `suggestItems` orders it (so Enter does what it always
+ * did); everything else follows by category. A typed query filters both parts. An option the
+ * insertion rules decline at this caret stays listed, marked with the reason.
+ */
+export function requestItems(
+  context: SuggestContext,
+  state: EditorState,
+  globals: MarkupGlobals,
+  recent: readonly string[] = [],
+): SuggestItem[] {
+  const pinned = suggestItems(context, state, globals, recent);
+  const taken = new Set(pinned.map((item) => item.id));
+  const others = build(context, state, globals, true).filter(
+    (item) => !taken.has(item.id) && (!context.query || matchScore(item, context.query) > 0),
+  );
+  const rest = everyOrder.flatMap((category) =>
+    others.filter((item) => item.category === category),
+  );
+  const check = insertionChecker(state, globals);
+  const selection = context.kind === 'selection';
+  const judged = (item: SuggestItem, isPinned: boolean): SuggestItem => {
+    const marked = isPinned ? { ...item, pinned: true } : item;
+    // A reference to something already defined is not held to the markup-safety rules.
+    if (marked.unavailable || marked.reference) return marked;
+    const rejection = check(
+      { from: item.from, to: item.to },
+      { typed: !selection || item.from === item.to, link: item.link, lineStyle: item.lineStyle },
+    );
+    return rejection ? { ...marked, unavailable: unavailableReasons[rejection] } : marked;
+  };
+  return [...pinned.map((item) => judged(item, true)), ...rest.map((item) => judged(item, false))];
+}
+
+/**
+ * The context of a menu opened on request beside text that matches no option: nothing is replaced
+ * and nothing filters, so the whole list shows and an option goes in at the caret.
+ */
+export function caretContext(context: SuggestContext, state: EditorState): SuggestContext {
+  const head = state.selection.main.head;
+  return {
+    ...context,
+    kind: 'word',
+    from: head,
+    to: head,
+    query: '',
+    lineIsFree: state.doc.lineAt(head).text.trim() === '',
+  };
+}
+
+/** How well an option matches what was typed; zero or less is no match. */
+function matchScore(item: SuggestItem, query: string): number {
+  return Math.max(
+    fuzzyScore(item.label.replace(/[<>/]/g, ''), query) ?? -1,
+    (fuzzyScore(item.keys, query) ?? 0) - 15,
+  );
 }
 
 const defaultOrder: Record<ContextKind, SuggestCategory[]> = {
@@ -396,12 +517,7 @@ function rank(
 ): SuggestItem[] {
   const order = defaultOrder[context.kind];
   const scored = items.flatMap((item, index) => {
-    const score = context.query
-      ? Math.max(
-          fuzzyScore(item.label.replace(/[<>/]/g, ''), context.query) ?? -1,
-          (fuzzyScore(item.keys, context.query) ?? 0) - 15,
-        )
-      : 0;
+    const score = context.query ? matchScore(item, context.query) : 0;
     if (context.query && score <= 0) return [];
     const recency = recent.indexOf(item.id);
     return [{ item, index, score, recency: recency < 0 ? 99 : recency }];
@@ -427,9 +543,16 @@ function rank(
   return groups.flatMap((group) => group.entries.map((entry) => entry.item));
 }
 
-/** The index of the first option of the next category, wrapping; used by Ctrl+Space when open. */
+/**
+ * The index of the first option of the next category, wrapping; used by Ctrl+Space when open. The
+ * pinned options and the rest are separate groups even where a category continues across them.
+ */
 export function nextCategoryIndex(items: readonly SuggestItem[], current: number): number {
-  const category = items[current]?.category;
-  const next = items.findIndex((item, index) => index > current && item.category !== category);
+  const here = items[current];
+  const next = items.findIndex(
+    (item, index) =>
+      index > current &&
+      (item.category !== here?.category || Boolean(item.pinned) !== Boolean(here?.pinned)),
+  );
   return next < 0 ? 0 : next;
 }
