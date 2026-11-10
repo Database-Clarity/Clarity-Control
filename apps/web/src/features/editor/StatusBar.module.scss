@@ -42,6 +42,20 @@
       display: none;
     }
   }
+  // Narrowest (a phone above about 105% interface scale): Changes becomes its glyph, the retired
+  // count keeps only its warning sign, and the items tighten, so the Changes item never pushes
+  // another one out of the bar. Each keeps its full name for assistive technology.
+  @container (max-width: 21rem) {
+    .roomy {
+      display: none;
+    }
+    .tiny {
+      display: inline;
+    }
+    .item {
+      padding: 0 0.125rem;
+    }
+  }
 
   > * {
     flex: none;
@@ -81,12 +95,21 @@
     flex: none;
   }
 
+  // A line's first item cannot wrap, so a box narrower than one hint would show that hint cut
+  // at the left. An empty first item takes that place: every real hint can wrap out whole.
+  &::before {
+    flex: none;
+    width: 0;
+    content: '';
+  }
+
   @include theme.mobile-or-coarse {
     display: none;
   }
 }
 
-.short {
+.short,
+.tiny {
   display: none;
 }
 
@@ -131,6 +154,15 @@
   &[aria-pressed='true'] {
     color: var(--text);
     background: var(--sel);
+  }
+
+  // Nothing to open (no unsaved change): the item keeps its place and reads as unavailable.
+  // Unavailable (Changes with nothing unsaved): the shared dimming, in the item's own colour, so
+  // it is fainter than its neighbours in both themes; it keeps its place and never lights up.
+  &:disabled,
+  &:disabled:hover {
+    background: transparent;
+    border-color: transparent;
   }
 
   // Narrow editors drop the key hint before anything else.
@@ -242,6 +274,54 @@
 
 .overlayBody {
   min-width: 0;
+}
+
+// A panel with a caption (the Changes view): the caption row and Close stay put, and only the
+// content under them scrolls, so a long text never scrolls its own Close out of reach.
+.overlay[data-headed] {
+  display: flex;
+  flex-direction: column;
+  // Also never taller than what is visible between the page header and the bar, less a phone's
+  // tab strip and three lines of text: with a phone keyboard up, the caption and Close stay on
+  // screen and the line being typed stays visible above the panel. --visible-h is the visual
+  // viewport's height (Overlay sets it); it is the window height elsewhere.
+  max-height: min(
+    60%,
+    20rem,
+    calc(var(--visible-h, 100dvh) - var(--header-h, 3rem) - max(44px, 2.75rem) - 7.25rem)
+  );
+  padding: 0;
+  overflow: hidden;
+
+  .overlayHead {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 1.75rem;
+    padding: 0 0.25rem 0 0.75rem;
+    color: var(--text2);
+    border-bottom: 1px solid var(--hair);
+  }
+
+  .overlayTitle {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .close {
+    position: static;
+    flex: none;
+  }
+
+  .overlayBody {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+  }
 }
 
 .lead {

@@ -452,6 +452,15 @@ function TooltipWorkspace({
       onOpenTooltip={openDefinition}
       markupRow={markupRow.open}
       conflictSource={conflictSourceOf(variant)}
+      workingDiff={
+        readOnly
+          ? undefined
+          : {
+              saved: drafts[variant]?.base ?? base,
+              current: drafts[variant]?.next ?? base,
+              item: archivedItemFor(variant, data),
+            }
+      }
       highlightLine={requestedHash === hash && variant === activeHash ? highlightLine : undefined}
       onChange={(text) => edit(base, lang, text, user?.login ?? 'local draft')}
     />

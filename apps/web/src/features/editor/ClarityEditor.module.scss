@@ -424,6 +424,12 @@
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
+  // Room below the last line while the Changes view covers the bottom of the text (--overlay-room
+  // is the view's height, set only while it is open): the end of the text scrolls clear of it.
+  // 4px is CodeMirror's own content padding.
+  :global(.cm-content) {
+    padding-bottom: calc(4px + var(--overlay-room, 0px));
+  }
 }
 .editor :global(.clarity-validation-error) {
   text-decoration: underline wavy var(--diag-error);
