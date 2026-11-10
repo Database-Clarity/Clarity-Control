@@ -84,3 +84,16 @@ it('leaves a dropped hyphen and space unchanged', () => {
   view.dispatch({ changes: { from: 0, insert: '- ' }, userEvent: 'input.drop' });
   expect(view.state.doc.toString()).toBe('- ');
 });
+
+it.each(['// a < comparison\n-', '/* a < comparison */\n-', 'Damage < 10\n-'])(
+  'converts after completed comments and comparison prose: %s', doc => {
+    const view = editor(doc);
+    expect(space(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe(doc.slice(0, -1) + '• ');
+  },
+);
+it.each(['<bold value > 10\n-', '<title value > 10 [\n-'])(
+  'refuses an unfinished tag even after a bare greater-than: %s', doc => {
+    expect(space(editor(doc))).toBe(false);
+  },
+);

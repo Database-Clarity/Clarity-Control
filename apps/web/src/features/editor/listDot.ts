@@ -28,15 +28,19 @@ export const listDot: Extension = [
       return false;
     const line = state.doc.lineAt(from);
     if (!/^[ \t]*-$/.test(state.sliceDoc(line.from, from))) return false;
-    const prefix = state.sliceDoc(0, from);
-    if (
-      /<[^>]*$/.test(prefix) ||
-      /\/\*[^]*$/.test(prefix.replace(/\/\*[^]*?\*\//g, '').replace(/(^|\s)\/\/[^\n]*/g, '$1')) ||
-      markupCommentContext(state.doc.toString()).comments.some(
-        ({ from: start, to: end }) => start <= from && end >= from,
-      )
-    )
+    const context = markupCommentContext(state.doc.toString());
+    if (context.comments.some(({ from: start, to: end }) => start <= from && end >= from))
       return false;
+    // Strip completed comments before looking for markup boundaries. A comparison's
+    // bare "<" is prose; tags start with a name and end with "/>", not a bare ">".
+    const prefix = markupCommentContext(state.sliceDoc(0, from)).text;
+    if (/\/\*[^]*$/.test(prefix)) return false;
+    let depth = 0;
+    for (const match of prefix.matchAll(/<[a-zA-Z][a-zA-Z0-9]*(?=[\s/>]|$)|\/>/g)) {
+      if (match[0] === '/>') depth = Math.max(0, depth - 1);
+      else depth++;
+    }
+    if (depth) return false;
     // Keep the typed space in history before the isolated automatic replacement.
     view.dispatch({
       changes: { from, insert: ' ' },
