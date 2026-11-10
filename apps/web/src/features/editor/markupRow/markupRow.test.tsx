@@ -274,6 +274,7 @@ describe('the markup row', () => {
     expect(entryButton('enhanced-arrow').title).toContain('key 1');
     expect(entryButton('pair').title).toContain('<pve value /> <pvp [value] />');
     expect(entryButton('inline:bold').title).not.toContain('key');
+    expect(entryButton('inline:yellow').title).toContain('Exotic (yellow)');
   });
 
   it('never takes focus from the text when pressed', () => {

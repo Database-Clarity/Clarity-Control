@@ -406,3 +406,16 @@
     text-overflow: ellipsis;
   }
 }
+
+// The symbol-only arrow follows the icon size at every UI scale.
+.arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35em;
+  svg { width: 1.35em; height: 1.35em; }
+  @include theme.mobile-or-coarse {
+    width: 1.7em;
+    svg { width: 1.7em; height: 1.7em; }
+  }
+}

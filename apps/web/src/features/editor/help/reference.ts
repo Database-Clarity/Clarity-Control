@@ -89,7 +89,7 @@ const extraRows: readonly Omit<HelpRow, 'words'>[] = [
     label: 'List dot',
     about: 'Start a list by typing a hyphen, then Space.',
     example: '• text',
-    note: 'Type “-” then Space. Backspace immediately restores “- ”.',
+    note: 'Type - then Space.',
   },
   {
     id: 'comment',

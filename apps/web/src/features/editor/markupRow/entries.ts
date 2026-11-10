@@ -337,8 +337,8 @@ export function markupEntries(globals: MarkupGlobals, documentText = ''): Markup
         keys: tagById(`tag:${colour}`).keywords,
         glyph: { kind: 'colour', colour },
         usage: tagById(`tag:${colour}`).usage,
-        about: tagById(`tag:${colour}`).about,
-        help: { example: `<${colour} Gjallarhorn />` },
+        about: 'Exotic (yellow) text for exotic names.',
+        help: { example: `<${colour} Gjallarhorn />`, note: 'Exotic (yellow)' },
       }),
     ),
     ...styleSymbols.map((symbol) =>
