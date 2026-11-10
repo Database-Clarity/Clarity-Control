@@ -259,28 +259,156 @@
     min-width: 0;
   }
 }
+// ---- Changes view ----
+// Removed text is reference, never the loudest thing on the line: muted, thin strike, no fill.
+// Added text keeps the sheet's own styling with a green underline. Rewritten lines become blocks:
+// the old lines (muted, red edge) above the new ones (green edge), so neither interleaves.
+.key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.75rem;
+  color: var(--text2);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  // The sample is read as a word, so it keeps full strength in both themes.
+  .removed {
+    opacity: 1;
+  }
+  // On the page surface the marker takes the theme's warning colour.
+  .styleMark.styleMark.styleMark {
+    margin-inline-start: 0;
+    border-color: currentColor;
+    color: var(--warn);
+    // The key line is smaller than the sheet text; keep the sample the size it had there.
+    font-size: 0.91em;
+    cursor: default;
+  }
+}
+.cellStyle {
+  color: var(--warn);
+}
 .removed {
-  background: #a52c3b66;
-  text-decoration: line-through;
-  text-decoration-color: #ff6b79;
+  opacity: 0.6;
+  text-decoration: line-through 1px var(--sheet-del-line);
 }
 .added {
-  background: #23844066;
-  text-decoration: underline;
-  text-decoration-color: #76f49c;
+  background: color-mix(in srgb, var(--sheet-ins-bg) 50%, transparent);
+  text-decoration: underline var(--sheet-ins-line);
   // Keep diff markers continuous, without per-glyph ink intersection work.
   text-decoration-skip-ink: none;
+}
+.hunk {
+  display: block;
+  margin-block: 0.125rem;
+  // The edges reach into the cell's padding, so block text starts where other lines start.
+  margin-inline-start: -0.8rem;
+}
+.old,
+.new,
+.unfold {
+  display: block;
+  box-sizing: border-box;
+  padding-inline-start: calc(0.8rem - 3px);
+  border-inline-start: 3px solid var(--sheet-ins-line);
+  text-decoration: none;
+}
+.new {
+  background: color-mix(in srgb, var(--sheet-ins-bg) 33%, transparent);
+}
+.old,
+.unfold {
+  border-color: var(--sheet-del-line);
+  background: color-mix(in srgb, var(--sheet-del-bg) 33%, transparent);
+  margin-block-end: 1px;
+}
+.old {
+  > .diffLine {
+    opacity: 0.6;
+  }
+  &:has(+ .unfold) {
+    margin-block-end: 0;
+  }
+}
+// The fold and the marker are part of the sheet text, not controls of whichever surface hosts the
+// diff (pane, History, save dialog): the tripled class outranks a host's `button` rules, and every
+// property those rules set is owned here.
+.unfold.unfold.unfold {
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0 0 1px;
+  border: 0;
+  border-inline-start: 3px solid var(--sheet-del-line);
+  border-radius: 0;
+  padding: 0 0 0.125rem calc(0.8rem - 3px);
+  background: color-mix(in srgb, var(--sheet-del-bg) 33%, transparent);
+  color: var(--sheet-del-line);
+  font: inherit;
+  // Sized from the sheet text beside it, so UI scale does not outgrow the cell.
+  font-size: 0.85em;
+  line-height: 1.5;
+  text-align: start;
+  white-space: normal;
+  cursor: pointer;
+  &:hover:not(:disabled),
+  &:active:not(:disabled) {
+    border-color: var(--sheet-del-line);
+    background: color-mix(in srgb, var(--sheet-del-bg) 33%, transparent);
+    text-decoration: underline;
+  }
+  &:focus-visible {
+    outline: 2px solid var(--sheet-del-line);
+    outline-offset: -2px;
+  }
+  @include theme.mobile-or-coarse {
+    min-height: max(44px, 2.75rem);
+  }
 }
 .styleChange {
   display: inline;
   position: relative;
 }
-.styleToggle {
-  all: unset;
-  display: inline;
+.styleMark.styleMark.styleMark {
+  appearance: none;
+  display: inline-block;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  margin-inline-start: 0.35em;
+  padding: 0 0.2em;
+  border: 1px dotted var(--style-edge);
+  border-radius: 2px;
+  background: none;
+  &:hover:not(:disabled),
+  &:active:not(:disabled) {
+    border-color: var(--style-edge);
+    background: none;
+  }
+  color: var(--style-edge);
+  font:
+    600 0.75em/1.4 system-ui,
+    sans-serif;
+  letter-spacing: 0.02em;
+  vertical-align: 0.1em;
   cursor: help;
-  outline: 1px dotted #e7c374;
-  outline-offset: 2px;
+  &:focus-visible {
+    outline: 2px solid var(--style-edge);
+    outline-offset: 1px;
+  }
+  // A 44px touch area around the small marker, without moving the line.
+  @include theme.mobile-or-coarse {
+    &::after {
+      content: '';
+      position: absolute;
+      inset: 50% auto auto 50%;
+      width: max(44px, 2.75rem);
+      height: max(44px, 2.75rem);
+      translate: -50% -50%;
+    }
+  }
 }
 .styleChange[data-open='true'] > .stylePopover {
   display: block;
@@ -292,13 +420,28 @@
   inset-inline-start: 0;
   top: 100%;
   padding: 0.7rem;
-  border: 1px solid #e7c374;
-  background: #161923;
-  color: #fff;
+  border: 1px solid var(--style-edge);
+  background: var(--style-bg);
+  color: var(--style-text);
   box-sizing: border-box;
   width: min(22rem, calc(100vw - 1rem));
   white-space: normal;
   font-size: 0.9rem;
+  // The popover is its own surface: nothing of the line it hangs from carries over.
+  font-weight: 400;
+  font-style: normal;
+  text-align: start;
+  > span:not(.swatches) {
+    display: block;
+  }
+}
+// The snapshot keeps the sheet's colours, so it sits on the sheet's surface in both themes.
+.popoverSnapshot {
+  margin-block-start: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  background: var(--sheet-bg);
+  color: var(--sheet-text);
 }
 .swatches {
   display: flex;
@@ -310,13 +453,9 @@
   display: inline-block;
   width: 1rem;
   height: 1rem;
-  border: 1px solid #fff;
+  border: 1px solid var(--swatch-edge);
   vertical-align: middle;
   margin-right: 0.25rem;
-}
-.legend {
-  color: var(--text2);
-  font-size: 0.75rem;
 }
 .rows {
   contain: content;
@@ -331,7 +470,7 @@
   content-visibility: auto;
   contain-intrinsic-size: auto 2.25rem;
   padding: 0.5rem;
-  border-bottom: 1px solid #454c5a;
+  border-bottom: 1px solid var(--grid-edge);
 }
 .rows a {
   overflow-wrap: anywhere;
@@ -359,11 +498,18 @@
 .badge {
   border-radius: 1rem;
   padding: 0.15rem 0.5rem;
-  background: #674d21;
-  color: #fff;
+  background: var(--badge-warn-bg);
+  color: var(--badge-warn-text);
 }
 .warning {
   color: var(--warn);
+}
+// The sheet location under a pane notice: always its own line, never run into the sentence.
+.sourceLink {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 .spinner {
   display: inline-block;
@@ -403,16 +549,19 @@
 }
 .sheet {
   border-collapse: collapse;
-  background: #1a1b29;
+  background: var(--sheet-bg);
+  // The sheet stays dark in both themes, so its own text (row numbers, headers) needs light ink
+  // in the light theme; dark keeps the inherited colour.
+  color: var(--sheet-ink);
   td,
   th {
-    border: 1px solid #657080;
+    border: 1px solid var(--sheet-edge);
     padding: 0.3rem;
     min-width: 5rem;
     vertical-align: top;
   }
   td[data-anchor='true'] {
-    outline: 3px solid #ffd98b;
+    outline: 3px solid var(--sheet-anchor);
     outline-offset: -3px;
   }
   button {
@@ -422,12 +571,12 @@
     white-space: pre-wrap;
     text-align: left;
     background: transparent;
-    color: #ccc;
+    color: var(--sheet-text);
     border: 0;
   }
   button[aria-pressed='true'] {
-    background: #245a40;
-    outline: 2px solid #76f49c;
+    background: var(--sheet-on);
+    outline: 2px solid var(--sheet-ins-line);
   }
 }
 

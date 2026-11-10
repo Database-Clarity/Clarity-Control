@@ -32,6 +32,8 @@ export const rememberedSchema = z.object({
   compendiumSurface: z.enum(['sheet', 'editor']).optional(),
   markupToolbar: syncedSettingsSchema.shape.markupToolbar.optional(),
   englishSource: syncedSettingsSchema.shape.englishSource.optional(),
+  /** Translate mode's right pane: the English text (default) or the Compendium. */
+  translatePane: z.enum(['english', 'compendium']).optional(),
 });
 export type Remembered = z.infer<typeof rememberedSchema>;
 export const uiScaleMin = 85;
@@ -226,7 +228,8 @@ export function applyDeviceSettings(device: DeviceSettings): void {
   // Pixels, not rem: the editor's text size must not follow the interface scale once it is chosen.
   if (device.editorFontSize === null)
     document.documentElement.style.removeProperty('--editor-font-size');
-  else document.documentElement.style.setProperty('--editor-font-size', `${device.editorFontSize}px`);
+  else
+    document.documentElement.style.setProperty('--editor-font-size', `${device.editorFontSize}px`);
   currentScale = device.uiScale;
   applyScale();
   if (!resizeBound && typeof window !== 'undefined') {
@@ -423,6 +426,7 @@ export function createSettingsStore({
       'englishSource',
       'compendiumDiff',
       'compendiumSurface',
+      'translatePane',
     ] as const) {
       const result = rememberedSchema.shape[key].safeParse(stored[key]);
       if (result.success && result.data) Object.assign(remembered, { [key]: result.data });

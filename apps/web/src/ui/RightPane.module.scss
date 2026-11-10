@@ -33,6 +33,42 @@
     display: none;
   }
 }
+// Panes sharing the pane: text tabs in the title's place, the open one underlined.
+.tabs {
+  display: inline-flex;
+  flex: none;
+  align-self: stretch;
+  gap: 0.125rem;
+  button {
+    min-height: 1.75rem;
+    padding: 0 0.375rem;
+    font: inherit;
+    font-weight: 700;
+    color: var(--text2);
+    background: transparent;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    cursor: pointer;
+    white-space: nowrap;
+    &:hover {
+      color: var(--text);
+    }
+    &[aria-selected='true'] {
+      color: var(--text);
+      border-bottom-color: var(--accent-ink);
+    }
+    &:focus-visible {
+      outline: 2px solid var(--accent-ink);
+      outline-offset: -2px;
+    }
+    // Compact touch size (owner 2026-11-10): about 36px, not a new 44px minimum.
+    @include theme.mobile-or-coarse {
+      min-height: max(36px, 2.25rem);
+      min-width: max(36px, 2.25rem);
+    }
+  }
+}
 .controls {
   display: inline-flex;
   flex: 0 1 auto;

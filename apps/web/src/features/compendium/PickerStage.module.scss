@@ -6,9 +6,9 @@
   max-width: 100%;
   max-height: calc(100dvh - 2rem);
   padding: 0;
-  color: #ddd;
-  background: #1c2130;
-  border: 1px solid #66758b;
+  color: var(--mr-stage-text);
+  background: var(--mr-panel);
+  border: 1px solid var(--mr-edge-2);
   border-radius: 0.6rem;
   overflow: hidden;
   &[open] {
@@ -16,7 +16,7 @@
     flex-direction: column;
   }
   &::backdrop {
-    background: #000b;
+    background: var(--mr-stage-scrim);
   }
   header {
     display: flex;

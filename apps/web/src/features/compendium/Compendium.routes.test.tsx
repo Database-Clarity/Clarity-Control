@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { skeletonMinimumMs } from '../../ui/Skeleton';
 import { act, createElement, Fragment } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
@@ -116,6 +117,8 @@ async function mount(path: string) {
   await act(async () => {
     await vi.dynamicImportSettled();
   });
+  // A loading skeleton that showed stays for its minimum time before the content swaps in.
+  await act(() => new Promise((resolve) => setTimeout(resolve, skeletonMinimumMs + 20)));
 }
 
 function missingLink(rowKey: string): CompendiumLink {

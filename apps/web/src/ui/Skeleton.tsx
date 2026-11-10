@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import styles from './Skeleton.module.scss';
 
@@ -124,27 +124,64 @@ export function skeletonLineWidths(
   });
 }
 
-/** Preserve content for one frame; first loads show immediately. A shown region stays mounted. */
+/** Once shown, a skeleton stays at least this long (ms), so it never only flashes. */
+export const skeletonMinimumMs = 400;
+
+/**
+ * The one timing rule for every skeleton. Previous content is kept for at most two frames after a
+ * step; if the new content has not committed by the second frame the skeleton shows (first loads,
+ * with nothing to keep, show it at once). Once shown it stays at least `skeletonMinimumMs` before
+ * the content swaps in. A step to another entry (`identity`) during that time starts over for the
+ * new entry: ready by its second frame, it shows directly; otherwise the skeleton (already on
+ * screen, so nothing flashes) starts a fresh minimum. Waits never stack. While this returns true
+ * the host shows the skeleton instead of content, even if `pending` already turned false.
+ */
 export function useSkeletonVisible(pending: boolean, identity: unknown, hasContent: boolean) {
   const [visible, setVisible] = useState(pending && !hasContent);
+  const shownAt = useRef<number | undefined>(visible ? Date.now() : undefined);
+  const shownFor = useRef(identity);
   useLayoutEffect(() => {
-    if (!pending) {
-      setVisible(false);
-      return;
-    }
-    if (!hasContent) {
+    const show = () => {
+      shownAt.current = Date.now();
+      shownFor.current = identity;
       setVisible(true);
-      return;
-    }
-    if (visible) return;
+    };
+    const hide = () => {
+      shownAt.current = undefined;
+      setVisible(false);
+    };
+    let first: number | undefined;
     let second: number | undefined;
-    const first = requestAnimationFrame(() => {
-      second = requestAnimationFrame(() => flushSync(() => setVisible(true)));
-    });
+    // Two frames for this entry, then the skeleton (and its minimum) belong to it.
+    const afterTwoFrames = (then: () => void) => {
+      first = requestAnimationFrame(() => {
+        second = requestAnimationFrame(() => flushSync(then));
+      });
+    };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (visible) {
+      if (shownFor.current !== identity) {
+        // A new entry during the minimum: start over for it.
+        shownFor.current = identity;
+        shownAt.current = undefined;
+      }
+      if (shownAt.current === undefined) {
+        if (!pending) hide();
+        else afterTwoFrames(() => (shownAt.current = Date.now()));
+      } else if (!pending) {
+        const left = shownAt.current + skeletonMinimumMs - Date.now();
+        if (left <= 0) hide();
+        else timer = setTimeout(hide, left);
+      }
+    } else if (pending) {
+      if (!hasContent) show();
+      else afterTwoFrames(show);
+    }
     return () => {
-      cancelAnimationFrame(first);
+      if (first !== undefined) cancelAnimationFrame(first);
       if (second !== undefined) cancelAnimationFrame(second);
+      if (timer !== undefined) clearTimeout(timer);
     };
   }, [pending, identity, hasContent, visible]);
-  return pending && (!hasContent || visible);
+  return visible || (pending && !hasContent);
 }

@@ -3,15 +3,18 @@ import { PaneDivider } from '../../ui/PaneDivider';
 import { DIVIDER_TRACK, usePaneDivider } from '../../ui/usePaneDivider';
 import styles from './TooltipPage.module.scss';
 
-/** The editor never gets narrower than this; the right pane is 320–640 beside it (design pixels). */
+/**
+ * The editor never gets narrower than this (design pixels); the right pane takes 320 or more of
+ * what is left. Its maximum is nominal: usePaneDivider clamps to the room the editor leaves.
+ */
 const EDITOR_MIN = 480;
 const RIGHT_MIN = 320;
-const RIGHT_MAX = 640;
+const RIGHT_MAX = 8192;
 const RIGHT_DEFAULT = 384;
 
 /**
  * The editor | right pane pair (the Compendium comparison; the preview has its own column in the
- * shell). The right pane is the one sized: 320–640, 384 by default, saved on this device as
+ * shell). The right pane is the one sized: 320 or more, 384 by default, saved on this device as
  * `editor:right`. Where the editor cannot keep 480px beside a 320px pane the pair stacks, so the
  * editor is never squeezed: the pane follows below it. A phone has no divider at all (its panels
  * are tabs). A pane that is not there (`hasPane` false) leaves the editor the whole width.

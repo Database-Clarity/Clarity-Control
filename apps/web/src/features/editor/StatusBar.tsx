@@ -10,7 +10,7 @@ import { canReplaceGlyph, type GlyphWarning, type ValidationIssue } from '@clari
 import styles from './StatusBar.module.scss';
 import type { CursorPositionStore } from './cursorPosition';
 
-export type StatusPanel = 'help' | 'glyphs' | 'conflicts' | 'retired';
+export type StatusPanel = 'help' | 'glyphs' | 'conflicts' | 'retired' | 'diff';
 
 export const CursorStatusBar = memo(function CursorStatusBar({
   cursor,
@@ -59,6 +59,7 @@ export function StatusBar({
   column,
   preview,
   conflicts,
+  changes,
   panel,
   onPanel,
   onSuggest,
@@ -75,6 +76,11 @@ export function StatusBar({
   column: number;
   preview?: PreviewStatus;
   conflicts?: ConflictStatus;
+  /**
+   * Whether the text differs from the saved version (the Changes view). Undefined where there
+   * is no saved version to compare with: the item is not drawn at all.
+   */
+  changes?: boolean;
   panel: StatusPanel | null;
   onPanel(panel: StatusPanel | null): void;
   /** Opens the suggestion menu on request (touch has no Ctrl+Space); shown on touch only. */
@@ -92,7 +98,48 @@ export function StatusBar({
       aria-label="Editor status"
       role="group"
       aria-busy={validating || undefined}
+      // Esc on a bar item closes the open panel, as it does from the text and inside the panel.
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape' || panel === null) return;
+        event.stopPropagation();
+        onPanel(null);
+      }}
     >
+      {changes !== undefined && (
+        // First in the bar and always the same width: it is disabled, never removed, while
+        // nothing is unsaved, so the first key typed moves nothing.
+        <button
+          type="button"
+          className={styles.item}
+          data-status-changes
+          disabled={!changes && panel !== 'diff'}
+          aria-expanded={panel === 'diff'}
+          aria-controls="editor-panel-diff"
+          aria-keyshortcuts="Control+K D"
+          aria-label="Changes since the last save"
+          title={
+            changes || panel === 'diff'
+              ? 'Show what changed since the last save (Ctrl+K, then D)'
+              : 'No changes since the last save'
+          }
+          // With the caret in the text, pressing it leaves the caret there: typing goes on while
+          // the view is open, and Esc in the text closes it. From anywhere else the button takes
+          // focus as usual and hands it to the panel.
+          onMouseDown={(event) => {
+            const text = event.currentTarget
+              .closest('[data-editor-root]')
+              ?.querySelector('.cm-content');
+            if (text?.contains(event.currentTarget.ownerDocument.activeElement))
+              event.preventDefault();
+          }}
+          onClick={() => toggle('diff')}
+        >
+          <span className={styles.roomy}>Changes</span>
+          <span className={styles.tiny} aria-hidden="true">
+            ±
+          </span>
+        </button>
+      )}
       {readOnlyReason && (
         <span className={styles.reason} title={readOnlyReason} data-status-reason>
           {readOnlyReason}
@@ -155,7 +202,7 @@ export function StatusBar({
             <span>
               <span aria-hidden="true">⚠</span> {retiredCount}{' '}
               <span className={styles.long}>retired markup</span>
-              <span className={styles.short}>retired</span>
+              <span className={`${styles.short} ${styles.roomy}`}>retired</span>
             </span>
           </button>
         )}
@@ -195,7 +242,7 @@ export function StatusBar({
         <button
           type="button"
           className={`${styles.item} ${styles.suggest}`}
-          title="Suggest markup, snippets and transforms"
+          title="List every markup option, with the ones that fit here first"
           // Pressing it must not take focus from the text: a selection is what it transforms.
           onMouseDown={(event) => event.preventDefault()}
           onClick={onSuggest}
@@ -208,7 +255,7 @@ export function StatusBar({
         {rawView !== undefined && (
           <span data-raw-hint>{rawView ? 'Symbols' : 'Ctrl+Shift+. markup'}</span>
         )}
-        <span>Ctrl+Space suggestions</span>
+        <span>Ctrl+Space all markup</span>
         <span>Ctrl+F find</span>
         <span>F12 go to definition</span>
         <span>Esc then Tab leaves the editor</span>
@@ -243,11 +290,17 @@ export function StatusBar({
 export function Overlay({
   id,
   label,
+  heading,
   onClose,
   children,
 }: {
   id: string;
   label: string;
+  /**
+   * A caption for a panel whose content scrolls: it and Close stay in a fixed row on top and
+   * only the content below scrolls. Without it the whole panel scrolls as one (short panels).
+   */
+  heading?: ReactNode;
   onClose(): void;
   children: ReactNode;
 }) {
@@ -279,6 +332,28 @@ export function Overlay({
     element.addEventListener('keydown', onKey);
     return () => element.removeEventListener('keydown', onKey);
   }, []);
+  const headed = heading !== undefined;
+  useEffect(() => {
+    // A phone's keyboard shrinks the visual viewport, not the page: a captioned panel sizes
+    // itself to what is really visible (see .overlay[data-headed]). Only while it is open.
+    const element = root.current;
+    const viewport = element?.ownerDocument.defaultView?.visualViewport;
+    if (!headed || !element || !viewport) return;
+    const fit = () => element.style.setProperty('--visible-h', `${Math.round(viewport.height)}px`);
+    fit();
+    viewport.addEventListener('resize', fit);
+    return () => viewport.removeEventListener('resize', fit);
+  }, [headed]);
+  const closeButton = (
+    <button
+      type="button"
+      className={styles.close}
+      aria-label={`Close ${label}`}
+      onClick={() => close.current()}
+    >
+      ×
+    </button>
+  );
   return (
     <section
       ref={root}
@@ -287,16 +362,24 @@ export function Overlay({
       tabIndex={-1}
       className={styles.overlay}
       data-editor-overlay
+      data-headed={headed || undefined}
     >
-      <div className={styles.overlayBody}>{children}</div>
-      <button
-        type="button"
-        className={styles.close}
-        aria-label={`Close ${label}`}
-        onClick={() => close.current()}
-      >
-        ×
-      </button>
+      {headed ? (
+        <>
+          <div className={styles.overlayHead}>
+            <span className={styles.overlayTitle}>{heading}</span>
+            {closeButton}
+          </div>
+          <div className={styles.overlayBody} data-overlay-scroll>
+            {children}
+          </div>
+        </>
+      ) : (
+        <>
+          <div className={styles.overlayBody}>{children}</div>
+          {closeButton}
+        </>
+      )}
     </section>
   );
 }
@@ -367,6 +450,7 @@ export function HelpPanel({
         comment. Scroll Lock or Ctrl/Cmd+Shift+F: align tables. Tab indents; to leave the editor
         with the keyboard, press Esc, then Tab.
       </p>
+      <p>Ctrl/Cmd+K, then D: show or hide what changed since the last save.</p>
       <p>
         Hover a #variable, [title] or import to see what it contains (Ctrl/Cmd+K, Ctrl/Cmd+I does
         the same from the caret). Ctrl/Cmd+Click or F12 jumps to its definition; the browser Back

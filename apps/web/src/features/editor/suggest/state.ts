@@ -14,11 +14,16 @@ import type { MarkupGlobals } from '@clarity/core';
 import { insertionMessages, insertionRejection, type Rejection } from '../markupInsertion';
 import { recentSuggestions, rememberSuggestion } from './recent';
 import {
+  caretContext,
+  dropDeclinedPins,
+  judgeItems,
   nextCategoryIndex,
+  requestItems,
   suggestContext,
   suggestItems,
   type SuggestContext,
   type SuggestItem,
+  unavailableReasons,
 } from './source';
 import { setStops, stopsExtension } from './stops';
 
@@ -31,6 +36,14 @@ export interface SuggestSnapshot {
   explicit: boolean;
   /** Why the last Enter did not insert, until the next move. */
   message: string | null;
+  /**
+   * The options the insertion rules decline here are marked. An on-request menu shows first and
+   * is judged right after (reading the document under those rules must not hold the menu up);
+   * Enter is held to the rules either way.
+   */
+  judged: boolean;
+  /** The author moved the selection; until then the menu may move it to an option that fits. */
+  picked: boolean;
 }
 
 export interface SuggestHost {
@@ -48,6 +61,7 @@ const closeEffect = StateEffect.define<null>();
 const moveEffect = StateEffect.define<number>();
 const categoryEffect = StateEffect.define<null>();
 const messageEffect = StateEffect.define<string | null>();
+const judgeEffect = StateEffect.define<null>();
 
 const typedTriggers = new Set(['<', '#', '[']);
 
@@ -57,21 +71,53 @@ function derive(
   previous: SuggestSnapshot | null,
 ): SuggestSnapshot | null {
   if (state.readOnly) return null;
-  const context = suggestContext(state, explicit);
+  let context = suggestContext(state, explicit);
   if (!context) return null;
   // A menu opened on a bare word is about that word: once the caret is in another one it is done.
+  const anchor = previous?.context.atCaret ? previous.context.from : -1;
   if (
+    context.kind === 'word' &&
+    anchor >= context.from &&
+    anchor <= state.selection.main.head &&
+    state.selection.main.empty
+  )
+    // Opened at the caret beside a word: what was typed since then filters, the word does not.
+    context = caretContext(context, state, anchor);
+  else if (
     previous?.context.kind === 'word' &&
     context.kind === 'word' &&
     context.from !== previous.context.from
   )
     return null;
-  const items = suggestItems(context, state, state.facet(suggestHost).globals, recentSuggestions());
+  const globals = state.facet(suggestHost).globals;
+  // On request the menu lists every option; the one that opens while typing only what fits.
+  const list = explicit ? requestItems : suggestItems;
+  let items = list(context, state, globals, recentSuggestions());
+  if (!items.length && explicit && !previous && context.query) {
+    // Asked for beside a word no option matches: the whole list, going in at the caret.
+    context = caretContext(context, state);
+    items = list(context, state, globals, recentSuggestions());
+  }
   if (!items.length) return null;
   const kept = previous
     ? items.findIndex((item) => item.id === previous.items[previous.index]?.id)
     : -1;
-  return { context, items, index: kept < 0 ? 0 : kept, explicit, message: null };
+  // Nothing pinned: start on the first option that can go here rather than on a greyed one.
+  const first = items[0]?.pinned
+    ? 0
+    : Math.max(
+        0,
+        items.findIndex((item) => !item.unavailable),
+      );
+  return {
+    context,
+    items,
+    index: kept < 0 ? first : kept,
+    explicit,
+    message: null,
+    judged: !explicit,
+    picked: kept < 0 ? false : (previous?.picked ?? false),
+  };
 }
 
 /** True when this transaction just typed one of the characters that opens the menu. */
@@ -110,11 +156,42 @@ export const suggestField = StateField.define<SuggestSnapshot | null>({
     for (const effect of transaction.effects) {
       if (effect.is(moveEffect)) {
         const count: number = next.items.length;
-        next = { ...next, index: (((effect.value % count) + count) % count) | 0, message: null };
+        next = {
+          ...next,
+          index: (((effect.value % count) + count) % count) | 0,
+          message: null,
+          picked: true,
+        };
       } else if (effect.is(categoryEffect)) {
-        next = { ...next, index: nextCategoryIndex(next.items, next.index), message: null };
+        next = {
+          ...next,
+          index: nextCategoryIndex(next.items, next.index),
+          message: null,
+          picked: true,
+        };
       } else if (effect.is(messageEffect)) {
         next = { ...next, message: effect.value };
+      } else if (effect.is(judgeEffect) && !next.judged) {
+        const globals = transaction.state.facet(suggestHost).globals;
+        const judged = judgeItems(next.items, next.context, transaction.state, globals);
+        const items = dropDeclinedPins(judged, next.context, transaction.state, globals);
+        let index: number = next.index;
+        if (items !== judged) {
+          // The pinned part is gone and the list reordered: the selection stays on its option.
+          const selected = judged[next.index]?.id;
+          index = Math.max(
+            0,
+            items.findIndex((item) => item.id === selected),
+          );
+        }
+        // A selection the author has not moved does not start on an option that cannot go here.
+        // With none that fits, the first row.
+        if (!next.picked && items[index]?.unavailable)
+          index = Math.max(
+            0,
+            items.findIndex((item) => !item.unavailable),
+          );
+        next = { ...next, judged: true, items, index };
       }
     }
     return next;
@@ -137,7 +214,16 @@ export function moveSuggest(view: EditorView, delta: number, absolute = false): 
   view.dispatch({ effects: moveEffect.of(absolute ? delta : snapshot.index + delta) });
 }
 
-export type AcceptResult = 'inserted' | 'none' | Rejection;
+/**
+ * Marks the options that cannot go at this caret, if the open menu still waits for that. The
+ * editor does this by itself once the menu has painted; nothing else needs to call it.
+ */
+export function judgeSuggestions(view: EditorView): void {
+  const snapshot = suggestState(view.state);
+  if (snapshot && !snapshot.judged) view.dispatch({ effects: judgeEffect.of(null) });
+}
+
+export type AcceptResult = 'inserted' | 'none' | 'unavailable' | Rejection;
 
 /** What an insertion needs to know about the selection it happens beside. */
 export interface InsertionTarget {
@@ -193,6 +279,11 @@ export function acceptSuggestion(view: EditorView, index?: number): AcceptResult
   const snapshot = suggestState(view.state);
   const item = snapshot?.items[index ?? snapshot.index];
   if (!snapshot || !item) return 'none';
+  if (item.unavailable) {
+    // Listed, but it has nowhere to go here: the text stays as it is and the menu says why.
+    view.dispatch({ effects: messageEffect.of(item.unavailable) });
+    return 'unavailable';
+  }
   const keepsSelection = snapshot.context.kind === 'selection' && item.from === item.to;
   const rejection = insertItem(view, item, {
     typed: snapshot.context.kind !== 'selection' || item.from === item.to,
@@ -201,7 +292,12 @@ export function acceptSuggestion(view: EditorView, index?: number): AcceptResult
       : undefined,
   });
   if (rejection) {
-    view.dispatch({ effects: messageEffect.of(insertionMessages[rejection]) });
+    // The on-request menu gives the same short reason its greyed options carry.
+    view.dispatch({
+      effects: messageEffect.of(
+        snapshot.explicit ? unavailableReasons[rejection] : insertionMessages[rejection],
+      ),
+    });
     return rejection;
   }
   return 'inserted';
@@ -222,7 +318,12 @@ export const suggestConfiguration = (host: SuggestHost): Extension => suggestHos
  */
 function accept(view: EditorView, snapshot: SuggestSnapshot): boolean {
   const item = snapshot.items[snapshot.index];
-  if (item && !item.stops.length && item.insert === view.state.sliceDoc(item.from, item.to)) {
+  if (
+    item &&
+    !item.unavailable &&
+    !item.stops.length &&
+    item.insert === view.state.sliceDoc(item.from, item.to)
+  ) {
     closeSuggest(view);
     return false;
   }
@@ -240,7 +341,9 @@ export function suggestExtension(): Extension {
           key: 'Ctrl-Space',
           run: (view) => {
             const snapshot = suggestState(view.state);
-            if (snapshot) view.dispatch({ effects: categoryEffect.of(null) });
+            // Asked for over the menu that opened while typing, it becomes the full list; asked
+            // for again, it steps to the next group.
+            if (snapshot?.explicit) view.dispatch({ effects: categoryEffect.of(null) });
             else openSuggest(view);
             return true;
           },
@@ -273,10 +376,58 @@ export function suggestExtension(): Extension {
     }),
     ViewPlugin.fromClass(
       class {
+        private frame = 0;
+        private timer: ReturnType<typeof setTimeout> | undefined;
+        private idle = 0;
+        private waiting = false;
+        private warm = 0;
+        constructor(private readonly view: EditorView) {
+          // Once per editor, when the browser is idle: the first request for the menu then finds
+          // the full list's code and the document's facts ready, like every later one.
+          if (typeof requestIdleCallback !== 'function') return;
+          this.warm = requestIdleCallback(
+            () => {
+              const state = this.view.state;
+              const context = state.readOnly ? null : suggestContext(state, true);
+              if (!context) return;
+              const globals = state.facet(suggestHost).globals;
+              judgeItems(
+                requestItems(context, state, globals, recentSuggestions()),
+                context,
+                state,
+                globals,
+              );
+            },
+            { timeout: 2000 },
+          );
+        }
         update(update: { startState: EditorState; state: EditorState }) {
           const before = suggestState(update.startState);
           const after = suggestState(update.state);
           if (before !== after) update.state.facet(suggestHost).onChange?.(after);
+          if (!after || after.judged || this.waiting) return;
+          // After the frame that shows the menu, once the browser has nothing else to do: opening
+          // never waits for the safety rules, and neither does the first key after it.
+          this.waiting = true;
+          const judge = () => {
+            this.waiting = false;
+            judgeSuggestions(this.view);
+          };
+          if (typeof requestAnimationFrame === 'function')
+            this.frame = requestAnimationFrame(() => {
+              if (typeof requestIdleCallback === 'function')
+                this.idle = requestIdleCallback(judge, { timeout: 150 });
+              else this.timer = setTimeout(judge);
+            });
+          else this.timer = setTimeout(judge);
+        }
+        destroy() {
+          if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(this.frame);
+          if (typeof cancelIdleCallback === 'function') {
+            cancelIdleCallback(this.idle);
+            cancelIdleCallback(this.warm);
+          }
+          clearTimeout(this.timer);
         }
       },
     ),

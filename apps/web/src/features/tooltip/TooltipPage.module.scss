@@ -22,6 +22,8 @@
 // slot through the pane header; phone is one view at a time. The grid never reorders the DOM.
 .workspace {
   display: grid;
+  // Queue mode asks this width in toggle mode, where the pane header spans it (see .queue).
+  container: workspace / inline-size;
   grid-template-columns: minmax(0, 1fr);
   column-gap: 0;
   row-gap: 2px;
@@ -107,6 +109,8 @@
   overflow: hidden;
   white-space: nowrap;
   font-size: 0.8125rem;
+  // Queue mode asks the header's width, to make room for its control (see .queue).
+  container: pane-header / inline-size;
   > * {
     flex: none;
   }
@@ -191,9 +195,160 @@
   min-width: 0;
   margin-left: auto;
 }
-.storedNote {
-  margin: 0 0 0.375rem;
+// ---- queue mode: "Queue  12 of 148  < >", right-aligned before the pane's own actions ----
+.queue {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: auto;
+  + .paneRight {
+    margin-left: 0;
+  }
+}
+.queueBack,
+.queueStep {
+  @include controls.button;
+  min-height: 1.5rem;
+  padding: 0 0.5rem;
+  font-size: 0.75rem;
+  text-decoration: none;
+  background: transparent;
+  border-color: var(--ghost-edge);
+}
+.queueStep {
+  min-width: 1.5rem;
+  padding: 0;
+  font-size: 1rem;
+  line-height: 1;
+  &[aria-disabled='true'] {
+    opacity: 0.45;
+    cursor: default;
+    pointer-events: none;
+  }
+}
+.queuePosition {
+  padding-inline: 0.125rem;
   color: var(--text2);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+// The control has to fit beside a draft's Discard in the narrowest editor (480px). As the header
+// narrows, queue mode first drops the shortcut hint, then shortens the language field, and lets an
+// override's button ellipsise; the control itself never shrinks or clips.
+@container pane-header (max-width: 44rem) {
+  .paneHeader:has(> .queue) .key {
+    display: none;
+  }
+}
+@container pane-header (max-width: 38rem) {
+  .paneHeader:has(> .queue) {
+    gap: 0.375rem;
+    .langSelect {
+      max-width: 6rem;
+      text-overflow: ellipsis;
+    }
+    .paneRight > button {
+      display: block;
+      flex: 0 1 auto;
+      min-width: 2.5rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
+}
+// Toggle mode adds the English and Compendium buttons to the same line. Below this width the
+// line cannot hold them and the control (48.5rem with a draft and an override), so the control
+// takes a row of its own, as on a phone.
+// The row is there for the whole visit: nothing moves when a draft appears.
+@container workspace (max-width: 49rem) {
+  .workspace[data-mode='toggle'] .paneHeader:has(> .queue) {
+    flex-wrap: wrap;
+    row-gap: 2px;
+    // min-width: the longest label ("Not in queue · 1691 left") ellipsises, the buttons stay in view.
+    .queue {
+      order: 2;
+      flex: 1 1 100%;
+      min-width: 0;
+      margin-left: 0;
+    }
+    .queuePosition {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+}
+// A queued entry that no longer exists: one line, with the way on.
+.queueGone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  font-size: 0.8125rem;
+  .queue {
+    margin-left: 0;
+  }
+}
+// Maintainers' grouped-perks trigger: "Grouped N"; on a phone two stacked squares and N, so the
+// editor's header row keeps to one line (the word stays for screen readers).
+.groupedIcon {
+  display: none;
+  position: relative;
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+  box-shadow:
+    3px -3px 0 -1.5px var(--page),
+    3px -3px 0 0 currentColor;
+}
+// Maintainers' grouped-perks popover: one dense row per manifest hash.
+.grouped {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  li {
+    display: contents;
+  }
+  // No column gap, so each row's divider is one unbroken line; cells pad themselves.
+  li > * {
+    padding: 0.1875rem 0.75rem 0.1875rem 0;
+    border-top: 1px solid var(--line);
+  }
+  li > :nth-child(3) {
+    padding-right: 0;
+  }
+  li:first-child > * {
+    border-top: 0;
+  }
+}
+.groupedHash {
+  font-family: var(--editor-font, Consolas, monospace);
+  font-variant-numeric: tabular-nums;
+  user-select: all;
+}
+.groupedName {
+  min-width: 0;
+}
+.groupedBase,
+.groupedEnhanced {
+  white-space: nowrap;
+  color: var(--text2);
+}
+.groupedEnhanced {
+  color: var(--enhanced);
+}
+.groupedHow {
+  grid-column: 2 / -1;
+  padding-top: 0 !important;
+  border-top: 0 !important;
+  color: var(--text2);
+  font-size: 0.75rem;
 }
 .paneToggles {
   display: inline-flex;
@@ -311,6 +466,10 @@
       flex-direction: column;
       min-height: 0;
     }
+  }
+  // Translate mode: English or the Compendium, whichever tab is open.
+  .side .panel[data-active='false'] {
+    display: none;
   }
   .divider {
     display: block;
@@ -445,6 +604,19 @@
     min-height: max(44px, 2.75rem);
     min-width: max(44px, 2.75rem);
   }
+  .paneHeader {
+    column-gap: 0.25rem;
+  }
+  .groupedIcon {
+    display: inline-block;
+  }
+  .groupedWord {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
   // The right-hand buttons stay on the first row; the read-only badge is the only second row.
   .badge {
     order: 1;
@@ -466,5 +638,27 @@
     flex: 0 1 auto;
     flex-wrap: nowrap;
     margin-left: auto;
+  }
+  // Queue mode adds one row of its own (after the read-only badge), so nothing else moves when
+  // a draft appears: "Queue  12 of 148 ........ < >".
+  .queue {
+    order: 2;
+    flex: 1 1 100%;
+    // Without this the row is as wide as its longest label, and Next leaves the screen.
+    min-width: 0;
+    margin-left: 0;
+  }
+  .queuePosition {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  // Compact phone size (owner 2026-11-10): about 36px, not a new 44px minimum.
+  .queueBack,
+  .queueStep {
+    min-height: max(36px, 2.25rem);
+    min-width: max(36px, 2.25rem);
   }
 }

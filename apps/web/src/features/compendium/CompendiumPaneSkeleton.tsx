@@ -127,10 +127,12 @@ export function CompendiumPaneSkeleton({
       )}
       <SkeletonRegion key="status" className={styles.skeletonStatus}>
         <SkeletonLine width={58} />
+        {/* The sheet source link sits on its own line under the notice. */}
+        {(link || after) && <SkeletonLine width={46} />}
       </SkeletonRegion>
       {comparison && !roomy && <div className={styles.diffModes}>{diffControl}</div>}
       {comparison && mode === 'changes' && (
-        <SkeletonRegion key="legend" className={styles.legend}>
+        <SkeletonRegion key="legend" className={styles.key}>
           <SkeletonLine width={85} />
         </SkeletonRegion>
       )}

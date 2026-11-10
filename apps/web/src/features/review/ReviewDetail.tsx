@@ -3,7 +3,7 @@ import { getHistory, type HistoryCommit } from '../../services/history';
 import { CommitAuthor } from '../history/CommitAuthor';
 import { changedFields, changedSummary } from './changedFields';
 import { useReviewMarks } from './reviewMarks';
-import { Link, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import type { Tooltip } from '@clarity/core';
 import { preparedReviewLiveValue, takeReviewLiveRequest } from './liveRequest';
 import { errorMessage } from '../../services/http';
@@ -143,14 +143,6 @@ export const ReviewDetail = memo(function ReviewDetail({
         : undefined;
   return (
     <section aria-label="Selected change">
-      <p className={styles.detailIdentity}>
-        {entry.category}{' '}
-        <small>
-          · {entry.categoryId} · #{entry.tooltip.hash}
-        </small>
-      </p>
-      <h2>{entry.name}</h2>
-      <Link to={`/t/${entry.tooltip.hash}`}>Open in editor ↗</Link>
       {summary && (
         <p className={styles.changed}>
           <strong>Changed:</strong> {summary}
@@ -161,15 +153,6 @@ export const ReviewDetail = memo(function ReviewDetail({
           Saved by <CommitAuthor entry={saved} />
         </p>
       )}
-      <label className={styles.include}>
-        <input
-          type="checkbox"
-          checked={included}
-          disabled={selectionLocked}
-          onChange={() => onInclude(entry.tooltip.hash)}
-        />{' '}
-        Include in publish <kbd>Space</kbd>
-      </label>
       {error && (
         <p role="alert">
           {error}{' '}
@@ -190,32 +173,44 @@ export const ReviewDetail = memo(function ReviewDetail({
       )}
       {live && (
         <>
-          {!live.pushedHash && <p>No recorded live version. All saved text is new.</p>}
+          {!live.pushedHash && !summary && <p>No recorded live version. All saved text is new.</p>}
           <TooltipDiff before={live.tooltip} current={entry.tooltip} item={reviewItem} />
           {notice && <p role="status">{notice}</p>}
           {user?.role === 'translator' && (
             <p>Only your assigned translation languages will be loaded.</p>
           )}
-          {!confirm ? (
+        </>
+      )}
+      <div className={styles.actions}>
+        <label className={styles.include}>
+          <input
+            type="checkbox"
+            checked={included}
+            disabled={selectionLocked}
+            onChange={() => onInclude(entry.tooltip.hash)}
+          />{' '}
+          Include in publish <kbd>Space</kbd>
+        </label>
+        {live &&
+          (!confirm ? (
             <button type="button" disabled={!canLoad} onClick={() => setConfirm(true)}>
               Load last pushed as draft
             </button>
           ) : (
-            <div>
-              <p>
+            <>
+              <span>
                 This replaces {draft ? 'the existing local draft' : 'the editor content'} for this
                 tooltip. It does not save or push.
-              </p>
+              </span>
               <button type="button" disabled={!canLoad} onClick={loadDraft}>
                 Confirm load as draft
-              </button>{' '}
+              </button>
               <button type="button" onClick={() => setConfirm(false)}>
                 Cancel
               </button>
-            </div>
-          )}
-        </>
-      )}
+            </>
+          ))}
+      </div>
     </section>
   );
 });

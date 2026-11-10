@@ -146,21 +146,27 @@ export function enhancedRender(
  * are variants too, but they are not enhanced versions of anything and carry no enhanced mark.
  */
 export function isEnhancedPair(base: number, variant: number, data: EditorData): boolean {
-  if (isEnhancedPartPair(base, variant, data)) return true;
+  if (isEnhancedCategoryPair(base, variant, data)) return true;
   const type = legacyTypeOf(variant, data);
   const baseType = legacyTypeOf(base, data);
   return Boolean(type && baseType && type === `${baseType} Enhanced`);
 }
 
 /**
- * Enhanced weapon parts pair with their base like enhanced perks (owner 2026-11-09). The generator
- * files them as `weapon-perk-enhanced` with the shared "Weapon Trait Enhanced" export type, so the
- * type rule above cannot see the pair; the category ids can.
+ * Enhanced weapon parts and enhanced origin traits pair with their base like enhanced perks (owner
+ * 2026-11-09). The generator gives both the shared "Weapon Trait Enhanced" export type, so the type
+ * rule above cannot see the pair; the category ids can. Enhanced weapon mods stay separate (owner).
  */
-function isEnhancedPartPair(base: number, variant: number, data: EditorData): boolean {
+const enhancedCategoryPairs: Readonly<Record<string, string>> = {
+  'weapon-perk-enhanced': 'weapon-perk',
+  'weapon-trait-origin-enhanced': 'weapon-trait-origin',
+};
+function isEnhancedCategoryPair(base: number, variant: number, data: EditorData): boolean {
+  const variantCategory = data.items[variant]?.categoryId;
   return (
-    data.items[variant]?.categoryId === 'weapon-perk-enhanced' &&
-    data.items[base]?.categoryId === 'weapon-perk'
+    variantCategory !== undefined &&
+    variantCategory in enhancedCategoryPairs &&
+    data.items[base]?.categoryId === enhancedCategoryPairs[variantCategory]
   );
 }
 
@@ -182,13 +188,6 @@ export function isBlankCopy(base: number, variant: number, data: EditorData): bo
 /** Variants with text of their own that an "Edit override" can open; blank copies are left out. */
 export function editableOverrides(base: number, data: EditorData): number[] {
   return overrideVariants(base, data).filter((variant) => !isBlankCopy(base, variant, data));
-}
-
-/** Derived enhanced versions a maintainer can inspect as "Stored form". */
-export function storedFormVariants(base: number, data: EditorData): number[] {
-  return enhancedPairs(base, data).filter(
-    (variant) => variantForm(base, variant, data) === 'derived',
-  );
 }
 
 /** What the page previews next to the base: real enhanced pairs and editable overrides. */

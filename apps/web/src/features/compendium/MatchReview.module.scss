@@ -22,7 +22,7 @@
   input {
     font: inherit;
     padding: 0.55rem 0.7rem;
-    border: 1px solid #596478;
+    border: 1px solid var(--mr-edge);
     border-radius: 0.4rem;
     background: var(--ctl);
     color: var(--text);
@@ -45,7 +45,7 @@
   select:focus-visible,
   input:focus-visible,
   summary:focus-visible {
-    outline: 2px solid #87beff;
+    outline: 2px solid var(--mr-focus);
     outline-offset: 3px;
   }
   label {
@@ -106,13 +106,13 @@
   flex-wrap: wrap;
   gap: 0.5rem;
   margin-block: 0.5rem 0.75rem;
-  border-bottom: 1px solid #424e62;
+  border-bottom: 1px solid var(--mr-hair);
   a {
     display: inline-flex;
     align-items: center;
     box-sizing: border-box;
     padding: 0.45rem 0.8rem;
-    border: 1px solid #596478;
+    border: 1px solid var(--mr-edge);
     border-bottom: 0;
     border-radius: 0.4rem 0.4rem 0 0;
     color: var(--text);
@@ -123,7 +123,7 @@
     font-weight: 650;
   }
   a:focus-visible {
-    outline: 2px solid #87beff;
+    outline: 2px solid var(--mr-focus);
     outline-offset: 2px;
   }
 }
@@ -132,7 +132,7 @@
   summary {
     cursor: pointer;
     padding: 0.5rem 0.8rem;
-    border: 1px solid #66758b;
+    border: 1px solid var(--mr-edge-2);
     border-radius: 50%;
   }
   > div {
@@ -142,7 +142,7 @@
     background: var(--raised);
     padding: 1rem;
     z-index: 8;
-    border: 1px solid #66758b;
+    border: 1px solid var(--mr-edge-2);
   }
 }
 .progress {
@@ -154,7 +154,7 @@
   progress {
     flex: 1;
     height: 0.4rem;
-    accent-color: #91c7b2;
+    accent-color: var(--mr-accent);
   }
 }
 .filters {
@@ -173,7 +173,7 @@
 .notice {
   min-height: 1.2rem;
   margin: 0.8rem 0;
-  color: #aab8cc;
+  color: var(--mr-dim);
   font-size: 0.85rem;
 }
 .entryNav {
@@ -193,11 +193,11 @@
 }
 .card {
   contain: content;
-  color: #e2e5ee;
+  color: var(--mr-text);
   min-width: 0;
-  border: 1px solid #424e62;
+  border: 1px solid var(--mr-hair);
   border-radius: 0.6rem;
-  background: #1c2130;
+  background: var(--mr-panel);
   padding: 1.2rem;
   min-height: 0;
   overflow: auto;
@@ -207,14 +207,14 @@
   margin: 0 0 0.65rem;
   font-size: 0.75rem;
   letter-spacing: 0.04em;
-  color: #a9b9d0;
+  color: var(--mr-dim-2);
 }
 .manifestItem {
   content-visibility: auto;
   contain-intrinsic-size: auto 5rem;
   font-size: 0.9rem;
   small {
-    color: #a9b9d0;
+    color: var(--mr-dim-2);
   }
   pre {
     margin: 0.2rem 0 0.6rem;
@@ -250,31 +250,31 @@
   font-size: 0.95rem;
   line-height: 1.6;
   padding: 0.8rem;
-  background: #151a24;
-  border-left: 3px solid #91c7b2;
+  background: var(--mr-well);
+  border-left: 3px solid var(--mr-accent);
 }
 .context {
   margin-top: 1rem;
   font-size: 0.8rem;
   summary {
-    color: #a9b9d0;
+    color: var(--mr-dim-2);
     cursor: pointer;
     margin-bottom: 0.5rem;
   }
   > div {
     content-visibility: auto;
     contain-intrinsic-size: auto 5rem;
-    border-top: 1px solid #424e62;
+    border-top: 1px solid var(--mr-hair);
     padding: 0.45rem;
     white-space: pre-wrap;
   }
   small {
-    color: #a9b9d0;
+    color: var(--mr-dim-2);
     margin-right: 0.7rem;
   }
 }
 .actionBar {
-  color: #e2e5ee;
+  color: var(--mr-text);
   // Reserve a real flex row instead of covering the review cards. In particular,
   // an Inspect link must never share a pointer target with an approval button.
   position: static;
@@ -285,14 +285,14 @@
   flex-wrap: wrap;
   gap: 0.6rem;
   padding: 1rem;
-  background: #131923f5;
-  border-top: 1px solid #58667d;
-  box-shadow: 0 -8px 30px #0003;
+  background: var(--mr-bar);
+  border-top: 1px solid var(--mr-rule);
+  box-shadow: 0 -8px 30px var(--mr-lift);
 }
 .actionConsequence {
   flex: 1 0 100%;
   margin: 0;
-  color: #a9b9d0;
+  color: var(--mr-dim-2);
   font-size: 0.75rem;
   text-align: center;
 }
@@ -300,22 +300,22 @@
   min-height: max(44px, 2.75rem);
 }
 .review .primary {
-  background: #b6e3cd;
-  color: #14281f;
-  border-color: #b6e3cd;
+  background: var(--mr-on-bg);
+  color: var(--mr-on-text);
+  border-color: var(--mr-on-bg);
   font-weight: 650;
 }
 .overlay {
-  color: #e2e5ee;
+  color: var(--mr-text);
   position: fixed;
   inset: 2rem 2rem 2rem calc(17rem + 2rem);
   z-index: 9;
   padding: 1.4rem;
-  background: #1c2130;
-  border: 1px solid #8397b3;
+  background: var(--mr-panel);
+  border: 1px solid var(--mr-pop-edge);
   border-radius: 0.7rem;
   overflow: auto;
-  box-shadow: 0 0 0 100vmax #0009;
+  box-shadow: 0 0 0 100vmax var(--mr-scrim);
   header {
     display: flex;
     justify-content: space-between;
@@ -331,7 +331,7 @@
     contain: content;
     content-visibility: auto;
     contain-intrinsic-size: auto 30rem;
-    border-top: 1px solid #58667d;
+    border-top: 1px solid var(--mr-rule);
     padding: 1rem 0;
   }
 }
@@ -346,7 +346,7 @@
 }
 @media (max-width: 1100px) {
   .actionBar {
-    color: #e2e5ee;
+    color: var(--mr-text);
     justify-content: flex-start;
   }
   .review kbd {
@@ -399,13 +399,13 @@
     grid-template-rows: auto;
   }
   .card {
-    color: #e2e5ee;
+    color: var(--mr-text);
     height: auto;
     max-height: none;
     padding: 1rem;
   }
   .actionBar {
-    color: #e2e5ee;
+    color: var(--mr-text);
     justify-content: stretch;
     padding: 0.6rem 0.6rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
     gap: 0.35rem;
@@ -435,7 +435,7 @@
     flex-wrap: wrap;
   }
   .overlay {
-    color: #e2e5ee;
+    color: var(--mr-text);
     inset: 0.5rem 0.5rem calc(env(safe-area-inset-bottom, 0px) + 0.5rem);
     padding: 1rem;
   }

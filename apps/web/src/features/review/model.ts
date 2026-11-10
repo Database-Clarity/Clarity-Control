@@ -1,6 +1,6 @@
 import { resolveAlias, type Tooltip } from '@clarity/core';
 import { fingerprintDigests, prepareFingerprintWorker } from './fingerprints';
-import { useMarkerQueue } from './markerQueue';
+import { useReviewQueue } from './queueStore';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useAuthStore } from '../../stores/auth';
 import { allowBackgroundCode } from '../../workspacePreload';
@@ -51,9 +51,9 @@ export function sidebarChanges(entries: PendingTooltip[]): SidebarPendingChange[
   }
   return queue;
 }
-/** Hand the sidebar its rows and the marker-only count together. */
+/** Hand the left-column queue every pending entry (it groups and collapses marker-only itself). */
 export function publishSidebar(entries: PendingTooltip[], sidebar = useSidebarQueueStore.getState()) {
-  useMarkerQueue.getState().set(entries.filter(({ markerOnly }) => markerOnly).length);
+  useReviewQueue.getState().setEntries(entries);
   sidebar.setPendingChanges(sidebarChanges(entries));
 }
 function sameMarkers(a: Record<string, string>, b: Record<string, string>): boolean {

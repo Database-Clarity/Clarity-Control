@@ -135,6 +135,40 @@
   --sym-barrier: #e6a23c;
   --sym-overload: #4a85ff;
   --sym-unstoppable: #ff5d57;
+  // Compendium review, picker and diff pages (dark = their former raw colours); --sheet-* sit on the always-dark sheet
+  --mr-edge: #596478;
+  --mr-edge-2: #66758b;
+  --mr-rule: #58667d;
+  --mr-pop-edge: #8397b3;
+  --mr-hair: #424e62;
+  --mr-focus: #87beff;
+  --mr-accent: #91c7b2;
+  --mr-dim: #aab8cc;
+  --mr-dim-2: #a9b9d0;
+  --mr-text: #e2e5ee;
+  --mr-panel: #1c2130;
+  --mr-well: #151a24;
+  --mr-bar: #131923f5;
+  --mr-lift: #0003;
+  --mr-scrim: #0009;
+  --mr-on-bg: #b6e3cd;
+  --mr-on-text: #14281f;
+  --mr-stage-text: #ddd;
+  --mr-stage-scrim: #000b;
+  --style-edge: #e7c374;
+  --style-bg: #161923;
+  --style-text: #fff;
+  --swatch-edge: #fff;
+  --badge-warn-bg: #674d21;
+  --badge-warn-text: #fff;
+  --sheet-del-bg: #a52c3b66;
+  --sheet-del-line: #ff6b79;
+  --sheet-ins-bg: #23844066;
+  --sheet-ins-line: #76f49c;
+  --sheet-edge: #657080;
+  --sheet-anchor: #ffd98b;
+  --sheet-on: #245a40;
+  --sheet-ink: currentColor;
 }
 
 @mixin light-tokens {
@@ -264,6 +298,40 @@
   --sym-barrier: #b37411;
   --sym-overload: #2f62d9;
   --sym-unstoppable: #d63b37;
+  // Compendium review, picker and diff pages; --sheet-* sit on the always-dark sheet, so they keep their dark values
+  --mr-edge: var(--ctl-edge);
+  --mr-edge-2: var(--ctl-edge);
+  --mr-rule: var(--line);
+  --mr-pop-edge: var(--pop-edge);
+  --mr-hair: var(--line);
+  --mr-focus: var(--cyan-edge);
+  --mr-accent: var(--accent-ink);
+  --mr-dim: var(--text2);
+  --mr-dim-2: var(--text2);
+  --mr-text: var(--text);
+  --mr-panel: var(--raised);
+  --mr-well: var(--col);
+  --mr-bar: color-mix(in srgb, var(--raised) 96%, transparent);
+  --mr-lift: rgb(15 21 27 / 0.12);
+  --mr-scrim: var(--scrim);
+  --mr-on-bg: var(--pri-hover);
+  --mr-on-text: var(--pri-text);
+  --mr-stage-text: var(--text);
+  --mr-stage-scrim: var(--scrim);
+  --style-edge: var(--warn-edge);
+  --style-bg: var(--raised);
+  --style-text: var(--text);
+  --swatch-edge: var(--text);
+  --badge-warn-bg: var(--warn-bg);
+  --badge-warn-text: var(--warn);
+  --sheet-del-bg: #a52c3b66;
+  --sheet-del-line: #ff6b79;
+  --sheet-ins-bg: #23844066;
+  --sheet-ins-line: #76f49c;
+  --sheet-edge: #657080;
+  --sheet-anchor: #ffd98b;
+  --sheet-on: #245a40;
+  --sheet-ink: var(--sheet-text);
 }
 
 :root {

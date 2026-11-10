@@ -10,7 +10,6 @@ import {
   isBlankCopy,
   isEnhancedPair,
   previewedVariants,
-  storedFormVariants,
   variantForm,
   variantMatchesBase,
 } from './variants';
@@ -237,10 +236,6 @@ describe('enhanced pairs, override candidates and blank copies', () => {
     expect(editableOverrides(10, data)).toEqual([12, 15]);
   });
 
-  it('lists Stored form only for derived enhanced pairs', () => {
-    expect(storedFormVariants(10, data)).toEqual([11]);
-  });
-
   it('previews the enhanced pairs and editable overrides, not blank or identical copies', () => {
     expect(previewedVariants(10, data)).toEqual([11, 12, 15]);
   });
@@ -305,5 +300,53 @@ describe('enhanced weapon parts', () => {
     expect(enhancedPairs(50, data)).toEqual([]);
     expect(enhancedVariants(50, data)).toEqual([]);
     expect(isEnhancedPair(60, 61, data)).toBe(false);
+  });
+});
+
+describe('enhanced origin traits', () => {
+  const data = (): EditorData => {
+    const value = build(
+      [tip(2, { en: '' }), tip(3, { en: '' }), tip(70, { en: 'Origin' })],
+      {},
+      {
+        70: item(70, 'weapon-trait-origin'),
+        71: item(71, 'weapon-trait-origin-enhanced', { baseHash: 70 }),
+        80: item(80, 'weapon-mod'),
+        81: item(81, 'weapon-mod-enhanced', { baseHash: 80 }),
+      },
+    );
+    value.categories.push(
+      {
+        id: 'weapon-trait-origin',
+        label: 'O',
+        group: 'W',
+        order: 8,
+        legacyType: 'Weapon Trait Origin',
+      },
+      {
+        id: 'weapon-trait-origin-enhanced',
+        label: 'OE',
+        group: 'W',
+        order: 9,
+        legacyType: 'Weapon Trait Enhanced',
+      },
+      { id: 'weapon-mod', label: 'M', group: 'W', order: 10, legacyType: 'Weapon Mod' },
+      {
+        id: 'weapon-mod-enhanced',
+        label: 'ME',
+        group: 'W',
+        order: 11,
+        legacyType: 'Weapon Trait Enhanced',
+      },
+    );
+    return value;
+  };
+
+  it('pairs an enhanced origin trait with its base, and keeps enhanced weapon mods separate', () => {
+    const value = data();
+    expect(enhancedPairs(70, value)).toEqual([71]);
+    expect(enhancedPairs(71, value)).toEqual([71]);
+    expect(previewedVariants(70, value)).toEqual([71]);
+    expect(enhancedPairs(80, value)).toEqual([]);
   });
 });

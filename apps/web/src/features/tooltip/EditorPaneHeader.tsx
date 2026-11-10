@@ -1,7 +1,15 @@
+import { useEffect } from 'react';
 import { languages, langSchema, type Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { Popover } from '../../ui/Popover';
 import { EnhancedArrow } from '../../ui/EnhancedArrow';
+import {
+  loadSandboxPerkText,
+  sandboxPerkName,
+  sandboxPerkTextFailed,
+  useSandboxPerkText,
+} from '../manifest/manifestText';
+import type { GroupedPerk } from './grouping';
 import styles from './TooltipPage.module.scss';
 
 export interface OverrideTarget {
@@ -14,8 +22,8 @@ export const shortReason = (reason: string) => reason.split(':')[0].trim();
 
 /**
  * The 28px header above the editor: language, draft state, read-only reason, and the actions for
- * the enhanced version ("Stored form" for maintainers on derived versions; "Edit override" where
- * the enhanced version keeps text of its own). Everything is one line; flexible text ellipsises.
+ * the enhanced version ("Edit override" where it keeps text of its own), and for maintainers the
+ * manifest perks grouped into this entry. Everything is one line; flexible text ellipsises.
  */
 export function EditorPaneHeader({
   lang,
@@ -30,8 +38,9 @@ export function EditorPaneHeader({
   activeOverride,
   onEditOverride,
   onBack,
-  storedForms,
+  grouped,
   markupTools,
+  queue,
 }: {
   lang: Lang;
   onLanguage(lang: Lang): void;
@@ -47,10 +56,12 @@ export function EditorPaneHeader({
   activeOverride: OverrideTarget | undefined;
   onEditOverride(hash: number): void;
   onBack(): void;
-  /** Maintainers only: derived enhanced versions and their stored text. */
-  storedForms: { target: OverrideTarget; node: React.ReactNode }[];
+  /** Maintainers only: the manifest perks this editor entry covers; undefined hides the control. */
+  grouped?: GroupedPerk[];
   /** The button that shows and hides the markup row. */
   markupTools?: React.ReactNode;
+  /** Queue mode only: position, Previous, Next, and the way back to the Translations queue. */
+  queue?: React.ReactNode;
 }) {
   return (
     <>
@@ -112,18 +123,24 @@ export function EditorPaneHeader({
         </span>
       )}
       {markupTools}
+      {queue}
       <span className={styles.paneRight}>
-        {storedForms.map(({ target, node }) => (
+        {grouped && (
           <Popover
-            key={target.hash}
-            label={`Stored form${storedForms.length > 1 ? `: ${target.name}` : ''}`}
+            label="Grouped manifest perks"
             className={styles.ghost}
-            trigger={`Stored form${storedForms.length > 1 ? `: ${target.name}` : ''}`}
-            triggerTitle="What is stored for the enhanced version; it renders like the base text (read only)"
+            trigger={
+              <>
+                <span className={styles.groupedIcon} aria-hidden="true" />
+                <span className={styles.groupedWord}>Grouped </span>
+                {grouped.length}
+              </>
+            }
+            triggerTitle="Which manifest perks open this editor entry, and how each joined (maintainers)"
           >
-            {node}
+            <GroupedPerks perks={grouped} />
           </Popover>
-        ))}
+        )}
         {activeOverride ? (
           <button type="button" className={styles.ghost} onClick={onBack}>
             Back to base
@@ -142,5 +159,55 @@ export function EditorPaneHeader({
         )}
       </span>
     </>
+  );
+}
+
+/** The maintainer's read-only list: hash, in-game name, base or enhanced, and how it joined. */
+export function GroupedPerks({ perks }: { perks: GroupedPerk[] }) {
+  // Sandbox perks are not in the item catalog: their names come from the bundled sandbox perk
+  // text, loaded once when this list first opens.
+  const sandbox = useSandboxPerkText();
+  const unnamed = perks.some((perk) => !perk.name);
+  useEffect(() => {
+    if (unnamed) void loadSandboxPerkText();
+  }, [unnamed]);
+  const nameOf = (perk: GroupedPerk) => {
+    if (perk.name) return perk.name;
+    if (!sandbox) return <em>Loading name…</em>;
+    // A failed load leaves the text empty: that says nothing about the perk itself.
+    if (sandboxPerkTextFailed()) return <em>Name unavailable</em>;
+    // A sandbox alias comes from the manifest by construction; some definitions are blank.
+    const name = sandboxPerkName(perk.hash, sandbox);
+    if (name) return name;
+    if (name === undefined && perk.reason !== 'sandbox')
+      return <em>Not in the manifest catalog</em>;
+    return <em>Unnamed sandbox perk</em>;
+  };
+  return (
+    <ul className={styles.grouped}>
+      {perks.map((perk) => (
+        <li key={perk.hash} data-grouped={perk.hash}>
+          <code className={styles.groupedHash}>{perk.hash}</code>
+          <span className={styles.groupedName}>{nameOf(perk)}</span>
+          <span className={perk.enhanced ? styles.groupedEnhanced : styles.groupedBase}>
+            {perk.enhanced ? (
+              <>
+                <EnhancedArrow /> Enhanced
+              </>
+            ) : (
+              'Base'
+            )}
+          </span>
+          <span className={styles.groupedHow}>
+            {perk.how}
+            {perk.sharedBy && (
+              <span title={perk.sharedBy.join(', ')}>
+                {' · '}shared by {perk.sharedBy.length} owners
+              </span>
+            )}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }

@@ -234,20 +234,23 @@ describe('tooltip screen composition', () => {
     expect(previews[0]).toMatchObject({ icon: '/base.png' });
     expect(editors[0].readOnly).toBe(!apiUrl);
   });
-  it('keeps the one Compendium panel on the base, in English and translation workspaces', () => {
-    for (const [location, role] of [
-      ['/t/10', 'editor'],
-      ['/t/10?lang=fr', 'maintainer'],
-    ] as const) {
-      vi.mocked(CompendiumPanel).mockClear();
-      useAuthStore.setState({
-        user: { id: 1, login: 'alice', role, languages: ['fr'] },
-      });
-      const markup = render(location);
-      expect(vi.mocked(CompendiumPanel).mock.calls.map(([props]) => props.base)).toEqual([base]);
-      expect(markup).toContain('data-compendium-hash="10"');
-      expect(markup).not.toContain('data-compendium-hash="11"');
-    }
+  it('keeps the one Compendium panel on the base, and unmounted behind English in a translation', () => {
+    vi.mocked(CompendiumPanel).mockClear();
+    useAuthStore.setState({ user: { id: 1, login: 'alice', role: 'editor', languages: ['fr'] } });
+    const markup = render('/t/10');
+    expect(vi.mocked(CompendiumPanel).mock.calls.map(([props]) => props.base)).toEqual([base]);
+    expect(markup).toContain('data-compendium-hash="10"');
+    expect(markup).not.toContain('data-compendium-hash="11"');
+    // A translation shows English or the Compendium, English first: until its tab is opened the
+    // Compendium is not rendered, so it does no work (VariantWorkspace.tabs.test covers opening it).
+    vi.mocked(CompendiumPanel).mockClear();
+    useAuthStore.setState({
+      user: { id: 1, login: 'alice', role: 'maintainer', languages: ['fr'] },
+    });
+    const translation = render('/t/10?lang=fr');
+    expect(vi.mocked(CompendiumPanel)).not.toHaveBeenCalled();
+    expect(translation).not.toContain('data-compendium-hash');
+    expect(translation).toContain('>Compendium</button>');
   });
   it('keeps the editor and preview visible during a physical navigation hold', () => {
     useSteppingActivity.setState({ active: true });
@@ -386,14 +389,15 @@ describe('tooltip screen composition', () => {
     expect(previews[1].globals.type).toBe('Weapon Frame Enhanced');
     expect(markup).not.toContain('Edit override');
   });
-  it('offers no override for a blank copy, and Stored form only to maintainers on derived versions', () => {
+  it('offers no override for a blank copy, and the grouped perks only to maintainers', () => {
     const blank = tooltip(11, '');
     const derived = tooltip(11, base.text.en!.text);
-    for (const [variant, role, edit, stored] of [
+    for (const [variant, role, edit, grouped] of [
       [blank, 'editor', false, false],
       [derived, 'editor', false, false],
+      [derived, 'translator', false, false],
       [derived, 'maintainer', false, true],
-      [enhanced, 'maintainer', true, false],
+      [enhanced, 'maintainer', true, true],
     ] as const) {
       useAuthStore.setState({ user: { id: 1, login: 'alice', role } });
       useDataStore.setState({
@@ -404,7 +408,8 @@ describe('tooltip screen composition', () => {
       });
       const markup = render();
       expect(markup.includes('Edit override')).toBe(edit);
-      expect(markup.includes('Stored form')).toBe(stored);
+      expect(markup.includes('Stored form')).toBe(false);
+      expect(markup.includes('manifest perks open this editor entry')).toBe(grouped);
     }
   });
   it('composes one frame editor and projects shared imports into both editor and preview', () => {
