@@ -1,4 +1,4 @@
-import { useMemo, useState, type RefObject } from 'react';
+import { useEffect, useMemo, useState, type RefObject } from 'react';
 import type { EditorView } from '@codemirror/view';
 import type { MarkupGlobals } from '@clarity/core';
 import { Popover } from '../../../ui/Popover';
@@ -14,12 +14,14 @@ function AllList({
   usage,
   close,
   onResult,
+  docked,
 }: {
   view: RefObject<EditorView | null>;
   globals: MarkupGlobals;
   usage?: UsageCorpus;
   close(restoreFocus?: boolean): void;
   onResult(message: string): void;
+  docked: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [current, setCurrent] = useState<MarkupEntry | null>(null);
@@ -52,6 +54,19 @@ function AllList({
         .filter(({ entries: found }) => found.length),
     [entries, query],
   );
+  // Docked (a phone), Escape hands the caret back to the text, so the keyboard stays where the
+  // author was typing. The window listener runs before the popover's own (document) one.
+  useEffect(() => {
+    if (!docked) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      close(false);
+      view.current?.focus();
+    };
+    window.addEventListener('keydown', escape, true);
+    return () => window.removeEventListener('keydown', escape, true);
+  }, [docked, close, view]);
   const used = current?.usage && usage ? usage.count(current.usage) : undefined;
 
   function insert(entry: MarkupEntry) {
@@ -183,7 +198,14 @@ export function AllPopover({
       sheetFromTrigger={!docked}
     >
       {(close) => (
-        <AllList view={view} globals={globals} usage={usage} close={close} onResult={onResult} />
+        <AllList
+          view={view}
+          globals={globals}
+          usage={usage}
+          close={close}
+          onResult={onResult}
+          docked={docked}
+        />
       )}
     </Popover>
   );

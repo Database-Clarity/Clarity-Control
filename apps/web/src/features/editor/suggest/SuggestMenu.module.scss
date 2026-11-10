@@ -246,7 +246,24 @@
   }
   .detail {
     flex: 0 0 auto;
-    max-height: 7.5rem;
+    // Half the menu at most, so a short menu (the keyboard is open) still lists options; the
+    // detail scrolls instead, and its parts keep their height.
+    max-height: min(7.5rem, calc(var(--menu-max) / 2));
+    > * {
+      flex-shrink: 0;
+    }
+  }
+  .title {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  // The title repeats the selected option, which the list shows.
+  .menu[data-short] .detail > :not(.head),
+  .menu[data-short] .title {
+    display: none;
+  }
+  .menu[data-short] .detail {
+    max-height: none;
   }
   .markup {
     display: none;

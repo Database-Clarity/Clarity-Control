@@ -13,8 +13,8 @@ import { parseMarkup, type Lang, type MarkupGlobals } from '@clarity/core';
 import { MarkupSnippet } from '../../preview/TooltipPreview';
 import { acceptSuggestion, closeSuggest, moveSuggest, type SuggestSnapshot } from './state';
 import type { SuggestContext, SuggestItem } from './source';
-import { phoneQuery } from '../../../ui/useMedia';
-import { dockedBarHeight } from '../markupRow/dock';
+import { phoneQuery, useMedia } from '../../../ui/useMedia';
+import { dockedBarHeight, dockedTopChrome } from '../markupRow/dock';
 import type { UsageCorpus } from './usage';
 import styles from './SuggestMenu.module.scss';
 
@@ -52,7 +52,8 @@ function place(view: EditorView, context: SuggestContext, width: number): Placem
   // The caret line has scrolled out of the editor: the menu goes with it instead of floating on.
   if (!anchor || anchor.bottom <= scroller.top || anchor.top >= scroller.bottom) return null;
   const below = bottomEdge - anchor.bottom - gap - edge;
-  const above = anchor.top - gap - edge;
+  // With the bar docked (a phone), the sticky header and pane tabs cover the top: stay below them.
+  const above = anchor.top - gap - Math.max(edge, dockedTopChrome() + gap);
   const useBelow = below >= 240 || below >= above;
   const space = Math.max(120, Math.min(useBelow ? below : above, tallest));
   return {
@@ -145,6 +146,7 @@ export function SuggestMenu({
   const list = useRef<HTMLDivElement>(null);
   const [placement, setPlacement] = useState<Placement | null>(null);
   const [metrics, setMetrics] = useState<Metrics>(() => lastMetrics ?? expectedMetrics());
+  const phone = useMedia(phoneQuery);
   /** The lines drawn once the list has scrolled; until then it is the top of the list. */
   const [range, setRange] = useState<{ start: number; end: number } | null>(null);
   /** Where the list is scrolled to and how tall it is, kept here so nothing has to ask the layout. */
@@ -213,13 +215,29 @@ export function SuggestMenu({
         const option = height('[role=option]');
         // Scrolled deep into one category no heading is drawn: its known height stands.
         const heading = height('[data-suggest-heading]') || metrics.heading;
-        viewHeight.current = node.clientHeight;
         const next: Metrics =
           option === metrics.option && heading === metrics.heading
             ? metrics
             : option
               ? { option, heading }
               : 'all';
+        // A phone stacks the list over the detail in a short space: the list ends on a whole line
+        // instead of showing half of the next one. Measured here, after the menu has painted.
+        if (next !== 'all' && window.matchMedia?.(phoneQuery).matches) {
+          node.style.maxHeight = '';
+          const natural = node.clientHeight;
+          let fit = 0;
+          for (const row of rows) {
+            const end =
+              rowTop(row, next) +
+              (row.kind === 'option' ? next.option : next.heading) -
+              scrolled.current;
+            if (end > natural + 0.5) break;
+            if (end > 0 && row.kind === 'option') fit = end;
+          }
+          if (fit > 0 && natural - fit > 1) node.style.maxHeight = `${fit}px`;
+        }
+        viewHeight.current = node.clientHeight;
         lastMetrics = next;
         setMetrics(next);
       });
@@ -298,12 +316,16 @@ export function SuggestMenu({
   if (selectedRow < start || selectedRow >= end) drawn.push(rows[selectedRow]!);
   const above = rows[start]!;
   const note = snapshot.message ?? selected.unavailable;
+  // A phone with the keyboard open can leave room for only a few lines: the detail keeps its
+  // title and Close, and the options get the rest.
+  const short = phone && metrics !== 'all' && placement.maxHeight < metrics.option * 5;
   return createPortal(
     <div
       ref={surface}
       className={`${styles.menu} ${placement.above ? styles.above : ''}`}
       style={style}
       data-suggest-menu
+      data-short={short || undefined}
       // Pressing inside never takes focus from the editor, so the caret and selection stay put.
       onMouseDown={(event) => event.preventDefault()}
     >

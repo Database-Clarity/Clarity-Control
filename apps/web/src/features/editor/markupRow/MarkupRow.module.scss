@@ -119,9 +119,12 @@
   border-radius: 0.1875rem;
   cursor: pointer;
 
-  &:hover {
-    background: var(--ctl-hover);
-    border-color: var(--ctl-hover-edge);
+  // A tap leaves no stuck hover on a touch screen.
+  @media (hover: hover) {
+    &:hover {
+      background: var(--ctl-hover);
+      border-color: var(--ctl-hover-edge);
+    }
   }
   &:active {
     background: var(--ctl-pressed);
@@ -353,9 +356,12 @@
   border-radius: 0.1875rem;
   cursor: pointer;
 
-  &:hover {
-    background: var(--ctl-hover);
-    border-color: var(--ctl-hover-edge);
+  // A tap leaves no stuck hover on a touch screen.
+  @media (hover: hover) {
+    &:hover {
+      background: var(--ctl-hover);
+      border-color: var(--ctl-hover-edge);
+    }
   }
   &:focus-visible {
     @include controls.focus-ring;

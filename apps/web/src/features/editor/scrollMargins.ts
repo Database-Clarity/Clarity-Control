@@ -44,16 +44,33 @@ const coverSelector = '[data-editor-overlay], [data-notice-strip]';
  * page scrolls there), and the sticky header and pane tabs cover its top. Both come from heights
  * cached off the typing path (markupRow/dock.ts), never from the layout.
  */
-function dockMargins(): { top: number; bottom: number } | null {
+function dockMargins(view?: EditorView): { top: number; bottom: number } | null {
   const bar = dockedBarHeight();
   if (!bar) return null;
-  return { top: dockedTopChrome() + 8, bottom: bar + 8 };
+  return { top: dockedTopChrome() + 8, bottom: bar + Math.max(8, statusBelowEnd(view)) };
+}
+
+/**
+ * On the last line the editor's status bar sits right under the caret: the margin clears all of it
+ * rather than leaving its top edge peeking over the docked bar. Read in CodeMirror's measure phase
+ * (the layout is clean), and only while the caret is on the last line.
+ */
+function statusBelowEnd(view?: EditorView): number {
+  if (!view) return 0;
+  const { doc, selection } = view.state;
+  if (doc.lineAt(selection.main.head).number !== doc.lines) return 0;
+  const status = view.dom
+    .closest('[data-docked]')
+    ?.querySelector<HTMLElement>('[data-editor-status]');
+  if (!status?.offsetHeight) return 0;
+  const end = view.documentTop + view.lineBlockAt(doc.length).bottom;
+  return Math.max(0, status.getBoundingClientRect().bottom - end);
 }
 
 /** Keeps the caret clear of the editor's own overlays, the shell's notice strip, and the docked bar. */
 export function editorScrollMargins() {
   return EditorView.scrollMargins.of((view) => {
-    const dock = dockMargins();
+    const dock = dockMargins(view);
     const overlays = [...document.querySelectorAll<HTMLElement>(coverSelector)].filter(
       (element) => !element.hasAttribute('data-editor-overlay') || isOver(element, view),
     );

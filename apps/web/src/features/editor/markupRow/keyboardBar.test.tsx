@@ -202,6 +202,19 @@ describe('the docked keyboard bar', () => {
     act(() => all.dispatchEvent(new MouseEvent('click', { bubbles: true })));
   });
 
+  it('hands the caret back to the text on Escape in the docked All sheet', () => {
+    const view = mount();
+    const all = bar()!.querySelector<HTMLButtonElement>('button[aria-haspopup]')!;
+    act(() => all.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    const filter = document.body.querySelector<HTMLInputElement>('[aria-label="Filter markup"]')!;
+    act(() => {
+      filter.focus();
+      filter.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(document.body.querySelector('[role=dialog][aria-label="All markup"]')).toBeNull();
+    expect(document.activeElement).toBe(view.contentDOM);
+  });
+
   it('shows the bar on an empty text', () => {
     mount({ value: '' });
     expect(bar()?.hasAttribute('data-docked')).toBe(true);
