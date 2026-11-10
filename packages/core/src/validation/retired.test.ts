@@ -107,6 +107,18 @@ describe('parser-truth detection and verified edits', () => {
     ]) expect(findRetiredMarkup(source).map((x) => x.name).sort(), source).toEqual(oracle(source));
   });
 
+  it('bounds unmapped findings to the containing source line or table', () => {
+    for (const name of names) {
+      const source = `Before\n<${name}>x\nAfter`;
+      const finding = findRetiredMarkup(source)[0]!;
+      expect(finding).toMatchObject({ from: 7, to: 7 + `<${name}>x`.length, source: `<${name}>x` });
+    }
+    const table = '< table >\n|c Value\n<$>';
+    const source = `Before\n${table}\nAfter`;
+    expect(findRetiredMarkup(source).find((item) => item.name === 'center'))
+      .toMatchObject({ from: 7, to: 7 + table.length, source: table });
+  });
+
   it('has bidirectional parity over 512 generated mixes', () => {
     let seed = 0x1e71eed;
     const random = (n: number) => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed % n; };

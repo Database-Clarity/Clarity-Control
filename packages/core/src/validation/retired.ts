@@ -375,6 +375,29 @@ function verifyFix(source: string, occurrence: RetiredOccurrence, fix: RetiredFi
   return undefined;
 }
 
+/** Locate a containing source block without using its syntax as the detection predicate. */
+function fallbackBlock(source: string, name: string, count: number): { from: number; to: number; source: string } {
+  const { text, offsets } = markupCommentContext(source);
+  const tables = [...text.matchAll(/< table [\s\S]*?\n<\$>/g)].map((match) => ({
+    from: offsets[match.index!]!, to: offsets[match.index! + match[0].length - 1]! + 1,
+  }));
+  const blocks = [...tables];
+  let at = 0;
+  for (const line of source.split('\n')) {
+    const to = at + line.length;
+    if (!tables.some((table) => at < table.to && to > table.from)) blocks.push({ from: at, to });
+    at = to + 1;
+  }
+  // Removing the block must remove a real parser finding. This also locates local variable
+  // declarations and title bodies without a second implementation of their expansion rules.
+  const block = blocks.find(({ from, to }) =>
+    parserNames(parseMarkup(source.slice(0, from) + source.slice(to)).lines)
+      .filter((value) => value === name).length < count,
+  ) ?? blocks.find(({ from, to }) => source.slice(from, to).includes(name)) ?? blocks[0]
+    ?? { from: 0, to: source.length };
+  return { ...block, source: source.slice(block.from, block.to) };
+}
+
 /** Recognition comes exclusively from the production pipeline; regexes only place source edits. */
 export function findRetiredMarkup(source: string): RetiredOccurrence[] {
   const names = parserNames(parseMarkup(source).lines);
@@ -388,7 +411,7 @@ export function findRetiredMarkup(source: string): RetiredOccurrence[] {
     const candidate = index < 0 ? undefined : candidates.splice(index, 1)[0];
     found.push(candidate ?? {
       kind: name === 'table' ? 'table' : 'wrapper', name, token: noun(name),
-      source, from: 0, to: source.length,
+      ...fallbackBlock(source, name, count),
       message: retired(noun(name), 'Fix by hand: an exact source token could not be mapped.'),
       fixes: [], refusalReason: 'An exact source token could not be mapped.',
     });
@@ -399,12 +422,13 @@ export function findRetiredMarkup(source: string): RetiredOccurrence[] {
     if (name === 'enhanced') return;
     const from = source.indexOf(block);
     const mapped = from >= 0 && source.lastIndexOf(block) === from;
-    const end = mapped ? from + block.length : source.length;
+    const rangeFrom = Math.max(0, from);
+    const end = from >= 0 ? from + block.length : Math.max(0, source.indexOf('\n'));
     const openEnd = from + block.indexOf('\n');
     const closeFrom = from + block.lastIndexOf('\n');
     found.push({
-      kind: 'condition', name, token: `${name} ( … )`, source: mapped ? block : source,
-      from: mapped ? from : 0, to: end,
+      kind: 'condition', name, token: `${name} ( … )`, source: source.slice(rangeFrom, end),
+      from: rangeFrom, to: end,
       message: retired(`${name} ( … )`, 'Keep its contents, or fix by hand.'),
       fixes: mapped ? [{ id: 'keep-contents', label: 'Keep contents', structural: true, edits: [
         { from, to: openEnd + 1, insert: '' }, { from: closeFrom, to: end, insert: '' },
