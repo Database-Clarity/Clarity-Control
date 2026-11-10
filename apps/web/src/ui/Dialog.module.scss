@@ -117,30 +117,41 @@
     }
   }
 
+  // The sheet rules (phone spec item 9 and the grid rules): a var(--bar) header with a bold
+  // var(--ctl-text) title, and one 8px page edge (--page-x) for the header, body, and footer.
   .header,
   .footer {
     position: sticky;
     z-index: 1;
     flex: none;
     background: var(--raised);
-    padding: 0.5rem 0.75rem;
+    padding: 0.25rem var(--page-x);
   }
 
   .header {
     top: 0;
     align-items: center;
+    min-height: var(--bar);
+    box-sizing: border-box;
+    padding-block: 0;
     border-bottom: 1px solid var(--line);
+
+    h2 {
+      margin: 0;
+      font-size: var(--ctl-text);
+      font-weight: 700;
+    }
   }
 
   .body {
     flex: 1 0 auto;
-    padding: 0.75rem;
+    padding: 0.5rem var(--page-x);
   }
 
   .footer {
     bottom: 0;
     margin-top: 0;
-    padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(0.25rem + env(safe-area-inset-bottom, 0px));
     border-top: 1px solid var(--line);
   }
 }

@@ -1,5 +1,6 @@
 @use '../../data/variables' as theme;
 @use '../../ui/controls';
+@use '../../ui/stepper';
 
 // Keep Kana on the same installed face Chromium chooses for these sheet glyphs,
 // with an explicit range so Latin text retains the sheet's Arial metrics.
@@ -19,6 +20,20 @@
 // ---- the editor page's Compendium pane (header and scroll live in ui/RightPane) ----
 .pane {
   contain: layout style;
+  // Phone: the control row is a bar on the page edge; Link row leads on the left, the colours
+  // toggle and the zoom stepper end on the right (RightPane's header is the pane's first group).
+  @include theme.mobile {
+    > [role='group'] {
+      min-height: var(--bar);
+      > :last-child {
+        flex: 1 1 auto;
+        gap: 4px;
+      }
+    }
+    .headerButton {
+      margin-right: auto;
+    }
+  }
 }
 .skeletonCell {
   --sk-bg: var(--sheet-bg);
@@ -231,6 +246,20 @@
     font-size: 0.75rem;
     font-variant-numeric: tabular-nums;
     color: var(--text2);
+  }
+  // Touch: one joined stepper `[−][100%][+]`, the same look as the queue and the finder.
+  @include theme.mobile-or-coarse {
+    @include stepper.group;
+    button,
+    output {
+      @include stepper.segment;
+    }
+    button {
+      @include stepper.arrow;
+    }
+    output {
+      min-width: 3.5rem;
+    }
   }
 }
 .cell {

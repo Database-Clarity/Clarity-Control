@@ -188,7 +188,8 @@
     height: 0;
     padding: 0 0.875rem 0 0.5rem;
     @include theme.mobile {
-      top: calc(var(--header-h, 3rem) + max(44px, 2.75rem));
+      // Under the phone header (var(--bar)) and the pane switch (var(--tap)), both sticky.
+      top: calc(var(--bar) + var(--tap));
     }
     font-family: inherit;
     font-size: 0.8125rem;
