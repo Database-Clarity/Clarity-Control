@@ -69,6 +69,8 @@ function place(view: EditorView, context: SuggestContext, width: number): Placem
 interface Row {
   kind: 'heading' | 'divider' | 'option';
   text: string;
+  /** Which part of the list starts here, said before the category. */
+  part?: string;
   /** The option's index in the snapshot. */
   index: number;
   options: number;
@@ -80,17 +82,18 @@ function listRows(items: readonly SuggestItem[]): { rows: Row[]; rowOf: number[]
   const rowOf: number[] = [];
   let options = 0;
   let headings = 0;
-  const heading = (kind: 'heading' | 'divider', text: string) => {
-    rows.push({ kind, text, index: -1, options, headings });
+  const heading = (kind: 'heading' | 'divider', text: string, part?: string) => {
+    rows.push({ kind, text, part, index: -1, options, headings });
     headings += 1;
   };
   for (const [index, item] of items.entries()) {
     const before = items[index - 1];
     // The options this spot calls for sit above a divider; everything else follows it.
     const leavesPinned = before?.pinned && !item.pinned;
-    if (leavesPinned) heading('divider', 'Other options');
-    if (!before || leavesPinned || before.category !== item.category)
-      heading('heading', item.category);
+    // Each part is named on its first heading, so the two never stack as two lines.
+    if (leavesPinned) heading('divider', item.category, 'Other options');
+    else if (!before && item.pinned) heading('heading', item.category, 'Fits here');
+    else if (!before || before.category !== item.category) heading('heading', item.category);
     rowOf.push(rows.length);
     rows.push({ kind: 'option', text: item.label, index, options, headings });
     options += 1;
@@ -334,6 +337,7 @@ export function SuggestMenu({
                   className={`${styles.category} ${row.kind === 'divider' ? styles.divider : ''}`}
                   role="presentation"
                   data-suggest-heading={row.kind}
+                  data-part={row.part}
                 >
                   {row.text}
                 </div>
@@ -376,6 +380,17 @@ export function SuggestMenu({
             Close
           </button>
         </div>
+        {note && (
+          // First under the name, so a short phone sheet never scrolls the reason out of view. Announced
+          // once Enter was refused; before that it is the reason the option is greyed.
+          <p
+            className={styles.note}
+            role={snapshot.message ? 'alert' : undefined}
+            data-suggest-note
+          >
+            {note}
+          </p>
+        )}
         {selected.insert && (
           <pre className={styles.markup} lang={undefined}>
             {selected.insert}
@@ -392,16 +407,6 @@ export function SuggestMenu({
             {used === 0
               ? 'Not used in any tooltip yet'
               : `Used in ${new Intl.NumberFormat().format(used)} ${used === 1 ? 'tooltip' : 'tooltips'}`}
-          </p>
-        )}
-        {note && (
-          // Announced once Enter was refused; before that it is the reason the option is greyed.
-          <p
-            className={styles.note}
-            role={snapshot.message ? 'alert' : undefined}
-            data-suggest-note
-          >
-            {note}
           </p>
         )}
         <p className={styles.keys}>↑↓ choose · Enter or Tab inserts · Esc closes</p>

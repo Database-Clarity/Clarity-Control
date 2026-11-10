@@ -73,6 +73,12 @@
   color: var(--text3);
 }
 
+// The first heading of each part names the part: what fits here, then everything else.
+.category[data-part]::before {
+  content: attr(data-part) ' · ';
+  color: var(--text2);
+}
+
 // Between the options this spot calls for and everything else.
 .divider {
   border-top: 1px solid var(--hair);
