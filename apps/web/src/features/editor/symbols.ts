@@ -16,7 +16,8 @@ import {
   type DecorationSet,
   type Tooltip,
 } from '@codemirror/view';
-import { markupIcons, markupRetiredColors } from '@clarity/core';
+import { findRetiredMarkup, markupIcons, markupRetiredColors, type RetiredOccurrence } from '@clarity/core';
+import { hasDiagnosticWorker, requestDiagnostics } from './diagnosticWorker';
 import previewStyles from '../preview/TooltipPreview.module.scss';
 import type { SymbolReveal } from '../../stores/settings';
 
@@ -396,24 +397,47 @@ function popoverDom(view: EditorView, popover: Popover) {
     }
     if (popover.source === 'selected' && !view.state.readOnly) {
       if (tag && retired) {
-        // The same two fixes as the status bar's list, in the same order.
-        const fixes: [string, () => void][] = [
-          ['Remove tag (keep the text)', () => removeTag(view, tag)],
-          ['Change to yellow', () => retagTag(view, tag, 'yellow')],
-        ];
-        for (const [label, run] of fixes) {
-          const button = document.createElement('button');
-          button.type = 'button';
-          button.className = 'cm-symbol-fix';
-          button.textContent = label;
-          // A click must not take focus from the text: the fix keeps the caret in the editor.
-          button.addEventListener('mousedown', (event) => event.preventDefault());
-          button.addEventListener('click', () => {
-            run();
-            view.focus();
-          });
-          dom.append(button);
-        }
+        const actions = document.createComment('verified retired fixes');
+        dom.append(actions);
+        const actionNodes: HTMLElement[] = [];
+        const text = view.state.doc.toString();
+        const populate = (occurrence: RetiredOccurrence | undefined) => {
+          for (const node of actionNodes.splice(0)) node.remove();
+          const reasons = occurrence?.manualFixes?.map((fix) => `${fix.label}: ${fix.reason}`)
+            ?? [occurrence?.refusalReason ?? 'An exact source token could not be mapped.'];
+          for (const fix of occurrence?.fixes ?? []) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'cm-symbol-fix';
+            button.textContent = fix.label;
+            button.addEventListener('mousedown', (event) => event.preventDefault());
+            button.addEventListener('click', () => {
+              const live = findRetiredMarkup(view.state.doc.toString())
+                .find((item) => item.from === tag.from && item.to === tag.to)
+                ?.fixes.find((item) => item.id === fix.id);
+              if (live) view.dispatch({ changes: live.edits, effects: pinTag.of(false) });
+              view.focus();
+            });
+            dom.insertBefore(button, actions);
+            actionNodes.push(button);
+          }
+          if (reasons.length) {
+            const manual = document.createElement('span');
+            manual.className = 'cm-symbol-hint';
+            manual.textContent = `Fix by hand: ${reasons.join(' ')}`;
+            dom.insertBefore(manual, actions);
+            actionNodes.push(manual);
+          }
+        };
+        if (hasDiagnosticWorker()) {
+          void requestDiagnostics({ text, lang: 'en', globals: { variables: '', titles: '' }, requireEnglish: false })
+            .then((result) => {
+              if (actions.isConnected && view.state.doc.toString() === text)
+                populate(result.retired.find((item) => item.from === tag.from && item.to === tag.to));
+            }, () => {
+              if (actions.isConnected) populate(undefined);
+            });
+        } else populate(findRetiredMarkup(text).find((item) => item.from === tag.from && item.to === tag.to));
       }
       const hint = document.createElement('span');
       hint.className = 'cm-symbol-hint';
@@ -527,19 +551,6 @@ function removeTag(view: EditorView, tag: TagRange, effects: readonly StateEffec
     ],
     selection: { anchor: tag.from, head: tag.closeFrom - (tag.openTo - tag.from) },
     effects,
-  });
-}
-
-/** Renames a colour tag in place (retired colour to yellow); the text it encloses stays selected. */
-function retagTag(view: EditorView, tag: TagRange, name: string) {
-  const next = `<${name} `;
-  view.dispatch({
-    changes: { from: tag.from, to: tag.openTo, insert: next },
-    selection: {
-      anchor: tag.from + next.length,
-      head: tag.closeFrom - (tag.openTo - tag.from) + next.length,
-    },
-    effects: pinTag.of(true),
   });
 }
 
