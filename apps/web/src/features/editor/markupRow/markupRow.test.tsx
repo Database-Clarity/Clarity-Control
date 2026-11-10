@@ -130,8 +130,8 @@ describe('the markup row catalogue', () => {
       'inline:bold',
       'inline:yellow',
     ]);
-    expect(markupIcons).toHaveLength(15);
-    expect(rowOrder.filter((id) => id.startsWith('icon:'))).toHaveLength(15);
+    expect(markupIcons).toHaveLength(16);
+    expect(rowOrder.filter((id) => id.startsWith('icon:'))).toHaveLength(16);
   });
 
   it('offers separate PvE and PvP tags next to the pair preset, and no tables anywhere', () => {
