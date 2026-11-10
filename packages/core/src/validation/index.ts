@@ -34,8 +34,8 @@ export interface ValidationReads {
   lang: Lang;
   /** Actual catalogue keys, including missing targets, with aliases resolved. */
   imports: ReadonlyMap<string, number>;
-  /** Authored text, global title bodies, and every document the resolver read. */
-  sources: ReadonlySet<string>;
+  /** Actual variable lookups, including missing names and local/global clash checks. */
+  variables: ReadonlySet<string>;
 }
 
 /** Observe the real validator, including title preparation and mid-line import splices. */
@@ -48,14 +48,13 @@ export function validateTextWithReads(
   aliases: Aliases,
 ): { issues: ValidationIssue[]; reads: ValidationReads } {
   const imports = new Map<string, number>();
-  const sources = new Set([text, globals.titles]);
+  const variables = new Set<string>();
   const catalog = new Proxy(globals.imports ?? {}, {
     get(target, key, receiver) {
       const value: unknown = Reflect.get(target, key, receiver);
       if (typeof key === 'string') {
         const hash = key === 'global' ? 1 : Number(key);
         if (Number.isInteger(hash)) imports.set(key, resolveAlias(hash, aliases));
-        if (typeof value === 'string') sources.add(value);
       }
       return value;
     },
@@ -63,11 +62,11 @@ export function validateTextWithReads(
   const issues = validateText(
     text,
     lang,
-    { ...globals, imports: catalog },
+    { ...globals, imports: catalog, onVariable: (name) => variables.add(name) },
     requireEnglish,
     selfHash,
   );
-  return { issues, reads: { lang, imports, sources } };
+  return { issues, reads: { lang, imports, variables } };
 }
 
 export function validateText(

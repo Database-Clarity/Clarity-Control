@@ -580,4 +580,59 @@ describe('reverse dependents outside the batch', () => {
       ),
     ).toContainEqual(expect.objectContaining({ hash: 123 }));
   });
+
+  for (const inBatch of [false, true]) {
+    it.each([
+      ['S1', 'enhanced (\nx\n)\ntitle T (\n#fo#eo\n)'],
+      ['S2', 'title T (\n#foimport x from 5\nimport x from 5\n)'],
+    ])(
+      'records the real global-variable read after expansion (%s), in batch: ' + inBatch,
+      (_probe, text) => {
+        const data = editorData();
+        const variables = doc(2, 'var foo = Bar');
+        const dependent = doc(123, text);
+        Object.assign(data.bundle.tooltips, {
+          2: variables,
+          5: doc(5, hidden('x', 'o')),
+          9: doc(9, 'No exports'),
+          123: dependent,
+        });
+        expect(
+          validateChanges(
+            [
+              {
+                hash: 123,
+                base: dependent,
+                next: { ...dependent, associated: [30] },
+              },
+            ],
+            data,
+          ),
+        ).toEqual([]);
+        const changes = [
+          { hash: 2, base: variables, next: doc(2, 'var foo = import y from 9') },
+          ...(inBatch
+            ? [{ hash: 123, base: dependent, next: { ...dependent, associated: [30] } }]
+            : []),
+        ];
+        expect(errors(validateChanges(changes, data))).toContainEqual(
+          expect.objectContaining({
+            hash: 123,
+            message: expect.stringContaining('Unresolved import "y" from 9.'),
+          }),
+        );
+      },
+    );
+  }
+  it('keeps an unrelated global-variable change from blocking text that reads another variable', () => {
+    const data = editorData();
+    const variables = doc(2, 'var used = Fine\nvar unused = One');
+    const dependent = doc(123, '#used\nimport bad from 999');
+    Object.assign(data.bundle.tooltips, { 2: variables, 123: dependent });
+    const changes = [
+      { hash: 2, base: variables, next: doc(2, 'var used = Fine\nvar unused = Two') },
+      { hash: 123, base: dependent, next: { ...dependent, associated: [30] } },
+    ];
+    expect(errors(validateChanges(changes, data))).toEqual([]);
+  });
 });

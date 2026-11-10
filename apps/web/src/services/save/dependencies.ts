@@ -1,5 +1,4 @@
 import {
-  extractBlocks,
   extractVariables,
   languages,
   resolveAlias,
@@ -58,14 +57,11 @@ export function saveDependencies(
       const newText = after[hash]?.text[lang]?.text ?? '';
       if (oldText === newText) continue;
       documents.set(hash, `"${data.items[hash]?.name ?? `Tooltip ${hash}`}" (${hash})`);
-      const kind = hash === 2 ? 'variable' : 'title';
-      const definitions =
-        hash === 2 ? extractVariables : (text: string) => extractBlocks(text, 'title');
-      if (hash === 2 || hash === 3) {
+      if (hash === 2) {
         globals.push(
-          ...changedNames(definitions(oldText), definitions(newText)).map((name) => ({
+          ...changedNames(extractVariables(oldText), extractVariables(newText)).map((name) => ({
             name,
-            label: `the global ${kind} "${name}"`,
+            label: `the global variable "${name}"`,
           })),
         );
       }
@@ -82,7 +78,7 @@ export function saveDependencies(
     // Every global title body is prepared for every text, even when its title is not used.
     if (documents.has(3)) return documents.get(3);
     for (const { name, label } of names.get(reads.lang)!) {
-      if ([...reads.sources].some((source) => source.includes(name))) return label;
+      if (reads.variables.has(name)) return label;
     }
     return undefined;
   };
@@ -117,7 +113,7 @@ export function saveDependencies(
           if (!users) index.set(target, (users = new Set()));
           users.add(dependent);
         }
-        // Global names are not catalogue lookups. Check mentions in the same recorded sources.
+        // Global variables are name lookups observed by the same real validation run.
         if (affectedBy({ ...validation.reads, imports: new Map() })) dependents.add(dependent);
       }
       for (const hash of documents.keys()) {

@@ -146,6 +146,30 @@ describe('recorded validation reads', () => {
         10,
       ),
     );
-    expect(recorded.reads.sources.has('Shared')).toBe(true);
+  });
+  it.each([
+    'enhanced (\nx\n)\ntitle T (\n#fo#eo\n)',
+    'title T (\n#foimport x from 5\nimport x from 5\n)',
+  ])('observes synthesized variable lookups without changing diagnostics: %s', (text) => {
+    const globals = {
+      variables: 'var foo = import y from 9',
+      titles: '',
+      imports: { '5': 'export hidden x (\no\n)', '9': 'No exports' },
+    };
+    const recorded = validateTextWithReads(text, 'en', globals, false, 10, {});
+    expect([...recorded.reads.variables]).toContain('foo');
+    expect(recorded.reads.imports.has('9')).toBe(true);
+    expect(recorded.issues).toEqual(validateText(text, 'en', globals, false, 10));
+  });
+  it('records missing variable names and local declarations even without a reference', () => {
+    const recorded = validateTextWithReads(
+      'var local = Value\n#missing',
+      'en',
+      { variables: '', titles: '' },
+      false,
+      10,
+      {},
+    );
+    expect([...recorded.reads.variables]).toEqual(expect.arrayContaining(['missing', 'local']));
   });
 });

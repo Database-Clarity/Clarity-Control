@@ -137,6 +137,7 @@ export function prepareMarkup(
   // Preserve the converter's one-pass, declaration-order expansion and global precedence.
   for (const variable of markupVariableReferences(text)) {
     const variables = { ...extractVariables(text), ...extractVariables(globals.variables) };
+    globals.onVariable?.(variable.slice(1));
     const value = variables[variable.slice(1)];
     if (value !== undefined) text = text.replaceAll(variable, value);
   }
