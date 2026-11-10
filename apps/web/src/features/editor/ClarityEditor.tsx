@@ -56,6 +56,8 @@ import {
   type PreviewStatus,
   type StatusPanel,
 } from './StatusBar';
+import { WorkingDiffPanel } from './WorkingDiffPanel';
+import { fieldsChanged, textChanged, type WorkingDiffSource } from './workingDiff';
 import { CompareView, type CompareData } from '../conflicts/CompareView';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import {
@@ -99,6 +101,11 @@ export interface ClarityEditorProps {
    * mine and theirs from the marker block itself.
    */
   conflictSource?: CompareData;
+  /**
+   * The saved version and the work in progress, for the status bar's Changes view (Ctrl+K, D).
+   * Without it (archive pages, stored forms) the bar has no Changes item.
+   */
+  workingDiff?: WorkingDiffSource;
   /** Hash of the tooltip being edited; definitions inside it are selected, not navigated to. */
   tooltipHash?: number;
   /** Where every tooltip's text lives, for hover previews and go-to-definition across tooltips. */
@@ -156,6 +163,7 @@ export function ClarityEditor({
   preview,
   markupRow = false,
   conflictSource,
+  workingDiff,
   tooltipHash,
   referenceSources,
   onOpenTooltip,
@@ -181,6 +189,53 @@ export function ClarityEditor({
   panelOpen.current = panel !== null;
   const closePanel = useRef(() => setPanel(null));
   const closeAndFocus = () => setPanel(null);
+  // The Changes view. Closed, it costs one string comparison per render (is anything unsaved?);
+  // the comparison itself runs only inside the open panel. The other fields keep their object
+  // identity while typing, so they are compared again only when one of them is edited.
+  const savedVersion = workingDiff?.saved;
+  const workingVersion = workingDiff?.current;
+  const otherFieldsChanged = useMemo(
+    () =>
+      fieldsChanged(
+        {
+          associated: savedVersion?.associated ?? [],
+          custom: savedVersion?.custom,
+          archive: savedVersion?.archive,
+          compendium: savedVersion?.compendium,
+        },
+        {
+          associated: workingVersion?.associated ?? [],
+          custom: workingVersion?.custom,
+          archive: workingVersion?.archive,
+          compendium: workingVersion?.compendium,
+        },
+      ),
+    [
+      savedVersion?.associated,
+      savedVersion?.custom,
+      savedVersion?.archive,
+      savedVersion?.compendium,
+      workingVersion?.associated,
+      workingVersion?.custom,
+      workingVersion?.archive,
+      workingVersion?.compendium,
+    ],
+  );
+  const changed =
+    savedVersion !== undefined &&
+    workingVersion !== undefined &&
+    savedVersion !== workingVersion &&
+    (textChanged(savedVersion, workingVersion, lang) || otherFieldsChanged);
+  const diffLive = useRef({ panel, changed, available: workingDiff !== undefined });
+  diffLive.current = { panel, changed, available: workingDiff !== undefined };
+  /** Ctrl+K, D: the same as the bar's Changes item (which does nothing while nothing changed). */
+  const toggleDiff = useRef(() => {
+    const now = diffLive.current;
+    if (!now.available) return false;
+    if (now.panel === 'diff') setPanel(null);
+    else if (now.changed) setPanel('diff');
+    return true;
+  });
   const [suggestion, setSuggestion] = useState<SuggestSnapshot | null>(null);
   const onSuggest = useRef((snapshot: SuggestSnapshot | null) => setSuggestion(snapshot));
   const [chip, setChip] = useState<Chip | null>(null);
@@ -332,6 +387,11 @@ export function ClarityEditor({
     callback.current = onChange;
   }, [onChange]);
   useLayoutEffect(() => {
+    // Stepping to another entry closes the Changes view at the first step, so it never shows
+    // the previous entry's changes beside a new entry's name. Closed, this does nothing.
+    if (stepping && diffLive.current.panel === 'diff') setPanel(null);
+  }, [stepping]);
+  useLayoutEffect(() => {
     const editor = view.current;
     if (!editor) return;
     if (stepping) {
@@ -431,6 +491,9 @@ export function ClarityEditor({
             return true;
           },
         },
+        // VS Code's "Compare with Saved". Ctrl may stay held for the D, as with Ctrl+K Ctrl+I.
+        { key: 'Mod-k d', run: () => toggleDiff.current() },
+        { key: 'Mod-k Mod-d', run: () => toggleDiff.current() },
         { key: 'ScrollLock', run: format },
         { key: 'Mod-Shift-f', run: format },
         { key: 'Mod-/', run: toggleComment },
@@ -687,6 +750,14 @@ export function ClarityEditor({
           />
         )}
         {open === 'help' && <HelpPanel issues={issues} onClose={closeAndFocus} />}
+        {open === 'diff' && workingDiff && (
+          <WorkingDiffPanel
+            key={`${tooltipHash}:${lang}`}
+            source={workingDiff}
+            lang={lang}
+            onClose={closeAndFocus}
+          />
+        )}
         {open === 'conflicts' && (
           <ConflictPanel
             index={Math.min(conflictIndex, conflictCount - 1)}
@@ -750,6 +821,7 @@ export function ClarityEditor({
               }
             : undefined
         }
+        changes={workingDiff ? changed : undefined}
         panel={open}
         onPanel={setPanel}
         onSuggest={readOnly ? undefined : () => view.current && openSuggest(view.current)}

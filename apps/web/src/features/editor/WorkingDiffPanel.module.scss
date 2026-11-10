@@ -1,0 +1,28 @@
+// The Changes view inside the status bar's upward panel: the History diff renderer as it is, drawn
+// straight on the panel surface (its own backdrop would be a box inside a box). The panel caption
+// already names the language, so the renderer's heading is kept for assistive technology (the
+// section label) and not drawn a second time.
+.body {
+  --diff-bg: transparent;
+
+  h4 {
+    display: none;
+  }
+
+  // The lines the renderer adds under the text (associations, category, archive, Compendium
+  // cell) take the same side inset as the word diff's own padding.
+  p,
+  > div > :not(section, p) {
+    margin: 0;
+    padding: 0 0.75rem 0.5rem;
+    overflow-wrap: anywhere;
+  }
+
+  > div > :first-child:not(section) {
+    padding-top: 0.5rem;
+  }
+}
+
+.body .none {
+  padding: 0.5rem 0.75rem;
+}
