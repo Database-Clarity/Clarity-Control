@@ -94,15 +94,20 @@ describe('manifestText', () => {
 });
 
 describe('sandbox perk text asset', () => {
-  it('covers every bundled perk with a non-empty description', async () => {
+  it('gives every bundled perk a name or a non-empty description', async () => {
     const asset = (await import('./sandbox-perks.json')).default as unknown as {
       perks: SandboxPerkText;
     };
     const entries = Object.values(asset.perks);
     expect(entries.length).toBeGreaterThan(1000);
-    expect(
-      entries.every(([name, text]) => typeof name === 'string' && text.trim().length > 0),
-    ).toBe(true);
+    expect(entries.every(([name, text]) => name.trim() !== '' || text.trim() !== '')).toBe(true);
+  });
+  it('skips a perk listed only for its name', () => {
+    const named: SandboxPerkText = { ...perks, 15: ['Name only', ''] };
+    expect(manifestText(item(9, { sandboxPerkHashes: [15] }), named)).toEqual({
+      kind: 'none',
+      perkHashes: [15],
+    });
   });
   it('includes the fallback for Electrified Conductor from the current generator', async () => {
     const asset = (await import('./sandbox-perks.json')).default as unknown as {

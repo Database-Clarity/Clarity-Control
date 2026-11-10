@@ -1,4 +1,15 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
+import { useSettingsStore } from '../../stores/settings';
+import { RightPaneTabsContext, type RightPaneTabs } from '../../ui/RightPane';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import styles from './TooltipPage.module.scss';
 import { useWorkspaceDivider } from './useWorkspaceDivider';
@@ -29,6 +40,10 @@ interface VariantWorkspaceProps {
 }
 
 const present = (node: ReactNode) => node !== null && node !== undefined && node !== false;
+const sideTabs = [
+  { id: 'source', label: 'English' },
+  { id: 'compendium', label: 'Compendium' },
+] as const;
 
 /**
  * Lays out the editor with its pane header and what sits beside it. Three modes, by room:
@@ -38,6 +53,12 @@ const present = (node: ReactNode) => node !== null && node !== undefined && node
  *   buttons that swap the main slot instead of stacking the pane under the editor;
  * - phone (<= 700px): a 44px tablist (Editor / Preview / English / Compendium), one view at a time.
  * Hidden panels stay mounted (CSS only), so editor cursor and undo history survive every switch.
+ *
+ * Translate mode with a Compendium (English and Compendium both present): in split mode the right
+ * pane shows ONE of them, picked by two tabs in the pane's own header (English first; the pick is
+ * remembered on this device). The other is not rendered at all, so a hidden Compendium does no
+ * matching, decoding, or layout; it mounts when its tab is opened. Toggle mode likewise renders
+ * the Compendium only while it is the open view.
  */
 export function VariantWorkspace({
   header,
@@ -54,6 +75,40 @@ export function VariantWorkspace({
   const mode = phone ? 'phone' : split ? 'split' : 'toggle';
   const prefix = useId();
   const [active, setActive] = useState<Panel>(initialPanel);
+  const paired = present(source) && present(compendium);
+  const rememberedPane = useSettingsStore((state) => state.device.remembered.translatePane);
+  const remember = useSettingsStore((state) => state.remember);
+  const sideTab: Panel = paired && rememberedPane === 'compendium' ? 'compendium' : 'source';
+  /** Opening English or the Compendium, in any mode, is the pick the split pane remembers. */
+  const open = (id: Panel) => {
+    setActive(id);
+    if (paired && (id === 'source' || id === 'compendium'))
+      remember({ translatePane: id === 'source' ? 'english' : 'compendium' });
+  };
+  const side = useRef<HTMLDivElement>(null);
+  const focusTab = useRef(false);
+  const tabbed = paired && mode === 'split';
+  const paneTabs = useMemo<RightPaneTabs | null>(
+    () =>
+      tabbed
+        ? {
+            label: 'Right pane',
+            tabs: sideTabs,
+            active: sideTab,
+            onSelect(id) {
+              // The other pane's header replaces this one: its tab takes the focus over.
+              focusTab.current = true;
+              remember({ translatePane: id === 'source' ? 'english' : 'compendium' });
+            },
+          }
+        : null,
+    [tabbed, sideTab, remember],
+  );
+  useLayoutEffect(() => {
+    if (!focusTab.current) return;
+    focusTab.current = false;
+    side.current?.querySelector<HTMLElement>('[data-pane-tab][aria-selected="true"]')?.focus();
+  }, [sideTab]);
   const tabs = useRef<Partial<Record<Panel, HTMLButtonElement | null>>>({});
   const content: Record<Panel, ReactNode> = {
     source,
@@ -85,13 +140,23 @@ export function VariantWorkspace({
     if (target < 0) return;
     event.preventDefault();
     const next = visiblePanels[target].id;
-    setActive(next);
+    open(next);
     tabs.current[next]?.focus();
   }
   // The pane header's buttons swap the main slot (toggle mode); a phone has the tablist instead.
   const toggles = visiblePanels.filter(({ id, toggle }) => toggle && present(content[id]));
-  // Split mode shows every panel; toggle and phone show the active one.
-  const isActive = (id: Panel) => mode === 'split' || activePanel === id;
+  // Split mode shows every panel (of English and Compendium, the picked one); toggle and phone
+  // show the active one.
+  const hiddenTab = (id: Panel) =>
+    tabbed && (id === 'source' || id === 'compendium') && id !== sideTab;
+  const isActive = (id: Panel) => (mode === 'split' ? !hiddenTab(id) : activePanel === id);
+  // Not rendered at all: the tab that is not open, and in toggle mode (also the first render,
+  // before the width is measured) and on a phone a Compendium that is not the open view. Its
+  // tab's dot is the pane's own result, so it shows only while the pane is open: a hidden pane
+  // never matches or decodes for it, and never shows the previous tooltip's.
+  const unmounted = (id: Panel) =>
+    hiddenTab(id) ||
+    (paired && mode !== 'split' && id === 'compendium' && activePanel !== 'compendium');
   const panel = (id: Panel) =>
     present(content[id]) || id === 'translation' ? (
       <div
@@ -103,7 +168,7 @@ export function VariantWorkspace({
         data-active={isActive(id)}
         className={styles.panel}
       >
-        {content[id]}
+        {unmounted(id) ? null : content[id]}
       </div>
     ) : null;
   return (
@@ -128,10 +193,10 @@ export function VariantWorkspace({
             aria-selected={activePanel === id}
             aria-controls={`${prefix}-panel-${id}`}
             tabIndex={activePanel === id ? 0 : -1}
-            onClick={() => setActive(id)}
+            onClick={() => open(id)}
           >
             {label}
-            {id === 'compendium' && compendiumStatus && (
+            {id === 'compendium' && compendiumStatus && !unmounted(id) && (
               <span
                 className={styles.statusDot}
                 data-status={compendiumStatus}
@@ -151,7 +216,7 @@ export function VariantWorkspace({
                 key={id}
                 type="button"
                 aria-pressed={activePanel === id}
-                onClick={() => setActive(activePanel === id ? 'translation' : id)}
+                onClick={() => open(activePanel === id ? 'translation' : id)}
               >
                 {label}
               </button>
@@ -160,10 +225,12 @@ export function VariantWorkspace({
         )}
       </div>
       {panel('translation')}
-      <div className={styles.side}>
-        {panel('source')}
-        {panel('preview')}
-        {panel('compendium')}
+      <div className={styles.side} ref={side}>
+        <RightPaneTabsContext.Provider value={paneTabs}>
+          {panel('source')}
+          {panel('preview')}
+          {panel('compendium')}
+        </RightPaneTabsContext.Provider>
       </div>
       {split && separator}
     </div>

@@ -1,7 +1,10 @@
 import { useSyncExternalStore } from 'react';
 import type { Item } from '../../services/generatorSchema';
 
-/** Sandbox perk hash -> [name, description], as written by scripts/manifest/sandbox-perks.mjs. */
+/**
+ * Sandbox perk hash -> [name, description], as written by scripts/manifest/sandbox-perks.mjs. The
+ * description is empty for a perk listed only for its name.
+ */
 export type SandboxPerkText = Record<string, readonly [name: string, description: string]>;
 
 export interface SandboxPerkLine {
@@ -39,10 +42,19 @@ export function manifestText(
   for (const hash of perkHashes) {
     const text = perks[hash];
     // Several items list one perk twice, and several perks repeat one sentence: show each once.
-    if (!text || lines.some((line) => line.hash === hash)) continue;
+    // A perk listed only for its name has no text to show here.
+    if (!text?.[1] || lines.some((line) => line.hash === hash)) continue;
     lines.push({ hash, name: text[0], description: text[1] });
   }
   return lines.length ? { kind: 'sandbox', perks: lines } : { kind: 'none', perkHashes };
+}
+
+/**
+ * A sandbox perk's own display name: `undefined` when the bundled text does not list the hash,
+ * empty when Bungie's definition has no display name.
+ */
+export function sandboxPerkName(hash: number, perks: SandboxPerkText): string | undefined {
+  return perks[hash]?.[0].trim();
 }
 
 /** One line for the collapsed row. */

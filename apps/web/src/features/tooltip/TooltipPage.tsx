@@ -12,7 +12,7 @@ import {
   useState,
 } from 'react';
 import { flushSync } from 'react-dom';
-import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { translationQueue, type Lang, type MarkupGlobals, type Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
 import { tooltipImports } from '../../services/tooltipImports';
@@ -57,6 +57,8 @@ import { editorAccess } from './access';
 import { defaultLanguage, withLanguage } from './language';
 import { LanguageSummary } from './LanguageSummary';
 import { EditorPaneHeader } from './EditorPaneHeader';
+import { QueueControl } from './QueueControl';
+import { queueContext } from '../translations/worklist';
 import { TranslationSource } from './TranslationSource';
 import { VariantWorkspace } from './VariantWorkspace';
 import { CompendiumPanel } from '../compendium/CompendiumPanel';
@@ -73,6 +75,8 @@ import { LivePreviewIdentity, previewIdentityFor } from '../preview/LivePreviewI
 interface WorkspaceRoute {
   parameter?: string;
   search: URLSearchParams;
+  /** The history entry's state: queue mode lives there (see translations/worklist). */
+  state: unknown;
   setSearch: ReturnType<typeof useSearchParams>[1];
   navigate: ReturnType<typeof useNavigate>;
 }
@@ -97,6 +101,7 @@ export function TooltipPage({
   const { hash: parameter } = useParams();
   const [search, setSearch] = useSearchParams();
   const navigate = useNavigate();
+  const { state } = useLocation();
   const data = useDataStore((state) => state.data);
   const stepping = active && hashOverride === undefined;
   const targetHash =
@@ -104,8 +109,8 @@ export function TooltipPage({
       ? Number(urgentTarget.split('/')[2].split('?')[0])
       : undefined;
   const current = useMemo(
-    () => ({ parameter, search, setSearch, navigate }),
-    [parameter, search, setSearch, navigate],
+    () => ({ parameter, search, state, setSearch, navigate }),
+    [parameter, search, state, setSearch, navigate],
   );
   const paintedRoute = useRef(current);
   const route =
@@ -181,12 +186,13 @@ function TooltipWorkspace({
     committedRoute.current = route;
   });
   const compendiumSource = useCompendiumStore((state) => state.data);
-  const { parameter, search, setSearch, navigate } = route;
+  const { parameter, search, state: routeState, setSearch, navigate } = route;
   const data = useDataStore((state) => state.data);
   const [remembered, setRemembered] = useState<Lang>();
-  // The enhanced version whose own text is open in the editor (null: the base). Keyed by item, so
-  // moving to another tooltip starts on its base.
-  const [picked, setPicked] = useState<{ hash: number; variant: number | null }>();
+  // The enhanced version whose own text is open in the editor (null: the base). Keyed by item and
+  // by the link's own `variant`, so moving to another tooltip starts on its base, and a link to
+  // an override (the queue's Next, Back, Forward) opens what it names.
+  const [picked, setPicked] = useState<{ hash: number; at: string; variant: number | null }>();
   // The preview column's view (null: Compare on a desktop, Enhanced on a phone) and, when an item
   // has several enhanced versions, which one. Both are working choices, never saved.
   const [previewMode, setPreviewMode] = useState<PreviewMode | null>(null);
@@ -200,6 +206,11 @@ function TooltipWorkspace({
   const markupRow = useMarkupRow();
   const user = useAuthStore((state) => state.user);
   const lang = defaultLanguage(user, search, remembered);
+  // Queue mode: the Translations view this tooltip was opened from. Never on an archive page.
+  const queue = useMemo(
+    () => (hashOverride === undefined ? queueContext(search, routeState, user) : null),
+    [hashOverride, search, routeState, user],
+  );
   function changeLanguage(next: Lang) {
     setRemembered(next);
     setSearch(withLanguage(search, next));
@@ -273,7 +284,16 @@ function TooltipWorkspace({
   const canonical = canonicalHash(requestedHash, data);
   const hash = readOnly ? requestedHash : canonical;
   const item = archivedItemFor(hash, data);
-  if (!item && !data.bundle.tooltips[hash]) return <h1>Tooltip {hash} not found</h1>;
+  if (!item && !data.bundle.tooltips[hash])
+    return queue ? (
+      // A queued entry that no longer exists: say so, and keep the way on.
+      <p className={styles.queueGone} role="status">
+        <span>Tooltip {hash} is no longer available.</span>
+        <QueueControl hash={hash} context={queue} />
+      </p>
+    ) : (
+      <h1>Tooltip {hash} not found</h1>
+    );
   const primaryBase = tooltipFor(hash, data);
   readOnly ||= hash > 3 && !data.items[hash] && !primaryBase.custom;
   const access = editorAccess({
@@ -321,8 +341,11 @@ function TooltipWorkspace({
   const grouped = !readOnly && user?.role === 'maintainer' ? groupedPerks(hash, data) : undefined;
   // A canonical redirect drops line/variant highlights, just like tooltipPath.
   const requested = requestedHash === hash ? Number(search.get('variant')) : NaN;
-  const activeVariant =
-    picked?.hash === hash ? picked.variant : overrides.includes(requested) ? requested : null;
+  const pickedAt = search.get('variant') ?? '';
+  const pick = picked?.hash === hash && picked.at === pickedAt ? picked : undefined;
+  // A pick made on another tooltip or under another link is over; it must not come back with it.
+  if (picked && !pick) setPicked(undefined);
+  const activeVariant = pick ? pick.variant : overrides.includes(requested) ? requested : null;
   const activeHash = activeVariant ?? hash;
   const activeBase = tooltipFor(activeHash, data);
   const activeTooltip = drafts[activeHash]?.next ?? activeBase;
@@ -494,9 +517,10 @@ function TooltipWorkspace({
           </button>
         )
       }
-      onEditOverride={(variant) => setPicked({ hash, variant })}
-      onBack={() => setPicked({ hash, variant: null })}
+      onEditOverride={(variant) => setPicked({ hash, at: pickedAt, variant })}
+      onBack={() => setPicked({ hash, at: pickedAt, variant: null })}
       grouped={grouped}
+      queue={queue && <QueueControl hash={hash} context={queue} />}
     />
   );
 
@@ -506,7 +530,7 @@ function TooltipWorkspace({
         Remounting CodeMirror reads the DOM selection while sibling panes are dirty,
         forcing the whole workspace to lay out before its ordinary paint. */}
       {!readOnly && requestedHash !== canonical && (
-        <Navigate to={tooltipPath(canonical, search.toString())} replace />
+        <Navigate to={tooltipPath(canonical, search.toString())} replace state={routeState} />
       )}
       <h1 className={styles.srOnly}>{heading}</h1>
       <VariantWorkspace

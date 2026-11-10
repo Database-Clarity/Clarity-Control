@@ -132,7 +132,7 @@ export function CompendiumPaneSkeleton({
       </SkeletonRegion>
       {comparison && !roomy && <div className={styles.diffModes}>{diffControl}</div>}
       {comparison && mode === 'changes' && (
-        <SkeletonRegion key="legend" className={styles.legend}>
+        <SkeletonRegion key="legend" className={styles.key}>
           <SkeletonLine width={85} />
         </SkeletonRegion>
       )}

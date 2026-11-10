@@ -1,0 +1,47 @@
+{
+  "note": "Sheet cell for Mindspun Invocation as archived 2026-11-04 (the changed side of the approved snapshot).",
+  "cell": {
+    "plain": "Grapple Melee creates 3 Threadlings on hit.\nBase Cooldown: 107.9 seconds\n\nChunk Scalar: 0.875x",
+    "runs": [
+      {
+        "textAlign": "center",
+        "color": "#79bec3",
+        "bold": true,
+        "sizePt": 9,
+        "text": "Grapple Melee"
+      },
+      {
+        "textAlign": "center",
+        "color": "#cccccc",
+        "bold": true,
+        "sizePt": 9,
+        "text": " creates 3 "
+      },
+      {
+        "textAlign": "center",
+        "color": "#93c47d",
+        "bold": true,
+        "sizePt": 9,
+        "text": "Threadlings "
+      },
+      {
+        "textAlign": "center",
+        "color": "#cccccc",
+        "bold": true,
+        "sizePt": 9,
+        "text": "on hit."
+      },
+      {
+        "text": "\n"
+      },
+      {
+        "textAlign": "center",
+        "color": "#cccccc",
+        "bold": true,
+        "sizePt": 7,
+        "text": "Base Cooldown: 107.9 seconds\n\nChunk Scalar: 0.875x"
+      }
+    ],
+    "background": "#1f2c21"
+  }
+}

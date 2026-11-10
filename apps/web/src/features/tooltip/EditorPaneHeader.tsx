@@ -1,8 +1,15 @@
+import { useEffect } from 'react';
 import { languages, langSchema, type Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { Popover } from '../../ui/Popover';
 import { EnhancedArrow } from '../../ui/EnhancedArrow';
-import { joinLabel, type GroupedPerk } from './grouping';
+import {
+  loadSandboxPerkText,
+  sandboxPerkName,
+  sandboxPerkTextFailed,
+  useSandboxPerkText,
+} from '../manifest/manifestText';
+import type { GroupedPerk } from './grouping';
 import styles from './TooltipPage.module.scss';
 
 export interface OverrideTarget {
@@ -33,6 +40,7 @@ export function EditorPaneHeader({
   onBack,
   grouped,
   markupTools,
+  queue,
 }: {
   lang: Lang;
   onLanguage(lang: Lang): void;
@@ -52,6 +60,8 @@ export function EditorPaneHeader({
   grouped?: GroupedPerk[];
   /** The button that shows and hides the markup row. */
   markupTools?: React.ReactNode;
+  /** Queue mode only: position, Previous, Next, and the way back to the Translations queue. */
+  queue?: React.ReactNode;
 }) {
   return (
     <>
@@ -113,6 +123,7 @@ export function EditorPaneHeader({
         </span>
       )}
       {markupTools}
+      {queue}
       <span className={styles.paneRight}>
         {grouped && (
           <Popover
@@ -153,14 +164,31 @@ export function EditorPaneHeader({
 
 /** The maintainer's read-only list: hash, in-game name, base or enhanced, and how it joined. */
 export function GroupedPerks({ perks }: { perks: GroupedPerk[] }) {
+  // Sandbox perks are not in the item catalog: their names come from the bundled sandbox perk
+  // text, loaded once when this list first opens.
+  const sandbox = useSandboxPerkText();
+  const unnamed = perks.some((perk) => !perk.name);
+  useEffect(() => {
+    if (unnamed) void loadSandboxPerkText();
+  }, [unnamed]);
+  const nameOf = (perk: GroupedPerk) => {
+    if (perk.name) return perk.name;
+    if (!sandbox) return <em>Loading name…</em>;
+    // A failed load leaves the text empty: that says nothing about the perk itself.
+    if (sandboxPerkTextFailed()) return <em>Name unavailable</em>;
+    // A sandbox alias comes from the manifest by construction; some definitions are blank.
+    const name = sandboxPerkName(perk.hash, sandbox);
+    if (name) return name;
+    if (name === undefined && perk.reason !== 'sandbox')
+      return <em>Not in the manifest catalog</em>;
+    return <em>Unnamed sandbox perk</em>;
+  };
   return (
     <ul className={styles.grouped}>
       {perks.map((perk) => (
         <li key={perk.hash} data-grouped={perk.hash}>
           <code className={styles.groupedHash}>{perk.hash}</code>
-          <span className={styles.groupedName}>
-            {perk.name || <em>Not in the manifest catalog</em>}
-          </span>
+          <span className={styles.groupedName}>{nameOf(perk)}</span>
           <span className={perk.enhanced ? styles.groupedEnhanced : styles.groupedBase}>
             {perk.enhanced ? (
               <>
@@ -171,8 +199,7 @@ export function GroupedPerks({ perks }: { perks: GroupedPerk[] }) {
             )}
           </span>
           <span className={styles.groupedHow}>
-            {joinLabel[perk.reason]}
-            {perk.via !== undefined && ` via ${perk.via}`}
+            {perk.how}
             {perk.sharedBy && (
               <span title={perk.sharedBy.join(', ')}>
                 {' · '}shared by {perk.sharedBy.length} owners

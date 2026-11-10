@@ -1,7 +1,15 @@
-import { useDeferredValue, useEffect, useMemo, useState, type KeyboardEvent } from 'react';
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+  type KeyboardEvent,
+} from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
+import { canonicalHash } from '../navigation/catalog';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import {
@@ -16,11 +24,12 @@ import {
   countRows,
   filterRows,
   parseStateFilter,
+  queueFor,
   translationIndex,
   type QueueRow,
   type TranslationIndex,
 } from './queue';
-import { availableLanguages, entryPath } from './worklist';
+import { availableLanguages, entryPath, queueState } from './worklist';
 import styles from './TranslationsPage.module.scss';
 
 const searchDelayMs = 200;
@@ -140,9 +149,22 @@ export function TranslationsPage() {
     () => (index ? categoryOptions(rows, index.categories) : []),
     [rows, index],
   );
+  // The same list, in the same order, that the editor's queue control steps through.
+  const shownFilters = useMemo(
+    () => ({ state, category, query: deferredText }),
+    [state, category, deferredText],
+  );
   const shown = useMemo(
-    () => filterRows(rows, { state, category, query: deferredText }),
-    [rows, state, category, deferredText],
+    () => (index && language ? queueFor(index, language, shownFilters) : noRows),
+    [index, language, shownFilters],
+  );
+  // A row opens the editor in queue mode for this view (an override opens on its base's page).
+  const linkTo = useCallback(
+    (row: QueueRow) => ({
+      to: entryPath(row, data ? canonicalHash(row.hash, data) : row.hash),
+      state: queueState(shownFilters, row.hash),
+    }),
+    [data, shownFilters],
   );
   // The state buttons count what the category filter leaves, like the coverage table.
   const counts = useMemo(
@@ -166,7 +188,9 @@ export function TranslationsPage() {
     // Back must return to this filter, so it is in the URL before the editor opens.
     if (text !== query) commitText();
     rememberOpenedFirst(`${language}|${state}|${category}|${text}`, first.key);
-    void navigate(entryPath(first));
+    void navigate(entryPath(first, canonicalHash(first.hash, data!)), {
+      state: queueState({ state, category, query: text }, first.hash),
+    });
   };
   const pick = (lang: Lang) => {
     setCoverageOpen(false);
@@ -297,6 +321,7 @@ export function TranslationsPage() {
               key={signature}
               signature={signature}
               rows={shown}
+              linkTo={linkTo}
               label={`${languageLabel(language)} tooltips to translate`}
             />
           ) : (
