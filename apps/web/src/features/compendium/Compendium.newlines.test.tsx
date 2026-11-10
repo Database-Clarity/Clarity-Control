@@ -128,7 +128,7 @@ describe('compendium newline preservation per surface', () => {
         host.querySelector(phone ? 'table' : '[aria-label="Description cell list"]'),
       ).toBeNull();
       if (phone) {
-        await click(host, 'Row 1, column 2');
+        await click(host, 'B1:');
         const detail = multiline(host, '[aria-label="Cell detail"]');
         expect(detail).toHaveLength(1);
         expect(detail[0].textContent).toBe(TEXT);

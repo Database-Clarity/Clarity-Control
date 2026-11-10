@@ -1,5 +1,6 @@
 import {
   compendiumCellAt,
+  normaliseCompendiumName,
   type CompendiumData,
   type CompendiumLink,
   type CompendiumMatch,
@@ -35,7 +36,9 @@ export function regionRange({ row, col, rows, cols }: Region): string {
 }
 
 /** Cell positions merged into rectangles (adjacent columns per row, then identical runs on adjacent rows). */
-export function regionsOf(cells: readonly (CompendiumPosition & { rows?: number; cols?: number })[]) {
+export function regionsOf(
+  cells: readonly (CompendiumPosition & { rows?: number; cols?: number })[],
+) {
   const byRow = new Map<number, [number, number][]>();
   for (const { row, col, rows = 1, cols = 1 } of cells) {
     for (let r = row; r < row + rows; r++) {
@@ -85,15 +88,44 @@ export interface SourceLocation {
   /** Shorter label without the range, for narrow rows. */
   tab: string;
   section?: string;
+  /** A1 ranges of each region in order; absent when the position is unknown. */
   range?: string;
+  /** True when the sheet position is not known (no saved position, a stale snapshot). */
+  unknown?: boolean;
   gid: string;
   href: string;
 }
+
+/** Shown in place of the range when the sheet position is not known; never an invented range. */
+export const unknownPosition = 'position unknown';
+
+/**
+ * Some sheet "sections" are whole paragraphs (mod rules, mechanics notes); a location names only
+ * their start, so a label stays one short line.
+ */
+export function sectionLabel(section: string | undefined): string | undefined {
+  const text = section?.replace(/\s+/g, ' ').trim();
+  if (!text) return undefined;
+  return text.length > sectionMax ? `${text.slice(0, sectionMax - 1).trimEnd()}…` : text;
+}
+const sectionMax = 40;
 
 export function sourceHref(gid: string, range?: string): string {
   return `https://docs.google.com/spreadsheets/d/${compendiumSheetId}/edit#gid=${encodeURIComponent(
     gid,
   )}${range ? `&range=${encodeURIComponent(range)}` : ''}`;
+}
+
+/** One cell or merged region of a tab (e.g. the sheet cells around a candidate). */
+export function cellLocation(tab: { gid: string; name: string }, region: Region): SourceLocation {
+  const range = regionRange(region);
+  return {
+    tab: tab.name,
+    range,
+    gid: tab.gid,
+    label: `${tab.name} · ${range}`,
+    href: sourceHref(tab.gid, range),
+  };
 }
 
 function spanAt(sheet: CompendiumSheet | undefined, position: CompendiumPosition) {
@@ -104,11 +136,70 @@ function spanAt(sheet: CompendiumSheet | undefined, position: CompendiumPosition
 }
 
 /**
+ * The description cells of a parsed row, recovered from the loaded grid: the cells on the name's
+ * rows (or, for card tabs, the row below) whose text, in reading order and joined by newlines, is
+ * exactly the row's text. Undefined when they cannot be proven, so no range is ever guessed.
+ */
+export function descriptionCells(
+  sheet: CompendiumSheet | undefined,
+  anchor: CompendiumPosition,
+  text: string,
+) {
+  const grid = sheet?.grid;
+  if (!grid || !text) return undefined;
+  const name = spanAt(sheet, anchor);
+  const lastNameRow = name.row + name.rows - 1;
+  for (const [first, last] of [
+    [name.row, lastNameRow],
+    [lastNameRow + 1, lastNameRow + 1],
+  ]) {
+    // Reading order as the parser read it: each row's cells left to right, including cells merged
+    // down from a row above; a merged cell counts once.
+    const entries = [];
+    const seen = new Set<object>();
+    for (let row = first; row <= last; row++)
+      for (const entry of grid
+        .filter(
+          (cell) =>
+            cell.row <= row &&
+            cell.row + (cell.rowSpan ?? 1) > row &&
+            !(cell.row === name.row && cell.col === name.col) &&
+            cell.cell.plain.trim(),
+        )
+        .sort((a, b) => a.col - b.col))
+        if (!seen.has(entry)) {
+          seen.add(entry);
+          entries.push(entry);
+        }
+    const picked = [];
+    let at = 0;
+    for (const entry of entries) {
+      const plain = entry.cell.plain;
+      if (!text.startsWith(plain, at)) continue;
+      const end = at + plain.length;
+      if (end !== text.length && text.charCodeAt(end) !== 10) continue; // a newline joins cells
+      picked.push({
+        row: entry.row,
+        col: entry.col,
+        rows: entry.rowSpan ?? 1,
+        cols: entry.colSpan ?? 1,
+      });
+      at = end + 1;
+      if (end === text.length) return picked;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Where a candidate sits in the sheet, as text and an `edit#gid=&range=` link. The match's own tab
  * is compacted (no grid) in worker replies, so spans come from the loaded source by gid.
  */
 export function matchLocation(
-  match: Pick<CompendiumMatch, 'tab' | 'row' | 'cells' | 'sourceAnchor'>,
+  match: Pick<
+    CompendiumMatch,
+    'tab' | 'row' | 'cells' | 'sourceAnchor' | 'parts' | 'componentRows'
+  >,
   source?: CompendiumData | null,
 ): SourceLocation {
   const sheet = source?.tabs.find((tab) => tab.gid === match.tab.gid) ?? match.tab;
@@ -116,31 +207,87 @@ export function matchLocation(
   let range: string | undefined;
   if (anchor && match.cells?.length) {
     range = regionsOf(
-      match.cells.map(({ dRow, dCol }) => spanAt(sheet, { row: anchor.row + dRow, col: anchor.col + dCol })),
+      match.cells.map(({ dRow, dCol }) =>
+        spanAt(sheet, { row: anchor.row + dRow, col: anchor.col + dCol }),
+      ),
     )
       .map(regionRange)
       .join(', ');
-  } else if (anchor) range = regionRange(spanAt(sheet, anchor));
-  else if (match.row.rowIndex) range = `${match.row.rowIndex}:${match.row.rowIndex}`;
-  const section = match.row.section;
+  } else if (match.parts && match.parts.length > 1) {
+    // Only the resolver knows which same-name rows contributed to this excerpt. Never infer
+    // membership from names, categories, headings, or substrings of the combined text.
+    const parts = match.componentRows;
+    const loaded = source ? source.tabs.find((tab) => tab.gid === match.tab.gid) : sheet;
+    if (parts?.length === match.parts.length && loaded) {
+      const regions = parts.map((part) => {
+        // Worker/cache results can outlive a source snapshot. Verify the exact physical row
+        // and its content in the loaded snapshot before naming its description cells.
+        const current = loaded.rows.find(
+          (row) =>
+            row.rowIndex === part.rowIndex &&
+            row.anchor?.row === part.anchor?.row &&
+            row.anchor?.col === part.anchor?.col &&
+            row.name === part.name &&
+            row.section === part.section &&
+            JSON.stringify(row.cell) === JSON.stringify(part.cell),
+        );
+        return current?.anchor && descriptionCells(loaded, current.anchor, current.cell.plain);
+      });
+      if (regions.every((cells) => !!cells?.length))
+        range = regions.flatMap((cells) => cells!.map(regionRange)).join(', ');
+    }
+  } else if (anchor) {
+    // A parsed row is anchored on its NAME cell; the excerpt shown is its description cells.
+    const cells = descriptionCells(sheet, anchor, match.row.cell.plain);
+    range = cells ? cells.map(regionRange).join(', ') : `${anchor.row}:${anchor.row}`;
+  } else if (match.row.rowIndex) range = `${match.row.rowIndex}:${match.row.rowIndex}`;
+  const section = sectionLabel(match.row.section);
   return {
     tab: match.tab.name,
     section,
     range,
+    unknown: !range || undefined,
     gid: match.tab.gid,
-    label: [match.tab.name, section, range].filter(Boolean).join(' · '),
+    label: [match.tab.name, section, range ?? unknownPosition].filter(Boolean).join(' · '),
     // The sheet takes one range in the hash; several regions open on the first.
     href: sourceHref(match.tab.gid, range?.split(', ')[0]),
   };
 }
 
-/** The saved link's own place (a draft or saved Compendium link). */
+/**
+ * The saved link's own place (a draft or saved Compendium link). `stale` marks a snapshot whose row
+ * no longer resolves: its saved position may be wrong, so only the tab is linked. The same holds,
+ * with the source loaded, when the saved anchor cell is gone or no longer holds the row's name, or
+ * when any selected description cell is gone.
+ */
 export function linkLocation(
-  link: Pick<CompendiumLink, 'gid' | 'section' | 'sourceAnchor' | 'cells'>,
+  link: Pick<CompendiumLink, 'gid' | 'section' | 'sourceAnchor' | 'cells'> &
+    Partial<Pick<CompendiumLink, 'rowKey'>>,
   source?: CompendiumData | null,
+  { stale = false }: { stale?: boolean } = {},
 ): SourceLocation {
   const sheet = source?.tabs.find((tab) => tab.gid === link.gid);
-  const anchor = link.sourceAnchor;
+  // With the source loaded, a saved anchor whose name cell is gone or renamed is stale too.
+  const anchorCell = sheet && link.sourceAnchor && compendiumCellAt(sheet, link.sourceAnchor);
+  const moved =
+    !!source &&
+    !!link.sourceAnchor &&
+    (!anchorCell ||
+      (link.rowKey !== undefined &&
+        normaliseCompendiumName(anchorCell.cell.plain.trim()) !==
+          normaliseCompendiumName(link.rowKey)));
+  // ...and so is a selection whose description cells are no longer in the sheet.
+  const lostCells =
+    !!sheet &&
+    !!link.sourceAnchor &&
+    !!link.cells?.some(
+      ({ dRow, dCol }) =>
+        !compendiumCellAt(sheet, {
+          row: link.sourceAnchor!.row + dRow,
+          col: link.sourceAnchor!.col + dCol,
+        }),
+    );
+  const anchor = stale || moved || lostCells ? undefined : link.sourceAnchor;
   const range = anchor
     ? link.cells?.length
       ? regionsOf(
@@ -152,13 +299,16 @@ export function linkLocation(
           .join(', ')
       : regionRange(spanAt(sheet, anchor))
     : undefined;
-  const tab = sheet?.name ?? `Tab ${link.gid}`;
+  // The tab's name comes from the loaded source; a raw gid is never shown.
+  const tab = sheet?.name ?? (source ? 'Removed sheet tab' : 'Sheet tab');
+  const section = sectionLabel(link.section);
   return {
     tab,
-    section: link.section,
+    section,
     range,
+    unknown: !range || undefined,
     gid: link.gid,
-    label: [tab, link.section, range].filter(Boolean).join(' · '),
+    label: [tab, section, range ?? unknownPosition].filter(Boolean).join(' · '),
     href: sourceHref(link.gid, range?.split(', ')[0]),
   };
 }

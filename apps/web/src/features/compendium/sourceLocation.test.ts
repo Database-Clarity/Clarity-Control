@@ -1,12 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import type { CompendiumData, CompendiumMatch } from '@clarity/core';
 import {
+  combineCompendiumMatches,
+  resolveCompendiumLink,
+  snapshotCompendium,
+  type CompendiumData,
+  type CompendiumMatch,
+} from '@clarity/core';
+import { compactMatch } from './compactMatches';
+import {
+  cellLocation,
   columnLabel,
   compendiumSheetId,
+  descriptionCells,
   linkLocation,
   matchLocation,
   regionRange,
   regionsOf,
+  sectionLabel,
   sourceHref,
 } from './sourceLocation';
 
@@ -61,12 +71,18 @@ describe('source labels and links', () => {
     gid: '77',
     name: 'Armor Mods',
     rows: [],
-    grid: [{ row: 12, col: 2, rowSpan: 1, colSpan: 3, cell: cell('x') }],
+    grid: [
+      { row: 12, col: 0, cell: cell('Mod') },
+      { row: 12, col: 2, rowSpan: 1, colSpan: 3, cell: cell('x') },
+    ],
   };
   const source: CompendiumData = { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] };
 
-  it('uses the loaded grid span for the anchor even when the match tab is compact', () => {
-    const match = { tab: { ...tab, grid: undefined }, row: row('Mod', { row: 12, col: 2 }) } as CompendiumMatch;
+  it('labels the description cells, not the name, using the loaded grid when the match is compact', () => {
+    const match = {
+      tab: { ...tab, grid: undefined },
+      row: { ...row('Mod', { row: 12, col: 0 }), cell: cell('x') },
+    } as CompendiumMatch;
     const location = matchLocation(match, source);
     expect(location.label).toBe('Armor Mods · Raid Specific · C12:E12');
     expect(location.href).toBe(
@@ -100,6 +116,250 @@ describe('source labels and links', () => {
       source,
     );
     expect(location.label).toBe('Armor Mods · Seasonal · C12:E12');
-    expect(sourceHref('9')).toBe(`https://docs.google.com/spreadsheets/d/${compendiumSheetId}/edit#gid=9`);
+    expect(sourceHref('9')).toBe(
+      `https://docs.google.com/spreadsheets/d/${compendiumSheetId}/edit#gid=9`,
+    );
+  });
+
+  it("lists a saved link's regions in order and expands merged cells", () => {
+    const location = linkLocation(
+      {
+        gid: '77',
+        sourceAnchor: { row: 12, col: 2 },
+        cells: [
+          { dRow: 0, dCol: 0 },
+          { dRow: 3, dCol: -2 },
+          { dRow: 4, dCol: -2 },
+        ],
+      },
+      {
+        ...source,
+        tabs: [
+          {
+            ...tab,
+            grid: [
+              ...tab.grid,
+              { row: 15, col: 0, cell: cell('a') },
+              { row: 16, col: 0, cell: cell('b') },
+            ],
+          },
+        ],
+      },
+    );
+    expect(location.range).toBe('C12:E12, A15:A16');
+    expect(location.label).toBe('Armor Mods · C12:E12, A15:A16');
+    expect(location.href).toContain('gid=77&range=C12%3AE12');
+    expect(location.unknown).toBeUndefined();
+  });
+
+  it('says the position is unknown without inventing a range', () => {
+    const old = linkLocation({ gid: '77', section: 'Seasonal' }, source);
+    expect(old.range).toBeUndefined();
+    expect(old.unknown).toBe(true);
+    expect(old.label).toBe('Armor Mods · Seasonal · position unknown');
+    expect(old.href).toBe(sourceHref('77'));
+
+    const stale = linkLocation({ gid: '77', sourceAnchor: { row: 12, col: 2 } }, source, {
+      stale: true,
+    });
+    expect(stale.label).toBe('Armor Mods · position unknown');
+    expect(stale.href).not.toContain('range=');
+  });
+
+  it('never shows a raw gid as the tab name', () => {
+    expect(linkLocation({ gid: '123456' }, source).tab).toBe('Removed sheet tab');
+    expect(linkLocation({ gid: '123456' }).tab).toBe('Sheet tab');
+    expect(linkLocation({ gid: '123456' }).label).not.toContain('123456');
+  });
+
+  it('labels one sheet cell by its A1 address', () => {
+    const location = cellLocation(tab, { row: 14, col: 27, rows: 2, cols: 1 });
+    expect(location.label).toBe('Armor Mods · AB14:AB15');
+    expect(location.href).toContain('range=AB14%3AAB15');
+  });
+
+  it('names only the start of a paragraph-long section', () => {
+    const prose =
+      'Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons. They also cost more.';
+    const location = linkLocation(
+      {
+        gid: '77',
+        section: prose,
+        sourceAnchor: { row: 12, col: 2 },
+        cells: [{ dRow: 0, dCol: 0 }],
+      },
+      source,
+    );
+    expect(location.section!.length).toBeLessThanOrEqual(40);
+    expect(location.section!.endsWith('…')).toBe(true);
+    expect(location.label).toBe(`Armor Mods · ${location.section} · C12:E12`);
+    expect(sectionLabel('  Raid   Specific ')).toBe('Raid Specific');
+  });
+
+  it('finds description cells merged down from the row above, in reading order', () => {
+    const sheet = {
+      gid: '9',
+      name: 'Arc',
+      rows: [],
+      grid: [
+        { row: 35, col: 13, rowSpan: 2, cell: cell('Cooldown') },
+        { row: 36, col: 1, cell: cell('Touch of Thunder') },
+        { row: 36, col: 3, colSpan: 10, cell: cell('Explodes again') },
+      ],
+    };
+    const text = ['Explodes again', 'Cooldown'].join(String.fromCharCode(10));
+    const cells = descriptionCells(sheet, { row: 36, col: 1 }, text);
+    expect(cells!.map(regionRange)).toEqual(['D36:M36', 'N35:N36']);
+    // Unproven text never borrows the name cell: the row is named instead.
+    expect(descriptionCells(sheet, { row: 36, col: 1 }, 'Other text')).toBeUndefined();
+    const match = {
+      tab: sheet,
+      row: { ...row('Touch of Thunder', { row: 36, col: 1 }), cell: cell('Other') },
+    };
+    expect(matchLocation(match as CompendiumMatch).range).toBe('36:36');
+  });
+
+  it('treats a saved anchor whose name cell changed as position unknown', () => {
+    const renamed = linkLocation(
+      {
+        gid: '77',
+        rowKey: 'Old name',
+        sourceAnchor: { row: 12, col: 0 },
+        cells: [{ dRow: 0, dCol: 2 }],
+      },
+      source,
+    );
+    expect(renamed.unknown).toBe(true);
+    expect(renamed.href).not.toContain('range=');
+    const same = linkLocation(
+      {
+        gid: '77',
+        rowKey: 'Mod',
+        sourceAnchor: { row: 12, col: 0 },
+        cells: [{ dRow: 0, dCol: 2 }],
+      },
+      source,
+    );
+    expect(same.range).toBe('C12:E12');
+  });
+
+  it('names each part of a multipart excerpt by its own description cells', () => {
+    const part = (rowIndex: number, plain: string) => ({
+      ...row('Mod', { row: rowIndex, col: 0 }),
+      rowIndex,
+      cell: cell(plain),
+    });
+    const sheet = {
+      gid: '5',
+      name: 'Cards',
+      rows: [part(20, 'Second'), part(12, 'First')],
+      grid: [
+        { row: 12, col: 0, cell: cell('Mod') },
+        { row: 12, col: 2, colSpan: 4, cell: cell('First') },
+        { row: 20, col: 0, cell: cell('Mod') },
+        { row: 20, col: 2, colSpan: 4, cell: cell('Second') },
+      ],
+    };
+    const match = compactMatch(
+      combineCompendiumMatches(sheet.rows.map((row) => ({ tab: sheet, row })))!,
+    );
+    expect(match.componentRows?.map((part) => part.rowIndex)).toEqual([12, 20]);
+    expect(snapshotCompendium(match)).not.toHaveProperty('componentRows');
+    expect(matchLocation(match, { fetchedAt: '', tabs: [sheet] }).range).toBe('C12:F12, C20:F20');
+  });
+
+  it('treats a saved selection whose description cell was deleted as position unknown', () => {
+    const gone = linkLocation(
+      {
+        gid: '77',
+        rowKey: 'Mod',
+        sourceAnchor: { row: 12, col: 0 },
+        cells: [{ dRow: 0, dCol: 9 }],
+      },
+      source,
+    );
+    expect(gone.unknown).toBe(true);
+    expect(gone.href).not.toContain('range=');
+  });
+
+  it('names only the parts of one section category, never a same-named row of another', () => {
+    const part = (rowIndex: number, plain: string, section: string) => ({
+      ...row('Rampage', { row: rowIndex, col: 0 }),
+      rowIndex,
+      section,
+      cell: cell(plain),
+    });
+    const sheet = {
+      gid: '1662574278', // Weapon Perks: Intrinsic Traits (frame) vs Weapon Traits (trait)
+      name: 'Weapon Perks',
+      rows: [
+        part(12, 'First', 'Intrinsic Traits'),
+        part(20, 'Second', 'Intrinsic Traits'),
+        part(30, 'Other', 'Weapon Traits'),
+      ],
+      grid: [12, 20, 30].flatMap((r, i) => [
+        { row: r, col: 0, cell: cell('Rampage') },
+        { row: r, col: 2, cell: cell(['First', 'Second', 'Other'][i]) },
+      ]),
+    };
+    const source = { fetchedAt: '', tabs: [sheet] };
+    const link = {
+      ...snapshotCompendium({ tab: sheet, row: sheet.rows[0] }),
+      snapshot: cell('Old'),
+    };
+    const resolved = resolveCompendiumLink(link, source);
+    if (!('row' in resolved)) throw new Error('Expected resolved multipart match');
+    const match = compactMatch(resolved);
+    expect(match.componentRows?.map((part) => part.rowIndex)).toEqual([12, 20]);
+    expect(matchLocation(match, source).range).toBe('C12, C20');
+    // Missing provenance (including old worker caches) never triggers reconstruction.
+    expect(matchLocation({ ...match, componentRows: undefined }, source).unknown).toBe(true);
+    expect(matchLocation({ ...match, parts: ['A', 'B', 'C'] }, source).unknown).toBe(true);
+  });
+
+  it('uses resolver provenance rather than an uncategorized same-name leading substring (F1)', () => {
+    const sheet = {
+      gid: '1662574278',
+      name: 'Weapon Perks',
+      rows: [
+        [12, 'Intrinsic Traits', 'First'],
+        [15, 'Unclassified', 'Second\nUnrelated body'],
+        [20, 'Intrinsic Traits', 'Second'],
+        [30, 'Weapon Traits', 'Other'],
+      ].map(([rowIndex, section, plain]) => ({
+        ...row('Rampage', { row: Number(rowIndex), col: 0 }),
+        section: String(section),
+        cell: cell(String(plain)),
+      })),
+      grid: [] as NonNullable<CompendiumMatch['tab']['grid']>,
+    };
+    sheet.grid = sheet.rows.flatMap((part) => [
+      { ...part.anchor!, cell: cell('Rampage') },
+      { row: part.rowIndex, col: 2, cell: part.cell },
+    ]);
+    const source = { fetchedAt: '', tabs: [sheet] };
+    const resolved = resolveCompendiumLink(
+      { ...snapshotCompendium({ tab: sheet, row: sheet.rows[0] }), snapshot: cell('Old') },
+      source,
+    );
+    if (!('row' in resolved)) throw new Error('Expected resolved multipart match');
+    const match = structuredClone(compactMatch(resolved));
+    expect(match.parts).toHaveLength(2);
+    expect(match.componentRows?.map((part) => part.rowIndex)).toEqual([12, 20]);
+    expect(matchLocation(match, source).range).toBe('C12, C20');
+    expect(matchLocation(match, source).href).toContain('range=C12');
+    // Stale or unavailable source cannot silently supply a different physical component.
+    const changed = structuredClone(source);
+    changed.tabs[0].rows[2].cell = cell('New content');
+    for (const unavailable of [
+      changed,
+      { ...source, tabs: [] },
+      { ...source, tabs: [{ ...sheet, grid: undefined }] },
+    ]) {
+      const location = matchLocation(match, unavailable);
+      expect(location.unknown).toBe(true);
+      expect(location.href).toBe(sourceHref(sheet.gid));
+    }
+    expect(matchLocation(match).unknown).toBe(true); // compact worker result, no loaded grid
   });
 });
