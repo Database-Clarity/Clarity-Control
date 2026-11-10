@@ -723,7 +723,9 @@ export function ClarityEditor({
       )
         editor.dispatch({
           selection: { anchor: 0 },
-          effects: EditorView.scrollIntoView(0, { y: 'start' }),
+          effects: pageScrolls.current
+            ? entryTopScroll(editor)
+            : EditorView.scrollIntoView(0, { y: 'start' }),
           annotations: Transaction.addToHistory.of(false),
         });
       return;

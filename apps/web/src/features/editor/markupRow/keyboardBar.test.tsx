@@ -315,6 +315,17 @@ describe('the docked keyboard bar', () => {
     expect(scrolls.mock.calls).toEqual([[0, { y: 'start' }]]);
   });
 
+  it.each([true, false])('keeps the entry top visible when a stepping burst lands (phone=%s)', (isPhone) => {
+    phone = isPhone;
+    const view = mount({ tooltipHash: 1, value: 'entry text' });
+    mount({ tooltipHash: 1, value: 'entry text', stepping: true });
+    act(() => view.dispatch({ selection: { anchor: 5 } }));
+    const scrolls = vi.spyOn(EditorView, 'scrollIntoView');
+    mount({ tooltipHash: 1, value: 'entry text', stepping: false });
+    expect(scrolls.mock.calls).toEqual([[0, { y: isPhone ? 'nearest' : 'start' }]]);
+    expect(view.state.selection.main.head).toBe(0);
+  });
+
   it('shows the bar on an empty text', () => {
     mount({ value: '' });
     expect(bar()?.hasAttribute('data-docked')).toBe(true);
