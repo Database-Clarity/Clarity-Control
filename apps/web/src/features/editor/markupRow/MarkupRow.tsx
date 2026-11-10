@@ -12,7 +12,7 @@ import {
   type MarkupEntry,
 } from './entries';
 import { observeDock } from './dock';
-import { useKeyboardInset } from '../../../ui/useKeyboardInset';
+import { useKeyboardFollow, useKeyboardInset } from '../../../ui/useKeyboardInset';
 import type { UsageCorpus } from '../suggest/usage';
 import styles from './MarkupRow.module.scss';
 
@@ -66,6 +66,8 @@ export const MarkupRow = memo(function MarkupRow({
   const [message, setMessage] = useState('');
   const bar = useRef<HTMLDivElement>(null);
   useKeyboardInset(docked);
+  // The keyboard opening keeps the caret's paragraph (or a focused field, the All filter) in view.
+  useKeyboardFollow(docked);
   useEffect(() => {
     const element = bar.current;
     if (!docked || !element) return;

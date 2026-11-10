@@ -215,6 +215,53 @@ describe('the docked keyboard bar', () => {
     expect(document.activeElement).toBe(view.contentDOM);
   });
 
+  it('reads no status-bar layout for the caret margin on the last line (cached by the dock)', () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(44);
+    const rects = vi.mocked(HTMLElement.prototype.getBoundingClientRect);
+    // The status bar reaches 30px below the end of the text (measured once, when the bar docks).
+    rects.mockImplementation(function (this: HTMLElement) {
+      const bottom = this.hasAttribute('data-editor-status') ? 630 : 600;
+      return {
+        left: 0,
+        right: 390,
+        top: 0,
+        bottom,
+        width: 390,
+        height: bottom,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      };
+    });
+    // A browser's ResizeObserver reports after layout, once the text has mounted too.
+    const observed: ResizeObserverCallback[] = [];
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          observed.push(callback);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const view = mount();
+    act(() => observed.forEach((callback) => callback([], {} as ResizeObserver)));
+    const status = host.querySelector<HTMLElement>('[data-editor-status]')!;
+    expect(status).not.toBeNull();
+    const margins = () =>
+      view.state.facet(EditorView.scrollMargins).map((margin) => margin(view)?.bottom ?? 0);
+    act(() => view.dispatch({ selection: { anchor: 0 } }));
+    rects.mockClear();
+    expect(Math.max(...margins())).toBe(44 + 8);
+    // What CodeMirror asks on every keystroke at the end: the cached reach, no layout read.
+    act(() => view.dispatch({ selection: { anchor: view.state.doc.length } }));
+    // 30px past the text box, plus the text's own bottom padding.
+    const padding = parseFloat(getComputedStyle(view.contentDOM).paddingBottom) || 0;
+    expect(Math.max(...margins())).toBe(44 + 30 + padding);
+    expect(rects.mock.contexts).not.toContain(status);
+  });
+
   it('shows the bar on an empty text', () => {
     mount({ value: '' });
     expect(bar()?.hasAttribute('data-docked')).toBe(true);
@@ -292,7 +339,7 @@ describe('useKeyboardInset', () => {
 describe('keyboard follow', () => {
   it('runs the focused element’s follower once when the visible area shrinks, never on growth', () => {
     function Shell() {
-      useKeyboardFollow();
+      useKeyboardFollow(true);
       return null;
     }
     act(() => root.render(<Shell />));

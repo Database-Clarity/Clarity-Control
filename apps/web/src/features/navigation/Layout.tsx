@@ -17,7 +17,6 @@ import { SaveController } from '../../services/save/SavePanel';
 import { workspaceShortcutsBlocked } from '../../ui/interaction';
 import { PaneDivider } from '../../ui/PaneDivider';
 import { usePaneDivider } from '../../ui/usePaneDivider';
-import { useKeyboardFollow } from '../../ui/useKeyboardInset';
 import { compactQuery, laptopQuery, phoneQuery, useMedia } from '../../ui/useMedia';
 import { Header } from './Header';
 import { NoticeStrip } from './NoticeStrip';
@@ -60,8 +59,6 @@ function LayoutContent() {
   const location = useLocation();
   const user = useAuthStore((state) => state.user);
   const phone = useMedia(phoneQuery);
-  // The keyboard opening keeps the focused field (or the editor's paragraph) in view.
-  useKeyboardFollow();
   const compact = useMedia(compactQuery);
   const laptop = useMedia(laptopQuery);
   const layout = useRef<HTMLDivElement>(null);

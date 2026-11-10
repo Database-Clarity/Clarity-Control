@@ -1,6 +1,6 @@
 import { EditorSelection, type EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
-import { dockedBarHeight, dockedTopChrome } from './markupRow/dock';
+import { dockedBarHeight, dockedStatusClear, dockedTopChrome } from './markupRow/dock';
 
 interface Box {
   top: number;
@@ -52,19 +52,13 @@ function dockMargins(view?: EditorView): { top: number; bottom: number } | null 
 
 /**
  * On the last line the editor's status bar sits right under the caret: the margin clears all of it
- * rather than leaving its top edge peeking over the docked bar. Read in CodeMirror's measure phase
- * (the layout is clean), and only while the caret is on the last line.
+ * rather than leaving its top edge peeking over the docked bar. Its reach is cached off the input
+ * path (markupRow/dock.ts); here only the document is asked which line the caret is on.
  */
 function statusBelowEnd(view?: EditorView): number {
   if (!view) return 0;
   const { doc, selection } = view.state;
-  if (doc.lineAt(selection.main.head).number !== doc.lines) return 0;
-  const status = view.dom
-    .closest('[data-docked]')
-    ?.querySelector<HTMLElement>('[data-editor-status]');
-  if (!status?.offsetHeight) return 0;
-  const end = view.documentTop + view.lineBlockAt(doc.length).bottom;
-  return Math.max(0, status.getBoundingClientRect().bottom - end);
+  return doc.lineAt(selection.main.head).number === doc.lines ? dockedStatusClear() : 0;
 }
 
 /** Keeps the caret clear of the editor's own overlays, the shell's notice strip, and the docked bar. */

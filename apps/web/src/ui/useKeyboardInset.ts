@@ -13,7 +13,8 @@ import { touchQuery } from './useMedia';
  * `useKeyboardFollow` keeps the focused field in view when the keyboard opens (the visible area
  * shrinks): an input or text area scrolls clear of the keyboard and the docked bar; an element that
  * registered its own follower (the markup editor keeps the caret's paragraph in view) runs that.
- * Nothing runs while typing: only a change of the visible area schedules the frame.
+ * Nothing runs while typing: only a change of the visible area schedules the frame. It listens only
+ * while `active` (the docked bar is on screen).
  */
 
 const insetVar = '--kb-inset';
@@ -119,10 +120,10 @@ function followField(field: HTMLElement) {
   if (by) window.scrollBy(0, by);
 }
 
-export function useKeyboardFollow(): void {
+export function useKeyboardFollow(active: boolean): void {
   useEffect(() => {
     const viewport = window.visualViewport;
-    if (!viewport || typeof window.matchMedia !== 'function') return;
+    if (!active || !viewport || typeof window.matchMedia !== 'function') return;
     const touch = window.matchMedia(touchQuery);
     let frame = 0;
     let height = viewport.height;
@@ -146,5 +147,5 @@ export function useKeyboardFollow(): void {
       viewport.removeEventListener('resize', resize);
       if (frame) cancelAnimationFrame(frame);
     };
-  }, []);
+  }, [active]);
 }
