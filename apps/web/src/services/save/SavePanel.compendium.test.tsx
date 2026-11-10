@@ -143,6 +143,11 @@ describe('saving over a Compendium source that changed since it was shown', () =
     expect(mocks.prepare).not.toHaveBeenCalled();
     expect(host.textContent).toContain('Compendium source changed');
     expect(host.textContent).toContain('newer');
+    const sourceRef = host.querySelector<HTMLAnchorElement>('[data-source-ref]');
+    expect(sourceRef?.textContent).toContain('Tab');
+    expect(sourceRef?.textContent).toContain('1:1');
+    expect(sourceRef?.href).toContain('/edit#gid=1&range=1%3A1');
+    expect(sourceRef?.target).toBe('_blank');
     expect(host.textContent).toContain('nothing was saved');
     expect(checkbox()?.checked).toBe(false);
     expect(button('Save changes').disabled).toBe(true);
@@ -169,6 +174,32 @@ describe('saving over a Compendium source that changed since it was shown', () =
     expect(host.textContent).toContain('newest');
     expect(checkbox()?.checked).toBe(false);
     expect(button('Save changes').disabled).toBe(true);
+  });
+
+  it('labels the fresh tab and range rather than the older loaded source', async () => {
+    const fresh = source('newer', '2026-10-02T00:00:00Z');
+    fresh.tabs[0].name = 'Fresh tab';
+    fresh.tabs[0].rows[0].rowIndex = 12;
+    mocks.load.mockResolvedValue(fresh);
+    await render();
+    await open(englishEdit());
+    await clickSave();
+    const ref = host.querySelector<HTMLAnchorElement>('[data-source-ref]');
+    expect(ref?.textContent).toContain('Fresh tab');
+    expect(ref?.textContent).toContain('12:12');
+    expect(ref?.href).toContain('/edit#gid=1&range=12%3A12');
+  });
+
+  it('shows position unknown when the resolved source has no position', async () => {
+    const fresh = source('newer', '2026-10-02T00:00:00Z');
+    fresh.tabs[0].rows[0].rowIndex = 0;
+    mocks.load.mockResolvedValue(fresh);
+    await render();
+    await open(englishEdit());
+    await clickSave();
+    const ref = host.querySelector<HTMLAnchorElement>('[data-source-ref]');
+    expect(ref?.textContent).toContain('position unknown');
+    expect(ref?.href).toMatch(/\/edit#gid=1$/);
   });
 
   it('compares with the reviewed snapshot when the Compendium was never loaded', async () => {
