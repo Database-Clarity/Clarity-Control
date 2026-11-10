@@ -397,7 +397,13 @@ export const MarkupHelp = memo(function MarkupHelp({
       }
     }
     return (
-      <div key={name} role="group" aria-label={name} data-help-section>
+      <div
+        key={name}
+        role="group"
+        aria-label={name}
+        className={items.some(isKey) ? styles.keyGroup : undefined}
+        data-help-section
+      >
         <div className={styles.groupTitle} data-help-group>
           <span>{name}</span>
           {groupHints[name] && <code>{groupHints[name]}</code>}

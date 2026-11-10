@@ -129,7 +129,7 @@ export const editorKeys: readonly EditorKey[] = [
   {
     id: 'key-suggest',
     group: 'Keys: write',
-    label: 'Suggest markup here',
+    label: 'Suggest markup',
     keys: 'Ctrl+Space',
     about: 'Every option, the fitting ones first. Press again for the next category.',
     words: 'suggest complete autocomplete menu all',
@@ -379,7 +379,9 @@ export function retiredAnswer(query: string): RetiredAnswer | null {
   if (!found) return null;
   const occurrence = findRetiredMarkup(found.sample)[0];
   if (!occurrence) return null;
-  return { message: occurrence.message, instead: found.instead };
+  // retired.ts's own advice, after the form's name: "<blue … /> is retired. Remove the tag …".
+  const advice = occurrence.message.split('no longer supported. ')[1] ?? occurrence.message;
+  return { message: `${occurrence.token} is retired. ${advice}`, instead: found.instead };
 }
 
 /** The help row for an option in the Ctrl+Space menu (F1 there), if one teaches it. */

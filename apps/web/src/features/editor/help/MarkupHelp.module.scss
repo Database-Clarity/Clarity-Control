@@ -95,10 +95,26 @@
     display: none;
   }
 
+  // A retired answer or a refusal can be longer than the line: it takes two, inside the head.
+  [data-status] {
+    display: -webkit-box;
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    line-height: 0.8125rem;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
   b {
     margin-right: 0.5rem;
     color: var(--text);
   }
+}
+
+.info {
+  align-items: center;
 }
 
 .inline {
@@ -274,10 +290,29 @@
   border-radius: 3px;
 }
 
+// A group of keys shares one keys column, as wide as its widest keys, so the names line up and
+// get the rest of the width; a name that still does not fit wraps rather than being cut.
+.keyGroup {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 0.5rem;
+  // Beside a longer group, the rows keep their height instead of spreading out.
+  align-content: start;
+
+  > .groupTitle {
+    grid-column: 1 / -1;
+  }
+}
+
 .keyRow {
-  grid-template-columns: 6.25rem minmax(0, 1fr);
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   align-items: center;
-  white-space: nowrap;
+
+  > span:last-child {
+    min-width: 0;
+    line-height: 1.125rem;
+  }
 }
 
 .cells {
@@ -345,10 +380,6 @@
     border-top: 1px solid var(--hair);
     border-left: 0;
   }
-
-  .keyRow {
-    grid-template-columns: 6rem minmax(0, 1fr);
-  }
 }
 
 // Three columns: in the line, declared around it, and the keys.
@@ -364,10 +395,6 @@
 
   .foot {
     display: none;
-  }
-
-  .keyRow {
-    grid-template-columns: 6.25rem minmax(0, 1fr);
   }
 
   .col[data-col='3'] {
