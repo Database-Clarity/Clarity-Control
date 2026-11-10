@@ -1,5 +1,66 @@
 @use '../../ui/controls';
 
+// The tools that fit inline, between the draft dot and the queue stepper: they hug the right
+// group, and the slot takes only the room left on the line (it never wraps the row).
+.tools {
+  position: relative;
+  display: inline-flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+// Boxed like the stepper and More beside them (one button style per row).
+.tool {
+  @include controls.button;
+  flex: none;
+  height: var(--tap);
+  min-height: var(--tap);
+  padding: 0 0.625rem;
+  white-space: nowrap;
+
+  &[aria-pressed='true'] {
+    background: var(--ctl-pressed);
+    border-color: var(--ctl-hover-edge);
+  }
+}
+
+.danger {
+  color: var(--danger);
+}
+
+// A 0x0 clip holding one copy of every tool at its whole width, for the fit (never seen).
+.measure {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+
+  > * {
+    flex: none;
+  }
+}
+
+// The queue stepper and More: one group on the right edge (it wraps as a unit at 150%).
+.right {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.375rem;
+  margin-left: auto;
+
+  &:empty {
+    display: none;
+  }
+}
+
 // The More trigger: boxed like the stepper beside it, a var(--tap) square.
 .trigger {
   @include controls.button;

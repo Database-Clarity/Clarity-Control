@@ -218,7 +218,7 @@
 
 @include theme.mobile-or-coarse {
   .menu {
-    font-size: max(14px, 0.875rem);
+    font-size: var(--ctl-text);
   }
   .menu {
     --suggest-option: var(--tap);

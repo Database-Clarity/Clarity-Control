@@ -1,11 +1,11 @@
 @use '../../ui/controls';
 
-// Header buttons grow with the interface scale from the touch size (36px, Large 44px), up to 48px
+// Header buttons follow the interface scale from the touch size (36px at 100%, Large 44px), up to 48px
 // (Large 56px): beyond that the page name would lose room it needs on a 390px phone.
 $target: var(--hdr);
 
 .header {
-  --hdr: clamp(36px, 2.25rem, 48px);
+  --hdr: min(2.25rem, 48px);
   position: sticky;
   top: 0;
   z-index: 20;

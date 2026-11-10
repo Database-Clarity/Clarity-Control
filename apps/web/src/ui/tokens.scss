@@ -359,8 +359,10 @@
 // size: Large" (Settings, this device) sets data-touch='large' and restores 44px targets.
 @include theme.mobile-or-coarse {
   :root {
-    --tap: max(36px, 2.25rem);
-    --tap-sm: max(28px, 1.75rem);
+    // Compact follows the interface scale both ways (36px and 28px at 100%; owner 2026-11-10:
+    // text and controls follow the UI scale). Large keeps its 44px floor.
+    --tap: 2.25rem;
+    --tap-sm: 1.75rem;
     --bar: calc(var(--tap) + 0.5rem);
     --page-x: 0.5rem;
     --ctl-text: 0.875rem;

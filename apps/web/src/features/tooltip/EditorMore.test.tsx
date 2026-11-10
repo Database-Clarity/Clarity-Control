@@ -5,6 +5,7 @@ import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { workspaceShortcutsBlocked } from '../../ui/interaction';
 import { EditorPaneHeader } from './EditorPaneHeader';
+import { fitTools } from './EditorMore';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -166,5 +167,80 @@ describe('More (phone tool row)', () => {
     expect(button('Markup tools')).toBeDefined();
     expect(button('Discard this tooltip')).toBeDefined();
     expect(button('Edit override')).toBeDefined();
+  });
+});
+
+describe('inline tools (phone tool row)', () => {
+  it('fits tools in order and never leaves a single tool for More', () => {
+    // Everything fits: no More at all.
+    expect(fitTools([60, 60, 60], 6, 192, 42)).toBe(3);
+    // One tool short: More would hold one, so it takes two.
+    expect(fitTools([60, 60, 60], 6, 150, 42)).toBe(1);
+    // Room for two beside More: the last two go.
+    expect(fitTools([60, 60, 60, 60], 6, 200, 42)).toBe(2);
+    // No room: every tool in More.
+    expect(fitTools([60, 60], 6, 40, 42)).toBe(0);
+    expect(fitTools([], 6, 0, 42)).toBe(0);
+  });
+
+  it('shows what fits inline with the same handlers, and More only for the overflow', async () => {
+    phone(true);
+    // A row 1000px wide where every tool is 60px: everything fits inline, so no More.
+    let callback: (() => void) | undefined;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(run: () => void) {
+          callback = run;
+        }
+        observe() {
+          queueMicrotask(() => callback?.());
+        }
+        disconnect() {}
+      },
+    );
+    let room = 1000;
+    const rect = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(function (this: HTMLElement) {
+        const width = this.dataset.label || this.hasAttribute('data-more') ? 60 : room;
+        return { width, height: 36, top: 0, left: 0, right: width, bottom: 36 } as DOMRect;
+      });
+    const spies = handlers();
+    await mount(spies);
+    await act(async () => {});
+    expect(q('button[aria-label="More editor tools"]')).toBeNull();
+    await click(button('Markup bar'));
+    expect(spies.toggle).toHaveBeenCalledTimes(1);
+    await click(button('Edit override'));
+    expect(spies.onEditOverride).toHaveBeenCalledWith(5);
+    // Inline Discard still asks first; Cancel discards nothing.
+    await click(button('Discard this tooltip'));
+    expect(spies.onDiscard).not.toHaveBeenCalled();
+    await click(button('Cancel'));
+    expect(spies.onDiscard).not.toHaveBeenCalled();
+    await click(button('Discard this tooltip'));
+    await click(
+      [...host.querySelectorAll<HTMLElement>('[role="dialog"] button')].find(
+        (element) => element.textContent === 'Discard',
+      ),
+    );
+    expect(spies.onDiscard).toHaveBeenCalledTimes(1);
+    // Room for two tools beside More: the other two (Grouped, Edit override) move into More.
+    room = 2 * 60 + 6 + 60 + 6;
+    await act(async () => callback?.());
+    expect(button('Markup bar')).toBeDefined();
+    expect(button('Discard this tooltip')).toBeDefined();
+    await openMore();
+    expect(
+      [...host.querySelectorAll('[role="dialog"] li > button, [role="dialog"] li > a')].map(
+        (row) => row.textContent,
+      ),
+    ).toEqual([
+      'Grouped manifest perks1 ›',
+      'Edit override',
+      'Back to queueGerman, all categories',
+    ]);
+    rect.mockRestore();
   });
 });

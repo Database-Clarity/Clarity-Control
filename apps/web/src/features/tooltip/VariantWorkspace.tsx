@@ -195,7 +195,7 @@ export function VariantWorkspace({
             tabIndex={activePanel === id ? 0 : -1}
             onClick={() => open(id)}
           >
-            {label}
+            <span className={styles.tabLabel}>{label}</span>
             {id === 'compendium' && compendiumStatus && !unmounted(id) && (
               <span
                 className={styles.statusDot}

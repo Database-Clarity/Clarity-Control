@@ -287,7 +287,9 @@
   max-height: min(
     60%,
     20rem,
-    calc(var(--visible-h, 100dvh) - var(--header-h, 3rem) - var(--tap, max(44px, 2.75rem)) - 7.25rem)
+    calc(
+      var(--visible-h, 100dvh) - var(--header-h, 3rem) - var(--tap, max(44px, 2.75rem)) - 7.25rem
+    )
   );
   padding: 0;
   overflow: hidden;

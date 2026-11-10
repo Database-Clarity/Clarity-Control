@@ -116,9 +116,9 @@ function expectedMetrics(): Metrics {
   if (typeof window.matchMedia !== 'function' || typeof ResizeObserver !== 'function') return 'all';
   const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
   const touch = window.matchMedia(`${phoneQuery}, (pointer: coarse)`).matches;
-  // The touch size: 36px (44px with Large, data-touch on the root), never under its rem size.
+  // The touch size: 2.25rem, or max(44px, 2.75rem) with Large (data-touch on the root).
   const large = document.documentElement.dataset.touch === 'large';
-  const option = large ? Math.max(44, 2.75 * rem) : Math.max(36, 2.25 * rem);
+  const option = large ? Math.max(44, 2.75 * rem) : 2.25 * rem;
   return { option: touch ? option : 1.5 * rem, heading: 1.25 * rem };
 }
 

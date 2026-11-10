@@ -78,16 +78,26 @@
       outline-offset: -2px;
     }
   }
+  // Phone: a strip of peers that fills the line beside the versions select and the count; equal
+  // widths, centred labels, a long label ellipsises instead of breaking the split.
   @include theme.mobile {
+    flex: 1 1 auto;
     align-self: stretch;
+    min-width: 0;
     height: var(--tap-sm);
     border: 0;
     border-radius: 0;
     button {
       @include tabs.tab('[aria-pressed="true"]');
+      display: block;
+      flex: 1 1 0;
+      min-width: 0;
       height: 100%;
-      // The first label sits over the description text (both on the page edge).
-      padding: 0 var(--page-x);
+      padding: 0 0.25rem;
+      overflow: hidden;
+      line-height: calc(var(--tap-sm) - 2px);
+      text-align: center;
+      text-overflow: ellipsis;
       &[aria-pressed='true'] {
         background: transparent;
         box-shadow: none;

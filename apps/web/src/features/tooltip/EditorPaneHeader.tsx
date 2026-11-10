@@ -4,7 +4,7 @@ import { languageLabel } from '../../languageLabels';
 import { Popover } from '../../ui/Popover';
 import { EnhancedArrow } from '../../ui/EnhancedArrow';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
-import { EditorMore } from './EditorMore';
+import { PhoneTools } from './EditorMore';
 import {
   loadSandboxPerkText,
   sandboxPerkName,
@@ -203,9 +203,10 @@ function LanguageSelect({ lang, onLanguage }: { lang: Lang; onLanguage(lang: Lan
 }
 
 /**
- * The phone's tool row: language, the draft dot, then the queue stepper and More as one group on
- * the right (it wraps to a second line as a unit at a large interface scale). The read-only badge
- * and an open override take a second line of their own. Everything rare lives in More.
+ * The phone's tool row: language, the draft dot, the tools that fit inline, then the queue stepper
+ * and More (only for two or more tools that do not fit) as one group on the right (it wraps to a
+ * second line as a unit at a large interface scale). The read-only badge and an open override take
+ * a second line of their own.
  */
 function PhoneToolRow({
   lang,
@@ -231,20 +232,18 @@ function PhoneToolRow({
       {draft && (
         <span className={styles.dot} role="img" aria-label="Unsaved draft" title="Unsaved draft" />
       )}
-      <span className={styles.phoneRight}>
-        {queue}
-        <EditorMore
-          markup={markup}
-          draft={draft}
-          saving={saving}
-          onDiscard={onDiscard}
-          grouped={grouped}
-          overrides={activeOverride ? [] : overrides}
-          onEditOverride={onEditOverride}
-          queueBack={queueBack}
-          renderGrouped={(perks) => <GroupedPerks perks={perks} />}
-        />
-      </span>
+      <PhoneTools
+        markup={markup}
+        draft={draft}
+        saving={saving}
+        onDiscard={onDiscard}
+        grouped={grouped}
+        overrides={activeOverride ? [] : overrides}
+        onEditOverride={onEditOverride}
+        queueBack={queueBack}
+        queue={queue}
+        renderGrouped={(perks) => <GroupedPerks perks={perks} />}
+      />
       {reason && (
         <span className={styles.badge} role="status" title={reason}>
           <span className={styles.ell}>{shortReason(reason)}</span>

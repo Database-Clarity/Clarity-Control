@@ -271,7 +271,10 @@ describe('translator tooltip page', () => {
   describe('tablist', () => {
     it('renders Editor · Preview · English with ARIA tab semantics', () => {
       const html = render('/t/10?lang=de');
-      const tabs = [...html.matchAll(/<button[^>]*role="tab"[^>]*>([^<]*)<\/button>/g)];
+      // Each label sits in its own span (it ellipsises inside an equal-width phone tab).
+      const tabs = [
+        ...html.matchAll(/<button[^>]*role="tab"[^>]*><span[^>]*>([^<]*)<\/span><\/button>/g),
+      ];
       expect(tabs.map((match) => match[1])).toEqual(['Editor', 'Preview', 'English']);
       expect(html).toContain('role="tablist"');
       expect(html.match(/aria-selected="true"/g)).toHaveLength(1);

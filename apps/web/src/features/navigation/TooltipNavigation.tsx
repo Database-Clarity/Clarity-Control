@@ -490,11 +490,10 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   // Matches the fixed CSS row geometry (var(--tap), plus 1.125rem for two lines) at every
   // interface scale, computed once per scale and size: scroll handlers never measure a row or
   // synchronously flush a React render.
-  const tap = touchSize === 'large' ? 44 : 36;
+  // Compact is 2.25rem (follows the scale both ways); Large is max(44px, 2.75rem).
+  const tap = touchSize === 'large' ? Math.max(44, 44 * scale) : 36 * scale;
   const rowHeight =
-    Math.round(
-      (touchRows ? Math.max(tap, tap * scale) + (narrow ? 18 * scale : 0) : 28 * scale) * 64,
-    ) / 64;
+    Math.round((touchRows ? tap + (narrow ? 18 * scale : 0) : 28 * scale) * 64) / 64;
   const [viewportStore] = useState(createFinderViewport);
   const setViewport = viewportStore.set;
   const root = useRef<HTMLDivElement>(null);
