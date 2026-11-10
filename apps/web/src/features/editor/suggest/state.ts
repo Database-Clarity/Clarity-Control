@@ -15,6 +15,7 @@ import { insertionMessages, insertionRejection, type Rejection } from '../markup
 import { recentSuggestions, rememberSuggestion } from './recent';
 import {
   caretContext,
+  dropDeclinedPins,
   judgeItems,
   nextCategoryIndex,
   requestItems,
@@ -41,6 +42,8 @@ export interface SuggestSnapshot {
    * Enter is held to the rules either way.
    */
   judged: boolean;
+  /** The author moved the selection; until then the menu may move it to an option that fits. */
+  picked: boolean;
 }
 
 export interface SuggestHost {
@@ -113,6 +116,7 @@ function derive(
     explicit,
     message: null,
     judged: !explicit,
+    picked: kept < 0 ? false : (previous?.picked ?? false),
   };
 }
 
@@ -152,22 +156,42 @@ export const suggestField = StateField.define<SuggestSnapshot | null>({
     for (const effect of transaction.effects) {
       if (effect.is(moveEffect)) {
         const count: number = next.items.length;
-        next = { ...next, index: (((effect.value % count) + count) % count) | 0, message: null };
+        next = {
+          ...next,
+          index: (((effect.value % count) + count) % count) | 0,
+          message: null,
+          picked: true,
+        };
       } else if (effect.is(categoryEffect)) {
-        next = { ...next, index: nextCategoryIndex(next.items, next.index), message: null };
+        next = {
+          ...next,
+          index: nextCategoryIndex(next.items, next.index),
+          message: null,
+          picked: true,
+        };
       } else if (effect.is(messageEffect)) {
         next = { ...next, message: effect.value };
       } else if (effect.is(judgeEffect) && !next.judged) {
-        next = {
-          ...next,
-          judged: true,
-          items: judgeItems(
-            next.items,
-            next.context,
-            transaction.state,
-            transaction.state.facet(suggestHost).globals,
-          ),
-        };
+        const globals = transaction.state.facet(suggestHost).globals;
+        const judged = judgeItems(next.items, next.context, transaction.state, globals);
+        const items = dropDeclinedPins(judged, next.context, transaction.state, globals);
+        let index: number = next.index;
+        if (items !== judged) {
+          // The pinned part is gone and the list reordered: the selection stays on its option.
+          const selected = judged[next.index]?.id;
+          index = Math.max(
+            0,
+            items.findIndex((item) => item.id === selected),
+          );
+        }
+        // A selection the author has not moved does not start on an option that cannot go here.
+        // With none that fits, the first row.
+        if (!next.picked && items[index]?.unavailable)
+          index = Math.max(
+            0,
+            items.findIndex((item) => !item.unavailable),
+          );
+        next = { ...next, judged: true, items, index };
       }
     }
     return next;
