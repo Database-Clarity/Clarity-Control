@@ -78,9 +78,9 @@ export function ManifestTextRow({ hash }: { hash: number }) {
                     {perk.name || 'Unnamed perk'} <span>· {perk.hash}</span>
                   </dt>
                   {/* A stat line ("-10 Grenade") is its own name: say it once. */}
-                  {perk.description !== perk.name && (
-                    <dd className={styles.text}>{perk.description}</dd>
-                  )}
+                  <dd className={perk.description === perk.name ? 'sr-only' : styles.text}>
+                    {perk.description === perk.name ? 'Same as the perk name.' : perk.description}
+                  </dd>
                 </div>
               ))}
             </dl>

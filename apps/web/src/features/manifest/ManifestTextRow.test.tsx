@@ -104,6 +104,13 @@ describe('sandbox perk text asset', () => {
       entries.every(([name, text]) => typeof name === 'string' && text.trim().length > 0),
     ).toBe(true);
   });
+  it('includes the fallback for Electrified Conductor from the current generator', async () => {
+    const asset = (await import('./sandbox-perks.json')).default as unknown as {
+      perks: SandboxPerkText;
+    };
+    const text = manifestText(item(1886465, { sandboxPerkHashes: [3341240528] }), asset.perks);
+    expect(text.kind).toBe('sandbox');
+  });
 });
 
 describe('ManifestTextRow', () => {
@@ -168,7 +175,10 @@ describe('ManifestTextRow', () => {
       '-10 Grenade ▼ · 14',
       'Shieldcrush · 12',
     ]);
-    expect(host.querySelectorAll('dd')).toHaveLength(1);
+    expect(host.querySelectorAll('dd')).toHaveLength(2);
+    expect(host.querySelector('dd.sr-only')?.textContent).toBe('Same as the perk name.');
+    expect(host.querySelectorAll('dd:not(.sr-only)')).toHaveLength(1);
+    expect(host.textContent?.match(/-10 Grenade/g)).toHaveLength(1);
     await act(async () => host.querySelector('button')!.click());
     expect(host.textContent).toContain('Sandbox perks: While you have an overshield');
     expect(host.textContent).not.toContain('Sandbox perks: -10');
