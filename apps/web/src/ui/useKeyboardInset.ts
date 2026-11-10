@@ -8,7 +8,7 @@ import { touchQuery } from './useMedia';
  * `--kb-inset` on the root element, so a bar fixed to the bottom sits on the keyboard. Chrome for
  * Android resizes the page itself (`interactive-widget=resizes-content`), so there the inset stays
  * 0; iOS Safari only shrinks the visual viewport, and the inset is what it hides. One frame per
- * viewport change, one CSS variable, no React state.
+ * viewport change, CSS variables only (written when they change), no React state.
  *
  * `useKeyboardFollow` keeps the focused field in view when the keyboard opens (the visible area
  * shrinks): an input or text area scrolls clear of the keyboard and the docked bar; an element that
@@ -17,11 +17,18 @@ import { touchQuery } from './useMedia';
  */
 
 const insetVar = '--kb-inset';
+/**
+ * The keyboard's height where only the visual viewport shrinks (iOS): room the docked editor adds
+ * below its text, so the page can scroll its last lines above the keyboard. It does not change as
+ * the visual viewport pans, so scrolling never changes the page's length.
+ */
+const roomVar = '--kb-room';
 
-function keyboardInset(win: Window): number {
+function keyboard(win: Window): { inset: number; room: number } {
   const viewport = win.visualViewport;
-  if (!viewport) return 0;
-  return Math.max(0, Math.round(win.innerHeight - viewport.height - viewport.offsetTop));
+  if (!viewport) return { inset: 0, room: 0 };
+  const room = Math.max(0, Math.round(win.innerHeight - viewport.height));
+  return { inset: Math.max(0, Math.round(room - viewport.offsetTop)), room };
 }
 
 export function useKeyboardInset(active: boolean): void {
@@ -30,13 +37,13 @@ export function useKeyboardInset(active: boolean): void {
     if (!active || !viewport) return;
     const root = document.documentElement;
     let frame = 0;
-    let written = -1;
+    let written = { inset: -1, room: -1 };
     const write = () => {
       frame = 0;
-      const inset = keyboardInset(window);
-      if (inset === written) return;
-      written = inset;
-      root.style.setProperty(insetVar, `${inset}px`);
+      const next = keyboard(window);
+      if (next.inset !== written.inset) root.style.setProperty(insetVar, `${next.inset}px`);
+      if (next.room !== written.room) root.style.setProperty(roomVar, `${next.room}px`);
+      written = next;
     };
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(write);
@@ -49,6 +56,7 @@ export function useKeyboardInset(active: boolean): void {
       viewport.removeEventListener('scroll', schedule);
       if (frame) cancelAnimationFrame(frame);
       root.style.removeProperty(insetVar);
+      root.style.removeProperty(roomVar);
     };
   }, [active]);
 }

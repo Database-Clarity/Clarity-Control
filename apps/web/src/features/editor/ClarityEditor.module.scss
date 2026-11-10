@@ -27,11 +27,12 @@
   min-width: 0;
   min-height: 0;
   border: 1px solid var(--editor-edge);
-  // The docked markup bar (a phone) is fixed over the bottom of the page: a constant room of its
-  // height below the editor lets the last line and the status bar scroll clear of it. Constant, so
-  // nothing moves when the keyboard opens.
+  // The docked markup bar (a phone) is fixed over the bottom of the page: room of its height below
+  // the editor lets the last line and the status bar scroll clear of it. Where the keyboard only
+  // shrinks the visual viewport (iOS), its height is added (--kb-room), so the last lines can scroll
+  // above it too. The room is below all text: no text moves when the keyboard opens.
   &[data-docked] {
-    margin-bottom: calc(var(--bar) + env(safe-area-inset-bottom, 0px));
+    margin-bottom: calc(var(--bar) + env(safe-area-inset-bottom, 0px) + var(--kb-room, 0px));
   }
   .host {
     display: flex;

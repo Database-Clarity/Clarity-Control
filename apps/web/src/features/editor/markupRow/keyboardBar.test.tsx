@@ -253,6 +253,13 @@ describe('useKeyboardInset', () => {
     expect(frames).toHaveLength(1);
     flushFrames();
     expect(style.getPropertyValue('--kb-inset')).toBe('300px');
+    expect(style.getPropertyValue('--kb-room')).toBe('300px');
+    // Panning the visual viewport moves the bar with it; the room below the text stays.
+    viewport.offsetTop = 100;
+    act(() => viewport.dispatchEvent(new Event('scroll')));
+    flushFrames();
+    expect(style.getPropertyValue('--kb-inset')).toBe('200px');
+    expect(style.getPropertyValue('--kb-room')).toBe('300px');
     expect(renders).toBe(before);
     act(() => root.render(null));
     expect(style.getPropertyValue('--kb-inset')).toBe('');
