@@ -5,6 +5,10 @@
 // and browsing it moves nothing. Dense (12px, 24px rows), token colours in both themes; a bottom
 // sheet with 44px rows on a phone or touch screen.
 .menu {
+  // The two line heights of the list. Every line is exactly one of them, so a line's place follows
+  // from how many of each sit above it and only the lines on screen need drawing.
+  --suggest-option: 1.5rem;
+  --suggest-heading: 1.25rem;
   position: fixed;
   z-index: 70;
   left: var(--menu-left);
@@ -29,28 +33,75 @@
   min-width: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 0.25rem 0;
+  // No padding: a line's place in the scrolled list is exactly its place among the lines.
   border-right: 1px solid var(--hair);
 }
 
+// The whole list's height, so the scrollbar is right although only the lines on screen exist.
+.rows {
+  position: relative;
+  height: calc(var(--suggest-option) * var(--options) + var(--suggest-heading) * var(--headings));
+}
+
+// Stands for every line above the ones drawn.
+.skipped {
+  height: calc(var(--suggest-option) * var(--options) + var(--suggest-heading) * var(--headings));
+}
+
+.category,
+.option {
+  box-sizing: border-box;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+// The selected option after the list has been scrolled away from it: still there, at its place.
+.apart {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--suggest-option) * var(--options) + var(--suggest-heading) * var(--headings));
+}
+
 .category {
+  height: var(--suggest-heading);
   padding: 0.25rem 0.5rem 0.125rem;
   font-size: 0.625rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+  text-overflow: ellipsis;
   color: var(--text3);
+}
+
+// The first heading of each part names the part: what fits here, then everything else.
+.category[data-part]::before {
+  content: attr(data-part) ' · ';
+  color: var(--text2);
+}
+
+// Between the options this spot calls for and everything else.
+.divider {
+  border-top: 1px solid var(--hair);
+  color: var(--text2);
 }
 
 .option {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.5rem;
-  min-height: 1.5rem;
-  padding: 0.125rem 0.5rem;
+  height: var(--suggest-option);
+  padding: 0 0.5rem;
   cursor: pointer;
   &[aria-selected='true'] {
     background: var(--sel);
     box-shadow: inset 2px 0 0 var(--accent-ink);
+  }
+  // Listed, but it cannot go at this caret.
+  &[aria-disabled='true'] {
+    cursor: default;
+    .label {
+      color: var(--text3);
+    }
   }
 }
 
@@ -169,9 +220,8 @@
   .menu {
     font-size: max(14px, 0.875rem);
   }
-  .option {
-    min-height: max(44px, 2.75rem);
-    align-items: center;
+  .menu {
+    --suggest-option: max(44px, 2.75rem);
   }
   .keys {
     display: none;

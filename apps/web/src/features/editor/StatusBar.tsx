@@ -242,7 +242,7 @@ export function StatusBar({
         <button
           type="button"
           className={`${styles.item} ${styles.suggest}`}
-          title="Suggest markup, snippets and transforms"
+          title="List every markup option, with the ones that fit here first"
           // Pressing it must not take focus from the text: a selection is what it transforms.
           onMouseDown={(event) => event.preventDefault()}
           onClick={onSuggest}
@@ -255,7 +255,7 @@ export function StatusBar({
         {rawView !== undefined && (
           <span data-raw-hint>{rawView ? 'Symbols' : 'Ctrl+Shift+. markup'}</span>
         )}
-        <span>Ctrl+Space suggestions</span>
+        <span>Ctrl+Space all markup</span>
         <span>Ctrl+F find</span>
         <span>F12 go to definition</span>
         <span>Esc then Tab leaves the editor</span>
