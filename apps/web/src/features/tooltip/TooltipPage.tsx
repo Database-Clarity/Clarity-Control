@@ -484,6 +484,7 @@ function TooltipWorkspace({
       usage={usage}
       onOpenTooltip={openDefinition}
       markupRow={markupRow.open}
+      sourceText={lang === 'en' ? undefined : base.text.en?.text}
       conflictSource={conflictSourceOf(variant)}
       workingDiff={
         readOnly

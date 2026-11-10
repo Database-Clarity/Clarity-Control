@@ -27,6 +27,12 @@
   min-width: 0;
   min-height: 0;
   border: 1px solid var(--editor-edge);
+  // The docked markup bar (a phone) is fixed over the bottom of the page: a constant room of its
+  // height below the editor lets the last line and the status bar scroll clear of it. Constant, so
+  // nothing moves when the keyboard opens.
+  &[data-docked] {
+    margin-bottom: calc(var(--bar) + env(safe-area-inset-bottom, 0px));
+  }
   .host {
     display: flex;
     flex: 1 1 auto;

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type { EditorView } from '@codemirror/view';
 import { acceptChip, dismissChip, markChipShown, type Chip, type ChipKey } from './chips';
 import { EntryGlyph } from './EntryGlyph';
+import { dockedBarHeight } from './dock';
 import styles from './SuggestChip.module.scss';
 
 interface Placement {
@@ -25,7 +26,9 @@ export function placeChip(
 ): Placement | null {
   const viewport = window.visualViewport;
   const top = viewport?.offsetTop ?? 0;
-  const bottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight;
+  // The docked markup bar (a phone) covers the bottom of the visible area: the chip stays above it.
+  const bottom =
+    (viewport ? viewport.offsetTop + viewport.height : window.innerHeight) - dockedBarHeight();
   const scroller = view.scrollDOM.getBoundingClientRect();
   const last = view.coordsAtPos(chip.covers.to, -1) ?? view.coordsAtPos(chip.covers.to);
   const first = view.coordsAtPos(chip.covers.from, 1) ?? view.coordsAtPos(chip.covers.from);

@@ -1,4 +1,6 @@
+import { EditorSelection, type EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
+import { dockedBarHeight, dockedTopChrome } from './markupRow/dock';
 
 interface Box {
   top: number;
@@ -37,19 +39,79 @@ export function coverMargins(
 
 const coverSelector = '[data-editor-overlay], [data-notice-strip]';
 
-/** Keeps the caret clear of the editor's own overlays and of the shell's notice strip. */
+/**
+ * The docked markup bar (a phone) covers the bottom of the visible page, not of the scroller (the
+ * page scrolls there), and the sticky header and pane tabs cover its top. Both come from heights
+ * cached off the typing path (markupRow/dock.ts), never from the layout.
+ */
+function dockMargins(): { top: number; bottom: number } | null {
+  const bar = dockedBarHeight();
+  if (!bar) return null;
+  return { top: dockedTopChrome() + 8, bottom: bar + 8 };
+}
+
+/** Keeps the caret clear of the editor's own overlays, the shell's notice strip, and the docked bar. */
 export function editorScrollMargins() {
   return EditorView.scrollMargins.of((view) => {
+    const dock = dockMargins();
     const overlays = [...document.querySelectorAll<HTMLElement>(coverSelector)].filter(
       (element) => !element.hasAttribute('data-editor-overlay') || isOver(element, view),
     );
-    if (!overlays.length) return null;
+    if (!overlays.length) return dock;
     const scroller = view.scrollDOM.getBoundingClientRect();
     const covers = overlays
       .map((element) => element.getBoundingClientRect())
       .filter((rect) => rect.width > 0 && rect.height > 0);
     const margins = coverMargins(scroller, covers);
+    if (dock) {
+      margins.top = Math.max(margins.top, dock.top);
+      margins.bottom = Math.max(margins.bottom, dock.bottom);
+    }
     return margins.top || margins.bottom ? margins : null;
+  });
+}
+
+/** The caret's paragraph: the lines around it up to the nearest blank line on either side. */
+export function paragraphAt(state: EditorState, pos: number): { from: number; to: number } {
+  const doc = state.doc;
+  const line = doc.lineAt(pos);
+  if (!line.text.trim()) return { from: line.from, to: line.to };
+  let first = line.number;
+  let last = line.number;
+  while (first > 1 && doc.line(first - 1).text.trim()) first--;
+  while (last < doc.lines && doc.line(last + 1).text.trim()) last++;
+  return { from: doc.line(first).from, to: doc.line(last).to };
+}
+
+/** Lines of context kept around the caret when its paragraph is taller than the visible band. */
+const contextLines = 3;
+
+/**
+ * The keyboard opened (the visible band shrank) while the text has focus: keep the whole paragraph
+ * at the caret in view when it fits between the sticky chrome and the docked bar, else the caret's
+ * line with a few lines of context. Scrolls only what is out of view (CodeMirror's "nearest"), so
+ * a paragraph already in view stays put. Heights come from the height map, not the DOM.
+ */
+export function keepParagraphInView(view: EditorView, band: { top: number; bottom: number }) {
+  const head = view.state.selection.main.head;
+  const paragraph = paragraphAt(view.state, head);
+  const height = view.lineBlockAt(paragraph.to).bottom - view.lineBlockAt(paragraph.from).top;
+  const margins = dockMargins() ?? { top: 8, bottom: 8 };
+  // `band` already leaves out the docked bar; its margin's own gap is what stays.
+  const room = band.bottom - band.top - margins.top - 8;
+  if (height <= room) {
+    view.dispatch({
+      effects: EditorView.scrollIntoView(EditorSelection.range(paragraph.to, paragraph.from), {
+        y: 'nearest',
+      }),
+    });
+    return;
+  }
+  view.dispatch({
+    effects: EditorView.scrollIntoView(head, {
+      y: 'nearest',
+      yMargin: contextLines * view.defaultLineHeight,
+    }),
   });
 }
 

@@ -19,6 +19,19 @@
   @include theme.mobile-or-coarse {
     height: var(--bar);
   }
+
+  // Docked (a phone): the bar sits on the keyboard, fixed to the bottom of the visible page, above
+  // the text and under popovers. --kb-inset is what the keyboard hides of the layout viewport (iOS;
+  // 0 where the page itself shrinks). The safe area is padding under the controls.
+  &[data-docked] {
+    position: fixed;
+    inset: auto 0 var(--kb-inset, 0px) 0;
+    z-index: 30;
+    height: calc(var(--bar) + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    border-top: 1px solid var(--editor-edge);
+    border-bottom: 0;
+  }
 }
 
 .scrollWrap {
@@ -201,7 +214,8 @@
   color: var(--tag-yellow);
 }
 
-.allButton {
+.allButton,
+.suggestButton {
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -255,6 +269,14 @@
   background: var(--warn-bg);
   border-bottom: 1px solid var(--warn-edge);
   pointer-events: none;
+
+  // Docked, it hangs above the bar instead, over the last visible lines.
+  .row[data-docked] > & {
+    top: auto;
+    bottom: 100%;
+    border-top: 1px solid var(--warn-edge);
+    border-bottom: 0;
+  }
 }
 
 // The "All" popover (inside Popover's surface, a bottom sheet on a phone).

@@ -3,7 +3,16 @@ import type { EditorView } from '@codemirror/view';
 import type { MarkupGlobals } from '@clarity/core';
 import { EntryGlyph } from './EntryGlyph';
 import { AllPopover } from './AllPopover';
-import { entryMessage, markupEntries, rowEntries, rowSeparator, type MarkupEntry } from './entries';
+import {
+  entryMessage,
+  leadEntries,
+  markupEntries,
+  rowEntries,
+  rowSeparator,
+  type MarkupEntry,
+} from './entries';
+import { observeDock } from './dock';
+import { useKeyboardInset } from '../../../ui/useKeyboardInset';
 import type { UsageCorpus } from '../suggest/usage';
 import styles from './MarkupRow.module.scss';
 
@@ -16,6 +25,10 @@ const numbered = 9;
  * focus from the text, so the selection they act on stays put; keyboard users move along the row
  * with the arrow keys, insert with Enter or a number, and land back in the text. "Raw", beside
  * "All", flips the whole text between symbols and raw markup (the Ctrl+Shift+. toggle).
+ *
+ * Docked (a phone), the same row is a bar fixed to the bottom of the visible page, on the keyboard:
+ * Suggest sits beside "All", and Raw moves to the status bar. While translating, it leads with the
+ * entries the English text uses (`leadEntries`).
  */
 export const MarkupRow = memo(function MarkupRow({
   view,
@@ -23,6 +36,9 @@ export const MarkupRow = memo(function MarkupRow({
   usage,
   rawView,
   onRawView,
+  docked = false,
+  onSuggest,
+  sourceText,
 }: {
   view: RefObject<EditorView | null>;
   globals: MarkupGlobals;
@@ -30,17 +46,31 @@ export const MarkupRow = memo(function MarkupRow({
   /** Whether the text shows as raw markup; undefined when this editor draws no symbols. */
   rawView?: boolean;
   onRawView?(): void;
+  /** Fixed to the bottom of the visible page, on the keyboard (a phone). */
+  docked?: boolean;
+  /** Opens the suggestion menu; shown on the docked bar only. */
+  onSuggest?(): void;
+  /** The English text of this tooltip while translating: the docked bar leads with its entries. */
+  sourceText?: string;
 }) {
   // The toolbar catalogue depends only on variable definitions. Its insertion actions
   // receive the live globals separately; import snapshot edits must not rebuild every entry.
   const variables = globals.variables;
   const entries = useMemo(() => markupEntries({ variables, titles: '' }), [variables]);
-  const items = useMemo(() => rowEntries(entries), [entries]);
+  const lead = docked ? sourceText : undefined;
+  const items = useMemo(() => leadEntries(rowEntries(entries), lead), [entries, lead]);
   const buttons = items.filter((item): item is MarkupEntry => item !== rowSeparator);
   const scroller = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(0);
   const [edges, setEdges] = useState({ start: false, end: false });
   const [message, setMessage] = useState('');
+  const bar = useRef<HTMLDivElement>(null);
+  useKeyboardInset(docked);
+  useEffect(() => {
+    const element = bar.current;
+    if (!docked || !element) return;
+    return observeDock(element);
+  }, [docked]);
 
   function run(entry: MarkupEntry) {
     const editor = view.current;
@@ -112,7 +142,7 @@ export const MarkupRow = memo(function MarkupRow({
 
   let index = -1;
   return (
-    <div className={styles.row} data-markup-row>
+    <div ref={bar} className={styles.row} data-markup-row data-docked={docked || undefined}>
       <div
         className={styles.scrollWrap}
         data-more-start={edges.start || undefined}
@@ -173,6 +203,19 @@ export const MarkupRow = memo(function MarkupRow({
           onClick={onRawView}
         >
           Raw
+        </button>
+      )}
+      {docked && onSuggest && (
+        <button
+          type="button"
+          className={styles.suggestButton}
+          data-suggest-button
+          title="List every markup option, with the ones that fit here first"
+          // Pressing it never moves focus out of the text: a selection is what it transforms.
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={onSuggest}
+        >
+          Suggest
         </button>
       )}
       <AllPopover view={view} globals={globals} usage={usage} onResult={setMessage} />

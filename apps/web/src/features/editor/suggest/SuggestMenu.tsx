@@ -14,6 +14,7 @@ import { MarkupSnippet } from '../../preview/TooltipPreview';
 import { acceptSuggestion, closeSuggest, moveSuggest, type SuggestSnapshot } from './state';
 import type { SuggestContext, SuggestItem } from './source';
 import { phoneQuery } from '../../../ui/useMedia';
+import { dockedBarHeight } from '../markupRow/dock';
 import type { UsageCorpus } from './usage';
 import styles from './SuggestMenu.module.scss';
 
@@ -44,7 +45,9 @@ function place(view: EditorView, context: SuggestContext, width: number): Placem
   const anchor = view.coordsAtPos(context.kind === 'selection' ? context.to : context.from);
   // The visible area, which the on-screen keyboard shortens (the layout viewport does not).
   const viewport = window.visualViewport;
-  const bottomEdge = viewport ? viewport.offsetTop + viewport.height : window.innerHeight;
+  // The docked markup bar (a phone) covers the bottom of that area: the menu stays above it.
+  const bottomEdge =
+    (viewport ? viewport.offsetTop + viewport.height : window.innerHeight) - dockedBarHeight();
   const scroller = view.scrollDOM.getBoundingClientRect();
   // The caret line has scrolled out of the editor: the menu goes with it instead of floating on.
   if (!anchor || anchor.bottom <= scroller.top || anchor.top >= scroller.bottom) return null;

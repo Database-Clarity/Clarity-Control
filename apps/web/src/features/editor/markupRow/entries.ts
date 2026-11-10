@@ -259,6 +259,7 @@ export function markupEntries(globals: MarkupGlobals, documentText = ''): Markup
       markup: '• text',
       keys: 'bullet list point dot',
       glyph: { kind: 'text', text: '•' },
+      usage: /^• /m,
       about: 'A bullet at the start of the line.',
       help: { example: '• 10 Range' },
       run: insertBullet,
@@ -523,4 +524,34 @@ export function rowEntries(entries: readonly MarkupEntry[]): (MarkupEntry | type
     if (found) items.push(found);
   }
   return items;
+}
+
+type RowItem = MarkupEntry | typeof rowSeparator;
+
+/**
+ * The docked bar's order while translating (a phone): the entries the English text uses come
+ * first, by where each is first used (ties keep the row's order), then one separator and the rest
+ * in the row's order. Without a source text the row's order is returned as it is.
+ */
+export function leadEntries(items: readonly RowItem[], sourceText?: string): readonly RowItem[] {
+  if (!sourceText) return items;
+  const used: { entry: MarkupEntry; at: number; order: number }[] = [];
+  items.forEach((item, order) => {
+    if (item === rowSeparator || !item.usage) return;
+    const at = sourceText.search(new RegExp(item.usage.source, item.usage.flags.replace('g', '')));
+    if (at >= 0) used.push({ entry: item, at, order });
+  });
+  if (!used.length) return items;
+  used.sort((a, b) => a.at - b.at || a.order - b.order);
+  const leading = new Set(used.map((use) => use.entry));
+  const rest: RowItem[] = [];
+  for (const item of items) {
+    if (item === rowSeparator) {
+      // Never two separators in a row, and none at either end.
+      if (rest.length && rest[rest.length - 1] !== rowSeparator) rest.push(item);
+    } else if (!leading.has(item)) rest.push(item);
+  }
+  if (rest[rest.length - 1] === rowSeparator) rest.pop();
+  const lead: RowItem[] = used.map((use) => use.entry);
+  return rest.length ? [...lead, rowSeparator, ...rest] : lead;
 }

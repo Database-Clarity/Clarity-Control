@@ -44,7 +44,8 @@ import {
   type RetiredOccurrence,
 } from '@clarity/core';
 import { clarityHighlighting, clarityLanguage } from './language';
-import { editorScrollMargins } from './scrollMargins';
+import { editorScrollMargins, keepParagraphInView } from './scrollMargins';
+import { followKeyboard, visibleBand } from '../../ui/useKeyboardInset';
 import { findWidgetExtension, findWidgetPanel, openReplace } from './findWidget';
 import { rememberSearch, restoreSearch } from './searchMemory';
 import { rawMode, setSymbolReveal, symbolExtensions, toggleRaw, toggleRawView } from './symbols';
@@ -199,6 +200,11 @@ export interface ClarityEditorProps {
   suspended?: boolean;
   /** Navigation keeps the text live without moving the DOM selection on each step. */
   stepping?: boolean;
+  /**
+   * The saved English text of this tooltip while translating: on a phone the docked markup bar
+   * leads with the entries it uses. Undefined for English.
+   */
+  sourceText?: string;
 }
 
 function configuration(
@@ -249,6 +255,7 @@ export function ClarityEditor({
   findMemory = true,
   suspended = false,
   stepping = false,
+  sourceText,
 }: ClarityEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
@@ -405,6 +412,13 @@ export function ClarityEditor({
   );
   const conflictCount = useMemo(() => countConflicts(value), [value]);
   const compact = useMedia(`${phoneQuery}, (pointer: coarse)`);
+  // The markup row shows when the page opens it and the text can be edited; on a phone it docks
+  // on the keyboard as a bar (Suggest moves into it, Raw to the status bar).
+  const rowShown = markupRow && !readOnly;
+  const docked = useMedia(phoneQuery) && rowShown;
+  const suggestHere = useCallback(() => {
+    if (view.current) openSuggest(view.current);
+  }, []);
   const [compare, setCompare] = useState<CompareData | null>(null);
   const [conflictIndex, setConflictIndex] = useState(0);
   const conflictConfig = useRef(new Compartment());
@@ -662,6 +676,12 @@ export function ClarityEditor({
     },
     [],
   );
+  // The keyboard opening (a phone) keeps the caret's paragraph in view (ui/useKeyboardInset.ts).
+  useEffect(() => {
+    const editor = view.current;
+    if (suspended || !editor) return;
+    return followKeyboard(editor.dom, () => keepParagraphInView(editor, visibleBand()));
+  }, [suspended]);
 
   // The conflict actions' host: set again whenever the editor state is rebuilt for a new text.
   const compactRef = useRef(compact);
@@ -884,16 +904,20 @@ export function ClarityEditor({
     <div
       className={styles.editor}
       data-editor-root
+      data-docked={docked || undefined}
       data-validation-pending={diagnostics.pending || undefined}
     >
-      {markupRow && !readOnly && (
+      {rowShown && (
         <MarkupRow
           key={lang}
           view={view}
           globals={globals}
           usage={usage}
-          rawView={symbols ? rawView : undefined}
+          rawView={symbols && !docked ? rawView : undefined}
           onRawView={flipRawView}
+          docked={docked}
+          onSuggest={docked ? suggestHere : undefined}
+          sourceText={lang === 'en' ? undefined : sourceText}
         />
       )}
       <div ref={textArea} className={styles.textArea}>
@@ -1003,9 +1027,10 @@ export function ClarityEditor({
         changes={workingDiff ? changed : undefined}
         panel={open}
         onPanel={onPanel}
-        onSuggest={readOnly ? undefined : () => view.current && openSuggest(view.current)}
-        // The markup row carries this toggle; the bar keeps it only while the row is not shown.
-        rawView={symbols && !(markupRow && !readOnly) ? rawView : undefined}
+        // The docked bar carries Suggest; the status bar keeps it otherwise.
+        onSuggest={readOnly || docked ? undefined : suggestHere}
+        // The markup row carries this toggle; the bar keeps it while the row is not shown or docked.
+        rawView={symbols && (!rowShown || docked) ? rawView : undefined}
         onRawView={flipRawView}
       />
     </div>
