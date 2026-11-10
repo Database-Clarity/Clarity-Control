@@ -55,17 +55,16 @@ export function projectCompendiumDiff(before: CompendiumCell, after: CompendiumC
   // A side with no text at all (a first revision, a removed link) has no lines, not one blank line.
   const left = before.plain ? splitLines(before) : [];
   const right = after.plain ? splitLines(after) : [];
-  // Saved snapshots carry no alignment (it is not approval evidence): their removed lines take
-  // the sheet's alignment from the new line they pair with, a neighbouring line, or the cell.
-  const inherit = !before.runs.some((run) => run.textAlign);
-  const cellAlign = inherit ? commonAlign(right) : undefined;
+  // Saved snapshots carry no alignment (it is not approval evidence): a removed line without its
+  // own takes the sheet's from the new line it pairs with, a neighbouring line, or the cell.
+  const cellAlign = commonAlign(right);
   const items: DiffLine[] = [];
   let li = 0;
   let ri = 0;
   for (const [l, r] of [...commonLines(left, right), [left.length, right.length]]) {
     if (l > li || r > ri) {
       const fallback = lineAlign(right[ri - 1] ?? right[r]) ?? cellAlign;
-      for (const item of hunk(left.slice(li, l), right.slice(ri, r), inherit, fallback))
+      for (const item of hunk(left.slice(li, l), right.slice(ri, r), fallback))
         pushMerging(items, item);
     }
     if (l < left.length) items.push(equalLine(left[l], right[r]));
@@ -126,44 +125,41 @@ function commonAlign(lines: CompendiumCell[]): Align {
   return common;
 }
 
+/** An old line keeps the alignment it stores; one that stores none takes `align`. */
 const aligned = (cell: CompendiumCell, align: Align): CompendiumCell =>
-  align ? { ...cell, runs: cell.runs.map((run) => ({ ...run, textAlign: align })) } : cell;
+  align && !lineAlign(cell)
+    ? { ...cell, runs: cell.runs.map((run) => ({ ...run, textAlign: align })) }
+    : cell;
 
 function equalLine(before: CompendiumCell, after: CompendiumCell): DiffLine {
   const style = sameCell(before, after) ? undefined : styleNote(before, after);
   return style ? { kind: 'equal', cell: after, style } : { kind: 'equal', cell: after };
 }
 
-/** A changed hunk: pair similar lines in order; small edits stay inline, the rest form blocks. */
-function hunk(
-  removed: CompendiumCell[],
-  added: CompendiumCell[],
-  inherit: boolean,
-  fallback: Align,
-): DiffLine[] {
+/**
+ * A changed hunk: each old line pairs with the first later new line similar enough to be the same
+ * line; small edits stay inline, the rest form blocks.
+ */
+function hunk(removed: CompendiumCell[], added: CompendiumCell[], fallback: Align): DiffLine[] {
   const items: DiffLine[] = [];
   let next = 0;
   for (const old of removed) {
-    let best = -1;
-    let bestScore = PAIR_MIN_SIMILARITY;
-    for (let j = next; j < added.length; j++) {
-      const score = similarity(old.plain, added[j].plain);
-      if (score > bestScore) {
-        best = j;
-        bestScore = score;
-      }
-    }
-    if (best < 0) {
+    let match = next;
+    while (match < added.length && similarity(old.plain, added[match].plain) <= PAIR_MIN_SIMILARITY)
+      match++;
+    if (match === added.length) {
       // Unpaired: the new line at this position in the hunk is its neighbour.
       const neighbour = added[Math.min(next, added.length - 1)];
-      const align = inherit ? (lineAlign(neighbour) ?? fallback) : undefined;
-      items.push({ kind: 'block', before: [aligned(old, align)], after: [] });
+      items.push({
+        kind: 'block',
+        before: [aligned(old, lineAlign(neighbour) ?? fallback)],
+        after: [],
+      });
       continue;
     }
-    for (let j = next; j < best; j++) items.push({ kind: 'block', before: [], after: [added[j]] });
-    const align = inherit ? (lineAlign(added[best]) ?? fallback) : undefined;
-    items.push(pair(old, added[best], align));
-    next = best + 1;
+    for (let j = next; j < match; j++) items.push({ kind: 'block', before: [], after: [added[j]] });
+    items.push(pair(old, added[match], lineAlign(added[match]) ?? fallback));
+    next = match + 1;
   }
   for (let j = next; j < added.length; j++)
     items.push({ kind: 'block', before: [], after: [added[j]] });
@@ -217,11 +213,16 @@ function pair(before: CompendiumCell, after: CompendiumCell, oldAlign: Align): D
         cell: { plain: cell.plain, runs: cell.runs.map((run) => ({ ...run })) },
       });
   }
+  // The note names what changed on the words both lines share; its popover shows the whole lines.
   const style = styleBefore.length
-    ? styleNote(
-        { plain: styleBefore.map((run) => run.text).join(''), runs: styleBefore },
-        { plain: styleAfter.map((run) => run.text).join(''), runs: styleAfter },
-      )
+    ? {
+        ...styleNote(
+          { plain: styleBefore.map((run) => run.text).join(''), runs: styleBefore },
+          { plain: styleAfter.map((run) => run.text).join(''), runs: styleAfter },
+        ),
+        before,
+        after,
+      }
     : undefined;
   return style
     ? { kind: 'inline', parts: inline, after, style }
@@ -266,8 +267,9 @@ const changeCache = new Map<string, StyleChange[]>();
  * a colour that moved to other words still shows: [{ key: 'size', from: '9', to: '6' }, ...].
  */
 export function styleChanges(before: CompendiumCell, after: CompendiumCell): StyleChange[] {
+  // The result depends on where the ink is (ink is compared before spaces), so the key keeps it.
   const signature = (cell: CompendiumCell) =>
-    cell.runs.map((run) => [run.text.length, ...styleKeys.map((key) => run[key])]);
+    cell.runs.map((run) => [run.text.replace(/\S/gu, 'x'), ...styleKeys.map((key) => run[key])]);
   const key = JSON.stringify([signature(before), signature(after)]);
   const cached = changeCache.get(key);
   if (cached !== undefined) return cached;
