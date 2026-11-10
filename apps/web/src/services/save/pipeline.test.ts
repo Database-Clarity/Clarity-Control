@@ -194,6 +194,37 @@ describe('validation is scoped to text the change edits', () => {
       ];
       expect(errors(validateChanges(changes, state)).map((issue) => issue.hash)).toContain(123);
     });
+    it('keeps an old missing import a warning when an unrelated global or healthy export changes', () => {
+      const { state, donor } = data();
+      const newline = String.fromCharCode(10);
+      const broken = {
+        ...tooltip,
+        text: { en: entry(['import bad from 999', 'import foo from 124'].join(newline)) },
+      };
+      state.bundle.tooltips[123] = broken;
+      state.bundle.tooltips[2] = {
+        ...tooltip,
+        hash: 2,
+        text: { en: entry('var unused = One') },
+      };
+      const link = { hash: 123, base: broken, next: { ...broken, associated: [30] } };
+      const global = state.bundle.tooltips[2]!;
+      const unrelatedGlobal = {
+        hash: 2,
+        base: global,
+        next: { ...global, text: { en: entry('var unused = Two') } },
+      };
+      const healthySibling = {
+        hash: 124,
+        base: donor,
+        next: { ...donor, text: { en: entry(['export foo (', 'Changed', ')'].join(newline)) } },
+      };
+      for (const sibling of [unrelatedGlobal, healthySibling]) {
+        const issues = validateChanges([link, sibling], state);
+        expect(errors(issues)).toEqual([]);
+        expect(issues).toContainEqual(expect.objectContaining({ hash: 123, severity: 'warning' }));
+      }
+    });
     it('does not turn an error that already existed into a blocker', () => {
       const { state, donor } = data();
       const broken = { ...tooltip, text: { en: entry('import gone from 124') } };

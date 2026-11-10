@@ -9,7 +9,7 @@ import {
 } from '../markup/index.js';
 import { markupImports, prepareMarkup } from '../markup/prepare.js';
 import { extractBlocks } from '../markup/syntax.js';
-import type { MarkupDiagnostic, MarkupGlobals } from '../markup/types.js';
+import type { MarkupGlobals } from '../markup/types.js';
 import type { Tooltip } from '../schemas.js';
 import { glyphWarnings } from './glyphs.js';
 import { retiredWarnings } from './retired.js';
@@ -118,17 +118,24 @@ export function validateTooltip(
       requireEnglish && edited,
       tooltip.hash,
     );
-    // An error in unchanged text is not this save's doing only if the text resolves exactly as
-    // before (imports, variables, titles, and the diagnostics raised while resolving) and no
-    // error message is raised more often. Messages alone cannot tell which dependency fails
-    // (validateText lists a repeated message once, and one repaired import can hide another that
-    // breaks), so anything a sibling changed in what the text pulls in blocks.
+    // An error in unchanged text is not this save's doing if it was already raised the same way
+    // before the save. Messages alone cannot say which dependency fails (validateText lists a
+    // repeated message once, and one repaired import can hide another that breaks), so an
+    // unresolved import is attributed to the chain of import lines that reaches it, and any other
+    // error to a count of its raw occurrences.
     const hasError = !edited && issues.some((issue) => issue.severity === 'error');
-    const after = hasError ? errorCounts(text, globalsFor(lang), tooltip.hash) : undefined;
-    const before = hasError ? errorCounts(text, baseGlobalsFor(lang), tooltip.hash) : undefined;
-    const caused = (message: string) =>
-      (after!.get(message) ?? 0) > (before!.get(message) ?? 0) ||
-      resolution(text, globalsFor(lang)) !== resolution(text, baseGlobalsFor(lang));
+    const now = hasError ? failures(text, globalsFor(lang), tooltip.hash) : undefined;
+    const then = hasError ? failures(text, baseGlobalsFor(lang), tooltip.hash) : undefined;
+    const caused = (message: string) => {
+      for (const [key, count] of now!) {
+        if (key.startsWith(message + pathMark) && count > (then!.get(key) ?? 0)) return true;
+      }
+      return (
+        sum(now!, message) > sum(then!, message) ||
+        // A message the failures could not attribute (none seen now): stay safe, block.
+        sum(now!, message) === 0
+      );
+    };
     return issues.map((issue) => ({
       ...issue,
       severity:
@@ -141,54 +148,49 @@ export function validateTooltip(
   });
 }
 
-/**
- * What the text pulls in: the exact piece each import line it reaches resolves to (five passes,
- * as the resolver does; null when it does not resolve), the globals, what the text resolves to,
- * and the diagnostics met on the way.
- * Two texts with equal signatures fail, or work, in exactly the same way.
- */
-function resolution(text: string, globals: MarkupGlobals): string {
-  const pulled: [string, string | null][] = [];
-  const seen = new Set<string>();
-  let frontier = [text];
-  for (let pass = 0; pass < 5 && frontier.length; pass++) {
-    const next: string[] = [];
-    for (const source of frontier) {
-      for (const line of markupImports(source)) {
-        if (seen.has(line)) continue;
-        seen.add(line);
-        const name = line.match(/(?<=import) .+ (?=from)/)?.[0].trim() ?? '';
-        const from = line.match(/(?<=from) (\d+|global)/)?.[0].trim() ?? '';
-        const document =
-          globals.imports?.[from] ?? (from === 'global' ? globals.imports?.['1'] : undefined);
-        const imported =
-          name === 'main' || name === 'secondary'
-            ? document
-            : extractBlocks(document ?? '', 'export')[name];
-        pulled.push([line, imported ?? null]);
-        if (imported) next.push(imported);
-      }
-    }
-    frontier = next;
-  }
-  const diagnostics: MarkupDiagnostic[] = [];
-  const prepared = prepareMarkup(text, globals, diagnostics);
-  return JSON.stringify([
-    pulled,
-    globals.variables,
-    globals.titles,
-    prepared.text,
-    prepared.titles,
-    diagnostics,
-  ]);
-}
+const pathMark = ' @ ';
+const sum = (counts: Map<string, number>, message: string) => {
+  let total = 0;
+  for (const [key, count] of counts) if (key.startsWith(message + pathMark)) total += count;
+  return total;
+};
 
-/** How often each error message is raised for this text, before validateText merges repeats. */
-function errorCounts(text: string, globals: MarkupGlobals, selfHash: number): Map<string, number> {
+/**
+ * How often each error is raised for this text, keyed by its message and, for an unresolved
+ * import, by the chain of import lines that reaches it (the resolver's five passes). Other errors
+ * (parser, global name clashes) have an empty chain. Counting happens before validateText merges
+ * repeated messages.
+ */
+function failures(text: string, globals: MarkupGlobals, selfHash: number): Map<string, number> {
   const counts = new Map<string, number>();
-  const add = (message: string) => counts.set(message, (counts.get(message) ?? 0) + 1);
+  const add = (message: string, chain = '') => {
+    const key = message + pathMark + chain;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  };
+  const walk = (source: string, chain: string[]) => {
+    if (chain.length >= 5) return;
+    for (const line of markupImports(source)) {
+      if (line.includes('import self')) continue;
+      const name = line.match(/(?<=import) .+ (?=from)/)?.[0].trim() ?? '';
+      const from = line.match(/(?<=from) (\d+|global)/)?.[0].trim() ?? '';
+      const document =
+        globals.imports?.[from] ?? (from === 'global' ? globals.imports?.['1'] : undefined);
+      const imported =
+        name === 'main' || name === 'secondary'
+          ? document
+          : extractBlocks(document ?? '', 'export')[name];
+      const here = [...chain, line.trim()];
+      if (imported === undefined)
+        add(`Unresolved import "${name}" from ${from}.`, here.join(' > '));
+      else walk(imported, here);
+    }
+  };
+  walk(text, []);
+  const unresolved = /^Unresolved import /;
   for (const diagnostic of parseMarkup(text, globals).diagnostics) {
-    if (diagnostic.severity === 'error') add(diagnostic.message);
+    if (diagnostic.severity === 'error' && !unresolved.test(diagnostic.message)) {
+      add(diagnostic.message);
+    }
   }
   if (selfHash !== globalVariablesHash && selfHash !== globalTitlesHash) {
     for (const clash of findGlobalNameClashes(text, globals)) add(describeGlobalClash(clash));
