@@ -16,7 +16,8 @@ import { tooltipImports } from '../tooltipImports';
 
 function changedNames(before: Record<string, string>, after: Record<string, string>) {
   return [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
-    (name) => before[name] !== after[name] || Object.hasOwn(before, name) !== Object.hasOwn(after, name),
+    (name) =>
+      before[name] !== after[name] || Object.hasOwn(before, name) !== Object.hasOwn(after, name),
   );
 }
 
@@ -58,12 +59,15 @@ export function saveDependencies(
       if (oldText === newText) continue;
       documents.set(hash, `"${data.items[hash]?.name ?? `Tooltip ${hash}`}" (${hash})`);
       const kind = hash === 2 ? 'variable' : 'title';
-      const definitions = hash === 2 ? extractVariables : (text: string) => extractBlocks(text, 'title');
+      const definitions =
+        hash === 2 ? extractVariables : (text: string) => extractBlocks(text, 'title');
       if (hash === 2 || hash === 3) {
-        globals.push(...changedNames(definitions(oldText), definitions(newText)).map((name) => ({
-          name,
-          label: `the global ${kind} "${name}"`,
-        })));
+        globals.push(
+          ...changedNames(definitions(oldText), definitions(newText)).map((name) => ({
+            name,
+            label: `the global ${kind} "${name}"`,
+          })),
+        );
       }
     }
     if (documents.size) changed.set(lang, documents);
@@ -85,7 +89,11 @@ export function saveDependencies(
 
   const outsideIssues = (): TooltipValidationIssue[] => {
     const batch = new Set(changes.map(({ hash }) => hash));
-    type Dependent = { hash: number; lang: Lang; validation: ReturnType<typeof validateTextWithReads> };
+    type Dependent = {
+      hash: number;
+      lang: Lang;
+      validation: ReturnType<typeof validateTextWithReads>;
+    };
     const dependents = new Set<Dependent>();
     // Build once, only for languages whose inputs change. The baseline reads also select texts
     // whose after-expansion reads a new target: its first changed input was read before the save.
@@ -96,7 +104,12 @@ export function saveDependencies(
         if (batch.has(hash) || resolveAlias(hash, data.aliases) !== hash) continue;
         if (lang !== 'en' && !tooltip.text[lang]) continue;
         const validation = validateTextWithReads(
-          tooltip.text[lang]?.text ?? '', lang, globalsFor(hash, lang, true), false, hash, data.aliases,
+          tooltip.text[lang]?.text ?? '',
+          lang,
+          globalsFor(hash, lang, true),
+          false,
+          hash,
+          data.aliases,
         );
         const dependent = { hash, lang, validation };
         for (const target of validation.reads.imports.values()) {
@@ -114,10 +127,17 @@ export function saveDependencies(
     const issues: TooltipValidationIssue[] = [];
     for (const { hash, lang, validation: baseline } of dependents) {
       const next = validateTextWithReads(
-        after[hash].text[lang]?.text ?? '', lang, globalsFor(hash, lang), false, hash, data.aliases,
+        after[hash].text[lang]?.text ?? '',
+        lang,
+        globalsFor(hash, lang),
+        false,
+        hash,
+        data.aliases,
       );
       const uses = affectedBy(next.reads) ?? affectedBy(baseline.reads);
-      const oldErrors = new Set(baseline.issues.filter((issue) => issue.severity === 'error').map((issue) => issue.message));
+      const oldErrors = new Set(
+        baseline.issues.filter((issue) => issue.severity === 'error').map((issue) => issue.message),
+      );
       for (const issue of next.issues) {
         // Diagnostic messages merge equal failures from distinct paths. When a read changed,
         // retaining an old message cannot prove the save did not introduce another failure (P7).

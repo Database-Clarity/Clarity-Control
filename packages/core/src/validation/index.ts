@@ -60,7 +60,13 @@ export function validateTextWithReads(
       return value;
     },
   });
-  const issues = validateText(text, lang, { ...globals, imports: catalog }, requireEnglish, selfHash);
+  const issues = validateText(
+    text,
+    lang,
+    { ...globals, imports: catalog },
+    requireEnglish,
+    selfHash,
+  );
   return { issues, reads: { lang, imports, sources } };
 }
 
@@ -146,9 +152,17 @@ export function validateTooltip(
     const edited = !base || (base.text[lang]?.text ?? '') !== text;
     const globals = globalsFor(lang);
     const recorded = context
-      ? validateTextWithReads(text, lang, globals, requireEnglish && edited, tooltip.hash, context.aliases)
+      ? validateTextWithReads(
+          text,
+          lang,
+          globals,
+          requireEnglish && edited,
+          tooltip.hash,
+          context.aliases,
+        )
       : undefined;
-    const issues = recorded?.issues ?? validateText(text, lang, globals, requireEnglish && edited, tooltip.hash);
+    const issues =
+      recorded?.issues ?? validateText(text, lang, globals, requireEnglish && edited, tooltip.hash);
     const uses =
       !edited && issues.some((issue) => issue.severity === 'error')
         ? recorded && context?.affectedBy(recorded.reads)

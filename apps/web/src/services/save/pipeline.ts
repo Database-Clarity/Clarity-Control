@@ -126,8 +126,19 @@ export async function prepareChanges(
   if (denied) throw new Error(denied);
   const issues = validateChanges(changes, data);
   if (issues.some((issue) => issue.severity === 'error')) {
-    const dependents = [...new Set(issues.filter((issue) => issue.severity === 'error' && !changes.some((change) => change.hash === issue.hash)).map((issue) => issue.hash))];
-    throw new Error(`Validation errors must be fixed before saving.${dependents.length ? ` This save would break dependent tooltip(s): ${dependents.join(', ')}.` : ''}`);
+    const dependents = [
+      ...new Set(
+        issues
+          .filter(
+            (issue) =>
+              issue.severity === 'error' && !changes.some((change) => change.hash === issue.hash),
+          )
+          .map((issue) => issue.hash),
+      ),
+    ];
+    throw new Error(
+      `Validation errors must be fixed before saving.${dependents.length ? ` This save would break dependent tooltip(s): ${dependents.join(', ')}.` : ''}`,
+    );
   }
   return Promise.all(
     changes.map(async (change) => ({

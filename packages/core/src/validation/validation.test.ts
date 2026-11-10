@@ -93,12 +93,10 @@ describe('validateTooltip with an unedited text that uses something the save cha
 
   it('keeps the error, with the reason, when recorded reads identify a changed input', () => {
     expect(
-      validateTooltip(
-        tooltip,
-        () => globals,
-        tooltip,
-        { aliases: {}, affectedBy: () => '"Donor" (124)' },
-      ),
+      validateTooltip(tooltip, () => globals, tooltip, {
+        aliases: {},
+        affectedBy: () => '"Donor" (124)',
+      }),
     ).toMatchObject([
       {
         severity: 'error',
@@ -111,12 +109,10 @@ describe('validateTooltip with an unedited text that uses something the save cha
       { severity: 'warning' },
     ]);
     expect(
-      validateTooltip(
-        tooltip,
-        () => globals,
-        tooltip,
-        { aliases: {}, affectedBy: () => undefined },
-      ),
+      validateTooltip(tooltip, () => globals, tooltip, {
+        aliases: {},
+        affectedBy: () => undefined,
+      }),
     ).toMatchObject([{ severity: 'warning' }]);
   });
 });
@@ -125,18 +121,31 @@ describe('recorded validation reads', () => {
   it('records alias keys, missing imports, from global, and global title imports in their language', () => {
     const catalog = { '456': 'Shared', '1': 'Global' };
     const recorded = validateTextWithReads(
-      'import main from 456\nimport main from global', 'fr',
+      'import main from 456\nimport main from global',
+      'fr',
       { variables: '', titles: 'title Unused (\nimport x from 999\n)', imports: catalog },
-      false, 10, { 456: { to: 123, kind: 'sandbox' } },
+      false,
+      10,
+      { 456: { to: 123, kind: 'sandbox' } },
     );
     expect(recorded.reads.lang).toBe('fr');
-    expect([...recorded.reads.imports]).toEqual(expect.arrayContaining([
-      ['456', 123], ['global', 1], ['1', 1], ['999', 999],
-    ]));
-    expect(recorded.issues).toEqual(validateText(
-      'import main from 456\nimport main from global', 'fr',
-      { variables: '', titles: 'title Unused (\nimport x from 999\n)', imports: catalog }, false, 10,
-    ));
+    expect([...recorded.reads.imports]).toEqual(
+      expect.arrayContaining([
+        ['456', 123],
+        ['global', 1],
+        ['1', 1],
+        ['999', 999],
+      ]),
+    );
+    expect(recorded.issues).toEqual(
+      validateText(
+        'import main from 456\nimport main from global',
+        'fr',
+        { variables: '', titles: 'title Unused (\nimport x from 999\n)', imports: catalog },
+        false,
+        10,
+      ),
+    );
     expect(recorded.reads.sources.has('Shared')).toBe(true);
   });
 });
