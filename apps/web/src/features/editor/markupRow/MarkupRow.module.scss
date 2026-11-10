@@ -412,10 +412,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.35em;
-  svg { width: 1.35em; height: 1.35em; }
-  @include theme.mobile-or-coarse {
-    width: 1.7em;
-    svg { width: 1.7em; height: 1.7em; }
-  }
+  font-size: 0.75rem;
+  width: 1em;
+  svg { width: 1em; height: 1em; }
 }

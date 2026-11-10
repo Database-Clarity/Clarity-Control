@@ -30,7 +30,7 @@ export function EntryGlyph({ glyph }: { glyph: Glyph }) {
       return <span className={styles.pvp}>PvP</span>;
     case 'arrow':
       return (
-        <span className={glyph.text ? styles.mono : styles.arrow}>
+        <span className={glyph.text ? styles.mono : `${styles.icon} ${styles.arrow}`}>
           <EnhancedArrow />
           {glyph.text}
         </span>
