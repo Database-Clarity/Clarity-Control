@@ -171,6 +171,25 @@ describe('working diff (changes since the last save)', () => {
     act(() => changes().click());
     key({ key: 'Escape' });
     expect(panel()).toBeNull();
+    // Esc on a bar item closes it too (Tab leaves the panel into the bar).
+    act(() => changes().click());
+    act(() => {
+      changes().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(panel()).toBeNull();
+  });
+
+  it('gives the text room below its last line only while the view is open', () => {
+    // The open view covers the bottom of the text; without room the end could not scroll clear.
+    mount();
+    type(' More.');
+    const area = () => q('.cm-editor')!.parentElement!.parentElement!;
+    expect(area().style.getPropertyValue('--overlay-room')).toBe('');
+    act(() => changes().click());
+    expect(area().style.getPropertyValue('--overlay-room')).toBe('0px');
+    act(() => changes().click());
+    expect(area().style.getPropertyValue('--overlay-room')).toBe('');
+    expect(area().style.height).toBe('');
   });
 
   it('says so when the text is back at the saved version, and stays closable', () => {

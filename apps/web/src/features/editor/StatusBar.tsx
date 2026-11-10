@@ -98,6 +98,12 @@ export function StatusBar({
       aria-label="Editor status"
       role="group"
       aria-busy={validating || undefined}
+      // Esc on a bar item closes the open panel, as it does from the text and inside the panel.
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape' || panel === null) return;
+        event.stopPropagation();
+        onPanel(null);
+      }}
     >
       {changes !== undefined && (
         // First in the bar and always the same width: it is disabled, never removed, while

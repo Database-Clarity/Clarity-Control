@@ -157,12 +157,12 @@
   }
 
   // Nothing to open (no unsaved change): the item keeps its place and reads as unavailable.
+  // Unavailable (Changes with nothing unsaved): the shared dimming, in the item's own colour, so
+  // it is fainter than its neighbours in both themes; it keeps its place and never lights up.
   &:disabled,
   &:disabled:hover {
-    color: var(--text3);
     background: transparent;
     border-color: transparent;
-    opacity: 1;
   }
 
   // Narrow editors drop the key hint before anything else.
@@ -281,13 +281,14 @@
 .overlay[data-headed] {
   display: flex;
   flex-direction: column;
-  // Also never taller than what is visible between the page header (with a phone's tab strip)
-  // and the bar: with a phone keyboard up, the caption and Close stay on screen. --visible-h is
-  // the visual viewport's height (Overlay sets it); it is the window height elsewhere.
+  // Also never taller than what is visible between the page header and the bar, less a phone's
+  // tab strip and three lines of text: with a phone keyboard up, the caption and Close stay on
+  // screen and the line being typed stays visible above the panel. --visible-h is the visual
+  // viewport's height (Overlay sets it); it is the window height elsewhere.
   max-height: min(
-    70%,
+    60%,
     20rem,
-    calc(var(--visible-h, 100dvh) - var(--header-h, 3rem) - max(44px, 2.75rem) - 4rem)
+    calc(var(--visible-h, 100dvh) - var(--header-h, 3rem) - max(44px, 2.75rem) - 7.25rem)
   );
   padding: 0;
   overflow: hidden;

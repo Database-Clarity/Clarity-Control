@@ -184,6 +184,7 @@ export function ClarityEditor({
   /** Fixed for the editor's lifetime: a stored form never joins the tab's find memory. */
   const remembersFind = useRef(findMemory);
   const callback = useRef(onChange);
+  const textArea = useRef<HTMLDivElement>(null);
   const [panel, setPanel] = useState<StatusPanel | null>(null);
   const panelOpen = useRef(false);
   panelOpen.current = panel !== null;
@@ -713,6 +714,35 @@ export function ClarityEditor({
     (panel === 'retired' && retiredCount === 0)
       ? null
       : panel;
+  // The open Changes view covers the bottom of the text. While it is open the text gets that
+  // much room below its last line, so the end can always be scrolled, and typed, clear of the
+  // view (the scroll margins need somewhere to scroll to). Opening moves no visible text; closed,
+  // there is no room and no observer.
+  const diffOpen = open === 'diff' && workingDiff !== undefined;
+  useLayoutEffect(() => {
+    const area = textArea.current;
+    const cover = area?.querySelector<HTMLElement>('[data-editor-overlay][data-headed]');
+    if (!diffOpen || !area || !cover) return;
+    // Where the page scrolls and the editor is as tall as its text (a phone), the room would
+    // push the bar and the view down the page instead. There the text area keeps the height it
+    // had for as long as the view is open, and the text scrolls inside it.
+    const height = area.getBoundingClientRect().height;
+    const fit = () => {
+      area.style.setProperty('--overlay-room', `${cover.offsetHeight}px`);
+      if (!area.style.height && area.getBoundingClientRect().height > height + 0.5)
+        area.style.height = `${height}px`;
+      view.current?.requestMeasure();
+    };
+    fit();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit);
+    observer?.observe(cover);
+    return () => {
+      observer?.disconnect();
+      area.style.removeProperty('--overlay-room');
+      area.style.removeProperty('height');
+      view.current?.requestMeasure();
+    };
+  }, [diffOpen]);
   return (
     <div
       className={styles.editor}
@@ -729,7 +759,7 @@ export function ClarityEditor({
           onRawView={flipRawView}
         />
       )}
-      <div className={styles.textArea}>
+      <div ref={textArea} className={styles.textArea}>
         <div ref={host} className={styles.host} />
         {open === 'glyphs' && (
           <GlyphPanel
