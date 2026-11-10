@@ -356,7 +356,27 @@ export function suggestExtension(): Extension {
         private timer: ReturnType<typeof setTimeout> | undefined;
         private idle = 0;
         private waiting = false;
-        constructor(private readonly view: EditorView) {}
+        private warm = 0;
+        constructor(private readonly view: EditorView) {
+          // Once per editor, when the browser is idle: the first request for the menu then finds
+          // the full list's code and the document's facts ready, like every later one.
+          if (typeof requestIdleCallback !== 'function') return;
+          this.warm = requestIdleCallback(
+            () => {
+              const state = this.view.state;
+              const context = state.readOnly ? null : suggestContext(state, true);
+              if (!context) return;
+              const globals = state.facet(suggestHost).globals;
+              judgeItems(
+                requestItems(context, state, globals, recentSuggestions()),
+                context,
+                state,
+                globals,
+              );
+            },
+            { timeout: 2000 },
+          );
+        }
         update(update: { startState: EditorState; state: EditorState }) {
           const before = suggestState(update.startState);
           const after = suggestState(update.state);
@@ -379,7 +399,10 @@ export function suggestExtension(): Extension {
         }
         destroy() {
           if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(this.frame);
-          if (typeof cancelIdleCallback === 'function') cancelIdleCallback(this.idle);
+          if (typeof cancelIdleCallback === 'function') {
+            cancelIdleCallback(this.idle);
+            cancelIdleCallback(this.warm);
+          }
           clearTimeout(this.timer);
         }
       },
