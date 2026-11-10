@@ -151,11 +151,12 @@ export function VariantWorkspace({
     tabbed && (id === 'source' || id === 'compendium') && id !== sideTab;
   const isActive = (id: Panel) => (mode === 'split' ? !hiddenTab(id) : activePanel === id);
   // Not rendered at all: the tab that is not open, and in toggle mode (also the first render,
-  // before the width is measured) a Compendium that is not the open view. A phone keeps its
-  // panels mounted: the Compendium tab's dot there needs the pane's result.
+  // before the width is measured) and on a phone a Compendium that is not the open view. Its
+  // tab's dot is the pane's own result, so it shows only while the pane is open: a hidden pane
+  // never matches or decodes for it, and never shows the previous tooltip's.
   const unmounted = (id: Panel) =>
     hiddenTab(id) ||
-    (paired && mode === 'toggle' && id === 'compendium' && activePanel !== 'compendium');
+    (paired && mode !== 'split' && id === 'compendium' && activePanel !== 'compendium');
   const panel = (id: Panel) =>
     present(content[id]) || id === 'translation' ? (
       <div
@@ -195,7 +196,7 @@ export function VariantWorkspace({
             onClick={() => open(id)}
           >
             {label}
-            {id === 'compendium' && compendiumStatus && (
+            {id === 'compendium' && compendiumStatus && !unmounted(id) && (
               <span
                 className={styles.statusDot}
                 data-status={compendiumStatus}

@@ -81,6 +81,20 @@ afterEach(() => {
 });
 
 describe('translate mode right pane', () => {
+  it('does no hidden Compendium work on a phone', () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(max-width: 700px)',
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+    }));
+    width = 390;
+    render();
+    expect(host.querySelector('[data-mode]')?.getAttribute('data-mode')).toBe('phone');
+    expect(compendiumRenders).toBe(0);
+    expect(compendiumEffects).toBe(0);
+  });
+
   it('shows English alone first, and the hidden Compendium does no work at all', () => {
     render();
     expect(host.querySelector('[data-mode]')?.getAttribute('data-mode')).toBe('split');

@@ -189,9 +189,10 @@ function TooltipWorkspace({
   const { parameter, search, state: routeState, setSearch, navigate } = route;
   const data = useDataStore((state) => state.data);
   const [remembered, setRemembered] = useState<Lang>();
-  // The enhanced version whose own text is open in the editor (null: the base). Keyed by item, so
-  // moving to another tooltip starts on its base.
-  const [picked, setPicked] = useState<{ hash: number; variant: number | null }>();
+  // The enhanced version whose own text is open in the editor (null: the base). Keyed by item and
+  // by the link's own `variant`, so moving to another tooltip starts on its base, and a link to
+  // an override (the queue's Next, Back, Forward) opens what it names.
+  const [picked, setPicked] = useState<{ hash: number; at: string; variant: number | null }>();
   // The preview column's view (null: Compare on a desktop, Enhanced on a phone) and, when an item
   // has several enhanced versions, which one. Both are working choices, never saved.
   const [previewMode, setPreviewMode] = useState<PreviewMode | null>(null);
@@ -340,8 +341,11 @@ function TooltipWorkspace({
   const grouped = !readOnly && user?.role === 'maintainer' ? groupedPerks(hash, data) : undefined;
   // A canonical redirect drops line/variant highlights, just like tooltipPath.
   const requested = requestedHash === hash ? Number(search.get('variant')) : NaN;
-  const activeVariant =
-    picked?.hash === hash ? picked.variant : overrides.includes(requested) ? requested : null;
+  const pickedAt = search.get('variant') ?? '';
+  const pick = picked?.hash === hash && picked.at === pickedAt ? picked : undefined;
+  // A pick made on another tooltip or under another link is over; it must not come back with it.
+  if (picked && !pick) setPicked(undefined);
+  const activeVariant = pick ? pick.variant : overrides.includes(requested) ? requested : null;
   const activeHash = activeVariant ?? hash;
   const activeBase = tooltipFor(activeHash, data);
   const activeTooltip = drafts[activeHash]?.next ?? activeBase;
@@ -513,8 +517,8 @@ function TooltipWorkspace({
           </button>
         )
       }
-      onEditOverride={(variant) => setPicked({ hash, variant })}
-      onBack={() => setPicked({ hash, variant: null })}
+      onEditOverride={(variant) => setPicked({ hash, at: pickedAt, variant })}
+      onBack={() => setPicked({ hash, at: pickedAt, variant: null })}
       grouped={grouped}
       queue={queue && <QueueControl hash={hash} context={queue} />}
     />

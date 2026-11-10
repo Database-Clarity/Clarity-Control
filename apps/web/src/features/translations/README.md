@@ -41,7 +41,7 @@ On a non-English tooltip, outdated translations show English changes in the Sour
 single toggle switches to current English and remembers the choice locally. Translators do not
 see Compendium panels. For other roles the desktop right pane shows English OR the Compendium
 under two tabs in the pane's header (English first, remembered per device); the hidden one is not
-rendered, so it does no work. Phones keep their one row of panel tabs.
+rendered, so it does no work. Phones keep their one row of panel tabs; there and in the narrow toggle layout the Compendium is rendered only while it is the open view, and its tab's dot shows only then.
 Canonical alias redirects preserve a valid requested language, while dropping line and variant
 highlights tied to the old route.
 
