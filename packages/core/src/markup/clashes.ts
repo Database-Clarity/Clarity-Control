@@ -49,9 +49,10 @@ export function markupDefinitions(text: string): LocalDefinition[] {
 export function findGlobalNameClashes(text: string, globals: MarkupGlobals): LocalDefinition[] {
   const variables = extractVariables(globals.variables);
   const titles = extractBlocks(globals.titles, 'title');
-  return markupDefinitions(text).filter((definition) =>
-    Object.hasOwn(definition.kind === 'variable' ? variables : titles, definition.name),
-  );
+  return markupDefinitions(text).filter((definition) => {
+    if (definition.kind === 'variable') globals.onVariable?.(definition.name);
+    return Object.hasOwn(definition.kind === 'variable' ? variables : titles, definition.name);
+  });
 }
 
 export function describeGlobalClash(clash: LocalDefinition): string {

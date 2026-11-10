@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateText, validateTooltip } from './index.js';
+import { validateText, validateTextWithReads, validateTooltip } from './index.js';
 
 const globals = {
   variables: 'var damage = 10',
@@ -80,5 +80,96 @@ describe('validateTooltip scoped to a base', () => {
       { severity: 'error', lang: 'en' },
     ]);
     expect(validateTooltip(empty, globalsFor, empty)).toEqual([]);
+  });
+});
+
+describe('validateTooltip with an unedited text that uses something the save changes', () => {
+  const revision = { updatedAt: '2026-01-01T00:00:00.000Z', updatedBy: 'a' };
+  const tooltip = {
+    hash: 10,
+    text: { fr: { ...revision, text: 'import main from 999' } },
+    associated: [],
+  } as never;
+
+  it('keeps the error, with the reason, when recorded reads identify a changed input', () => {
+    expect(
+      validateTooltip(tooltip, () => globals, tooltip, {
+        aliases: {},
+        affectedBy: () => '"Donor" (124)',
+      }),
+    ).toMatchObject([
+      {
+        severity: 'error',
+        message: expect.stringContaining('uses "Donor" (124), which this save changes'),
+      },
+    ]);
+  });
+  it('only warns without a save context, or when no recorded input changes', () => {
+    expect(validateTooltip(tooltip, () => globals, tooltip)).toMatchObject([
+      { severity: 'warning' },
+    ]);
+    expect(
+      validateTooltip(tooltip, () => globals, tooltip, {
+        aliases: {},
+        affectedBy: () => undefined,
+      }),
+    ).toMatchObject([{ severity: 'warning' }]);
+  });
+});
+
+describe('recorded validation reads', () => {
+  it('records alias keys, missing imports, from global, and global title imports in their language', () => {
+    const catalog = { '456': 'Shared', '1': 'Global' };
+    const recorded = validateTextWithReads(
+      'import main from 456\nimport main from global',
+      'fr',
+      { variables: '', titles: 'title Unused (\nimport x from 999\n)', imports: catalog },
+      false,
+      10,
+      { 456: { to: 123, kind: 'sandbox' } },
+    );
+    expect(recorded.reads.lang).toBe('fr');
+    expect([...recorded.reads.imports]).toEqual(
+      expect.arrayContaining([
+        ['456', 123],
+        ['global', 1],
+        ['1', 1],
+        ['999', 999],
+      ]),
+    );
+    expect(recorded.issues).toEqual(
+      validateText(
+        'import main from 456\nimport main from global',
+        'fr',
+        { variables: '', titles: 'title Unused (\nimport x from 999\n)', imports: catalog },
+        false,
+        10,
+      ),
+    );
+  });
+  it.each([
+    'enhanced (\nx\n)\ntitle T (\n#fo#eo\n)',
+    'title T (\n#foimport x from 5\nimport x from 5\n)',
+  ])('observes synthesized variable lookups without changing diagnostics: %s', (text) => {
+    const globals = {
+      variables: 'var foo = import y from 9',
+      titles: '',
+      imports: { '5': 'export hidden x (\no\n)', '9': 'No exports' },
+    };
+    const recorded = validateTextWithReads(text, 'en', globals, false, 10, {});
+    expect([...recorded.reads.variables]).toContain('foo');
+    expect(recorded.reads.imports.has('9')).toBe(true);
+    expect(recorded.issues).toEqual(validateText(text, 'en', globals, false, 10));
+  });
+  it('records missing variable names and local declarations even without a reference', () => {
+    const recorded = validateTextWithReads(
+      'var local = Value\n#missing',
+      'en',
+      { variables: '', titles: '' },
+      false,
+      10,
+      {},
+    );
+    expect([...recorded.reads.variables]).toEqual(expect.arrayContaining(['missing', 'local']));
   });
 });

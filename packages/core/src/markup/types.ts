@@ -3,6 +3,8 @@ export interface MarkupGlobals {
   titles: string;
   imports?: Readonly<Record<string, string>>;
   type?: string;
+  /** Optional save-validation observer; never changes variable resolution. */
+  onVariable?: (name: string) => void;
 }
 
 export interface MarkupSpan {
