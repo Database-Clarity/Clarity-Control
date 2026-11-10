@@ -141,10 +141,11 @@ describe('ManifestTextRow', () => {
   it('is open by default with the name, hash, and description, and follows the entry', async () => {
     await show(1);
     expect(host.querySelector('button')?.getAttribute('aria-expanded')).toBe('true');
-    expect(host.textContent).toContain('Rampage · 1');
+    const label = () => host.querySelector('section')?.getAttribute('aria-label');
+    expect(label()).toBe('Manifest text for Rampage, 1');
     expect(host.textContent).toContain('Kills grant increased damage.');
     await show(7);
-    expect(host.textContent).toContain('Business Time · 7');
+    expect(label()).toBe('Manifest text for Business Time, 7');
     expect(host.textContent).toContain('Holding down the trigger');
     expect(host.textContent).not.toContain('Kills grant');
   });
@@ -168,6 +169,9 @@ describe('ManifestTextRow', () => {
       'Shieldcrush · 12',
     ]);
     expect(host.querySelectorAll('dd')).toHaveLength(1);
+    await act(async () => host.querySelector('button')!.click());
+    expect(host.textContent).toContain('Sandbox perks: While you have an overshield');
+    expect(host.textContent).not.toContain('Sandbox perks: -10');
   });
   it('states that there is no manifest description', async () => {
     await show(4);

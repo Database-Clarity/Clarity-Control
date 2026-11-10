@@ -40,16 +40,15 @@ export function ManifestTextRow({ hash }: { hash: number }) {
   const summary = manifestSummary(text);
   const unavailable = text.kind === 'none' && text.perkHashes.length > 0 && sandboxPerkTextFailed();
   return (
-    <section aria-label={`Manifest text for ${hash}`} className={styles.panel}>
+    <section
+      aria-label={`Manifest text for ${item?.name ? `${item.name}, ` : ''}${hash}`}
+      className={styles.panel}
+    >
       <PanelRow
         label="Manifest text"
         summary={
-          open ? (
-            <span className={styles.identity}>
-              {item?.name ? `${item.name} · ` : ''}
-              {hash}
-            </span>
-          ) : (
+          // Open, the preview card right above already names the entry: no second identity.
+          open ? undefined : (
             <span title={summary} data-empty={text.kind === 'none' || undefined}>
               {summary}
             </span>

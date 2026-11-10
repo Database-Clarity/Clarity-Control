@@ -50,8 +50,12 @@ export function manifestSummary(text: ManifestText): string {
   switch (text.kind) {
     case 'own':
       return text.description.replace(/\s*\n\s*/g, ' ');
-    case 'sandbox':
-      return `Sandbox perk: ${text.perks.map((perk) => perk.description.replace(/\s*\n\s*/g, ' ')).join(' / ')}`;
+    case 'sandbox': {
+      // Stat lines ("-10 Grenade") say little: lead with the perks that have real text.
+      const worded = text.perks.filter((perk) => perk.description !== perk.name);
+      const shown = worded.length ? worded : text.perks;
+      return `Sandbox ${text.perks.length === 1 ? 'perk' : 'perks'}: ${shown.map((perk) => perk.description.replace(/\s*\n\s*/g, ' ')).join(' / ')}`;
+    }
     case 'loading':
       return 'Loading sandbox perk text…';
     case 'none':
