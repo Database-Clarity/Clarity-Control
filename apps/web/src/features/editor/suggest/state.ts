@@ -15,6 +15,7 @@ import { insertionMessages, insertionRejection, type Rejection } from '../markup
 import { recentSuggestions, rememberSuggestion } from './recent';
 import {
   caretContext,
+  dropDeclinedPins,
   judgeItems,
   nextCategoryIndex,
   requestItems,
@@ -158,16 +159,25 @@ export const suggestField = StateField.define<SuggestSnapshot | null>({
       } else if (effect.is(messageEffect)) {
         next = { ...next, message: effect.value };
       } else if (effect.is(judgeEffect) && !next.judged) {
-        next = {
-          ...next,
-          judged: true,
-          items: judgeItems(
-            next.items,
-            next.context,
-            transaction.state,
-            transaction.state.facet(suggestHost).globals,
-          ),
-        };
+        const globals = transaction.state.facet(suggestHost).globals;
+        const judged = judgeItems(next.items, next.context, transaction.state, globals);
+        const items = dropDeclinedPins(judged, next.context, transaction.state, globals);
+        let index: number = next.index;
+        if (items !== judged) {
+          // The pinned part is gone: a pinned selection moves to the first option that can go
+          // here (the first row when none can); any other selection stays on its option.
+          const selected = judged[next.index];
+          index = selected?.pinned
+            ? Math.max(
+                0,
+                items.findIndex((item) => !item.unavailable),
+              )
+            : Math.max(
+                0,
+                items.findIndex((item) => item.id === selected?.id),
+              );
+        }
+        next = { ...next, judged: true, items, index };
       }
     }
     return next;

@@ -169,12 +169,12 @@ describe('the menu opened on request', () => {
 });
 
 describe('the menu in the editor', () => {
-  function editor(doc: string) {
+  function editor(doc: string, host: MarkupGlobals = globals) {
     const view = new EditorView({
       state: EditorState.create({
         doc,
         selection: { anchor: doc.length },
-        extensions: [suggestExtension(), suggestConfiguration({ globals })],
+        extensions: [suggestExtension(), suggestConfiguration({ globals: host })],
       }),
     });
     return view;
@@ -235,9 +235,10 @@ describe('the menu in the editor', () => {
     judgeSuggestions(view);
     const judged = suggestState(view.state)!;
     expect(judged.judged).toBe(true);
-    expect(judged.index).toBe(shown.index);
-    expect(judged.items[tag]!.unavailable).toBe(unavailableReasons.context);
-    expect(acceptSuggestion(view, tag)).toBe('unavailable');
+    // Nothing pinned fits on this line, so the pinned part is gone and the list reorders.
+    const judgedTag = judged.items.findIndex((item) => item.id === 'tag:pve');
+    expect(judged.items[judgedTag]!.unavailable).toBe(unavailableReasons.context);
+    expect(acceptSuggestion(view, judgedTag)).toBe('unavailable');
     expect(view.state.doc.toString()).toBe('Gains #damage ');
     view.destroy();
   });
@@ -251,6 +252,66 @@ describe('the menu in the editor', () => {
     expect(acceptSuggestion(view, icon)).toBe('inserted');
     expect(view.state.doc.toString()).toBe('Reload qqqq<solar/>');
     view.destroy();
+  });
+
+  /** The menu on request at `at`, after the insertion rules have been asked. */
+  function judgedAt(doc: string, at: number, host?: MarkupGlobals) {
+    const view = editor(doc, host);
+    view.dispatch({ selection: { anchor: at } });
+    openSuggest(view);
+    const shown = suggestState(view.state)!;
+    judgeSuggestions(view);
+    return { view, shown, judged: suggestState(view.state)! };
+  }
+  const inTag = 'Gains <pvp [5] /> speed';
+
+  test('where nothing fits (inside a tag) there is no pinned part, only the full list, greyed with reasons', () => {
+    const { view, shown, judged } = judgedAt(inTag, inTag.indexOf('[5]'));
+    expect(shown.items[0]!.pinned).toBe(true);
+    expect(judged.items.some((item) => item.pinned)).toBe(false);
+    // The same options as before, now in the fixed order of the rest of the list.
+    expect(judged.items.map((item) => item.id).sort()).toEqual(
+      shown.items.map((item) => item.id).sort(),
+    );
+    const categories = judged.items.map((item) => item.category);
+    const order = ['Transforms', 'Snippets', 'Tags', 'Symbols', 'Variables', 'Globals'];
+    expect(categories).toEqual([...categories].sort((a, b) => order.indexOf(a) - order.indexOf(b)));
+    expect(judged.items.find((item) => item.id === 'tag:pve')!.unavailable).toBe(
+      unavailableReasons.context,
+    );
+    view.destroy();
+  });
+
+  test('with one pinned option that fits, the pinned part stays as built, greyed pins included', () => {
+    // A line holding a variable reference: of the options matching "da" only the variable fits.
+    const doc = 'Gains #damage da';
+    const { view, shown, judged } = judgedAt(doc, doc.length);
+    const pins = judged.items.filter((item) => item.pinned);
+    expect(pins.filter((item) => !item.unavailable).map((item) => item.id)).toEqual(['var:damage']);
+    expect(pins.some((item) => item.unavailable)).toBe(true);
+    expect(judged.items.map((item) => item.id)).toEqual(shown.items.map((item) => item.id));
+    expect(judged.index).toBe(0);
+    view.destroy();
+  });
+
+  test('the selection starts on the first option that fits; with none, on the first row, where Enter changes nothing', () => {
+    // Inside a tag nothing goes in but the fallbacks a later judge never declines.
+    const inside = judgedAt(inTag, inTag.indexOf('[5]'));
+    const fits = inside.judged.items.findIndex((item) => !item.unavailable);
+    expect(fits).toBeGreaterThan(0);
+    expect(inside.judged.index).toBe(fits);
+    inside.view.destroy();
+    // Inside a tag with no variables or globals to refer to, nothing can go in: the first row, and
+    // Enter leaves the text alone.
+    const bare = 'Gains <pvp [5] /> speed';
+    const none = judgedAt(bare, bare.indexOf('[5]'), { variables: '', titles: '' });
+    expect(none.judged.items.length).toBeGreaterThan(0);
+    expect(none.judged.items.every((item) => item.unavailable)).toBe(true);
+    expect(none.judged.items.some((item) => item.pinned)).toBe(false);
+    expect(none.judged.index).toBe(0);
+    expect(acceptSuggestion(none.view)).toBe('unavailable');
+    expect(none.view.state.doc.toString()).toBe(bare);
+    none.view.destroy();
   });
 
   test('a read-only editor has no menu', () => {

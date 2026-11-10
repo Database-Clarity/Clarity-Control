@@ -539,6 +539,29 @@ export function judgeItems(
 }
 
 /**
+ * The on-request list without its pinned part, when the insertion rules decline every pinned
+ * option: nothing fits at this caret, so the full list shows directly in its fixed order (greyed
+ * options keep their reason). Any other list comes back as it is.
+ */
+export function dropDeclinedPins(
+  items: SuggestItem[],
+  context: SuggestContext,
+  state: EditorState,
+  globals: MarkupGlobals,
+): SuggestItem[] {
+  if (!items[0]?.pinned || items.some((item) => item.pinned && !item.unavailable)) return items;
+  // Where each option sits in the fixed order: its category, then its place in the registry.
+  const place = new Map(
+    build(context, state, globals, true).map((item, index) => [item.id, index]),
+  );
+  const rank = (item: SuggestItem) =>
+    everyOrder.indexOf(item.category) * 1e6 + (place.get(item.id) ?? 1e6 - 1);
+  return items
+    .map((item) => (item.pinned ? { ...item, pinned: false } : item))
+    .sort((a, b) => rank(a) - rank(b));
+}
+
+/**
  * The context of a menu opened on request beside text that matches no option: nothing is replaced
  * and nothing filters, so the whole list shows and an option goes in at the caret.
  */
