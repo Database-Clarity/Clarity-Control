@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type CSSProperties,
   type ReactNode,
   type RefObject,
 } from 'react';
@@ -41,6 +42,20 @@ function linesOf(text: string, enhanced: boolean) {
     parsed.set(key, lines);
   }
   return lines;
+}
+
+/**
+ * Builds the rows and parses every example ahead of the first open, in idle time (the editor
+ * calls it after loading this module), so F1 only renders.
+ */
+export function warmHelp(): void {
+  for (const row of helpRows())
+    if (row.example && !row.plain && !row.note && !isKey(row)) linesOf(row.example, false);
+  for (const block of Object.values(helpBlocks)) {
+    const text = block.lines.map((line) => line.text).join('\n');
+    linesOf(text, false);
+    if (block.enhanced) linesOf(text, true);
+  }
 }
 
 function Render({ text, enhanced = false }: { text: string; enhanced?: boolean }) {
@@ -150,11 +165,6 @@ export const MarkupHelp = memo(function MarkupHelp({
   useEffect(() => {
     const element = root.current;
     if (!element) return;
-    const focused = element.ownerDocument.activeElement;
-    opener.current =
-      focused instanceof HTMLElement && focused !== element.ownerDocument.body ? focused : null;
-    // A phone gets no on-screen keyboard from opening the help: focus the sheet, not the field.
-    (phone ? element : field.current)?.focus({ preventScroll: true });
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' && event.key !== 'F1') return;
       event.preventDefault();
@@ -177,57 +187,6 @@ export const MarkupHelp = memo(function MarkupHelp({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // The desktop sheet sits on the status bar's top edge, as wide as the editor and its pane, and
-  // leaves at least four lines of text above it. The caret line is never under it: if it would
-  // be, the text scrolls by just enough (the Changes view's rule), and gets room to do so.
-  // A phone's sheet starts on the tool row's lower edge, so it covers the text and nothing else.
-  useLayoutEffect(() => {
-    const editor = view.current;
-    const panel = root.current;
-    if (!editor || !panel) return;
-    if (phone) {
-      const tools = (frame ?? document).querySelector<HTMLElement>('[aria-label="Editor tools"]');
-      const below = tools?.getBoundingClientRect().bottom ?? 0;
-      const height = window.innerHeight;
-      // Only while the tool row is on screen and leaves the sheet a useful height.
-      if (below > 0 && height - below >= height * 0.5) {
-        panel.style.setProperty('--help-top', `${Math.round(below)}px`);
-        panel.style.setProperty('--help-height', 'auto');
-      }
-      return;
-    }
-    const host = panel.parentElement!;
-    const area = editor.dom.parentElement?.parentElement ?? null;
-    let opened = false;
-    const fit = () => {
-      const scroller = editor.scrollDOM.getBoundingClientRect();
-      const box = host.getBoundingClientRect();
-      panel.style.setProperty('--help-bottom', `${Math.max(0, box.bottom - scroller.bottom)}px`);
-      panel.style.setProperty('--help-room', `${scroller.height}px`);
-      const cover = panel.offsetHeight;
-      area?.style.setProperty('--overlay-room', `${cover}px`);
-      editor.requestMeasure();
-      if (opened) return;
-      opened = true;
-      const head = editor.state.selection.main.head;
-      const caret = editor.coordsAtPos(head);
-      if (caret && caret.bottom > panel.getBoundingClientRect().top - 4)
-        editor.dispatch({
-          effects: EditorView.scrollIntoView(head, { y: 'end', yMargin: cover + 8 }),
-        });
-    };
-    fit();
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit);
-    observer?.observe(host);
-    observer?.observe(editor.scrollDOM);
-    return () => {
-      observer?.disconnect();
-      area?.style.removeProperty('--overlay-room');
-      editor.requestMeasure();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phone]);
-
   // Keeps the active row inside the list by moving the list's own scroll (never the page's).
   const reveal = (id: string) => {
     const scroller = list.current;
@@ -241,10 +200,88 @@ export const MarkupHelp = memo(function MarkupHelp({
     else if (top + row.offsetHeight > scroller.clientHeight)
       scroller.scrollTop += top + row.offsetHeight - scroller.clientHeight;
   };
+
+  // Where the sheet goes, read while the page's layout is still clean (in the render that opens
+  // it), so opening forces no layout. The desktop sheet sits on the status bar's top edge, as wide
+  // as the editor and its pane, and leaves at least four lines of text above it. A phone's sheet
+  // starts on the tool row's lower edge, so it covers the text and nothing else.
+  const [place] = useState(() => {
+    const editor = view.current;
+    if (!editor) return {};
+    if (phone) {
+      const tools = (frame ?? document).querySelector<HTMLElement>('[aria-label="Editor tools"]');
+      const below = tools?.getBoundingClientRect().bottom ?? 0;
+      const height = window.innerHeight;
+      // Only while the tool row is on screen and leaves the sheet a useful height.
+      return below > 0 && height - below >= height * 0.5
+        ? { '--help-top': `${Math.round(below)}px`, '--help-height': 'auto' }
+        : {};
+    }
+    if (!frame) return {};
+    const scroller = editor.scrollDOM.getBoundingClientRect();
+    const box = frame.getBoundingClientRect();
+    return {
+      '--help-bottom': `${Math.max(0, box.bottom - scroller.bottom)}px`,
+      '--help-room': `${scroller.height}px`,
+    };
+  });
+
+  // After each layout of the sheet (a ResizeObserver runs after the browser's own layout, so its
+  // reads cost nothing): the text gets room below its end as tall as the sheet (the Changes
+  // view's rule), and on opening, a caret line the sheet would cover scrolls to just above it.
   useLayoutEffect(() => {
-    reveal(active);
+    const editor = view.current;
+    const panel = root.current;
+    if (!panel) return;
+    // Where focus was (the text, or the button that opened it): closing gives it back.
+    const focused = panel.ownerDocument.activeElement;
+    opener.current =
+      focused instanceof HTMLElement && focused !== panel.ownerDocument.body ? focused : null;
+    if (!editor) return;
+    const host = panel.parentElement!;
+    const area = phone ? null : (editor.dom.parentElement?.parentElement ?? null);
+    let opened = false;
+    const fit = () => {
+      const first = !opened;
+      opened = true;
+      if (first) {
+        // Focus moves in once the sheet is laid out, so it forces no layout of its own. A phone
+        // gets no on-screen keyboard from opening the help: the sheet takes it, not the field.
+        (phone ? panel : field.current)?.focus({ preventScroll: true });
+        reveal(active);
+      }
+      if (phone) return;
+      const scroller = editor.scrollDOM.getBoundingClientRect();
+      const box = host.getBoundingClientRect();
+      const sheet = panel.getBoundingClientRect();
+      const head = editor.state.selection.main.head;
+      const caret = first ? editor.coordsAtPos(head) : null;
+      panel.style.setProperty('--help-bottom', `${Math.max(0, box.bottom - scroller.bottom)}px`);
+      panel.style.setProperty('--help-room', `${scroller.height}px`);
+      area?.style.setProperty('--overlay-room', `${sheet.height}px`);
+      editor.requestMeasure();
+      if (caret && caret.bottom > sheet.top - 4)
+        editor.dispatch({
+          effects: EditorView.scrollIntoView(head, { y: 'end', yMargin: sheet.height + 8 }),
+        });
+    };
+    if (typeof ResizeObserver === 'undefined') {
+      fit();
+      return;
+    }
+    const observer = new ResizeObserver(fit);
+    observer.observe(panel);
+    if (!phone) {
+      observer.observe(host);
+      observer.observe(editor.scrollDOM);
+    }
+    return () => {
+      observer.disconnect();
+      area?.style.removeProperty('--overlay-room');
+      editor.requestMeasure();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [phone]);
 
   const insert = () => {
     const editor = view.current;
@@ -437,6 +474,7 @@ export const MarkupHelp = memo(function MarkupHelp({
       aria-label="Markup help"
       tabIndex={-1}
       className={`${styles.panel} ${phone ? styles.sheet : frame ? styles.wide : ''}`}
+      style={place as CSSProperties}
       data-editor-overlay
       data-editor-portal={!phone && frame ? '' : undefined}
       data-markup-help

@@ -95,9 +95,14 @@ let helpRequested = false;
 function prefetchHelp() {
   if (helpRequested || typeof requestIdleCallback !== 'function') return;
   helpRequested = true;
-  requestIdleCallback(() => void loadHelp().catch(() => (helpRequested = false)), {
-    timeout: 5000,
-  });
+  requestIdleCallback(
+    () =>
+      void loadHelp()
+        // Its rows and example renders too, in a later idle period: F1 then only renders.
+        .then(({ warmHelp }) => requestIdleCallback(warmHelp, { timeout: 5000 }))
+        .catch(() => (helpRequested = false)),
+    { timeout: 5000 },
+  );
 }
 
 // Loading another saved/draft document must never call the authoring callback.
