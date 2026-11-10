@@ -573,3 +573,8 @@
     border-radius: 0;
   }
 }
+
+// One count ("39 changes", "0 selected") never breaks inside itself when the line wraps.
+.segment {
+  white-space: nowrap;
+}

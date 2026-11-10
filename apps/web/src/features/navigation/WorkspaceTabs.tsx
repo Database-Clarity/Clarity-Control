@@ -211,7 +211,12 @@ function AccountRows({ onSettings, onAccount }: { onSettings(): void; onAccount(
         onClick={onAccount}
       >
         <span className={styles.lead}>
-          {pictured && <AccountPicture id={user.id} login={user.login} />}
+          {/* Without a picture (Sign in, checking, a problem) the text keeps Settings' icon slot. */}
+          {pictured ? (
+            <AccountPicture id={user.id} login={user.login} />
+          ) : (
+            <span className={styles.icon} aria-hidden="true" />
+          )}
           {summary.label}
         </span>
         {pictured ? (

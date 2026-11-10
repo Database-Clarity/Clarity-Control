@@ -116,7 +116,8 @@
 
 @include theme.mobile {
   // One page edge; each setting is one wrapping line: its name left, its control right. A long value
-  // (data-wide, over 24 characters) takes the full line under its name.
+  // (data-wide, over 24 characters) takes the full line under its name, and then so does every
+  // control in its group (data-stack).
   .page {
     gap: 0.75rem;
     padding: 0.5rem var(--page-x) 1rem;
@@ -145,6 +146,12 @@
       flex: 1 1 100%;
       width: 100%;
     }
+  }
+  // One control under its name in a group puts every control in that group under its name.
+  .page fieldset[data-stack] > label > select,
+  .page fieldset[data-stack] > label > .scale {
+    flex: 1 1 100%;
+    width: 100%;
   }
   .page p {
     margin-block: 0.25rem;

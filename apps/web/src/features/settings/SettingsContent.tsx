@@ -12,7 +12,7 @@ import {
   type SymbolReveal,
   type TouchSize,
 } from '../../stores/settings';
-import { touchQuery, useMedia } from '../../ui/useMedia';
+import { phoneQuery, touchQuery, useMedia } from '../../ui/useMedia';
 import { themePreferences, type ThemePreference } from '../../ui/theme';
 import { exactDate, formatDate } from '../../services/format/date';
 import { browserTimeZone, syncStatusText, themeLabels, valueLabel } from './labels';
@@ -98,13 +98,44 @@ export function SettingsContent() {
   // The size setting only does something where the touch sizes apply.
   const touch = useMedia(touchQuery);
   // Phones: a setting whose value is long (over 24 characters) takes the full line under its label.
+  // Once one control in a group sits under its name (long value, or no room at a large interface
+  // scale), every control in that group does, so their edges line up (data-stack on the fieldset).
   const root = useRef<HTMLDivElement>(null);
+  const phone = useMedia(phoneQuery);
   useLayoutEffect(() => {
-    for (const label of root.current?.querySelectorAll('fieldset > label') ?? []) {
-      const select = label.querySelector('select');
-      const text = select?.selectedOptions[0]?.textContent ?? '';
-      label.toggleAttribute('data-wide', !select || text.length > 24);
-    }
+    const page = root.current;
+    if (!page) return;
+    const layout = () => {
+      for (const label of page.querySelectorAll('fieldset > label')) {
+        const select = label.querySelector('select');
+        const text = select?.selectedOptions[0]?.textContent ?? '';
+        label.toggleAttribute('data-wide', !select || text.length > 24);
+      }
+      // A control squeezed below its 11.5rem width by a long name has no room beside it either.
+      const basis = parseFloat(getComputedStyle(document.documentElement).fontSize) * 11.5 - 1;
+      for (const fieldset of page.querySelectorAll('fieldset')) {
+        fieldset.removeAttribute('data-stack');
+        if (!phone) continue;
+        const stacked = [...fieldset.querySelectorAll(':scope > label')].some((label) => {
+          const select = label.querySelector('select');
+          if (!select) return false;
+          if (label.hasAttribute('data-wide')) return true;
+          const box = select.getBoundingClientRect();
+          return box.width < basis || box.top - label.getBoundingClientRect().top > 4;
+        });
+        fieldset.toggleAttribute('data-stack', stacked);
+      }
+    };
+    layout();
+    if (!phone || typeof ResizeObserver === 'undefined') return;
+    let width = page.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (page.clientWidth === width) return;
+      width = page.clientWidth;
+      layout();
+    });
+    observer.observe(page);
+    return () => observer.disconnect();
   });
   const zoneOptions =
     settings.timeZone === 'auto' || settings.timeZone === 'UTC' || zones.includes(settings.timeZone)
@@ -156,7 +187,7 @@ export function SettingsContent() {
             value={settings.timeZone}
             onChange={(event) => update({ timeZone: event.target.value })}
           >
-            <option value="auto">Browser time zone ({browserTimeZone()})</option>
+            <option value="auto">Browser ({browserTimeZone()})</option>
             <option value="UTC">UTC</option>
             {zoneOptions.map((zone) => (
               <option key={zone} value={zone}>
@@ -255,7 +286,7 @@ export function SettingsContent() {
               })
             }
           >
-            <option value="">Automatic (follows interface scale)</option>
+            <option value="">Automatic</option>
             {editorFontSizes.map((size) => (
               <option key={size} value={size}>
                 {size} px
@@ -264,8 +295,9 @@ export function SettingsContent() {
           </select>
         </label>
         <p className={styles.hint}>
-          Sets the size of the text you edit, on this device only, independent of the interface
-          scale. Touch screens keep at least 16 px so the page does not zoom on focus.
+          Sets the size of the text you edit, on this device only. Automatic follows the interface
+          scale; a size in px ignores it. Touch screens keep at least 16 px so the page does not zoom
+          on focus.
         </p>
         <label>
           Accept suggestion chips with

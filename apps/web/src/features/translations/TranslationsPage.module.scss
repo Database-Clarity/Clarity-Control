@@ -163,9 +163,11 @@
       height: var(--tap);
     }
 
+    // Right-aligned, also when it wraps under the filter at a large interface scale.
     [role='group'] {
       flex: none;
       gap: 0;
+      margin-inline-start: auto;
 
       button {
         border-radius: 0;

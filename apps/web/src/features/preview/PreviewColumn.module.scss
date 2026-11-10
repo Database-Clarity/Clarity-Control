@@ -35,6 +35,10 @@
     overflow: visible;
     font-size: 0.8125rem;
     border-block: 0;
+    // With a count line, that line draws the rule under the tabs (it sits under the strip).
+    &:has(> .summary:not(:empty)) {
+      box-shadow: none;
+    }
   }
 }
 
@@ -113,14 +117,17 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  // Phones: never cut; where it does not fit beside the tabs it takes its own line.
+  // Phones: the count is its own 13 px line under the tab strip (so the strip's rule stays under
+  // the tabs), on the page, right-aligned on the page edge.
   @include theme.mobile {
-    flex: 1 0 auto;
-    padding: 0.1875rem var(--page-x) 0.1875rem 0;
+    flex: 1 0 100%;
+    padding: 0.1875rem var(--page-x);
     overflow: visible;
     text-align: right;
+    background: var(--page);
+    box-shadow: inset 0 1px var(--line);
     &:empty {
-      padding: 0;
+      display: none;
     }
   }
 }

@@ -37,7 +37,7 @@ const valueLabels: { [K in SyncedKey]: Record<string, string> } = {
 };
 
 export function valueLabel<K extends SyncedKey>(key: K, value: SyncedSettings[K]): string {
-  if (key === 'timeZone' && value === 'auto') return `Browser time zone (${browserTimeZone()})`;
+  if (key === 'timeZone' && value === 'auto') return `Browser (${browserTimeZone()})`;
   return valueLabels[key][value] ?? value;
 }
 

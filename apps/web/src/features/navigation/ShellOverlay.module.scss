@@ -1,3 +1,4 @@
+@use '../../data/variables' as theme;
 @use '../../ui/controls';
 
 .layer {
@@ -85,4 +86,14 @@
   border-radius: 0.5rem 0.5rem 0 0;
   border-width: 1px 0 0;
   padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+// On a phone the tall sheet (the finder) starts on the header's lower edge, a row boundary, so it
+// never cuts the tab strip or the tool row below the header at a large interface scale.
+@include theme.mobile {
+  .layer[data-sheet] .panel.tall {
+    top: var(--bar);
+    height: auto;
+    max-height: none;
+  }
 }

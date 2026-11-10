@@ -345,7 +345,9 @@ export function ReviewPage() {
         <header className={styles.summary}>
           <h1 className={styles.readyStatus}>Review changes</h1>
           <p className={styles.counts}>
-            <b>{count.format(changeCount)}</b> {changeCount === 1 ? 'change' : 'changes'}
+            <span className={styles.segment}>
+              <b>{count.format(changeCount)}</b> {changeCount === 1 ? 'change' : 'changes'}
+            </span>
             {markerTotal > 0 && (
               <>
                 {' · '}
@@ -353,6 +355,7 @@ export function ReviewPage() {
                   to={{ search: markerSearch(searchParams) }}
                   replace
                   title="Alias-marker migration leftovers: saved content equals live"
+                  className={styles.segment}
                   onClick={() => openMarkers()}
                 >
                   {count.format(markerTotal)} marker-only
@@ -360,7 +363,7 @@ export function ReviewPage() {
               </>
             )}
             {' · '}
-            {hashes.length} selected
+            <span className={styles.segment}>{hashes.length} selected</span>
             {hashes.length > 0 && (
               <>
                 {' · '}
