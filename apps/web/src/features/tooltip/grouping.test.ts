@@ -97,6 +97,29 @@ describe('groupedPerks', () => {
     });
   });
 
+  it('marks a sandbox alias of the enhanced version as enhanced, and says so', () => {
+    // Collective Pugilism: each version has its own sandbox perk; neither is a catalog item.
+    const pugilism = build();
+    pugilism.items[60] = item(60, 'Collective Pugilism', 'weapon-trait');
+    pugilism.items[61] = item(61, 'Collective Pugilism', 'weapon-trait-enhanced', {
+      baseHash: 60,
+    });
+    pugilism.aliases[600] = { to: 60, kind: 'sandbox' };
+    pugilism.aliases[610] = { to: 61, kind: 'sandbox' };
+    expect(summary(60, pugilism)).toEqual([
+      [60, false, 'canonical', undefined],
+      [61, true, 'enhanced', undefined],
+      [600, false, 'sandbox', undefined],
+      [610, true, 'sandbox', 61],
+    ]);
+    expect(groupedPerks(60, pugilism).map((perk) => perk.how)).toEqual([
+      'Canonical',
+      'Enhanced pair',
+      'Sandbox alias',
+      'Sandbox alias of the enhanced version 61',
+    ]);
+  });
+
   it('lists a lone perk as just its canonical', () => {
     const lone = build();
     lone.items[50] = item(50, 'Solo', 'weapon-trait');

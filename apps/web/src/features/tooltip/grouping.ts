@@ -28,12 +28,18 @@ export const joinLabel: Record<JoinReason, string> = {
 
 export interface GroupedPerk {
   hash: number;
-  /** In-game name; empty when the manifest catalog does not list the hash. */
+  /**
+   * In-game name from the item catalog; empty for a hash the catalog does not list (sandbox perks
+   * are named from the bundled sandbox perk text when the list is shown).
+   */
   name: string;
+  /** Its own hash is an enhanced item, or it is an alias of the enhanced version. */
   enhanced: boolean;
   reason: JoinReason;
   /** The hash it joins through when that is not the canonical (an alias of an enhanced version). */
   via?: number;
+  /** How it joined, in words: "Sandbox alias of the enhanced version 3684445958". */
+  how: string;
   /** Owner names when two or more differently named items share this one perk hash. */
   sharedBy?: string[];
 }
@@ -89,13 +95,25 @@ export function groupedPerks(hash: number, data: EditorData): GroupedPerk[] {
   const add = (member: number, reason: JoinReason, via?: number) => {
     if (seen.has(member)) return;
     seen.add(member);
+    // An alias takes the side of the perk it aliases: a sandbox perk paired with the enhanced
+    // version is the enhanced perk (aliasOf points at the enhanced hash), whatever its own hash is.
+    const ofEnhanced =
+      reason !== 'canonical' &&
+      reason !== 'enhanced' &&
+      reason !== 'variant' &&
+      via !== undefined &&
+      isEnhanced(via, data);
+    const shown = via !== undefined && via !== canonical ? via : undefined;
     perks.push({
       hash: member,
       name:
         data.items[member]?.name.trim() || data.bundle.tooltips[member]?.custom?.name.trim() || '',
-      enhanced: isEnhanced(member, data),
+      enhanced: ofEnhanced || isEnhanced(member, data),
       reason,
-      ...(via !== undefined && via !== canonical ? { via } : {}),
+      ...(shown !== undefined ? { via: shown } : {}),
+      how: ofEnhanced
+        ? `${joinLabel[reason]} of the enhanced version${shown !== undefined ? ` ${shown}` : ''}`
+        : `${joinLabel[reason]}${shown !== undefined ? ` via ${shown}` : ''}`,
       ...(sharedBy(member, data) ? { sharedBy: sharedBy(member, data) } : {}),
     });
   };
