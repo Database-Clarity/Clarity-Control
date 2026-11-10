@@ -165,9 +165,12 @@ export function GroupedPerks({ perks }: { perks: GroupedPerk[] }) {
   const nameOf = (perk: GroupedPerk) => {
     if (perk.name) return perk.name;
     if (!sandbox) return <em>Loading name…</em>;
+    // A sandbox alias comes from the manifest by construction; some definitions are blank.
     const name = sandboxPerkName(perk.hash, sandbox);
-    if (name === undefined) return <em>Not in the manifest catalog</em>;
-    return name || <em>Unnamed sandbox perk</em>;
+    if (name) return name;
+    if (name === undefined && perk.reason !== 'sandbox')
+      return <em>Not in the manifest catalog</em>;
+    return <em>Unnamed sandbox perk</em>;
   };
   return (
     <ul className={styles.grouped}>

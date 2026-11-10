@@ -39,6 +39,7 @@ describe('GroupedPerks', () => {
             perk(411682304, '', 'Sandbox alias'),
             perk(5, '', 'Sandbox alias'),
             perk(7, '', 'Sandbox alias'),
+            { ...perk(8, '', 'Alias group'), reason: 'alias' },
           ]}
         />,
       ),
@@ -47,6 +48,8 @@ describe('GroupedPerks', () => {
     expect(name(1888882410)).toBe('Collective Pugilism');
     expect(name(411682304)).toBe('Collective Pugilism');
     expect(name(5)).toBe('Unnamed sandbox perk');
-    expect(name(7)).toBe('Not in the manifest catalog');
+    // A blank sandbox definition is still a manifest sandbox perk.
+    expect(name(7)).toBe('Unnamed sandbox perk');
+    expect(name(8)).toBe('Not in the manifest catalog');
   });
 });

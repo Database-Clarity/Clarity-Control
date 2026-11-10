@@ -15,7 +15,10 @@ async function get(url) {
   return response.json();
 }
 
-/** `{ perkHash: [name, description] }` for every referenced perk that has a description. */
+/**
+ * `{ perkHash: [name, description] }` for every referenced perk that has a description or a name
+ * (the editor's Grouped list names sandbox perks from it; the description may then be empty).
+ */
 export function extract(generator, sandboxPerks) {
   const hashes = new Set();
   for (const item of Object.values(generator))
@@ -23,8 +26,9 @@ export function extract(generator, sandboxPerks) {
   const perks = {};
   for (const hash of [...hashes].sort((x, y) => x - y)) {
     const display = sandboxPerks[hash]?.displayProperties;
-    const description = display?.description?.trim();
-    if (description) perks[hash] = [display.name?.trim() ?? '', description];
+    const name = display?.name?.trim() ?? '';
+    const description = display?.description?.trim() ?? '';
+    if (description || name) perks[hash] = [name, description];
   }
   return { referenced: hashes.size, perks };
 }
@@ -45,7 +49,7 @@ async function main() {
     JSON.stringify(result),
   );
   console.log(
-    `Wrote ${Object.keys(perks).length} described sandbox perks of ${referenced} referenced (${metadata.version})`,
+    `Wrote ${Object.keys(perks).length} named or described sandbox perks of ${referenced} referenced (${metadata.version})`,
   );
 }
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) await main();
