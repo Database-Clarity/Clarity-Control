@@ -42,7 +42,7 @@ export interface RetiredOccurrence {
 }
 
 const retiredColours = markupRetiredColors;
-const retiredWrappers = [...retiredColours, 'center', 'background'];
+const retiredWrappers = [...retiredColours, 'center', 'background', 'breakSpaces'];
 const retiredMarkers = [...retiredColours, ...markupRetiredLineStyles];
 
 const quick =
@@ -87,6 +87,7 @@ function tokenOccurrence(
   line: string,
   lineFrom: number,
   from: number,
+  sourceToken = token,
 ): RetiredOccurrence | null {
   const to = from + token.length;
   const bare = marker.exec(token);
@@ -113,7 +114,7 @@ function tokenOccurrence(
   const wrapped = wrapper.exec(token);
   if (!wrapped) return null;
   const name = wrapped[1]!;
-  const inner = wrapped[2]!;
+  const inner = wrapper.exec(sourceToken)?.[2] ?? wrapped[2]!;
   const fixes: RetiredFix[] = [
     {
       id: 'remove-tag',
@@ -146,14 +147,19 @@ function tokenOccurrence(
   };
 }
 
-function conditionOccurrences(text: string): RetiredOccurrence[] {
+function conditionOccurrences(text: string, source: string): RetiredOccurrence[] {
   const found: RetiredOccurrence[] = [];
   for (const name of conditions) {
     // The same block pattern the converter uses (prepare.ts).
-    for (const match of text.matchAll(new RegExp(`^${name} \\([\\s\\S]*?\\n\\)$`, 'gm'))) {
+    for (const match of text.matchAll(new RegExp(`^${name} \\([\\s\\S]*?\\n\\) *$`, 'gm'))) {
+      const closingFrom = match.index + match[0].lastIndexOf('\n') + 1;
+      if (
+        markupCommentContext(source.slice(closingFrom, match.index + match[0].length)).text !== ')'
+      )
+        continue;
       const from = match.index;
       const end = from + match[0].length;
-      const lines = match[0].split('\n');
+      const lines = source.slice(from, end).split('\n');
       const contents = lines.slice(1, -1).join('\n');
       // Dropping the block drops its line break too; the last line of the text takes the one before.
       const gone: RetiredEdit =
@@ -195,11 +201,11 @@ function tableRowToLine(row: string): string {
     .join(' | ');
 }
 
-function tableOccurrences(text: string): RetiredOccurrence[] {
+function tableOccurrences(text: string, source: string): RetiredOccurrence[] {
   const found: RetiredOccurrence[] = [];
   for (const match of text.matchAll(/^< table [^\n]*\n[\s\S]*?\n<\$>$/gm)) {
     const from = match.index;
-    const rows = match[0].split('\n');
+    const rows = source.slice(from, from + match[0].length).split('\n');
     const lines = rows.slice(1, -1).map(tableRowToLine).join('\n');
     found.push({
       kind: 'table',
@@ -226,12 +232,35 @@ function tableOccurrences(text: string): RetiredOccurrence[] {
 export function findRetiredMarkup(source: string): RetiredOccurrence[] {
   if (!quick.test(source)) return [];
   const text = withoutComments(source);
-  const found: RetiredOccurrence[] = [...conditionOccurrences(text), ...tableOccurrences(text)];
+  const found: RetiredOccurrence[] = [
+    ...conditionOccurrences(text, source),
+    ...tableOccurrences(text, source),
+  ];
   let lineFrom = 0;
   for (const line of text.split('\n')) {
+    const markers = new Set<number>();
     for (const match of line.matchAll(converterToken)) {
-      const occurrence = tokenOccurrence(match[0], line, lineFrom, lineFrom + match.index);
-      if (occurrence) found.push(occurrence);
+      const occurrence = tokenOccurrence(
+        match[0],
+        line,
+        lineFrom,
+        lineFrom + match.index,
+        source.slice(lineFrom + match.index, lineFrom + match.index + match[0].length),
+      );
+      if (occurrence) {
+        found.push(occurrence);
+        if (occurrence.kind === 'marker') markers.add(occurrence.from);
+      }
+    }
+    // Line classes are recognised anywhere, independently of inline token boundaries.
+    for (const name of retiredMarkers) {
+      const token = `<${name}/>`;
+      let index = line.indexOf(token);
+      while (index !== -1) {
+        const from = lineFrom + index;
+        if (!markers.has(from)) found.push(tokenOccurrence(token, line, lineFrom, from)!);
+        index = line.indexOf(token, index + token.length);
+      }
     }
     lineFrom += line.length + 1;
   }

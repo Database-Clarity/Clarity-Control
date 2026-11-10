@@ -1,3 +1,4 @@
+import { parseLines } from '../markup/lines.js';
 import { describe, expect, it } from 'vitest';
 import { validateText } from './index.js';
 import {
@@ -106,6 +107,50 @@ describe('retired markup fixes', () => {
       'remove-tag',
       'to-yellow',
     ]);
+  });
+
+  it('keeps source comments in block, table, and wrapper fixes', () => {
+    const probe = 'a\ncatalyst (\n// keep this note\nline\n)\nb';
+    expect(fix(probe, 0, 'keep-contents')).toBe('a\n// keep this note\nline\nb');
+    expect(fix(probe.replace('catalyst', 'exotic perk'), 0, 'keep-contents')).toBe(
+      'a\n// keep this note\nline\nb',
+    );
+    expect(fix('<blue /* keep */ text />', 0, 'remove-tag')).toBe('/* keep */ text');
+    expect(fix('<blue a /* keep */ b />', 0, 'remove-tag')).toBe('a /* keep */ b');
+    expect(fix('<blue a /* keep */ b />', 0, 'to-yellow')).toBe('<yellow a /* keep */ b />');
+    expect(fix('< table wide >\n|a /* keep */|value\n<$>', 0, 'rows-to-lines')).toBe(
+      'a /* keep */ | value',
+    );
+  });
+
+  it.each(['blue', 'green', 'purple', 'center', 'background', 'breakSpaces'])(
+    'matches the real parser for %s markers and wrappers',
+    (name) => {
+      for (const text of [
+        `damage < 50% <${name}/>`,
+        `<yellow a <${name}/> b />`,
+        `<${name} x />`,
+      ]) {
+        const parsed = JSON.stringify(parseLines(text, {}));
+        expect(parsed, text).toContain(`"${name}"`);
+        expect(
+          findRetiredMarkup(text).some((item) => item.name === name),
+          text,
+        ).toBe(true);
+      }
+    },
+  );
+
+  it('finds markers independently of inline tokens and commented block endings', () => {
+    expect(tokens('damage < 50% <green/>')).toEqual(['<green/>']);
+    expect(tokens('<yellow a <blue/> b />')).toEqual(['<blue/>']);
+    expect(tokens('<breakSpaces x />')).toEqual(['<breakSpaces … />']);
+    expect(tokens('catalyst (\nx\n) // end')).toEqual(['catalyst ( … )']);
+    expect(tokens('catalyst (\nx\n)   ')).toEqual([]);
+    expect(fixAllRetired('damage < 50% <green/>').text).toBe('damage < 50%');
+    const first = fixAllRetired('<yellow a <blue/> b /> <breakSpaces x />');
+    expect(first.remaining).toBe(0);
+    expect(fixAllRetired(first.text).fixed).toBe(0);
   });
 
   it('offers only Remove tag for background and centre wrappers', () => {
