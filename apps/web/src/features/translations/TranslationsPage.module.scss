@@ -74,9 +74,15 @@
       white-space: nowrap;
     }
 
-    // Line 1: language, category, and the count on the right edge.
-    flex-wrap: nowrap;
+    // Line 1: language, category, and the count on the right edge. At a large interface scale
+    // the count drops to its own line rather than cutting the language or the category.
+    flex-wrap: wrap;
     gap: 0.375rem;
+
+    .fixedLanguage {
+      flex: none;
+      white-space: nowrap;
+    }
 
     select {
       height: var(--tap);
@@ -88,8 +94,9 @@
     }
 
     .categories {
-      flex: 0 1 11rem;
-      min-width: 0;
+      flex: 1 1 9rem;
+      min-width: 9rem;
+      max-width: 11rem;
     }
 
     .languagePicker select,
@@ -147,13 +154,12 @@
 // Line 2 on a phone: the filter, then Outdated and Missing as one joined pair.
 @include theme.mobile {
   .summary {
-    flex-wrap: nowrap;
     gap: 0.375rem;
 
     input[type='search'] {
       @include controls.field;
       flex: 1 1 6rem;
-      min-width: 0;
+      min-width: 6rem;
       height: var(--tap);
     }
 
