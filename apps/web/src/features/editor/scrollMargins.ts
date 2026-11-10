@@ -1,6 +1,11 @@
 import { EditorSelection, type EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
-import { dockedBarHeight, dockedStatusClear, dockedTopChrome } from './markupRow/dock';
+import {
+  dockedBarHeight,
+  dockedStatusClear,
+  dockedTopChrome,
+  stickyChromeBottom,
+} from './markupRow/dock';
 
 interface Box {
   top: number;
@@ -65,6 +70,9 @@ function statusBelowEnd(view?: EditorView): number {
 export function editorScrollMargins() {
   return EditorView.scrollMargins.of((view) => {
     const dock = dockMargins(view);
+    // Read once per entry change (measure phase), never while typing.
+    const top = entryTopMargin(view);
+    if (top !== null) return { top, bottom: dock?.bottom ?? 0 };
     const overlays = [...document.querySelectorAll<HTMLElement>(coverSelector)].filter(
       (element) => !element.hasAttribute('data-editor-overlay') || isOver(element, view),
     );
@@ -137,4 +145,29 @@ function isOver(overlay: HTMLElement, view: EditorView): boolean {
     ? overlay.parentElement
     : overlay.closest('[data-editor-root]');
   return owner?.contains(view.dom) ?? false;
+}
+
+/** Editors whose next caret scroll shows a newly opened entry from its top (a phone). */
+const entryTop = new WeakSet<EditorView>();
+
+/**
+ * Another entry was opened or stepped to on a phone, where the page scrolls rather than the
+ * editor: show it from its top. A page scrolled past the editor's top (the previous entry's
+ * scroll) comes back just far enough that the editor, with its tools, starts under the sticky
+ * header and tabs; a page showing the top already stays put ("nearest"). It is CodeMirror's own
+ * scroll, so its scroll anchoring (it keeps the text under a focused caret still) agrees with it.
+ */
+export function entryTopScroll(view: EditorView) {
+  entryTop.add(view);
+  return EditorView.scrollIntoView(0, { y: 'nearest' });
+}
+
+/** The entry-top margin: the sticky chrome plus the editor's own tools above its first line. */
+function entryTopMargin(view: EditorView): number | null {
+  if (!entryTop.delete(view)) return null;
+  const root = view.dom.closest('[data-editor-root]') ?? view.dom;
+  return (
+    stickyChromeBottom(view.dom.ownerDocument) +
+    Math.max(0, view.documentTop - root.getBoundingClientRect().top)
+  );
 }

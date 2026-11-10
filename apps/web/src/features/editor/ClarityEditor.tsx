@@ -44,7 +44,7 @@ import {
   type RetiredOccurrence,
 } from '@clarity/core';
 import { clarityHighlighting, clarityLanguage } from './language';
-import { editorScrollMargins, keepParagraphInView } from './scrollMargins';
+import { editorScrollMargins, entryTopScroll, keepParagraphInView } from './scrollMargins';
 import { followKeyboard, visibleBand } from '../../ui/useKeyboardInset';
 import { findWidgetExtension, findWidgetPanel, openReplace } from './findWidget';
 import { rememberSearch, restoreSearch } from './searchMemory';
@@ -415,7 +415,11 @@ export function ClarityEditor({
   // The markup row shows when the page opens it and the text can be edited; on a phone it docks
   // on the keyboard as a bar (Suggest moves into it, Raw to the status bar).
   const rowShown = markupRow && !readOnly;
-  const docked = useMedia(phoneQuery) && rowShown;
+  const phone = useMedia(phoneQuery);
+  const docked = phone && rowShown;
+  // Read by the document load, which must not run again when only the screen size changes.
+  const pageScrolls = useRef(phone);
+  pageScrolls.current = phone;
   const suggestHere = useCallback(() => {
     if (view.current) openSuggest(view.current);
   }, []);
@@ -772,7 +776,16 @@ export function ClarityEditor({
         ...(switched ? [toggleRaw.of(false)] : []),
         // Reading scrollTop during the React commit forces layout of the new
         // document. Let CodeMirror reset a scrolled view in its measure phase.
-        ...(!stepping || scrolled.current ? [EditorView.scrollIntoView(0, { y: 'start' })] : []),
+        // On a phone the page scrolls, not the editor: "start" would scroll the page until the
+        // first line meets the top of the screen, under the sticky header and tabs, with the
+        // editor's own tools above it (entryTopScroll keeps them in view).
+        ...(!stepping || scrolled.current
+          ? [
+              pageScrolls.current
+                ? entryTopScroll(editor)
+                : EditorView.scrollIntoView(0, { y: 'start' }),
+            ]
+          : []),
       ],
       annotations: [documentLoad.of(true), Transaction.addToHistory.of(false)],
     });

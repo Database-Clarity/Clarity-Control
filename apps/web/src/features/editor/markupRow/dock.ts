@@ -33,14 +33,18 @@ export function dockedStatusClear(): number {
 
 /** Measures the sticky chrome: the pane tab strip stuck under the header. Not on the typing path. */
 export function measureTopChrome(owner: Document = document): void {
+  topChrome = stickyChromeBottom(owner);
+}
+
+/** Where the sticky chrome (the phone header and the pane tabs) ends, read from the layout. */
+export function stickyChromeBottom(owner: Document = document): number {
   const strip = owner.querySelector<HTMLElement>('[role="tablist"][aria-label="Tooltip panels"]');
   if (!strip || !strip.offsetHeight) {
     const header = owner.querySelector<HTMLElement>('header');
-    topChrome = header && getComputedStyle(header).position === 'sticky' ? header.offsetHeight : 0;
-    return;
+    return header && getComputedStyle(header).position === 'sticky' ? header.offsetHeight : 0;
   }
   const top = parseFloat(getComputedStyle(strip).top);
-  topChrome = (Number.isFinite(top) ? top : 0) + strip.offsetHeight;
+  return (Number.isFinite(top) ? top : 0) + strip.offsetHeight;
 }
 
 /** Follows a docked bar's height until the returned function is called. */

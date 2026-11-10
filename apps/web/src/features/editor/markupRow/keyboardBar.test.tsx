@@ -262,6 +262,59 @@ describe('the docked keyboard bar', () => {
     expect(rects.mock.contexts).not.toContain(status);
   });
 
+  // AC6 (owner 2026-11-10, Android): stepping to another entry scrolled the page down, cutting the
+  // editor's tools and first lines off under the sticky header.
+  function stepEntry() {
+    // The page was scrolled 300px past the editor's top on the previous entry.
+    vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      const top = this.hasAttribute('data-editor-root') ? -300 : 0;
+      return {
+        left: 0,
+        right: 390,
+        top,
+        bottom: top + 600,
+        width: 390,
+        height: 600,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      };
+    });
+    const follow = vi.fn();
+    const view = mount({ tooltipHash: 1, value: 'first entry\nsecond line' });
+    const release = followKeyboard(view.dom, follow);
+    const scrolls = vi.spyOn(EditorView, 'scrollIntoView');
+    mount({ tooltipHash: 2, value: 'another entry\nits second line' });
+    release();
+    const margins = () =>
+      Math.max(
+        ...view.state.facet(EditorView.scrollMargins).map((margin) => margin(view)?.top ?? 0),
+      );
+    return { view, scrolls, follow, margins };
+  }
+
+  it('shows another entry from its top on a phone, with its tools under the sticky header', () => {
+    const { view, scrolls, follow, margins } = stepEntry();
+    expect(view.state.doc.toString()).toBe('another entry\nits second line');
+    // Not "start", which put the first line at the very top of the screen, under the header.
+    expect(scrolls.mock.calls).toEqual([[0, { y: 'nearest' }]]);
+    // That one scroll keeps the editor's top (its tools) in view: the page comes back to it.
+    const offset = view.documentTop + 300;
+    expect(margins()).toBe(offset);
+    // Later caret scrolls are ordinary again.
+    expect(margins()).toBeLessThan(offset);
+    // The keyboard follow answers the visible area changing, never an entry change.
+    expect(follow).not.toHaveBeenCalled();
+  });
+
+  it('keeps the scroll to the first line on an entry change on a wider screen', () => {
+    phone = false;
+    const { scrolls } = stepEntry();
+    expect(scrolls.mock.calls).toEqual([[0, { y: 'start' }]]);
+  });
+
   it('shows the bar on an empty text', () => {
     mount({ value: '' });
     expect(bar()?.hasAttribute('data-docked')).toBe(true);
