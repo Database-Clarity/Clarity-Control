@@ -283,12 +283,10 @@ export function SuggestMenu({
   // The lines on screen sit in normal flow below one spacer that stands for everything above
   // them. The selected option is always in the document (the editor points at it): when it has
   // been scrolled away it is drawn apart, at its own place.
-  const [start, end] =
-    metrics === 'all'
-      ? [0, rows.length]
-      : range
-        ? [range.start, range.end]
-        : [0, Math.min(rows.length, topLines)];
+  // The window was worked out for the list as it was: a list that filtering just made shorter is
+  // drawn within its own lines until the scroll position catches up.
+  const end = metrics === 'all' ? rows.length : Math.min(rows.length, range ? range.end : topLines);
+  const start = metrics === 'all' ? 0 : Math.min(range ? range.start : 0, Math.max(0, end - 1));
   const selectedRow = rowOf[snapshot.index] ?? 0;
   const drawn = rows.slice(start, end);
   if (selectedRow < start || selectedRow >= end) drawn.push(rows[selectedRow]!);

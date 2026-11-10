@@ -71,7 +71,16 @@ function derive(
   let context = suggestContext(state, explicit);
   if (!context) return null;
   // A menu opened on a bare word is about that word: once the caret is in another one it is done.
+  const anchor = previous?.context.atCaret ? previous.context.from : -1;
   if (
+    context.kind === 'word' &&
+    anchor >= context.from &&
+    anchor <= state.selection.main.head &&
+    state.selection.main.empty
+  )
+    // Opened at the caret beside a word: what was typed since then filters, the word does not.
+    context = caretContext(context, state, anchor);
+  else if (
     previous?.context.kind === 'word' &&
     context.kind === 'word' &&
     context.from !== previous.context.from
@@ -308,7 +317,9 @@ export function suggestExtension(): Extension {
           key: 'Ctrl-Space',
           run: (view) => {
             const snapshot = suggestState(view.state);
-            if (snapshot) view.dispatch({ effects: categoryEffect.of(null) });
+            // Asked for over the menu that opened while typing, it becomes the full list; asked
+            // for again, it steps to the next group.
+            if (snapshot?.explicit) view.dispatch({ effects: categoryEffect.of(null) });
             else openSuggest(view);
             return true;
           },
@@ -343,6 +354,7 @@ export function suggestExtension(): Extension {
       class {
         private frame = 0;
         private timer: ReturnType<typeof setTimeout> | undefined;
+        private idle = 0;
         private waiting = false;
         constructor(private readonly view: EditorView) {}
         update(update: { startState: EditorState; state: EditorState }) {
@@ -350,7 +362,8 @@ export function suggestExtension(): Extension {
           const after = suggestState(update.state);
           if (before !== after) update.state.facet(suggestHost).onChange?.(after);
           if (!after || after.judged || this.waiting) return;
-          // After the frame that shows the menu: opening never waits for the safety rules.
+          // After the frame that shows the menu, once the browser has nothing else to do: opening
+          // never waits for the safety rules, and neither does the first key after it.
           this.waiting = true;
           const judge = () => {
             this.waiting = false;
@@ -358,12 +371,15 @@ export function suggestExtension(): Extension {
           };
           if (typeof requestAnimationFrame === 'function')
             this.frame = requestAnimationFrame(() => {
-              this.timer = setTimeout(judge);
+              if (typeof requestIdleCallback === 'function')
+                this.idle = requestIdleCallback(judge, { timeout: 150 });
+              else this.timer = setTimeout(judge);
             });
           else this.timer = setTimeout(judge);
         }
         destroy() {
           if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(this.frame);
+          if (typeof cancelIdleCallback === 'function') cancelIdleCallback(this.idle);
           clearTimeout(this.timer);
         }
       },

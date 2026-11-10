@@ -38,6 +38,11 @@ export interface SuggestContext {
   definitions: string;
   /** Nothing but the typed trigger is on this line, so multi-line declarations may go here. */
   lineIsFree: boolean;
+  /**
+   * Asked for beside a word no option matched: the menu sits at the caret (`from`), and what is
+   * typed from there on is the query, not the word before it.
+   */
+  atCaret?: boolean;
 }
 
 export interface SuggestItem {
@@ -537,14 +542,19 @@ export function judgeItems(
  * The context of a menu opened on request beside text that matches no option: nothing is replaced
  * and nothing filters, so the whole list shows and an option goes in at the caret.
  */
-export function caretContext(context: SuggestContext, state: EditorState): SuggestContext {
+export function caretContext(
+  context: SuggestContext,
+  state: EditorState,
+  from = state.selection.main.head,
+): SuggestContext {
   const head = state.selection.main.head;
   return {
     ...context,
     kind: 'word',
-    from: head,
+    atCaret: true,
+    from,
     to: head,
-    query: '',
+    query: state.sliceDoc(from, head),
     lineIsFree: state.doc.lineAt(head).text.trim() === '',
   };
 }
