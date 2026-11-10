@@ -58,7 +58,8 @@ import { defaultLanguage, withLanguage } from './language';
 import { LanguageSummary } from './LanguageSummary';
 import { EditorPaneHeader } from './EditorPaneHeader';
 import { QueueControl } from './QueueControl';
-import { queueContext } from '../translations/worklist';
+import { queueContext, queuePath, queueSummary } from '../translations/worklist';
+import { categoryDisplay } from '../../services/categoryLabels';
 import { TranslationSource } from './TranslationSource';
 import { VariantWorkspace } from './VariantWorkspace';
 import { CompendiumPanel } from '../compendium/CompendiumPanel';
@@ -503,24 +504,21 @@ function TooltipWorkspace({
       activeOverride={
         activeVariant === null ? undefined : { hash: activeVariant, name: nameOf(activeVariant) }
       }
-      markupTools={
-        access.reason === null && (
-          <button
-            type="button"
-            className={styles.ghost}
-            aria-pressed={markupRow.open}
-            aria-keyshortcuts="Control+."
-            title="Show or hide the markup row at the top of the editor"
-            onClick={markupRow.toggle}
-          >
-            Markup tools <kbd className={styles.key}>Ctrl+.</kbd>
-          </button>
-        )
+      markup={
+        access.reason === null ? { open: markupRow.open, toggle: markupRow.toggle } : undefined
       }
       onEditOverride={(variant) => setPicked({ hash, at: pickedAt, variant })}
       onBack={() => setPicked({ hash, at: pickedAt, variant: null })}
       grouped={grouped}
       queue={queue && <QueueControl hash={hash} context={queue} />}
+      queueBack={
+        queue
+          ? {
+              to: queuePath(queue, user),
+              label: queueSummary(queue, languageLabel, (id) => categoryDisplay(id).label),
+            }
+          : undefined
+      }
     />
   );
 

@@ -69,7 +69,7 @@ import {
   publishSteppingTarget,
   useSteppingActivity,
 } from './steppingActivity';
-import { phoneQuery, useMedia } from '../../ui/useMedia';
+import { touchQuery, useMedia } from '../../ui/useMedia';
 import { useScaleFactor } from '../../ui/usePaneDivider';
 import styles from './TooltipFinder.module.scss';
 
@@ -157,6 +157,7 @@ const FinderOption = memo(function FinderOption({
   virtual,
   rowHeight,
   twoLine,
+  narrow = false,
 }: {
   row: Row;
   index: number;
@@ -174,6 +175,8 @@ const FinderOption = memo(function FinderOption({
   rowHeight: number;
   /** The phone sheet shows a grouped row as entry over "group · kind · hash". */
   twoLine: boolean;
+  /** A screen under 21rem wide: every row is two lines, the name over the perk and hash. */
+  narrow?: boolean;
 }) {
   const item = itemFor(row.hash, data);
   const isDirty = variantHashes(row.hash, data).some((variant) => drafts[variant]);
@@ -203,7 +206,7 @@ const FinderOption = memo(function FinderOption({
       data-current={current || undefined}
       title={shared}
       className={styles.option}
-      data-two-line={stacked || undefined}
+      data-two-line={stacked || narrow || undefined}
       data-grouped={row.group || undefined}
       onMouseDown={(event) => event.preventDefault()}
       onMouseMove={() => !active && onActive(index)}
@@ -480,10 +483,18 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   );
   const revealActive = useRef<() => void>(() => undefined);
   const scale = useScaleFactor();
-  const touchRows = useMedia(`${phoneQuery}, (pointer: coarse)`);
-  // Matches the fixed CSS row geometry at every interface scale. Scroll handlers
-  // never need to measure a row or synchronously flush a React render.
-  const rowHeight = Math.round((touchRows ? Math.max(44, 44 * scale) : 28 * scale) * 64) / 64;
+  const touchRows = useMedia(touchQuery);
+  const touchSize = useSettingsStore((state) => state.device.touchSize);
+  // Under 21rem of screen width (a phone at a large interface scale) a row is two lines.
+  const narrow = useMedia(`(max-width: ${Math.floor(21 * 16 * scale)}px)`) && touchRows;
+  // Matches the fixed CSS row geometry (var(--tap), plus 1.125rem for two lines) at every
+  // interface scale, computed once per scale and size: scroll handlers never measure a row or
+  // synchronously flush a React render.
+  const tap = touchSize === 'large' ? 44 : 36;
+  const rowHeight =
+    Math.round(
+      (touchRows ? Math.max(tap, tap * scale) + (narrow ? 18 * scale : 0) : 28 * scale) * 64,
+    ) / 64;
   const [viewportStore] = useState(createFinderViewport);
   const setViewport = viewportStore.set;
   const root = useRef<HTMLDivElement>(null);
@@ -983,6 +994,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
           onCommit={commitRef}
           rowHeight={rowHeight}
           twoLine={touchRows}
+          narrow={narrow}
         />
       </ul>
       {!rows.length && (

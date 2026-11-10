@@ -3,6 +3,8 @@ import { languages, langSchema, type Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { Popover } from '../../ui/Popover';
 import { EnhancedArrow } from '../../ui/EnhancedArrow';
+import { phoneQuery, useMedia } from '../../ui/useMedia';
+import { EditorMore } from './EditorMore';
 import {
   loadSandboxPerkText,
   sandboxPerkName,
@@ -39,8 +41,9 @@ export function EditorPaneHeader({
   onEditOverride,
   onBack,
   grouped,
-  markupTools,
+  markup,
   queue,
+  queueBack,
 }: {
   lang: Lang;
   onLanguage(lang: Lang): void;
@@ -58,25 +61,45 @@ export function EditorPaneHeader({
   onBack(): void;
   /** Maintainers only: the manifest perks this editor entry covers; undefined hides the control. */
   grouped?: GroupedPerk[];
-  /** The button that shows and hides the markup row. */
-  markupTools?: React.ReactNode;
+  /** Shows and hides the markup row; undefined where the text is read-only. */
+  markup?: { open: boolean; toggle(): void };
   /** Queue mode only: position, Previous, Next, and the way back to the Translations queue. */
   queue?: React.ReactNode;
+  /** Queue mode only: the way back to the queue, for the phone's More sheet. */
+  queueBack?: { to: string; label: string };
 }) {
+  const phone = useMedia(phoneQuery);
+  if (phone)
+    return (
+      <PhoneToolRow
+        {...{ lang, onLanguage, draft, saving, onDiscard, reason, switchTo, onSwitch }}
+        {...{
+          overrides,
+          activeOverride,
+          onEditOverride,
+          onBack,
+          grouped,
+          markup,
+          queue,
+          queueBack,
+        }}
+      />
+    );
+  const markupTools = markup && (
+    <button
+      type="button"
+      className={styles.ghost}
+      aria-pressed={markup.open}
+      aria-keyshortcuts="Control+."
+      title="Show or hide the markup row at the top of the editor"
+      onClick={markup.toggle}
+    >
+      Markup tools <kbd className={styles.key}>Ctrl+.</kbd>
+    </button>
+  );
   return (
     <>
-      <select
-        className={styles.langSelect}
-        aria-label="Language"
-        value={lang}
-        onChange={(event) => onLanguage(langSchema.parse(event.target.value))}
-      >
-        {languages.map((language) => (
-          <option key={language} value={language}>
-            {languageLabel(language)}
-          </option>
-        ))}
-      </select>
+      <LanguageSelect lang={lang} onLanguage={onLanguage} />
       {activeOverride && (
         <span className={styles.overrideTag}>
           <EnhancedArrow /> Enhanced override
@@ -158,6 +181,91 @@ export function EditorPaneHeader({
           ))
         )}
       </span>
+    </>
+  );
+}
+
+function LanguageSelect({ lang, onLanguage }: { lang: Lang; onLanguage(lang: Lang): void }) {
+  return (
+    <select
+      className={styles.langSelect}
+      aria-label="Language"
+      value={lang}
+      onChange={(event) => onLanguage(langSchema.parse(event.target.value))}
+    >
+      {languages.map((language) => (
+        <option key={language} value={language}>
+          {languageLabel(language)}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/**
+ * The phone's tool row: language, the draft dot, then the queue stepper and More as one group on
+ * the right (it wraps to a second line as a unit at a large interface scale). The read-only badge
+ * and an open override take a second line of their own. Everything rare lives in More.
+ */
+function PhoneToolRow({
+  lang,
+  onLanguage,
+  draft,
+  saving,
+  onDiscard,
+  reason,
+  switchTo,
+  onSwitch,
+  overrides,
+  activeOverride,
+  onEditOverride,
+  onBack,
+  grouped,
+  markup,
+  queue,
+  queueBack,
+}: Parameters<typeof EditorPaneHeader>[0]) {
+  return (
+    <>
+      <LanguageSelect lang={lang} onLanguage={onLanguage} />
+      {draft && (
+        <span className={styles.dot} role="img" aria-label="Unsaved draft" title="Unsaved draft" />
+      )}
+      <span className={styles.phoneRight}>
+        {queue}
+        <EditorMore
+          markup={markup}
+          draft={draft}
+          saving={saving}
+          onDiscard={onDiscard}
+          grouped={grouped}
+          overrides={activeOverride ? [] : overrides}
+          onEditOverride={onEditOverride}
+          queueBack={queueBack}
+          renderGrouped={(perks) => <GroupedPerks perks={perks} />}
+        />
+      </span>
+      {reason && (
+        <span className={styles.badge} role="status" title={reason}>
+          <span className={styles.ell}>{shortReason(reason)}</span>
+          {switchTo && (
+            <button type="button" className={styles.ghost} onClick={() => onSwitch(switchTo)}>
+              Switch to {languageLabel(switchTo)}
+            </button>
+          )}
+        </span>
+      )}
+      {activeOverride && (
+        <span className={styles.overrideLine}>
+          <span className={styles.overrideTag}>
+            <EnhancedArrow /> Enhanced override
+            {overrides.length > 1 && <span>: {activeOverride.name}</span>}
+          </span>
+          <button type="button" className={styles.ghost} onClick={onBack}>
+            Back to base
+          </button>
+        </span>
+      )}
     </>
   );
 }

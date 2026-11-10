@@ -460,3 +460,21 @@ $symbol: 0.75rem;
 .warlock {
   @include icon('./assets/warlock.svg', contain);
 }
+
+// Phones: the category line wraps at a large interface scale instead of being cut. The editor's
+// preview card runs full-bleed, its text on the page edge (owner 2026-11-10: nothing inset twice).
+@media (max-width: 700px) {
+  .category {
+    white-space: normal;
+    overflow: visible;
+  }
+  :global([data-panel='preview']) .fill {
+    width: calc(100% + 2 * var(--page-x));
+    margin-inline: calc(-1 * var(--page-x));
+    .header,
+    .description,
+    .diagnostics {
+      padding-inline: var(--page-x);
+    }
+  }
+}

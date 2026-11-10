@@ -143,7 +143,6 @@
   box-sizing: border-box;
   height: 100%;
   min-width: 0;
-
 }
 
 // The checkbox's hit area is the whole cell left of the name (44px square on a phone).
@@ -316,13 +315,13 @@
   .filters input,
   .filters select,
   .empty button {
-    height: max(44px, 2.75rem);
+    height: var(--tap);
   }
 
   // The phone sheet has no padding of its own: inset the filters, rows, and marks like the mock.
   .queue {
     height: 70dvh;
-    padding-inline: 0.5rem;
+    padding-inline: var(--page-x);
   }
 
   .viewport {
@@ -331,12 +330,12 @@
 
   .rowSizer,
   .headerSizer {
-    // Tap targets: every row and group header is at least 44px tall on a phone.
-    height: max(44px, 2.75rem);
+    // Tap targets: every row and group header is var(--tap) tall on a phone.
+    height: var(--tap);
   }
 
   .check {
-    width: max(44px, 2.75rem);
+    width: var(--tap);
     padding: 0;
 
     input {
@@ -346,6 +345,6 @@
   }
 
   .group[data-marker] button {
-    padding-inline-start: calc(max(44px, 2.75rem) + 0.5rem);
+    padding-inline-start: calc(var(--tap) + 0.5rem);
   }
 }

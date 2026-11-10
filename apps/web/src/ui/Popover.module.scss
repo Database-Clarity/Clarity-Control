@@ -22,12 +22,18 @@
   overflow-wrap: anywhere;
 }
 
+.flush {
+  padding: 0;
+}
+
 @include theme.mobile {
   .surface {
     inset: auto 0 0 0 !important;
     width: auto !important;
     max-height: 70dvh !important;
     border-radius: 0.5rem 0.5rem 0 0;
+    // A sheet has no side border: its rows run edge to edge.
+    border-width: 1px 0 0;
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }

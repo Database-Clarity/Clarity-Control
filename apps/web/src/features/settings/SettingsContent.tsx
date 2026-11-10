@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { dateFormats, timeDisplays, type SyncedSettings } from '@clarity/core';
 import {
   useSettingsStore,
@@ -10,7 +10,9 @@ import {
   type SuggestAccept,
   type FinderWheel,
   type SymbolReveal,
+  type TouchSize,
 } from '../../stores/settings';
+import { touchQuery, useMedia } from '../../ui/useMedia';
 import { themePreferences, type ThemePreference } from '../../ui/theme';
 import { exactDate, formatDate } from '../../services/format/date';
 import { browserTimeZone, syncStatusText, themeLabels, valueLabel } from './labels';
@@ -93,6 +95,17 @@ export function SettingsContent() {
   const { settings, device, update, updateDevice, remember, retry, resetPaneWidths } = state;
   const zones = useMemo(timeZones, []);
   const [panesReset, setPanesReset] = useState(false);
+  // The size setting only does something where the touch sizes apply.
+  const touch = useMedia(touchQuery);
+  // Phones: a setting whose value is long (over 24 characters) takes the full line under its label.
+  const root = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    for (const label of root.current?.querySelectorAll('fieldset > label') ?? []) {
+      const select = label.querySelector('select');
+      const text = select?.selectedOptions[0]?.textContent ?? '';
+      label.toggleAttribute('data-wide', !select || text.length > 24);
+    }
+  });
   const zoneOptions =
     settings.timeZone === 'auto' || settings.timeZone === 'UTC' || zones.includes(settings.timeZone)
       ? zones
@@ -115,7 +128,7 @@ export function SettingsContent() {
     </select>
   );
   return (
-    <div className={styles.page}>
+    <div ref={root} className={styles.page}>
       <p role="status" className={styles.status} title={state.errorDetail || undefined}>
         {syncStatusText(state)}{' '}
         {state.status === 'error' && (
@@ -197,6 +210,18 @@ export function SettingsContent() {
             ))}
           </select>
         </label>
+        {touch && (
+          <label>
+            Touch control size
+            <select
+              value={device.touchSize}
+              onChange={(event) => updateDevice({ touchSize: event.target.value as TouchSize })}
+            >
+              <option value="compact">Compact (36 px)</option>
+              <option value="large">Large (44 px)</option>
+            </select>
+          </label>
+        )}
         <label>
           Editor font
           <select

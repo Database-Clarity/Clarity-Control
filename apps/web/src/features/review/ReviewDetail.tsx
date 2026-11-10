@@ -174,7 +174,9 @@ export const ReviewDetail = memo(function ReviewDetail({
       {live && (
         <>
           {!live.pushedHash && !summary && <p>No recorded live version. All saved text is new.</p>}
-          <TooltipDiff before={live.tooltip} current={entry.tooltip} item={reviewItem} />
+          <div className={styles.liveDiff}>
+            <TooltipDiff before={live.tooltip} current={entry.tooltip} item={reviewItem} />
+          </div>
           {notice && <p role="status">{notice}</p>}
           {user?.role === 'translator' && (
             <p>Only your assigned translation languages will be loaded.</p>

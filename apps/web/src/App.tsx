@@ -51,7 +51,7 @@ const workspaceLoaders: Record<string, () => Promise<unknown>> = {
   '/drift': loadDriftPage,
   '/lost-text': () => import('./features/lost-text/LostTextPage'),
   '/archive': loadArchivePage,
-  '/admin': loadAdminPage,
+  '/management': loadAdminPage,
 };
 
 function WorkspaceRouteLayer() {
@@ -113,7 +113,7 @@ export const routes: RouteObject[] = [
         element: <GlobalDetailPage />,
         handle: { preload: loadGlobalDetailPage },
       },
-      { path: 'admin', element: <AdminPage />, handle: { preload: loadAdminPage } },
+      { path: 'management', element: <AdminPage />, handle: { preload: loadAdminPage } },
       { path: 'settings', element: <SettingsRedirect /> },
       {
         path: '*',

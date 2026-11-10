@@ -1,5 +1,6 @@
 @use '../data/variables' as theme;
 @use './tokens';
+@use './controls';
 
 @font-face {
   font-family: DestinySymbols;
@@ -34,12 +35,14 @@ button {
   cursor: pointer;
 }
 
-// 16px stops iOS Safari zooming the page when a field is focused.
+// Touch fields read at the control text size; on iOS 16px stops Safari zooming the page when a
+// field is focused.
 @include theme.mobile-or-coarse {
   input,
   select,
   textarea {
-    font-size: max(16px, 1rem);
+    font-size: var(--ctl-text);
+    @include controls.ios-field-text;
   }
 }
 

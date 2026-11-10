@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useLocation, useNavigationType } from 'react-router-dom';
 import { useSettingsStore } from '../../stores/settings';
 import { scaledPx } from '../../ui/scale';
+import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { useSettingsPanel } from './panel';
 import { SettingsContent } from './SettingsContent';
 import styles from './SettingsPopover.module.scss';
@@ -45,6 +46,7 @@ export function SettingsPopover({ layout }: { layout: React.RefObject<HTMLElemen
 
 function OpenSettings({ layout }: { layout: React.RefObject<HTMLElement | null> }) {
   const panel = useRef<HTMLDivElement>(null);
+  const phoneSheet = useMedia(phoneQuery);
   useWorkspaceShortcutOwner(panel);
   // The stable header button that opened Settings wins; otherwise whatever had focus.
   const [opener] = useState(() => {
@@ -145,7 +147,7 @@ function OpenSettings({ layout }: { layout: React.RefObject<HTMLElement | null> 
         <header className={styles.header}>
           <h2 id="settings-title">Settings</h2>
           <button type="button" onClick={close} aria-label="Close settings">
-            Close
+            {phoneSheet ? '×' : 'Close'}
           </button>
         </header>
         <div className={styles.body}>

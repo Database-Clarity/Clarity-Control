@@ -17,7 +17,7 @@ describe('workspaceMenu', () => {
       '/lost-text',
       '/archive',
       '/globals',
-      '/admin',
+      '/management',
     ]);
   });
 
@@ -26,7 +26,7 @@ describe('workspaceMenu', () => {
       'maintainer',
       {
         primary: ['/', '/review', '/compendium', '/translations'],
-        more: ['/drift', '/lost-text', '/archive', '/admin'],
+        more: ['/drift', '/lost-text', '/archive', '/management'],
       },
     ],
     [

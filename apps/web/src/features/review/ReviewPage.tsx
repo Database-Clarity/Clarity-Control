@@ -304,12 +304,7 @@ export function ReviewPage() {
   shortcuts.current = (action) => {
     if (action === 'publish') {
       if (canPush(user) && hashes.length) askToPublish();
-    } else if (
-      current &&
-      !pushing &&
-      !current.unpublishable &&
-      !inFlight.has(current.tooltip.hash)
-    )
+    } else if (current && !pushing && !current.unpublishable && !inFlight.has(current.tooltip.hash))
       toggleRow(current.tooltip.hash);
   };
 
@@ -435,11 +430,7 @@ export function ReviewPage() {
             {changeCount
               ? 'No changes made by a person match these filters.'
               : 'No changes made by a person are waiting to go live.'}{' '}
-            <Link
-              to={{ search: markerSearch(searchParams) }}
-              replace
-              onClick={() => openMarkers()}
-            >
+            <Link to={{ search: markerSearch(searchParams) }} replace onClick={() => openMarkers()}>
               Show the {count.format(view.markerCount)} marker-only leftovers
             </Link>
           </p>
@@ -460,16 +451,6 @@ export function ReviewPage() {
           current && (
             <>
               <div className={styles.identity}>
-                <button
-                  type="button"
-                  className={styles.step}
-                  aria-label="Previous change"
-                  disabled={previous === index || pushing}
-                  data-perf-navigation="true"
-                  onClick={() => selectIndex((value) => stepRow(view, value, -1))}
-                >
-                  ‹
-                </button>
                 <span className={styles.identityText}>
                   <span className={styles.muted}>{current.category}</span>
                   <span className={styles.sep} aria-hidden="true">
@@ -483,26 +464,40 @@ export function ReviewPage() {
                     </small>
                   ))}
                 </span>
+                {/* Phones: one joined stepper `‹ 1 of 140 ›` right of the name. */}
+                <span className={styles.stepper} role="group" aria-label="Step through changes">
+                  <button
+                    type="button"
+                    className={styles.step}
+                    aria-label="Previous change"
+                    disabled={previous === index || pushing}
+                    data-perf-navigation="true"
+                    onClick={() => selectIndex((value) => stepRow(view, value, -1))}
+                  >
+                    ‹
+                  </button>
+                  <span className={styles.stepPosition}>{position.replace(' / ', ' of ')}</span>
+                  <button
+                    type="button"
+                    className={styles.step}
+                    aria-label="Next change"
+                    disabled={next === index || pushing}
+                    data-perf-navigation="true"
+                    onClick={() => selectIndex((value) => stepRow(view, value, 1))}
+                  >
+                    ›
+                  </button>
+                </span>
                 <span className={styles.identityEnd}>
                   <span className={styles.muted}>{position}</span>
                   <Link to={`/t/${current.tooltip.hash}`}>Open in editor ↗</Link>
                 </span>
-                <button
-                  type="button"
-                  className={styles.step}
-                  aria-label="Next change"
-                  disabled={next === index || pushing}
-                  data-perf-navigation="true"
-                  onClick={() => selectIndex((value) => stepRow(view, value, 1))}
-                >
-                  ›
-                </button>
               </div>
               {markerView && (
                 <p className={styles.markerNote} role="note">
-                  Marker-only: an alias-marker migration leftover. The saved content equals the
-                  live version, so this is not a change a person made. A data task clears these;
-                  group select never includes them.
+                  Marker-only: an alias-marker migration leftover. The saved content equals the live
+                  version, so this is not a change a person made. A data task clears these; group
+                  select never includes them.
                 </p>
               )}
               {current.unpublishable && <p className={styles.note}>{current.unpublishable}</p>}

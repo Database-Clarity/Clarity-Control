@@ -22,6 +22,8 @@ export function Popover({
   children,
   className,
   triggerTitle,
+  triggerLabel,
+  flush = false,
 }: {
   /** Names both the trigger's popup and the surface. */
   label: string;
@@ -31,6 +33,10 @@ export function Popover({
   children: ReactNode | ((close: (restoreFocus?: boolean) => void) => ReactNode);
   className?: string;
   triggerTitle?: string;
+  /** The trigger's accessible name, for an icon-only trigger. */
+  triggerLabel?: string;
+  /** The content runs edge to edge (a menu of rows with its own header): no body padding. */
+  flush?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [style, setStyle] = useState<CSSProperties>();
@@ -80,6 +86,7 @@ export function Popover({
         type="button"
         className={className}
         title={triggerTitle}
+        aria-label={triggerLabel}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? id : undefined}
@@ -96,7 +103,7 @@ export function Popover({
           className={styles.surface}
           style={style}
         >
-          <div className={styles.body}>
+          <div className={flush ? `${styles.body} ${styles.flush}` : styles.body}>
             {typeof children === 'function'
               ? children((restore = true) => close(restore))
               : children}

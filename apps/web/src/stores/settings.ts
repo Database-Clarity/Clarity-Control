@@ -77,6 +77,12 @@ export type SymbolReveal = (typeof symbolRevealModes)[number];
  */
 export const finderWheelModes = ['entries', 'groups'] as const;
 export type FinderWheel = (typeof finderWheelModes)[number];
+/**
+ * Touch control size on this device: compact (about 36px, the default) or large (44px). Applies
+ * wherever the touch tokens apply (phones and coarse pointers); written as `data-touch`.
+ */
+export const touchSizes = ['compact', 'large'] as const;
+export type TouchSize = (typeof touchSizes)[number];
 
 /** Snaps a stored size onto the offered sizes (nearest); anything that is not a number is automatic. */
 export function normalizeEditorFontSize(value: unknown): number | null {
@@ -100,6 +106,7 @@ export const deviceSettingsSchema = z.object({
   suggestAccept: z.enum(suggestAcceptKeys),
   symbolReveal: z.enum(symbolRevealModes),
   finderWheel: z.enum(finderWheelModes),
+  touchSize: z.enum(touchSizes),
   remembered: rememberedSchema,
 });
 export type DeviceSettings = z.infer<typeof deviceSettingsSchema>;
@@ -113,6 +120,7 @@ export const defaultDeviceSettings: DeviceSettings = {
   suggestAccept: 'enter',
   symbolReveal: 'popover',
   finderWheel: 'entries',
+  touchSize: 'compact',
   remembered: {},
 };
 
@@ -225,6 +233,7 @@ export function applyDeviceSettings(device: DeviceSettings): void {
   if (typeof document === 'undefined') return;
   applyTheme(device.theme);
   document.documentElement.dataset.editorFont = device.editorFont;
+  document.documentElement.dataset.touch = device.touchSize;
   // Pixels, not rem: the editor's text size must not follow the interface scale once it is chosen.
   if (device.editorFontSize === null)
     document.documentElement.style.removeProperty('--editor-font-size');
@@ -445,6 +454,7 @@ export function createSettingsStore({
           : 'enter',
       symbolReveal: record.symbolReveal === 'caret' ? 'caret' : 'popover',
       finderWheel: record.finderWheel === 'groups' ? 'groups' : 'entries',
+      touchSize: record.touchSize === 'large' ? 'large' : 'compact',
       remembered,
     };
   }

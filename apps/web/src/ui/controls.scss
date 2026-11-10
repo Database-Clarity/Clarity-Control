@@ -1,6 +1,7 @@
 // Control primitives, applied by mixin inside a component's own scope. Nothing here styles bare
 // elements globally, so pages that have not been migrated keep their current look. Sizes follow
-// the design: controls are 28px on desktop and 44px on phones and coarse pointers.
+// the design: controls are 28px on desktop and var(--tap) on phones and coarse pointers (36px, or
+// 44px with the per-device Large touch size).
 @use '../data/variables' as theme;
 
 @mixin focus-ring {
@@ -11,7 +12,14 @@
 @mixin control-size {
   min-height: 1.75rem;
   @include theme.mobile-or-coarse {
-    min-height: max(44px, 2.75rem);
+    min-height: var(--tap);
+  }
+}
+
+// iOS Safari zooms the page when a focused field's text is under 16px.
+@mixin ios-field-text {
+  @supports (-webkit-touch-callout: none) {
+    font-size: max(16px, 1rem);
   }
 }
 
@@ -29,6 +37,9 @@
   border: 1px solid var(--ctl-edge);
   border-radius: 0.25rem;
   cursor: pointer;
+  @include theme.mobile-or-coarse {
+    font-size: var(--ctl-text);
+  }
 
   &:hover:not(:disabled) {
     background: var(--ctl-hover);
@@ -59,9 +70,9 @@
   border: 1px solid var(--fld-edge);
   border-radius: 0.25rem;
 
-  // 16px stops iOS Safari zooming the page when a field is focused.
   @include theme.mobile-or-coarse {
-    font-size: max(16px, 1rem);
+    font-size: var(--ctl-text);
+    @include ios-field-text;
   }
 
   &:focus-visible {

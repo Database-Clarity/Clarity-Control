@@ -223,6 +223,7 @@ export function DraftButton({ iconOnly = false }: { iconOnly?: boolean }) {
         type="button"
         className={styles.button}
         data-drafts-button
+        data-icon-only={iconOnly || undefined}
         data-attention={attention || undefined}
         aria-haspopup="dialog"
         aria-expanded={open}

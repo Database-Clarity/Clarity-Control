@@ -43,7 +43,9 @@
 .page a {
   display: inline-flex;
   align-items: center;
-  min-height: max(44px, 2.75rem);
+  @include theme.mobile-or-coarse {
+    min-height: var(--tap-sm);
+  }
 }
 .scale {
   display: flex;
@@ -113,8 +115,39 @@
 }
 
 @include theme.mobile {
+  // One page edge; each setting is one wrapping line: its name left, its control right. A long value
+  // (data-wide, over 24 characters) takes the full line under its name.
   .page {
-    padding: 0.75rem;
+    gap: 0.75rem;
+    padding: 0.5rem var(--page-x) 1rem;
+    font-size: var(--ctl-text);
+  }
+  .page fieldset {
+    gap: 0.25rem;
+    padding: 0.25rem 0.625rem 0.5rem;
+  }
+  .page fieldset > label {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.125rem 0.5rem;
+    min-height: var(--tap);
+    margin-top: 0.25rem;
+    > select {
+      flex: 0 1 11.5rem;
+      width: 11.5rem;
+      min-width: 0;
+      height: var(--tap);
+    }
+    &[data-wide] > select,
+    &[data-wide] > .scale {
+      flex: 1 1 100%;
+      width: 100%;
+    }
+  }
+  .page p {
+    margin-block: 0.25rem;
   }
   // Phones: one block per setting, each value headed by its column name.
   .choice table,

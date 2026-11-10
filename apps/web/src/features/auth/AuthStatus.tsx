@@ -1,5 +1,5 @@
 import { languageLabel } from '../../languageLabels';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
 import { apiUrl, loginUrl, rememberSignIn, subscribeSession } from '../../services/api';
 import { rememberReturnPath } from '../../services/returnPath';
@@ -43,7 +43,14 @@ export function identitySummary(state: {
  * primary row with its "keep me signed in" choice; a login problem with its retry. Rows are the
  * menu's buttons and links; the revision line is the menu's own.
  */
-export function IdentityStatus({ onAction }: { onAction?: () => void }) {
+export function IdentityStatus({
+  onAction,
+  picture,
+}: {
+  onAction?: () => void;
+  /** The signed-in account's picture, beside its name and role. */
+  picture?: ReactNode;
+}) {
   const { user, loading, error, load, logout } = useAuthStore();
   const location = useLocation();
   const [remember, setRemember] = useState(false);
@@ -77,7 +84,8 @@ export function IdentityStatus({ onAction }: { onAction?: () => void }) {
   if (user)
     return (
       <>
-        <div data-who>
+        <div data-who data-pictured={picture ? '' : undefined}>
+          {picture}
           <p>
             <strong>{user.login}</strong> <span data-badge>{user.role ?? 'no editing role'}</span>
           </p>

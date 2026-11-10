@@ -45,13 +45,24 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  padding: 0 0.25rem 0 0.75rem;
-  min-height: max(44px, 2.75rem);
+  padding: 0 var(--page-x);
+  min-height: var(--bar);
+  font-size: var(--ctl-text);
   border-bottom: 1px solid var(--line);
 
+  strong {
+    font-size: var(--ctl-text);
+  }
+
+  // The one sheet close: a var(--tap) square boxed ×, on the right edge.
   button {
     @include controls.button;
-    min-width: max(44px, 2.75rem);
+    width: var(--tap);
+    min-width: var(--tap);
+    height: var(--tap);
+    padding: 0;
+    font-size: 1.125rem;
+    line-height: 1;
   }
 }
 

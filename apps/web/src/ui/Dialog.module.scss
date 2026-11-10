@@ -61,7 +61,7 @@
     select,
     input:not([type='checkbox'], [type='radio']),
     summary {
-      min-height: max(44px, 2.75rem);
+      min-height: var(--tap);
     }
   }
 }
@@ -113,7 +113,7 @@
     select,
     input:not([type='checkbox'], [type='radio']),
     summary {
-      min-height: max(44px, 2.75rem);
+      min-height: var(--tap);
     }
   }
 

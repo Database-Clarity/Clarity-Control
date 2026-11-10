@@ -1,17 +1,33 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 import type { User } from '../../services/api';
-import { laptopQuery, useMedia } from '../../ui/useMedia';
+import { driftTabQuery, laptopQuery, managementTabQuery, useMedia } from '../../ui/useMedia';
 import { CompendiumBadge, useCompendiumCount } from '../compendium/CompendiumBadge';
 import { workspaceMenu, workspacePath, type NavLink } from './links';
 import { ShellOverlay } from './ShellOverlay';
+import { AccountPicture, useIdentity } from './IdentityMenu';
+import { GearIcon } from './SettingsButton';
 import styles from './WorkspaceTabs.module.scss';
 
-/** Workspace tab list for a role: Translations folds into More at laptop widths. */
+/**
+ * Workspace tab list for a role: Translations folds into More at laptop widths; on wide screens
+ * Bungie drift, then Management, move out of More into the tabs (each only from its measured
+ * width, where it fits without shrinking the finder or another tab).
+ */
 export function useWorkspaceItems(user: Pick<User, 'role'> | null | undefined) {
   const laptop = useMedia(laptopQuery);
+  const driftTab = useMedia(driftTabQuery);
+  const managementTab = useMedia(managementTabQuery);
   return useMemo(() => {
-    const { primary, more } = workspaceMenu(user);
+    const menu = workspaceMenu(user);
+    let { primary, more } = menu;
+    if (driftTab) {
+      const promoted = more.filter(
+        ({ to }) => to === '/drift' || (managementTab && to === '/management'),
+      );
+      primary = [...primary, ...promoted];
+      more = more.filter((link) => !promoted.includes(link));
+    }
     if (!laptop) return { primary, more };
     const folded = primary.filter(({ to }) => to === '/translations');
     // A role without a More menu keeps Translations as a tab: folding would invent a menu.
@@ -20,7 +36,7 @@ export function useWorkspaceItems(user: Pick<User, 'role'> | null | undefined) {
       primary: primary.filter(({ to }) => to !== '/translations'),
       more: [...folded, ...more],
     };
-  }, [user, laptop]);
+  }, [user, laptop, driftTab, managementTab]);
 }
 
 /**
@@ -127,35 +143,87 @@ export function WorkspaceTabs({
   );
 }
 
-/** The phone workspaces sheet: every offered workspace as a 44px row. */
+/**
+ * The phone's Clarity menu: every offered workspace as a row, then, under a rule, Settings and the
+ * account (both leave the phone header so the title has room). Settings and the account sheet
+ * return focus to the Clarity mark when they close.
+ */
 export function WorkspaceList({
   user,
   pathname,
   routeFor,
   onNavigate,
+  onSettings,
+  onAccount,
 }: {
   user: Pick<User, 'role'> | null | undefined;
   pathname: string;
   routeFor(to: string): string;
   onNavigate(): void;
+  /** Phones: opens Settings. */
+  onSettings?(): void;
+  /** Phones: opens the Account sheet. */
+  onAccount?(): void;
 }) {
   const { primary, more } = workspaceMenu(user);
   const count = useCompendiumCount();
   const current = workspacePath(pathname);
   return (
-    <nav aria-label="Workspaces" className={styles.list}>
-      {[...primary, ...more].map(({ to, label }) => (
-        <Link
-          key={to}
-          to={routeFor(to)}
-          className={styles.row}
-          aria-current={current === to ? 'page' : undefined}
-          onClick={onNavigate}
-        >
-          {label}
-          {to === '/compendium' && <CompendiumBadge count={count} className={styles.badge} />}
-        </Link>
-      ))}
-    </nav>
+    <>
+      <nav aria-label="Workspaces" className={styles.list}>
+        {[...primary, ...more].map(({ to, label }) => (
+          <Link
+            key={to}
+            to={routeFor(to)}
+            className={styles.row}
+            aria-current={current === to ? 'page' : undefined}
+            onClick={onNavigate}
+          >
+            {label}
+            {to === '/compendium' && <CompendiumBadge count={count} className={styles.badge} />}
+          </Link>
+        ))}
+      </nav>
+      {onSettings && onAccount && <AccountRows onSettings={onSettings} onAccount={onAccount} />}
+    </>
+  );
+}
+
+function AccountRows({ onSettings, onAccount }: { onSettings(): void; onAccount(): void }) {
+  const { user, summary, dataError } = useIdentity();
+  const pictured = summary.tone === 'ok' && user;
+  const problem = summary.tone === 'error' || dataError;
+  return (
+    <div className={styles.account} role="group" aria-label="Settings and account">
+      <button type="button" className={styles.row} aria-haspopup="dialog" onClick={onSettings}>
+        <span className={styles.lead}>
+          <GearIcon className={styles.icon} />
+          Settings
+        </span>
+      </button>
+      <button
+        type="button"
+        className={styles.row}
+        data-identity-row
+        data-tone={summary.tone}
+        aria-haspopup="dialog"
+        aria-label={`Account: ${summary.detail}${dataError ? ` (cannot load editor data)` : ''}`}
+        onClick={onAccount}
+      >
+        <span className={styles.lead}>
+          {pictured && <AccountPicture id={user.id} login={user.login} />}
+          {summary.label}
+        </span>
+        {pictured ? (
+          <span className={styles.role}>{user.role ?? 'no editing role'}</span>
+        ) : (
+          problem && (
+            <span className={styles.problem}>
+              {summary.tone === 'error' ? summary.detail : 'Cannot load editor data'}
+            </span>
+          )
+        )}
+      </button>
+    </div>
   );
 }

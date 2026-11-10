@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { useLocation } from 'react-router-dom';
 import { identitySummary, IdentityStatus, useAuthSession } from '../auth/AuthStatus';
 import { useAuthStore } from '../../stores/auth';
@@ -6,22 +6,115 @@ import { useDataStore } from '../../stores/data';
 import { ShellOverlay } from './ShellOverlay';
 import styles from './IdentityMenu.module.scss';
 
-/**
- * The identity button and its menu: account state, sign in or out, the data revision. Settings has
- * its own gear button (SettingsButton). Owns the once-only login load.
- */
-export function IdentityMenu() {
-  useAuthSession();
+/** The GitHub picture for an account id: needs nothing but the id `/me` already carries. */
+export const avatarUrl = (id: number | string) =>
+  `https://avatars.githubusercontent.com/u/${encodeURIComponent(String(id))}?s=64&v=4`;
+
+/** The account state as the header and the Clarity menu show it. */
+export function useIdentity() {
   const { user, loading, error } = useAuthStore();
+  const dataError = useDataStore((state) => state.error);
+  const summary = identitySummary({ user, loading, error });
+  return { user, summary, dataError };
+}
+
+/**
+ * The signed-in account's GitHub picture, round, over its login's first letter: the letter shows
+ * while the picture loads and stays when the request fails (blocked, offline).
+ */
+export function AccountPicture({
+  id,
+  login,
+  size = 'small',
+}: {
+  id: number | string;
+  login: string;
+  size?: 'small' | 'large';
+}) {
+  const [failed, setFailed] = useState<string | null>(null);
+  const src = avatarUrl(id);
+  return (
+    <span className={styles.picture} data-size={size} aria-hidden="true">
+      <span className={styles.initial}>{login.slice(0, 1).toUpperCase()}</span>
+      {failed !== src && (
+        <img
+          src={src}
+          alt=""
+          referrerPolicy="no-referrer"
+          decoding="async"
+          onError={() => setFailed(src)}
+        />
+      )}
+    </span>
+  );
+}
+
+/**
+ * The Account sheet (desktop popover, phone bottom sheet): account state, sign in or out, the
+ * data revision. Opened by the header's account button, or on a phone by the Clarity menu's
+ * account row (focus then returns to the mark).
+ */
+export function AccountSheet({
+  open,
+  onClose,
+  anchorRef,
+}: {
+  open: boolean;
+  onClose(): void;
+  anchorRef: RefObject<HTMLElement | null>;
+}) {
+  const { user, summary } = useIdentity();
   const data = useDataStore((state) => state.data);
   const dataError = useDataStore((state) => state.error);
   const loadData = useDataStore((state) => state.load);
+  return (
+    <ShellOverlay
+      open={open}
+      onClose={onClose}
+      label="Account"
+      anchorRef={anchorRef}
+      width={320}
+      align="end"
+    >
+      <div className={styles.menu}>
+        <IdentityStatus
+          onAction={onClose}
+          picture={
+            summary.tone === 'ok' && user ? (
+              <AccountPicture id={user.id} login={user.login} size="large" />
+            ) : undefined
+          }
+        />
+        {dataError && (
+          <div role="alert" data-note>
+            <p>Cannot load editor data: {dataError}</p>
+            <button type="button" onClick={() => void loadData()}>
+              Retry data loading
+            </button>
+          </div>
+        )}
+        <p className={styles.revision}>
+          {data ? `Data revision ${data.bundle.sourceCommit.slice(0, 8)}` : 'Data not loaded'}
+        </p>
+      </div>
+    </ShellOverlay>
+  );
+}
+
+/**
+ * The header's account button and its sheet. Signed in it is the GitHub picture only (name and role
+ * in its label, its title, and the sheet); signed out, checking, read-only, and a login problem keep
+ * their text labels. Settings has its own gear button (SettingsButton). Owns the once-only login
+ * load where it is mounted; the phone header loads it itself (the button is not in its bar).
+ */
+export function IdentityMenu() {
+  useAuthSession();
+  const { user, summary } = useIdentity();
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const { pathname, search } = useLocation();
   useEffect(() => setOpen(false), [pathname, search]);
-  const summary = identitySummary({ user, loading, error });
-  const close = () => setOpen(false);
+  const pictured = summary.tone === 'ok' && user;
   return (
     <>
       <button
@@ -29,6 +122,7 @@ export function IdentityMenu() {
         type="button"
         className={styles.button}
         data-identity-button
+        data-picture={pictured ? '' : undefined}
         data-tone={summary.tone}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -36,32 +130,13 @@ export function IdentityMenu() {
         title={summary.detail}
         onClick={() => setOpen((value) => !value)}
       >
-        <span className={styles.label}>{summary.label}</span>
-        {summary.tone === 'ok' && user?.role && <span className={styles.role}>{user.role}</span>}
+        {pictured ? (
+          <AccountPicture id={user.id} login={user.login} />
+        ) : (
+          <span className={styles.label}>{summary.label}</span>
+        )}
       </button>
-      <ShellOverlay
-        open={open}
-        onClose={close}
-        label="Account"
-        anchorRef={button}
-        width={320}
-        align="end"
-      >
-        <div className={styles.menu}>
-          <IdentityStatus onAction={close} />
-          {dataError && (
-            <div role="alert" data-note>
-              <p>Cannot load editor data: {dataError}</p>
-              <button type="button" onClick={() => void loadData()}>
-                Retry data loading
-              </button>
-            </div>
-          )}
-          <p className={styles.revision}>
-            {data ? `Data revision ${data.bundle.sourceCommit.slice(0, 8)}` : 'Data not loaded'}
-          </p>
-        </div>
-      </ShellOverlay>
+      <AccountSheet open={open} onClose={() => setOpen(false)} anchorRef={button} />
     </>
   );
 }

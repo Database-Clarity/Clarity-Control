@@ -243,7 +243,7 @@ export function ShellOverlay({
           <header className={styles.sheetHeader}>
             <strong>{label}</strong>
             <button type="button" onClick={onClose} aria-label={`Close ${label}`}>
-              Close
+              ×
             </button>
           </header>
         )}

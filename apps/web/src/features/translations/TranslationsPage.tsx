@@ -30,6 +30,7 @@ import {
   type TranslationIndex,
 } from './queue';
 import { availableLanguages, entryPath, queueState } from './worklist';
+import { phoneQuery, useMedia } from '../../ui/useMedia';
 import styles from './TranslationsPage.module.scss';
 
 const searchDelayMs = 200;
@@ -118,6 +119,7 @@ export function TranslationsPage() {
   const [text, setText] = useState(query);
   const deferredText = useDeferredValue(text);
   const [coverageOpen, setCoverageOpen] = useState(false);
+  const phone = useMedia(phoneQuery);
 
   // The URL is the source of truth; typing is debounced into it so every key is not a navigation.
   useEffect(() => setText(query), [query]);
@@ -197,6 +199,23 @@ export function TranslationsPage() {
     update({ lang: lang === available[0] ? null : lang, cat: null }, true);
   };
 
+  // Phones: language, category, and the count on the first line; the filter and the state pair on
+  // the second.
+  const filterField = (
+    <input
+      type="search"
+      aria-label="Filter by name, hash, or category"
+      placeholder={phone ? 'Filter' : 'Filter name, hash, or category'}
+      value={text}
+      onChange={(event) => setText(event.target.value)}
+      onKeyDown={openFirst}
+    />
+  );
+  const countLine = (
+    <span className={styles.count} role="status">
+      {filtered ? `${shown.length} of ${rows.length}` : `${rows.length} to translate`}
+    </span>
+  );
   return (
     <section
       className={styles.page}
@@ -250,19 +269,14 @@ export function TranslationsPage() {
                 ))}
               </select>
             </label>
-            <input
-              type="search"
-              aria-label="Filter by name, hash, or category"
-              placeholder="Filter name, hash, or category"
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              onKeyDown={openFirst}
-            />
+            {!phone && filterField}
+            {phone && countLine}
           </>
         )}
       </div>
       {language && (
         <div className={styles.summary}>
+          {phone && filterField}
           <div role="group" aria-label="Show">
             {(['outdated', 'missing'] as const).map((value) => (
               <button
@@ -287,9 +301,7 @@ export function TranslationsPage() {
               Coverage
             </button>
           )}
-          <span className={styles.count} role="status">
-            {filtered ? `${shown.length} of ${rows.length}` : `${rows.length} to translate`}
-          </span>
+          {!phone && countLine}
         </div>
       )}
       <div className={styles.body}>

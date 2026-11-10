@@ -1,25 +1,31 @@
 @use '../../ui/controls';
 
-// Header buttons grow with the interface scale from the 44px minimum, up to 56px (about 127%):
-// beyond that the page name would be squeezed to an ellipsis on a 390px phone.
-$target: clamp(44px, 2.75rem, 56px);
+// Header buttons grow with the interface scale from the touch size (36px, Large 44px), up to 48px
+// (Large 56px): beyond that the page name would lose room it needs on a 390px phone.
+$target: var(--hdr);
 
 .header {
+  --hdr: clamp(36px, 2.25rem, 48px);
   position: sticky;
   top: 0;
   z-index: 20;
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  min-height: 3rem;
-  padding: 0 0.25rem;
+  min-height: var(--bar);
+  padding: 0 var(--page-x);
   box-sizing: border-box;
   background: var(--chrome);
   border-bottom: 1px solid var(--line);
 }
 
+:global(:root[data-touch='large']) .header {
+  --hdr: clamp(44px, 2.75rem, 56px);
+}
+
 .mark {
   @include controls.button;
+  position: relative;
   flex: none;
   // Square, and as tall as the other header buttons.
   width: $target;
@@ -69,9 +75,15 @@ $target: clamp(44px, 2.75rem, 56px);
     line-height: 1.15;
   }
 
+  // The piece line starts where the title starts.
+  span:first-child {
+    text-align: left;
+  }
+
   // Piece over perk, both whole: "Contraverse Hold · Chaotic Exchanger" on one line cuts the perk.
   .kicker {
     display: block;
+    text-align: left;
     overflow: hidden;
     text-overflow: ellipsis;
     font-size: 0.75rem;
@@ -105,4 +117,15 @@ $target: clamp(44px, 2.75rem, 56px);
     min-width: $target;
     min-height: $target;
   }
+}
+
+// A login problem or a data-load error: the account is in the menu, so the mark carries the dot.
+.alertDot {
+  position: absolute;
+  top: 0.1875rem;
+  right: 0.1875rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  background: var(--danger);
+  border-radius: 50%;
 }

@@ -153,7 +153,7 @@ describe('workspace tabs and More', () => {
       'Bungie drift',
       'Lost text',
       'Archive',
-      'Administration',
+      'Management',
     ]);
     expect(more.getAttribute('aria-expanded')).toBe('true');
     expect(document.activeElement).toBe(items[0]);
@@ -181,7 +181,7 @@ describe('workspace tabs and More', () => {
     expect(q('nav[aria-label="Workspaces"] button').getAttribute('aria-current')).toBe('page');
   });
 
-  it('shows no Administration to editors', async () => {
+  it('shows no Management to editors', async () => {
     await mount(person('editor'));
     await click(q('nav[aria-label="Workspaces"] button'));
     expect(
@@ -201,7 +201,57 @@ describe('workspace tabs and More', () => {
     await click(q('nav[aria-label="Workspaces"] button'));
     expect(
       [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent),
-    ).toEqual(['Translations', 'Bungie drift', 'Lost text', 'Archive', 'Administration']);
+    ).toEqual(['Translations', 'Bungie drift', 'Lost text', 'Archive', 'Management']);
+  });
+
+  it('promotes Bungie drift, then Management, to tabs only on wide screens', async () => {
+    const wide = (min: number) =>
+      vi.stubGlobal('matchMedia', (query: string) => ({
+        matches: /min-width: (\d+)px/.test(query) && Number(/(\d+)px/.exec(query)![1]) <= min,
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }));
+    wide(1560);
+    await mount(person('maintainer'));
+    expect(tabNames()).toEqual([
+      'Editor',
+      'Review changes',
+      'Compendium',
+      'Translations',
+      'Bungie drift',
+      'More',
+    ]);
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    wide(1660);
+    await mount(person('maintainer'), '/management');
+    expect(tabNames()).toEqual([
+      'Editor',
+      'Review changes',
+      'Compendium',
+      'Translations',
+      'Bungie drift',
+      'Management',
+      'More',
+    ]);
+    expect(q('a[aria-current="page"]').textContent).toBe('Management');
+    await click(q('nav[aria-label="Workspaces"] button'));
+    expect(
+      [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent),
+    ).toEqual(['Lost text', 'Archive']);
+    // Editors have no Management: Drift alone moves up.
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await mount(person('editor'));
+    expect(tabNames()).toEqual([
+      'Editor',
+      'Review changes',
+      'Compendium',
+      'Translations',
+      'Bungie drift',
+      'More',
+    ]);
   });
 
   it('keeps Translations as a tab for roles without a More menu', async () => {
@@ -363,14 +413,37 @@ describe('identity menu', () => {
 
   it('shows who is signed in with the role, the revision and Sign out (Settings has its own gear)', async () => {
     await mount(person('maintainer'));
-    expect(q('[data-identity-button]').textContent).toBe('patmaintainer');
+    // The button is the GitHub picture over the login's initial; name and role are in its label.
+    const button = q('[data-identity-button]');
+    expect(button.textContent).toBe('P');
+    expect(button.getAttribute('aria-label')).toBe('Account: Signed in as pat, maintainer');
+    expect(button.querySelector('img')?.getAttribute('src')).toMatch(
+      /^https:\/\/avatars\.githubusercontent\.com\/u\/[^/?]+\?s=64&v=4$/,
+    );
     await open();
-    expect(text()).toMatch(/^pat\s*maintainer/);
+    expect(text()).toMatch(/^P?pat\s*maintainer/);
     expect(text()).toContain('Data revision abcdef12');
     expect(
       [...document.querySelectorAll('[data-shell-overlay] button')].map((b) => b.textContent),
     ).toEqual(['Sign out']);
     expect(q('[data-settings-button]').getAttribute('aria-label')).toBe('Settings');
+  });
+
+  it('falls back to the login initial when the picture request fails', async () => {
+    await mount(person('maintainer'));
+    const img = q('[data-identity-button] img');
+    await act(async () => void img.dispatchEvent(new Event('error')));
+    expect(document.querySelector('[data-identity-button] img')).toBeNull();
+    expect(q('[data-identity-button]').textContent).toBe('P');
+  });
+
+  it('keeps the text label where there is no picture (signed out, checking, problem)', async () => {
+    useAuthStore.setState({ error: 'down' });
+    await mount(null);
+    useAuthStore.setState({ user: null, loading: false, error: 'down' });
+    await act(async () => {});
+    expect(q('[data-identity-button]').textContent).toBe('Login problem');
+    expect(document.querySelector('[data-identity-button] img')).toBeNull();
   });
 
   it('explains read-only accounts and translator languages', async () => {

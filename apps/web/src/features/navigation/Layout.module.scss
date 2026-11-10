@@ -236,18 +236,24 @@
 }
 
 @include theme.mobile {
+  // One page edge (--page-x) on every phone screen.
   .main {
-    padding: 0.75rem;
+    padding: 0.5rem var(--page-x) 0.75rem;
   }
 
+  // The editor's pane switch sits right under the header.
   .editorMode .main {
-    padding-top: 0.25rem;
+    padding-top: 0;
+  }
+
+  .reviewMode .main {
+    padding: var(--page-x);
   }
 }
 
 @include theme.mobile-or-coarse {
   .sidebarNavigation a {
-    min-height: max(44px, 2.75rem);
+    min-height: var(--tap);
     box-sizing: border-box;
     display: flex;
     flex-wrap: wrap;

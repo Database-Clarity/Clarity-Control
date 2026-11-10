@@ -15,7 +15,7 @@ export const links: readonly NavLink[] = [
   { to: '/lost-text', label: 'Lost text' },
   { to: '/archive', label: 'Archive' },
   { to: '/globals', label: 'Globals' },
-  { to: '/admin', label: 'Administration' },
+  { to: '/management', label: 'Management' },
 ];
 
 const link = (to: string) => links.find((candidate) => candidate.to === to)!;
@@ -40,7 +40,7 @@ export function workspaceMenu(user: Pick<User, 'role'> | null | undefined): Work
     case 'maintainer':
       return {
         primary: pick('/', '/review', '/compendium', '/translations'),
-        more: pick('/drift', '/lost-text', '/archive', '/admin'),
+        more: pick('/drift', '/lost-text', '/archive', '/management'),
       };
     case 'editor':
       return {

@@ -22,7 +22,7 @@
     flex: none;
   }
   @include theme.mobile-or-coarse {
-    min-height: max(44px, 2.75rem);
+    min-height: var(--tap);
   }
 }
 
@@ -38,7 +38,7 @@
   background: none;
   border: 0;
   @include theme.mobile-or-coarse {
-    min-height: max(44px, 2.75rem);
+    min-height: var(--tap);
   }
 }
 button.toggle {
@@ -84,7 +84,7 @@ button.toggle {
     padding: 0 0.4375rem;
     font-size: 0.75rem;
     @include theme.mobile-or-coarse {
-      min-height: max(44px, 2.75rem);
+      min-height: var(--tap);
     }
   }
 }
@@ -96,4 +96,20 @@ button.toggle {
   padding: 0.25rem 0.25rem 0.5rem;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+// Phones: the rows start and end on the page edge (no side inset of their own), and a long summary
+// (the History line) wraps instead of being cut.
+@include theme.mobile {
+  .head {
+    padding-inline: 0;
+    overflow: visible;
+  }
+  .summary {
+    white-space: normal;
+    overflow: visible;
+  }
+  .body {
+    padding-inline: 0;
+  }
 }

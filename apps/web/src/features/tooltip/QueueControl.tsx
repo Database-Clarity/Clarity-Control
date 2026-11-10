@@ -4,6 +4,7 @@ import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { usePreviewReviewStore } from '../../stores/previewReview';
 import { workspaceShortcutsBlocked } from '../../ui/interaction';
+import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { canonicalHash } from '../navigation/catalog';
 import { pulseStepping } from '../navigation/steppingActivity';
 import { queueFor, translationIndex, type QueueRow } from '../translations/queue';
@@ -33,6 +34,7 @@ export const QueueControl = memo(function QueueControl({
   const data = useDataStore((state) => state.data);
   const user = useAuthStore((state) => state.user);
   const { pathname } = useLocation();
+  const phone = useMedia(phoneQuery);
   const { language, state, category, query, at } = context;
   // An override's row is shown on its base's page: the row the visit was opened for is the place.
   const current = at !== undefined && data && canonicalHash(at, data) === hash ? at : hash;
@@ -104,6 +106,45 @@ export const QueueControl = memo(function QueueControl({
   };
 
   const done = place.total === 0;
+  const label = placeLabel(place);
+  if (phone) {
+    // Phones: one joined stepper `[‹][12 of 148][›]`; the middle segment is the way back to the
+    // queue and reads the position. The status line stays for screen readers only.
+    return (
+      <span
+        className={`${styles.queue} ${styles.queueStepper}`}
+        role="group"
+        aria-label="Translation queue"
+        data-queue
+      >
+        <span className="sr-only" role="status">
+          {label}
+        </span>
+        {done ? (
+          <Link
+            to={queuePath(context, user)}
+            className={styles.queueBack}
+            title="Back to the translation queue, with its filters"
+          >
+            Back to queue
+          </Link>
+        ) : (
+          <>
+            {step(place.previous, previous, 'Previous in queue', 'Alt+PageUp', '‹')}
+            <Link
+              to={queuePath(context, user)}
+              className={styles.queueBack}
+              aria-label={`Back to the translation queue, ${label}`}
+              title="Back to the translation queue, with its filters"
+            >
+              {label}
+            </Link>
+            {step(place.next, next, 'Next in queue', 'Alt+PageDown', '›')}
+          </>
+        )}
+      </span>
+    );
+  }
   const back = (
     <Link
       to={queuePath(context, user)}
@@ -117,7 +158,7 @@ export const QueueControl = memo(function QueueControl({
     <span className={styles.queue} role="group" aria-label="Translation queue" data-queue>
       {!done && back}
       <span className={styles.queuePosition} role="status">
-        {placeLabel(place)}
+        {label}
       </span>
       {done ? (
         back

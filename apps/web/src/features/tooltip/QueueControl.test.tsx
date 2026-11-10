@@ -240,3 +240,42 @@ describe('queue control', () => {
     expect(location.pathname).toBe('/t/5');
   });
 });
+
+describe('queue control on a phone', () => {
+  beforeEach(() => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query.includes('max-width: 700px'),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+  });
+
+  it('is one stepper: Previous, the position as the way back, Next; Alt+PageDown and Alt+PageUp step', async () => {
+    await mount('/translations');
+    const total = rows().length;
+    await click(rows()[0]!);
+    const segments = [...host.querySelectorAll('[data-queue] > :not([role="status"])')];
+    expect(segments.map((segment) => segment.getAttribute('aria-label'))).toEqual([
+      'Previous in queue',
+      `Back to the translation queue, 1 of ${total}`,
+      expect.stringMatching(/^Next in queue: /),
+    ]);
+    expect(segments[1]!.textContent).toBe(`1 of ${total}`);
+    // The status line stays for screen readers only.
+    expect(host.querySelector('[data-queue] [role="status"]')!.className).toBe('sr-only');
+    const press = (init: KeyboardEventInit) =>
+      act(async () => {
+        window.dispatchEvent(
+          new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }),
+        );
+      });
+    await press({ key: 'PageDown', altKey: true });
+    expect(location.pathname).toBe('/t/2');
+    expect(position()).toBe(`2 of ${total}`);
+    await press({ key: 'PageUp', altKey: true });
+    expect(position()).toBe(`1 of ${total}`);
+    await click(link('Back to the translation queue')!);
+    expect(location.pathname).toBe('/translations');
+  });
+});

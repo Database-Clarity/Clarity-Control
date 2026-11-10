@@ -78,6 +78,7 @@ describe('settings store: local storage', () => {
       suggestAccept: 'enter',
       symbolReveal: 'popover',
       finderWheel: 'entries',
+      touchSize: 'compact',
       remembered: {},
     });
     expect(values.get(settingsKey('7'))).not.toContain('uiScale');

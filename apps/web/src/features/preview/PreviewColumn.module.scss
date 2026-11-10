@@ -1,5 +1,9 @@
 // The version switch sits between the perk header and the description, on app chrome rather than
-// the game surface: one 28px strip (44px controls on a phone), nothing wraps.
+// the game surface: one 28px strip, nothing wraps. On a phone it is the pane switch's text tabs at
+// the small touch size (var(--tap-sm)); the change count takes its own line when it does not fit.
+@use '../../data/variables' as theme;
+@use '../../ui/tabs';
+
 .column {
   min-width: 0;
 }
@@ -20,14 +24,17 @@
   > * {
     flex: none;
   }
-  // Phone: the version buttons are full-height tabs, at least 44px at every interface scale. The
-  // strip's rules are drawn inside it so the tabs get its whole height.
-  @media (max-width: 700px) {
-    height: max(44px, 2.75rem);
+  @include theme.mobile {
+    @include tabs.strip;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 0.5rem;
+    height: auto;
+    min-height: var(--tap-sm);
+    padding: 0;
+    overflow: visible;
+    font-size: 0.8125rem;
     border-block: 0;
-    box-shadow:
-      inset 0 1px var(--hair),
-      inset 0 -1px var(--hair);
   }
 }
 
@@ -66,15 +73,20 @@
       outline-offset: -2px;
     }
   }
-  @media (max-width: 700px) {
+  @include theme.mobile {
     align-self: stretch;
-    height: auto;
-    font-size: 0.75rem;
-    border-block: 0;
+    height: var(--tap-sm);
+    border: 0;
     border-radius: 0;
     button {
-      padding: 0 0.5rem;
-      min-width: max(44px, 2.75rem);
+      @include tabs.tab('[aria-pressed="true"]');
+      height: 100%;
+      // The first label sits over the description text (both on the page edge).
+      padding: 0 var(--page-x);
+      &[aria-pressed='true'] {
+        background: transparent;
+        box-shadow: none;
+      }
     }
   }
 }
@@ -89,8 +101,10 @@
   background: var(--fld);
   border: 1px solid var(--fld-edge);
   border-radius: 0.25rem;
-  @media (max-width: 700px) {
-    height: 2rem;
+  @include theme.mobile {
+    max-width: none;
+    height: var(--tap-sm);
+    font-size: var(--ctl-text);
   }
 }
 
@@ -99,6 +113,16 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  // Phones: never cut; where it does not fit beside the tabs it takes its own line.
+  @include theme.mobile {
+    flex: 1 0 auto;
+    padding: 0.1875rem var(--page-x) 0.1875rem 0;
+    overflow: visible;
+    text-align: right;
+    &:empty {
+      padding: 0;
+    }
+  }
 }
 
 // A narrow strip keeps the count and drops " vs Base".

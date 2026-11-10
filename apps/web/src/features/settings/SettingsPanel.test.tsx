@@ -297,6 +297,8 @@ describe('Settings popover', () => {
     expect(popover()!.textContent).toContain(
       'Pane widths and Compendium zoom reset to their defaults.',
     );
+    // Desktop keeps its worded Close (phones show the square ×).
+    expect(closeButton().textContent).toBe('Close');
     await act(async () => closeButton().click());
     expect(holder.server.calls.put).toHaveLength(0);
     await openSettings();
@@ -347,7 +349,9 @@ describe('Settings popover', () => {
     const dialog = popover()!;
     // No anchoring on phones: the stylesheet makes it fill the screen.
     expect(dialog.getAttribute('style')).toBeNull();
-    expect(closeButton().textContent).toBe('Close');
+    // The one sheet close: a square ×, named by its label.
+    expect(closeButton().textContent).toBe('×');
+    expect(closeButton().getAttribute('aria-label')).toBe('Close settings');
     await act(async () => closeButton().click());
     expect(popover()).toBeNull();
   });

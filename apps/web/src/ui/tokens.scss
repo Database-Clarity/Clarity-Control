@@ -7,6 +7,7 @@
 // Components use these properties, never raw colours. The --editor* and --syn-* tokens colour the
 // text editor, its status bar, overlays and popovers in both themes (the editor is no longer a
 // dark box in the light theme).
+@use '../data/variables' as theme;
 
 @mixin dark-tokens {
   // Surfaces
@@ -348,5 +349,25 @@
   :root:not([data-theme]) {
     @include light-tokens;
     color-scheme: light;
+  }
+}
+
+// Touch sizes (phones and coarse pointers only; desktop keeps its own literals). One scale for every
+// touch screen: --tap for every control, --tap-sm for secondary controls (status-bar items, the
+// preview version tabs, markup-help rows), --bar for every bar that holds controls, --page-x for the
+// one left and right page edge, --ctl-text for every control label and sheet title. "Touch control
+// size: Large" (Settings, this device) sets data-touch='large' and restores 44px targets.
+@include theme.mobile-or-coarse {
+  :root {
+    --tap: max(36px, 2.25rem);
+    --tap-sm: max(28px, 1.75rem);
+    --bar: calc(var(--tap) + 0.5rem);
+    --page-x: 0.5rem;
+    --ctl-text: 0.875rem;
+  }
+
+  :root[data-touch='large'] {
+    --tap: max(44px, 2.75rem);
+    --tap-sm: max(44px, 2.75rem);
   }
 }

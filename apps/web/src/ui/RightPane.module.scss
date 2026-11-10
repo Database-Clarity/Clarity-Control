@@ -20,7 +20,13 @@
   white-space: nowrap;
   font-size: 0.8125rem;
   @include theme.mobile-or-coarse {
-    min-height: max(44px, 2.75rem);
+    min-height: var(--tap);
+  }
+  // A phone hides the title (the tab above names the pane): a header with nothing else takes no row.
+  @include theme.mobile {
+    &:not(:has(button, select, a, input)) {
+      display: none;
+    }
   }
 }
 .title {
@@ -62,10 +68,10 @@
       outline: 2px solid var(--accent-ink);
       outline-offset: -2px;
     }
-    // Compact touch size (owner 2026-11-10): about 36px, not a new 44px minimum.
+    // The touch size (36px, Large 44px).
     @include theme.mobile-or-coarse {
-      min-height: max(36px, 2.25rem);
-      min-width: max(36px, 2.25rem);
+      min-height: var(--tap);
+      min-width: var(--tap);
     }
   }
 }
@@ -120,7 +126,7 @@
       color: var(--accent-ink);
     }
     @include theme.mobile-or-coarse {
-      min-height: max(44px, 2.75rem);
+      min-height: var(--tap);
     }
   }
 }

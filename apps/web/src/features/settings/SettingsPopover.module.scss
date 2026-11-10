@@ -36,7 +36,7 @@
     @include controls.button;
     min-width: 1.75rem;
     @include theme.mobile-or-coarse {
-      min-width: max(44px, 2.75rem);
+      min-width: var(--tap);
     }
   }
 }
@@ -57,8 +57,20 @@
     border-radius: 0;
     box-shadow: none;
   }
+  // The sheet header: one bar, the title like a page title, the square close on the right edge.
   .header {
-    padding-top: calc(0.5rem + env(safe-area-inset-top, 0px));
+    min-height: calc(var(--bar) + env(safe-area-inset-top, 0px));
+    padding: env(safe-area-inset-top, 0px) var(--page-x) 0;
+    h2 {
+      font-size: 1rem;
+    }
+    button {
+      width: var(--tap);
+      height: var(--tap);
+      padding: 0;
+      font-size: 1.125rem;
+      line-height: 1;
+    }
   }
   .body {
     padding-bottom: env(safe-area-inset-bottom, 0px);

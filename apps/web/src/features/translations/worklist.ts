@@ -73,3 +73,12 @@ export function queuePath(context: QueueContext, user: User | null | undefined):
   const query = params.toString();
   return `/translations${query ? `?${query}` : ''}`;
 }
+
+/** The queue a visit came from, in words: "German, all categories" (the phone's More sheet). */
+export function queueSummary(
+  context: Pick<QueueContext, 'language' | 'category'>,
+  languageName: (language: Lang) => string,
+  categoryName: (id: string) => string,
+): string {
+  return `${languageName(context.language)}, ${context.category ? categoryName(context.category) : 'all categories'}`;
+}

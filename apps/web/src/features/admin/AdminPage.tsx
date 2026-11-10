@@ -54,14 +54,14 @@ export function AdminPage() {
   if (!permitted)
     return (
       <article>
-        <h1>Administration</h1>
+        <h1>Management</h1>
         <p role="alert">Maintainer access is required to manage permissions.</p>
       </article>
     );
   if (!apiUrl)
     return (
       <article>
-        <h1>Administration</h1>
+        <h1>Management</h1>
         <p role="alert">The API is not configured. Permissions cannot be edited.</p>
       </article>
     );
@@ -118,7 +118,7 @@ export function AdminPage() {
   const dirty = JSON.stringify(config) !== JSON.stringify(original);
   return (
     <article className={pageStyles.page}>
-      <h1>Administration</h1>
+      <h1>Management</h1>
       <p>Manage editor access by GitHub account. Changes apply only after saving.</p>
       {loading && <p role="status">Loading current permissions...</p>}
       {error && (

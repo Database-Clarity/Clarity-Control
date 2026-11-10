@@ -1,7 +1,7 @@
 @use '../../data/variables' as theme;
 @use '../../ui/controls';
 
-// An icon button the height of its neighbours. On touch screens the target is at least 44px wide
+// An icon button the height of its neighbours. On touch screens the target is at least var(--tap) wide
 // too (controls.button only sets the height); the phone header sets its own, scaled width.
 .button {
   @include controls.button;
@@ -9,7 +9,7 @@
   width: 2rem;
   padding: 0;
   @include theme.mobile-or-coarse {
-    min-width: max(44px, 2.75rem);
+    min-width: var(--tap);
   }
 }
 

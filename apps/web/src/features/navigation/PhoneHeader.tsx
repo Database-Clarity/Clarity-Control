@@ -2,8 +2,9 @@ import { useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { User } from '../../services/api';
 import { BrandMark } from './Brand';
 import { DraftButton } from './DraftButton';
-import { IdentityMenu } from './IdentityMenu';
-import { SettingsButton } from './SettingsButton';
+import { AccountSheet, useIdentity } from './IdentityMenu';
+import { useAuthSession } from '../auth/AuthStatus';
+import { useSettingsPanel } from '../settings/panel';
 import { ShellOverlay } from './ShellOverlay';
 import { FinderSheetCloseContext, FinderSheetContext } from './FinderSheetContext';
 import { WorkspaceList } from './WorkspaceTabs';
@@ -14,10 +15,11 @@ import { titleWidthEm } from '../preview/nameFit';
 import styles from './PhoneHeader.module.scss';
 
 /**
- * Phone header (<= 700px), 48px, every control a 44px target: the mark opens the workspaces
- * sheet, the title opens the finder sheet (or just names the page where there is no finder),
- * then drafts and the account. Sheets replace the desktop popovers; the finder sheet stays
- * mounted while closed because the stepping listeners live in it.
+ * Phone header (<= 700px), var(--bar) high, three things only: the Clarity mark opens the menu
+ * (workspaces, then Settings and the account), the title opens the finder sheet (or just names the
+ * page where there is no finder), then Drafts. Sheets replace the desktop popovers; the finder
+ * sheet stays mounted while closed because the stepping listeners live in it. A login problem or a
+ * data-load error puts a danger dot on the mark, since the account is in the menu.
  */
 export function PhoneHeader({
   user,
@@ -51,7 +53,10 @@ export function PhoneHeader({
     title = exoticPiece(item) ? item.name : editorName(item);
     kicker = exoticPiece(item) || undefined;
   }
-  const [sheet, setSheet] = useState<'workspaces' | 'finder' | null>(null);
+  useAuthSession();
+  const { summary, dataError } = useIdentity();
+  const problem = summary.tone === 'error' || Boolean(dataError);
+  const [sheet, setSheet] = useState<'workspaces' | 'finder' | 'account' | null>(null);
   const menu = useRef<HTMLButtonElement>(null);
   const finderButton = useRef<HTMLButtonElement>(null);
   const close = () => setSheet(null);
@@ -63,10 +68,11 @@ export function PhoneHeader({
         className={styles.mark}
         aria-haspopup="dialog"
         aria-expanded={sheet === 'workspaces'}
-        aria-label="Workspaces"
+        aria-label={problem ? 'Workspaces, settings, and account (account problem)' : 'Workspaces'}
         onClick={() => setSheet((value) => (value === 'workspaces' ? null : 'workspaces'))}
       >
         <BrandMark />
+        {problem && <span className={styles.alertDot} aria-hidden="true" />}
       </button>
       {hasFinder ? (
         <button
@@ -99,8 +105,6 @@ export function PhoneHeader({
       )}
       <div className={styles.end}>
         <DraftButton iconOnly />
-        <SettingsButton />
-        <IdentityMenu />
       </div>
       <ShellOverlay
         open={sheet === 'workspaces'}
@@ -108,8 +112,19 @@ export function PhoneHeader({
         label="Workspaces"
         anchorRef={menu}
       >
-        <WorkspaceList user={user} pathname={pathname} routeFor={routeFor} onNavigate={close} />
+        <WorkspaceList
+          user={user}
+          pathname={pathname}
+          routeFor={routeFor}
+          onNavigate={close}
+          onSettings={() => {
+            close();
+            useSettingsPanel.getState().show(menu.current);
+          }}
+          onAccount={() => setSheet('account')}
+        />
       </ShellOverlay>
+      <AccountSheet open={sheet === 'account'} onClose={close} anchorRef={menu} />
       {hasFinder && (
         <ShellOverlay
           open={sheet === 'finder'}

@@ -20,7 +20,12 @@
   color: var(--text);
 
   @include theme.mobile-or-coarse {
-    --row-h: max(3rem, 48px);
+    --row-h: var(--bar);
+  }
+
+  @include theme.mobile {
+    // The shell's phone frame: 0.5rem above, 0.75rem below.
+    --pad: 0.625rem;
   }
 }
 
@@ -69,20 +74,36 @@
       white-space: nowrap;
     }
 
-    select,
-    input[type='search'] {
-      flex: 1 1 8rem;
+    // Line 1: language, category, and the count on the right edge.
+    flex-wrap: nowrap;
+    gap: 0.375rem;
+
+    select {
+      height: var(--tap);
     }
 
-    .categories,
     .languagePicker {
-      flex: 1 1 8rem;
+      flex: 0 1 auto;
+      min-width: 0;
+    }
+
+    .categories {
+      flex: 0 1 11rem;
       min-width: 0;
     }
 
     .languagePicker select,
     .categories select {
       width: 100%;
+    }
+
+    .count {
+      flex: none;
+      margin-inline-start: auto;
+      font-size: 0.8125rem;
+      color: var(--text2);
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
     }
   }
 }
@@ -120,6 +141,55 @@
   .count {
     margin-inline-start: auto;
     font-variant-numeric: tabular-nums;
+  }
+}
+
+// Line 2 on a phone: the filter, then Outdated and Missing as one joined pair.
+@include theme.mobile {
+  .summary {
+    flex-wrap: nowrap;
+    gap: 0.375rem;
+
+    input[type='search'] {
+      @include controls.field;
+      flex: 1 1 6rem;
+      min-width: 0;
+      height: var(--tap);
+    }
+
+    [role='group'] {
+      flex: none;
+      gap: 0;
+
+      button {
+        border-radius: 0;
+      }
+
+      button + button {
+        margin-left: -1px;
+      }
+
+      button:first-child {
+        border-radius: 0.25rem 0 0 0.25rem;
+      }
+
+      button:last-child {
+        border-radius: 0 0.25rem 0.25rem 0;
+      }
+
+      button[aria-pressed='true'] {
+        position: relative;
+      }
+    }
+  }
+
+  // The list runs edge to edge; its rows' text starts on the page edge.
+  .body {
+    margin-inline: calc(-1 * var(--page-x));
+  }
+
+  .row a {
+    padding-inline: var(--page-x);
   }
 }
 
@@ -240,7 +310,7 @@
     }
 
     button {
-      min-height: max(44px, 2.75rem);
+      min-height: var(--tap);
       grid-template-columns: minmax(0, 1fr) 4.25rem 3.75rem 3.5rem;
     }
 
@@ -285,7 +355,7 @@
 .sizer,
 .list {
   @container (max-width: 36rem) {
-    --row-h: max(3rem, 48px);
+    --row-h: var(--bar, max(3rem, 48px));
   }
 }
 
