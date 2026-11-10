@@ -43,7 +43,7 @@ export function SourceRef({
         </span>
       )}
       {show !== 'tab' && position}
-      <span aria-hidden="true">{`${nbsp}↗`}</span>
+      <span className={styles.arrow} aria-hidden="true">{`${nbsp}↗`}</span>
       <span className="sr-only">{show === 'full' ? '' : `, ${label}`} (opens the sheet)</span>
     </a>
   );

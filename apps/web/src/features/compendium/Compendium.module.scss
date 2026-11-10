@@ -623,3 +623,8 @@
   display: block;
   min-height: 1lh;
 }
+
+// A picker row's sheet range leads the row, so a wrapped row never reads as part of a button.
+.rowRange {
+  margin-right: 0.5rem;
+}

@@ -11,7 +11,7 @@ import { errorMessage } from '../../services/http';
 import { useCompendiumStore } from './store';
 import { When } from '../../ui/When';
 import { SourceRef } from './SourceRef';
-import { matchLocation } from './sourceLocation';
+import { matchLocation, sectionLabel } from './sourceLocation';
 import styles from './Compendium.module.scss';
 import { CellPicker } from './CellPicker';
 import { confirmCompendiumSelection } from './selection';
@@ -247,13 +247,13 @@ export function LinkPicker({
         {tab &&
           rows.slice(0, 100).map((row) => (
             <li key={`${row.rowIndex}:${row.name}`}>
-              <button type="button" disabled={!canEdit} onClick={() => choose({ tab, row })}>
-                {exact.has(row) && 'Exact match: '}
-                {row.name} {row.section && ` / ${row.section}`}
-              </button>{' '}
-              <small>
+              <small className={styles.rowRange}>
                 <SourceRef location={matchLocation({ tab, row }, data)} show="range" />
               </small>
+              <button type="button" disabled={!canEdit} onClick={() => choose({ tab, row })}>
+                {exact.has(row) && 'Exact match: '}
+                {row.name} {row.section && ` / ${sectionLabel(row.section)}`}
+              </button>
               <button type="button" onClick={() => setAnchorRow(row)}>
                 Pick description cells near this name
               </button>

@@ -98,6 +98,17 @@ export interface SourceLocation {
 /** Shown in place of the range when the sheet position is not known; never an invented range. */
 export const unknownPosition = 'position unknown';
 
+/**
+ * Some sheet "sections" are whole paragraphs (mod rules, mechanics notes); a location names only
+ * their start, so a label stays one short line.
+ */
+export function sectionLabel(section: string | undefined): string | undefined {
+  const text = section?.replace(/\s+/g, ' ').trim();
+  if (!text) return undefined;
+  return text.length > sectionMax ? `${text.slice(0, sectionMax - 1).trimEnd()}…` : text;
+}
+const sectionMax = 40;
+
 export function sourceHref(gid: string, range?: string): string {
   return `https://docs.google.com/spreadsheets/d/${compendiumSheetId}/edit#gid=${encodeURIComponent(
     gid,
@@ -144,7 +155,7 @@ export function matchLocation(
       .join(', ');
   } else if (anchor) range = regionRange(spanAt(sheet, anchor));
   else if (match.row.rowIndex) range = `${match.row.rowIndex}:${match.row.rowIndex}`;
-  const section = match.row.section;
+  const section = sectionLabel(match.row.section);
   return {
     tab: match.tab.name,
     section,
@@ -180,13 +191,14 @@ export function linkLocation(
     : undefined;
   // The tab's name comes from the loaded source; a raw gid is never shown.
   const tab = sheet?.name ?? (source ? 'Removed sheet tab' : 'Sheet tab');
+  const section = sectionLabel(link.section);
   return {
     tab,
-    section: link.section,
+    section,
     range,
     unknown: !range || undefined,
     gid: link.gid,
-    label: [tab, link.section, range ?? unknownPosition].filter(Boolean).join(' · '),
+    label: [tab, section, range ?? unknownPosition].filter(Boolean).join(' · '),
     href: sourceHref(link.gid, range?.split(', ')[0]),
   };
 }

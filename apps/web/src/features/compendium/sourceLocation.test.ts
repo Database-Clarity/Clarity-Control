@@ -8,6 +8,7 @@ import {
   matchLocation,
   regionRange,
   regionsOf,
+  sectionLabel,
   sourceHref,
 } from './sourceLocation';
 
@@ -152,5 +153,23 @@ describe('source labels and links', () => {
     const location = cellLocation(tab, { row: 14, col: 27, rows: 2, cols: 1 });
     expect(location.label).toBe('Armor Mods · AB14:AB15');
     expect(location.href).toContain('range=AB14%3AAB15');
+  });
+
+  it('names only the start of a paragraph-long section', () => {
+    const prose =
+      'Enhanced Weapon Mods are equippable only on Tier 4 and Tier 5 Weapons. They also cost more.';
+    const location = linkLocation(
+      {
+        gid: '77',
+        section: prose,
+        sourceAnchor: { row: 12, col: 2 },
+        cells: [{ dRow: 0, dCol: 0 }],
+      },
+      source,
+    );
+    expect(location.section!.length).toBeLessThanOrEqual(40);
+    expect(location.section!.endsWith('…')).toBe(true);
+    expect(location.label).toBe(`Armor Mods · ${location.section} · C12:E12`);
+    expect(sectionLabel('  Raid   Specific ')).toBe('Raid Specific');
   });
 });
