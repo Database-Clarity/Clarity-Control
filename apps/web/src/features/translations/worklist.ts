@@ -9,16 +9,24 @@ export function availableLanguages(user: User | null | undefined): Lang[] {
   );
 }
 
-/** The editor in translate mode for one tooltip and language. */
+/**
+ * The editor in translate mode for one tooltip and language. An enhanced version that keeps text
+ * of its own is edited on its base's page: pass that page's hash as `canonical` and the link opens
+ * the override there (`variant`), instead of redirecting to the base's text.
+ */
 export function entryPath(
   entry: Pick<TranslationQueueEntry, 'language'> & { hash: number },
+  canonical = entry.hash,
 ): string {
-  return `/t/${entry.hash}?lang=${entry.language}`;
+  const variant = canonical === entry.hash ? '' : `&variant=${entry.hash}`;
+  return `/t/${canonical}?lang=${entry.language}${variant}`;
 }
 
 /** One view of the Translations tab: a language and its filters. */
 export interface QueueContext extends QueueFilters {
   language: Lang;
+  /** The row the entry was opened for, when the page shows it under another (base) hash. */
+  at?: number;
 }
 
 /**
@@ -27,8 +35,11 @@ export interface QueueContext extends QueueFilters {
  * browser keeps it across reload, Back, and Forward; a copied link, the finder, or another
  * language opens the tooltip as an ordinary visit, without it.
  */
-export function queueState(filters: QueueFilters): { queue: QueueFilters } {
-  return { queue: { state: filters.state, category: filters.category, query: filters.query } };
+export function queueState(
+  filters: QueueFilters,
+  at?: number,
+): { queue: QueueFilters & { at?: number } } {
+  return { queue: { state: filters.state, category: filters.category, query: filters.query, at } };
 }
 
 /** The queue a tooltip route was opened from, or null on an ordinary editor visit. */
@@ -37,7 +48,8 @@ export function queueContext(
   state: unknown,
   user: User | null | undefined,
 ): QueueContext | null {
-  const queue = (state as { queue?: Partial<Record<keyof QueueFilters, unknown>> } | null)?.queue;
+  const queue = (state as { queue?: Partial<Record<keyof QueueFilters | 'at', unknown>> } | null)
+    ?.queue;
   if (!queue || typeof queue !== 'object') return null;
   const requested = langSchema.safeParse(search.get('lang')).data;
   const language = availableLanguages(user).find((lang) => lang === requested);
@@ -47,6 +59,7 @@ export function queueContext(
     state: parseStateFilter(typeof queue.state === 'string' ? queue.state : null),
     category: typeof queue.category === 'string' && queue.category ? queue.category : null,
     query: typeof queue.query === 'string' ? queue.query : '',
+    at: typeof queue.at === 'number' ? queue.at : undefined,
   };
 }
 

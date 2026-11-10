@@ -4,6 +4,7 @@ import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { usePreviewReviewStore } from '../../stores/previewReview';
 import { workspaceShortcutsBlocked } from '../../ui/interaction';
+import { canonicalHash } from '../navigation/catalog';
 import { pulseStepping } from '../navigation/steppingActivity';
 import { queueFor, translationIndex, type QueueRow } from '../translations/queue';
 import { placeLabel, queuePlace, type QueueAnchor } from '../translations/queuePlace';
@@ -32,7 +33,9 @@ export const QueueControl = memo(function QueueControl({
   const data = useDataStore((state) => state.data);
   const user = useAuthStore((state) => state.user);
   const { pathname } = useLocation();
-  const { language, state, category, query } = context;
+  const { language, state, category, query, at } = context;
+  // An override's row is shown on its base's page: the row the visit was opened for is the place.
+  const current = at !== undefined && data && canonicalHash(at, data) === hash ? at : hash;
   const rows = useMemo(
     () => (data ? queueFor(translationIndex(data), language, { state, category, query }) : noRows),
     [data, language, state, category, query],
@@ -41,11 +44,11 @@ export const QueueControl = memo(function QueueControl({
   const anchor = useRef<QueueAnchor & { view: string }>();
   const place = useMemo(() => {
     const kept = anchor.current?.view === view ? anchor.current : undefined;
-    return queuePlace(rows, hash, kept);
-  }, [rows, hash, view]);
+    return queuePlace(rows, current, kept);
+  }, [rows, current, view]);
   useEffect(() => {
-    if (place.index) anchor.current = { view, hash, rows, index: place.index - 1 };
-  }, [place, view, hash, rows]);
+    if (place.index) anchor.current = { view, hash: current, rows, index: place.index - 1 };
+  }, [place, view, current, rows]);
 
   const previous = useRef<HTMLAnchorElement>(null);
   const next = useRef<HTMLAnchorElement>(null);
@@ -62,7 +65,6 @@ export const QueueControl = memo(function QueueControl({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  const linkState = useMemo(() => queueState({ state, category, query }), [state, category, query]);
   const step = (
     row: QueueRow | undefined,
     ref: typeof next,
@@ -70,21 +72,21 @@ export const QueueControl = memo(function QueueControl({
     keys: string,
     glyph: ReactNode,
   ) => {
-    const to = row && entryPath(row);
+    const to = row && entryPath(row, data ? canonicalHash(row.hash, data) : row.hash);
     const onClick = (event: MouseEvent) => {
       if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)
         return;
       // The finder's own order for a jump: ask the guard, then let the editor and header paint
       // before the preview and the side pane. A refused step changes nothing (the router's
       // blocker shows the prompt).
-      if (!usePreviewReviewStore.getState().leaveBlocked(pathname, `/t/${row!.hash}`))
+      if (!usePreviewReviewStore.getState().leaveBlocked(pathname, to!.split('?')[0]!))
         pulseStepping();
     };
     return to ? (
       <Link
         ref={ref}
         to={to}
-        state={linkState}
+        state={queueState({ state, category, query }, row.hash)}
         className={styles.queueStep}
         aria-label={`${label}: ${row.name}`}
         aria-keyshortcuts={keys}
@@ -101,19 +103,25 @@ export const QueueControl = memo(function QueueControl({
     );
   };
 
+  const done = place.total === 0;
+  const back = (
+    <Link
+      to={queuePath(context, user)}
+      className={styles.queueBack}
+      title="Back to the translation queue, with its filters"
+    >
+      {done ? 'Back to queue' : 'Queue'}
+    </Link>
+  );
   return (
     <span className={styles.queue} role="group" aria-label="Translation queue" data-queue>
-      <Link
-        to={queuePath(context, user)}
-        className={styles.queueBack}
-        title="Back to the translation queue, with its filters"
-      >
-        Queue
-      </Link>
+      {!done && back}
       <span className={styles.queuePosition} role="status">
         {placeLabel(place)}
       </span>
-      {place.total > 0 && (
+      {done ? (
+        back
+      ) : (
         <>
           {step(place.previous, previous, 'Previous in queue', 'Alt+PageUp', '‹')}
           {step(place.next, next, 'Next in queue', 'Alt+PageDown', '›')}

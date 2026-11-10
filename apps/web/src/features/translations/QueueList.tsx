@@ -1,8 +1,8 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { flushSync } from 'react-dom';
 import { Link, useNavigationType } from 'react-router-dom';
-import { behindLabel, type QueueFilters, type QueueRow } from './queue';
-import { entryPath, queueState } from './worklist';
+import { behindLabel, type QueueRow } from './queue';
+
 import styles from './TranslationsPage.module.scss';
 
 const defaultRowHeight = 32;
@@ -32,19 +32,18 @@ export function stateText(row: QueueRow): string {
  */
 export function QueueList({
   rows,
-  filters,
+  linkTo,
   label,
   signature,
 }: {
   rows: readonly QueueRow[];
-  /** What the rows are filtered by: a row opens the editor in queue mode for this view. */
-  filters: QueueFilters;
+  /** Where a row opens the editor, and the queue mode state that goes with it. */
+  linkTo(row: QueueRow): { to: string; state: unknown };
   label: string;
   /** What the rows are filtered by: a position is only restored for the same view. */
   signature: string;
 }) {
   const arrival = useNavigationType();
-  const linkState = queueState(filters);
   const saved = arrival === 'POP' ? memory.get(signature) : undefined;
   const host = useRef<HTMLDivElement>(null);
   const sizer = useRef<HTMLSpanElement>(null);
@@ -202,8 +201,7 @@ export function QueueList({
               style={{ top: index * rowHeight }}
             >
               <Link
-                to={entryPath(row)}
-                state={linkState}
+                {...linkTo(row)}
                 tabIndex={isSelected ? 0 : -1}
                 data-selected={isSelected ? '' : undefined}
                 data-perf-navigation="true"

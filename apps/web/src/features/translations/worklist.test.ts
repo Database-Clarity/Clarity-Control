@@ -19,6 +19,9 @@ describe('worklist helpers', () => {
 
   it('opens the editor in translate mode for the language', () => {
     expect(entryPath({ hash: 42, language: 'pt-br' })).toBe('/t/42?lang=pt-br');
+    expect(entryPath({ hash: 42, language: 'de' }, 42)).toBe('/t/42?lang=de');
+    // An enhanced override is edited on its base's page; a plain link would redirect to the base.
+    expect(entryPath({ hash: 43, language: 'de' }, 42)).toBe('/t/42?lang=de&variant=43');
   });
 
   it('reads queue mode from the history state, for a language the user may translate', () => {

@@ -646,9 +646,10 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  // Compact phone size (owner 2026-11-10): about 36px, not a new 44px minimum.
   .queueBack,
   .queueStep {
-    min-height: max(44px, 2.75rem);
-    min-width: max(44px, 2.75rem);
+    min-height: max(36px, 2.25rem);
+    min-width: max(36px, 2.25rem);
   }
 }

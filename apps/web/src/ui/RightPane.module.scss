@@ -62,9 +62,10 @@
       outline: 2px solid var(--accent-ink);
       outline-offset: -2px;
     }
+    // Compact touch size (owner 2026-11-10): about 36px, not a new 44px minimum.
     @include theme.mobile-or-coarse {
-      min-height: max(44px, 2.75rem);
-      min-width: max(44px, 2.75rem);
+      min-height: max(36px, 2.25rem);
+      min-width: max(36px, 2.25rem);
     }
   }
 }
