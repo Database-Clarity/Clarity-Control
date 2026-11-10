@@ -94,7 +94,7 @@ describe('the help reads one registry', () => {
     };
     expect(at(adagio, 1, 40)).toBe('enhanced-formula');
     expect(at(adagio, 1, 3)).toBeNull();
-    expect(at(adagio, 2, 1)).toBe('bullet');
+    expect(at(adagio, 2, 1)).toBe('list-dot');
     expect(at(adagio, 3, 0)).toBe('blank');
     expect(at(adagio, 6, 1)).toBe('enhanced-arrow');
     expect(at(adagio, 6, 20)).toBe('enhanced-block');

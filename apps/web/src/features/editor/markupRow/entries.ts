@@ -1,7 +1,5 @@
-import { EditorSelection, type EditorState } from '@codemirror/state';
+import { type EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
-import { isolateHistory } from '@codemirror/commands';
-import { Transaction } from '@codemirror/state';
 import {
   expandSnippet,
   extractVariables,
@@ -175,51 +173,6 @@ function viaTemplate(
   };
 }
 
-const bullet = '• ';
-
-/** `• ` at the start of each selected line (lines that already have one are left alone). */
-function insertBullet(view: EditorView): EntryResult {
-  const blocked = guard(view);
-  if (blocked) return blocked;
-  const { state } = view;
-  const changes: { from: number; insert: string }[] = [];
-  const seen = new Set<number>();
-  for (const range of state.selection.ranges) {
-    const first = state.doc.lineAt(range.from).number;
-    const last = state.doc.lineAt(range.to).number;
-    for (let number = first; number <= last; number++) {
-      if (seen.has(number)) continue;
-      seen.add(number);
-      const line = state.doc.line(number);
-      // A selection that ends at the start of a line does not include that line.
-      if (number > first && !range.empty && range.to === line.from) continue;
-      if (line.text.startsWith(bullet)) continue;
-      changes.push({ from: line.from, insert: bullet });
-    }
-  }
-  if (!changes.length) return 'inserted';
-  view.dispatch(
-    state.update({
-      changes,
-      selection: EditorSelection.create(
-        state.selection.ranges.map((range) =>
-          EditorSelection.range(
-            range.anchor +
-              changes.filter((change) => change.from <= range.anchor).length * bullet.length,
-            range.head +
-              changes.filter((change) => change.from <= range.head).length * bullet.length,
-          ),
-        ),
-        state.selection.mainIndex,
-      ),
-      annotations: [Transaction.userEvent.of('input'), isolateHistory.of('full')],
-      scrollIntoView: true,
-    }),
-  );
-  view.focus();
-  return 'inserted';
-}
-
 const iconNames = markupSymbols.filter((symbol) => symbol.id.startsWith('icon:'));
 const styleSymbols = markupSymbols.filter((symbol) => symbol.id.startsWith('style:'));
 const snippetById = (id: string) => {
@@ -252,18 +205,6 @@ export function markupEntries(globals: MarkupGlobals, documentText = ''): Markup
   const pve = snippetById('pve');
   const pvp = snippetById('pvp');
   const entries: MarkupEntry[] = [
-    {
-      id: 'bullet',
-      group: 'Text',
-      label: 'Bullet',
-      markup: '• text',
-      keys: 'bullet list point dot',
-      glyph: { kind: 'text', text: '•' },
-      usage: /^• /m,
-      about: 'A bullet at the start of the line.',
-      help: { example: '• 10 Range' },
-      run: insertBullet,
-    },
     viaTemplate(pair, {
       id: 'pair',
       group: 'Values',
@@ -332,7 +273,7 @@ export function markupEntries(globals: MarkupGlobals, documentText = ''): Markup
       label: 'Enhanced arrow (#e)',
       markup: '#e',
       keys: 'enhanced arrow e gold up',
-      glyph: { kind: 'arrow', text: '#e' },
+      glyph: { kind: 'arrow', text: '' },
       about: 'The enhanced arrow, written #e.',
       usage: /#e(?![a-zA-Z0-9])/,
       help: { block: 'enhanced' },
@@ -391,7 +332,7 @@ export function markupEntries(globals: MarkupGlobals, documentText = ''): Markup
     ...colours.map((colour) =>
       viaOption(`inline:${colour}`, {
         group: 'Format',
-        label: sentence(colour),
+        label: 'Exotic (yellow)',
         markup: `<${colour} text />`,
         keys: tagById(`tag:${colour}`).keywords,
         glyph: { kind: 'colour', colour },
@@ -413,13 +354,7 @@ export function markupEntries(globals: MarkupGlobals, documentText = ''): Markup
       }),
     ),
     ...(
-      [
-        'decl-var',
-        'decl-title',
-        'decl-export',
-        'decl-export-hidden',
-        'decl-import',
-      ] as const
+      ['decl-var', 'decl-title', 'decl-export', 'decl-export-hidden', 'decl-import'] as const
     ).map((id) => {
       const snippet = snippetById(id);
       return viaTemplate(snippet, {
@@ -488,21 +423,24 @@ export const entryGroups = [
   'Global variables',
 ] as const;
 
-/**
- * What sits on the row itself, in this order: the bullet, the PvE/PvP presets, the fifteen icons,
- * the enhanced arrow, link and title, bold and the four colours, then the line styles. Everything
- * else is behind "All".
- */
+/** The owner's markup bar order (independent of the core icon registry). */
 export const rowOrder: readonly string[] = [
-  'bullet',
+  'enhanced-arrow',
   '|',
-  'pair',
   'pve',
   'pvp',
+  'pair',
   '|',
-  ...iconNames.map((symbol) => symbol.id),
+  ...['kinetic', 'arc', 'solar', 'void', 'stasis', 'strand', 'prismatic'].map(
+    (name) => `icon:${name}`,
+  ),
   '|',
-  'enhanced-arrow',
+  ...['primary', 'special', 'heavy'].map((name) => `icon:${name}`),
+  '|',
+  ...['barrier', 'overload', 'unstoppable'].map((name) => `icon:${name}`),
+  '|',
+  ...['warlock', 'hunter', 'titan'].map((name) => `icon:${name}`),
+  '|',
   'link',
   'title',
   '|',

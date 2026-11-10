@@ -35,15 +35,7 @@ describe('leadEntries', () => {
 
   it("leads with the entries Glacial Guard's English text uses, by first use", () => {
     const led = ids(leadEntries(row, glacialGuard));
-    expect(led.slice(0, 7)).toEqual([
-      'icon:stasis',
-      'icon:arc',
-      'bullet',
-      'pair',
-      'pve',
-      'pvp',
-      '|',
-    ]);
+    expect(led.slice(0, 6)).toEqual(['icon:stasis', 'icon:arc', 'pve', 'pair', 'pvp', '|']);
     // The rest keeps the row's order, without doubled or trailing separators, and loses nothing.
     expect(led.filter((id) => id !== '|').sort()).toEqual(
       ids(row)
@@ -315,16 +307,19 @@ describe('the docked keyboard bar', () => {
     expect(scrolls.mock.calls).toEqual([[0, { y: 'start' }]]);
   });
 
-  it.each([true, false])('keeps the entry top visible when a stepping burst lands (phone=%s)', (isPhone) => {
-    phone = isPhone;
-    const view = mount({ tooltipHash: 1, value: 'entry text' });
-    mount({ tooltipHash: 1, value: 'entry text', stepping: true });
-    act(() => view.dispatch({ selection: { anchor: 5 } }));
-    const scrolls = vi.spyOn(EditorView, 'scrollIntoView');
-    mount({ tooltipHash: 1, value: 'entry text', stepping: false });
-    expect(scrolls.mock.calls).toEqual([[0, { y: isPhone ? 'nearest' : 'start' }]]);
-    expect(view.state.selection.main.head).toBe(0);
-  });
+  it.each([true, false])(
+    'keeps the entry top visible when a stepping burst lands (phone=%s)',
+    (isPhone) => {
+      phone = isPhone;
+      const view = mount({ tooltipHash: 1, value: 'entry text' });
+      mount({ tooltipHash: 1, value: 'entry text', stepping: true });
+      act(() => view.dispatch({ selection: { anchor: 5 } }));
+      const scrolls = vi.spyOn(EditorView, 'scrollIntoView');
+      mount({ tooltipHash: 1, value: 'entry text', stepping: false });
+      expect(scrolls.mock.calls).toEqual([[0, { y: isPhone ? 'nearest' : 'start' }]]);
+      expect(view.state.selection.main.head).toBe(0);
+    },
+  );
 
   it('shows the bar on an empty text', () => {
     mount({ value: '' });
@@ -336,12 +331,12 @@ describe('the docked keyboard bar', () => {
     const first = () => bar()!.querySelector<HTMLElement>('[data-row-button]')!.dataset.entry;
     expect(first()).toBe('icon:stasis');
     mount({ lang: 'en', sourceText: glacialGuard });
-    expect(first()).toBe('bullet');
+    expect(first()).toBe('enhanced-arrow');
     phone = false;
     act(() => root.unmount());
     root = createRoot(host);
     mount({ lang: 'de', sourceText: glacialGuard });
-    expect(first()).toBe('bullet');
+    expect(first()).toBe('enhanced-arrow');
   });
 
   it('keeps focus in the text on a bar tap and inserts at the selection', () => {
@@ -350,12 +345,12 @@ describe('the docked keyboard bar', () => {
       view.focus();
       view.dispatch({ selection: { anchor: 3 } });
     });
-    const button = bar()!.querySelector<HTMLButtonElement>('[data-entry="bullet"]')!;
+    const button = bar()!.querySelector<HTMLButtonElement>('[data-entry="enhanced-arrow"]')!;
     const press = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
     act(() => button.dispatchEvent(press));
     expect(press.defaultPrevented).toBe(true);
     act(() => button.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-    expect(view.state.doc.toString()).toBe('• abc');
+    expect(view.state.doc.toString()).toBe('abc#e');
     expect(document.activeElement).toBe(view.contentDOM);
     const suggest = bar()!.querySelector<HTMLButtonElement>('[data-suggest-button]')!;
     const suggestPress = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
