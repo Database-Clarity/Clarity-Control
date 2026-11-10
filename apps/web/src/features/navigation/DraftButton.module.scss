@@ -198,3 +198,18 @@
     margin-inline: var(--page-x);
   }
 }
+
+// A phone popover is the page width at most: the name takes its own line (never cut while the
+// row has room), the languages, time, and Discard share the line under it.
+@include theme.mobile {
+  .list li {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 0;
+  }
+
+  .drafts .open {
+    grid-column: 1 / -1;
+    min-height: var(--tap-sm);
+    height: var(--tap-sm);
+  }
+}
