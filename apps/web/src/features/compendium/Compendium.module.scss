@@ -624,7 +624,15 @@
   min-height: 1lh;
 }
 
-// A picker row's sheet range leads the row, so a wrapped row never reads as part of a button.
+// A picker row's sheet range leads the row, so a wrapped row never reads as part of a button;
+// centred on the row's buttons rather than sitting on their bottom edge.
 .rowRange {
+  display: inline-flex;
   margin-right: 0.5rem;
+  vertical-align: middle;
+}
+// Where a stale snapshot came from: a quiet line in the meta tone, one space before the link.
+.staleSource {
+  color: var(--text2);
+  font-size: 0.75rem;
 }

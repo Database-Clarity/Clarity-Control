@@ -789,8 +789,8 @@ const PaneContents = memo(function PaneContents({
               </p>
             )}
             {!match && staleWhere && (
-              <p className={styles.meta}>
-                Snapshot from <SourceRef location={staleWhere} block />
+              <p className={styles.staleSource}>
+                Snapshot from <SourceRef location={staleWhere} />
               </p>
             )}
             {!match && (
