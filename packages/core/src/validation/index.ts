@@ -89,8 +89,8 @@ export function validateText(
 /**
  * Validates every language of a tooltip. With `base` (the saved tooltip this one replaces, or
  * null for a new tooltip), an error blocks only if the change is responsible for it: the
- * language's text is edited, or the same error is absent when this unchanged text is validated
- * against `baseGlobalsFor` (the globals and imports before the whole save, so a sibling change
+ * language's text is edited, or the error is raised more often than when this unchanged text is
+ * validated against `baseGlobalsFor` (the globals and imports before the whole save, so a sibling change
  * that removes an import, variable, or title this text uses makes the save fail). Any other
  * error in unchanged text is listed as a warning, and an empty unwritten English text is not
  * reported at all (a link-only or metadata-only change leaves it alone). Without `base`, every
@@ -115,24 +115,36 @@ export function validateTooltip(
       requireEnglish && edited,
       tooltip.hash,
     );
-    // Errors already present before this save (same message on the same text) never block it.
-    const preexisting = edited
-      ? new Set<string>()
-      : new Set(
-          validateText(text, lang, baseGlobalsFor(lang), false, tooltip.hash)
-            .filter((issue) => issue.severity === 'error')
-            .map((issue) => issue.message),
-        );
+    // An error in unchanged text is not this save's doing only if its message occurs no more
+    // often than before the save. Counting raw diagnostics (validateText lists a repeated
+    // message once) keeps a second, newly broken path from hiding behind an older error.
+    const hasError = !edited && issues.some((issue) => issue.severity === 'error');
+    const after = hasError ? errorCounts(text, globalsFor(lang), tooltip.hash) : undefined;
+    const before = hasError ? errorCounts(text, baseGlobalsFor(lang), tooltip.hash) : undefined;
+    const caused = (message: string) => (after!.get(message) ?? 0) > (before!.get(message) ?? 0);
     return issues.map((issue) => ({
       ...issue,
       severity:
-        edited || issue.severity === 'warning' || !preexisting.has(issue.message)
+        edited || issue.severity === 'warning' || caused(issue.message)
           ? issue.severity
           : ('warning' as const),
       hash: tooltip.hash,
       lang,
     }));
   });
+}
+
+/** How often each error message is raised for this text, before validateText merges repeats. */
+function errorCounts(text: string, globals: MarkupGlobals, selfHash: number): Map<string, number> {
+  const counts = new Map<string, number>();
+  const add = (message: string) => counts.set(message, (counts.get(message) ?? 0) + 1);
+  for (const diagnostic of parseMarkup(text, globals).diagnostics) {
+    if (diagnostic.severity === 'error') add(diagnostic.message);
+  }
+  if (selfHash !== globalVariablesHash && selfHash !== globalTitlesHash) {
+    for (const clash of findGlobalNameClashes(text, globals)) add(describeGlobalClash(clash));
+  }
+  return counts;
 }
 
 const maxListedTooltips = 8;

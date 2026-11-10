@@ -18,7 +18,7 @@ import { guidedFixture } from './guided-fixture';
 declare global {
   interface Window {
     __linkSaveProposals: unknown;
-    linkSave: { saves: unknown[]; draftBatchRemovingImport(): void };
+    linkSave: { saves: unknown[]; draftBatchRemovingImport(): void; staleBaseDraft(): void };
   }
 }
 const stamp = '2026-11-01T00:00:00Z';
@@ -67,6 +67,8 @@ useDataStore.setState({
             { hash: Number(hash), text: {}, associated: [] } as Tooltip,
           ]),
         ),
+        // Someone else has written English for 102 since the recovered draft was made.
+        102: { hash: 102, text: text('Written by someone else'), associated: [] },
         120: donor,
         121: user,
       },
@@ -121,6 +123,13 @@ window.linkSave = {
       ...next,
       text: text('No export any more'),
     }));
+  },
+  /** A recovered link-only draft on 102 whose base is empty while the catalogue has English. */
+  staleBaseDraft() {
+    const empty: Tooltip = { hash: 102, text: {}, associated: [] };
+    useDraftStore.setState({
+      drafts: { 102: { base: empty, next: { ...empty, associated: [30] } } },
+    });
   },
 };
 

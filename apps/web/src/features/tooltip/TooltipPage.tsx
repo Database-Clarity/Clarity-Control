@@ -302,8 +302,14 @@ function TooltipWorkspace({
   const globalsFor = (variant: number): MarkupGlobals => typedGlobals(legacyOf(variant));
   const textOf = (variant: number) =>
     (drafts[variant]?.next ?? tooltipFor(variant, data)).text[lang]?.text ?? '';
+  // The base is the one the draft started from (as in save validation), not the live catalogue.
   const requiresEnglish = (variant: number) =>
-    requireEnglish(hash, lang, tooltipFor(variant, data).text.en?.text ?? '', textOf(variant));
+    requireEnglish(
+      hash,
+      lang,
+      (drafts[variant]?.base ?? tooltipFor(variant, data)).text.en?.text ?? '',
+      textOf(variant),
+    );
   // What the preview renders: the same text with conflict blocks resolved to "mine".
   const previewTextOf = (variant: number) =>
     (shown[variant]?.next ?? tooltipFor(variant, data)).text[lang]?.text ?? '';

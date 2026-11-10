@@ -166,6 +166,28 @@ try {
     assert.deepEqual(errors, []);
     console.log('PASS 3: editor empty-English diagnostic follows the edited-text rule');
   }
+  // 4. A recovered draft keeps its own base: empty English that was never edited stays quiet even
+  // though the catalogue now has English text (the save rule compares with the draft's base).
+  {
+    const { page, errors } = await open('#/t/101?lang=en');
+    await page.locator('.cm-content').first().waitFor();
+    await page.evaluate(() => window.linkSave.staleBaseDraft());
+    await page.evaluate(() => {
+      window.location.hash = '#/t/102?lang=en';
+    });
+    await page.locator('.cm-content').first().waitFor();
+    await page.waitForTimeout(400);
+    assert.equal(
+      await page.evaluate(
+        () =>
+          document.querySelectorAll('[data-editor-status] button[data-severity="error"]').length,
+      ),
+      0,
+      'a draft with an empty base shows no empty-English error',
+    );
+    assert.deepEqual(errors, []);
+    console.log('PASS 4: recovered draft uses its own base for the empty-English diagnostic');
+  }
 } finally {
   await browser?.close();
   await server?.close();

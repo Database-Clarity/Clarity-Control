@@ -147,6 +147,27 @@ describe('validation is scoped to text the change edits', () => {
       ];
       expect(errors(validateChanges(changes, state))).toEqual([]);
     });
+    it('is not hidden by an older error with the same message', () => {
+      const newline = String.fromCharCode(10);
+      const { state, donor } = data();
+      const hidden = (body: string) => entry(['export hidden foo (', body, ')'].join(newline));
+      const sharing = { ...donor, text: { en: hidden('Shared') } };
+      const dependent = {
+        ...tooltip,
+        text: { en: entry(['import bad from 999', 'import foo from 124'].join(newline)) },
+      };
+      state.bundle.tooltips[124] = sharing;
+      state.bundle.tooltips[123] = dependent;
+      const changes = [
+        { hash: 123, base: dependent, next: { ...dependent, associated: [30] } },
+        {
+          hash: 124,
+          base: sharing,
+          next: { ...sharing, text: { en: hidden('import bad from 999') } },
+        },
+      ];
+      expect(errors(validateChanges(changes, state)).map((issue) => issue.hash)).toEqual([123]);
+    });
     it('does not turn an error that already existed into a blocker', () => {
       const { state, donor } = data();
       const broken = { ...tooltip, text: { en: entry('import gone from 124') } };
