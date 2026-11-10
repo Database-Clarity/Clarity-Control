@@ -53,6 +53,14 @@ export function editorScrollMargins() {
   });
 }
 
+/**
+ * An overlay drawn inside this editor, or portalled beside it (the markup help sits in the
+ * workspace so it can span the editor and the pane beside it: `data-editor-portal`, in the
+ * element that holds the editor).
+ */
 function isOver(overlay: HTMLElement, view: EditorView): boolean {
-  return overlay.closest('[data-editor-root]')?.contains(view.dom) ?? false;
+  const owner = overlay.hasAttribute('data-editor-portal')
+    ? overlay.parentElement
+    : overlay.closest('[data-editor-root]');
+  return owner?.contains(view.dom) ?? false;
 }

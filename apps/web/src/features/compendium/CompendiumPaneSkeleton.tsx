@@ -106,9 +106,6 @@ export function CompendiumPaneSkeleton({
         {link && (
           <>
             <span>
-              {link.rowKey} {link.section && `/ ${link.section}`} / tab {link.gid}
-            </span>{' '}
-            <span>
               {draft && !base.compendium ? 'Draft snapshot' : 'Snapshot'}{' '}
               <When value={link.snapshotAt} />
             </span>{' '}

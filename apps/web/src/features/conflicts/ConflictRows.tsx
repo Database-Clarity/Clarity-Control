@@ -1,4 +1,13 @@
-import { languages, type Lang, type Tooltip } from '@clarity/core';
+import {
+  languages,
+  type CompendiumData,
+  type CompendiumLink,
+  type Lang,
+  type Tooltip,
+} from '@clarity/core';
+import { SourceRef } from '../compendium/SourceRef';
+import { linkLocation } from '../compendium/sourceLocation';
+import { useCompendiumStore } from '../compendium/store';
 import { languageLabel } from '../../languageLabels';
 import {
   useConflictStore,
@@ -24,7 +33,7 @@ const short = (value: unknown) => {
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-function describe(session: ConflictSession, field: string) {
+export function describe(session: ConflictSession, field: string, source: CompendiumData | null) {
   if (field === '$exists') {
     return session.head === null
       ? {
@@ -41,6 +50,28 @@ function describe(session: ConflictSession, field: string) {
         };
   }
   const read = (tooltip: Tooltip | null) => (tooltip ? fieldValue(tooltip, field) : undefined);
+  if (field === 'compendium') {
+    // A Compendium link reads as its sheet location (tab · section · range) with a link to it,
+    // never as raw JSON with a gid.
+    const place = (tooltip: Tooltip | null) => {
+      const link = read(tooltip) as CompendiumLink | undefined;
+      return link ? linkLocation(link, source) : undefined;
+    };
+    const mine = place(session.mine);
+    const theirs = place(session.head);
+    return {
+      label: fieldNames[field],
+      summary: `Mine ${mine?.label ?? 'none'} · theirs ${theirs?.label ?? 'none'}`,
+      detail: (
+        <>
+          Mine {mine ? <SourceRef location={mine} /> : 'none'} · theirs{' '}
+          {theirs ? <SourceRef location={theirs} /> : 'none'}
+        </>
+      ),
+      mine: 'Keep my value',
+      theirs: 'Use their value',
+    };
+  }
   return {
     label: fieldNames[field] ?? field,
     summary: `Mine ${short(read(session.mine))} · theirs ${short(read(session.head))}`,
@@ -64,6 +95,7 @@ export function ConflictRows({
   onLanguage(lang: Lang): void;
 }) {
   const session = useConflictStore((state) => state.sessions[hash]);
+  const source = useCompendiumStore((state) => state.data);
   const choose = useConflictStore((state) => state.choose);
   const paused = usePausedForOtherTab();
   const draft = useDraftStore((state) => state.drafts[hash]);
@@ -89,13 +121,15 @@ export function ConflictRows({
       ))}
       {session &&
         open.map(([field]) => {
-          const text = describe(session, field);
+          const text = describe(session, field, source);
           return (
             <PanelRow
               key={field}
               label={<span title={text.summary}>{text.label}</span>}
               // The explanation is the label's tooltip; a one-line summary only where it can fit.
-              summary={field === '$exists' ? undefined : text.summary}
+              summary={
+                field === '$exists' ? undefined : 'detail' in text ? text.detail : text.summary
+              }
               actions={
                 <>
                   <button

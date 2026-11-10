@@ -2,6 +2,7 @@ import { languageLabel } from '../../languageLabels';
 import {
   type CompendiumData,
   countConflicts,
+  emptyEnglishMessage,
   languages,
   maskConflicts,
   resolveAlias,
@@ -14,7 +15,7 @@ import {
 import { canEditLanguage, canEditTooltipFields } from '../../features/auth/permissions';
 import type { EditorData } from '../../stores/data';
 import type { Change, Me } from '../api';
-import { tooltipImports } from '../tooltipImports';
+import { saveDependencies } from './dependencies';
 import { enrichTooltip } from './enrichers';
 
 export function permissionError(changes: Change[], user: Me | null): string | null {
@@ -71,6 +72,9 @@ export function conflictMarkerIssues(changes: Change[]): TooltipValidationIssue[
   );
 }
 
+export const noTooltipYet =
+  'This item has no tooltip yet. A Compendium link or other change can be saved once English text is written.';
+
 export function validateChanges(changes: Change[], data: EditorData): TooltipValidationIssue[] {
   const tooltips = { ...data.bundle.tooltips };
   for (const change of changes) {
@@ -81,32 +85,35 @@ export function validateChanges(changes: Change[], data: EditorData): TooltipVal
     }
     tooltips[change.hash] = withoutMarkers(change.next);
   }
-  const imports = new Map(
-    languages.map((lang) => [lang, tooltipImports(tooltips, {}, lang, data.aliases)]),
-  );
-  return changes.flatMap(({ base, next: unmasked }) => {
+  // Restore draft bases for the before snapshot, including recovered drafts and new tooltips.
+  const before = { ...data.bundle.tooltips };
+  for (const change of changes) {
+    if (change.base) before[change.hash] = withoutMarkers(change.base);
+    else delete before[change.hash];
+  }
+  const dependencies = saveDependencies(changes, before, tooltips, data);
+  const issues = changes.flatMap(({ base, next: unmasked }) => {
     const next = tooltips[unmasked.hash]!;
     return [
       ...conflictMarkerIssues([{ hash: unmasked.hash, base, next: unmasked }]),
       ...validateGlobalAdditions({ base, next }, tooltips),
-      // Only text this change edits can block the save (errors elsewhere are warnings), so a
-      // link-only change on a tooltip with unwritten English is never refused.
-      ...validateTooltip(
-        next,
-        (lang) => {
-          const catalog = imports.get(lang)!;
-          const item = data.items[next.hash];
-          return {
-            variables: catalog[2] ?? '',
-            titles: catalog[3] ?? '',
-            imports: catalog,
-            type: data.categories.find((category) => category.id === item?.categoryId)?.legacyType,
-          };
-        },
-        base,
+      // An error blocks if the tooltip's text there is edited, or if the text uses something this
+      // same save changes (an imported document, a global it mentions): then the save may have
+      // caused it. Any other error in unchanged text only warns, so a link-only change on a
+      // tooltip with unwritten English is never refused.
+      ...validateTooltip(next, (lang) => dependencies.globalsFor(next.hash, lang), base, {
+        aliases: data.aliases,
+        affectedBy: dependencies.affectedBy,
+      }).map((issue) =>
+        // Saving never creates a tooltip without English text. Say so where the user acts: a
+        // Compendium link on an item with no saved tooltip is refused for this reason alone.
+        !base && issue.lang === 'en' && issue.message === emptyEnglishMessage
+          ? { ...issue, message: noTooltipYet }
+          : issue,
       ),
     ];
   });
+  return [...issues, ...dependencies.outsideIssues()];
 }
 
 export async function prepareChanges(
@@ -119,7 +126,19 @@ export async function prepareChanges(
   if (denied) throw new Error(denied);
   const issues = validateChanges(changes, data);
   if (issues.some((issue) => issue.severity === 'error')) {
-    throw new Error('Validation errors must be fixed before saving.');
+    const dependents = [
+      ...new Set(
+        issues
+          .filter(
+            (issue) =>
+              issue.severity === 'error' && !changes.some((change) => change.hash === issue.hash),
+          )
+          .map((issue) => issue.hash),
+      ),
+    ];
+    throw new Error(
+      `Validation errors must be fixed before saving.${dependents.length ? ` This save would break dependent tooltip(s): ${dependents.join(', ')}.` : ''}`,
+    );
   }
   return Promise.all(
     changes.map(async (change) => ({

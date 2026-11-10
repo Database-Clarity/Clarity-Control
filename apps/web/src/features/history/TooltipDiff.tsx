@@ -1,8 +1,11 @@
 import type { Item } from '../../services/generator';
 import { useEffect, useState } from 'react';
 import { languageLabel } from '../../languageLabels';
-import { languages, sameCell, type Tooltip } from '@clarity/core';
+import { languages, sameCell, type CompendiumLink, type Tooltip } from '@clarity/core';
 import { CompendiumDiff } from '../compendium/CompendiumDiff';
+import { SourceRef } from '../compendium/SourceRef';
+import { linkLocation } from '../compendium/sourceLocation';
+import { useCompendiumStore } from '../compendium/store';
 import { HistoryWordDiff } from './HistoryWordDiff';
 import {
   attachmentCategory,
@@ -105,14 +108,23 @@ export function TooltipDiff({
         </section>
       ))}
       {(before?.compendium || current.compendium) &&
+        !sameSource(before?.compendium, current.compendium) && (
+          <CompendiumSources before={before?.compendium} after={current.compendium} />
+        )}
+      {(before?.compendium || current.compendium) &&
         !sameCell(
           before?.compendium?.snapshot ?? emptyCell,
           current.compendium?.snapshot ?? emptyCell,
         ) && (
-          <CompendiumDiff
-            before={before?.compendium?.snapshot ?? emptyCell}
-            after={current.compendium?.snapshot ?? emptyCell}
-          />
+          <>
+            {sameSource(before?.compendium, current.compendium) && (
+              <CompendiumSources before={before?.compendium} after={current.compendium} />
+            )}
+            <CompendiumDiff
+              before={before?.compendium?.snapshot ?? emptyCell}
+              after={current.compendium?.snapshot ?? emptyCell}
+            />
+          </>
         )}
       {!changed.length && <p>No language text changes.</p>}
       {JSON.stringify(before?.associated ?? []) !== JSON.stringify(current.associated) && (
@@ -128,5 +140,40 @@ export function TooltipDiff({
         <p key={line}>{line}</p>
       ))}
     </div>
+  );
+}
+
+/** The same place in the sheet: tab, row, section, anchor, and cells (labels can coincide across tabs). */
+function sameSource(a?: CompendiumLink, b?: CompendiumLink) {
+  if (!a || !b) return a === b;
+  return (
+    a.gid === b.gid &&
+    // Legacy links have no anchor or cells: their row name is their place.
+    a.rowKey === b.rowKey &&
+    a.section === b.section &&
+    JSON.stringify(a.sourceAnchor ?? null) === JSON.stringify(b.sourceAnchor ?? null) &&
+    JSON.stringify(a.cells ?? null) === JSON.stringify(b.cells ?? null)
+  );
+}
+
+/** Where each side's Compendium snapshot came from in the sheet (names from the loaded source only). */
+function CompendiumSources({ before, after }: { before?: CompendiumLink; after?: CompendiumLink }) {
+  const source = useCompendiumStore((state) => state.data);
+  const from = before && linkLocation(before, source);
+  const to = after && linkLocation(after, source);
+  if (!from && !to) return null;
+  return (
+    <p className={styles.compendiumSource}>
+      Compendium source:{' '}
+      {from && to && !sameSource(before, after) ? (
+        <>
+          <SourceRef location={from} /> → <SourceRef location={to} />
+        </>
+      ) : (
+        <SourceRef location={(to ?? from)!} />
+      )}
+      {from && !to && ' (link removed)'}
+      {!from && to && ' (link added)'}
+    </p>
   );
 }

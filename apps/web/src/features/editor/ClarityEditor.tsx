@@ -1,9 +1,18 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  lazy,
+  startTransition,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   defaultKeymap,
   history,
   historyKeymap,
-  indentWithTab,
   isolateHistory,
   toggleComment,
 } from '@codemirror/commands';
@@ -35,7 +44,6 @@ import {
   type RetiredOccurrence,
 } from '@clarity/core';
 import { clarityHighlighting, clarityLanguage } from './language';
-import { tableFormattingTransaction } from './formatTable';
 import { editorScrollMargins } from './scrollMargins';
 import { findWidgetExtension, findWidgetPanel, openReplace } from './findWidget';
 import { rememberSearch, restoreSearch } from './searchMemory';
@@ -51,7 +59,7 @@ import { useSettingsStore, type SuggestAccept } from '../../stores/settings';
 import {
   ConflictPanel,
   GlyphPanel,
-  HelpPanel,
+  IssuesPanel,
   CursorStatusBar,
   type PreviewStatus,
   type StatusPanel,
@@ -73,11 +81,80 @@ import {
   openSuggest,
   suggestConfiguration,
   suggestExtension,
+  takeSuggestion,
   type SuggestSnapshot,
 } from './suggest/state';
+import { helpIdForSuggestion } from './help/reference';
 import type { UsageCorpus } from './suggest/usage';
 import type { ReferenceSources } from './references';
 import styles from './ClarityEditor.module.scss';
+
+// The markup help is code only its first open needs. Once the editor has been input-quiet for a
+// while, in idle time, the help loads, parses its examples, and builds its sheet hidden, so F1
+// only reveals it. Any key or press restarts the wait; nothing runs on the typing path itself.
+const loadHelp = () => import('./help/MarkupHelp');
+const MarkupHelp = lazy(loadHelp);
+const quietMs = 1500;
+/** One parked sheet per page: the first editor to go quiet builds it. */
+let helpParkClaimed = false;
+function parkHelpWhenQuiet(ready: () => boolean, park: () => void): () => void {
+  if (typeof requestIdleCallback !== 'function') return () => undefined;
+  let lastInput = performance.now();
+  let generation = 0;
+  let timer = 0;
+  let idle = 0;
+  let stopped = false;
+  const onInput = () => {
+    lastInput = performance.now();
+    generation += 1;
+  };
+  const stop = () => {
+    stopped = true;
+    clearTimeout(timer);
+    if (idle) cancelIdleCallback(idle);
+    removeEventListener('keydown', onInput, true);
+    removeEventListener('pointerdown', onInput, true);
+  };
+  // Each step runs in its own idle period, and only while no input came since the wait began.
+  const step = (mine: number, run: (deadline: IdleDeadline) => void) => {
+    idle = requestIdleCallback((deadline) => {
+      idle = 0;
+      if (stopped) return;
+      if (mine !== generation || !ready()) wait();
+      else run(deadline);
+    });
+  };
+  const wait = () => {
+    const left = quietMs - (performance.now() - lastInput);
+    timer = window.setTimeout(() => {
+      if (performance.now() - lastInput < quietMs) return wait();
+      const mine = generation;
+      step(mine, () =>
+        void loadHelp().then(
+          ({ warmHelp }) => {
+            if (stopped) return;
+            // The examples parse over as many idle periods as they need, then the sheet builds.
+            const warm = (deadline: IdleDeadline) => {
+              if (!warmHelp(deadline)) return step(mine, warm);
+              step(mine, () => {
+                if (helpParkClaimed) return stop();
+                helpParkClaimed = true;
+                stop();
+                park();
+              });
+            };
+            step(mine, warm);
+          },
+          () => stop(),
+        ),
+      );
+    }, Math.max(0, left));
+  };
+  addEventListener('keydown', onInput, true);
+  addEventListener('pointerdown', onInput, true);
+  wait();
+  return stop;
+}
 
 // Loading another saved/draft document must never call the authoring callback.
 const documentLoad = Annotation.define<boolean>();
@@ -190,6 +267,47 @@ export function ClarityEditor({
   panelOpen.current = panel !== null;
   const closePanel = useRef(() => setPanel(null));
   const closeAndFocus = () => setPanel(null);
+  // The help row to open on, when F1 came over the Ctrl+Space menu; else the caret's markup.
+  const [helpStart, setHelpStart] = useState<string | null>(null);
+  const helpOpen = useRef(false);
+  helpOpen.current = panel === 'help';
+  /** F1: the help on the markup under the caret, or on the menu's highlighted option; again closes. */
+  const toggleHelp = useRef((editor: EditorView) => {
+    if (helpOpen.current) {
+      setPanel(null);
+      return true;
+    }
+    const option = takeSuggestion(editor);
+    setHelpStart(option ? helpIdForSuggestion(option) : null);
+    setPanel('help');
+    return true;
+  });
+  const onPanel = useCallback((next: StatusPanel | null) => {
+    setHelpStart(null);
+    setPanel(next);
+  }, []);
+  // The help's sheet, built hidden once the editor is input-quiet (see parkHelpWhenQuiet).
+  const [helpParked, setHelpParked] = useState(false);
+  const parkedHere = useRef(false);
+  // Read only by Insert: a change of globals while typing never re-renders the hidden sheet.
+  const helpGlobals = useRef(globals);
+  helpGlobals.current = globals;
+  useEffect(() => {
+    if (helpParked || suspended) return;
+    return parkHelpWhenQuiet(
+      () => view.current !== null,
+      () => {
+        parkedHere.current = true;
+        startTransition(() => setHelpParked(true));
+      },
+    );
+  }, [helpParked, suspended]);
+  useEffect(
+    () => () => {
+      if (parkedHere.current) helpParkClaimed = false;
+    },
+    [],
+  );
   // The Changes view. Closed, it costs one string comparison per render (is anything unsaved?);
   // the comparison itself runs only inside the open panel. The other fields keep their object
   // identity while typing, so they are compared again only when one of them is edited.
@@ -437,12 +555,6 @@ export function ClarityEditor({
   }, [tooltipHash, referenceSources, onOpenTooltip]);
   useEffect(() => {
     if (suspended || view.current || !host.current) return;
-    const format = (editor: EditorView) => {
-      if (editor.state.readOnly) return false;
-      const transaction = tableFormattingTransaction(editor.state);
-      if (transaction) editor.dispatch(transaction);
-      return true;
-    };
     const initialConfiguration = config.current.of(
       configuration(
         initial.current.lang,
@@ -495,14 +607,16 @@ export function ClarityEditor({
         // VS Code's "Compare with Saved". Ctrl may stay held for the D, as with Ctrl+K Ctrl+I.
         { key: 'Mod-k d', run: () => toggleDiff.current() },
         { key: 'Mod-k Mod-d', run: () => toggleDiff.current() },
-        { key: 'ScrollLock', run: format },
-        { key: 'Mod-Shift-f', run: format },
+        { key: 'F1', run: (editor) => toggleHelp.current(editor), preventDefault: true },
         { key: 'Mod-/', run: toggleComment },
         { key: 'Mod-h', run: openReplace, scope: 'editor search-panel', preventDefault: true },
         ...searchKeymap,
         ...historyKeymap,
         ...defaultKeymap,
-        indentWithTab,
+        // A bare Tab does nothing: focus stays in the text (snippet blanks and chips take Tab
+        // first, at a higher precedence). Esc, then Tab still leaves: CodeMirror lets that Tab
+        // through to the page without consulting the keymap.
+        { key: 'Tab', run: () => true, shift: () => true, preventDefault: true },
       ]),
       initialConfiguration,
       EditorView.updateListener.of((update) => {
@@ -591,7 +705,8 @@ export function ClarityEditor({
       return;
     }
     if (switched) {
-      setPanel(null);
+      // The markup help is about markup, not this text: stepping on leaves it open, untouched.
+      setPanel((now) => (now === 'help' ? now : null));
       setSuggestion(null);
       setChip(null);
       setCompare(null);
@@ -708,10 +823,19 @@ export function ClarityEditor({
   const glyphCount = glyphs.reduce((sum, group) => sum + group.count, 0);
   const retiredCount = diagnostics.retired.length;
   // A panel for something that has gone away closes itself.
+  // The issues panel closes for good at zero issues (a later issue never reopens it over the text);
+  // focus it held goes back to the text.
+  useLayoutEffect(() => {
+    if (panel !== 'issues' || issues.length) return;
+    setPanel(null);
+    const page = globalThis.document;
+    if (page.activeElement === page.body) view.current?.focus();
+  }, [panel, issues.length]);
   const open =
     (panel === 'glyphs' && glyphCount === 0) ||
     (panel === 'conflicts' && conflictCount === 0) ||
-    (panel === 'retired' && retiredCount === 0)
+    (panel === 'retired' && retiredCount === 0) ||
+    (panel === 'issues' && issues.length === 0)
       ? null
       : panel;
   // The open Changes view covers the bottom of the text. While it is open the text gets that
@@ -792,7 +916,19 @@ export function ClarityEditor({
             onClose={closeAndFocus}
           />
         )}
-        {open === 'help' && <HelpPanel issues={issues} onClose={closeAndFocus} />}
+        {open === 'issues' && <IssuesPanel issues={issues} onClose={closeAndFocus} />}
+        {(open === 'help' || helpParked) && (
+          <Suspense fallback={null}>
+            <MarkupHelp
+              open={open === 'help'}
+              view={view}
+              globals={helpGlobals}
+              readOnly={readOnly}
+              start={helpStart}
+              onClose={closePanel.current}
+            />
+          </Suspense>
+        )}
         {open === 'diff' && workingDiff && (
           <WorkingDiffPanel
             key={`${tooltipHash}:${lang}`}
@@ -866,7 +1002,7 @@ export function ClarityEditor({
         }
         changes={workingDiff ? changed : undefined}
         panel={open}
-        onPanel={setPanel}
+        onPanel={onPanel}
         onSuggest={readOnly ? undefined : () => view.current && openSuggest(view.current)}
         // The markup row carries this toggle; the bar keeps it only while the row is not shown.
         rawView={symbols && !(markupRow && !readOnly) ? rawView : undefined}

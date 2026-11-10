@@ -28,6 +28,21 @@ export interface Snippet {
   fromSelection?: boolean;
   /** One-line description for the menu's detail pane. */
   about: string;
+  /** How the markup help shows it (an entry with this field gets a row there). */
+  help?: MarkupHelpExample;
+}
+
+/**
+ * A markup help row's example: a real construct cut to one short line, drawn beside itself. Rows
+ * taught by a shared worked example name it in `block` instead of carrying their own text.
+ */
+export interface MarkupHelpExample {
+  /** What you write, drawn live beside it (absent for a row shown through a worked example). */
+  example?: string;
+  /** Said where nothing is drawn, or after the render. */
+  note?: string;
+  /** The worked example this row's lines belong to. */
+  block?: string;
 }
 
 export interface ExpandedTemplate {
@@ -102,6 +117,7 @@ export const markupSnippets: readonly Snippet[] = [
     usage: /<pve [^<>]*\/>\s*<pvp /,
     fromSelection: true,
     about: 'A value for PvE and the bracketed PvP value beside it.',
+    help: { example: '<pve 1 /> <pvp [2] />' },
   },
   {
     id: 'pve',
@@ -112,6 +128,7 @@ export const markupSnippets: readonly Snippet[] = [
     usage: /<pve /,
     wraps: true,
     about: 'A PvE-only value.',
+    help: { example: '<pve PvE: 10%|20% />' },
   },
   {
     id: 'pvp',
@@ -122,6 +139,7 @@ export const markupSnippets: readonly Snippet[] = [
     usage: /<pvp /,
     wraps: true,
     about: 'A PvP-only value, shown in brackets.',
+    help: { example: '<pvp PvP: 2%|4% />' },
   },
   {
     id: 'pvp-override',
@@ -132,6 +150,7 @@ export const markupSnippets: readonly Snippet[] = [
     usage: /[\w%] <pvp \[/,
     fromSelection: true,
     about: 'A plain value followed by the PvP number; the unit stays outside the tag.',
+    help: { example: '1 <pvp [2] /> stacks' },
   },
   {
     id: 'enhanced-block',
@@ -142,6 +161,7 @@ export const markupSnippets: readonly Snippet[] = [
     usage: /^enhanced \(/m,
     block: true,
     about: 'The enhanced-only section. The #e line already carries the enhanced arrow.',
+    help: { block: 'enhanced' },
   },
   {
     id: 'enhanced-formula',
@@ -151,6 +171,7 @@ export const markupSnippets: readonly Snippet[] = [
     keywords: 'enhanced formula e d base add bonus',
     usage: /#e\$\{/,
     about: 'The base value with the enhanced bonus #d added in the enhanced version.',
+    help: { block: 'enhanced' },
   },
   {
     id: 'icon-word',
@@ -160,6 +181,7 @@ export const markupSnippets: readonly Snippet[] = [
     keywords: 'element icon word arc solar void stasis strand kinetic',
     usage: /<(?:kinetic|arc|solar|void|stasis|strand)\/>[A-Za-z]/,
     about: 'An element icon followed by its name.',
+    help: { example: 'Applies <arc/>Jolt.' },
   },
   {
     id: 'title-ref',
@@ -192,6 +214,7 @@ export const markupSnippets: readonly Snippet[] = [
     usage: /^var /m,
     block: true,
     about: 'A variable, used elsewhere as #name.',
+    help: { example: 'var Zoom = 1\nZoom +#Zoom' },
   },
   {
     id: 'decl-title',
@@ -202,6 +225,7 @@ export const markupSnippets: readonly Snippet[] = [
     usage: /^title [A-Za-z0-9 ]+ \(/m,
     block: true,
     about: 'A title definition other text can point at.',
+    help: { block: 'title' },
   },
   {
     id: 'decl-export',
@@ -212,6 +236,7 @@ export const markupSnippets: readonly Snippet[] = [
     usage: /^export /m,
     block: true,
     about: 'A named text other tooltips can import.',
+    help: { example: 'export name ( … )', note: 'Drawn here too.' },
   },
   {
     id: 'decl-export-hidden',
@@ -222,6 +247,7 @@ export const markupSnippets: readonly Snippet[] = [
     usage: /^export hidden /m,
     block: true,
     about: 'An export that does not show in this tooltip.',
+    help: { example: 'export hidden name ( … )', note: 'Not drawn here.' },
   },
   {
     id: 'decl-import',
@@ -232,6 +258,7 @@ export const markupSnippets: readonly Snippet[] = [
     usage: /^import /m,
     block: true,
     about: 'Brings in text another tooltip or the globals export.',
+    help: { example: 'import main from 554409585', note: 'Draws its text.' },
   },
 ];
 

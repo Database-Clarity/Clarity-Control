@@ -1,3 +1,4 @@
+import { resolveAlias, type Aliases } from '../aliases.js';
 import { languages, type Lang } from '../languages.js';
 import {
   describeGlobalClash,
@@ -27,6 +28,47 @@ export interface TooltipValidationIssue extends ValidationIssue {
   lang: Lang;
 }
 
+export const emptyEnglishMessage = 'English text must not be empty.';
+
+export interface ValidationReads {
+  lang: Lang;
+  /** Actual catalogue keys, including missing targets, with aliases resolved. */
+  imports: ReadonlyMap<string, number>;
+  /** Actual variable lookups, including missing names and local/global clash checks. */
+  variables: ReadonlySet<string>;
+}
+
+/** Observe the real validator, including title preparation and mid-line import splices. */
+export function validateTextWithReads(
+  text: string,
+  lang: Lang,
+  globals: MarkupGlobals,
+  requireEnglish: boolean,
+  selfHash: number,
+  aliases: Aliases,
+): { issues: ValidationIssue[]; reads: ValidationReads } {
+  const imports = new Map<string, number>();
+  const variables = new Set<string>();
+  const catalog = new Proxy(globals.imports ?? {}, {
+    get(target, key, receiver) {
+      const value: unknown = Reflect.get(target, key, receiver);
+      if (typeof key === 'string') {
+        const hash = key === 'global' ? 1 : Number(key);
+        if (Number.isInteger(hash)) imports.set(key, resolveAlias(hash, aliases));
+      }
+      return value;
+    },
+  });
+  const issues = validateText(
+    text,
+    lang,
+    { ...globals, imports: catalog, onVariable: (name) => variables.add(name) },
+    requireEnglish,
+    selfHash,
+  );
+  return { issues, reads: { lang, imports, variables } };
+}
+
 export function validateText(
   text: string,
   lang: Lang,
@@ -44,7 +86,7 @@ export function validateText(
     }
   }
   if (requireEnglish && lang === 'en' && !text.trim()) {
-    add('error', 'English text must not be empty.');
+    add('error', emptyEnglishMessage);
   }
   for (const diagnostic of parseMarkup(text, globals).diagnostics) {
     const token = diagnostic.message.match(/Unknown variable (#[a-zA-Z0-9]+)/)?.[1];
@@ -88,15 +130,18 @@ export function validateText(
 
 /**
  * Validates every language of a tooltip. With `base` (the saved tooltip this one replaces, or
- * null for a new tooltip), only text the change edits can block: an error in a language whose
- * text equals the base text is listed as a warning, and an empty unwritten English text is not
- * reported at all (a link-only or metadata-only change leaves it alone). Without `base`, every
+ * null for a new tooltip), an error in a language whose text this change does not edit is listed
+ * as a warning, and an empty unwritten English text is not reported at all (a link-only or
+ * metadata-only change leaves it alone). The optional save context records the real validator's
+ * reads and says which inputs this save changes: such an error stays an error, with the
+ * reason added to its message, because the save may have caused it. Without `base`, every
  * language counts as edited.
  */
 export function validateTooltip(
   tooltip: Tooltip,
   globalsFor: (lang: Lang) => MarkupGlobals,
   base?: Tooltip | null,
+  context?: { aliases: Aliases; affectedBy(reads: ValidationReads): string | undefined },
 ): TooltipValidationIssue[] {
   const languages = new Set<Lang>(['en', ...(Object.keys(tooltip.text) as Lang[])]);
   // Reserved global documents are declaration libraries, not English descriptions.
@@ -104,14 +149,37 @@ export function validateTooltip(
   return [...languages].flatMap((lang) => {
     const text = tooltip.text[lang]?.text ?? '';
     const edited = !base || (base.text[lang]?.text ?? '') !== text;
-    return validateText(text, lang, globalsFor(lang), requireEnglish && edited, tooltip.hash).map(
-      (issue) => ({
+    const globals = globalsFor(lang);
+    const recorded = context
+      ? validateTextWithReads(
+          text,
+          lang,
+          globals,
+          requireEnglish && edited,
+          tooltip.hash,
+          context.aliases,
+        )
+      : undefined;
+    const issues =
+      recorded?.issues ?? validateText(text, lang, globals, requireEnglish && edited, tooltip.hash);
+    const uses =
+      !edited && issues.some((issue) => issue.severity === 'error')
+        ? recorded && context?.affectedBy(recorded.reads)
+        : undefined;
+    return issues.map((issue) => {
+      const blocked = edited || issue.severity === 'warning' || uses !== undefined;
+      return {
         ...issue,
-        severity: edited ? issue.severity : ('warning' as const),
+        ...(uses !== undefined && issue.severity === 'error'
+          ? {
+              message: `${issue.message} This text uses ${uses}, which this save changes. Fix the text or its dependency before saving.`,
+            }
+          : {}),
+        severity: blocked ? issue.severity : ('warning' as const),
         hash: tooltip.hash,
         lang,
-      }),
-    );
+      };
+    });
   });
 }
 
@@ -119,8 +187,9 @@ const maxListedTooltips = 8;
 
 /**
  * Creating or renaming a global is only allowed if no tooltip defines the same name locally in
- * that language. Only names this change adds are checked, so an already-clashing global stays
- * editable; the clashing tooltips are blocked from saving instead.
+ * that language. Only names this change adds are checked, so a global that already clashes stays
+ * editable. A clashing tooltip is blocked from saving only when its own text is edited or this
+ * change causes the clash (see validateTooltip); an untouched clashing tooltip only warns.
  */
 export function validateGlobalAdditions(
   change: { base: Tooltip | null; next: Tooltip },

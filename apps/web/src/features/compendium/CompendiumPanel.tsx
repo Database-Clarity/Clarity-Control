@@ -46,7 +46,8 @@ import { confirmCompendiumSelection } from './selection';
 import { usePaneMatch } from './usePaneMatch';
 import { useDisplayMatches } from './useDisplayMatches';
 import { preparedDecisions } from './reviewViewCache';
-import { matchLocation } from './sourceLocation';
+import { linkLocation, matchLocation } from './sourceLocation';
+import { SourceRef } from './SourceRef';
 import { usePaneStatus } from './paneStatus';
 import { createPaneDecodeGuard } from './paneDecodeActivity';
 import { useSteppingActivity } from '../navigation/steppingActivity';
@@ -469,6 +470,13 @@ const PaneContents = memo(function PaneContents({
     () => (match ? matchLocation(match, compendium) : undefined),
     [match, compendium],
   );
+  // A saved link whose row no longer resolves: its tab, but no range that may now be wrong.
+  const staleWhere = useMemo(
+    () =>
+      // Without a loaded source (a failed load) the saved place is shown as saved.
+      link && !match ? linkLocation(link, compendium, { stale: !!resolution }) : undefined,
+    [link, resolution, match, compendium],
+  );
   const handoff = `#/compendium?hash=${base.hash}&show=all`;
   const approvalChanged = approved && matched && !sameCell(approved, matched.row.cell);
   const comparisonBefore = link && match ? link.snapshot : !link ? approved : undefined;
@@ -612,15 +620,7 @@ const PaneContents = memo(function PaneContents({
                   ? 'Compendium sheet changed since approval.'
                   : 'Matches the approval evidence.'
                 : 'No saved snapshot to compare.'}
-              <a
-                className={styles.sourceLink}
-                href={matchedWhere?.href}
-                target="_blank"
-                rel="noreferrer"
-                title="Open in the sheet"
-              >
-                {matchedWhere?.label} ↗
-              </a>
+              {matchedWhere && <SourceRef location={matchedWhere} block />}
             </p>
             <div style={{ contain: 'layout style' }}>
               {approved ? (
@@ -666,9 +666,6 @@ const PaneContents = memo(function PaneContents({
           {link && (
             <>
               <span>
-                {link.rowKey} {link.section && `/ ${link.section}`} / tab {link.gid}
-              </span>{' '}
-              <span>
                 {draft && !base.compendium ? 'Draft snapshot' : 'Snapshot'}{' '}
                 <When value={link.snapshotAt} />
               </span>{' '}
@@ -692,15 +689,7 @@ const PaneContents = memo(function PaneContents({
                       : draft && !base.compendium
                         ? 'Matches the local draft snapshot.'
                         : 'Matches the saved snapshot.'}
-                  <a
-                    className={styles.sourceLink}
-                    href={linkedWhere?.href}
-                    target="_blank"
-                    rel="noreferrer"
-                    title="Open in the sheet"
-                  >
-                    {linkedWhere?.label} ↗
-                  </a>
+                  {linkedWhere && <SourceRef location={linkedWhere} block />}
                 </p>
                 {!roomy && <div className={styles.diffModes}>{diffToggle}</div>}
                 {preparedDiff.pair ? (
@@ -754,9 +743,9 @@ const PaneContents = memo(function PaneContents({
                       key={`${candidate.tab.gid}:${candidate.row.rowIndex}:${candidate.row.anchor?.col ?? 0}`}
                     >
                       <p>
-                        {candidate.tab.name} / {candidate.row.name}{' '}
-                        {candidate.row.section && `/ ${candidate.row.section}`} (
-                        {Math.round(candidate.similarity * 100)}% content match)
+                        {candidate.row.name} ({Math.round(candidate.similarity * 100)}% content
+                        match)
+                        <SourceRef location={matchLocation(candidate, compendium)} block />
                       </p>
                       <SheetCell background={candidate.row.cell.background}>
                         <RichCell cell={candidate.row.cell} />
@@ -798,6 +787,11 @@ const PaneContents = memo(function PaneContents({
             {resolution?.status === 'missing' && (
               <p className={styles.warning}>
                 Needs relink: no matching row or similar content found.
+              </p>
+            )}
+            {!match && staleWhere && (
+              <p className={styles.staleSource}>
+                Snapshot from <SourceRef location={staleWhere} />
               </p>
             )}
             {!match && (

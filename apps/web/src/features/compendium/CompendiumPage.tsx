@@ -5,6 +5,8 @@ import { resolveAlias } from '@clarity/core';
 import { useDataStore } from '../../stores/data';
 import { canonicalHash, itemFor } from '../navigation/catalog';
 import { compendiumChanges } from './tracking';
+import { SourceRef } from './SourceRef';
+import { linkLocation, matchLocation } from './sourceLocation';
 import { useCompendiumStore } from './store';
 import { CompendiumFreshness } from './CompendiumFreshness';
 import styles from './Compendium.module.scss';
@@ -125,7 +127,18 @@ export function CompendiumPage() {
                       ? 'Moved'
                       : 'Changed'}
                 </span>{' '}
-                <small>{tooltip.compendium?.rowKey}</small>
+                {tooltip.compendium && (
+                  <small>
+                    <SourceRef
+                      location={
+                        'row' in resolution
+                          ? matchLocation(resolution, data)
+                          : linkLocation(tooltip.compendium, data, { stale: true })
+                      }
+                      show="tab"
+                    />
+                  </small>
+                )}
               </li>
             ))}
       </ul>

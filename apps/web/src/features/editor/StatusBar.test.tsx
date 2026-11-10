@@ -42,6 +42,8 @@ describe('status bar', () => {
     expect(q('[data-editor-status]')?.textContent).toContain('Ln 3, Col 7');
     expect(host.textContent).toContain('Markup help');
     expect(host.textContent).not.toContain('character warning');
+    // Issues have their own item, shown only while there are some.
+    expect(q('[data-status-issues]')).toBeNull();
     expect(host.textContent).not.toContain('Show preview');
     expect(q('[data-status-reason]')).toBeNull();
   });
@@ -58,7 +60,8 @@ describe('status bar', () => {
       }),
     );
     expect(q('[data-status-reason]')?.textContent).toBe('Archived tooltip - read only');
-    expect(host.textContent).toContain('2 markup issues');
+    expect(q('[data-status-issues]')?.textContent).toBe('2 issues');
+    expect(q('[data-status-help]')?.textContent).toBe('Markup helpHelp');
     expect(host.textContent).toContain('2 character warnings');
     expect(q('[data-severity="error"]')).not.toBeNull();
   });
@@ -100,19 +103,17 @@ describe('editor overlays', () => {
     />
   );
 
-  it('opens the help and glyph panels over the text, not inside it, and never touches the text', () => {
+  it('opens the glyph panel over the text, not inside it, and never touches the text', () => {
     // U+1F81A (an arrow) is not a vetted game glyph, so it warns and offers a replacement.
     render(editor('Deals 20% \u{1F81A} 30%'));
     const content = q('.cm-content')!;
     const before = content.textContent;
     expect(q('[data-editor-overlay]')).toBeNull();
-    click(host.querySelector('button[aria-controls="editor-panel-help"]'));
+    click(host.querySelector('button[aria-controls="editor-panel-glyphs"]'));
     const overlay = q('[data-editor-overlay]')!;
-    expect(overlay.id).toBe('editor-panel-help');
+    expect(overlay.id).toBe('editor-panel-glyphs');
     expect(overlay.closest('.cm-editor')).toBeNull();
     expect(host.querySelector('[data-editor-root]')?.contains(overlay)).toBe(true);
-    click(host.querySelector('button[aria-controls="editor-panel-glyphs"]'));
-    expect(q('[data-editor-overlay]')?.id).toBe('editor-panel-glyphs');
     expect(q('[data-editor-overlay]')?.textContent).toContain('Replace first');
     expect(q('.cm-content')).toBe(content);
     expect(content.textContent).toBe(before);
@@ -121,8 +122,8 @@ describe('editor overlays', () => {
   });
 
   it('closes a panel with Escape in the text before Escape does anything else', () => {
-    render(editor('Deals 20% damage'));
-    click(host.querySelector('button[aria-controls="editor-panel-help"]'));
+    render(editor('Deals 20% \u{1F81A} damage'));
+    click(host.querySelector('button[aria-controls="editor-panel-glyphs"]'));
     expect(q('[data-editor-overlay]')).not.toBeNull();
     const content = q('.cm-content')!;
     act(() => {

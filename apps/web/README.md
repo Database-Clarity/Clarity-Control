@@ -75,9 +75,27 @@ CodeMirror has native `spellcheck="true"` and a BCP-47 `lang` on its editable
 content (Chinese `zh-chs`/`zh-cht` map to `zh-Hans`/`zh-Hant`). Native underlines
 require spelling enabled and the corresponding browser dictionary installed;
 the application cannot install or force a dictionary. Right-click a misspelling
-for native suggestions. Ctrl/Cmd+Space completes variables, title references,
-import names/targets and formatting; Ctrl/Cmd+Z undoes; Ctrl/Cmd+/ toggles comments.
-Scroll Lock and Ctrl/Cmd+Shift+F align table columns in one undoable transaction.
+for native suggestions. Ctrl/Cmd+Z undoes.
+
+Editor keys (the markup help and the status bar hints read them from
+`features/editor/help/reference.ts`):
+
+| Keys | Does |
+|---|---|
+| F1 | Markup help on the markup under the caret (over the Ctrl+Space menu: on its highlighted option); F1 or Esc closes |
+| Ctrl/Cmd+Space | Suggest markup here; again for the next category |
+| Tab, Shift+Tab | Next, previous snippet blank (a bare Tab does nothing; Esc, then Tab leaves the editor) |
+| Alt+Enter | Open the caret's tag |
+| Ctrl/Cmd+/ | Comment the line |
+| Ctrl/Cmd+F, Ctrl/Cmd+H | Find, replace |
+| F12, Ctrl/Cmd+Click | Go to definition |
+| Ctrl/Cmd+K Ctrl/Cmd+I | Peek at contents |
+| F8, Shift+F8 | Next, previous conflict |
+| Ctrl/Cmd+Shift+. | Raw markup on, off |
+| Ctrl/Cmd+. | Markup row on, off |
+| Alt+P | Show the preview |
+| Ctrl/Cmd+K D | Changes since the last save |
+
 Changing to an externally supplied document clears undo history, preventing
 undo from restoring a different tooltip or language.
 
