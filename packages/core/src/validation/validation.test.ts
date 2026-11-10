@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateText, validateTooltip } from './index.js';
+import { validateText, validateTextWithReads, validateTooltip } from './index.js';
 
 const globals = {
   variables: 'var damage = 10',
@@ -91,13 +91,13 @@ describe('validateTooltip with an unedited text that uses something the save cha
     associated: [],
   } as never;
 
-  it('keeps the error, with the reason, when reach names what it uses', () => {
+  it('keeps the error, with the reason, when recorded reads identify a changed input', () => {
     expect(
       validateTooltip(
         tooltip,
         () => globals,
         tooltip,
-        () => '"Donor" (124)',
+        { aliases: {}, affectedBy: () => '"Donor" (124)' },
       ),
     ).toMatchObject([
       {
@@ -106,7 +106,7 @@ describe('validateTooltip with an unedited text that uses something the save cha
       },
     ]);
   });
-  it('only warns without a reach, or when reach finds nothing', () => {
+  it('only warns without a save context, or when no recorded input changes', () => {
     expect(validateTooltip(tooltip, () => globals, tooltip)).toMatchObject([
       { severity: 'warning' },
     ]);
@@ -115,8 +115,28 @@ describe('validateTooltip with an unedited text that uses something the save cha
         tooltip,
         () => globals,
         tooltip,
-        () => undefined,
+        { aliases: {}, affectedBy: () => undefined },
       ),
     ).toMatchObject([{ severity: 'warning' }]);
+  });
+});
+
+describe('recorded validation reads', () => {
+  it('records alias keys, missing imports, from global, and global title imports in their language', () => {
+    const catalog = { '456': 'Shared', '1': 'Global' };
+    const recorded = validateTextWithReads(
+      'import main from 456\nimport main from global', 'fr',
+      { variables: '', titles: 'title Unused (\nimport x from 999\n)', imports: catalog },
+      false, 10, { 456: { to: 123, kind: 'sandbox' } },
+    );
+    expect(recorded.reads.lang).toBe('fr');
+    expect([...recorded.reads.imports]).toEqual(expect.arrayContaining([
+      ['456', 123], ['global', 1], ['1', 1], ['999', 999],
+    ]));
+    expect(recorded.issues).toEqual(validateText(
+      'import main from 456\nimport main from global', 'fr',
+      { variables: '', titles: 'title Unused (\nimport x from 999\n)', imports: catalog }, false, 10,
+    ));
+    expect(recorded.reads.sources.has('Shared')).toBe(true);
   });
 });

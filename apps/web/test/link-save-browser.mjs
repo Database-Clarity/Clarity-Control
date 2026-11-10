@@ -205,6 +205,20 @@ try {
     assert.deepEqual(errors, []);
     console.log('PASS 5: item without a saved tooltip is refused with a plain explanation');
   }
+  // 6. Only the donor is drafted. Validation still names and protects its saved dependent.
+  {
+    const { page, errors } = await open();
+    await page.getByRole('button', { name: /^Confirm/ }).waitFor();
+    await page.evaluate(() => window.linkSave.draftBatchRemovingImport(true));
+    await reviewDrafts(page);
+    const save = page.getByRole('button', { name: 'Save changes' });
+    await save.waitFor();
+    assert.equal(await save.isDisabled(), true, 'an outside dependent blocks the save');
+    await page.getByText('Dependent tooltip "User 121" (121)', { exact: false }).first().waitFor();
+    assert.equal(await page.evaluate(() => window.linkSave.saves.length), 0);
+    assert.deepEqual(errors, []);
+    console.log('PASS 6: an outside dependent blocks the save, with its name shown');
+  }
 } finally {
   await browser?.close();
   await server?.close();

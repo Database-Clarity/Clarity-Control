@@ -1,3 +1,4 @@
+import { resolveAlias, type Aliases } from '../aliases.js';
 import { languages, type Lang } from '../languages.js';
 import {
   describeGlobalClash,
@@ -28,6 +29,40 @@ export interface TooltipValidationIssue extends ValidationIssue {
 }
 
 export const emptyEnglishMessage = 'English text must not be empty.';
+
+export interface ValidationReads {
+  lang: Lang;
+  /** Actual catalogue keys, including missing targets, with aliases resolved. */
+  imports: ReadonlyMap<string, number>;
+  /** Authored text, global title bodies, and every document the resolver read. */
+  sources: ReadonlySet<string>;
+}
+
+/** Observe the real validator, including title preparation and mid-line import splices. */
+export function validateTextWithReads(
+  text: string,
+  lang: Lang,
+  globals: MarkupGlobals,
+  requireEnglish: boolean,
+  selfHash: number,
+  aliases: Aliases,
+): { issues: ValidationIssue[]; reads: ValidationReads } {
+  const imports = new Map<string, number>();
+  const sources = new Set([text, globals.titles]);
+  const catalog = new Proxy(globals.imports ?? {}, {
+    get(target, key, receiver) {
+      const value: unknown = Reflect.get(target, key, receiver);
+      if (typeof key === 'string') {
+        const hash = key === 'global' ? 1 : Number(key);
+        if (Number.isInteger(hash)) imports.set(key, resolveAlias(hash, aliases));
+        if (typeof value === 'string') sources.add(value);
+      }
+      return value;
+    },
+  });
+  const issues = validateText(text, lang, { ...globals, imports: catalog }, requireEnglish, selfHash);
+  return { issues, reads: { lang, imports, sources } };
+}
 
 export function validateText(
   text: string,
@@ -92,8 +127,8 @@ export function validateText(
  * Validates every language of a tooltip. With `base` (the saved tooltip this one replaces, or
  * null for a new tooltip), an error in a language whose text this change does not edit is listed
  * as a warning, and an empty unwritten English text is not reported at all (a link-only or
- * metadata-only change leaves it alone). The exception is `reach`, which says what an unedited
- * text uses that the same save changes (see batchReach): such an error stays an error, with the
+ * metadata-only change leaves it alone). The optional save context records the real validator's
+ * reads and says which inputs this save changes: such an error stays an error, with the
  * reason added to its message, because the save may have caused it. Without `base`, every
  * language counts as edited.
  */
@@ -101,7 +136,7 @@ export function validateTooltip(
   tooltip: Tooltip,
   globalsFor: (lang: Lang) => MarkupGlobals,
   base?: Tooltip | null,
-  reach?: (lang: Lang, text: string) => string | undefined,
+  context?: { aliases: Aliases; affectedBy(reads: ValidationReads): string | undefined },
 ): TooltipValidationIssue[] {
   const languages = new Set<Lang>(['en', ...(Object.keys(tooltip.text) as Lang[])]);
   // Reserved global documents are declaration libraries, not English descriptions.
@@ -109,16 +144,14 @@ export function validateTooltip(
   return [...languages].flatMap((lang) => {
     const text = tooltip.text[lang]?.text ?? '';
     const edited = !base || (base.text[lang]?.text ?? '') !== text;
-    const issues = validateText(
-      text,
-      lang,
-      globalsFor(lang),
-      requireEnglish && edited,
-      tooltip.hash,
-    );
+    const globals = globalsFor(lang);
+    const recorded = context
+      ? validateTextWithReads(text, lang, globals, requireEnglish && edited, tooltip.hash, context.aliases)
+      : undefined;
+    const issues = recorded?.issues ?? validateText(text, lang, globals, requireEnglish && edited, tooltip.hash);
     const uses =
       !edited && issues.some((issue) => issue.severity === 'error')
-        ? reach?.(lang, text)
+        ? recorded && context?.affectedBy(recorded.reads)
         : undefined;
     return issues.map((issue) => {
       const blocked = edited || issue.severity === 'warning' || uses !== undefined;
@@ -126,7 +159,7 @@ export function validateTooltip(
         ...issue,
         ...(uses !== undefined && issue.severity === 'error'
           ? {
-              message: `${issue.message} It already had an error and uses ${uses}, which this save changes. Fix it, or save it separately.`,
+              message: `${issue.message} This text uses ${uses}, which this save changes. Fix the text or its dependency before saving.`,
             }
           : {}),
         severity: blocked ? issue.severity : ('warning' as const),
@@ -136,8 +169,6 @@ export function validateTooltip(
     });
   });
 }
-
-export { batchReach, type BatchChange, type BatchDocuments } from './reach.js';
 
 const maxListedTooltips = 8;
 

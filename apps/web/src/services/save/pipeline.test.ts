@@ -111,7 +111,7 @@ describe('validation is scoped to text the change edits', () => {
     );
     expect(errors(issues).map((issue) => issue.hash)).toEqual([124]);
   });
-  describe('an error in unchanged text (rule A: blocks only if it uses something this save changes)', () => {
+  describe('an error in unchanged text (recorded reads of inputs this save changes)', () => {
     const newline = String.fromCharCode(10);
     const lines = (...parts: string[]) => parts.join(newline);
     const hidden = (name: string, ...body: string[]) =>
@@ -197,6 +197,15 @@ describe('validation is scoped to text the change edits', () => {
         ],
       );
       expect(blocks123(run.issues)).toBe(true);
+    });
+    it('blocks the mid-line splice read made by the real resolver (Q2)', () => {
+      const y = hidden('y', 'Shared');
+      const run = save('Aimport x from 52\nimport x from 5', {
+        5: hidden('x', 'foo', 'import y from 4'), 4: y, 42: y,
+      }, [[42, y, 'Export removed']]);
+      expect(errors(run.issues)).toContainEqual(expect.objectContaining({
+        hash: 123, message: expect.stringContaining('Unresolved import "y" from 42.'),
+      }));
     });
     it('only warns for two untouched import cycles on a metadata-only save (F2)', () => {
       const run = save(lines('import foo from 124', 'import bar from 125'), {
@@ -401,10 +410,105 @@ describe('save preparation', () => {
     const base = { ...tooltip, hash: 2, text: { en: { ...english, text: 'var other = 1' } } };
     const added = { ...base, text: { en: { ...english, text: 'var other = 1\nvar range = 5' } } };
     const issues = validateChanges([{ hash: 2, base, next: added }], data);
-    expect(issues.filter((issue) => issue.severity === 'error')).toEqual([
+    expect(issues.filter((issue) => issue.severity === 'error')).toEqual(expect.arrayContaining([
       expect.objectContaining({ hash: 2, message: expect.stringContaining('tooltip 123') }),
-    ]);
+      expect.objectContaining({ hash: 123, message: expect.stringContaining('Dependent tooltip') }),
+    ]));
     const renamed = { ...base, text: { en: { ...english, text: 'var free = 1' } } };
     expect(validateChanges([{ hash: 2, base, next: renamed }], data)).toEqual([]);
+  });
+});
+
+describe('reverse dependents outside the batch', () => {
+  const entry = (text: string) => ({ ...english, text });
+  const doc = (hash: number, text: string, fr?: string) => ({
+    ...tooltip, hash, text: { en: entry(text), ...(fr === undefined ? {} : { fr: entry(fr) }) },
+  });
+  const hidden = (name: string, text: string) => `export hidden ${name} (\n${text}\n)`;
+  const errors = (issues: ReturnType<typeof validateChanges>) => issues.filter((issue) => issue.severity === 'error');
+
+  it.each([false, true])('blocks an export removal, via an alias: %s (P1), and names the dependent', async (alias) => {
+    const data = editorData();
+    const donor = doc(124, hidden('foo', 'Shared'));
+    data.bundle.tooltips[124] = donor;
+    data.bundle.tooltips[123] = doc(123, `import foo from ${alias ? 456 : 124}`);
+    if (alias) data.aliases[456] = { to: 124, kind: 'sandbox' };
+    const changes = [{ hash: 124, base: donor, next: doc(124, 'Removed export') }];
+    expect(errors(validateChanges(changes, data))).toContainEqual(expect.objectContaining({
+      hash: 123, message: expect.stringContaining('Dependent tooltip "Perk" (123)'),
+    }));
+    await expect(prepareChanges(changes, user, data)).rejects.toThrow('dependent tooltip(s): 123');
+  });
+  it('only warns for an unrelated pre-existing error, and accepts a working dependent', () => {
+    const data = editorData();
+    const donor = doc(124, hidden('foo', 'Shared'));
+    data.bundle.tooltips[124] = donor;
+    data.bundle.tooltips[123] = doc(123, 'import foo from 124');
+    data.bundle.tooltips[125] = doc(125, 'import broken from 999');
+    expect(errors(validateChanges([
+      { hash: 124, base: donor, next: doc(124, hidden('foo', 'Still works')) },
+    ], data))).toEqual([]);
+  });
+  it('validates transitive dependents and accepts their repair in the same batch', () => {
+    const data = editorData();
+    const donor = doc(124, hidden('foo', 'Shared'));
+    data.bundle.tooltips[124] = donor;
+    data.bundle.tooltips[125] = doc(125, hidden('bar', 'import foo from 124'));
+    data.bundle.tooltips[123] = doc(123, 'import bar from 125');
+    const changes = [{ hash: 124, base: donor, next: doc(124, 'Removed') }];
+    expect(errors(validateChanges(changes, data)).map((issue) => issue.hash)).toContain(123);
+    expect(errors(validateChanges([
+      ...changes,
+      { hash: 125, base: data.bundle.tooltips[125], next: doc(125, hidden('bar', 'Repaired')) },
+    ], data))).toEqual([]);
+  });
+  it('blocks removal of an export from global', () => {
+    const data = editorData();
+    const donor = doc(1, hidden('foo', 'Shared'));
+    data.bundle.tooltips[1] = donor;
+    data.bundle.tooltips[123] = doc(123, 'import foo from global');
+    expect(errors(validateChanges([{ hash: 1, base: donor, next: doc(1, '') }], data)))
+      .toContainEqual(expect.objectContaining({ hash: 123 }));
+  });
+  it.each([false, true])('blocks a language drop through an unused global title import, dependent in batch: %s (Q1)', (inBatch) => {
+    const data = editorData();
+    const donor = doc(500, 'English', hidden('x', 'Cinq'));
+    const dependent = doc(123, 'English', 'French');
+    data.bundle.tooltips[500] = donor;
+    data.bundle.tooltips[3] = doc(3, '', 'title T (\nimport x from 500\n)');
+    data.bundle.tooltips[123] = dependent;
+    const changes = [
+      { hash: 500, base: donor, next: doc(500, 'English') },
+      ...(inBatch ? [{ hash: 123, base: dependent, next: { ...dependent, associated: [30] } }] : []),
+    ];
+    expect(errors(validateChanges(changes, data))).toContainEqual(expect.objectContaining({
+      hash: 123, lang: 'fr', message: expect.stringContaining('Unresolved import "x" from 500.'),
+    }));
+  });
+  it('finds an outside mid-line splice dependent (Q2)', () => {
+    const data = editorData();
+    const y = doc(42, hidden('y', 'Shared'));
+    Object.assign(data.bundle.tooltips, {
+      123: doc(123, 'Aimport x from 52\nimport x from 5'),
+      5: doc(5, hidden('x', 'foo\nimport y from 4')), 4: doc(4, hidden('y', 'Shared')), 42: y,
+    });
+    expect(errors(validateChanges([{ hash: 42, base: y, next: doc(42, 'Removed') }], data)))
+      .toContainEqual(expect.objectContaining({ hash: 123, message: expect.stringContaining('from 42') }));
+  });
+  it('checks every global title body when the library itself changes', () => {
+    const data = editorData();
+    const titles = doc(3, 'title T (\nHealthy\n)');
+    data.bundle.tooltips[3] = titles;
+    const changes = [{ hash: 3, base: titles, next: doc(3, 'title T (\nimport self\n)') }];
+    expect(errors(validateChanges(changes, data))).toContainEqual(expect.objectContaining({ hash: 123 }));
+  });
+  it('does not lose a new error hidden behind an existing equal message (P7)', () => {
+    const data = editorData();
+    const donor = doc(124, hidden('foo', 'Shared'));
+    data.bundle.tooltips[124] = donor;
+    data.bundle.tooltips[123] = doc(123, 'import bad from 999\nimport foo from 124');
+    expect(errors(validateChanges([{
+      hash: 124, base: donor, next: doc(124, hidden('foo', 'import bad from 999')),
+    }], data))).toContainEqual(expect.objectContaining({ hash: 123 }));
   });
 });

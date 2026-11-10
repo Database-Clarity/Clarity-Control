@@ -1,11 +1,9 @@
 import { languageLabel } from '../../languageLabels';
 import {
   type CompendiumData,
-  batchReach,
   countConflicts,
   emptyEnglishMessage,
   languages,
-  type Lang,
   maskConflicts,
   resolveAlias,
   stableStringify,
@@ -17,7 +15,7 @@ import {
 import { canEditLanguage, canEditTooltipFields } from '../../features/auth/permissions';
 import type { EditorData } from '../../stores/data';
 import type { Change, Me } from '../api';
-import { tooltipImports } from '../tooltipImports';
+import { saveDependencies } from './dependencies';
 import { enrichTooltip } from './enrichers';
 
 export function permissionError(changes: Change[], user: Me | null): string | null {
@@ -87,37 +85,14 @@ export function validateChanges(changes: Change[], data: EditorData): TooltipVal
     }
     tooltips[change.hash] = withoutMarkers(change.next);
   }
-  // The same catalogue before this save: every change replaced by its base (a new tooltip
-  // removed). batchReach follows imports through both, so a removed or new target counts.
+  // Restore draft bases for the before snapshot, including recovered drafts and new tooltips.
   const before = { ...data.bundle.tooltips };
   for (const change of changes) {
     if (change.base) before[change.hash] = withoutMarkers(change.base);
     else delete before[change.hash];
   }
-  const importsOf = (catalogue: Record<string, Tooltip>) =>
-    new Map(languages.map((lang) => [lang, tooltipImports(catalogue, {}, lang, data.aliases)]));
-  const imports = importsOf(tooltips);
-  const importsBefore = importsOf(before);
-  const globalsIn = (byLanguage: typeof imports, hash: number) => (lang: Lang) => {
-    const catalog = byLanguage.get(lang)!;
-    const item = data.items[hash];
-    return {
-      variables: catalog[2] ?? '',
-      titles: catalog[3] ?? '',
-      imports: catalog,
-      type: data.categories.find((category) => category.id === item?.categoryId)?.legacyType,
-    };
-  };
-  const reach = batchReach(
-    changes,
-    {
-      before: (lang, hash) => importsBefore.get(lang)![String(hash)],
-      after: (lang, hash) => imports.get(lang)![String(hash)],
-    },
-    data.aliases,
-    (hash) => data.items[hash]?.name ?? `Tooltip ${hash}`,
-  );
-  return changes.flatMap(({ base, next: unmasked }) => {
+  const dependencies = saveDependencies(changes, before, tooltips, data);
+  const issues = changes.flatMap(({ base, next: unmasked }) => {
     const next = tooltips[unmasked.hash]!;
     return [
       ...conflictMarkerIssues([{ hash: unmasked.hash, base, next: unmasked }]),
@@ -126,7 +101,10 @@ export function validateChanges(changes: Change[], data: EditorData): TooltipVal
       // same save changes (an imported document, a global it mentions): then the save may have
       // caused it. Any other error in unchanged text only warns, so a link-only change on a
       // tooltip with unwritten English is never refused.
-      ...validateTooltip(next, globalsIn(imports, next.hash), base, reach).map((issue) =>
+      ...validateTooltip(next, (lang) => dependencies.globalsFor(next.hash, lang), base, {
+        aliases: data.aliases,
+        affectedBy: dependencies.affectedBy,
+      }).map((issue) =>
         // Saving never creates a tooltip without English text. Say so where the user acts: a
         // Compendium link on an item with no saved tooltip is refused for this reason alone.
         !base && issue.lang === 'en' && issue.message === emptyEnglishMessage
@@ -135,6 +113,7 @@ export function validateChanges(changes: Change[], data: EditorData): TooltipVal
       ),
     ];
   });
+  return [...issues, ...dependencies.outsideIssues()];
 }
 
 export async function prepareChanges(
@@ -147,7 +126,8 @@ export async function prepareChanges(
   if (denied) throw new Error(denied);
   const issues = validateChanges(changes, data);
   if (issues.some((issue) => issue.severity === 'error')) {
-    throw new Error('Validation errors must be fixed before saving.');
+    const dependents = [...new Set(issues.filter((issue) => issue.severity === 'error' && !changes.some((change) => change.hash === issue.hash)).map((issue) => issue.hash))];
+    throw new Error(`Validation errors must be fixed before saving.${dependents.length ? ` This save would break dependent tooltip(s): ${dependents.join(', ')}.` : ''}`);
   }
   return Promise.all(
     changes.map(async (change) => ({

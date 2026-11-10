@@ -18,7 +18,7 @@ import { guidedFixture } from './guided-fixture';
 declare global {
   interface Window {
     __linkSaveProposals: unknown;
-    linkSave: { saves: unknown[]; draftBatchRemovingImport(): void; staleBaseDraft(): void };
+    linkSave: { saves: unknown[]; draftBatchRemovingImport(donorOnly?: boolean): void; staleBaseDraft(): void };
   }
 }
 const stamp = '2026-11-01T00:00:00Z';
@@ -117,8 +117,8 @@ window.fetch = async (input, init) => {
 window.linkSave = {
   saves,
   /** 121 gets a link-only draft; 120 drops the block 121 imports (a sibling change in one batch). */
-  draftBatchRemovingImport() {
-    useDraftStore.getState().updateDraft(user, (next) => ({ ...next, associated: [30] }));
+  draftBatchRemovingImport(donorOnly = false) {
+    if (!donorOnly) useDraftStore.getState().updateDraft(user, (next) => ({ ...next, associated: [30] }));
     useDraftStore.getState().updateDraft(donor, (next) => ({
       ...next,
       text: text('No export any more'),
