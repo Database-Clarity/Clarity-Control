@@ -6,6 +6,7 @@ import {
   type MarkupGlobals,
 } from '@clarity/core';
 import { markupEntries, type MarkupEntry } from '../markupRow/entries';
+import { previousCategoryLabel } from '../../../services/categoryLabels';
 
 /**
  * The markup help's reference: where each registry entry sits on the sheet, the rows that are not
@@ -74,7 +75,11 @@ export const helpGlobals: MarkupGlobals = {
   // The import row's example names a real tooltip; its text stands in, so the row checks clean.
   imports: { '554409585': 'Its main text.' },
 };
-export const helpEnhancedGlobals: MarkupGlobals = { ...helpGlobals, type: 'Weapon Trait Enhanced' };
+export const helpEnhancedGlobals: MarkupGlobals = {
+  ...helpGlobals,
+  // The parser still takes the generator's legacy type, rather than the presented UI label.
+  type: previousCategoryLabel('weapon-trait-enhanced'),
+};
 
 /** The rows that are not markup options. */
 const extraRows: readonly Omit<HelpRow, 'words'>[] = [
