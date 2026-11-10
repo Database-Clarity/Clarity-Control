@@ -13,6 +13,17 @@ import {
 import { confirmCompendiumSelection } from './selection';
 import { Multiline, RichCell } from './RichCell';
 import { PickerGrid } from './PickerGrid';
+import { SourceRef } from './SourceRef';
+import { cellLocation, matchLocation, regionRange } from './sourceLocation';
+
+const spanOf = (cell: { row: number; col: number; rowSpan?: number; colSpan?: number }) => ({
+  row: cell.row,
+  col: cell.col,
+  rows: cell.rowSpan ?? 1,
+  cols: cell.colSpan ?? 1,
+});
+/** A cell's sheet address (`C12`, or `C12:F12` when merged), as the sheet shows it. */
+const cellAddress = (cell: Parameters<typeof spanOf>[0]) => regionRange(spanOf(cell));
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import styles from './Compendium.module.scss';
 
@@ -92,9 +103,12 @@ export const CellPicker = memo(function CellPicker({
         {hits.slice(0, 100).map((entry) => (
           <li key={`${entry.row}:${entry.col}`}>
             <button type="button" onClick={() => pickAnchor({ row: entry.row, col: entry.col })}>
-              Use anchor at row {entry.row}, column {entry.col + 1}:{' '}
+              Use anchor at {cellAddress(entry)}:{' '}
               <Multiline>{entry.cell.plain.slice(0, 160)}</Multiline>
-            </button>
+            </button>{' '}
+            <small>
+              <SourceRef location={cellLocation(tab, spanOf(entry))} show="range" />
+            </small>
           </li>
         ))}
       </ul>
@@ -102,8 +116,26 @@ export const CellPicker = memo(function CellPicker({
       {anchor && (
         <>
           <p>
-            Name anchor: {row?.name}. Select description cells in reading order; click again to
-            remove. Numbers show selection order.
+            Name anchor: {row?.name}
+            {anchorCell && (
+              <>
+                {' ('}
+                <SourceRef location={cellLocation(tab, spanOf(anchorCell))} show="range" />)
+              </>
+            )}
+            . Select description cells in reading order; click again to remove. Numbers show
+            selection order.
+          </p>
+          <p className={styles.shownCells}>
+            Shown:{' '}
+            <SourceRef
+              location={cellLocation(tab, {
+                row: firstRow,
+                col: 0,
+                rows: lastRow - firstRow + 1,
+                cols: columns,
+              })}
+            />
           </p>
           {phone && (
             <div ref={list} className={styles.phoneCells} aria-label="Description cell list">
@@ -113,7 +145,12 @@ export const CellPicker = memo(function CellPicker({
                     Back to cells
                   </button>
                   <p>
-                    Row {detail.row}, column {detail.col + 1}
+                    <SourceRef
+                      location={cellLocation(
+                        tab,
+                        spanOf(compendiumCellAt(tab, detail) ?? { ...detail }),
+                      )}
+                    />
                   </p>
                   {(() => {
                     const entry = compendiumCellAt(tab, detail);
@@ -162,7 +199,7 @@ export const CellPicker = memo(function CellPicker({
                           setDetail({ row: entry.row, col: entry.col });
                         }}
                       >
-                        Row {entry.row}, column {entry.col + 1}
+                        {cellAddress(entry)}
                         {selected >= 0 ? ` (${selected + 1})` : ''}:{' '}
                         <Multiline>{entry.cell.plain.slice(0, 160)}</Multiline>
                       </button>
@@ -193,7 +230,15 @@ export const CellPicker = memo(function CellPicker({
               }
             />
           )}
-          <p>{offsets.length} selected</p>
+          <p>
+            {offsets.length} selected
+            {selection && offsets.length > 0 && (
+              <>
+                {' · '}
+                <SourceRef location={matchLocation(selection, data)} />
+              </>
+            )}
+          </p>
           {preview && (
             <div className={styles.cell}>
               <RichCell cell={preview} />
