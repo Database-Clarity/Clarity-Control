@@ -724,14 +724,27 @@ export function ClarityEditor({
     const cover = area?.querySelector<HTMLElement>('[data-editor-overlay][data-headed]');
     if (!diffOpen || !area || !cover) return;
     // Where the page scrolls and the editor is as tall as its text (a phone), the room would
-    // push the bar and the view down the page instead. There the text area keeps the height it
-    // had for as long as the view is open, and the text scrolls inside it.
+    // push the bar and the view down the page instead. There the text area grows no taller than
+    // it was for as long as the view is open, and the text scrolls inside it. Only a limit, never
+    // a fixed height: a text made shorter still takes the bar and the view up with it.
     const height = area.getBoundingClientRect().height;
+    let room: number | undefined;
     const fit = () => {
-      area.style.setProperty('--overlay-room', `${cover.offsetHeight}px`);
-      if (!area.style.height && area.getBoundingClientRect().height > height + 0.5)
-        area.style.height = `${height}px`;
-      view.current?.requestMeasure();
+      const grew = room !== undefined && cover.offsetHeight > room;
+      room = cover.offsetHeight;
+      area.style.setProperty('--overlay-room', `${room}px`);
+      if (!area.style.maxHeight && area.getBoundingClientRect().height > height + 0.5)
+        area.style.maxHeight = `${height}px`;
+      const editor = view.current;
+      if (!editor) return;
+      editor.requestMeasure();
+      // The view grew while open (a longer comparison arrived once typing paused) and now covers
+      // the caret: bring the caret back above it. Never on opening, which moves nothing.
+      if (!grew || !editor.hasFocus) return;
+      const head = editor.state.selection.main.head;
+      const caret = editor.coordsAtPos(head);
+      if (caret && caret.bottom > cover.getBoundingClientRect().top)
+        editor.dispatch({ effects: EditorView.scrollIntoView(head) });
     };
     fit();
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit);
@@ -739,7 +752,7 @@ export function ClarityEditor({
     return () => {
       observer?.disconnect();
       area.style.removeProperty('--overlay-room');
-      area.style.removeProperty('height');
+      area.style.removeProperty('max-height');
       view.current?.requestMeasure();
     };
   }, [diffOpen]);

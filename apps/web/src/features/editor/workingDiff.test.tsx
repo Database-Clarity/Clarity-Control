@@ -189,7 +189,7 @@ describe('working diff (changes since the last save)', () => {
     expect(area().style.getPropertyValue('--overlay-room')).toBe('0px');
     act(() => changes().click());
     expect(area().style.getPropertyValue('--overlay-room')).toBe('');
-    expect(area().style.height).toBe('');
+    expect(area().style.maxHeight).toBe('');
   });
 
   it('says so when the text is back at the saved version, and stays closable', () => {
