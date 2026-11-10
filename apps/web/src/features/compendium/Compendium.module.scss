@@ -636,3 +636,9 @@
   color: var(--text2);
   font-size: 0.75rem;
 }
+// The sheet window the cell picker shows, as a quiet link above it.
+.shownCells {
+  margin: 0.25rem 0;
+  color: var(--text2);
+  font-size: 0.75rem;
+}

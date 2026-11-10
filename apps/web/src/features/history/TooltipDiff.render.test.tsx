@@ -99,3 +99,39 @@ it('names where each Compendium snapshot came from in the sheet, never by raw gi
     await act(async () => root.unmount());
   }
 });
+
+it('shows a Compendium link that moved even when its snapshot text is unchanged', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const stamp = { updatedAt: '2026-11-04T00:00:00Z', updatedBy: 'test' };
+  const snapshot = { plain: 'Same', runs: [{ text: 'Same' }] };
+  const link = (gid: string) => ({
+    gid,
+    rowKey: 'Rampage',
+    snapshot,
+    snapshotAt: '2026-11-01T00:00:00.000Z',
+    sourceAnchor: { row: 5, col: 0 },
+    cells: [{ dRow: 0, dCol: 2 }],
+  });
+  const tooltip = { hash: 1, associated: [], text: { en: { text: 'Same', ...stamp } } };
+  try {
+    await act(async () =>
+      root.render(
+        <TooltipDiff
+          raw={false}
+          before={{ ...tooltip, compendium: link('77') }}
+          current={{ ...tooltip, compendium: link('88') }}
+        />,
+      ),
+    );
+    // Same label without the source loaded ("Sheet tab · C5"), but two different places.
+    const refs = [...host.querySelectorAll('[data-source-ref]')];
+    expect(refs.map((a) => a.getAttribute('href')!.split('#')[1])).toEqual([
+      'gid=77&range=C5',
+      'gid=88&range=C5',
+    ]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

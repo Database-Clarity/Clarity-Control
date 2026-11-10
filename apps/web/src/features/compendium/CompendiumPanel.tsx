@@ -473,7 +473,8 @@ const PaneContents = memo(function PaneContents({
   // A saved link whose row no longer resolves: its tab, but no range that may now be wrong.
   const staleWhere = useMemo(
     () =>
-      link && resolution && !match ? linkLocation(link, compendium, { stale: true }) : undefined,
+      // Without a loaded source (a failed load) the saved place is shown as saved.
+      link && !match ? linkLocation(link, compendium, { stale: !!resolution }) : undefined,
     [link, resolution, match, compendium],
   );
   const handoff = `#/compendium?hash=${base.hash}&show=all`;

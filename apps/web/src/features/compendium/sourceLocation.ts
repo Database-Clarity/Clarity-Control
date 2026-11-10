@@ -1,5 +1,6 @@
 import {
   compendiumCellAt,
+  normaliseCompendiumName,
   type CompendiumData,
   type CompendiumLink,
   type CompendiumMatch,
@@ -135,6 +136,62 @@ function spanAt(sheet: CompendiumSheet | undefined, position: CompendiumPosition
 }
 
 /**
+ * The description cells of a parsed row, recovered from the loaded grid: the cells on the name's
+ * rows (or, for card tabs, the row below) whose text, in reading order and joined by newlines, is
+ * exactly the row's text. Undefined when they cannot be proven, so no range is ever guessed.
+ */
+export function descriptionCells(
+  sheet: CompendiumSheet | undefined,
+  anchor: CompendiumPosition,
+  text: string,
+) {
+  const grid = sheet?.grid;
+  if (!grid || !text) return undefined;
+  const name = spanAt(sheet, anchor);
+  const lastNameRow = name.row + name.rows - 1;
+  for (const [first, last] of [
+    [name.row, lastNameRow],
+    [lastNameRow + 1, lastNameRow + 1],
+  ]) {
+    // Reading order as the parser read it: each row's cells left to right, including cells merged
+    // down from a row above; a merged cell counts once.
+    const entries = [];
+    const seen = new Set<object>();
+    for (let row = first; row <= last; row++)
+      for (const entry of grid
+        .filter(
+          (cell) =>
+            cell.row <= row &&
+            cell.row + (cell.rowSpan ?? 1) > row &&
+            !(cell.row === name.row && cell.col === name.col) &&
+            cell.cell.plain.trim(),
+        )
+        .sort((a, b) => a.col - b.col))
+        if (!seen.has(entry)) {
+          seen.add(entry);
+          entries.push(entry);
+        }
+    const picked = [];
+    let at = 0;
+    for (const entry of entries) {
+      const plain = entry.cell.plain;
+      if (!text.startsWith(plain, at)) continue;
+      const end = at + plain.length;
+      if (end !== text.length && text.charCodeAt(end) !== 10) continue; // a newline joins cells
+      picked.push({
+        row: entry.row,
+        col: entry.col,
+        rows: entry.rowSpan ?? 1,
+        cols: entry.colSpan ?? 1,
+      });
+      at = end + 1;
+      if (end === text.length) return picked;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Where a candidate sits in the sheet, as text and an `edit#gid=&range=` link. The match's own tab
  * is compacted (no grid) in worker replies, so spans come from the loaded source by gid.
  */
@@ -153,8 +210,11 @@ export function matchLocation(
     )
       .map(regionRange)
       .join(', ');
-  } else if (anchor) range = regionRange(spanAt(sheet, anchor));
-  else if (match.row.rowIndex) range = `${match.row.rowIndex}:${match.row.rowIndex}`;
+  } else if (anchor) {
+    // A parsed row is anchored on its NAME cell; the excerpt shown is its description cells.
+    const cells = descriptionCells(sheet, anchor, match.row.cell.plain);
+    range = cells ? cells.map(regionRange).join(', ') : `${anchor.row}:${anchor.row}`;
+  } else if (match.row.rowIndex) range = `${match.row.rowIndex}:${match.row.rowIndex}`;
   const section = sectionLabel(match.row.section);
   return {
     tab: match.tab.name,
@@ -169,15 +229,26 @@ export function matchLocation(
 
 /**
  * The saved link's own place (a draft or saved Compendium link). `stale` marks a snapshot whose row
- * no longer resolves: its saved position may be wrong, so only the tab is linked.
+ * no longer resolves: its saved position may be wrong, so only the tab is linked. The same holds,
+ * with the source loaded, when the saved anchor cell is gone or no longer holds the row's name.
  */
 export function linkLocation(
-  link: Pick<CompendiumLink, 'gid' | 'section' | 'sourceAnchor' | 'cells'>,
+  link: Pick<CompendiumLink, 'gid' | 'section' | 'sourceAnchor' | 'cells'> &
+    Partial<Pick<CompendiumLink, 'rowKey'>>,
   source?: CompendiumData | null,
   { stale = false }: { stale?: boolean } = {},
 ): SourceLocation {
   const sheet = source?.tabs.find((tab) => tab.gid === link.gid);
-  const anchor = stale ? undefined : link.sourceAnchor;
+  // With the source loaded, a saved anchor whose name cell is gone or renamed is stale too.
+  const anchorCell = sheet && link.sourceAnchor && compendiumCellAt(sheet, link.sourceAnchor);
+  const moved =
+    !!source &&
+    !!link.sourceAnchor &&
+    (!anchorCell ||
+      (link.rowKey !== undefined &&
+        normaliseCompendiumName(anchorCell.cell.plain.trim()) !==
+          normaliseCompendiumName(link.rowKey)));
+  const anchor = stale || moved ? undefined : link.sourceAnchor;
   const range = anchor
     ? link.cells?.length
       ? regionsOf(

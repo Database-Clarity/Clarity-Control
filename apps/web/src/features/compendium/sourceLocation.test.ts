@@ -4,6 +4,7 @@ import {
   cellLocation,
   columnLabel,
   compendiumSheetId,
+  descriptionCells,
   linkLocation,
   matchLocation,
   regionRange,
@@ -63,14 +64,17 @@ describe('source labels and links', () => {
     gid: '77',
     name: 'Armor Mods',
     rows: [],
-    grid: [{ row: 12, col: 2, rowSpan: 1, colSpan: 3, cell: cell('x') }],
+    grid: [
+      { row: 12, col: 0, cell: cell('Mod') },
+      { row: 12, col: 2, rowSpan: 1, colSpan: 3, cell: cell('x') },
+    ],
   };
   const source: CompendiumData = { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] };
 
-  it('uses the loaded grid span for the anchor even when the match tab is compact', () => {
+  it('labels the description cells, not the name, using the loaded grid when the match is compact', () => {
     const match = {
       tab: { ...tab, grid: undefined },
-      row: row('Mod', { row: 12, col: 2 }),
+      row: { ...row('Mod', { row: 12, col: 0 }), cell: cell('x') },
     } as CompendiumMatch;
     const location = matchLocation(match, source);
     expect(location.label).toBe('Armor Mods · Raid Specific · C12:E12');
@@ -171,5 +175,52 @@ describe('source labels and links', () => {
     expect(location.section!.endsWith('…')).toBe(true);
     expect(location.label).toBe(`Armor Mods · ${location.section} · C12:E12`);
     expect(sectionLabel('  Raid   Specific ')).toBe('Raid Specific');
+  });
+
+  it('finds description cells merged down from the row above, in reading order', () => {
+    const sheet = {
+      gid: '9',
+      name: 'Arc',
+      rows: [],
+      grid: [
+        { row: 35, col: 13, rowSpan: 2, cell: cell('Cooldown') },
+        { row: 36, col: 1, cell: cell('Touch of Thunder') },
+        { row: 36, col: 3, colSpan: 10, cell: cell('Explodes again') },
+      ],
+    };
+    const text = ['Explodes again', 'Cooldown'].join(String.fromCharCode(10));
+    const cells = descriptionCells(sheet, { row: 36, col: 1 }, text);
+    expect(cells!.map(regionRange)).toEqual(['D36:M36', 'N35:N36']);
+    // Unproven text never borrows the name cell: the row is named instead.
+    expect(descriptionCells(sheet, { row: 36, col: 1 }, 'Other text')).toBeUndefined();
+    const match = {
+      tab: sheet,
+      row: { ...row('Touch of Thunder', { row: 36, col: 1 }), cell: cell('Other') },
+    };
+    expect(matchLocation(match as CompendiumMatch).range).toBe('36:36');
+  });
+
+  it('treats a saved anchor whose name cell changed as position unknown', () => {
+    const renamed = linkLocation(
+      {
+        gid: '77',
+        rowKey: 'Old name',
+        sourceAnchor: { row: 12, col: 0 },
+        cells: [{ dRow: 0, dCol: 2 }],
+      },
+      source,
+    );
+    expect(renamed.unknown).toBe(true);
+    expect(renamed.href).not.toContain('range=');
+    const same = linkLocation(
+      {
+        gid: '77',
+        rowKey: 'Mod',
+        sourceAnchor: { row: 12, col: 0 },
+        cells: [{ dRow: 0, dCol: 2 }],
+      },
+      source,
+    );
+    expect(same.range).toBe('C12:E12');
   });
 });

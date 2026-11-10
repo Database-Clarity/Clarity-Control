@@ -108,12 +108,18 @@ export function TooltipDiff({
         </section>
       ))}
       {(before?.compendium || current.compendium) &&
+        !sameSource(before?.compendium, current.compendium) && (
+          <CompendiumSources before={before?.compendium} after={current.compendium} />
+        )}
+      {(before?.compendium || current.compendium) &&
         !sameCell(
           before?.compendium?.snapshot ?? emptyCell,
           current.compendium?.snapshot ?? emptyCell,
         ) && (
           <>
-            <CompendiumSources before={before?.compendium} after={current.compendium} />
+            {sameSource(before?.compendium, current.compendium) && (
+              <CompendiumSources before={before?.compendium} after={current.compendium} />
+            )}
             <CompendiumDiff
               before={before?.compendium?.snapshot ?? emptyCell}
               after={current.compendium?.snapshot ?? emptyCell}
@@ -137,6 +143,17 @@ export function TooltipDiff({
   );
 }
 
+/** The same place in the sheet: tab, section, anchor, and cells (labels can coincide across tabs). */
+function sameSource(a?: CompendiumLink, b?: CompendiumLink) {
+  if (!a || !b) return a === b;
+  return (
+    a.gid === b.gid &&
+    a.section === b.section &&
+    JSON.stringify(a.sourceAnchor ?? null) === JSON.stringify(b.sourceAnchor ?? null) &&
+    JSON.stringify(a.cells ?? null) === JSON.stringify(b.cells ?? null)
+  );
+}
+
 /** Where each side's Compendium snapshot came from in the sheet (names from the loaded source only). */
 function CompendiumSources({ before, after }: { before?: CompendiumLink; after?: CompendiumLink }) {
   const source = useCompendiumStore((state) => state.data);
@@ -146,7 +163,7 @@ function CompendiumSources({ before, after }: { before?: CompendiumLink; after?:
   return (
     <p className={styles.compendiumSource}>
       Compendium source:{' '}
-      {from && to && from.label !== to.label ? (
+      {from && to && !sameSource(before, after) ? (
         <>
           <SourceRef location={from} /> → <SourceRef location={to} />
         </>

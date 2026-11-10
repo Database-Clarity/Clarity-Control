@@ -1,4 +1,6 @@
-import { languages, type Lang, type Tooltip } from '@clarity/core';
+import { languages, type CompendiumLink, type Lang, type Tooltip } from '@clarity/core';
+import { linkLocation } from '../compendium/sourceLocation';
+import { useCompendiumStore } from '../compendium/store';
 import { languageLabel } from '../../languageLabels';
 import {
   useConflictStore,
@@ -41,9 +43,17 @@ function describe(session: ConflictSession, field: string) {
         };
   }
   const read = (tooltip: Tooltip | null) => (tooltip ? fieldValue(tooltip, field) : undefined);
+  // A Compendium link reads as its sheet location (tab · section · range), never as raw JSON with a gid.
+  const show =
+    field === 'compendium'
+      ? (value: unknown) =>
+          value
+            ? linkLocation(value as CompendiumLink, useCompendiumStore.getState().data).label
+            : 'none'
+      : short;
   return {
     label: fieldNames[field] ?? field,
-    summary: `Mine ${short(read(session.mine))} · theirs ${short(read(session.head))}`,
+    summary: `Mine ${show(read(session.mine))} · theirs ${show(read(session.head))}`,
     mine: 'Keep my value',
     theirs: 'Use their value',
   };
