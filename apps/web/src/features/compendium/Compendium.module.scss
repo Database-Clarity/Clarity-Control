@@ -25,9 +25,14 @@
   @include theme.mobile {
     > [role='group'] {
       min-height: var(--bar);
+      // A row too narrow for all three (Large at a large interface scale) wraps the stepper, whole,
+      // to a second line on the right.
       > :last-child {
         flex: 1 1 auto;
+        flex-wrap: wrap;
+        justify-content: flex-end;
         gap: 4px;
+        min-width: 0;
       }
     }
     .headerButton {

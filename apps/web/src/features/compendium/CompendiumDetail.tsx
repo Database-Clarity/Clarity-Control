@@ -233,7 +233,10 @@ export function CompendiumDetail({
               className={styles.position}
               aria-label={`Entry ${position.index} of ${position.total}`}
             >
-              {position.index} / {position.total}
+              {position.index}
+              <span className={styles.slash}> / </span>
+              <span className={styles.of}> of </span>
+              {position.total}
             </span>
           )}
           <Link className={styles.openEditor} to={`/t/${row.hash}`}>

@@ -177,6 +177,7 @@ export function AllPopover({
         </>
       }
       triggerTitle="Every markup option, grouped, with a filter"
+      sheetFromTrigger
     >
       {(close) => (
         <AllList view={view} globals={globals} usage={usage} close={close} onResult={onResult} />

@@ -36,4 +36,9 @@
     border-width: 1px 0 0;
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
+
+  .surface[data-sheet-top] {
+    top: var(--sheet-top) !important;
+    max-height: none !important;
+  }
 }

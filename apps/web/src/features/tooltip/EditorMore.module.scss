@@ -21,9 +21,10 @@
   padding: 0 0.625rem;
   white-space: nowrap;
 
+  // On (the markup bar shows): the same fill as its neighbours with an accent edge, like the
+  // Compendium pane's colours toggle.
   &[aria-pressed='true'] {
-    background: var(--ctl-pressed);
-    border-color: var(--ctl-hover-edge);
+    border-color: var(--accent-ink);
   }
 }
 

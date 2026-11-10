@@ -68,6 +68,27 @@
     height: calc(var(--tap-sm) + 0.25rem);
     padding: 0;
     font-size: var(--ctl-text);
+
+    // The rem-based steps above fire early at a large interface scale (a 360px phone at 150% is
+    // under 21rem with room to spare): touch keeps the Changes label and even item padding, and
+    // goes to the glyph only on a really narrow bar.
+    .roomy {
+      display: inline;
+    }
+    .tiny {
+      display: none;
+    }
+    .item {
+      padding: 0 6px;
+    }
+    @container (max-width: 260px) {
+      .roomy {
+        display: none;
+      }
+      .tiny {
+        display: inline;
+      }
+    }
   }
 }
 

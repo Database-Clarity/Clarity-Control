@@ -1,4 +1,6 @@
 @use '../drift/Status.module.scss';
+@use '../../data/variables' as theme;
+@use '../../ui/controls';
 .page {
   max-width: 70rem;
   overflow-wrap: anywhere;
@@ -13,6 +15,10 @@
     min-width: var(--tap, max(44px, 2.75rem));
     max-width: 100%;
     font: inherit;
+  }
+  // A field after its label text on the same line keeps a gap from it ("View [Removed]").
+  label > select {
+    margin-inline-start: 0.5rem;
   }
   ul {
     list-style: none;
@@ -60,4 +66,20 @@
   margin: 0.25rem 0 0;
   font-size: 0.85rem;
   max-width: 28rem;
+}
+
+// Phones and touch: fields and buttons read --ctl-text (after this file's font: inherit); 16px
+// stays on iOS only.
+@include theme.mobile-or-coarse {
+  .page {
+    button,
+    input,
+    select {
+      font-size: var(--ctl-text);
+    }
+    input,
+    select {
+      @include controls.ios-field-text;
+    }
+  }
 }

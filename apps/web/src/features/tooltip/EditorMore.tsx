@@ -187,6 +187,7 @@ function DiscardRow({
         <button
           ref={cancel}
           type="button"
+          data-autofocus
           onClick={() => (onCancel ? onCancel() : setAsking(false))}
         >
           Cancel

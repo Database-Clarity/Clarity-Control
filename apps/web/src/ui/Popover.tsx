@@ -26,6 +26,7 @@ export function Popover({
   triggerLabel,
   flush = false,
   contain = false,
+  sheetFromTrigger = false,
 }: {
   /** Names both the trigger's popup and the surface. */
   label: string;
@@ -45,6 +46,11 @@ export function Popover({
    * page behind it), like the shell's sheets.
    */
   contain?: boolean;
+  /**
+   * On a phone the sheet reaches up to the trigger's lower edge (the markup bar's All), so its top
+   * never cuts a row of the content behind it.
+   */
+  sheetFromTrigger?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [style, setStyle] = useState<CSSProperties>();
@@ -67,8 +73,9 @@ export function Popover({
       top: rect.bottom + 4,
       width,
       maxHeight: Math.max(160, window.innerHeight - rect.bottom - 4 - edge),
-    });
-  }, [open]);
+      ...(sheetFromTrigger && { '--sheet-top': `${rect.bottom}px` }),
+    } as CSSProperties);
+  }, [open, sheetFromTrigger]);
   useEffect(() => {
     if (!open) return;
     const outside = (event: PointerEvent) => {
@@ -96,8 +103,11 @@ export function Popover({
       ) ?? []),
     ];
     const items = focusable();
+    // The content can name its own first focus (a confirm's safe Cancel) with data-autofocus.
     (
-      items.find((item) => !item.getAttribute('aria-label')?.startsWith('Close')) ?? items[0]
+      items.find((item) => item.hasAttribute('data-autofocus')) ??
+      items.find((item) => !item.getAttribute('aria-label')?.startsWith('Close')) ??
+      items[0]
     )?.focus();
     const tab = (event: KeyboardEvent) => {
       if (event.key !== 'Tab') return;
@@ -138,6 +148,7 @@ export function Popover({
           role="dialog"
           aria-label={label}
           className={styles.surface}
+          data-sheet-top={sheetFromTrigger || undefined}
           style={style}
         >
           <div className={flush ? `${styles.body} ${styles.flush}` : styles.body}>

@@ -1,4 +1,6 @@
 // The Compendium tab: a dense review workspace (header line, detail, one action bar).
+@use '../../ui/stepper';
+
 .tab {
   // Windows' implicit fallback search for Supplemental Arrows-C can take an entire frame per
   // glyph. Name the same symbol fallback explicitly, after the existing text and Destiny fonts.
@@ -174,6 +176,10 @@
   color: var(--text2);
   font-size: 0.75rem;
   cursor: pointer;
+}
+
+.of {
+  display: none;
 }
 
 .position {
@@ -655,32 +661,115 @@ p.muted {
 }
 
 @media (max-width: 700px) {
+  // Controls and links read --ctl-text like every other phone screen.
   .tab {
+    font-size: var(--ctl-text);
+
     button,
     select {
       height: var(--tap);
     }
   }
 
+  .counts,
+  .linked,
+  .meta {
+    font-size: var(--ctl-text);
+  }
+
+  // Name and status on the left; one joined stepper [‹][N of M][›] on the right with Open in
+  // editor right-aligned under it.
+  .identity {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    align-items: center;
+    column-gap: 0;
+    row-gap: 0.25rem;
+  }
+
+  .title {
+    grid-column: 1;
+    grid-row: 1;
+    padding-inline-end: 0.5rem;
+    font-size: var(--ctl-text);
+  }
+
+  .meta {
+    display: contents;
+  }
+
+  .kindLabel {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .step,
+  .position {
+    @include stepper.segment;
+    grid-row: 1;
+    align-self: center;
+  }
+
   .step {
-    display: inline-block;
+    @include stepper.arrow;
+  }
+
+  .step:first-child {
+    grid-column: 2;
+    grid-row: 1;
+    height: var(--tap);
+  }
+
+  .position {
+    grid-column: 3;
+    margin-inline-start: -1px;
+    border-radius: 0;
+  }
+
+  .step:not(:first-child) {
+    grid-column: 4;
+    grid-row: 1;
+    height: var(--tap);
+    margin-inline-start: -1px;
+  }
+
+  .slash {
+    display: none;
+  }
+
+  .of {
+    display: inline;
+    white-space: pre;
+  }
+
+  .openEditor {
+    grid-column: 2 / -1;
+    grid-row: 2;
+    justify-self: end;
+    margin-inline-start: 0;
+  }
+
+  // A candidate's header: the radio and its source link on one var(--tap-sm) line.
+  .candidate > header {
+    min-height: var(--tap-sm);
+  }
+
+  .pick input {
+    width: 1.125rem;
+    height: 1.125rem;
   }
 
   @include compact-bar;
 
-  // Touch targets: links and folds get a 44px hit area without taking more room.
+  // Touch targets: links and folds get a var(--tap) hit height without taking more room.
   .counts a,
   .linked,
   .openEditor,
   .fold,
   .nearby summary,
-  .source {
-    padding-block: 1rem;
-    margin-block: -1rem;
-  }
-
-  .step {
-    min-height: var(--tap);
+  .source > a {
+    padding-block: max(0px, (var(--tap) - 1lh) / 2);
+    margin-block: min(0px, (1lh - var(--tap)) / 2);
   }
 
   .more summary {
@@ -693,23 +782,16 @@ p.muted {
     gap: 0.25rem;
     padding: 0.25rem 0;
 
+    flex-wrap: wrap;
+
     button {
       flex: 1 1 auto;
       min-width: 0;
-      padding: 0 0.25rem;
-      font-size: 0.75rem;
+      padding: 0 0.5rem;
     }
   }
 
   .detail {
     padding-bottom: 4rem;
-  }
-}
-
-// A phone at a large interface scale: the labels shrink before they clip.
-@container (max-width: 24rem) {
-  .actionBar button {
-    font-size: 0.6875rem;
-    padding: 0 0.25rem;
   }
 }

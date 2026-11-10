@@ -566,7 +566,7 @@
     top: var(--bar);
     z-index: 2;
     margin-inline: calc(-1 * var(--page-x));
-    padding-inline: var(--page-x);
+    // Full thirds of the screen, no side padding: "Compendium" fits whole at 360 and 150%.
     // A strip of peers: equal widths, the label (and the Compendium dot beside it) centred, the
     // underline across the whole tab; a long label ellipsises instead of breaking the split.
     button {

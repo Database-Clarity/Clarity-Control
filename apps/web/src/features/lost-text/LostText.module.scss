@@ -1,3 +1,5 @@
+@use '../../ui/controls';
+
 .page {
   box-sizing: border-box;
   height: calc(100dvh - var(--header-h, 37px) - 2 * clamp(1.25rem, 4vw, 3rem));
@@ -139,6 +141,32 @@
   }
   .actions > * {
     flex: 1 1 auto;
+  }
+  // One edge: the lists and the form sit on the page edge like the title (focus rings are inset).
+  .list,
+  .detail {
+    padding: 0;
+  }
+  .actions {
+    padding-inline: 0;
+  }
+  // Fields and buttons read --ctl-text; 16px stays on iOS only (it zooms on smaller field text).
+  .page button,
+  .page select,
+  .page input {
+    font-size: var(--ctl-text, 0.875rem);
+  }
+  .page select,
+  .page input {
+    @include controls.ios-field-text;
+  }
+  .check {
+    gap: 0.5rem;
+  }
+  .check input {
+    width: 1.125rem;
+    height: 1.125rem;
+    margin: 0;
   }
 }
 

@@ -1,4 +1,5 @@
 @use '../../data/variables' as theme;
+@use '../../ui/controls';
 
 .page {
   max-width: 70rem;
@@ -21,6 +22,12 @@
     input {
       min-height: var(--tap);
       min-width: var(--tap);
+      // --ctl-text like every phone control; 16px stays on iOS only (it zooms on smaller fields).
+      font-size: var(--ctl-text);
+    }
+    select,
+    input {
+      @include controls.ios-field-text;
     }
   }
 }
