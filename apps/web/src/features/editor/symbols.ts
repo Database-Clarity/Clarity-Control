@@ -397,11 +397,12 @@ function popoverDom(view: EditorView, popover: Popover) {
     }
     if (popover.source === 'selected' && !view.state.readOnly) {
       if (tag && retired) {
-        const actions = document.createElement('span');
+        const actions = document.createComment('verified retired fixes');
         dom.append(actions);
+        const actionNodes: HTMLElement[] = [];
         const text = view.state.doc.toString();
         const populate = (occurrence: RetiredOccurrence | undefined) => {
-          actions.replaceChildren();
+          for (const node of actionNodes.splice(0)) node.remove();
           const reasons = occurrence?.manualFixes?.map((fix) => `${fix.label}: ${fix.reason}`)
             ?? [occurrence?.refusalReason ?? 'An exact source token could not be mapped.'];
           for (const fix of occurrence?.fixes ?? []) {
@@ -417,13 +418,15 @@ function popoverDom(view: EditorView, popover: Popover) {
               if (live) view.dispatch({ changes: live.edits, effects: pinTag.of(false) });
               view.focus();
             });
-            actions.append(button);
+            dom.insertBefore(button, actions);
+            actionNodes.push(button);
           }
           if (reasons.length) {
             const manual = document.createElement('span');
             manual.className = 'cm-symbol-hint';
             manual.textContent = `Fix by hand: ${reasons.join(' ')}`;
-            actions.append(manual);
+            dom.insertBefore(manual, actions);
+            actionNodes.push(manual);
           }
         };
         if (hasDiagnosticWorker()) {
