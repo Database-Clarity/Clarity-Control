@@ -22,6 +22,7 @@ import {
 import {
   acceptSuggestion,
   judgeSuggestions,
+  moveSuggest,
   openSuggest,
   suggestConfiguration,
   suggestExtension,
@@ -312,6 +313,37 @@ describe('the menu in the editor', () => {
     expect(acceptSuggestion(none.view)).toBe('unavailable');
     expect(none.view.state.doc.toString()).toBe(bare);
     none.view.destroy();
+  });
+
+  test('a selection not yet moved leaves a greyed option for the first that fits, with or without pins', () => {
+    // No pinned part: inside a title reference only the variable fits.
+    const noPins = judgedAt('<title More [ />', '<title More ['.length, {
+      variables: 'var damage = 25',
+      titles: '',
+    });
+    expect(noPins.judged.items.some((item) => item.pinned)).toBe(false);
+    expect(noPins.judged.items[noPins.judged.index]!.unavailable).toBeUndefined();
+    expect(noPins.judged.index).toBe(noPins.judged.items.findIndex((item) => !item.unavailable));
+    noPins.view.destroy();
+    // A pinned part whose first option is declined and a later one fits.
+    const doc = 'Gains #damage so';
+    const later = judgedAt(doc, doc.length, {
+      variables: 'var someVeryLongVariableName = solar damage',
+      titles: '',
+    });
+    const fits = later.judged.items.findIndex((item) => !item.unavailable);
+    expect(later.judged.items[fits]!.pinned).toBe(true);
+    expect(later.judged.index).toBe(fits);
+    later.view.destroy();
+    // A selection the author moved stays where it is, greyed or not.
+    const moved = editor('Gains #damage ');
+    openSuggest(moved);
+    moveSuggest(moved, 1);
+    const picked = suggestState(moved.state)!.items[1]!.id;
+    judgeSuggestions(moved);
+    const after = suggestState(moved.state)!;
+    expect(after.items[after.index]!.id).toBe(picked);
+    moved.destroy();
   });
 
   test('a read-only editor has no menu', () => {

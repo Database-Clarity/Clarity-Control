@@ -77,6 +77,7 @@ test('filtering a deeply scrolled requested list does not crash the menu', () =>
     explicit: true,
     message: null,
     judged: true,
+    picked: false,
   };
   const host = document.createElement('div');
   document.body.append(host);
