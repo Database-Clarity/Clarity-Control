@@ -13,16 +13,6 @@
   > * + * {
     margin-left: -1px;
   }
-
-  > :first-child {
-    border-top-left-radius: 0.25rem;
-    border-bottom-left-radius: 0.25rem;
-  }
-
-  > :last-child {
-    border-top-right-radius: 0.25rem;
-    border-bottom-right-radius: 0.25rem;
-  }
 }
 
 @mixin segment {
@@ -42,7 +32,19 @@
   text-decoration: none;
   background: var(--ctl);
   border: 1px solid var(--ctl-edge);
-  border-radius: 0;
+  // The corners live on the segment itself (a group-level corner rule loses to this one at equal
+  // specificity): outer corners 4px, the joined inner ones square.
+  border-radius: 0.25rem;
+
+  &:not(:first-child) {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+  }
+
+  &:not(:last-child) {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+  }
 
   &:hover:not(:disabled, [aria-disabled='true']) {
     position: relative;
