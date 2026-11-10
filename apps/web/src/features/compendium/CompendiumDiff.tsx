@@ -1,4 +1,13 @@
-import { memo, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  memo,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type CSSProperties,
+} from 'react';
 import type { CompendiumCell } from '@clarity/core';
 import { preparedLines } from './compendiumDiffCache';
 import { lineAlign, type DiffLine, type StyleNote } from './compendiumDiffProjection';
@@ -410,7 +419,7 @@ export function CompendiumDiff({
   );
 }
 
-/** Constrain sheet overflow locally; other Compendium surfaces keep their existing layout. */
+/** Scale editor cell contents while keeping its layout at pane width; other surfaces stay unchanged. */
 export function CellScale({ children, scale }: { children: ReactNode; scale?: number }) {
   if (scale === undefined) return <>{children}</>;
   return (
@@ -418,7 +427,7 @@ export function CellScale({ children, scale }: { children: ReactNode; scale?: nu
       <div
         className={styles.cellScale}
         data-cell-scale={scale}
-        style={{ zoom: scale / 100, width: `${Math.max(100, scale)}%` }}
+        style={{ '--cell-scale': scale / 100 } as CSSProperties}
       >
         {children}
       </div>

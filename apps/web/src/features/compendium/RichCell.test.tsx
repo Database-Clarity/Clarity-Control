@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { CompendiumCell } from '@clarity/core';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { Multiline, RichCell } from './RichCell';
+import { Multiline, RichCell, runStyle } from './RichCell';
 import { createSettingsStore, useSettingsStore, deviceKey } from '../../stores/settings';
 import { memoryStorage } from '../../stores/settings.testSupport';
 import { CompendiumDiff } from './CompendiumDiff';
@@ -149,4 +149,11 @@ describe('alignment and diff preference', () => {
     ).toBe('before-after');
     expect(store.getState().pending).toEqual([]);
   });
+});
+
+it('lets editor excerpts scale explicit run fonts, defaulting other consumers to their source size', () => {
+  expect(runStyle({ text: 'Sized', sizePt: 12 }).fontSize).toBe(
+    'calc(12pt * var(--cell-scale, 1))',
+  );
+  expect(runStyle({ text: 'Inherited' }).fontSize).toBeUndefined();
 });

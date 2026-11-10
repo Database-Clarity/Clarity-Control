@@ -18,7 +18,7 @@ export function runStyle(run: CompendiumRun, legibleOn?: string): CSSProperties 
   if (existing) return existing;
   const style: CSSProperties = {
     color: run.color && legibleOn ? readableOn(run.color, legibleOn) : run.color,
-    fontSize: run.sizePt === undefined ? undefined : `${run.sizePt}pt`,
+    fontSize: run.sizePt === undefined ? undefined : `calc(${run.sizePt}pt * var(--cell-scale, 1))`,
     fontWeight: run.bold ? 700 : 400,
     fontStyle: run.italic ? 'italic' : 'normal',
     textDecoration:

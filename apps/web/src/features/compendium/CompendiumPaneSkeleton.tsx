@@ -102,9 +102,10 @@ export function CompendiumPaneSkeleton({
   const before = snapshot ?? previous?.before;
   const comparison = !!before;
   const twoColumns = comparison && mode === 'before-after';
-  const bodyWidth = (width && width > 0 ? width : 384) / Math.min(scale / 100, 1);
-  const columnWidth = twoColumns && !phone ? (bodyWidth - 0.75 * remPx) / 2 : bodyWidth;
-  const textWidth = Math.max(32, columnWidth - 2 * 0.8 * remPx);
+  const bodyWidth = width && width > 0 ? width : 384;
+  const columnWidth = twoColumns && !phone ? (bodyWidth - remPx) / 2 : bodyWidth;
+  // Shape widths use 10pt source units; pane and column geometry stay unscaled.
+  const textWidth = Math.max(32, (columnWidth - 2 * 0.8 * remPx * (scale / 100)) / (scale / 100));
   return (
     <div className={styles.zoom} data-scale={scale} data-pane-skeleton="true">
       <p className={styles.meta}>

@@ -782,7 +782,8 @@ describe('Compendium pane', () => {
       const cells = zoomed().querySelectorAll<HTMLElement>('[data-cell-scale]');
       expect(cells.length).toBeGreaterThan(0);
       for (const cell of cells) {
-        expect(cell.style.zoom).toBe(String(expected / 100));
+        expect(cell.style.zoom).toBeFalsy();
+        expect(cell.style.getPropertyValue('--cell-scale')).toBe(String(expected / 100));
         expect(cell.querySelector('[data-surface]')).not.toBeNull();
       }
       for (const control of host.querySelectorAll('[aria-label="Compendium tools"] button'))
