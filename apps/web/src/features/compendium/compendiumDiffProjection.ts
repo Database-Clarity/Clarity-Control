@@ -4,130 +4,347 @@ import {
   styleKey,
   type CompendiumCell,
   type CompendiumDiffPart,
+  type CompendiumRun,
 } from '@clarity/core';
 
-export type PreparedDiffPart = CompendiumDiffPart & { description?: string };
-export type PreparedDiffLines = PreparedDiffPart[][];
+/**
+ * The Changes view, prepared off the main thread (compendiumDiff.worker.ts) and cached by content
+ * (compendiumDiffCache.ts). Lines are aligned first; a word diff is drawn only inside aligned
+ * pairs that still read as the same line (changed-ink share <= INLINE_MAX_SHARE); everything else
+ * becomes a block: the removed lines, then the added lines. Style-only differences never draw
+ * per-word boxes: a line carries one note, and a note shared by several lines is hoisted to the
+ * cell. Alignment and sheet background are display-only (core evidenceCell) and are never marked.
+ */
+export const INLINE_MAX_SHARE = 0.4;
+/** Lines of a changed hunk pair up when their words overlap more than this (Dice coefficient). */
+export const PAIR_MIN_SIMILARITY = 0.3;
+/** A style note shared by this many lines moves from the lines to the cell. */
+export const HOIST_MIN_LINES = 3;
 
-export function projectCompendiumDiff(
-  before: CompendiumCell,
-  after: CompendiumCell,
-): PreparedDiffLines {
-  return diffLines(
-    sameCell(before, after) ? [{ kind: 'equal', before, after }] : diffCompendium(before, after),
-  );
+type Align = CompendiumRun['textAlign'];
+export type InlinePart = { kind: 'equal' | 'removed' | 'added'; cell: CompendiumCell };
+export type StyleChange = { key: string; from: string; to: string };
+export type StyleNote = {
+  description: string;
+  changes: StyleChange[];
+  before: CompendiumCell;
+  after: CompendiumCell;
+};
+export type DiffLine =
+  /** Text unchanged (styling may differ: `style`). */
+  | { kind: 'equal'; cell: CompendiumCell; style?: StyleNote }
+  /** A small edit: the new line with its removed and added words inline. */
+  | { kind: 'inline'; parts: InlinePart[]; after: CompendiumCell; style?: StyleNote }
+  /** Rewritten, removed, or added lines: old lines (may be empty), then new lines (may be empty). */
+  | { kind: 'block'; before: CompendiumCell[]; after: CompendiumCell[] };
+export type PreparedDiff = {
+  lines: DiffLine[];
+  /** One note for a style change shared by HOIST_MIN_LINES or more lines. */
+  cellStyle?: string;
+};
+/** The cache and worker contract: the prepared Changes view of one before/after pair. */
+export type PreparedDiffLines = PreparedDiff;
+
+/** The alignment a line is drawn with: that of its first run with ink. */
+export const lineAlign = (cell: CompendiumCell | undefined): Align =>
+  (cell?.runs.find((run) => run.text.trim()) ?? cell?.runs[0])?.textAlign;
+
+export function projectCompendiumDiff(before: CompendiumCell, after: CompendiumCell): PreparedDiff {
+  if (sameCell(before, after))
+    return { lines: splitLines(after).map((cell) => ({ kind: 'equal', cell })) };
+  // A side with no text at all (a first revision, a removed link) has no lines, not one blank line.
+  const left = before.plain ? splitLines(before) : [];
+  const right = after.plain ? splitLines(after) : [];
+  // Saved snapshots carry no alignment (it is not approval evidence): their removed lines take
+  // the sheet's alignment from the new line they pair with, a neighbouring line, or the cell.
+  const inherit = !before.runs.some((run) => run.textAlign);
+  const cellAlign = inherit ? commonAlign(right) : undefined;
+  const items: DiffLine[] = [];
+  let li = 0;
+  let ri = 0;
+  for (const [l, r] of [...commonLines(left, right), [left.length, right.length]]) {
+    if (l > li || r > ri) {
+      const fallback = lineAlign(right[ri - 1] ?? right[r]) ?? cellAlign;
+      for (const item of hunk(left.slice(li, l), right.slice(ri, r), inherit, fallback))
+        pushMerging(items, item);
+    }
+    if (l < left.length) items.push(equalLine(left[l], right[r]));
+    li = l + 1;
+    ri = r + 1;
+  }
+  return hoistStyle({ lines: items });
 }
 
-function changes(before: CompendiumCell, after: CompendiumCell): string[] {
-  const values = (
-    cell: CompendiumCell,
-    key: 'color' | 'bold' | 'italic' | 'underline' | 'strike' | 'sizePt' | 'href' | 'textAlign',
-  ) =>
-    [
-      ...new Set(
-        cell.runs.map((run) =>
-          String(
-            run[key] ??
-              (key === 'sizePt'
-                ? 'default'
-                : key === 'color'
-                  ? 'default'
-                  : key === 'textAlign'
-                    ? 'inherited'
-                    : false),
-          ),
-        ),
-      ),
-    ].join(', ');
-  return (
-    ['color', 'bold', 'italic', 'underline', 'strike', 'sizePt', 'href', 'textAlign'] as const
-  ).flatMap((key) => {
-    const old = values(before, key);
-    const current = values(after, key);
-    return old === current
-      ? []
-      : [
-          `${key === 'color' ? 'colour' : key === 'textAlign' ? 'alignment' : key}: ${old} \u2192 ${current}`,
-        ];
-  });
-}
-const descriptions = new Map<string, string>();
-function styleDescription(before: CompendiumCell, after: CompendiumCell) {
-  const signature = (cell: CompendiumCell) =>
-    cell.runs.map((run) => [
-      run.color,
-      run.bold,
-      run.italic,
-      run.underline,
-      run.strike,
-      run.sizePt,
-      run.href,
-      run.textAlign,
-    ]);
-  const key = JSON.stringify([signature(before), signature(after)]);
-  const cached = descriptions.get(key);
-  if (cached !== undefined) return cached;
-  const description = changes(before, after).join('; ') || 'Styling changed within this word';
-  if (descriptions.size >= 256) descriptions.delete(descriptions.keys().next().value!);
-  descriptions.set(key, description);
-  return description;
+/** The longest run of lines both sides share, in order: [old index, new index] per line. */
+function commonLines(left: CompendiumCell[], right: CompendiumCell[]): [number, number][] {
+  const cols = right.length + 1;
+  const table = new Uint32Array((left.length + 1) * cols);
+  for (let i = left.length - 1; i >= 0; i--)
+    for (let j = right.length - 1; j >= 0; j--)
+      table[i * cols + j] =
+        left[i].plain === right[j].plain
+          ? table[(i + 1) * cols + j + 1] + 1
+          : Math.max(table[(i + 1) * cols + j], table[i * cols + j + 1]);
+  const matches: [number, number][] = [];
+  for (let i = 0, j = 0; i < left.length && j < right.length;) {
+    if (left[i].plain === right[j].plain) matches.push([i++, j++]);
+    else if (table[(i + 1) * cols + j] >= table[i * cols + j + 1]) i++;
+    else j++;
+  }
+  return matches;
 }
 
-// Split fragments at line breaks before laying them out; each highlighted word
-// remains inline within its source line, including for mixed-alignment selections.
-function diffLines(parts: CompendiumDiffPart[]): PreparedDiffPart[][] {
-  const lines: PreparedDiffPart[][] = [[]];
-  let previousKey: string | undefined;
-  for (const part of parts) {
-    const source = part.after ?? part.before!;
-    let offset = 0;
-    source.plain.split(/(?<=\n)/).forEach((text) => {
-      const slice = (cell: CompendiumCell): CompendiumCell => {
-        let position = 0;
-        return {
-          plain: text,
-          runs: cell.runs.flatMap((run) => {
-            const start = Math.max(0, offset - position);
-            const end = Math.min(run.text.length, offset + text.length - position);
-            position += run.text.length;
-            return end > start ? [{ ...run, text: run.text.slice(start, end) }] : [];
-          }),
-        };
-      };
-      const fragment: PreparedDiffPart = {
-        kind: part.kind,
-        ...(part.before ? { before: slice(part.before) } : {}),
-        ...(part.after ? { after: slice(part.after) } : {}),
-      };
-      // Coalesce plain, identically styled neighbours instead of rendering one
-      // RichCell and highlight wrapper per word. Links and style-change controls
-      // keep their individual targets, and alignment never crosses a line break.
-      const cells = [fragment.before, fragment.after].filter((cell) => cell !== undefined);
-      const key =
-        part.kind !== 'style' && cells.every((cell) => cell.runs.length === 1 && !cell.runs[0].href)
-          ? JSON.stringify([part.kind, ...cells.map((cell) => styleKey(cell.runs[0]))])
-          : undefined;
-      const line = lines.at(-1)!;
-      const previous = line.at(-1);
-      if (key !== undefined && key === previousKey && previous) {
-        for (const side of ['before', 'after'] as const) {
-          if (previous[side] && fragment[side]) {
-            previous[side].plain += fragment[side].plain;
-            previous[side].runs[0].text += fragment[side].plain;
-          }
-        }
-      } else {
-        if (fragment.kind === 'style')
-          fragment.description = styleDescription(fragment.before!, fragment.after!);
-        line.push(fragment);
-      }
-      previousKey = key;
-      offset += text.length;
-      if (text.endsWith('\n')) {
-        lines.push([]);
-        previousKey = undefined;
-      }
+/** One cell per physical line (no newline characters); runs sliced to the line. */
+export function splitLines(cell: CompendiumCell): CompendiumCell[] {
+  const lines: CompendiumCell[] = [];
+  let runs: CompendiumCell['runs'] = [];
+  const finish = () => {
+    lines.push({ plain: runs.map((run) => run.text).join(''), runs });
+    runs = [];
+  };
+  for (const run of cell.runs) {
+    run.text.split('\n').forEach((text, index) => {
+      if (index) finish();
+      if (text || !runs.length) runs.push({ ...run, text });
     });
   }
+  finish();
   return lines;
+}
+
+function commonAlign(lines: CompendiumCell[]): Align {
+  const counts = new Map<Align, number>();
+  for (const line of lines)
+    if (line.plain.trim()) counts.set(lineAlign(line), (counts.get(lineAlign(line)) ?? 0) + 1);
+  let common: Align;
+  let most = 0;
+  for (const [align, count] of counts)
+    if (count > most) {
+      common = align;
+      most = count;
+    }
+  return common;
+}
+
+const aligned = (cell: CompendiumCell, align: Align): CompendiumCell =>
+  align ? { ...cell, runs: cell.runs.map((run) => ({ ...run, textAlign: align })) } : cell;
+
+function equalLine(before: CompendiumCell, after: CompendiumCell): DiffLine {
+  const style = sameCell(before, after) ? undefined : styleNote(before, after);
+  return style ? { kind: 'equal', cell: after, style } : { kind: 'equal', cell: after };
+}
+
+/** A changed hunk: pair similar lines in order; small edits stay inline, the rest form blocks. */
+function hunk(
+  removed: CompendiumCell[],
+  added: CompendiumCell[],
+  inherit: boolean,
+  fallback: Align,
+): DiffLine[] {
+  const items: DiffLine[] = [];
+  let next = 0;
+  for (const old of removed) {
+    let best = -1;
+    let bestScore = PAIR_MIN_SIMILARITY;
+    for (let j = next; j < added.length; j++) {
+      const score = similarity(old.plain, added[j].plain);
+      if (score > bestScore) {
+        best = j;
+        bestScore = score;
+      }
+    }
+    if (best < 0) {
+      // Unpaired: the new line at this position in the hunk is its neighbour.
+      const neighbour = added[Math.min(next, added.length - 1)];
+      const align = inherit ? (lineAlign(neighbour) ?? fallback) : undefined;
+      items.push({ kind: 'block', before: [aligned(old, align)], after: [] });
+      continue;
+    }
+    for (let j = next; j < best; j++) items.push({ kind: 'block', before: [], after: [added[j]] });
+    const align = inherit ? (lineAlign(added[best]) ?? fallback) : undefined;
+    items.push(pair(old, added[best], align));
+    next = best + 1;
+  }
+  for (let j = next; j < added.length; j++)
+    items.push({ kind: 'block', before: [], after: [added[j]] });
+  return items;
+}
+
+const ink = (text: string) => text.replace(/\s+/gu, '').length;
+
+/** The share of a paired line's ink that changed: (removed + added) / (2 × equal + removed + added). */
+export function changedShare(parts: CompendiumDiffPart[]): number {
+  let changed = 0;
+  let total = 0;
+  for (const part of parts) {
+    const size = ink((part.after ?? part.before!).plain);
+    if (part.kind === 'added' || part.kind === 'removed') changed += size;
+    total += part.kind === 'added' || part.kind === 'removed' ? size : 2 * size;
+  }
+  return total ? changed / total : 0;
+}
+
+/** Word diff inside an aligned pair: inline while the changed ink stays a minority, else a block. */
+function pair(before: CompendiumCell, after: CompendiumCell, oldAlign: Align): DiffLine {
+  const parts = diffCompendium(before, after);
+  if (changedShare(parts) > INLINE_MAX_SHARE)
+    return { kind: 'block', before: [aligned(before, oldAlign)], after: [after] };
+  const styleBefore: CompendiumCell['runs'] = [];
+  const styleAfter: CompendiumCell['runs'] = [];
+  const inline: InlinePart[] = [];
+  for (const part of parts) {
+    if (part.kind === 'style') {
+      styleBefore.push(...part.before!.runs);
+      styleAfter.push(...part.after!.runs);
+    }
+    const cell = part.kind === 'removed' ? part.before! : part.after!;
+    const kind = part.kind === 'style' ? 'equal' : part.kind;
+    const previous = inline.at(-1);
+    // Coalesce identically styled neighbours: one box per run, not per word.
+    if (
+      previous &&
+      previous.kind === kind &&
+      previous.cell.runs.length === 1 &&
+      cell.runs.length === 1 &&
+      !cell.runs[0].href &&
+      styleKey(previous.cell.runs[0]) === styleKey(cell.runs[0])
+    ) {
+      previous.cell.plain += cell.plain;
+      previous.cell.runs[0].text += cell.plain;
+    } else
+      inline.push({
+        kind,
+        cell: { plain: cell.plain, runs: cell.runs.map((run) => ({ ...run })) },
+      });
+  }
+  const style = styleBefore.length
+    ? styleNote(
+        { plain: styleBefore.map((run) => run.text).join(''), runs: styleBefore },
+        { plain: styleAfter.map((run) => run.text).join(''), runs: styleAfter },
+      )
+    : undefined;
+  return style
+    ? { kind: 'inline', parts: inline, after, style }
+    : { kind: 'inline', parts: inline, after };
+}
+
+/** Neighbouring blocks merge into one: all removed lines, then all added lines, in hunk order. */
+function pushMerging(items: DiffLine[], item: DiffLine) {
+  const previous = items.at(-1);
+  if (item.kind === 'block' && previous?.kind === 'block') {
+    previous.before.push(...item.before);
+    previous.after.push(...item.after);
+  } else items.push(item);
+}
+
+/** Dice coefficient over the words of two lines. */
+export function similarity(a: string, b: string): number {
+  const left = new Set(a.split(/\s+/u).filter(Boolean));
+  const right = new Set(b.split(/\s+/u).filter(Boolean));
+  if (!left.size && !right.size) return 1;
+  let shared = 0;
+  for (const word of left) if (right.has(word)) shared++;
+  return (2 * shared) / (left.size + right.size);
+}
+
+// Alignment is display-only and never listed (owner 2026-11-06).
+const styleKeys = ['color', 'bold', 'italic', 'underline', 'strike', 'sizePt', 'href'] as const;
+const styleLabels: Record<(typeof styleKeys)[number], string> = {
+  color: 'colour',
+  bold: 'bold',
+  italic: 'italic',
+  underline: 'underline',
+  strike: 'strike',
+  sizePt: 'size',
+  href: 'link',
+};
+const shown = (run: CompendiumRun, key: (typeof styleKeys)[number]) =>
+  String(run[key] ?? (key === 'sizePt' || key === 'color' ? 'default' : 'off'));
+const changeCache = new Map<string, StyleChange[]>();
+/**
+ * The styling that differs between two cells of the same text, compared character by character so
+ * a colour that moved to other words still shows: [{ key: 'size', from: '9', to: '6' }, ...].
+ */
+export function styleChanges(before: CompendiumCell, after: CompendiumCell): StyleChange[] {
+  const signature = (cell: CompendiumCell) =>
+    cell.runs.map((run) => [run.text.length, ...styleKeys.map((key) => run[key])]);
+  const key = JSON.stringify([signature(before), signature(after)]);
+  const cached = changeCache.get(key);
+  if (cached !== undefined) return cached;
+  const found = new Map<string, StyleChange>();
+  const length = Math.min(before.plain.length, after.plain.length);
+  // Ink first; a difference carried only by spaces (a trailing space, say) is named too.
+  for (const spaces of [false, true]) {
+    let b = 0;
+    let a = 0;
+    let bEnd = before.runs[0]?.text.length ?? 0;
+    let aEnd = after.runs[0]?.text.length ?? 0;
+    for (let i = 0; i < length; i++) {
+      while (i >= bEnd && b < before.runs.length - 1) bEnd += before.runs[++b].text.length;
+      while (i >= aEnd && a < after.runs.length - 1) aEnd += after.runs[++a].text.length;
+      const old = before.runs[b];
+      const current = after.runs[a];
+      if (!old || !current || !before.plain[i].trim() !== spaces) continue;
+      for (const name of styleKeys) {
+        const from = shown(old, name);
+        const to = shown(current, name);
+        if (from !== to) found.set(`${name}|${from}|${to}`, { key: styleLabels[name], from, to });
+      }
+    }
+    if (found.size) break;
+  }
+  const changes = [...found.values()];
+  if (changeCache.size >= 256) changeCache.delete(changeCache.keys().next().value!);
+  changeCache.set(key, changes);
+  return changes;
+}
+/** "size: 9 → 6; colour: #ffd966 → #cccccc, #6fa8dc → #cccccc" grouped by property. */
+export function describeChanges(changes: StyleChange[]): string {
+  const byKey = new Map<string, Set<string>>();
+  for (const change of changes) {
+    const pairs = byKey.get(change.key) ?? new Set();
+    pairs.add(`${change.from} → ${change.to}`);
+    byKey.set(change.key, pairs);
+  }
+  // More than three distinct pairs of one property read as a list, not a change: count them.
+  return (
+    [...byKey]
+      .map(
+        ([key, pairs]) =>
+          `${key}: ${pairs.size > 3 ? `${pairs.size} different values` : [...pairs].join(', ')}`,
+      )
+      .join('; ') || 'styling changed'
+  );
+}
+function styleNote(before: CompendiumCell, after: CompendiumCell): StyleNote {
+  const changes = styleChanges(before, after);
+  return { description: describeChanges(changes), changes, before, after };
+}
+
+/**
+ * Lines whose notes change the same properties (e.g. size + colour) are one cell-wide change when
+ * HOIST_MIN_LINES or more share that signature: their markers go, and the key line names the
+ * change once with every value pair seen. Lines with a different signature keep their markers.
+ */
+function hoistStyle(diff: PreparedDiff): PreparedDiff {
+  const signature = (note: StyleNote) =>
+    [...new Set(note.changes.map((change) => change.key))].sort().join('+');
+  const counts = new Map<string, number>();
+  for (const line of diff.lines)
+    if (line.kind !== 'block' && line.style) {
+      const key = signature(line.style);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  let hoisted: string | undefined;
+  for (const [key, count] of counts)
+    if (count >= HOIST_MIN_LINES && (hoisted === undefined || count > counts.get(hoisted)!))
+      hoisted = key;
+  if (hoisted === undefined) return diff;
+  const changes: StyleChange[] = [];
+  for (const line of diff.lines)
+    if (line.kind !== 'block' && line.style && signature(line.style) === hoisted) {
+      changes.push(...line.style.changes);
+      delete line.style;
+    }
+  return { ...diff, cellStyle: `${describeChanges(changes)} (${counts.get(hoisted)} lines)` };
 }
