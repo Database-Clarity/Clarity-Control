@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import type { CompendiumCell, CompendiumRun } from '@clarity/core';
 import { CompendiumDiff } from './CompendiumDiff';
 import {
@@ -236,4 +236,41 @@ it('marker hover, focus, click, Enter activation, Esc, blur, and entry changes a
   expect(host.querySelector('button[aria-expanded]')).toBeNull();
   await render(before, after);
   expect(host.querySelector('button[aria-expanded]')?.getAttribute('aria-expanded')).toBe('false');
+});
+
+it('opens scaled cell style details in the top layer and dismisses them with Escape', async () => {
+  const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'showPopover');
+  const show = vi.fn();
+  Object.defineProperty(HTMLElement.prototype, 'showPopover', { configurable: true, value: show });
+  try {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    roots.push(root);
+    await act(async () =>
+      root.render(
+        createElement(CompendiumDiff, {
+          before: text('Short style-only cell'),
+          after: cell({ text: 'Short style-only cell', bold: true }),
+          mode: 'changes',
+          scale: 150,
+        }),
+      ),
+    );
+    const marker = host.querySelector<HTMLButtonElement>('button[aria-expanded]')!;
+    await act(async () => marker.click());
+    const detail = host.querySelector<HTMLElement>('[role=tooltip]')!;
+    expect(show).toHaveBeenCalledOnce();
+    expect(detail.getAttribute('popover')).toBe('manual');
+    expect(detail.style.position).toBe('fixed');
+    expect(detail.textContent).toContain('Snapshot:');
+    await act(async () =>
+      marker.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+    );
+    expect(marker.getAttribute('aria-expanded')).toBe('false');
+    expect(host.querySelector('[popover]')).toBeNull();
+  } finally {
+    if (original) Object.defineProperty(HTMLElement.prototype, 'showPopover', original);
+    else Reflect.deleteProperty(HTMLElement.prototype, 'showPopover');
+  }
 });

@@ -47,36 +47,81 @@ export function CompendiumDiffModeToggle({
 
 /** Mount positioning state and listeners only for the popup the user opens. */
 function StylePopover({ id, note }: { id: string; note: StyleNote }) {
-  const [place, setPlace] = useState<{ offset: number; width?: number }>({ offset: 0 });
+  const [place, setPlace] = useState<{
+    offset: number;
+    width?: number;
+    top?: number;
+    maxHeight?: number;
+  }>({ offset: 0 });
   const popover = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
     const position = () => {
       const element = popover.current;
       const anchor = element?.parentElement;
       if (!element || !anchor) return;
-      // Stay inside the cell (the pane clips what leaves it) and the window. Rectangles are in
+      const scrollport = anchor.closest('[data-cell-scale]')?.parentElement;
+      // Native popovers escape the cell's overflow clip while retaining inherited sheet styles
+      // and zoom. Other consumers keep their existing absolute popover layout.
+      const floating = !!scrollport && typeof element.showPopover === 'function';
+      if (floating && !element.hasAttribute('popover')) {
+        element.setAttribute('popover', 'manual');
+        Object.assign(element.style, { position: 'fixed', inset: 'auto', margin: '0' });
+        element.showPopover();
+      }
+      // Stay inside the visible cell scrollport and the window. Rectangles are in
       // window pixels; the styles set here are in the pane's own, zoomed, pixels.
       const cell = anchor.closest('[data-surface]')?.getBoundingClientRect();
-      const low = Math.max(8, cell?.left ?? 0);
-      const high = Math.min(document.documentElement.clientWidth - 8, cell?.right ?? Infinity);
-      const box = element.getBoundingClientRect();
-      const zoom = element.offsetWidth ? box.width / element.offsetWidth : 1;
-      const width = Math.min(box.width, high - low);
-      const left = anchor.getBoundingClientRect().left;
+      const visible = scrollport?.getBoundingClientRect();
+      const low = Math.max(8, cell?.left ?? 0, visible?.left ?? 0);
+      const high = Math.min(
+        document.documentElement.clientWidth - 8,
+        cell?.right ?? Infinity,
+        visible?.right ?? Infinity,
+      );
+      // Measure intrinsic width again on scroll/resize, rather than treating the previous
+      // constrained width as intrinsic and accidentally removing its clamp.
+      const previousWidth = element.style.width;
+      if (floating) element.style.width = '';
+      const intrinsic = element.getBoundingClientRect();
+      const zoom = element.offsetWidth ? intrinsic.width / element.offsetWidth : 1;
+      const width = Math.min(intrinsic.width, Math.max(1, high - low));
+      const constrainedWidth = width < intrinsic.width ? Math.floor(width / zoom) : undefined;
+      if (floating && constrainedWidth !== undefined) element.style.width = `${constrainedWidth}px`;
+      const box = floating ? element.getBoundingClientRect() : intrinsic;
+      if (floating) element.style.width = previousWidth;
+      const anchorBox = anchor.getBoundingClientRect();
+      const left = anchorBox.left;
       const next = {
-        offset: Math.round((Math.max(low, Math.min(left, high - width)) - left) / zoom),
-        width: width < box.width ? Math.floor(width / zoom) : undefined,
+        offset: Math.round(
+          (Math.max(low, Math.min(left, high - width)) - (floating ? 0 : left)) / zoom,
+        ),
+        maxHeight: floating ? (window.innerHeight - 16) / zoom : undefined,
+        top: floating
+          ? Math.max(8, Math.min(anchorBox.bottom, window.innerHeight - box.height - 8)) / zoom
+          : undefined,
+        width: constrainedWidth,
       };
       setPlace((current) =>
-        current.offset === next.offset && current.width === next.width ? current : next,
+        current.offset === next.offset &&
+        current.width === next.width &&
+        current.top === next.top &&
+        current.maxHeight === next.maxHeight
+          ? current
+          : next,
       );
     };
     position();
     window.addEventListener('resize', position);
-    window.addEventListener('scroll', position, true);
+    const onScroll = (event: Event) => {
+      // Scrolling the detail itself does not move its anchor. Avoid remeasuring its width,
+      // which can otherwise disturb the detail's own scroll position.
+      if (event.target instanceof Node && popover.current?.contains(event.target)) return;
+      position();
+    };
+    window.addEventListener('scroll', onScroll, true);
     return () => {
       window.removeEventListener('resize', position);
-      window.removeEventListener('scroll', position, true);
+      window.removeEventListener('scroll', onScroll, true);
     };
   }, [note]);
   return (
@@ -85,7 +130,21 @@ function StylePopover({ id, note }: { id: string; note: StyleNote }) {
       id={id}
       className={styles.stylePopover}
       role="tooltip"
-      style={{ insetInlineStart: place.offset, width: place.width }}
+      style={{
+        insetInlineStart: place.offset,
+        width: place.width,
+        ...(place.top === undefined
+          ? {}
+          : {
+              position: 'fixed',
+              inset: 'auto',
+              left: place.offset,
+              top: place.top,
+              margin: 0,
+              maxHeight: place.maxHeight,
+              overflow: 'auto',
+            }),
+      }}
     >
       <span>{note.description}</span>
       <span className={styles.swatches}>
