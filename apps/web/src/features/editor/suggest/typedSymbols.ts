@@ -68,7 +68,7 @@ function indexNames(data: EditorData | null): Index {
   let longest = 0;
   if (!data) return { endings, longest };
   const facts = loadManifestFacts().items;
-  const named = new Map<string, { icons: Set<string>; keyword: boolean }>();
+  const named = new Map<string, { icons: Set<string>; keyword: boolean; hasElement: boolean }>();
   for (const item of Object.values(data.items)) {
     if (!categories.has(item.categoryId)) continue;
     const category = facts[item.hash]?.inventory?.plug?.plugCategoryIdentifier;
@@ -88,8 +88,11 @@ function indexNames(data: EditorData | null): Index {
     const known = named.get(original) ?? {
       icons: new Set<string>(),
       keyword: item.categoryId === 'verbs',
+      hasElement: false,
     };
     if (icon) known.icons.add(icon);
+    // Multiple description elements are ambiguous data, not missing data.
+    known.hasElement ||= Boolean(icon) || descriptionElements.length > 0;
     named.set(original, known);
   }
   for (const [original, known] of named) {
@@ -97,7 +100,7 @@ function indexNames(data: EditorData | null): Index {
     const icon =
       known.icons.size === 1
         ? [...known.icons][0]!
-        : known.icons.size === 0 && known.keyword && Object.hasOwn(keywordElements, original)
+        : !known.hasElement && known.keyword && Object.hasOwn(keywordElements, original)
           ? (keywordElements[original] ?? null)
           : null;
     for (const name of known.keyword && icon ? wordForms(original) : [original]) {

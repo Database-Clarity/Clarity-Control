@@ -111,6 +111,15 @@ test('any data-derived element wins, including across duplicate keyword records'
   expect(subclassSymbol('Radiant', 'Radiant')?.icon).toBeNull();
 });
 
+test('conflicting elements in one description prevent fallback, including with missing-data duplicates', () => {
+  catalogue([{ name: 'Radiant', description: '[Arc] [Void]' }]);
+  expect(subclassSymbol('Radiant', 'Radiant')?.icon).toBeNull();
+  catalogue([{ name: 'Radiant', description: '[Arc] [Void]' }, { name: 'Radiant' }]);
+  expect(subclassSymbol('Radiant', 'Radiant')?.icon).toBeNull();
+  catalogue([{ name: 'Radiant', description: '[Arc] [Arc]' }]);
+  expect(subclassSymbol('Radiant', 'Radiant')?.icon).toBe('arc');
+});
+
 test('fallback requires a catalogue keyword, respects boundaries, and resets with the catalogue', () => {
   catalogue([{ name: 'constructor' }]);
   expect(subclassSymbol('constructor', 'constructor')?.icon).toBeNull();
