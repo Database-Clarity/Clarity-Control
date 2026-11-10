@@ -62,3 +62,13 @@ it('saves an ordered association-only draft through enrichers and the Worker, th
   expect(useDataStore.getState().data?.bundle.tooltips[123].associated).toEqual([30, 20]);
   expect(retry).toHaveBeenCalledOnce();
 });
+
+vi.mock('../../services/save/validationWorker', () => ({
+  requestSaveValidation: async (
+    changes: import('../../services/api').Change[],
+    data: import('../../stores/data').EditorData,
+  ) => {
+    const { validateChanges } = await import('../../services/save/validation');
+    return validateChanges(changes, data);
+  },
+}));

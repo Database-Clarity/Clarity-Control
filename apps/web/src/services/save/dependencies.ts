@@ -13,6 +13,16 @@ import type { EditorData } from '../../stores/data';
 import type { Change } from '../api';
 import { tooltipImports } from '../tooltipImports';
 
+type Dependent = {
+  hash: number;
+  lang: Lang;
+  validation: ReturnType<typeof validateTextWithReads>;
+};
+type Baseline = { index: Map<number, Set<Dependent>>; entries: Dependent[] };
+// EditorData is immutable: load, refresh, conflict reload, and acceptSaved replace it.
+// This also invalidates aliases, category types, globals, and titles, even at the same commit.
+const baselines = new WeakMap<EditorData, Map<Lang, Baseline>>();
+
 function changedNames(before: Record<string, string>, after: Record<string, string>) {
   return [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
     (name) =>
@@ -85,39 +95,55 @@ export function saveDependencies(
 
   const outsideIssues = (): TooltipValidationIssue[] => {
     const batch = new Set(changes.map(({ hash }) => hash));
-    type Dependent = {
-      hash: number;
-      lang: Lang;
-      validation: ReturnType<typeof validateTextWithReads>;
-    };
     const dependents = new Set<Dependent>();
     // Build once, only for languages whose inputs change. The baseline reads also select texts
     // whose after-expansion reads a new target: its first changed input was read before the save.
     for (const [lang, documents] of changed) {
-      const index = new Map<number, Set<Dependent>>();
-      for (const tooltip of Object.values(before)) {
-        const hash = tooltip.hash;
-        if (batch.has(hash) || resolveAlias(hash, data.aliases) !== hash) continue;
-        if (lang !== 'en' && !tooltip.text[lang]) continue;
-        const validation = validateTextWithReads(
-          tooltip.text[lang]?.text ?? '',
-          lang,
-          globalsFor(hash, lang, true),
-          false,
-          hash,
-          data.aliases,
-        );
-        const dependent = { hash, lang, validation };
-        for (const target of validation.reads.imports.values()) {
-          let users = index.get(target);
-          if (!users) index.set(target, (users = new Set()));
-          users.add(dependent);
+      const isSavedBaseline =
+        Object.keys(before).length === Object.keys(data.bundle.tooltips).length &&
+        Object.keys(before).every((hash) => before[hash] === data.bundle.tooltips[hash]);
+      let cache = baselines.get(data);
+      if (!cache) baselines.set(data, (cache = new Map()));
+      let baseline = isSavedBaseline ? cache.get(lang) : undefined;
+      if (!baseline) {
+        const index = new Map<number, Set<Dependent>>();
+        const entries: Dependent[] = [];
+        for (const tooltip of Object.values(before)) {
+          const hash = tooltip.hash;
+          if (resolveAlias(hash, data.aliases) !== hash) continue;
+          if (lang !== 'en' && !tooltip.text[lang]) continue;
+          const validation = validateTextWithReads(
+            tooltip.text[lang]?.text ?? '',
+            lang,
+            globalsFor(hash, lang, true),
+            false,
+            hash,
+            data.aliases,
+          );
+          const dependent = { hash, lang, validation };
+          entries.push(dependent);
+          for (const target of validation.reads.imports.values()) {
+            let users = index.get(target);
+            if (!users) index.set(target, (users = new Set()));
+            users.add(dependent);
+          }
         }
-        // Global variables are name lookups observed by the same real validation run.
-        if (affectedBy({ ...validation.reads, imports: new Map() })) dependents.add(dependent);
+        baseline = { index, entries };
+        if (isSavedBaseline) cache.set(lang, baseline);
+      }
+      const { index, entries } = baseline;
+      for (const dependent of entries) {
+        if (
+          !batch.has(dependent.hash) &&
+          affectedBy({ ...dependent.validation.reads, imports: new Map() })
+        ) {
+          dependents.add(dependent);
+        }
       }
       for (const hash of documents.keys()) {
-        for (const dependent of index.get(hash) ?? []) dependents.add(dependent);
+        for (const dependent of index.get(hash) ?? []) {
+          if (!batch.has(dependent.hash)) dependents.add(dependent);
+        }
       }
     }
     const issues: TooltipValidationIssue[] = [];

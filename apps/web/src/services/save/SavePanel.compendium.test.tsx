@@ -203,3 +203,5 @@ describe('saving over a Compendium source that changed since it was shown', () =
     expect(mocks.prepare.mock.calls[0][3]).toBeUndefined();
   });
 });
+
+vi.mock('./validationWorker', () => ({ requestSaveValidation: async () => [] }));

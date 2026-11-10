@@ -1,3 +1,4 @@
+import * as core from '@clarity/core';
 import { describe, expect, it, vi } from 'vitest';
 import type { Me } from '../api';
 import { noTooltipYet, permissionError, prepareChanges, validateChanges } from './pipeline';
@@ -635,4 +636,85 @@ describe('reverse dependents outside the batch', () => {
     ];
     expect(errors(validateChanges(changes, data))).toEqual([]);
   });
+});
+
+vi.mock('./validationWorker', () => ({
+  requestSaveValidation: async (
+    changes: import('../api').Change[],
+    data: import('../../stores/data').EditorData,
+  ) => {
+    const { validateChanges } = await import('./validation');
+    return validateChanges(changes, data);
+  },
+}));
+
+describe('saved catalogue baseline cache', () => {
+  const doc = (hash: number, text: string) => ({
+    ...tooltip,
+    hash,
+    text: { en: { ...english, text } },
+  });
+  it('invalidates when a new dependent is loaded at the same source commit', () => {
+    const data = editorData();
+    const donor = doc(124, 'export hidden foo (\nShared\n)');
+    data.bundle.tooltips = { 124: donor };
+    const changes = [{ hash: 124, base: donor, next: doc(124, 'Removed export') }];
+    expect(validateChanges(changes, data).filter((issue) => issue.severity === 'error')).toEqual(
+      [],
+    );
+    const fresh = {
+      ...data,
+      bundle: {
+        ...data.bundle,
+        tooltips: {
+          ...data.bundle.tooltips,
+          123: doc(123, 'import foo from 124'),
+        },
+      },
+    };
+    expect(validateChanges(changes, fresh)).toContainEqual(
+      expect.objectContaining({ hash: 123, severity: 'error' }),
+    );
+  });
+  it('keeps recovered draft bases independent of an already-cached saved baseline', () => {
+    const data = editorData();
+    const donor = doc(124, 'export hidden foo (\nShared\n)');
+    data.bundle.tooltips = { 124: donor, 123: doc(123, 'import foo from 124') };
+    const changes = [{ hash: 124, base: donor, next: doc(124, 'Removed export') }];
+    const initial = validateChanges(changes, data);
+    validateChanges([{ hash: 124, base: doc(124, 'Older saved text'), next: donor }], data);
+    expect(validateChanges(changes, data)).toEqual(initial);
+  });
+});
+
+it('reuses real baseline reads for later attempts against the same saved catalogue', () => {
+  const data = editorData();
+  const donor = {
+    ...tooltip,
+    hash: 124,
+    text: { en: { ...english, text: 'export hidden foo (\nShared\n)' } },
+  };
+  data.bundle.tooltips[124] = donor;
+  data.bundle.tooltips[123] = {
+    ...tooltip,
+    text: { en: { ...english, text: 'import foo from 124' } },
+  };
+  const changes = [
+    {
+      hash: 124,
+      base: donor,
+      next: { ...donor, text: { en: { ...english, text: 'Removed export' } } },
+    },
+  ];
+  const validate = vi.spyOn(core, 'validateTextWithReads');
+  try {
+    const first = validateChanges(changes, data);
+    const initialCalls = validate.mock.calls.length;
+    validate.mockClear();
+    expect(validateChanges(changes, data)).toEqual(first);
+    expect(validate.mock.calls.length).toBeLessThan(initialCalls);
+    expect(validate.mock.calls.length).toBe(1);
+  } finally {
+    validate.mockRestore();
+  }
 });

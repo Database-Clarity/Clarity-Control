@@ -139,3 +139,5 @@ describe('SaveController save submission', () => {
     },
   );
 });
+
+vi.mock('./validationWorker', () => ({ requestSaveValidation: async () => [] }));
