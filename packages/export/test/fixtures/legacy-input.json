@@ -1,0 +1,739 @@
+{
+  "perks": {
+    "1": {
+      "hash": 1,
+      "name": "Global exports",
+      "type": "none",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700000000001,
+      "updateTracker": {
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          },
+          "de": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "export hidden Shared (\n<bold Shared bold /> global text with <arc/>Arc.\n)\n\nexport Visible (\nVisible global export ${2*3}\n)",
+          "secondary": "export hidden Shared (\n<bold Shared bold /> global text with <arc/>Arc.\n)\n\nexport Visible (\nVisible global export ${2*3}\n)\n\nexport SecondaryOnly (\nFrom the secondary global\n)"
+        },
+        "de": {
+          "main": "export hidden Shared (\nGeteilter Text\n)\n\nexport Visible (\nSichtbar\n)",
+          "secondary": "export hidden Shared (\nGeteilter Text\n)\n\nexport Visible (\nSichtbar\n)"
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true
+    },
+    "2": {
+      "hash": 2,
+      "name": "Global variables",
+      "type": "none",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700000000002,
+      "updateTracker": {
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          },
+          "de": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "// variables\nvar e = 🡅\nvar dmg = 25\nvar Url = https://example.com/url\nvar nothing = empty",
+          "secondary": "// variables\nvar e = 🡅\nvar dmg = 25\nvar Url = https://example.com/url\nvar nothing = empty"
+        },
+        "de": {
+          "main": "var e = 🡅\nvar dmg = 30",
+          "secondary": "var e = 🡅\nvar dmg = 30"
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true
+    },
+    "3": {
+      "hash": 3,
+      "name": "Global titles",
+      "type": "none",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700000000003,
+      "updateTracker": {
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          },
+          "de": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "title GlobalTitle (\nGlobal title text with <solar/>Solar and ${1+1}.\n)",
+          "secondary": "title GlobalTitle (\nGlobal title text with <solar/>Solar and ${1+1}.\n)"
+        },
+        "de": {
+          "main": "title GlobalTitle (\nGlobaler Titel\n)",
+          "secondary": "title GlobalTitle (\nGlobaler Titel\n)"
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true
+    },
+    "10": {
+      "hash": 10,
+      "name": "Reserved range",
+      "type": "Weapon Perk",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700000000010,
+      "updateTracker": {
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "Reserved hashes are never published",
+          "secondary": "Reserved hashes are never published"
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true
+    },
+    "20": {
+      "hash": 20,
+      "aliasOf": 1001,
+      "aliasKind": "frame",
+      "name": "Reserved frame alias",
+      "type": "Weapon Frame"
+    },
+    "1001": {
+      "hash": 1001,
+      "name": "Every symbol",
+      "type": "Weapon Perk",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700000001001,
+      "updateTracker": {
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          },
+          "de": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "<kinetic/>Kinetic <arc/>Arc <solar/>Solar <void/>Void <stasis/>Stasis <strand/>Strand <prismatic/>Prismatic\n<primary/>Primary <special/>Special <heavy/>Heavy\n<barrier/>Barrier <overload/>Overload <unstoppable/>Unstoppable\n<hunter/>Hunter <titan/>Titan <warlock/>Warlock\nInline <bold Bold text /> <yellow Exotic text /> <blue Blue /> <green Green /> <purple Purple /> <center Centered /> <background Background />\nInline <pve PvE only /> and <pvp PvP only [bracketed] /> and <pvp PvP without brackets />\n<center/>Centered line\n<background/>Background line\n<breakSpaces/>   Break spaces line   \n<yellow/>Yellow line\n<bold/>Bold line\n<blue/><green/>Two line classes\n🡅 Enhanced arrow and #e from a variable\n<pve/>PvE line\n<pvp/>PvP line\n\n\n\nAfter three blank lines",
+          "secondary": "<kinetic/>Kinetic <arc/>Arc <solar/>Solar <void/>Void <stasis/>Stasis <strand/>Strand <prismatic/>Prismatic\n<primary/>Primary <special/>Special <heavy/>Heavy\n<barrier/>Barrier <overload/>Overload <unstoppable/>Unstoppable\n<hunter/>Hunter <titan/>Titan <warlock/>Warlock\nInline <bold Bold text /> <yellow Exotic text /> <blue Blue /> <green Green /> <purple Purple /> <center Centered /> <background Background />\nInline <pve PvE only /> and <pvp PvP only [bracketed] /> and <pvp PvP without brackets />\n<center/>Centered line\n<background/>Background line\n<breakSpaces/>   Break spaces line   \n<yellow/>Yellow line\n<bold/>Bold line\n<blue/><green/>Two line classes\n🡅 Enhanced arrow and #e from a variable\n<pve/>PvE line\n<pvp/>PvP line\n\n\n\nAfter three blank lines"
+        },
+        "de": {
+          "main": "<arc/>Bogen <bold Fett /> 🡅",
+          "secondary": "<arc/>Bogen <bold Fett /> 🡅"
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true,
+      "itemHash": 501,
+      "itemName": "Symbol item"
+    },
+    "1002": {
+      "hash": 1002,
+      "name": "Titles, links, tables, formulas",
+      "type": "Weapon Trait",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700000001002,
+      "updateTracker": {
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "A <title Hover me [LocalTitle] /> and <title Global one [GlobalTitle] /> and <title Missing [NoSuchTitle] />\nLinks: <link Visit [https://example.com/a] /> then <link Variable link [#Url] />\nFormula <formula Damage [x*2] /> here\n< table formula wide >\n|b2 Header | Other\n|-2c Cell | <bold x /> | <title T [LocalTitle] />\n<$>\n< table background_1 centerTable >\n|h One |r Two\n<$>\ntitle LocalTitle (\nLocal title with <bold bold /> and <link a link [https://example.com/t] />\n\nSecond paragraph of the title\n)",
+          "secondary": "A <title Hover me [LocalTitle] /> and <title Global one [GlobalTitle] /> and <title Missing [NoSuchTitle] />\nLinks: <link Visit [https://example.com/a] /> then <link Variable link [#Url] />\nFormula <formula Damage [x*2] /> here\n< table formula wide >\n|b2 Header | Other\n|-2c Cell | <bold x /> | <title T [LocalTitle] />\n<$>\n< table background_1 centerTable >\n|h One |r Two\n<$>\ntitle LocalTitle (\nLocal title with <bold bold /> and <link a link [https://example.com/t] />\n\nSecond paragraph of the title\n)"
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true
+    },
+    "1003": {
+      "hash": 1003,
+      "name": "Weapon sections",
+      "type": "Weapon Trait",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700000001003,
+      "updateTracker": {
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "Intro line\n<weapons Auto Rifle, HC>\nAuto rifle and hand cannon text\n</weapons>\n<weapons>\nGeneric weapons text\n</weapons>\n< weapon type (AR, Other) >\nOld syntax text\n<$$>\n< (Bow, heavy gl) >\nParen syntax text\n<$$>\n<weapons Other>\nOther text\n</weapons>",
+          "secondary": "Intro line\n<weapons Auto Rifle, HC>\nAuto rifle and hand cannon text\n</weapons>\n<weapons>\nGeneric weapons text\n</weapons>\n< weapon type (AR, Other) >\nOld syntax text\n<$$>\n< (Bow, heavy gl) >\nParen syntax text\n<$$>\n<weapons Other>\nOther text\n</weapons>"
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true,
+      "weaponTypes": [
+        "Auto Rifle"
+      ]
+    },
+    "1004": {
+      "hash": 1004,
+      "name": "Math",
+      "type": "Weapon Perk",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700000001004,
+      "updateTracker": {
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          },
+          "de": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "var local = 4\nValues ${1+2*3}, ${10-2*3}, ${10 - -2}, ${-1.005}, ${1.005}, ${3/7}, ${1/0}, ${0/0}, ${abc}, ${2; 3}\nVariables ${#dmg * 2}, ${#local + 0.5}, ${#missing + 1}, ${1.5-0.1}, ${140*#d-100}, ${7 -3}, ${2 * -3}, ${12.345 / 2}\nRepeat ${1+1} and ${1+1} and ${ 5 * 5 }",
+          "secondary": "var local = 4\nValues ${1+2*3}, ${10-2*3}, ${10 - -2}, ${-1.005}, ${1.005}, ${3/7}, ${1/0}, ${0/0}, ${abc}, ${2; 3}\nVariables ${#dmg * 2}, ${#local + 0.5}, ${#missing + 1}, ${1.5-0.1}, ${140*#d-100}, ${7 -3}, ${2 * -3}, ${12.345 / 2}\nRepeat ${1+1} and ${1+1} and ${ 5 * 5 }"
+        },
+        "de": {
+          "main": "Werte ${#dmg + 1}",
+          "secondary": "Werte ${#dmg + 1}"
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true
+    },
+    "1005": {
+      "hash": 1005,
+      "name": "Imports",
+      "type": "Weapon Perk",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700000001005,
+      "updateTracker": {
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "import Shared from global\nimport Visible from global\nimport Chain from 1006\nimport self\nMain body of 1005",
+          "secondary": "import Shared from global\nimport Chain from 1006\nSecondary body of 1005"
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true
+    },
+    "1006": {
+      "hash": 1006,
+      "name": "Nested import source",
+      "type": "Weapon Perk",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700000001006,
+      "updateTracker": {
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "export Chain (\nChain level one (main)\nimport Deeper from 1007\n)\n\nexport hidden Hidden (\nHidden text\n)\nBody of 1006",
+          "secondary": "export Chain (\nChain level one (secondary)\nimport Deeper from 1007\n)\nBody of 1006 secondary"
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true
+    },
+    "1007": {
+      "hash": 1007,
+      "name": "Deepest import",
+      "type": "Weapon Perk",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700000001007,
+      "updateTracker": {
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "export Deeper (\nDeepest main <void/>Void\n)\nBody of 1007",
+          "secondary": "export Deeper (\nDeepest secondary <solar/>Solar\n)\nBody of 1007 secondary"
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true
+    },
+    "1008": {
+      "hash": 1008,
+      "name": "Whole-editor imports",
+      "type": "Weapon Perk",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700000001008,
+      "updateTracker": {
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "import main from 1007\nimport secondary from 1006\nOwn line",
+          "secondary": "import main from 1007\nimport secondary from 1006\nOwn line"
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true
+    },
+    "1009": {
+      "hash": 1009,
+      "name": "Enhanced blocks",
+      "type": "Weapon Trait Enhanced",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700000001009,
+      "updateTracker": {
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "Base text #e\nenhanced (\nEnhanced only text\n)\ncatalyst (\nCatalyst text\n)\nexotic perk (\nExotic perk text\n)\n// comment line\nText /* inline comment */ after\nTrailing comment // here",
+          "secondary": "Base text #e\nenhanced (\nEnhanced only text\n)\ncatalyst (\nCatalyst text\n)\nexotic perk (\nExotic perk text\n)\n// comment line\nText /* inline comment */ after\nTrailing comment // here"
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true
+    },
+    "1010": {
+      "hash": 1010,
+      "name": "Blocks on a plain trait",
+      "type": "Weapon Trait",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700000001010,
+      "updateTracker": {
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "Base text #e\nenhanced (\nEnhanced only text\n)\ncatalyst (\nCatalyst text\n)\nexotic perk (\nExotic perk text\n)",
+          "secondary": "Base text #e\nenhanced (\nEnhanced only text\n)\ncatalyst (\nCatalyst text\n)\nexotic perk (\nExotic perk text\n)"
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true
+    },
+    "1011": {
+      "hash": 1011,
+      "name": "Blocks on a catalyst",
+      "type": "Weapon Catalyst Exotic",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700000001011,
+      "updateTracker": {
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "Base text\ncatalyst (\nCatalyst text\n)\nexotic perk (\nExotic perk text\n)",
+          "secondary": "Base text\ncatalyst (\nCatalyst text\n)\nexotic perk (\nExotic perk text\n)"
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true
+    },
+    "1012": {
+      "hash": 1012,
+      "name": "Blocks on an exotic perk",
+      "type": "Weapon Perk Exotic",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700000001012,
+      "updateTracker": {
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "Base text\nexotic perk (\nExotic perk text\n)",
+          "secondary": "Base text\nexotic perk (\nExotic perk text\n)"
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true
+    },
+    "1013": {
+      "hash": 1013,
+      "name": "Element tags",
+      "type": "Subclass Aspect",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700000001013,
+      "updateTracker": {
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "<solar Firesprite /> and <solar/>Firesprite and <strand Thread of Warding /> and <prismatic Facet />\n<arc/><bold Jolt /> lowered form",
+          "secondary": "<solar Firesprite /> and <solar/>Firesprite and <strand Thread of Warding /> and <prismatic Facet />\n<arc/><bold Jolt /> lowered form"
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true
+    },
+    "2001": {
+      "hash": 2001,
+      "aliasOf": 1001,
+      "aliasKind": "frame",
+      "name": "Frame alias with facts",
+      "type": "Weapon Frame Enhanced",
+      "itemHash": 777,
+      "itemName": "Frame item"
+    },
+    "2002": {
+      "hash": 2002,
+      "aliasOf": 1002,
+      "aliasKind": "frame"
+    },
+    "2003": {
+      "hash": 2003,
+      "aliasOf": 1003,
+      "aliasKind": "name",
+      "name": "Name alias"
+    },
+    "2004": {
+      "hash": 2004,
+      "aliasOf": 1004,
+      "aliasKind": "sandbox"
+    },
+    "3001": {
+      "hash": 3001,
+      "name": "Bungie-identical",
+      "type": "Weapon Perk",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700000003001,
+      "updateTracker": {
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "Bungie text.",
+          "secondary": "Bungie text."
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true
+    },
+    "3002": {
+      "hash": 3002,
+      "aliasOf": 3001,
+      "aliasKind": "sandbox"
+    },
+    "3003": {
+      "hash": 3003,
+      "aliasOf": 3001,
+      "aliasKind": "frame",
+      "name": "Frame of identical",
+      "type": "Weapon Frame"
+    },
+    "3004": {
+      "hash": 3004,
+      "name": "Empty English",
+      "type": "Weapon Perk",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700000003004,
+      "updateTracker": {
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          },
+          "de": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "   ",
+          "secondary": "   "
+        },
+        "de": {
+          "main": "Nur Deutsch",
+          "secondary": "Nur Deutsch"
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true
+    },
+    "3005": {
+      "hash": 3005,
+      "name": "Languages and metadata",
+      "type": "Armor Trait Exotic",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700000003005,
+      "updateTracker": {
+        "stats": {
+          "lastUpdate": 1700000000001,
+          "updatedBy": "stats-fixture"
+        },
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1,
+            "updatedBy": "a"
+          },
+          "de": {
+            "lastUpdate": 2,
+            "updatedBy": "b"
+          },
+          "ko": {
+            "lastUpdate": 3,
+            "updatedBy": "c"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "English <bold text />",
+          "secondary": "English secondary <bold text />"
+        },
+        "de": {
+          "main": "Deutscher Text",
+          "secondary": "Deutscher Text"
+        },
+        "fr": {
+          "main": "Texte français",
+          "secondary": "Texte français"
+        },
+        "es-mx": {
+          "main": "Texto",
+          "secondary": "Texto"
+        },
+        "zh-chs": {
+          "main": "中文 <arc/>",
+          "secondary": "中文 <arc/>"
+        },
+        "ja": {
+          "main": "日本語",
+          "secondary": "日本語"
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true,
+      "itemHash": 900,
+      "itemName": "Exotic item",
+      "associated": [
+        1001,
+        1002
+      ],
+      "importStatsFrom": 1001,
+      "duration": [
+        1,
+        2
+      ],
+      "activationCondition": "never",
+      "stats": {
+        "Range": [
+          {
+            "weaponTypes": [
+              "AR",
+              "HC"
+            ],
+            "active": {
+              "stat": [
+                10,
+                20
+              ],
+              "multiplier": [
+                1.5
+              ]
+            },
+            "passive": {
+              "stat": [
+                5
+              ]
+            }
+          }
+        ],
+        "Handling": [
+          {
+            "active": {
+              "stat": [
+                30
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "3006": {
+      "hash": 3006,
+      "name": "CRLF and spacing",
+      "type": "Weapon Perk",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700000003006,
+      "updateTracker": {
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "Line one\r\nLine two\r\n\r\nLine four  \r\n",
+          "secondary": "Line one\r\nLine two\r\n\r\nLine four  \r\n"
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true
+    },
+    "3007": {
+      "hash": 3007,
+      "name": "Table at the end",
+      "type": "Weapon Perk",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700000003007,
+      "updateTracker": {
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "Text before\n\n< table >\n| A | B\n<$>",
+          "secondary": "Text before\n\n< table >\n| A | B\n<$>"
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true
+    },
+    "17188252": {
+      "hash": 17188252,
+      "name": "Fixture Set (2 pc): First Bonus",
+      "type": "armor-set-bonus",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700017188252,
+      "updateTracker": {
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "Set bonus text: <bold 2 pieces /> grant <void/>Void overshield.",
+          "secondary": "Set bonus text: <bold 2 pieces /> grant <void/>Void overshield."
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true
+    },
+    "17188253": {
+      "hash": 17188253,
+      "aliasOf": 17188252,
+      "aliasKind": "sandbox"
+    },
+    "17188254": {
+      "hash": 17188254,
+      "name": "Fixture Set (4 pc): Bungie Bonus",
+      "type": "armor-set-bonus",
+      "uploadedBy": "fixture",
+      "lastUpload": 1700017188254,
+      "updateTracker": {
+        "descriptions": {
+          "en": {
+            "lastUpdate": 1700000000000,
+            "updatedBy": "fixture"
+          }
+        }
+      },
+      "editor": {
+        "en": {
+          "main": "Same as Bungie.",
+          "secondary": "Same as Bungie."
+        }
+      },
+      "inLiveDatabase": true,
+      "uploadToLive": true
+    }
+  },
+  "databaseSettings": {
+    "folders": {},
+    "enhancedPerks": {}
+  }
+}

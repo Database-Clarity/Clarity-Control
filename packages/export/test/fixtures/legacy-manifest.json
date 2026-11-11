@@ -1,0 +1,24 @@
+{
+  "inventoryItem": {
+    "1001": {
+      "displayProperties": {
+        "description": "Different from ours"
+      }
+    },
+    "3001": {
+      "displayProperties": {
+        "description": "Bungie text."
+      }
+    },
+    "3002": {
+      "displayProperties": {
+        "description": "Bungie text."
+      }
+    },
+    "17188254": {
+      "displayProperties": {
+        "description": "Same as Bungie."
+      }
+    }
+  }
+}

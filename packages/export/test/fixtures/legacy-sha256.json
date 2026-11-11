@@ -1,0 +1,45 @@
+{
+  "_source": "sha256 of the files the held converter (Database-Clarity/Description-converter 047673916754f2b4a9af2635612dac8876af0dd7) writes for each input; see PROVENANCE.md",
+  "fixture": {
+    "input": "test/fixtures/legacy-input.json + legacy-manifest.json",
+    "inputSha256": "8955291a8333ef22aac67903a646c09f20d13f7ddea6cba30d514b14078b6789",
+    "files": {
+      "clarity": "ba33cf409ae2b7fa928155b983614b3e33f57af961f8516f94b2c116ffb4cb83",
+      "dim": "fa0c6f61d261ecc5f324e69aeb786a75bc8465e6c44a06841bcd96791ab059c9",
+      "crayon": "c172201e7281a793a05d1719b2574bb905eaa7964b5f8092057c68cbe91af0d6",
+      "foundry": "aad656f67624a20ffbbe68d6af644f5892b3775e65a7a9d17703314f2041b3b0",
+      "lightGG": "d16672bc8ef8c598771d1863913744839ac32e6158449d194af32a8683efca82",
+      "braytech": "adbbede1b4a0dfd4adee5abdfd16eaa6a7f78396881810f322b5df1d234fc790",
+      "vaultZero": "4e1e8b73d1e8331351c1b8a4d3273a90933a38066eef9cd4686fd6bad191db30",
+      "clarityV2": "7c6a4e6aa1e41af2f26b941e88e7115863f5af7fa553cca7022e778d6265dace"
+    }
+  },
+  "live": {
+    "input": "Live-Clarity-Database converter-v2-test 0bd5daebe80c1efcbad21d86658ec5d70e4f0da5 liveDescriptions.json (= packages/core/test/fixtures/live.json)",
+    "inputSha256": "0ef049b9ee11fbd5ee36f8f9e21020233dcf75e68283c7703794de91e876ae28",
+    "files": {
+      "clarity": "881ed03880ad1869f4c82e2f0c879cacc3f5e9feae21b2d51ae80a2002175384",
+      "dim": "282f0f8512913a5937a94d15e52a3b2c95fae35478c6a1aeefe96530ac7b87d9",
+      "crayon": "8b8d161729421e14768b25b295dceee5cf50cd5cc6ce0de51694879b331d534a",
+      "foundry": "1c677a853fea6dbe636f814eb8b26b5c07e35c3db1ed55008a0436d57fd1fc60",
+      "lightGG": "8e1fdad7a6ae8810a50690ea061f782c908874b6aa1e7cc6fcb8bd1d2c01dd93",
+      "braytech": "03c0ba6ac5d4c147a0936481f9497a3eecf6063be9c42428e3bb96a8890dc7a1",
+      "vaultZero": "cdeeaf7e54aadbbb33711347e0797003fb5f521088df6bcbbde035d003e168a8",
+      "clarityV2": "70fb018c58b252cbefc51bd6a123bd978ce92a2c2ef5de752c4277afa328f6cc"
+    }
+  },
+  "editorData": {
+    "input": "editor-data 52007db2344f92232f8c14e479d32ae405cc5863 through core exportLegacy (generator c3fed8cbdebc1a810d2ce1527d12c3f3530535e2, now 2026-11-11T00:00:00Z)",
+    "inputSha256": "2a735ae68cd6a700892c367edba6f3f09288df9b11cd87f9e8cb21c883c0ba25",
+    "files": {
+      "clarity": "97f48163cc330767974ecdf8fc2e2f3ac07e8d2f8d1a96a13c357935a64f5521",
+      "dim": "194b2d74c9fb6197e1912255d4c2d16d773002854074a413b183dfd9ea778030",
+      "crayon": "f7262948778705c0a9c528da1fdf408fc0e54025b0a73563ba5f9871f007f230",
+      "foundry": "c49a0590b9663d6618e0407cf9cc5be7063e245d6fa08b6dd6cca5ff6d07e5d5",
+      "lightGG": "3c70d171fe8d96c068cd7bc982002898a46c5c30725b1ed3ab56a026c8ab8982",
+      "braytech": "a2a0f02e3f475e32441ef14e5c6dfa7739fa1267358860c73362c08fcfc51d79",
+      "vaultZero": "dd8eead62401fb45fdf6994029abfcf036f8e3cd01daf09204a7b997cb5e30b5",
+      "clarityV2": "07fc6faa2c6ca3522f9fa2fd1029f9434dbe97471a926bca07c069ee5cf7389c"
+    }
+  }
+}
