@@ -84,6 +84,9 @@ describe('FinderPicker', () => {
     ).toEqual(['Armor', 'Weapons']);
     // Every row has the icon box; only a row with an icon has an image.
     expect(listbox()!.querySelectorAll('[role="option"] > span[aria-hidden]')).toHaveLength(4);
+    // The image itself arrives just after the list first paints.
+    expect(listbox()!.querySelectorAll('img')).toHaveLength(0);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
     expect(listbox()!.querySelectorAll('img')).toHaveLength(1);
     expect(document.activeElement).toBe(trigger());
   });
