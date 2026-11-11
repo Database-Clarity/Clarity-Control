@@ -8,12 +8,14 @@ import {
   useState,
   type RefObject,
 } from 'react';
+import { createPortal } from 'react-dom';
 import type { Tooltip } from '@clarity/core';
 import type { Item } from '../../services/generator';
 import { scaledPx } from '../../ui/scale';
 import type { HistoryCommit } from '../../services/history';
 import { errorMessage } from '../../services/http';
 import { CommitAuthor } from './CommitAuthor';
+import { projectHistory, type HistoryScope } from './scope';
 import { TooltipDiff } from './TooltipDiff';
 import type { RevisionCache, RevisionDiffSource } from './revisions';
 import popover from '../../ui/Popover.module.scss';
@@ -30,6 +32,8 @@ const HOVER_DELAY = 120;
 const LEAVE_DELAY = 160;
 const LONG_PRESS = 500;
 const OPENED = 'clarity-history-entry-open';
+const TAB_TARGETS =
+  'a[href], button:not(:disabled), select:not(:disabled), input:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
 
 interface AnchorGeometry {
   rect: DOMRect;
@@ -40,6 +44,7 @@ const measureAnchor = (anchor: HTMLElement | null): AnchorGeometry | undefined =
   anchor ? { rect: anchor.getBoundingClientRect(), width: scaledPx(480) } : undefined;
 
 export interface HistoryEntryProps {
+  scope?: HistoryScope;
   entry: HistoryCommit;
   index: number;
   commits: HistoryCommit[];
@@ -70,6 +75,7 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
   const [focus, setFocus] = useState(false);
   const [pinned, setPinned] = useState(false);
   const container = useRef<HTMLLIElement>(null);
+  const surface = useRef<HTMLDivElement>(null);
   const geometry = useRef<AnchorGeometry | undefined>(undefined);
   const trigger = useRef<HTMLButtonElement>(null);
   const timers = useRef<{
@@ -124,12 +130,21 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
   useEffect(() => {
     if (!open) return;
     const outside = (event: PointerEvent) => {
-      if (!container.current?.contains(event.target as Node)) close(false);
+      if (
+        !container.current?.contains(event.target as Node) &&
+        !surface.current?.contains(event.target as Node)
+      )
+        close(false);
     };
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       event.stopPropagation();
-      close(container.current?.contains(document.activeElement) ?? false);
+      close(
+        Boolean(
+          container.current?.contains(document.activeElement) ||
+          surface.current?.contains(document.activeElement),
+        ),
+      );
     };
     document.addEventListener('pointerdown', outside, true);
     document.addEventListener('keydown', escape, true);
@@ -172,7 +187,11 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
         }
       }}
       onBlur={(event) => {
-        if (event.currentTarget.contains(event.relatedTarget)) return;
+        if (
+          event.currentTarget.contains(event.relatedTarget) ||
+          surface.current?.contains(event.relatedTarget as Node)
+        )
+          return;
         dismissed.current = false;
         setFocus(false);
       }}
@@ -181,10 +200,37 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
         ref={trigger}
         type="button"
         className={styles.entryButton}
+        data-history-trigger
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? id : undefined}
         title="Show what this revision changed"
+        onKeyDown={(event) => {
+          if (event.key !== 'Tab') return;
+          if (event.shiftKey) {
+            const rows = [
+              ...(container.current?.parentElement?.querySelectorAll<HTMLButtonElement>(
+                '[data-history-trigger]',
+              ) ?? []),
+            ];
+            const previous = rows[rows.indexOf(event.currentTarget) - 1];
+            if (!previous) return;
+            event.preventDefault();
+            previous.focus();
+            // Focus opens the previous revision; enter its last control after it renders.
+            window.requestAnimationFrame(() => {
+              if (!previous.isConnected || document.activeElement !== previous) return;
+              const dialog = document.getElementById(previous.getAttribute('aria-controls') ?? '');
+              const controls = dialog?.querySelectorAll<HTMLElement>(TAB_TARGETS);
+              controls?.item(controls.length - 1)?.focus();
+            });
+            return;
+          }
+          if (!open || !surface.current) return;
+          event.preventDefault();
+          setPinned(true);
+          (surface.current.querySelector<HTMLElement>(TAB_TARGETS) ?? surface.current).focus();
+        }}
         onPointerDown={(event) => {
           // Pointer focus precedes click in the same input task. Opening at both
           // stages renders and lays out the popover twice; keyboard focus still opens it.
@@ -224,27 +270,54 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
           {entry.message.split(/\r?\n/, 1)[0]} <code>{entry.commit.slice(0, 8)}</code>
         </span>
       </button>
-      {open && (
-        <RevisionPopover
-          {...props}
-          id={id}
-          anchor={container}
-          initialGeometry={geometry}
-          translator={translator}
-          pinned={pinned}
-          onClose={close}
-        />
-      )}
+      {open &&
+        createPortal(
+          <RevisionPopover
+            surface={surface}
+            {...props}
+            id={id}
+            anchor={container}
+            initialGeometry={geometry}
+            translator={translator}
+            pinned={pinned}
+            onClose={close}
+            onPin={() => setPinned(true)}
+            onTabEdge={(backward) => {
+              if (backward) {
+                trigger.current?.focus();
+                return;
+              }
+              const items = [...document.querySelectorAll<HTMLElement>(TAB_TARGETS)];
+              const index = items.indexOf(trigger.current!);
+              const next = items
+                .slice(index + 1)
+                .find(
+                  (item) =>
+                    item.tabIndex >= 0 &&
+                    !surface.current?.contains(item) &&
+                    item.getClientRects().length > 0,
+                );
+              if (next) {
+                close(false);
+                next.focus();
+              } else close(true);
+            }}
+          />,
+          document.body,
+        )}
     </li>
   );
 });
 
 function RevisionPopover({
+  surface,
   id,
   anchor,
   initialGeometry,
   pinned,
   onClose,
+  onPin,
+  onTabEdge,
   entry,
   index,
   commits,
@@ -257,20 +330,43 @@ function RevisionPopover({
   canRestore,
   onRestore,
   legacy,
+  scope,
 }: HistoryEntryProps & {
+  surface: RefObject<HTMLDivElement>;
   id: string;
   anchor: RefObject<HTMLElement | null>;
   initialGeometry: RefObject<AnchorGeometry | undefined>;
   pinned: boolean;
   onClose(restoreFocus: boolean): void;
+  onPin(): void;
+  onTabEdge(backward: boolean): void;
 }) {
-  const surface = useRef<HTMLDivElement>(null);
   const [source, setSource] = useState<RevisionDiffSource>();
   const [error, setError] = useState<string>();
   const [attempt, setAttempt] = useState(0);
   const [mode, setMode] = useState<'previous' | 'current'>('previous');
   const [confirm, setConfirm] = useState(false);
   const [restoreError, setRestoreError] = useState<string>();
+  const restoreButton = useRef<HTMLButtonElement>(null);
+  const confirmButton = useRef<HTMLButtonElement>(null);
+  const wasConfirming = useRef(false);
+  useEffect(() => {
+    if (!confirm) {
+      if (wasConfirming.current) restoreButton.current?.focus();
+      wasConfirming.current = false;
+      return;
+    }
+    wasConfirming.current = true;
+    let timer: number | undefined;
+    // Let placement settle before focusing/scrolling the new confirmation row.
+    const frame = window.requestAnimationFrame(() => {
+      timer = window.setTimeout(() => confirmButton.current?.focus(), 0);
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [confirm]);
   useLayoutEffect(() => {
     const element = surface.current;
     if (!element) return;
@@ -319,12 +415,13 @@ function RevisionPopover({
     const observer =
       typeof ResizeObserver === 'undefined'
         ? undefined
-        : new ResizeObserver(([entry]) => {
-            if (!entry) return;
+        : new ResizeObserver((entries) => {
+            const entry = entries.find((entry) => entry.target === element);
             // Match offsetHeight's border-box rounding without a fresh layout read.
-            measuredHeight = Math.round(
-              entry.borderBoxSize?.[0]?.blockSize ?? element.offsetHeight,
-            );
+            if (entry)
+              measuredHeight = Math.round(
+                entry.borderBoxSize?.[0]?.blockSize ?? element.offsetHeight,
+              );
             // ResizeObserver runs after layout; read all geometry before writing.
             geometry = measureAnchor(anchor.current);
             place();
@@ -333,6 +430,8 @@ function RevisionPopover({
     if (!observer) measuredHeight = element.offsetHeight;
     place();
     observer?.observe(element);
+    // Lazy classifications can remove or resize earlier rows without scrolling.
+    if (anchor.current?.parentElement) observer?.observe(anchor.current.parentElement);
     // The visual viewport too: the iOS keyboard and its pan change the room without a resize.
     const viewport = window.visualViewport;
     window.addEventListener('resize', refresh);
@@ -346,7 +445,7 @@ function RevisionPopover({
       viewport?.removeEventListener('resize', refresh);
       viewport?.removeEventListener('scroll', refresh);
     };
-  }, [anchor, initialGeometry]);
+  }, [anchor, initialGeometry, surface]);
   useEffect(() => {
     let live = true;
     setError(undefined);
@@ -360,11 +459,21 @@ function RevisionPopover({
     // The entry's own commit identifies the request; the list only grows.
   }, [cache, entry.commit, attempt]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const shown =
+    scope && source
+      ? {
+          ...source,
+          revision: projectHistory(source.revision, scope),
+          previous: projectHistory(source.previous, scope),
+        }
+      : source;
+  const shownCurrent = scope && current ? projectHistory(current, scope)! : current;
+
   function restore() {
     if (!source?.revision) return;
     try {
       onRestore(source.revision);
-      onClose(false);
+      onClose(true);
     } catch (reason) {
       setRestoreError(errorMessage(reason));
     }
@@ -375,6 +484,22 @@ function RevisionPopover({
       ref={surface}
       id={id}
       role="dialog"
+      tabIndex={-1}
+      onFocusCapture={onPin}
+      onPointerDownCapture={onPin}
+      onKeyDown={(event) => {
+        if (event.key !== 'Tab') return;
+        const items = [...(surface.current?.querySelectorAll<HTMLElement>(TAB_TARGETS) ?? [])];
+        const edge = event.shiftKey ? items[0] : items.at(-1);
+        if (
+          !items.length ||
+          document.activeElement === edge ||
+          document.activeElement === surface.current
+        ) {
+          event.preventDefault();
+          onTabEdge(event.shiftKey);
+        }
+      }}
       aria-label={`Revision ${entry.commit.slice(0, 8)}`}
       data-pinned={pinned || undefined}
       className={`${popover.surface} ${styles.revision}`}
@@ -418,12 +543,14 @@ function RevisionPopover({
           </p>
         )}
         {!source && !error && <p role="status">Loading revision...</p>}
-        {source &&
+        {shown &&
           (legacy && mode === 'previous' ? (
-            source.hasPredecessor ? (
+            shown.hasPredecessor ? (
               <TooltipDiff
-                before={source.revision}
-                current={source.previous ?? { hash: current?.hash ?? 0, text: {}, associated: [] }}
+                before={shown.revision}
+                current={
+                  shown.previous ?? { hash: shownCurrent?.hash ?? 0, text: {}, associated: [] }
+                }
                 raw={false}
                 eagerLanguages
               />
@@ -435,32 +562,34 @@ function RevisionPopover({
             )
           ) : mode === 'previous' ? (
             <>
-              {!source.revision ? (
+              {!shown.revision ? (
                 <p>Deleted in this revision.</p>
               ) : (
-                !source.previous && (
+                !shown.previous && (
                   <p>
-                    {source.hasPredecessor
+                    {shown.hasPredecessor
                       ? 'Restored in this revision.'
                       : 'First revision: everything is new.'}
                   </p>
                 )
               )}
               <TooltipDiff
-                before={source.previous}
+                before={shown.previous}
                 current={
-                  source.revision ?? { hash: source.previous?.hash ?? 0, text: {}, associated: [] }
+                  shown.revision ?? { hash: shown.previous?.hash ?? 0, text: {}, associated: [] }
                 }
                 item={item}
                 raw={false}
               />
             </>
           ) : (
-            current && (
+            shownCurrent && (
               <TooltipDiff
-                before={source.revision}
+                before={shown.revision}
                 current={
-                  legacy ? { hash: current.hash, text: current.text, associated: [] } : current
+                  legacy
+                    ? { hash: shownCurrent.hash, text: shownCurrent.text, associated: [] }
+                    : shownCurrent
                 }
                 item={item}
                 raw={false}
@@ -473,13 +602,13 @@ function RevisionPopover({
             {legacy && <p>Only language text is restored. Other tooltip fields stay unchanged.</p>}
             {translator && (
               <p>
-                Restore replaces only your assigned translation languages; other fields stay
-                unchanged.
+                Restore replaces only the shown, assigned translation language. English and tooltip
+                details are shown for comparison.
               </p>
             )}
             {restoreError && <p role="alert">{restoreError}</p>}
             {!confirm ? (
-              <button type="button" onClick={() => setConfirm(true)}>
+              <button ref={restoreButton} type="button" onClick={() => setConfirm(true)}>
                 Restore this revision
               </button>
             ) : (
@@ -489,7 +618,7 @@ function RevisionPopover({
                   or pushing.
                 </p>
                 <span className={styles.confirmRow}>
-                  <button type="button" onClick={restore}>
+                  <button ref={confirmButton} type="button" onClick={restore}>
                     Load as draft
                   </button>
                   <button type="button" onClick={() => setConfirm(false)}>

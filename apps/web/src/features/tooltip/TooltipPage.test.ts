@@ -1,4 +1,4 @@
-import { compendiumDataSchema } from '@clarity/core';
+import { compendiumDataSchema, parseMarkup } from '@clarity/core';
 import { useCompendiumStore } from '../compendium/store';
 import frozen from '../compendium/fixtures/frozen-matcher.json';
 import { createElement, useContext } from 'react';
@@ -203,6 +203,67 @@ describe('tooltip screen composition', () => {
     useDraftStore.setState(originalDraftState);
     useDataStore.setState(originalDataState);
     useAuthStore.setState(originalAuthState);
+  });
+  it.each([
+    {
+      label: 'raw comments and global-over-local variable precedence',
+      source: 'export Shared (\n/*\nvar Local = resolved\n*/\nvar Rate = local\n#Local #Rate\n)',
+      limit: false,
+      expected: 'resolved global',
+    },
+    {
+      label: 'nested imports and title references',
+      source:
+        'export Shared (\nimport Leaf from global\n)\nexport Leaf (\n#Rate\n<title Label [Heading] />\n)',
+      limit: false,
+      expected: 'global',
+    },
+    {
+      label: 'the five-pass import expansion limit',
+      source: [
+        'export Shared (\nimport A from global\n)',
+        ...['A', 'B', 'C', 'D'].map(
+          (name, i) => `export ${name} (\nimport ${'BCDE'[i]} from global\n)`,
+        ),
+        'export E (\nComplete\n)',
+      ].join('\n'),
+      limit: true,
+      expected: 'import E from global',
+    },
+    {
+      label: 'import cycles',
+      source: 'export Shared (\nimport Shared from global\n)',
+      limit: true,
+      expected: 'import Shared from global',
+    },
+  ])('previews exports through production imports: $label', ({ source, limit, expected }) => {
+    useDataStore.setState({
+      data: {
+        ...data,
+        bundle: {
+          ...data.bundle,
+          tooltips: {
+            ...data.bundle.tooltips,
+            1: tooltip(1, source),
+            2: tooltip(2, 'var Rate = global'),
+            3: tooltip(3, 'title Heading (\nNested title body\n)'),
+          },
+        },
+      },
+    });
+    useDraftStore.setState({ drafts: {} });
+    render('/t/1?global=Shared');
+    const preview = vi.mocked(PreviewColumn).mock.calls[0][0];
+    expect(preview.baseText).toBe('import Shared from global');
+    const parsed = parseMarkup(preview.baseText, preview.baseGlobals);
+    expect(parsed).toEqual(parseMarkup('import Shared from global', preview.baseGlobals));
+    expect(JSON.stringify(parsed.lines)).toContain(expected);
+    expect(parsed.diagnostics.some(({ message }) => message.includes('five passes'))).toBe(limit);
+    expect(parsed.diagnostics.some(({ message }) => message.includes('Unknown variable'))).toBe(
+      false,
+    );
+    if (source.includes('<title'))
+      expect(JSON.stringify(parsed.lines)).toContain('Nested title body');
   });
   it('wires ONE base editor, draft-aware imports and a preview for the base and its override', () => {
     render();

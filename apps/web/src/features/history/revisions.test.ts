@@ -68,6 +68,7 @@ it('keeps stale rows and coalesces concurrent refreshes', async () => {
   const refresh = cache.page(1);
   expect(cache.peekPage(1)).toBe(commits);
   expect(cache.page(1)).toBe(refresh);
+  await Promise.resolve();
   resolve({ commits });
   await refresh;
   expect(getHistory).toHaveBeenCalledTimes(2);
@@ -119,6 +120,7 @@ it('cancels pending page and revision loads without discarding completed cache e
   getVersion.mockImplementationOnce(abortable);
   const page = cache.page(1),
     version = cache.version('pending');
+  await Promise.resolve();
   const pageSignal = getHistory.mock.calls.at(-1)![2] as AbortSignal;
   const versionSignal = getVersion.mock.calls.at(-1)![2] as AbortSignal;
   cache.cancelPending();
@@ -133,4 +135,35 @@ it('cancels pending page and revision loads without discarding completed cache e
   await cache.version('pending');
   expect(getHistory).toHaveBeenCalledTimes(3);
   expect(getVersion).toHaveBeenCalledTimes(3);
+});
+
+it('uses the per-tooltip trailer without requesting either body', async () => {
+  const cache = createRevisionCache(10);
+  const entries = [
+    { commit: 'hint', message: 'Clarity-Changed: 10=en,associations;20=de' },
+  ] as never;
+  await expect(cache.classify(entries, 0, 1, false)).resolves.toEqual({
+    languages: ['en'],
+    fields: ['associated'],
+  });
+  expect(getVersion).not.toHaveBeenCalled();
+});
+
+it('caps body requests at four, aborts queued work, and permits retry', async () => {
+  const cache = createRevisionCache(10);
+  getVersion.mockImplementation(
+    (_hash: number, _key: string, signal: AbortSignal) =>
+      new Promise((_resolve, reject) =>
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+      ),
+  );
+  const requests = Array.from({ length: 12 }, (_, index) => cache.version(String(index)));
+  const settled = Promise.allSettled(requests);
+  await Promise.resolve();
+  expect(getVersion).toHaveBeenCalledTimes(4);
+  cache.cancelPending();
+  expect((await settled).every((result) => result.status === 'rejected')).toBe(true);
+  expect(getVersion).toHaveBeenCalledTimes(4);
+  getVersion.mockResolvedValue({ tooltip: null });
+  await expect(cache.version('0')).resolves.toBeNull();
 });

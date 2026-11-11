@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   type Aliases,
+  languages,
   contentHash,
   hashSchema,
   merge3,
@@ -57,6 +58,7 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
       fields: string[];
     }[] = [];
     const tooltips: Tooltip[] = [];
+    const changed: string[] = [];
     aliases ??= await loadAliases(github.env, github);
     // One batched read for all current copies: flat subrequests however many tooltips change.
     const current = await github.files(
@@ -93,13 +95,29 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
       }
       checkEdit(access, head, merged);
       tooltips.push(merged);
+      // Per-tooltip hints avoid attributing another item in a batch to this file.
+      // Display only: permissions and the committed payload are unchanged.
+      const fields = [
+        ...languages.filter(
+          (language) =>
+            JSON.stringify(head?.text[language]) !== JSON.stringify(merged.text[language]),
+        ),
+        ...(['associated', 'custom', 'archive', 'compendium'] as const)
+          .filter(
+            (field) =>
+              JSON.stringify(head?.[field] ?? (field === 'associated' ? [] : null)) !==
+              JSON.stringify(merged[field] ?? (field === 'associated' ? [] : null)),
+          )
+          .map((field) => (field === 'associated' ? 'associations' : field)),
+      ];
+      changed.push(`${merged.hash}=${fields.join(',') || 'none'}`);
     }
     if (conflicts.length) return json({ conflicts }, 409);
     try {
       const commit = await github.commit(
         headCommit,
         Object.fromEntries(tooltips.map((tooltip) => [`tooltips/${tooltip.hash}.json`, tooltip])),
-        input.message,
+        `${input.message}\n\nClarity-Changed: ${changed.join(';')}`,
         user,
       );
       return json({ commit, tooltips });

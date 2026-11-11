@@ -33,6 +33,7 @@ interface VariantWorkspaceProps {
   preview?: ReactNode;
   /** The Compendium comparison beside the editor. Null for translators and archived pages. */
   compendium?: ReactNode;
+  compendiumLabel?: string;
   /** Panel shown first on a phone, or in the swapped slot; defaults to the editor. */
   initialPanel?: Panel;
   /** Keep pane measurement/tab state stable while a navigation burst hides the workspace. */
@@ -66,6 +67,7 @@ export function VariantWorkspace({
   editor,
   preview,
   compendium,
+  compendiumLabel = 'Compendium',
   initialPanel = 'translation',
   suspended = false,
 }: VariantWorkspaceProps) {
@@ -93,7 +95,9 @@ export function VariantWorkspace({
       tabbed
         ? {
             label: 'Right pane',
-            tabs: sideTabs,
+            tabs: sideTabs.map((tab) =>
+              tab.id === 'compendium' ? { ...tab, label: compendiumLabel } : tab,
+            ),
             active: sideTab,
             onSelect(id) {
               // The other pane's header replaces this one: its tab takes the focus over.
@@ -102,7 +106,7 @@ export function VariantWorkspace({
             },
           }
         : null,
-    [tabbed, sideTab, remember],
+    [tabbed, sideTab, remember, compendiumLabel],
   );
   useLayoutEffect(() => {
     if (!focusTab.current) return;
@@ -118,9 +122,9 @@ export function VariantWorkspace({
   };
   // A dot on the Compendium tab: matched or linked text, or an entry that needs a decision.
   const compendiumStatus = usePaneStatus((state) => state.status);
-  const visiblePanels = panels.filter(
-    (panel) => panel.id === 'translation' || present(content[panel.id]),
-  );
+  const visiblePanels = panels
+    .map((panel) => (panel.id === 'compendium' ? { ...panel, label: compendiumLabel } : panel))
+    .filter((panel) => panel.id === 'translation' || present(content[panel.id]));
   const activePanel = visiblePanels.some((panel) => panel.id === active) ? active : 'translation';
   useEffect(() => {
     if (activePanel !== active) setActive(activePanel);

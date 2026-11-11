@@ -118,8 +118,11 @@ describe('tooltip catalog', () => {
     expect(listed?.id).toBe(classifiedCategory(bolts, boltData)?.id);
   });
 
-  it('skips the legacy Default perk placeholder but keeps the other globals', () => {
+  it('lists typed declarations instead of aggregates and skips the legacy Default perk', () => {
     const base = { text: {}, associated: [] };
+    const text = (text: string) => ({
+      en: { text, updatedBy: 'test', updatedAt: '2026-11-11T00:00:00Z' },
+    });
     const withGlobals: EditorData = {
       ...data,
       bundle: {
@@ -127,24 +130,44 @@ describe('tooltip catalog', () => {
         tooltips: {
           ...data.bundle.tooltips,
           0: { ...base, hash: 0, custom: { name: 'Default perk', categoryId: 'none' } },
-          1: { ...base, hash: 1, custom: { name: 'Global exports', categoryId: 'none' } },
+          1: {
+            ...base,
+            hash: 1,
+            text: text('export Shared (\nBody\n)'),
+            custom: { name: 'Global exports', categoryId: 'none' },
+          },
+          2: { ...base, hash: 2, text: text('var Rate = 10') },
+          3: { ...base, hash: 3, text: text('title Heading (\nBody\n)') },
+          9: { ...base, hash: 9, custom: { name: 'Loose custom', categoryId: 'none' } },
         },
       },
     };
     const names = navigationGroups(withGlobals, '').flatMap((group) =>
       group.sections.flatMap((section) => section.items.map((item) => item.name)),
     );
-    expect(names).toContain('Global exports');
+    expect(names).not.toContain('Global exports');
+    expect(names).toEqual(expect.arrayContaining(['Shared', 'Rate', 'Heading']));
     expect(names).not.toContain('Default perk');
     expect(navigationGroups(withGlobals, 'default perk').flatMap((g) => g.sections)).toEqual([]);
     expect(withGlobals.bundle.tooltips[0]).toBeDefined();
     const other = navigationGroups(withGlobals, '').find((group) => group.name === 'Other')!;
     expect(other.sections[0].label).toBe('Other: none');
-    // Opening a global keeps the finder on its own section (it used to fall back to the first).
-    const globalItem = other.sections[0].items[0];
-    expect(classifiedCategory(globalItem, withGlobals)).toMatchObject({
+    // Ordinary custom entries keep the unknown-category fallback.
+    expect(classifiedCategory(other.sections[0].items[0], withGlobals)).toMatchObject({
       id: 'none',
       label: 'Other: none',
+    });
+    const globals = navigationGroups(withGlobals, '').find((group) => group.name === 'Globals')!;
+    expect(
+      globals.sections.map(({ label, items }) => [label, items.map(({ name }) => name)]),
+    ).toEqual([
+      ['Variables', ['Rate']],
+      ['Titles', ['Heading']],
+      ['Exports', ['Shared']],
+    ]);
+    expect(globals.sections[2].items[0]).toMatchObject({
+      hash: 1,
+      global: { name: 'Shared', kind: 'exports' },
     });
   });
 
@@ -340,12 +363,14 @@ describe('tooltip catalog', () => {
   });
   it('groups categories in order and lists variants only with their base', () => {
     const groups = navigationGroups(data, '');
-    expect(groups.map((group) => group.name)).toEqual(['Weapons', 'Armor', 'Other']);
+    expect(groups.map((group) => group.name)).toEqual(['Weapons', 'Armor']);
     expect(
       groups.flatMap((group) =>
         group.sections.flatMap((section) => section.items.map((item) => item.hash)),
       ),
-    ).toEqual([10, 20, 2]);
+    ).toEqual([10, 20]);
+    // An empty aggregate contributes no declaration or placeholder row.
+    expect(groups.some((group) => group.name === 'Globals')).toBe(false);
   });
   it('searches names, base hashes, variant hashes, and sandbox hashes', () => {
     for (const search of ['BASE', 'Enhanced', '10', '11', '99']) {

@@ -143,7 +143,7 @@ it('renders preserved identity/text without an item/icon, loads history for the 
   await act(async () => history.click());
   expect(getHistory).toHaveBeenCalledWith(archived.hash, 1, expect.any(AbortSignal));
   expect(getHistory).toHaveBeenCalledTimes(1);
-  expect(host.textContent).toContain('No commits found for this tooltip.');
+  expect(host.textContent).toContain('No relevant changes in these revisions.');
   expect(button('Revert to this')).toBeUndefined();
   await act(async () => button('Back to Archive').click());
   expect(window.scrollTo).toHaveBeenLastCalledWith(0, 640);

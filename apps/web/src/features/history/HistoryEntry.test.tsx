@@ -76,6 +76,7 @@ beforeEach(async () => {
   root = createRoot(host);
   await act(async () => root.render(<HistoryPanel hash={10} />));
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  await wait(410);
 });
 afterEach(async () => {
   await act(async () => root.unmount());
@@ -95,8 +96,8 @@ it('opens on hover with that revision diffed against its predecessor, per langua
   expect(dialog()).not.toBeNull();
   // Revision 3 against revision 2: only " three" is new in English, " deux" in French.
   expect(dialog()!.querySelector('ins')!.textContent).toBe(' three');
-  expect(dialog()!.textContent).toContain('French');
-  expect(dialog()!.querySelectorAll('ins')).toHaveLength(2);
+  expect(dialog()!.textContent).not.toContain('French');
+  expect(dialog()!.querySelectorAll('ins')).toHaveLength(1);
   expect(dialog()!.querySelector('pre')).toBeNull();
   // The popover floats: it is not inside the list's flow.
   expect(dialog()!.style.left).not.toBe('');
@@ -150,12 +151,30 @@ it('positions from ResizeObserver sizes without synchronously measuring the new 
     expect(bounds).toHaveBeenCalled();
     await act(async () =>
       observers[0](
-        [{ borderBoxSize: [{ blockSize: 300.4 }] } as unknown as ResizeObserverEntry],
+        [
+          {
+            target: dialog(),
+            borderBoxSize: [{ blockSize: 300.4 }],
+          } as unknown as ResizeObserverEntry,
+        ],
         {} as ResizeObserver,
       ),
     );
     expect(dialog()!.style.top).toBe(`${window.innerHeight - 300 - 8}px`);
     expect(dialog()!.style.left).toBe('306px');
+    bounds.mockReturnValue(new DOMRect(100, 200, 200, 50));
+    await act(async () =>
+      observers[0](
+        [
+          {
+            target: row.parentElement,
+            borderBoxSize: [{ blockSize: 1000 }],
+          } as unknown as ResizeObserverEntry,
+        ],
+        {} as ResizeObserver,
+      ),
+    );
+    expect(dialog()!.style.top).toBe('200px');
     expect(height).not.toHaveBeenCalled();
   } finally {
     height.mockRestore();
@@ -186,7 +205,7 @@ it('cancels pending hover on a closed row when another revision is pinned', asyn
   await wait(260);
   expect(entries()[0].getAttribute('aria-expanded')).toBe('false');
   expect(entries()[1].getAttribute('aria-expanded')).toBe('true');
-  expect(host.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+  expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
 });
 
 it('the first revision is shown as all new, and the cache means one request per commit', async () => {
@@ -211,7 +230,7 @@ it('compares with the current draft from inside the popover', async () => {
   )!;
   await act(async () => compare.click());
   expect(compare.getAttribute('aria-pressed')).toBe('true');
-  expect(dialog()!.textContent).toContain('courant');
+  expect(dialog()!.textContent).not.toContain('courant');
 });
 
 it('restores inside the popover after confirming, and never offers it on a read-only page', async () => {
@@ -225,6 +244,7 @@ it('restores inside the popover after confirming, and never offers it on a read-
   expect(useDraftStore.getState().drafts[10]?.next.text.en?.text).toBe('one two');
   expect(dialog()).toBeNull();
   expect(host.textContent).toContain('loaded as a local draft');
+  expect(document.activeElement).toBe(entries()[1]);
   await act(async () => root.render(<HistoryPanel hash={10} readOnly />));
   await act(async () => entries()[1].click());
   await wait(0);
@@ -232,14 +252,16 @@ it('restores inside the popover after confirming, and never offers it on a read-
 });
 
 it('keeps the translator rule: a note, and only assigned languages are restored', async () => {
-  useAuthStore.setState({
-    user: { id: 2, login: 'tess', role: 'translator', languages: ['fr'] },
+  await act(async () => {
+    useAuthStore.setState({
+      user: { id: 2, login: 'tess', role: 'translator', languages: ['fr'] },
+    });
+    root.render(<HistoryPanel hash={10} language="fr" />);
   });
-  await act(async () => root.render(<HistoryPanel hash={10} />));
-  await wait(0);
+  await wait(410);
   await act(async () => entries()[1].click());
   await wait(0);
-  expect(dialog()!.textContent).toContain('only your assigned translation languages');
+  expect(dialog()!.textContent).toContain('only the shown, assigned translation language');
   const button = (label: string) =>
     [...dialog()!.querySelectorAll('button')].find((b) => b.textContent === label)!;
   await act(async () => button('Restore this revision').click());
@@ -280,6 +302,11 @@ it('shows restored and deleted revisions without retrying immutable file absence
       ? Promise.reject(new Error('API HTTP 404: {"error":"Tooltip did not exist at that commit"}'))
       : Promise.resolve({ commit: sha, tooltip: versions[sha] }),
   );
+  getVersion.mockClear();
+  await act(async () =>
+    useAuthStore.setState({ user: { id: 10, login: 'delete-test', role: 'editor' } }),
+  );
+  await wait(410);
   await act(async () => entries()[0].click());
   await wait(0);
   expect(dialog()!.textContent).toContain('Restored in this revision.');
@@ -330,4 +357,107 @@ describe('phone placement', () => {
     await act(async () => void window.dispatchEvent(new Event('resize')));
     expect(dialog()!.style.bottom).toBe('auto');
   });
+});
+
+it('filters against original parents and resets popovers when the language or role changes', async () => {
+  getHistory.mockResolvedValue({
+    commits: [commit(5), commit(4), commit(3), commit(2), commit(1)],
+  });
+  const scoped = {
+    [id(1)]: revision('one'),
+    [id(2)]: revision('one', 'un'), // hidden French-only revision
+    [id(3)]: revision('two', 'un'),
+    [id(4)]: revision('two', 'deux'), // hidden French-only revision
+    [id(5)]: { ...revision('two', 'deux'), associated: [20] },
+  };
+  getVersion.mockImplementation((_hash: number, sha: string) =>
+    Promise.resolve({ tooltip: scoped[sha] }),
+  );
+  await act(async () => {
+    useAuthStore.setState({ user: { id: 4, login: 'new', role: 'maintainer' } });
+  });
+  await wait(410);
+  expect(entries().map((button) => button.textContent)).toEqual([
+    expect.stringContaining('Edit 5'),
+    expect.stringContaining('Edit 3'),
+    expect.stringContaining('Edit 1'),
+  ]);
+  expect(host.textContent).toContain('2 changes hidden in this view');
+  await act(async () => entries()[1].click());
+  await wait(0);
+  expect(dialog()!.textContent).not.toContain('French');
+  await act(async () => root.render(<HistoryPanel hash={10} language="fr" />));
+  await wait(410);
+  expect(dialog()).toBeNull();
+  expect(entries()).toHaveLength(5);
+  expect(host.querySelector('[aria-label="Published before migration"]')).toBeNull();
+  await act(async () => entries()[1].click());
+  await wait(0);
+  expect(dialog()!.textContent).toContain('French');
+  await act(async () => useAuthStore.setState({ user: null }));
+  expect(dialog()).toBeNull();
+  expect(entries()).toHaveLength(0);
+});
+
+it('keeps a portaled popover open for its own pointer events and closes on outside presses', async () => {
+  await act(async () => entries()[0].click());
+  await wait(0);
+  expect(dialog()!.parentElement).toBe(document.body);
+  await act(async () => dialog()!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })));
+  expect(dialog()).not.toBeNull();
+  await act(async () =>
+    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })),
+  );
+  expect(dialog()).toBeNull();
+});
+
+it('bridges Tab into a portaled revision and Shift+Tab back to its trigger', async () => {
+  await act(async () => entries()[0].focus());
+  await wait(0);
+  const compare = dialog()!.querySelector<HTMLButtonElement>('button')!;
+  await act(async () =>
+    entries()[0].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
+    ),
+  );
+  expect(document.activeElement).toBe(compare);
+  await act(async () =>
+    compare.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }),
+    ),
+  );
+  expect(document.activeElement).toBe(entries()[0]);
+  expect(dialog()).not.toBeNull();
+  await act(async () => entries()[1].focus());
+  await act(async () =>
+    entries()[1].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }),
+    ),
+  );
+  await wait(30);
+  expect(document.activeElement?.textContent).toBe('Restore this revision');
+  expect(entries()[0].getAttribute('aria-expanded')).toBe('true');
+});
+
+it('focuses the restore confirmation and returns Cancel to Restore, keeping Escape usable', async () => {
+  await act(async () => entries()[0].click());
+  await wait(0);
+  const button = (label: string) =>
+    [...dialog()!.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent === label,
+    )!;
+  await act(async () => button('Restore this revision').click());
+  await act(async () =>
+    vi.waitFor(() => expect(document.activeElement).toBe(button('Load as draft'))),
+  );
+  await act(async () => button('Cancel').click());
+  expect(document.activeElement).toBe(button('Restore this revision'));
+  expect(useDraftStore.getState().drafts[10]).toBeUndefined();
+  await act(async () =>
+    document.activeElement!.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    ),
+  );
+  expect(dialog()).toBeNull();
+  expect(document.activeElement).toBe(entries()[0]);
 });

@@ -13,6 +13,7 @@ import { useDraftStore } from '../../stores/drafts';
 import { replaceDraft } from '../../services/save/drafts';
 import { restoreLegacyText } from './revert';
 import styles from './History.module.scss';
+import { englishScope } from './scope';
 
 /** Prepare every script present in the opened artifact, independent of revision order. */
 function prepareFonts(history: History | null) {
@@ -43,7 +44,8 @@ export function LegacyHistorySection({
   const draft = useDraftStore((state) => state.drafts[hash]);
   const hydrated = useDraftStore((state) => state.hydrated);
   const current = draft?.next ?? base;
-  const canRestore = !readOnly && hydrated && Boolean(base && user?.role);
+  const canRestore =
+    !readOnly && hydrated && Boolean(base && user?.role && user.role !== 'translator');
   const translator = user?.role === 'translator';
   const [notice, setNotice] = useState<string>();
   const onRestore = (version: Tooltip) => {
@@ -158,6 +160,7 @@ function Lane({
             current={current}
             translator={translator}
             legacy
+            scope={{ ...englishScope, fields: [] }}
             canRestore={canRestore}
             onRestore={onRestore}
           />

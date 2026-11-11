@@ -166,11 +166,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 0.5rem;
   white-space: nowrap;
 }
 
 .revisionTitle {
+  flex: 1 1 16rem;
   display: grid;
   min-width: 0;
   white-space: normal;
@@ -188,12 +190,24 @@
   gap: 0.375rem;
 }
 
+.revisionTitle .author {
+  flex-wrap: wrap;
+
+  a {
+    white-space: nowrap;
+  }
+}
+
 .revisionActions {
   display: grid;
   gap: 0.375rem;
   justify-items: start;
   border-top: 1px solid var(--hair);
   padding-top: 0.5rem;
+
+  p {
+    margin: 0;
+  }
 }
 
 .author {
@@ -227,4 +241,10 @@
   min-width: 0;
   margin: 0.25rem 0;
   color: var(--text2);
+}
+
+.hiddenCount {
+  margin: 0.25rem 0;
+  color: var(--text2);
+  font-size: 0.75rem;
 }

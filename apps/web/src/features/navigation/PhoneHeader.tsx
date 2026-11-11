@@ -1,4 +1,5 @@
 import { useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useLocation } from 'react-router-dom';
 import type { User } from '../../services/api';
 import { BrandMark } from './Brand';
 import { DraftButton } from './DraftButton';
@@ -52,6 +53,15 @@ export function PhoneHeader({
   if (item) {
     title = exoticPiece(item) ? item.name : editorName(item);
     kicker = exoticPiece(item) || undefined;
+  }
+  const location = useLocation();
+  const globalRoute = target ?? `${location.pathname}${location.search}`;
+  const globalName = /^\/t\/[123](?:\?|$)/.test(globalRoute)
+    ? new URLSearchParams(globalRoute.split('?')[1]).get('global')
+    : null;
+  if (globalName) {
+    title = globalName;
+    kicker = undefined;
   }
   useAuthSession();
   const { summary, dataError } = useIdentity();

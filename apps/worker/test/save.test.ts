@@ -136,6 +136,7 @@ describe('save concurrency', () => {
       associated: [88, 77],
       text: { en: { text: 'mine' }, fr: { text: 'bonjour' } },
     });
+    expect(fixture.commits[0].message).toBe('Edit tooltip\n\nClarity-Changed: 123=en,associations');
   });
 
   it('returns all conflicts and writes nothing, including other tooltips', async () => {
@@ -181,6 +182,7 @@ describe('save concurrency', () => {
     expect(fixture.current()['tooltips/123.json']).toMatchObject({
       text: { en: { text: 'mine' }, de: { text: 'parallel edit' } },
     });
+    expect(fixture.commits.at(-1)!.message).toBe('Edit tooltip\n\nClarity-Changed: 123=en');
   });
 
   it('rechecks revoked permissions on a ref race', async () => {
@@ -252,4 +254,56 @@ describe('sandbox set-bonus creation follows existing armor permissions', () => 
     expect(response.status).toBe(id === 4 ? 403 : 200);
     expect(fixture.commits).toHaveLength(id === 4 ? 0 : 1);
   });
+});
+
+describe('save change trailer', () => {
+  it('emits one per-tooltip trailer for a mixed-language batch, after user text', async () => {
+    const next = tooltip('mine');
+    next.associated = [77];
+    const german: Tooltip = {
+      hash: 124,
+      associated: [],
+      text: { de: { ...tooltip().text.en!, text: 'Deutsch' } },
+    };
+    const response = await fixture.request('/save', 'POST', {
+      message: 'Batch\n\nClarity-Changed: 123=fr',
+      changes: [
+        { hash: 123, base: tooltip(), next },
+        { hash: 124, base: null, next: german },
+      ],
+    });
+    expect(response.status).toBe(200);
+    expect(fixture.commits[0].message).toBe(
+      'Batch\n\nClarity-Changed: 123=fr\n\nClarity-Changed: 123=en,associations;124=de',
+    );
+    expect((await response.json()).tooltips).toEqual([next, german]);
+  });
+  it('labels a no-op without changing the existing save result', async () => {
+    expect((await fixture.request('/save', 'POST', change(tooltip(), tooltip()))).status).toBe(200);
+    expect(fixture.commits[0].message).toBe('Edit tooltip\n\nClarity-Changed: 123=none');
+  });
+});
+
+it('includes shown non-language fields and language removal in the save trailer', async () => {
+  const before = tooltip();
+  before.text.de = { ...before.text.en!, text: 'Deutsch' };
+  fixture.moveData({ 'tooltips/123.json': before });
+  const next: Tooltip = {
+    ...tooltip(),
+    custom: { name: 'Custom', categoryId: 'weapon-mod' },
+    archive: {
+      removedAt: '2026-10-02T00:00:00Z',
+      lastSeen: { name: 'Old', categoryId: 'weapon-mod', manifestVersion: 'pinned' },
+    },
+    compendium: {
+      gid: '1662574278',
+      rowKey: 'Demo',
+      snapshot: { plain: '', runs: [] },
+      snapshotAt: '2026-10-02T00:00:00Z',
+    },
+  };
+  expect((await fixture.request('/save', 'POST', change(before, next), 1)).status).toBe(200);
+  expect(fixture.commits[0].message).toBe(
+    'Edit tooltip\n\nClarity-Changed: 123=de,custom,archive,compendium',
+  );
 });
