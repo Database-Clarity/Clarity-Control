@@ -14,22 +14,22 @@ Roles always come from `config/permissions.json` on the current data-branch head
 never from a request or token. Permissions are read on every request and retry
 (no stale permission cache).
 
-| Method / path                             | Request                                                                  | Success                                                                |
-| ----------------------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| `GET /auth/login`                         | Browser navigation                                                       | 302 to GitHub; signed, browser-bound OAuth state cookie (10 minutes)   |
-| `GET /auth/callback`                      | GitHub `code`, `state` query                                             | 302 to `SITE_URL#/auth/callback?session=<token>`; state cookie cleared |
-| `GET /me`                                 | Bearer token                                                             | `{ id: number, login, role: string \| null, languages: string[] }`     |
-| `POST /save`                              | `{ changes: [{ hash, base: Tooltip \| null, next: Tooltip }], message }` | `{ commit, tooltips: Tooltip[] }`                                      |
-| `POST /push-live`                         | `{ hashes: number[] }`                                                   | `{ commit, liveCommit, pushed: { [hash]: publishableHash }, branch }`  |
-| `POST /compendium/refresh`                | Editor/maintainer token                                                  | 202 `{ requestedAt, runId }`                                           |
-| `GET /compendium/refresh/status`          | Editor/maintainer token                                                  | `{ run: { id, status, conclusion, created_at, html_url } \| null }`    |
+| Method / path                             | Request                                                                  | Success                                                                             |
+| ----------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| `GET /auth/login`                         | Browser navigation                                                       | 302 to GitHub; signed, browser-bound OAuth state cookie (10 minutes)                |
+| `GET /auth/callback`                      | GitHub `code`, `state` query                                             | 302 to `SITE_URL#/auth/callback?session=<token>`; state cookie cleared              |
+| `GET /me`                                 | Bearer token                                                             | `{ id: number, login, role: string \| null, languages: string[] }`                  |
+| `POST /save`                              | `{ changes: [{ hash, base: Tooltip \| null, next: Tooltip }], message }` | `{ commit, tooltips: Tooltip[] }`                                                   |
+| `POST /push-live`                         | `{ hashes: number[] }`                                                   | `{ commit, liveCommit, pushed: { [hash]: publishableHash }, branch }`               |
+| `POST /compendium/refresh`                | Editor/maintainer token                                                  | 202 `{ requestedAt, runId }`                                                        |
+| `GET /compendium/refresh/status`          | Editor/maintainer token                                                  | `{ run: { id, status, conclusion, created_at, html_url } \| null }`                 |
 | `GET /permissions`                        | Maintainer token                                                         | `{ revision, permissions: { users: { [githubId]: { login, role, languages? } } } }` |
-| `PUT /permissions`                        | `{ revision, permissions }`; maintainer only. 409 if `revision` is stale | `{ commit, revision, permissions }`                                    |
-| `GET /history/:hash?page=1`               | Authorized member token                                                  | `{ page, commits: [{ commit, author, date, message }] }`, 30 per page  |
-| `GET /history/:hash?commit=<40-char SHA>` | Authorized member token                                                  | `{ commit, tooltip }`                                                  |
-| `GET /history/:hash?live=1`               | Authorized member token                                                  | `{ pushedHash: string \| null, tooltip: Tooltip \| null }`             |
-| `GET /settings`                           | Authorized member token                                                  | `{ settings: SyncedSettings \| null, revision, unreadable }`           |
-| `PUT /settings`                           | `{ settings, revision: string \| null }`, at most 4096 bytes             | `{ settings, revision }`; 409 `{ error, settings, revision }`          |
+| `PUT /permissions`                        | `{ revision, permissions }`; maintainer only. 409 if `revision` is stale | `{ commit, revision, permissions }`                                                 |
+| `GET /history/:hash?page=1`               | Authorized member token                                                  | `{ page, commits: [{ commit, author, date, message }] }`, 30 per page               |
+| `GET /history/:hash?commit=<40-char SHA>` | Authorized member token                                                  | `{ commit, tooltip }`                                                               |
+| `GET /history/:hash?live=1`               | Authorized member token                                                  | `{ pushedHash: string \| null, tooltip: Tooltip \| null }`                          |
+| `GET /settings`                           | Authorized member token                                                  | `{ settings: SyncedSettings \| null, revision, unreadable }`                        |
+| `PUT /settings`                           | `{ settings, revision: string \| null }`, at most 4096 bytes             | `{ settings, revision }`; 409 `{ error, settings, revision }`                       |
 
 History entries additionally include `login` and `avatar` (nullable); `author`
 retains the git-name fallback. Push-live accepts an optional `expected` map of
@@ -122,9 +122,9 @@ identity, excluding edit/upload metadata and snapshots. Save still uses full
 
 Upload stamping follows the legacy editor. Each attempt reads `live/pushed.json` at the
 data head and the live file fresh. A selected tooltip whose `publishableHash` differs
-from its pushed marker (or has none) is *changed*: its canonical entry gets
+from its pushed marker (or has none) is _changed_: its canonical entry gets
 `lastUpload` = one timestamp for the whole push and `uploadedBy` = the pushing user's
-GitHub login. An *unchanged* tooltip keeps `lastUpload`/`uploadedBy` from the current
+GitHub login. An _unchanged_ tooltip keeps `lastUpload`/`uploadedBy` from the current
 live entry for that hash; with no live entry the exported
 (migrated) values are left. Stored tooltip files are never stamped. A malformed marker
 file counts as "all changed" for stamping and is reported by the marker step.
@@ -216,3 +216,36 @@ CPU is a separate matter and is NOT met on the free plan (10 ms). Measured on No
 17-24 ms per push whatever the selection, and a push of all ~2 600 tooltips costs 150-300 ms in
 total (digests ~110 ms). Native base64 codecs are used where the runtime has them. Real options:
 the Workers Paid plan ($5/month, 30 s CPU) or a multi-request / text-splice redesign of push.
+
+## Issue report API notes
+
+`GET /reports/public?hash=<owner>&lang=<code>` returns at most 20 newest
+public anchors. The covering projection contains only note number, category,
+status, age, variant, revision, and offsets; it contains no quotes, note text,
+identities, or links. Public reads stay within the 40-row D1 budget. Role-only
+`GET /reports/list` applies Age to the oldest matching report in each
+owner/locale group, while its count includes all matching reports, newer ones too.
+
+Whole-report screenshot removal uses the root-selected files-D1 gate. In one
+files-database transaction, the API inserts the content-free `files_closed`
+record and deletes the report's blobs. A `BEFORE INSERT` trigger rejects further
+file inserts. An in-flight upload therefore either commits before this
+transaction and is deleted by it, or fails after the gate closes. There is no
+report-side lease that a terminated Worker could strand.
+
+This gate is permanent for the report. **Undoing spam restores the status only:
+it does not restore deleted screenshots or the original upload capability.**
+The web half must show that consequence rather than promising full restoration.
+A later upload receives 409 with `Screenshots were removed from this report;
+uploads are closed`; a client should surface that error, not retry automatically.
+Single-attachment deletion leaves the report's upload capability open within its
+original ten-minute window.
+
+Before a Time Travel restore, export core tombstones, withdrawn ids, files-D1
+`files_closed` ids, and the marker revision. Reapply the union of image gates and
+image deletes atomically before redacting/deleting restored report data, and
+clear restored attachment totals for fenced ids. Preserve the exported gates;
+the files database must not reopen a removed report's upload capability.
+
+`POST /reports/:id/same` remains a P2 server dependency. Do not expose the
+Same issue action until that route is implemented.

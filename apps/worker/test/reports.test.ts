@@ -165,6 +165,47 @@ beforeEach(async () => {
   );
 });
 describe('reports local D1', () => {
+  it('keeps the public selector projection current through reanchor, close, reopen, and withdrawal', async () => {
+    const input = payload();
+    input.notes = [input.notes[0], { ...input.notes[0], category: 'wording' }];
+    const sent = await call('/reports', 'POST', input),
+      { id } = (await sent.json()) as { id: string };
+    const anchor = { ...input.notes[0].anchor, rev: 'b'.repeat(16), exact: 'y', start: 1, end: 2 };
+    expect(
+      (
+        await call(
+          `/reports/${id}/action`,
+          'POST',
+          { action: 'reanchor', expected_version: 1, n: 1, anchor },
+          1,
+        )
+      ).status,
+    ).toBe(200);
+    const projected = (await (await call('/reports/public?hash=123&lang=en')).json()) as {
+      n: number;
+      rev: string;
+      start: number;
+    }[];
+    expect(projected.find((n) => n.n === 1)).toMatchObject({ rev: anchor.rev, start: 1 });
+    expect(projected.find((n) => n.n === 2)).toMatchObject({ rev: input.rev, start: 0 });
+    expect(
+      (await call(`/reports/${id}/action`, 'POST', { action: 'close', expected_version: 2 }, 1))
+        .status,
+    ).toBe(200);
+    expect(await (await call('/reports/public?hash=123&lang=en')).json()).toEqual([]);
+    expect(
+      (await call(`/reports/${id}/action`, 'POST', { action: 'reopen', expected_version: 3 }, 1))
+        .status,
+    ).toBe(200);
+    expect(await (await call('/reports/public?hash=123&lang=en')).json()).toHaveLength(2);
+    expect(
+      (await call(`/reports/r/${id}/withdraw`, 'POST', { secret: input.withdraw_secret })).status,
+    ).toBe(200);
+    expect(await (await call('/reports/public?hash=123&lang=en')).json()).toEqual([]);
+    expect(
+      await db.prepare('SELECT public_anchors FROM reports WHERE id=?').bind(id).first(),
+    ).toEqual({ public_anchors: '[]' });
+  });
   const publicReadEvidence: {
     reports: number;
     notes_per_report: number;
@@ -172,9 +213,9 @@ describe('reports local D1', () => {
     rows_read: number;
   }[] = [];
   it.each([
-    [13, 1],
-    [14, 1],
-    [15, 1],
+    [19, 1],
+    [20, 1],
+    [21, 1],
     [100, 1],
     [100, 5],
     [2, 5],
@@ -225,9 +266,9 @@ describe('reports local D1', () => {
       const response = await call('/reports/public?hash=123&lang=en');
       expect(response.status).toBe(200);
       const rows = (await response.json()) as { age: number }[];
-      expect(rows).toHaveLength(Math.min(14, reportCount * noteCount));
+      expect(rows).toHaveLength(Math.min(20, reportCount * noteCount));
       expect(Math.min(...rows.map((row) => row.age))).toBeGreaterThanOrEqual(
-        Math.max(1, reportCount + 1 - Math.ceil(14 / noteCount)),
+        Math.max(1, reportCount + 1 - Math.ceil(20 / noteCount)),
       );
       expect(reads).toBeGreaterThan(0);
       expect(reads).toBeLessThanOrEqual(40);
@@ -275,6 +316,26 @@ describe('reports local D1', () => {
           : call(`/reports/${id}`, 'DELETE', undefined, 1);
     return { id, upload, close };
   }
+  it('restores only status when spam is undone, never images or the upload capability', async () => {
+    const race = await uploadRaceCase('spam');
+    expect((await race.upload()).status).toBe(201);
+    expect((await race.close()).status).toBe(200);
+    expect(
+      (
+        await call(
+          `/reports/${race.id}/action`,
+          'POST',
+          { action: 'reopen', expected_version: 2 },
+          1,
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      await db.prepare('SELECT status,files_count FROM reports WHERE id=?').bind(race.id).first(),
+    ).toEqual({ status: 'open', files_count: 0 });
+    expect((await race.upload()).status).toBe(409);
+    expect(await files.prepare('SELECT COUNT(*) AS n FROM files').first()).toEqual({ n: 0 });
+  });
   function interceptStatement(
     statement: ReportStatement,
     before: () => Promise<void>,

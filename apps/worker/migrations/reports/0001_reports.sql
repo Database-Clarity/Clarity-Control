@@ -9,12 +9,13 @@ CREATE TABLE reports (
  request_id TEXT NOT NULL UNIQUE, payload_hash TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
  claimed_by TEXT, links TEXT NOT NULL DEFAULT '[]', files_count INTEGER NOT NULL DEFAULT 0, files_bytes INTEGER NOT NULL DEFAULT 0,
  duplicate_of TEXT, possible_duplicate_of TEXT, same_count INTEGER NOT NULL DEFAULT 0,
- fix_commit TEXT, fix_publishable TEXT, fixed_by TEXT, fixed_at INTEGER, published_at INTEGER, closed_note TEXT
+ fix_commit TEXT, fix_publishable TEXT, fixed_by TEXT, fixed_at INTEGER, published_at INTEGER, closed_note TEXT,
+ public_anchors TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(public_anchors))
 );
 CREATE INDEX reports_list ON reports(status,created_at,id);
 CREATE INDEX reports_owner ON reports(owner_hash,lang,status);
 CREATE INDEX reports_owner_page ON reports(owner_hash,lang,created_at DESC,id DESC,reporter_id);
-CREATE INDEX reports_public ON reports(owner_hash,lang,created_at DESC,id DESC,status,variant,rev) WHERE status IN ('open','triaged');
+CREATE INDEX reports_public ON reports(owner_hash,lang,created_at DESC,id DESC,status,variant,rev,public_anchors) WHERE status IN ('open','triaged') AND public_anchors<>'[]';
 CREATE INDEX reports_purge ON reports(status,updated_at,id,version);
 CREATE INDEX reports_rollup_oldest ON reports(owner_hash,lang,status,category,trust,created_at,id);
 CREATE INDEX reports_rollup_updated ON reports(owner_hash,lang,status,category,trust,updated_at DESC,id);
@@ -69,6 +70,17 @@ CREATE TRIGGER reports_rollup_delete AFTER DELETE ON reports BEGIN
  created_at=(SELECT created_at FROM reports WHERE owner_hash=OLD.owner_hash AND lang=OLD.lang AND status=OLD.status AND category=OLD.category AND trust=OLD.trust ORDER BY created_at,id LIMIT 1),
  updated_at=(SELECT updated_at FROM reports WHERE owner_hash=OLD.owner_hash AND lang=OLD.lang AND status=OLD.status AND category=OLD.category AND trust=OLD.trust ORDER BY updated_at DESC,id LIMIT 1)
  WHERE owner_hash=OLD.owner_hash AND lang=OLD.lang AND status=OLD.status AND category=OLD.category AND trust=OLD.trust;
+END;
+-- Only public selectors are cached: no quotes, note text, identities, or links.
+-- Each source range contains at most five notes, enforced by notes' key/CHECK.
+CREATE TRIGGER notes_public_insert AFTER INSERT ON notes BEGIN
+ UPDATE reports SET public_anchors=(SELECT json_group_array(json_object('n',n,'category',category,'rev',rev,'start',start,'end',end)) FROM (SELECT n,category,rev,start,end FROM notes WHERE report_id=NEW.report_id ORDER BY n)) WHERE id=NEW.report_id;
+END;
+CREATE TRIGGER notes_public_update AFTER UPDATE OF n,report_id,category,rev,start,end ON notes BEGIN
+ UPDATE reports SET public_anchors=(SELECT json_group_array(json_object('n',n,'category',category,'rev',rev,'start',start,'end',end)) FROM (SELECT n,category,rev,start,end FROM notes WHERE report_id=reports.id ORDER BY n)) WHERE id IN (OLD.report_id,NEW.report_id);
+END;
+CREATE TRIGGER notes_public_delete AFTER DELETE ON notes BEGIN
+ UPDATE reports SET public_anchors=(SELECT json_group_array(json_object('n',n,'category',category,'rev',rev,'start',start,'end',end)) FROM (SELECT n,category,rev,start,end FROM notes WHERE report_id=OLD.report_id ORDER BY n)) WHERE id=OLD.report_id;
 END;
 CREATE TRIGGER reports_status AFTER UPDATE OF status ON reports WHEN OLD.status <> NEW.status BEGIN
  INSERT INTO open_counts SELECT NEW.owner_hash,NEW.lang,0 WHERE NEW.status IN ('open','triaged') ON CONFLICT(owner_hash,lang) DO NOTHING;

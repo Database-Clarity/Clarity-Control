@@ -36,6 +36,7 @@ export interface ReportsDatabase {
   exec(sql: string): Promise<unknown>;
 }
 export interface ReportRow {
+  public_anchors?: string;
   id: string;
   owner_hash: number;
   viewed_hash: number;
@@ -401,10 +402,17 @@ export async function reportOwn(
 }
 async function detail(db: ReportsDatabase, row: ReportRow) {
   const notes = await sql(db, 'SELECT * FROM notes WHERE report_id=? ORDER BY n', row.id).all();
-  const { withdraw_hash: _withdraw, payload_hash: _payload, request_id: _request, ...safe } = row;
+  const {
+    withdraw_hash: _withdraw,
+    payload_hash: _payload,
+    request_id: _request,
+    public_anchors: _public,
+    ...safe
+  } = row;
   void _withdraw;
   void _payload;
   void _request;
+  void _public;
   const reporter =
     row.reporter_id === null
       ? null
@@ -449,15 +457,34 @@ export async function reports(request: Request, env: Env): Promise<Response> {
   if (method === 'GET' && path === '/reports/public') {
     const hash = hashParam(url.searchParams.get('hash') ?? '');
     const lang = reportLang(url.searchParams.get('lang'));
+    const page = await sql(
+      db,
+      "SELECT status,created_at AS age,variant,rev,public_anchors FROM reports INDEXED BY reports_public WHERE owner_hash=? AND lang=? AND status IN ('open','triaged') AND public_anchors<>'[]' ORDER BY created_at DESC,id DESC LIMIT 20",
+      hash,
+      lang,
+    ).all<{ status: string; age: number; variant: string; rev: string; public_anchors: string }>();
+    type PublicSelector = {
+      n: number;
+      category: string;
+      rev: string | null;
+      start: number | null;
+      end: number | null;
+    };
     return json(
-      (
-        await sql(
-          db,
-          "SELECT n.n,n.category,r.status,r.created_at AS age,r.variant,COALESCE(n.rev,r.rev) AS rev,n.start,n.end FROM reports r INDEXED BY reports_public JOIN notes n INDEXED BY notes_public ON n.report_id=r.id WHERE r.owner_hash=? AND r.lang=? AND r.status IN ('open','triaged') ORDER BY r.created_at DESC,r.id DESC LIMIT 14",
-          hash,
-          lang,
-        ).all()
-      ).results,
+      page.results
+        .flatMap((report) =>
+          (JSON.parse(report.public_anchors) as PublicSelector[]).map((anchor) => ({
+            n: anchor.n,
+            category: anchor.category,
+            status: report.status,
+            age: report.age,
+            variant: report.variant,
+            rev: anchor.rev ?? report.rev,
+            start: anchor.start,
+            end: anchor.end,
+          })),
+        )
+        .slice(0, 20),
     );
   }
   const receipt = /^\/reports\/r\/(r-[a-z2-7]{8})(?:\/(view|withdraw))?$/.exec(path);
@@ -737,11 +764,13 @@ export async function reports(request: Request, env: Env): Promise<Response> {
           withdraw_hash: _withdraw,
           payload_hash: _payload,
           request_id: _request,
+          public_anchors: _public,
           ...safe
         } = row;
         void _withdraw;
         void _payload;
         void _request;
+        void _public;
         return {
           ...safe,
           reporter_id: row.status === 'withdrawn' ? null : row.reporter_id,
