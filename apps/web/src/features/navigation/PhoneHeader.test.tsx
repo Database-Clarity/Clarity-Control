@@ -144,3 +144,21 @@ describe('phone header', () => {
     expect(q('[data-identity-row]').textContent).toContain('Login unavailable');
   });
 });
+
+it('names an opened global declaration in the phone header', async () => {
+  await act(async () =>
+    root.render(
+      <MemoryRouter initialEntries={['/t/2?global=CombatantScaling']}>
+        <PhoneHeader
+          user={null}
+          pathname="/t/2"
+          routeFor={(to) => to}
+          title="Global variables"
+          finder={null}
+          hasFinder
+        />
+      </MemoryRouter>,
+    ),
+  );
+  expect(host.querySelector('[data-tooltip-finder]')?.textContent).toContain('CombatantScaling');
+});

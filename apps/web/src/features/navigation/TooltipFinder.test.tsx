@@ -72,6 +72,9 @@ async function mount(path = '/t/10?lang=de', source: EditorData = data) {
 const field = () => host.querySelector<HTMLInputElement>('input[role="combobox"]')!;
 const options = () => [...host.querySelectorAll<HTMLElement>('[role="option"]')];
 const route = () => host.querySelector('[data-route]')!.textContent;
+async function paintGlobals() {
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 60)));
+}
 async function type(value: string) {
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field(), value);
@@ -703,5 +706,84 @@ describe('finder wheel stepping', () => {
     const whileOpen = await wheel(field());
     expect(whileOpen.defaultPrevented).toBe(false);
     expect(route()).toBe('/t/11?lang=de');
+  });
+});
+
+describe('global declarations in the finder', () => {
+  const source = {
+    ...data,
+    bundle: {
+      ...data.bundle,
+      tooltips: {
+        2: {
+          hash: 2,
+          text: { en: { text: 'var Alpha = 10\nvar Beta = 20', author: 'test', lastUpdated: 1 } },
+          associated: [],
+        },
+        3: {
+          hash: 3,
+          text: { en: { text: 'title Heading (\nBody\n)', author: 'test', lastUpdated: 1 } },
+          associated: [],
+        },
+      },
+    },
+  } as unknown as EditorData;
+  it('selects bare names, exposes values on hover, and steps within an aggregate', async () => {
+    await mount('/t/2?global=Alpha', source);
+    expect(field().value).toBe('Alpha');
+    await open();
+    expect(options().map((option) => option.querySelector('[class*=name]')?.textContent)).toEqual([
+      'Alpha',
+      'Beta',
+    ]);
+    expect(options()[1].title).toBe('20');
+    expect(options().every((option) => !option.querySelector('small'))).toBe(true);
+    await press('ArrowDown');
+    await press('Enter');
+    expect(route()).toBe('/t/2?global=Beta');
+    expect(field().value).toBe('Beta');
+    await press('ArrowUp');
+    expect(route()).toBe('/t/2?global=Alpha');
+  });
+  it('updates hover values and newly added declarations from an aggregate draft', async () => {
+    await mount('/t/2?global=Alpha', source);
+    const base = source.bundle.tooltips[2];
+    useDraftStore.setState({ hydrated: true });
+    await act(async () =>
+      useDraftStore
+        .getState()
+        .edit(base, 'en', 'var Alpha = changed\nvar Beta = 20\nvar Gamma = new', 'test'),
+    );
+    await paintGlobals();
+    expect(field().value).toBe('Alpha');
+    await open();
+    await paintGlobals();
+    expect(options()).toHaveLength(3);
+    expect(options()[0].title).toBe('changed');
+    await act(async () => useDraftStore.getState().discard(2));
+    await paintGlobals();
+    expect(options()).toHaveLength(2);
+    expect(options()[0].title).toBe('10');
+  });
+  it('restores saved hover contents when a pre-existing value draft is discarded', async () => {
+    const base = source.bundle.tooltips[2];
+    useDraftStore.setState({ hydrated: true });
+    useDraftStore.getState().edit(base, 'en', 'var Alpha = changed\nvar Beta = 20', 'test');
+    await mount('/t/2?global=Alpha', source);
+    await open();
+    expect(options()[0].title).toBe('changed');
+    await act(async () => useDraftStore.getState().discard(2));
+    await paintGlobals();
+    expect(options()[0].title).toBe('10');
+  });
+  it('opens the first declaration when switching global type', async () => {
+    await mount('/t/10', source);
+    const category = host.querySelector<HTMLSelectElement>('[aria-label="Category"]')!;
+    await act(async () => {
+      category.value = 'globals-titles';
+      category.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(route()).toBe('/t/3?global=Heading');
+    expect(field().value).toBe('Heading');
   });
 });

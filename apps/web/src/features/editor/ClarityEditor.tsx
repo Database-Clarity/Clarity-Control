@@ -48,6 +48,7 @@ import { clarityHighlighting, clarityLanguage } from './language';
 import { editorScrollMargins, entryTopScroll, keepParagraphInView } from './scrollMargins';
 import { followKeyboard, visibleBand } from '../../ui/useKeyboardInset';
 import { findWidgetExtension, findWidgetPanel, openReplace } from './findWidget';
+import { globalFindExtension } from './globalFind/host';
 import { rememberSearch, restoreSearch } from './searchMemory';
 import { rawMode, setSymbolReveal, symbolExtensions, toggleRaw, toggleRawView } from './symbols';
 import { hasImportDependencies, validationDiagnostics } from './diagnostics';
@@ -169,6 +170,8 @@ export interface ClarityEditorProps {
   readOnly?: boolean;
   requireEnglish?: boolean;
   highlightLine?: number;
+  /** Declaration stepping keeps keyboard focus in the finder. */
+  focusHighlight?: boolean;
   /** Why the text cannot be edited, shown in the status bar. */
   readOnlyReason?: string | null;
   /** The preview column's state, for the status bar (desktop page only). */
@@ -232,6 +235,7 @@ function configuration(
     chipHost.of({ globals, ...chips }),
     validationDiagnostics(lang, globals, requireEnglish, references.selfHash),
     referenceExtensions({ ...references, lang, globals }),
+    globalFindExtension({ ...references, lang, globals }),
   ];
 }
 
@@ -243,6 +247,7 @@ export function ClarityEditor({
   readOnly = false,
   requireEnglish = true,
   highlightLine,
+  focusHighlight = true,
   readOnlyReason = null,
   preview,
   markupRow = false,
@@ -854,8 +859,8 @@ export function ClarityEditor({
       return;
     const line = editor.state.doc.line(highlightLine);
     editor.dispatch({ selection: { anchor: line.from, head: line.to }, scrollIntoView: true });
-    editor.focus();
-  }, [highlightLine, tooltipHash, lang]);
+    if (focusHighlight) editor.focus();
+  }, [highlightLine, tooltipHash, lang, focusHighlight]);
 
   const glyphCount = glyphs.reduce((sum, group) => sum + group.count, 0);
   const retiredCount = diagnostics.retired.length;

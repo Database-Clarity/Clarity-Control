@@ -1,3 +1,4 @@
+import { globalDefinitions, globalTypes, type GlobalDefinition } from '../globals/model';
 import {
   classifyItem,
   derivedCategories,
@@ -191,6 +192,7 @@ export const exoticArmourLabel = categoryDisplay(exoticArmourCategory).label;
  * `pieces` how many differently named pieces the label joins.
  */
 export interface ListedItem extends Item {
+  global?: GlobalDefinition;
   perkName?: string;
   piece?: string;
   pieces?: number;
@@ -488,7 +490,11 @@ export function groupedSection(
   return result;
 }
 
-export function navigationGroups(data: EditorData, query: string): CategoryGroup[] {
+export function navigationGroups(
+  data: EditorData,
+  query: string,
+  definitions = globalDefinitions(data.bundle.tooltips),
+): CategoryGroup[] {
   const search = query.trim().toLocaleLowerCase();
   const matchingAliases = new Set<number>();
   if (search) {
@@ -511,6 +517,7 @@ export function navigationGroups(data: EditorData, query: string): CategoryGroup
     )
     .filter(
       (item) =>
+        ![1, 2, 3].includes(item.hash) &&
         !isSetSelector(item) &&
         canonicalHash(item.hash, data) === item.hash &&
         (!search ||
@@ -565,5 +572,30 @@ export function navigationGroups(data: EditorData, query: string): CategoryGroup
     });
     groups.set(category.group, group);
   }
+  const globals: CategoryGroup = {
+    name: 'Globals',
+    sections: globalTypes
+      .map(({ kind, label }) => ({
+        id: `globals-${kind}`,
+        label,
+        group: 'Globals',
+        order: 0,
+        items: definitions
+          .filter(
+            (entry) =>
+              entry.kind === kind && (!search || entry.name.toLocaleLowerCase().includes(search)),
+          )
+          .map((entry) => ({
+            hash: entry.hash,
+            name: entry.name,
+            categoryId: `globals-${kind}`,
+            icon: '',
+            inGameDescription: '',
+            global: entry,
+          })),
+      }))
+      .filter((section) => section.items.length > 0),
+  };
+  if (globals.sections.length) groups.set('Globals', globals);
   return [...groups.values()];
 }
