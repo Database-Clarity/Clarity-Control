@@ -1,3 +1,5 @@
+import { useGlobalDefinitions } from '../globals/useGlobals';
+import { GlobalUsages, GlobalUsageCount } from '../globals/GlobalsPage';
 import { archiveCategoryLabel, archivedItemFor } from '../archive/archive';
 import { AttachmentCategoryControl } from './AttachmentCategoryControl';
 import { useCompendiumStore } from '../compendium/store';
@@ -140,7 +142,17 @@ export function TooltipPage({
       : (hashOverride ?? Number(route.parameter));
   // Keep the workspace context stable while its document is retained. The
   // header leaf subscribes to urgent targets without propagating through it.
-  const identity = useMemo(() => previewIdentityFor(hash, data, readOnly), [hash, data, readOnly]);
+  const globalName = [1, 2, 3].includes(hash) ? route.search.get('global') : null;
+  const identity = useMemo(() => {
+    const identity = previewIdentityFor(hash, data, readOnly);
+    return globalName
+      ? {
+          ...identity,
+          name: globalName,
+          categoryLabel: hash === 2 ? 'Variables' : hash === 3 ? 'Titles' : 'Exports',
+        }
+      : identity;
+  }, [hash, data, readOnly, globalName]);
   return (
     <LivePreviewIdentity.Provider value={identity}>
       <article
@@ -217,7 +229,12 @@ function TooltipWorkspace({
     setRemembered(next);
     setSearch(withLanguage(search, next));
   }
-  const highlightLine = Number(search.get('line'));
+  const globalDefinitions = useGlobalDefinitions();
+  const selectedGlobal = globalDefinitions.find(
+    (entry) =>
+      entry.hash === (hashOverride ?? Number(parameter)) && entry.name === search.get('global'),
+  );
+  const highlightLine = selectedGlobal ? selectedGlobal.lines[lang] : Number(search.get('line'));
   const drafts = useDraftStore((state) => state.drafts);
   // Previews, shared globals and references see "mine" where conflict blocks remain in a draft.
   const shown = useMemo(() => previewDrafts(drafts), [drafts]);
@@ -400,7 +417,7 @@ function TooltipWorkspace({
     <PreviewColumn
       hash={hash}
       lang={lang}
-      name={nameOf(hash)}
+      name={selectedGlobal?.name ?? nameOf(hash)}
       piece={baseEntry && previewPiece(baseEntry)}
       icon={baseEntry?.icon || undefined}
       categoryLabel={
@@ -409,7 +426,17 @@ function TooltipWorkspace({
           : (baseCategory?.label ?? baseEntry?.categoryId)
       }
       archiveIcon={readOnly}
-      baseText={value}
+      baseText={
+        selectedGlobal
+          ? selectedGlobal.definitions[lang] === undefined
+            ? ''
+            : selectedGlobal.kind === 'variables'
+              ? `#${selectedGlobal.name}`
+              : selectedGlobal.kind === 'titles'
+                ? `<title ${selectedGlobal.name} [${selectedGlobal.name}] />`
+                : selectedGlobal.definitions[lang]!
+          : value
+      }
       baseGlobals={globalsFor(hash)}
       enhanced={enhancedViews}
       mode={mode}
@@ -542,6 +569,7 @@ function TooltipWorkspace({
       )}
       <h1 className={styles.srOnly}>{heading}</h1>
       <VariantWorkspace
+        compendiumLabel={selectedGlobal ? 'Usages' : undefined}
         header={header}
         initialPanel={readOnly ? 'preview' : undefined}
         source={
@@ -581,12 +609,17 @@ function TooltipWorkspace({
           hosted ? null : (
             <div className={styles.inlinePreview}>
               {previews}
+              {selectedGlobal && (
+                <GlobalUsageCount hash={selectedGlobal.hash} name={selectedGlobal.name} />
+              )}
               {rows}
             </div>
           )
         }
         compendium={
-          !readOnly && user?.role !== 'translator' ? (
+          selectedGlobal ? (
+            <GlobalUsages hash={selectedGlobal.hash} name={selectedGlobal.name} />
+          ) : !readOnly && user?.role !== 'translator' ? (
             <SteppingCompendium
               base={activeBase}
               active={suspended}
@@ -598,7 +631,12 @@ function TooltipWorkspace({
       {hosted && (
         <ShellSlot name="left">
           <div className={styles.leftStack}>
-            <div className={styles.previewBody}>{previews}</div>
+            <div className={styles.previewBody}>
+              {previews}
+              {selectedGlobal && (
+                <GlobalUsageCount hash={selectedGlobal.hash} name={selectedGlobal.name} />
+              )}
+            </div>
             {rows}
           </div>
         </ShellSlot>

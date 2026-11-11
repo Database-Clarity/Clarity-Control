@@ -1,3 +1,5 @@
+import { useGlobalCatalog, useGlobalHover } from '../globals/useGlobals';
+import { globalPath, type GlobalDefinition } from '../globals/model';
 import { useCompendiumStore } from '../compendium/store';
 import {
   memo,
@@ -82,6 +84,7 @@ const steppingGuard: SteppingGuard = {
 };
 
 interface Row {
+  global?: GlobalDefinition;
   hash: number;
   /** Row identity: the hash, or hash:group where a hash is listed under several groups. */
   key: string;
@@ -178,6 +181,7 @@ const FinderOption = memo(function FinderOption({
   /** A screen under 21rem wide: every row is two lines, the name over the perk and hash. */
   narrow?: boolean;
 }) {
+  const globalContents = useGlobalHover(row.global);
   const item = itemFor(row.hash, data);
   const isDirty = variantHashes(row.hash, data).some((variant) => drafts[variant]);
   const shared = sharedPerkLabel(row.hash, data, source);
@@ -204,7 +208,7 @@ const FinderOption = memo(function FinderOption({
       aria-setsize={total}
       data-active={active || undefined}
       data-current={current || undefined}
-      title={shared}
+      title={globalContents ?? shared}
       className={styles.option}
       data-two-line={stacked || narrow || undefined}
       data-grouped={row.group || undefined}
@@ -343,8 +347,9 @@ const FinderOptions = memo(function FinderOptions({
 const noRows: Row[] = [];
 const plainRow = (item: CategorySection['items'][number], section: CategorySection): Row => ({
   hash: item.hash,
-  key: String(item.hash),
-  group: '',
+  key: entryKey(item.hash, item.global?.name ?? ''),
+  group: item.global?.name ?? '',
+  global: item.global,
   // The row names the piece and keeps the perk on the right, so a set's rows stay
   // tellable apart even where the name column truncates.
   name: item.piece ?? item.name,
@@ -420,10 +425,14 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   const base = useId();
   const listId = `${base}-list`;
   const optionId = (row: Row) => `${base}-o${row.key}`;
-  const groups = useMemo(() => navigationGroups(data, ''), [data]);
+  const globalDefinitions = useGlobalCatalog(data);
+  const groups = useMemo(
+    () => navigationGroups(data, '', globalDefinitions),
+    [data, globalDefinitions],
+  );
   const found = useMemo(
-    () => (query.trim() ? navigationGroups(data, query) : groups),
-    [data, groups, query],
+    () => (query.trim() ? navigationGroups(data, query, globalDefinitions) : groups),
+    [data, groups, query, globalDefinitions],
   );
   const drafts = useDraftStore((state) => (open ? state.drafts : noDrafts));
   const navigate = useNavigate();
@@ -434,10 +443,17 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   const hash = Number(pathname(urgentTarget ?? location.pathname).split('/')[2]);
   const routeSearch = urgentTarget ? (urgentTarget.split('?')[1] ?? '') : location.search;
   const sections = useMemo(() => groups.flatMap((group) => group.sections), [groups]);
+  const globalName = new URLSearchParams(routeSearch).get('global');
+  const selectedGlobal = globalDefinitions.find(
+    (entry) => entry.hash === hash && entry.name === globalName,
+  );
   const selectedCategory =
     sections.find(
       (category) =>
-        category.id === finderCategoryId(classifiedCategory(itemFor(hash, data), data)?.id ?? ''),
+        category.id ===
+        (selectedGlobal
+          ? `globals-${selectedGlobal.kind}`
+          : finderCategoryId(classifiedCategory(itemFor(hash, data), data)?.id ?? '')),
     ) ?? sections[0];
   const items = selectedCategory?.items ?? noItems;
   const grouped = useMemo(
@@ -448,12 +464,20 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   groupedRef.current = grouped;
   // A category without groups lists its items as entries of no group.
   const plain = useMemo(() => {
-    const list: Entry[] = grouped ? [] : items.map((item) => ({ hash: item.hash, group: '' }));
+    const list: Entry[] = grouped
+      ? []
+      : items.map((item) => ({ hash: item.hash, group: item.global?.name ?? '' }));
     return { list, index: new Map(list.map((entry, i) => [keyOf(entry), i])) };
   }, [grouped, items]);
   /** The scope and group of a route: from `?g=`, else the item's first owner. */
   const placeOf = (itemHash: number, search: string) => {
-    if (!grouped) return { all: false, group: '' };
+    if (!grouped)
+      return {
+        all: false,
+        group: selectedCategory?.id.startsWith('globals-')
+          ? (new URLSearchParams(search).get('global') ?? '')
+          : '',
+      };
     const param = search ? new URLSearchParams(search).get('g') : null;
     return resolvePlace(parseScope(param), itemHash, grouped.firstGroup, (h, g) =>
       grouped.allIndex.has(entryKey(h, g)),
@@ -582,11 +606,18 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     return true;
   };
   const scopeRoute = (entry: Entry, all: boolean, search: string) =>
-    tooltipPath(
-      entry.hash,
-      search,
-      (grouped && scopeValue(entry, all, grouped.firstGroup)) || null,
-    );
+    selectedCategory?.id.startsWith('globals-')
+      ? globalPath(
+          globalDefinitions.find(
+            (definition) => definition.hash === entry.hash && definition.name === entry.group,
+          )!,
+          search,
+        )
+      : tooltipPath(
+          entry.hash,
+          search,
+          (grouped && scopeValue(entry, all, grouped.firstGroup)) || null,
+        );
   step.current = (direction) => {
     const at = stepAt();
     const { list, index } = scopeLists(at.all, at.group);
@@ -633,7 +664,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     });
   }, [open, found, allCategories, allGroups, selectedCategory, data, place.all, place.group]);
   const currentItem = itemFor(hash, data);
-  const currentLabel = currentItem ? listName(currentItem, data) : '';
+  const currentLabel = selectedGlobal?.name ?? (currentItem ? listName(currentItem, data) : '');
   const sharedLabel = sharedPerkLabel(hash, data, compendiumSource);
   revealActive.current = () => {
     const layout = listLayout.current;
@@ -822,9 +853,11 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     };
   }, [stepping, wheelStepper]);
   /** True when the navigation went ahead (the guard did not refuse it). */
-  function choose(target: number, scopeParam?: string | null): boolean {
+  function choose(target: number, scopeParam?: string | null, global?: GlobalDefinition): boolean {
     stepping.commit();
-    const path = tooltipPath(target, location.search, scopeParam);
+    const path = global
+      ? globalPath(global, location.search)
+      : tooltipPath(target, location.search, scopeParam);
     if (!steppingGuard.allow(location.pathname, path)) return false;
     pulseStepping();
     navigate(path);
@@ -842,7 +875,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
         ? (scopeValue({ hash: row.hash, group: row.group }, Boolean(row.all), grouped.firstGroup) ??
           null)
         : null;
-    if (choose(row.hash, scopeParam) && variant === 'sheet') closeSheet?.();
+    if (choose(row.hash, scopeParam, row.global) && variant === 'sheet') closeSheet?.();
   }
   const commitRef = useRef(commit);
   commitRef.current = commit;
@@ -1073,7 +1106,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
           const first = grouping ? grouping.all[0] : next?.items[0];
           if (!first) return;
           const scope = grouping ? scopeValue(first as Entry, true, grouping.firstGroup) : null;
-          chooseRef.current(first.hash, scope);
+          chooseRef.current(first.hash, scope, next?.items[0]?.global);
         }}
       >
         {!sections.length && <option value="">No matching categories</option>}

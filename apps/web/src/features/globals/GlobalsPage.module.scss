@@ -32,3 +32,40 @@
     margin: 1rem 0;
   }
 }
+
+.usageBody {
+  min-width: 0;
+  padding: 0 0.75rem;
+  pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  a {
+    overflow-wrap: anywhere;
+  }
+  small {
+    display: block;
+    color: var(--meta);
+  }
+}
+.usageCount {
+  margin: 0;
+  padding: 0.375rem 0.75rem;
+  color: var(--meta);
+}
+
+.usagePane {
+  max-height: calc(100dvh - 6rem);
+  .usages {
+    padding: 0;
+    list-style: none;
+  }
+  .usages li {
+    margin: 0;
+    padding: 0.5rem 0;
+    border-top: 1px solid var(--line);
+  }
+  .usages pre {
+    margin: 0.375rem 0 0;
+  }
+}
