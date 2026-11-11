@@ -33,12 +33,18 @@ function ruleFor(name: string, format: FileFormat, notes: TransformNotes): Symbo
   return rule;
 }
 
+/** Class names once each, in order: the parser can list one twice (`<bold/>` is both a line
+ * style and an empty marker), which must not apply a replacement twice. */
+const unique = (names: readonly (string | undefined)[] | undefined): string[] => [
+  ...new Set((names ?? []).filter((name): name is string => typeof name === 'string')),
+];
+
 type Context = { format: FileFormat; shape: Shape; notes: TransformNotes };
 
 function span(input: MarkupSpan, context: Context): OutSpan[] {
   const { format, shape } = context;
   const text = input.text ?? '';
-  const names = (input.classNames ?? []).filter((name): name is string => typeof name === 'string');
+  const names = unique(input.classNames);
   if (names.includes('link') && input.link !== undefined) {
     const rule = format.links;
     if (rule.mode === 'keep' && shape === 'lines')
@@ -56,9 +62,18 @@ function span(input: MarkupSpan, context: Context): OutSpan[] {
       return [title.length ? { text, title, classNames: ['title'] } : { text }];
     }
     if (rule.mode === 'inline' && input.title) {
+      // The title body follows the label in the same line, with the file's own rules: kept
+      // symbols stay spans (lines shape), and its lines are joined with a space.
       const [before, after, innerBefore, innerAfter] = rule.pattern;
-      const body = renderText(lines(input.title, { ...context, shape: 'text' }), ' ');
-      return [{ text: `${before}${text}${after}${innerBefore}${body}${innerAfter}` }];
+      const body = lines(input.title, context).flatMap((line, index) => [
+        ...(index ? [{ text: ' ' }] : []),
+        ...(line.linesContent ?? []).map((part) =>
+          line.classNames
+            ? { ...part, classNames: unique([...(part.classNames ?? []), ...line.classNames]) }
+            : part,
+        ),
+      ]);
+      return [{ text: `${before}${text}${after}${innerBefore}` }, ...body, { text: innerAfter }];
     }
     return [{ text }];
   }
@@ -101,9 +116,7 @@ export function lines(input: readonly MarkupLine[], context: Context): OutLine[]
       context.notes.tables++;
       continue;
     }
-    const names = (line.classNames ?? []).filter(
-      (name): name is string => typeof name === 'string',
-    );
+    const names = unique(line.classNames);
     if (names.includes('spacer')) {
       if (context.format.spacer === 'keep') output.push({ classNames: ['spacer'] });
       continue;

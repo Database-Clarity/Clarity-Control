@@ -96,7 +96,9 @@ function hasRawPair(input: LegacyInput): boolean {
 }
 
 /**
- * Builds one file. Throws when the input is invalid (bad aliases or associations), or when a
+ * Builds one file. Throws when the input is invalid (bad aliases or associations), when a
+ * tooltip in the file has a markup error the editor reports (unresolved or cyclic import,
+ * malformed base/enhanced pair; the message names the hash and language), or when a
  * legacy preset meets base/enhanced markup it cannot express (refused until the owner decides
  * the cut-over output, as the Worker refuses the push).
  */
@@ -144,7 +146,11 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
       const text = perk.editor[language]?.main;
       if (text === undefined) continue;
       const markupGlobals: MarkupGlobals = { ...globals.get(language)!, type: perk.type };
-      const lines = parseMarkup(text, markupGlobals).lines;
+      const { lines, diagnostics } = parseMarkup(text, markupGlobals);
+      // What the editor shows as an error (an unresolved or cyclic import, a malformed
+      // base/enhanced pair) is refused, so the file fails as a whole and is carried forward.
+      const error = diagnostics.find((diagnostic) => diagnostic.severity === 'error');
+      if (error) throw new Error(`Tooltip ${hash} (${language}): ${error.message}`);
       if (lines.length) rows[language] = lines;
     }
     resolved.set(hash, rows);

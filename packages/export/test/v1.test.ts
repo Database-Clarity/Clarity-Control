@@ -341,7 +341,7 @@ describe('config schema 1 (AC1)', () => {
     expect(immutableChanges(before, { ...before, id: 'other' })).toHaveLength(1);
     expect(
       immutableChanges(before, { ...before, files: [{ ...file(), uid: 'zzzzzzzz' }] }),
-    ).toHaveLength(1);
+    ).toContain('File main has a uid the server did not assign');
     expect(
       immutableChanges(before, {
         ...before,
@@ -763,4 +763,167 @@ test('the core markup code the engine bundles never evaluates text as code (P1a 
   }
   const decoderSource = readFileSync(new URL('../decoder/decode-v1.mjs', import.meta.url), 'utf8');
   expect(/new\s+Function\b|\beval\s*\(/.test(decoderSource)).toBe(false);
+});
+
+// ---------------------------------------------------------------- code review round 1 (F1-F5)
+describe('review fixes', () => {
+  const withRow = (rows: Record<number, string>, selected = 101) => {
+    const perks: Record<string, unknown> = { ...globalsRows };
+    for (const [hash, body] of Object.entries(rows)) perks[hash] = perk(Number(hash), body);
+    const items = Object.fromEntries(
+      Object.keys(rows).map((hash) => [hash, { categoryId: 'verbs' }]),
+    );
+    const plan = () =>
+      compile(
+        { perks } as unknown as LegacyInput,
+        file({ categories: ['verbs'], sandboxPerks: [] }),
+        {
+          catalog: { ...catalog, items: { ...items, [selected]: { categoryId: 'verbs' } } },
+        },
+      );
+    return plan;
+  };
+
+  test.each([
+    ['a missing import', { 101: 'Before\nimport main from 999\nAfter' }],
+    ['a missing named export', { 101: 'import Gone from 102', 102: 'Body' }],
+    ['a self-cycle', { 101: 'import main from 101' }],
+    ['a nested missing import', { 101: 'import main from 102', 102: 'import main from 999' }],
+    ['a missing global export', { 101: 'import Gone from global' }],
+    [
+      'a missing import inside a local title',
+      { 101: 'title T (\nimport main from 999\n)\n<title See [T] />' },
+    ],
+    ['a malformed base/enhanced pair', { 101: 'Damage {{a}{b}' }],
+  ])('F1: %s fails the file with the hash and language', (_name, rows) => {
+    expect(withRow(rows)).toThrow(/^Tooltip 101 \(en\): /);
+  });
+
+  test('F1: an error in a row the file does not include does not fail it', () => {
+    const perks = { ...refsInput.perks, 600: perk(600, 'import main from 999') };
+    expect(() =>
+      compile({ perks } as LegacyInput, file({ categories: ['verbs'] }), { catalog }),
+    ).not.toThrow();
+  });
+
+  const owned = (): ExportConfig =>
+    configSchema.parse({
+      schema: 1,
+      id: 'dim',
+      name: 'DIM',
+      files: [
+        { ...file(), id: 'one', uid: 'uidone00' },
+        { id: 'two', uid: 'uidtwo00', formatVersion: 1, preset: 'dim' },
+      ],
+      retained: [
+        {
+          path: 'dim/v1/old.json',
+          uid: 'uidold00',
+          formatVersion: 1,
+          snapshot: { id: 'old', formatVersion: 1, preset: 'dim' },
+          until: '2027-02-11T00:00:00Z',
+        },
+      ],
+    });
+
+  test('F2: URL ownership: strip, swap, takeover, and restore', () => {
+    const before = owned();
+    const [one, two] = before.files;
+    const change = (files: ExportConfig['files']) => ({ ...before, files });
+    expect(immutableChanges(before, before)).toEqual([]);
+    expect(immutableChanges(before, change([{ ...one, uid: undefined }, two]))).not.toEqual([]);
+    expect(
+      immutableChanges(
+        before,
+        change([
+          { ...one, uid: two.uid },
+          { ...two, uid: one.uid },
+        ]),
+      ),
+    ).not.toEqual([]);
+    expect(
+      immutableChanges(before, change([{ ...one, id: 'old', uid: undefined }, two])),
+    ).not.toEqual([]);
+    expect(
+      immutableChanges(before, change([{ ...one, id: 'old', uid: one.uid }, two])),
+    ).not.toEqual([]);
+    const restore = change(
+      [one, two]
+        .slice(0, 1)
+        .concat([{ id: 'old', uid: 'uidold00', formatVersion: 1, preset: 'dim' }]),
+    );
+    expect(immutableChanges(before, restore)).toContain('Only a maintainer can restore file old');
+    expect(immutableChanges(before, restore, { maintainer: true })).toEqual([]);
+    expect(immutableChanges(before, change([{ ...one, id: 'renamed' }, two]))).toEqual([]);
+    expect(immutableChanges(before, change([one]))).toEqual([]);
+    expect(immutableChanges(before, { ...before, retained: [] })).toEqual([
+      'Retained URLs are server-owned',
+    ]);
+    expect(immutableChanges(before, { ...before, retained: [] }, { maintainer: true })).toEqual([]);
+  });
+
+  test.each([
+    ['a path outside the project', { path: '../other/v1/old.json' }],
+    ['an absolute path', { path: '/outside.json' }],
+    ['another project', { path: 'other/v1/old.json' }],
+    ['a path that is not its snapshot', { path: 'dim/v1/else.json' }],
+    [
+      'an active URL',
+      { path: 'dim/v1/one.json', snapshot: { id: 'one', formatVersion: 1, preset: 'dim' } },
+    ],
+    [
+      'a snapshot with another uid',
+      { snapshot: { id: 'old', uid: 'uidelse0', formatVersion: 1, preset: 'dim' } },
+    ],
+  ])('F3: a retained entry with %s is refused', (_name, patch) => {
+    const config = structuredClone(owned()) as Record<string, unknown> & { retained: object[] };
+    config.retained = [{ ...config.retained[0], ...patch }];
+    expect(configSchema.safeParse(config).success).toBe(false);
+  });
+
+  test('F3: two retained entries with one URL are refused', () => {
+    const config = structuredClone(owned());
+    config.retained = [config.retained![0], { ...config.retained![0], uid: 'uidold01' }];
+    expect(configSchema.safeParse(config).success).toBe(false);
+  });
+
+  test('F4: a class the parser lists twice applies once', () => {
+    const parsed = parseMarkup('<bold/>damage').lines;
+    expect(transform(parsed, styleFormats.markdown, 'text', emptyNotes())).toBe('**damage**');
+    expect(transform(parsed, styleFormats.structured, 'lines', emptyNotes())).toEqual([
+      { classNames: ['bold'], linesContent: [{ text: 'damage' }] },
+    ]);
+    expect(transform(parsed, styleFormats.plain, 'text', emptyNotes())).toBe('damage');
+  });
+
+  test('F5: inline titles keep the spans the file keeps', () => {
+    const source =
+      'title T (\nBody <arc/> plus <bold strength />\n<yellow/>Second\n)\n<title Label [T] />';
+    const parsed = parseMarkup(source).lines;
+    const inline = {
+      mode: 'inline' as const,
+      pattern: ['', ' ', '(', ')'] as [string, string, string, string],
+    };
+    expect(
+      transform(parsed, { ...styleFormats.structured, titles: inline }, 'lines', emptyNotes()),
+    ).toEqual([
+      {
+        linesContent: [
+          { text: 'Label (Body ' },
+          { classNames: ['arc'] },
+          { text: ' plus ' },
+          { text: 'strength', classNames: ['bold'] },
+          { text: ' ' },
+          { text: 'Second', classNames: ['yellow'] },
+          { text: ')' },
+        ],
+      },
+    ]);
+    expect(
+      transform(parsed, { ...styleFormats.markdown, titles: inline }, 'text', emptyNotes()),
+    ).toBe('Label (Body [Arc] plus **strength** Second)');
+    expect(transform(parsed, { ...styleFormats.plain, titles: inline }, 'text', emptyNotes())).toBe(
+      'Label (Body  plus strength Second)',
+    );
+  });
 });

@@ -18,6 +18,10 @@ import {
 
 export * from './vocabulary.js';
 
+/** `<project>/v<format>/<file>.json`, relative to the site root (also project.ts filePath). */
+const urlPath = (projectId: string, fileId: string, formatVersion: number) =>
+  `${projectId}/v${formatVersion}/${fileId}.json`;
+
 const id = z
   .string()
   .refine(isValidId, 'Use 2-32 of a-z, 0-9, and -, starting with a letter; not a reserved name');
@@ -167,6 +171,41 @@ export const configSchema = z
         path: ['retained'],
         message: `At most ${configLimits.urlSlots} URLs per project (active files and retained entries)`,
       });
+    // A retained entry is the old URL of one of this project's files: its path is the path its
+    // snapshot had, and every URL (active or retained) belongs to exactly one entry.
+    const paths = new Map<string, string>();
+    config.files.forEach((file, index) =>
+      paths.set(urlPath(config.id, file.id, file.formatVersion), `files.${index}`),
+    );
+    (config.retained ?? []).forEach((entry, index) => {
+      const at = ['retained', index];
+      const own = urlPath(config.id, entry.snapshot.id, entry.formatVersion);
+      if (entry.path !== own)
+        ctx.addIssue({
+          code: 'custom',
+          path: [...at, 'path'],
+          message: `Retained path must be ${own}`,
+        });
+      if (entry.snapshot.formatVersion !== entry.formatVersion)
+        ctx.addIssue({
+          code: 'custom',
+          path: [...at, 'snapshot', 'formatVersion'],
+          message: 'Snapshot format version differs from the entry',
+        });
+      if (entry.snapshot.uid !== undefined && entry.snapshot.uid !== entry.uid)
+        ctx.addIssue({
+          code: 'custom',
+          path: [...at, 'snapshot', 'uid'],
+          message: 'Snapshot uid differs from the entry',
+        });
+      if (paths.has(entry.path))
+        ctx.addIssue({
+          code: 'custom',
+          path: [...at, 'path'],
+          message: `URL already used by ${paths.get(entry.path)}`,
+        });
+      else paths.set(entry.path, `retained.${index}`);
+    });
     const perUid = new Map<string, number>();
     for (const entry of config.retained ?? [])
       perUid.set(entry.uid, (perUid.get(entry.uid) ?? 0) + 1);
@@ -217,23 +256,47 @@ export function migrateConfig(
 }
 
 /**
- * Checks a change from `previous` (the stored config) to `next` for the server-owned parts: the
- * project id never changes, a uid is never invented or moved to another file, and `retained`
- * is not touched. The Worker runs this (with its own role rules) before a save (spec section 4).
+ * Checks a change from `previous` (the stored config) to `next` for the server-owned parts
+ * (spec sections 4 and 5), before the Worker applies its own role rules and appends retained
+ * entries. A URL belongs to the uid that first published it:
+ * - the project id never changes;
+ * - a uid is never invented; a retained uid comes back only through a maintainer;
+ * - a file (with or without a uid) may not take a URL held by another uid, active or retained,
+ *   so stripping, swapping, or reusing uids is refused, and a rename must go to an unheld URL;
+ * - `retained` is unchanged, except that a maintainer may delete entries.
+ * Files missing from `next` are removals (allowed; the Worker retains their URL).
  */
-export function immutableChanges(previous: ExportConfig, next: ExportConfig): string[] {
+export function immutableChanges(
+  previous: ExportConfig,
+  next: ExportConfig,
+  { maintainer = false }: { maintainer?: boolean } = {},
+): string[] {
   const problems: string[] = [];
   if (next.id !== previous.id) problems.push('The project id cannot change');
-  const known = new Set([
-    ...previous.files.flatMap((file) => (file.uid ? [file.uid] : [])),
-    ...(previous.retained ?? []).map((entry) => entry.uid),
-  ]);
+  const active = new Set(previous.files.flatMap((file) => (file.uid ? [file.uid] : [])));
+  const retained = new Set((previous.retained ?? []).map((entry) => entry.uid));
+  const owners = new Map<string, string>();
+  for (const file of previous.files)
+    if (file.uid) owners.set(urlPath(previous.id, file.id, file.formatVersion), file.uid);
+  for (const entry of previous.retained ?? []) owners.set(entry.path, entry.uid);
   for (const file of next.files) {
-    if (file.uid && !known.has(file.uid))
-      problems.push(`File ${file.id} has a uid the server did not assign`);
+    if (file.uid && !active.has(file.uid)) {
+      if (!retained.has(file.uid))
+        problems.push(`File ${file.id} has a uid the server did not assign`);
+      else if (!maintainer) problems.push(`Only a maintainer can restore file ${file.id}`);
+    }
+    const path = urlPath(next.id, file.id, file.formatVersion);
+    const owner = owners.get(path);
+    if (owner !== undefined && owner !== file.uid)
+      problems.push(`The URL ${path} belongs to another file`);
   }
-  if (JSON.stringify(next.retained ?? []) !== JSON.stringify(previous.retained ?? []))
-    problems.push('Retained URLs are server-owned');
+  const before = (previous.retained ?? []).map((entry) => JSON.stringify(entry));
+  const after = (next.retained ?? []).map((entry) => JSON.stringify(entry));
+  const deletionsOnly = after.every((entry) => before.includes(entry));
+  if (maintainer ? !deletionsOnly : before.join('\n') !== after.join('\n'))
+    problems.push(
+      maintainer ? 'Retained URLs can only be deleted' : 'Retained URLs are server-owned',
+    );
   return problems;
 }
 
