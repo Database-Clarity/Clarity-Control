@@ -221,7 +221,13 @@ function HistoryContent({
   }, [cache, commits, loadedPage, hasMore, scope, suspended, loading, attempt]);
   const hidden = commits.filter((entry) => relevance[entry.commit] === false).length;
   const current = draft?.next ?? base;
-  const canRestore = !readOnly && hydrated && Boolean(base);
+  const canRestore =
+    !readOnly &&
+    hydrated &&
+    Boolean(base) &&
+    Boolean(user?.role) &&
+    (user?.role !== 'translator' ||
+      scope.languages.some((language) => language !== 'en' && user.languages?.includes(language)));
 
   const restore = useCallback(
     (version: Tooltip) => {
