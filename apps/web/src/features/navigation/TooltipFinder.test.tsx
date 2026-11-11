@@ -624,15 +624,18 @@ describe('finder sheet form', () => {
         </MemoryRouter>,
       ),
     );
-  it('opens its list with the sheet, field first, and starts clean when the sheet closes', async () => {
+  it('opens its list with the sheet, controls on top, and starts clean when the sheet closes', async () => {
     await render(false);
     expect(field().getAttribute('aria-expanded')).toBe('false');
     await render(true);
     expect(field().getAttribute('aria-expanded')).toBe('true');
     expect(options()).toHaveLength(3);
-    expect(host.querySelector('section')!.firstElementChild).toBe(
-      field().closest('[class*="combo"]'),
-    );
+    // The category and stepper sit at the top, by the header title; the field and its list follow.
+    const section = host.querySelector('section')!;
+    expect(
+      section.firstElementChild!.querySelector('select[aria-label="Category"]'),
+    ).not.toBeNull();
+    expect(section.children[1]).toBe(field().closest('[class*="combo"]'));
     await type('gam');
     expect(options()).toHaveLength(1);
     await render(false);

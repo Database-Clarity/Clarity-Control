@@ -1228,7 +1228,8 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     <section aria-label="Tooltip navigation" className={styles.finder} data-variant={variant}>
       {sheet ? (
         <>
-          {comboNode}
+          {/* The controls sit at the top, next to the header title that opened the finder; the
+              field and its list follow, and the list takes the rest of the room. */}
           <div className={styles.sheetBar}>
             {categoryNode}
             {groupNode && (
@@ -1277,6 +1278,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
               </button>
             </div>
           </div>
+          {comboNode}
         </>
       ) : (
         <>

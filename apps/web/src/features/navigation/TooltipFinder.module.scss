@@ -10,7 +10,7 @@
   min-width: 0;
   width: 100%;
 
-  // The phone sheet: the field first, the list open and filling the sheet, one row below it.
+  // The phone finder: the controls on top, then the field, and the list open and filling the rest.
   &[data-variant='sheet'] {
     flex: 1 1 auto;
     min-height: 0;
@@ -306,7 +306,8 @@
   background: var(--raised);
 }
 
-// One line: the category, then the stepper on the right edge (it wraps under at a large scale).
+// The phone finder's top rows: the category, then the stepper on the right edge (it wraps under at a
+// large scale), then the group row.
 .sheetBar {
   flex: none;
   display: flex;
