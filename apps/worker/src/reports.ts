@@ -44,6 +44,7 @@ export interface ReportRow {
   lang: string;
   status: string;
   version: number;
+  files_epoch: number;
   reporter_id: number | null;
   request_id: string;
   payload_hash: string;
@@ -407,12 +408,14 @@ async function detail(db: ReportsDatabase, row: ReportRow) {
     payload_hash: _payload,
     request_id: _request,
     public_anchors: _public,
+    files_epoch: _filesEpoch,
     ...safe
   } = row;
   void _withdraw;
   void _payload;
   void _request;
   void _public;
+  void _filesEpoch;
   const reporter =
     row.reporter_id === null
       ? null
@@ -540,7 +543,7 @@ export async function reports(request: Request, env: Env): Promise<Response> {
     const result = await db.batch([
       sql(
         db,
-        "UPDATE reports SET status='withdrawn',note='',links='[]',source_url=NULL,src=NULL,reporter_login=NULL,closed_note=NULL,files_count=0,files_bytes=0,version=version+1,updated_at=? WHERE id=? AND status IN ('open','triaged') AND version=?",
+        "UPDATE reports SET status='withdrawn',note='',links='[]',source_url=NULL,src=NULL,reporter_login=NULL,closed_note=NULL,files_count=0,files_bytes=0,files_epoch=files_epoch+1,version=version+1,updated_at=? WHERE id=? AND status IN ('open','triaged') AND version=?",
         now(),
         row.id,
         row.version,
@@ -620,22 +623,25 @@ export async function reports(request: Request, env: Env): Promise<Response> {
       ).first<{ size: number }>();
       // Apply only this deletion, never a cross-database totals snapshot that
       // could overwrite an upload completed while this request was awaiting D1.
-      // Unclamped deltas also commute with an upload still finalising its count.
-      if (deleted)
+      // Unclamped deltas commute with pending uploads in the same epoch; a
+      // reset advances the epoch so older bookkeeping cannot cross spam Undo.
+      if (deleted) {
         await sql(
           db,
-          "UPDATE reports SET files_count=files_count-1,files_bytes=files_bytes-? WHERE id=? AND status NOT IN ('withdrawn','spam')",
+          "UPDATE reports SET files_count=files_count-1,files_bytes=files_bytes-? WHERE id=? AND files_epoch=? AND status NOT IN ('withdrawn','spam')",
           deleted.size,
           row.id,
+          row.files_epoch,
         ).run();
-      await sql(
-        db,
-        "INSERT INTO events(report_id,at,actor_id,actor_login,action) SELECT id,?,?,?,'delete-attachment' FROM reports WHERE id=? AND status<>'withdrawn'",
-        now(),
-        user.id,
-        user.login,
-        row.id,
-      ).run();
+        await sql(
+          db,
+          "INSERT INTO events(report_id,at,actor_id,actor_login,action) SELECT id,?,?,?,'delete-attachment' FROM reports WHERE id=? AND status<>'withdrawn'",
+          now(),
+          user.id,
+          user.login,
+          row.id,
+        ).run();
+      }
       return json({ deleted: true });
     }
     if (method === 'POST' && !attachment[2]) {
@@ -693,9 +699,10 @@ export async function reports(request: Request, env: Env): Promise<Response> {
       }
       const current = await sql(
         db,
-        "UPDATE reports SET files_count=files_count+1,files_bytes=files_bytes+? WHERE id=? AND status IN ('open','triaged')",
+        "UPDATE reports SET files_count=files_count+1,files_bytes=files_bytes+? WHERE id=? AND files_epoch=? AND status IN ('open','triaged')",
         image.bytes.length,
         row.id,
+        row.files_epoch,
       ).run();
       if (!current.meta.changes) {
         await deleteReportFiles(env, row.id);
@@ -763,12 +770,14 @@ export async function reports(request: Request, env: Env): Promise<Response> {
           payload_hash: _payload,
           request_id: _request,
           public_anchors: _public,
+          files_epoch: _filesEpoch,
           ...safe
         } = row;
         void _withdraw;
         void _payload;
         void _request;
         void _public;
+        void _filesEpoch;
         return {
           ...safe,
           reporter_id: row.status === 'withdrawn' ? null : row.reporter_id,
@@ -995,6 +1004,7 @@ export async function reports(request: Request, env: Env): Promise<Response> {
         await deleteReportFiles(env, row.id);
         set('files_count', 0);
         set('files_bytes', 0);
+        fields.push('files_epoch=files_epoch+1');
         status = 'spam';
       }
       if (input.action === 'closedNote') {
@@ -1175,6 +1185,12 @@ export async function purgeReports(env: Env) {
   ]);
   if (expired.length)
     await db.batch(
-      expired.map((id) => sql(db, 'UPDATE reports SET files_count=0,files_bytes=0 WHERE id=?', id)),
+      expired.map((id) =>
+        sql(
+          db,
+          'UPDATE reports SET files_count=0,files_bytes=0,files_epoch=files_epoch+1 WHERE id=?',
+          id,
+        ),
+      ),
     );
 }

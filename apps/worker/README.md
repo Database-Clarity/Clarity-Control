@@ -244,7 +244,10 @@ original ten-minute window.
 Before a Time Travel restore, export core tombstones, withdrawn ids, files-D1
 `files_closed` ids, and the marker revision. Reapply the union of image gates and
 image deletes atomically before redacting/deleting restored report data, and
-clear restored attachment totals for fenced ids. Preserve the exported gates;
+clear restored attachment totals for fenced ids, advancing `files_epoch` in
+that same core UPDATE (`files_epoch=files_epoch+1`). Every counter reset advances
+this internal generation so older upload/deletion bookkeeping cannot change
+the reset totals, even after spam Undo. Preserve the exported gates;
 the files database must not reopen a removed report's upload capability.
 
 `POST /reports/:id/same` remains a P2 server dependency. Do not expose the

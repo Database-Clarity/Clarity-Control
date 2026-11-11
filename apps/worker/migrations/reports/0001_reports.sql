@@ -8,6 +8,7 @@ CREATE TABLE reports (
  trust TEXT NOT NULL CHECK(trust IN ('anonymous','account','role')), withdraw_hash TEXT,
  request_id TEXT NOT NULL UNIQUE, payload_hash TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
  claimed_by TEXT, links TEXT NOT NULL DEFAULT '[]', files_count INTEGER NOT NULL DEFAULT 0, files_bytes INTEGER NOT NULL DEFAULT 0,
+ files_epoch INTEGER NOT NULL DEFAULT 0 CHECK(files_epoch>=0),
  duplicate_of TEXT, possible_duplicate_of TEXT, same_count INTEGER NOT NULL DEFAULT 0,
  fix_commit TEXT, fix_publishable TEXT, fixed_by TEXT, fixed_at INTEGER, published_at INTEGER, closed_note TEXT,
  public_anchors TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(public_anchors))

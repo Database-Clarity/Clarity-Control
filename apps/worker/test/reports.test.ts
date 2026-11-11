@@ -356,6 +356,103 @@ describe('reports local D1', () => {
       },
     };
   }
+  function beforeCoreWrite(prefix: string, before: () => Promise<void>) {
+    fixture.env.REPORTS_DB = {
+      prepare(query) {
+        const statement = db.prepare(query);
+        return query.startsWith(prefix) ? interceptStatement(statement, before) : statement;
+      },
+      batch(statements) {
+        return db.batch(statements);
+      },
+      exec(query) {
+        return db.exec(query);
+      },
+    };
+  }
+  for (const operation of ['deletion', 'upload'] as const)
+    it(`does not apply pending attachment ${operation} bookkeeping across spam Undo`, async () => {
+      const race = await uploadRaceCase('spam');
+      if (operation === 'deletion') expect((await race.upload()).status).toBe(201);
+      let raced = false;
+      beforeCoreWrite(
+        `UPDATE reports SET files_count=files_count${operation === 'upload' ? '+' : '-'}1`,
+        async () => {
+          if (raced) return;
+          raced = true;
+          expect((await race.close()).status).toBe(200);
+          expect(
+            (
+              await call(
+                `/reports/${race.id}/action`,
+                'POST',
+                { action: 'reopen', expected_version: 2 },
+                1,
+              )
+            ).status,
+          ).toBe(200);
+        },
+      );
+      const response =
+        operation === 'upload'
+          ? await race.upload()
+          : await call(`/reports/${race.id}/files/1`, 'DELETE', undefined, 5);
+      expect(response.status).toBe(operation === 'upload' ? 409 : 200);
+      expect(raced).toBe(true);
+      expect(
+        await db.prepare('SELECT status,files_count,files_bytes FROM reports').first(),
+      ).toEqual({
+        status: 'open',
+        files_count: 0,
+        files_bytes: 0,
+      });
+      expect(await files.prepare('SELECT COUNT(*) AS n FROM files').first()).toEqual({ n: 0 });
+      expect((await race.upload()).status).toBe(409);
+      fixture.env.REPORTS_DB = db;
+    });
+  it('does not subtract a pending deletion after the thirty-day attachment sweep', async () => {
+    const race = await uploadRaceCase('withdraw');
+    expect((await race.upload()).status).toBe(201);
+    expect((await race.upload()).status).toBe(201);
+    let raced = false;
+    beforeCoreWrite('UPDATE reports SET files_count=files_count-1', async () => {
+      if (raced) return;
+      raced = true;
+      expect(
+        (
+          await call(
+            `/reports/${race.id}/action`,
+            'POST',
+            { action: 'close', expected_version: 1 },
+            1,
+          )
+        ).status,
+      ).toBe(200);
+      await db
+        .prepare('UPDATE reports SET updated_at=? WHERE id=?')
+        .bind(Math.floor(Date.now() / 1000) - 31 * 86400, race.id)
+        .run();
+      await purgeReports(fixture.env);
+    });
+    expect((await call(`/reports/${race.id}/files/1`, 'DELETE', undefined, 5)).status).toBe(200);
+    expect(raced).toBe(true);
+    expect(await db.prepare('SELECT status,files_count,files_bytes FROM reports').first()).toEqual({
+      status: 'closed',
+      files_count: 0,
+      files_bytes: 0,
+    });
+    expect(await files.prepare('SELECT COUNT(*) AS n FROM files').first()).toEqual({ n: 0 });
+    fixture.env.REPORTS_DB = db;
+  });
+  it('does not write audit rows for repeated or missing attachment deletion', async () => {
+    const race = await uploadRaceCase('withdraw');
+    expect((await race.upload()).status).toBe(201);
+    for (let count = 0; count < 3; count++)
+      expect((await call(`/reports/${race.id}/files/1`, 'DELETE', undefined, 5)).status).toBe(200);
+    expect(
+      await db.prepare("SELECT COUNT(*) AS n FROM events WHERE action='delete-attachment'").first(),
+    ).toEqual({ n: 1 });
+  });
   it('never restores attachment actor history after concurrent withdrawal', async () => {
     const race = await uploadRaceCase('withdraw');
     expect((await race.upload()).status).toBe(201);
@@ -1157,7 +1254,9 @@ describe('reports local D1', () => {
         ]);
       for (const { id } of fenced)
         await db
-          .prepare('UPDATE reports SET files_count=0,files_bytes=0 WHERE id=?')
+          .prepare(
+            'UPDATE reports SET files_count=0,files_bytes=0,files_epoch=files_epoch+1 WHERE id=?',
+          )
           .bind(id)
           .run();
       for (const { id } of erased)
@@ -1166,7 +1265,7 @@ describe('reports local D1', () => {
         await db.batch([
           db
             .prepare(
-              "UPDATE reports SET status='withdrawn',note='',source_url=NULL,src=NULL,links='[]',reporter_login=NULL,closed_note=NULL,files_count=0,files_bytes=0 WHERE id=?",
+              "UPDATE reports SET status='withdrawn',note='',source_url=NULL,src=NULL,links='[]',reporter_login=NULL,closed_note=NULL,files_count=0,files_bytes=0,files_epoch=files_epoch+1 WHERE id=?",
             )
             .bind(id),
           db.prepare('DELETE FROM notes WHERE report_id=?').bind(id),
