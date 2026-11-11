@@ -5,6 +5,30 @@
   "compatibility_date": "2025-11-01",
   "workers_dev": true,
   "account_id": "c5ec2772673dc72f5e58587ef4c80ff8",
+  // PLACEHOLDER IDs: root creates the databases and replaces these before deployment.
+  "d1_databases": [
+    {
+      "binding": "REPORTS_DB",
+      "database_name": "clarity-reports",
+      "database_id": "PLACEHOLDER-REPORTS-DATABASE-ID",
+      "migrations_dir": "migrations/reports",
+    },
+    {
+      "binding": "REPORTS_FILES_DB",
+      "database_name": "clarity-reports-files",
+      "database_id": "PLACEHOLDER-FILES-DATABASE-ID",
+      "migrations_dir": "migrations/files",
+    },
+  ],
+  "triggers": { "crons": ["0 * * * *"] },
+  "secrets": {
+    "required": [
+      "GITHUB_CLIENT_SECRET",
+      "GITHUB_PRIVATE_KEY",
+      "SESSION_SECRET",
+      "TURNSTILE_SECRET",
+    ],
+  },
   "vars": {
     "SITE_ORIGIN": "https://database-clarity.github.io",
     "SITE_ORIGINS": "https://database-clarity.github.io,https://control.d2clarity.com",
