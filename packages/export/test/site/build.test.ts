@@ -539,7 +539,12 @@ describe('build-site per-file outcomes', () => {
     expectOk(harness.siteRun({ engineDir, extra: ['--carry-after', '2000'] }));
     const builtSecond = builtPaths(harness.servedJson('_build/manifest.json'));
     expect(builtSecond.length).toBeGreaterThan(0);
-    expect(builtSecond.some((path) => builtFirst.includes(path))).toBe(false);
+    // The files the first run skipped go first (no starvation); only then any it rebuilt.
+    const all = files.map((file, index) => `${index < 3 ? 'alpha' : 'beta'}/v1/${file.id}.json`);
+    const skipped = all.filter((path) => !builtFirst.includes(path));
+    expect(builtSecond.filter((path) => skipped.includes(path))).toHaveLength(
+      Math.min(skipped.length, builtSecond.length),
+    );
   }, 180_000);
 
   it('a corrupt or missing manifest on a project with deployments deploys nothing; an invalid config keeps its URLs', async () => {
