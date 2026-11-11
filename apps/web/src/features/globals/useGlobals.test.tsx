@@ -3,7 +3,8 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import * as model from './model';
-import { useGlobalCatalog } from './useGlobals';
+import { useGlobalCatalog, useGlobalDefinition } from './useGlobals';
+import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import type { EditorData } from '../../stores/data';
 
@@ -58,4 +59,32 @@ it('does no draft extraction on the input path, and refreshes visible globals af
   await act(async () => new Promise((resolve) => setTimeout(resolve, 60)));
   expect(extract).toHaveBeenCalled();
   expect(host.textContent).toBe('Alpha,Gamma');
+});
+
+it('does not rerender a selected declaration for edits elsewhere in its aggregate', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const saved = useDataStore.getState();
+  useDataStore.setState({ data });
+  useDraftStore.setState({ drafts: {}, hydrated: true });
+  document.body.append(host);
+  root = createRoot(host);
+  let renders = 0;
+  function Surface() {
+    renders++;
+    const entry = useGlobalDefinition(2, 'Alpha');
+    return <output>{entry?.definitions.en}</output>;
+  }
+  try {
+    await act(async () => root.render(<Surface />));
+    const before = renders;
+    useDraftStore
+      .getState()
+      .edit(data.bundle.tooltips[2], 'en', 'var Alpha = one\nvar Other = changed', 'test');
+    expect(renders).toBe(before);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 60)));
+    expect(renders).toBe(before);
+    expect(host.textContent).toBe('one');
+  } finally {
+    useDataStore.setState(saved);
+  }
 });

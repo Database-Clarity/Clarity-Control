@@ -86,18 +86,51 @@ export const GlobalUsages = memo(function GlobalUsages({
 }) {
   const usages = useGlobalUsages(hash, name);
   const data = useDataStore((state) => state.data);
+  const key = `${hash}:${name}`;
+  const [paging, setPaging] = useState({ key, page: 0 });
+  if (paging.key !== key) setPaging({ key, page: 0 });
+  const lastPage = Math.max(0, Math.ceil(usages.length / 25) - 1);
+  const page = paging.key === key ? Math.min(paging.page, lastPage) : 0;
   return useMemo(
     () => (
       <RightPane
         className={styles.usagePane}
         label="Global usages"
-        header={<RightPaneHeader title="Usages" />}
+        header={
+          <RightPaneHeader title="Usages">
+            {usages.length > 25 && (
+              <span className={styles.pager}>
+                <button
+                  type="button"
+                  data-perf-navigation="true"
+                  aria-label="Previous usages"
+                  disabled={page === 0}
+                  onClick={() => setPaging({ key, page: page - 1 })}
+                >
+                  ‹
+                </button>
+                <span role="status">
+                  {page * 25 + 1}–{Math.min(usages.length, (page + 1) * 25)} / {usages.length}
+                </span>
+                <button
+                  type="button"
+                  data-perf-navigation="true"
+                  aria-label="Next usages"
+                  disabled={page === lastPage}
+                  onClick={() => setPaging({ key, page: page + 1 })}
+                >
+                  ›
+                </button>
+              </span>
+            )}
+          </RightPaneHeader>
+        }
       >
         <div className={styles.usageBody}>
           <p>Used in {globalUsageCount([{ usages }])} tooltips.</p>
           {!usages.length && <p>No authored references.</p>}
           <ul className={styles.usages}>
-            {usages.map((usage) => (
+            {usages.slice(page * 25, (page + 1) * 25).map((usage) => (
               <li key={`${usage.hash}:${usage.lang}:${usage.line}`}>
                 <Link
                   to={`/t/${data ? canonicalHash(usage.hash, data) : usage.hash}?lang=${usage.lang}&line=${usage.line}&variant=${usage.hash}`}
@@ -113,7 +146,7 @@ export const GlobalUsages = memo(function GlobalUsages({
         </div>
       </RightPane>
     ),
-    [usages, data],
+    [usages, data, key, page, lastPage],
   );
 });
 

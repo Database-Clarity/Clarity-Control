@@ -41,8 +41,10 @@ function subscribePainted(listener: () => void) {
   };
 }
 const subscribeNothing = () => () => {};
+const currentPaintedDrafts = () =>
+  listeners.size ? paintedDrafts : useDraftStore.getState().drafts;
 function usePaintedDrafts(enabled = true) {
-  const snapshot = () => (enabled ? paintedDrafts : noDrafts);
+  const snapshot = () => (enabled ? currentPaintedDrafts() : noDrafts);
   return useSyncExternalStore(enabled ? subscribePainted : subscribeNothing, snapshot, snapshot);
 }
 
@@ -59,25 +61,6 @@ export function useGlobals() {
     }
     return project(drafts);
   }, [tooltips, drafts]);
-}
-
-/** Subscribe only to aggregate definitions, so ordinary tooltip typing cannot rebuild the finder. */
-export function useGlobalDefinitions(override?: EditorData, enabled = true) {
-  const stored = useDataStore((state) => state.data);
-  const data = override ?? stored;
-  const drafts = usePaintedDrafts(enabled);
-  const variables = drafts[2]?.next;
-  const titles = drafts[3]?.next;
-  const exports = drafts[1]?.next;
-  return useMemo(
-    () =>
-      globalDefinitions({
-        1: exports ?? data?.bundle.tooltips[1],
-        2: variables ?? data?.bundle.tooltips[2],
-        3: titles ?? data?.bundle.tooltips[3],
-      }),
-    [data, variables, titles, exports],
-  );
 }
 
 /** Finder lists change only when declaration identity changes; values update in hover leaves. */
@@ -106,7 +89,7 @@ export function useGlobalCatalog(data: EditorData, live = true) {
     };
   }, [data]);
   const snapshot = () =>
-    select({ drafts: live ? paintedDrafts : noDrafts } as ReturnType<
+    select({ drafts: live ? currentPaintedDrafts() : noDrafts } as ReturnType<
       typeof useDraftStore.getState
     >);
   return useSyncExternalStore(live ? subscribePainted : subscribeNothing, snapshot, snapshot);
@@ -137,8 +120,37 @@ export function useGlobalUsages(hash: number, name: string) {
       projections.set(tooltips, project);
     }
     return () =>
-      project!(paintedDrafts).find((entry) => entry.hash === hash && entry.name === name)?.usages ??
-      noUsages;
+      project!(currentPaintedDrafts()).find((entry) => entry.hash === hash && entry.name === name)
+        ?.usages ?? noUsages;
   }, [tooltips, hash, name]);
   return useSyncExternalStore(subscribePainted, snapshot, snapshot);
+}
+
+/** Only the selected declaration can update the workspace, not edits elsewhere in its aggregate. */
+export function useGlobalDefinition(hash: number, name: string | null) {
+  const data = useDataStore((state) => state.data);
+  const snapshot = useMemo(() => {
+    let previous: ReturnType<typeof globalDefinitions>[number] | undefined;
+    let source: unknown;
+    let initialized = false;
+    return () => {
+      const tooltip = name ? (paintedDrafts[hash]?.next ?? data?.bundle.tooltips[hash]) : undefined;
+      if (initialized && tooltip === source) return previous;
+      initialized = true;
+      source = tooltip;
+      const next = tooltip
+        ? globalDefinitions({ [hash]: tooltip }).find((entry) => entry.name === name)
+        : undefined;
+      if (
+        previous &&
+        next &&
+        JSON.stringify([previous.definitions, previous.lines]) ===
+          JSON.stringify([next.definitions, next.lines])
+      )
+        return previous;
+      previous = next;
+      return previous;
+    };
+  }, [data, hash, name]);
+  return useSyncExternalStore(name ? subscribePainted : subscribeNothing, snapshot, snapshot);
 }

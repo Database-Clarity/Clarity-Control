@@ -1,4 +1,4 @@
-import { useGlobalDefinitions } from '../globals/useGlobals';
+import { useGlobalDefinition } from '../globals/useGlobals';
 import { GlobalUsages, GlobalUsageCount } from '../globals/GlobalsPage';
 import { archiveCategoryLabel, archivedItemFor } from '../archive/archive';
 import { AttachmentCategoryControl } from './AttachmentCategoryControl';
@@ -229,13 +229,9 @@ function TooltipWorkspace({
     setRemembered(next);
     setSearch(withLanguage(search, next));
   }
-  const globalDefinitions = useGlobalDefinitions(
-    undefined,
-    [1, 2, 3].includes(hashOverride ?? Number(parameter)) && search.has('global'),
-  );
-  const selectedGlobal = globalDefinitions.find(
-    (entry) =>
-      entry.hash === (hashOverride ?? Number(parameter)) && entry.name === search.get('global'),
+  const selectedGlobal = useGlobalDefinition(
+    hashOverride ?? Number(parameter),
+    [1, 2, 3].includes(hashOverride ?? Number(parameter)) ? search.get('global') : null,
   );
   const highlightLine = selectedGlobal ? selectedGlobal.lines[lang] : Number(search.get('line'));
   const drafts = useDraftStore((state) => state.drafts);
