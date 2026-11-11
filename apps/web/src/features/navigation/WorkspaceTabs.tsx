@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
-import type { User } from '../../services/api';
+import type { MenuUser } from './links';
 import { driftTabQuery, laptopQuery, managementTabQuery, useMedia } from '../../ui/useMedia';
 import { CompendiumBadge, useCompendiumCount } from '../compendium/CompendiumBadge';
 import { workspaceMenu, workspacePath, type NavLink } from './links';
@@ -14,7 +14,7 @@ import styles from './WorkspaceTabs.module.scss';
  * Bungie drift, then Management, move out of More into the tabs (each only from its measured
  * width, where it fits without shrinking the finder or another tab).
  */
-export function useWorkspaceItems(user: Pick<User, 'role'> | null | undefined) {
+export function useWorkspaceItems(user: MenuUser | null | undefined) {
   const laptop = useMedia(laptopQuery);
   const driftTab = useMedia(driftTabQuery);
   const managementTab = useMedia(managementTabQuery);
@@ -49,7 +49,7 @@ export function WorkspaceTabs({
   pathname,
   routeFor,
 }: {
-  user: Pick<User, 'role'> | null | undefined;
+  user: MenuUser | null | undefined;
   pathname: string;
   routeFor(to: string): string;
 }) {
@@ -156,7 +156,7 @@ export function WorkspaceList({
   onSettings,
   onAccount,
 }: {
-  user: Pick<User, 'role'> | null | undefined;
+  user: MenuUser | null | undefined;
   pathname: string;
   routeFor(to: string): string;
   onNavigate(): void;

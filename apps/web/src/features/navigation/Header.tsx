@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
-import type { User } from '../../services/api';
+import type { MenuUser } from './links';
 import { compactQuery, useMedia } from '../../ui/useMedia';
 import { Brand } from './Brand';
 import { DraftButton } from './DraftButton';
@@ -22,7 +22,7 @@ export function Header({
   finder,
   overlay,
 }: {
-  user: Pick<User, 'role'> | null | undefined;
+  user: MenuUser | null | undefined;
   pathname: string;
   routeFor(to: string): string;
   /** The finder slot content; rendered in the bar, or in the band when compact. */
