@@ -101,6 +101,7 @@ export class GlobalFindController {
       this.client.onError = () => {
         this.failed = true;
         this.pending = false;
+        this.response = { results: [], capped: false };
         this.paint();
       };
       force = true;
@@ -203,6 +204,7 @@ export class GlobalFindController {
           this.paint();
         },
         onOpen: (result) => {
+          if (this.pending || this.failed) return;
           this.open = false;
           this.paint();
           openResult(this.view, result);

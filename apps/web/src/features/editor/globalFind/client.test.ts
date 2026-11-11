@@ -26,6 +26,24 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
+it('reports a worker startup failure to a query opened after the failed idle build', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal(
+    'Worker',
+    class {
+      constructor() {
+        throw new Error('Worker unavailable');
+      }
+    },
+  );
+  const client = new FindClient('en');
+  await vi.runAllTimersAsync();
+  const failed = vi.fn();
+  client.onError = failed;
+  client.query({ search: 'cat', caseSensitive: false, wholeWord: false, raw: false }, vi.fn());
+  expect(failed).toHaveBeenCalledOnce();
+  client.destroy();
+});
 it('uses the view language or English, and preserves deliberately empty translation drafts', () => {
   expect(entryFor(tooltip, data, 'de')).toMatchObject({
     lang: 'en',

@@ -9,6 +9,7 @@ import { globalFindExtension } from './host';
 import { FindIndex } from './index';
 import { useDataStore, type EditorData } from '../../../stores/data';
 import type { Tooltip } from '@clarity/core';
+import { useDraftStore } from '../../../stores/drafts';
 
 it('sweeps entry/category/all, pending/committed query, keyboard/button activation, empty restore, and cancel', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -99,6 +100,22 @@ it('sweeps entry/category/all, pending/committed query, keyboard/button activati
       await vi.runAllTimersAsync();
     });
     expect(document.querySelectorAll('[role="option"]')).toHaveLength(2);
+    // A click already queued on an old DOM row must not open it after a draft invalidates the index.
+    const stale = document.querySelector<HTMLButtonElement>('[role="option"]')!;
+    await act(async () => {
+      useDraftStore.setState({
+        drafts: {
+          1: { base: one, next: { ...one, text: { en: { ...one.text.en!, text: 'dog' } } } },
+        },
+      });
+      stale.click();
+    });
+    expect(navigate).not.toHaveBeenCalled();
+    expect(view.state.selection.main).toMatchObject({ from: 0, to: 0 });
+    await act(async () => {
+      useDraftStore.setState({ drafts: {} });
+      await vi.runAllTimersAsync();
+    });
     await act(async () => {
       const next = view.dom.querySelector<HTMLButtonElement>('button[name="next"]')!;
       next.focus();
@@ -139,6 +156,7 @@ it('sweeps entry/category/all, pending/committed query, keyboard/button activati
       await Promise.resolve();
     });
     useDataStore.setState({ data: null });
+    useDraftStore.setState({ drafts: {} });
     vi.unstubAllGlobals();
     vi.useRealTimers();
   }

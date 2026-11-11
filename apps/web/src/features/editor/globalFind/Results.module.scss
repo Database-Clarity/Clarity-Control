@@ -24,6 +24,9 @@
   &[aria-selected='true'] {
     background: var(--sel);
   }
+  &[aria-selected='true'] {
+    box-shadow: inset 2px 0 0 var(--accent-ink);
+  }
   mark {
     color: var(--text);
     background: var(--warn-bg);

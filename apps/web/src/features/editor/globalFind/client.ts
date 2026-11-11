@@ -45,6 +45,7 @@ export class FindClient {
   private receivers = new Map<number, (response: FindResponse) => void>();
   private dirty = true;
   private disposed = false;
+  private failed = false;
   onError: () => void = () => undefined;
   onPending: () => void = () => undefined;
 
@@ -61,6 +62,10 @@ export class FindClient {
   }
 
   private schedule() {
+    if (this.failed) {
+      this.onError();
+      return;
+    }
     this.dirty = true;
     this.generation++;
     // A response from the previous snapshot must not resurrect stale rows.
@@ -73,7 +78,7 @@ export class FindClient {
 
   private idle(run: () => void) {
     const alive = () => {
-      if (!this.disposed) run();
+      if (!this.disposed && !this.failed) run();
     };
     if (typeof requestIdleCallback === 'function') requestIdleCallback(alive, { timeout: 500 });
     else this.timer = setTimeout(alive, 0);
@@ -89,7 +94,7 @@ export class FindClient {
           this.receivers.delete(data.id);
           if (data.id === this.serial) receive?.(data);
         };
-        this.worker.onerror = () => this.onError();
+        this.worker.onerror = () => this.fail();
       }
       const data = useDataStore.getState().data;
       if (!data) {
@@ -139,11 +144,25 @@ export class FindClient {
       };
       slice();
     } catch {
-      this.onError();
+      this.fail();
     }
   }
 
+  private fail() {
+    this.failed = true;
+    this.pending = undefined;
+    this.receivers.clear();
+    this.worker?.terminate();
+    this.worker = undefined;
+    this.entries.clear();
+    this.onError();
+  }
+
   query(options: FindOptions, receive: (response: FindResponse) => void) {
+    if (this.failed) {
+      this.onError();
+      return;
+    }
     this.pending = { options, receive };
     this.serial++;
     this.receivers.clear();
