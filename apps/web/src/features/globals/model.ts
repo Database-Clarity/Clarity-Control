@@ -47,7 +47,7 @@ export function globalDefinitions(tooltips: Readonly<Record<string, Tooltip>>): 
         ).trim();
         const key = `${kind}:${name}`;
         const entry = entries.get(key) ?? { kind, hash, name, definitions: {}, lines: {} };
-        const body = kind === 'variables' ? match[2].trim() : match[2].replace(/^\n/, '');
+        const body = kind === 'variables' ? match[2].trim() : match[0].split('\n').slice(1, -1).join('\n');
         entry.definitions[lang] = kind === 'variables' && body === 'empty' ? '' : body;
         entry.lines[lang] = source.slice(0, match.index).split('\n').length;
         entries.set(key, entry);
@@ -116,6 +116,7 @@ export function createGlobalUsageProjection(saved: Readonly<Record<string, Toolt
   const signature = declarationSignature(baseline);
   const sourceCache = new WeakMap<Tooltip, ReturnType<typeof globalUsageEntries>>();
   const results = new WeakMap<object, ReturnType<typeof globalUsageEntries>>();
+  let previous = baseline;
   return (drafts: Readonly<Record<string, { next: Tooltip }>>) => {
     const cached = results.get(drafts);
     if (cached) return cached;
@@ -172,6 +173,26 @@ export function createGlobalUsageProjection(saved: Readonly<Record<string, Toolt
         ),
       }));
     }
+    for (const entry of projected) {
+      const old = previous.find(
+        (candidate) => candidate.kind === entry.kind && candidate.name === entry.name,
+      );
+      if (
+        old &&
+        old.usages.length === entry.usages.length &&
+        old.usages.every((usage, index) => {
+          const next = entry.usages[index];
+          return (
+            usage.hash === next.hash &&
+            usage.lang === next.lang &&
+            usage.line === next.line &&
+            usage.source === next.source
+          );
+        })
+      )
+        entry.usages = old.usages;
+    }
+    previous = projected;
     results.set(drafts, projected);
     return projected;
   };

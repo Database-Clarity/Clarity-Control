@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { globalDefinitions, createGlobalUsageProjection } from './model';
+import { globalDefinitions, globalUsageEntries, createGlobalUsageProjection } from './model';
 import type { EditorData } from '../../stores/data';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
@@ -65,13 +65,33 @@ export function useGlobalCatalog(data: EditorData) {
   return useDraftStore(select);
 }
 
-export function useGlobalHover(entry?: ReturnType<typeof globalDefinitions>[number]) {
+export function useGlobalHover(
+  entry?: ReturnType<typeof globalDefinitions>[number],
+  data?: EditorData,
+) {
   const draft = useDraftStore((state) => (entry ? state.drafts[entry.hash]?.next : undefined));
+  const source = draft ?? (entry && data?.bundle.tooltips[entry.hash]);
   return useMemo(() => {
     if (!entry) return undefined;
-    const current = draft
-      ? globalDefinitions({ [draft.hash]: draft }).find(({ name }) => name === entry.name)
+    const current = source
+      ? globalDefinitions({ [source.hash]: source }).find(({ name }) => name === entry.name)
       : entry;
     return Object.values(current?.definitions ?? {}).join('\n\n');
-  }, [draft, entry]);
+  }, [source, entry]);
+}
+
+const noUsages: ReturnType<typeof globalUsageEntries>[number]['usages'] = [];
+export function useGlobalUsages(hash: number, name: string) {
+  const tooltips = useDataStore((state) => state.data?.bundle.tooltips ?? noTooltips);
+  const select = useMemo(() => {
+    let project = projections.get(tooltips);
+    if (!project) {
+      project = createGlobalUsageProjection(tooltips);
+      projections.set(tooltips, project);
+    }
+    return (state: ReturnType<typeof useDraftStore.getState>) =>
+      project!(state.drafts).find((entry) => entry.hash === hash && entry.name === name)?.usages ??
+      noUsages;
+  }, [tooltips, hash, name]);
+  return useDraftStore(select);
 }

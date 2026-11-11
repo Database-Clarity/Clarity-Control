@@ -94,3 +94,12 @@ it('incremental draft usage projections equal a fresh authored-reference index',
     expect(project(drafts)).toBe(project(drafts));
   }
 });
+
+it('retains usage-list identity when only an aggregate value changes', () => {
+  const project = createGlobalUsageProjection(sources);
+  const first = project({});
+  const second = project({ 2: { next: tooltip(2, 'var Rate = 99\nvar Empty = empty') } });
+  expect(second.find(({ name }) => name === 'Rate')?.usages).toBe(
+    first.find(({ name }) => name === 'Rate')?.usages,
+  );
+});

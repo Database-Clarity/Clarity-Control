@@ -181,7 +181,7 @@ const FinderOption = memo(function FinderOption({
   /** A screen under 21rem wide: every row is two lines, the name over the perk and hash. */
   narrow?: boolean;
 }) {
-  const globalContents = useGlobalHover(row.global);
+  const globalContents = useGlobalHover(row.global, data);
   const item = itemFor(row.hash, data);
   const isDirty = variantHashes(row.hash, data).some((variant) => drafts[variant]);
   const shared = sharedPerkLabel(row.hash, data, source);

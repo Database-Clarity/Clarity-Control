@@ -758,6 +758,16 @@ describe('global declarations in the finder', () => {
     expect(options()).toHaveLength(2);
     expect(options()[0].title).toBe('10');
   });
+  it('restores saved hover contents when a pre-existing value draft is discarded', async () => {
+    const base = source.bundle.tooltips[2];
+    useDraftStore.setState({ hydrated: true });
+    useDraftStore.getState().edit(base, 'en', 'var Alpha = changed\nvar Beta = 20', 'test');
+    await mount('/t/2?global=Alpha', source);
+    await open();
+    expect(options()[0].title).toBe('changed');
+    await act(async () => useDraftStore.getState().discard(2));
+    expect(options()[0].title).toBe('10');
+  });
   it('opens the first declaration when switching global type', async () => {
     await mount('/t/10', source);
     const category = host.querySelector<HTMLSelectElement>('[aria-label="Category"]')!;

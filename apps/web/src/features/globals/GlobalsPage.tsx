@@ -1,12 +1,12 @@
 import { languageLabel } from '../../languageLabels';
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { globalUsageCount } from './model';
 import { useDataStore } from '../../stores/data';
 import { canonicalHash, itemFor } from '../navigation/catalog';
 import { globalPath, globalTypes } from './model';
 import { RightPane, RightPaneHeader } from '../../ui/RightPane';
-import { useGlobals } from './useGlobals';
+import { useGlobals, useGlobalUsages } from './useGlobals';
 import styles from './GlobalsPage.module.scss';
 
 export function GlobalsPage() {
@@ -77,10 +77,15 @@ export function GlobalUsageSummary({ hash }: { hash: number }) {
   );
 }
 
-export function GlobalUsages({ hash, name }: { hash: number; name: string }) {
-  const entries = useGlobals();
+export const GlobalUsages = memo(function GlobalUsages({
+  hash,
+  name,
+}: {
+  hash: number;
+  name: string;
+}) {
+  const usages = useGlobalUsages(hash, name);
   const data = useDataStore((state) => state.data);
-  const entry = entries.find((candidate) => candidate.hash === hash && candidate.name === name);
   return (
     <RightPane
       className={styles.usagePane}
@@ -88,10 +93,10 @@ export function GlobalUsages({ hash, name }: { hash: number; name: string }) {
       header={<RightPaneHeader title="Usages" />}
     >
       <div className={styles.usageBody}>
-        <p>Used in {globalUsageCount(entry ? [entry] : [])} tooltips.</p>
-        {!entry?.usages.length && <p>No authored references.</p>}
+        <p>Used in {globalUsageCount([{ usages }])} tooltips.</p>
+        {!usages.length && <p>No authored references.</p>}
         <ul className={styles.usages}>
-          {entry?.usages.map((usage) => (
+          {usages.map((usage) => (
             <li key={`${usage.hash}:${usage.lang}:${usage.line}`}>
               <Link
                 to={`/t/${data ? canonicalHash(usage.hash, data) : usage.hash}?lang=${usage.lang}&line=${usage.line}&variant=${usage.hash}`}
@@ -107,13 +112,15 @@ export function GlobalUsages({ hash, name }: { hash: number; name: string }) {
       </div>
     </RightPane>
   );
-}
+});
 
-export function GlobalUsageCount({ hash, name }: { hash: number; name: string }) {
-  const entry = useGlobals().find(
-    (candidate) => candidate.hash === hash && candidate.name === name,
-  );
-  return (
-    <p className={styles.usageCount}>Used in {globalUsageCount(entry ? [entry] : [])} tooltips</p>
-  );
-}
+export const GlobalUsageCount = memo(function GlobalUsageCount({
+  hash,
+  name,
+}: {
+  hash: number;
+  name: string;
+}) {
+  const usages = useGlobalUsages(hash, name);
+  return <p className={styles.usageCount}>Used in {globalUsageCount([{ usages }])} tooltips</p>;
+});
