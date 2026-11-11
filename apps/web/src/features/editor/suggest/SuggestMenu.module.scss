@@ -266,6 +266,9 @@
       flex-shrink: 0;
     }
   }
+  .menu[data-pair] .detail {
+    max-height: calc(var(--menu-max) - 2 * var(--suggest-option));
+  }
   .title {
     white-space: normal;
     overflow-wrap: anywhere;

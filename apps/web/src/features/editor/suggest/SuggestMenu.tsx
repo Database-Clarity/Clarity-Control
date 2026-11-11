@@ -354,6 +354,7 @@ export function SuggestMenu({
       style={style}
       data-suggest-menu
       data-short={short || undefined}
+      data-pair={pairGlobals ? '' : undefined}
       // Pressing inside never takes focus from the editor, so the caret and selection stay put.
       onMouseDown={(event) => event.preventDefault()}
     >

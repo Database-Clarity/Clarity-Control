@@ -116,7 +116,7 @@ export const markupSnippets: readonly Snippet[] = [
     keywords: 'base enhanced pair inline variant alternate',
     usage: /\{\{/,
     fromSelection: true,
-    about: 'Base, then enhanced; one line each. No nested pairs.',
+    about: 'Base, then enhanced. No nesting.',
     help: { block: 'base-enhanced-pair' },
   },
   {

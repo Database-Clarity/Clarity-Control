@@ -28,7 +28,8 @@ export function EntryGlyph({ glyph }: { glyph: Glyph }) {
       return (
         <span className={styles.pair}>
           <span style={{ color: 'var(--syn-number)' }}>B</span>
-          <span style={{ color: 'var(--var)' }}>|E</span>
+          <span aria-hidden="true">|</span>
+          <span style={{ color: 'var(--var)' }}>E</span>
         </span>
       );
     case 'pve':

@@ -130,26 +130,41 @@ it('saved overlay expires after the TTL so newer edits by others show up, and ha
   expect(expired).toBe(bundle);
 });
 
-it('shows the server converter refusal and preserves pending native text', async () => {
-  const saved = make('{{10}{20}}');
-  const data: EditorData = {
-    items: { 10: { hash: 10, name: 'Demo', categoryId: 'perk', icon: '', inGameDescription: '' } },
-    categories: [{ id: 'perk', label: 'Perks', group: 'Weapons', order: 1 }],
-    aliases: {},
-    bundle: {
-      sourceCommit: 'saved',
-      generatedAt: at,
-      tooltips: { 10: saved },
-      pushed: {},
-      permissions: { users: {} },
-    },
-  };
-  useDataStore.setState({ status: 'ready', data, error: null });
-  const reason = 'Base/enhanced markup needs the new converter; it can be pushed after cut-over';
-  vi.mocked(pushSelected).mockRejectedValue(new Error(reason));
-  expect(await publishReviewed(await pendingTooltips(data), data, () => true)).toBe(false);
-  const { useReviewSession } = await import('./session');
-  expect(useReviewSession.getState().error).toContain(reason);
-  expect(useDataStore.getState().data?.bundle.tooltips[10].text.en?.text).toBe('{{10}{20}}');
-  expect(await pendingTooltips(data)).toHaveLength(1);
-});
+it.each(['plain', 'wrapped', 'partial'])(
+  'shows the server converter refusal and preserves pending native text (%s)',
+  async (kind) => {
+    const saved = make('{{10}{20}}');
+    const data: EditorData = {
+      items: {
+        10: { hash: 10, name: 'Demo', categoryId: 'perk', icon: '', inGameDescription: '' },
+      },
+      categories: [{ id: 'perk', label: 'Perks', group: 'Weapons', order: 1 }],
+      aliases: {},
+      bundle: {
+        sourceCommit: 'saved',
+        generatedAt: at,
+        tooltips: { 10: saved },
+        pushed: {},
+        permissions: { users: {} },
+      },
+    };
+    useDataStore.setState({ status: 'ready', data, error: null });
+    const reason = 'Base/enhanced markup needs the new converter; it can be pushed after cut-over';
+    const message =
+      kind === 'plain'
+        ? reason
+        : 'API HTTP 422: ' +
+          JSON.stringify({
+            error: reason,
+            ...(kind === 'partial' ? { details: { liveCommit: 'known' } } : {}),
+          });
+    vi.mocked(pushSelected).mockRejectedValue(new Error(message));
+    expect(await publishReviewed(await pendingTooltips(data), data, () => true)).toBe(false);
+    const { useReviewSession } = await import('./session');
+    if (kind === 'partial')
+      expect(useReviewSession.getState().error).toContain('may have written live data');
+    else expect(useReviewSession.getState().error).toBe(`Not pushed: ${reason}.`);
+    expect(useDataStore.getState().data?.bundle.tooltips[10].text.en?.text).toBe('{{10}{20}}');
+    expect(await pendingTooltips(data)).toHaveLength(1);
+  },
+);

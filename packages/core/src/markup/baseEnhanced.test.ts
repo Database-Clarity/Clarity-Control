@@ -49,6 +49,12 @@ describe('native base/enhanced inline markup', () => {
     expect(scanBaseEnhanced(text).issues.length).toBeGreaterThan(0);
     expect(validateText(text, 'en').some((issue) => issue.severity === 'error')).toBe(true);
   });
+  it('points unfinished-pair diagnostics at the opener, preserving comment offsets', () => {
+    const text = '/* {{ignored */\nPrecision {{70}{';
+    const issue = validateText(text, 'en').find((issue) => issue.severity === 'error')!;
+    expect(issue.from).toBe(text.lastIndexOf('{{'));
+    expect(issue.to).toBe(text.length);
+  });
   it('uses the importing variant for direct, nested, named, and title imports', () => {
     for (const enhanced of [false, true]) {
       expect(prepare('#C\nimport main from 124', enhanced)).toBe(`5\n${enhanced ? 'b' : 'a'}`);

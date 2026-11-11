@@ -1,6 +1,9 @@
 import { resolveAlias, type Aliases } from '../aliases.js';
 import { languages, type Lang } from '../languages.js';
 import {
+  baseEnhancedMessage,
+  unfinishedBaseEnhanced,
+  markupCommentContext,
   describeGlobalClash,
   findGlobalNameClashes,
   globalTitlesHash,
@@ -89,6 +92,21 @@ export function validateText(
     add('error', emptyEnglishMessage);
   }
   for (const diagnostic of parseMarkup(text, globals).diagnostics) {
+    if (diagnostic.message === baseEnhancedMessage && text.includes('{{')) {
+      if (issues.some((issue) => issue.message === baseEnhancedMessage)) continue;
+      const context = markupCommentContext(text);
+      const unfinished = unfinishedBaseEnhanced(context.text);
+      if (unfinished.length) {
+        for (const issue of unfinished)
+          issues.push({
+            severity: 'error',
+            message: baseEnhancedMessage,
+            from: context.offsets[issue.from],
+            to: context.offsets[issue.to - 1] + 1,
+          });
+        continue;
+      }
+    }
     const token = diagnostic.message.match(/Unknown variable (#[a-zA-Z0-9]+)/)?.[1];
     add(diagnostic.severity, diagnostic.message, token);
   }

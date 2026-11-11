@@ -230,13 +230,18 @@ $name-floor: $name-size * 0.75;
 }
 
 // Compare view: what the enhanced version changes, read in place.
-.was {
-  color: var(--tp-was);
-  text-decoration: line-through;
-}
+.was,
 .removed {
   color: var(--tp-was);
   text-decoration: line-through;
+  text-decoration-skip-ink: none;
+  // Inline markup keeps its structure, but base values share the removed treatment.
+  span,
+  a {
+    color: inherit;
+    text-decoration: inherit;
+    text-decoration-skip-ink: none;
+  }
 }
 // A line only the enhanced version has: a gold edge, no padding or box (the text does not move).
 .added {

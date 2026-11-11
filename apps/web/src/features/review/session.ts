@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { publishableHash } from '@clarity/core';
+import { baseEnhancedPublishMessage, publishableHash } from '@clarity/core';
 import { pushSelected } from '../../services/history';
 import { errorMessage } from '../../services/http';
 import { sameUser, useAuthStore } from '../../stores/auth';
@@ -63,7 +63,10 @@ export async function publishReviewed(
   try {
     const expected = Object.fromEntries(
       await Promise.all(
-        entries.map(async ({ tooltip }) => [tooltip.hash, await publishableHash(tooltip, data.aliases)] as const),
+        entries.map(
+          async ({ tooltip }) =>
+            [tooltip.hash, await publishableHash(tooltip, data.aliases)] as const,
+        ),
       ),
     );
     // Hashing is asynchronous: never submit after leaving the page, changing account/role,
@@ -94,10 +97,31 @@ export async function publishReviewed(
     // just-pushed tooltips. The acknowledgment overlay above already marks them as pushed.
     return true;
   } catch (reason) {
-    if (current())
+    if (current()) {
+      const message = errorMessage(reason);
+      let converterRefusal = message === baseEnhancedPublishMessage;
+      // The legacy API client wraps errors as text. Recognize only the Worker's exact
+      // pre-write refusal; partial-write details and every other error stay visible.
+      const prefix = 'API HTTP 422: ';
+      if (message.startsWith(prefix)) {
+        try {
+          const value: unknown = JSON.parse(message.slice(prefix.length));
+          converterRefusal =
+            value !== null &&
+            typeof value === 'object' &&
+            Object.keys(value).length === 1 &&
+            'error' in value &&
+            value.error === baseEnhancedPublishMessage;
+        } catch {
+          /* Keep the original error and its write-status warning. */
+        }
+      }
       useReviewSession.setState({
-        error: `${errorMessage(reason).replace(/[.!?]*$/, '.')} A failed push may have written live data; check the error details before retrying.`,
+        error: converterRefusal
+          ? `Not pushed: ${baseEnhancedPublishMessage}.`
+          : `${message.replace(/[.!?]*$/, '.')} A failed push may have written live data; check the error details before retrying.`,
       });
+    }
     return false;
   } finally {
     useReviewSession.setState({ pushing: false });
