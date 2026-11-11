@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./markup/arithmetic": "./src/markup/arithmetic.ts"
+    "./markup/arithmetic": "./src/markup/arithmetic.ts",
+    "./markup/parse": "./src/markup/parse.ts"
   },
   "scripts": {
     "test": "vitest run",
