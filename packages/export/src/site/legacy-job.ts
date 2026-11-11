@@ -40,12 +40,20 @@ import {
   json,
 } from './util.js';
 
-type BungieManifest = { version: string; inventoryItem: Engine.InventoryItems };
+/** `sandboxPerk`: a set bonus's Bungie text (set bonuses are sandbox perks, not inventory items). */
+type BungieManifest = {
+  version: string;
+  inventoryItem: Engine.InventoryItems;
+  sandboxPerk?: Engine.SandboxPerks;
+};
 
 const bungie = 'https://www.bungie.net';
 
-/** The Bungie manifest's inventory items, fetched once (3 tries); undefined when it fails. */
-async function loadManifest(file: string | undefined): Promise<BungieManifest | undefined> {
+/**
+ * The Bungie manifest's inventory items and sandbox perks, fetched once (3 tries); undefined when
+ * either fails, so the Bungie-identical test never runs on half a manifest.
+ */
+export async function loadManifest(file: string | undefined): Promise<BungieManifest | undefined> {
   if (file) {
     if (!existsSync(file)) return undefined; // the harness's "fetch failed"
     return readJson<BungieManifest>(file);
@@ -59,13 +67,18 @@ async function loadManifest(file: string | undefined): Promise<BungieManifest | 
         };
       };
       const version = index.Response?.version;
-      const path =
-        index.Response?.jsonWorldComponentContentPaths?.en?.DestinyInventoryItemDefinition;
-      if (!version || !path?.startsWith('/'))
-        throw new Error('Manifest index without inventory items');
-      const response = await fetch(`${bungie}${path}`);
-      if (!response.ok) throw new Error(`Manifest HTTP ${response.status}`);
-      return { version, inventoryItem: (await response.json()) as Engine.InventoryItems };
+      const paths = index.Response?.jsonWorldComponentContentPaths?.en;
+      const tables = [paths?.DestinyInventoryItemDefinition, paths?.DestinySandboxPerkDefinition];
+      if (!version || !tables.every((path) => path?.startsWith('/')))
+        throw new Error('Manifest index without inventory items or sandbox perks');
+      const [inventoryItem, sandboxPerk] = await Promise.all(
+        tables.map(async (path) => {
+          const response = await fetch(`${bungie}${path}`);
+          if (!response.ok) throw new Error(`Manifest HTTP ${response.status}`);
+          return (await response.json()) as Engine.InventoryItems;
+        }),
+      );
+      return { version, inventoryItem, sandboxPerk };
     } catch (error) {
       console.log(`Bungie manifest attempt ${attempt + 1} failed: ${(error as Error).message}`);
     }
@@ -222,7 +235,7 @@ export async function runLegacy(options: Record<string, string>) {
     return report('manifest failed: nothing deployed');
   }
   const identical = engine
-    .bungieIdentical(input, manifest.inventoryItem)
+    .bungieIdentical(input, manifest.inventoryItem, manifest.sandboxPerk)
     .map(Number)
     .sort((a, b) => a - b);
 
@@ -342,7 +355,9 @@ export async function captureVocab(options: Record<string, string>) {
   ) as Engine.LegacyInput;
   const manifest = await loadManifest(options['manifest-file']);
   if (!manifest) throw new Error('Bungie manifest fetch failed');
-  const identical = engine.bungieIdentical(input, manifest.inventoryItem).map(Number);
+  const identical = engine
+    .bungieIdentical(input, manifest.inventoryItem, manifest.sandboxPerk)
+    .map(Number);
   const presets: Record<string, string[]> = {};
   for (const built of buildSeven(engine, input, identical)) {
     if (!built.markers) throw new Error(`${built.name}: ${built.error}`);

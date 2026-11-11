@@ -218,12 +218,15 @@ export class Harness {
     manifest = 'ok',
     vocab,
     checkouts,
+    editManifest,
   }: {
     runId?: string;
     attempt?: string;
     manifest?: 'ok' | 'fail' | 'changed';
     vocab?: Record<string, string[]>;
     checkouts?: { converter: string; live: string; pins: string };
+    /** Changes the written manifest file (`inventoryItem`, `sandboxPerk`) before the run. */
+    editManifest?: (manifest: Record<string, Record<string, unknown>>) => void;
   } = {}): RunResult {
     const dirs = checkouts ?? this.legacyCheckouts();
     const manifestFile = join(this.root, `manifest-${manifest}.json`);
@@ -234,12 +237,11 @@ export class Harness {
           displayProperties?: { description?: string };
         }[])
           if (item.displayProperties) item.displayProperties.description = 'changed';
+      const written = { inventoryItem: base.inventoryItem };
+      editManifest?.(written);
       writeFileSync(
         manifestFile,
-        JSON.stringify({
-          version: manifest === 'changed' ? 'v-changed' : 'v-1',
-          inventoryItem: base.inventoryItem,
-        }),
+        JSON.stringify({ version: manifest === 'changed' ? 'v-changed' : 'v-1', ...written }),
       );
     }
     const args = [
