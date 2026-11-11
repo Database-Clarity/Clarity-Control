@@ -43,6 +43,15 @@ it('defaults to rendered, synchronizes switches, and remembers Raw across remoun
     await act(async () => host.querySelector<HTMLInputElement>('[role="switch"]')!.click());
     expect(host.querySelector('pre')).toBeNull();
     expect(host.querySelector('ins')?.textContent).toBe('New');
+    vi.stubGlobal('localStorage', {
+      getItem: () => 'false',
+      setItem: () => { throw new Error('quota'); },
+      clear: () => {},
+    });
+    await act(async () => host.querySelector<HTMLInputElement>('[role="switch"]')!.click());
+    expect(host.querySelector<HTMLInputElement>('[role="switch"]')?.checked).toBe(true);
+    expect(host.querySelector('pre')?.textContent).toBe('<pve Old />');
+    await act(async () => host.querySelector<HTMLInputElement>('[role="switch"]')!.click());
   } finally {
     await act(async () => root.unmount());
     localStorage.clear();
