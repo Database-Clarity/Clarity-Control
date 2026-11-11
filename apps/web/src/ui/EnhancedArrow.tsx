@@ -6,14 +6,27 @@
  */
 export const ENHANCED_ARROW_PATH = 'M6 .75 9.5 5.25H7v6H5v-6H2.5Z';
 
-export function EnhancedArrow({ title, size = 12 }: { title?: string; size?: number }) {
+export function EnhancedArrow({
+  title,
+  size = 12,
+}: {
+  title?: string;
+  /** Pixels, or a CSS length (a rem size follows the interface scale like the icons). */
+  size?: number | string;
+}) {
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 12 12"
       fill="currentColor"
-      style={{ color: 'var(--enhanced)', flex: 'none', verticalAlign: '-1px' }}
+      style={{
+        color: 'var(--enhanced)',
+        flex: 'none',
+        verticalAlign: '-1px',
+        // A CSS length sizes the box itself; pixels stay attributes so a surface's CSS can size it.
+        ...(typeof size === 'string' ? { width: size, height: size } : {}),
+      }}
       role={title ? 'img' : undefined}
       aria-label={title}
       aria-hidden={title ? undefined : true}
@@ -37,7 +50,7 @@ export function WithArrows({ text }: { text: string }) {
     <>
       {text.split(ENHANCED_ARROW_CHAR).map((part, index) => (
         <span key={index}>
-          {index > 0 && <EnhancedArrow title="Enhanced arrow" />}
+          {index > 0 && <EnhancedArrow title="Enhanced arrow" size="0.75rem" />}
           {part}
         </span>
       ))}
