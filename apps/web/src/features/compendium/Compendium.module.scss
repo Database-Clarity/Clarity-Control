@@ -336,14 +336,14 @@
   display: block;
   margin-block: 0.125rem;
   // The edges reach into the cell's padding, so block text starts where other lines start.
-  margin-inline-start: -0.8rem;
+  margin-inline-start: calc(-0.8rem * var(--cell-scale, 1));
 }
 .old,
 .new,
 .unfold {
   display: block;
   box-sizing: border-box;
-  padding-inline-start: calc(0.8rem - 3px);
+  padding-inline-start: calc(0.8rem * var(--cell-scale, 1) - 3px);
   border-inline-start: 3px solid var(--sheet-ins-line);
   text-decoration: none;
 }
