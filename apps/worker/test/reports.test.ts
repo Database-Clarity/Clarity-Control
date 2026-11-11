@@ -808,19 +808,33 @@ describe('reports local D1', () => {
       b = payload();
     const deleted = ((await (await call('/reports', 'POST', a)).json()) as { id: string }).id;
     const withdrawn = ((await (await call('/reports', 'POST', b, 5)).json()) as { id: string }).id;
+    const moderated = (
+      (await (await call('/reports', 'POST', payload(), 5)).json()) as { id: string }
+    ).id;
+    await db.prepare('UPDATE reports SET files_count=1,files_bytes=64').run();
     const snapshots = (
       await db.prepare('SELECT * FROM reports').all<Record<string, string | number | null>>()
     ).results;
     const notes = (
       await db.prepare('SELECT * FROM notes').all<Record<string, string | number | null>>()
     ).results;
-    for (const id of [deleted, withdrawn])
+    for (const id of [deleted, withdrawn, moderated])
       await files
         .prepare("INSERT INTO files VALUES(?,1,5,'image/jpeg',64,'test',0,unhex(?))")
         .bind(id, Buffer.from(reportJpegFixture()).toString('hex'))
         .run();
     expect((await call(`/reports/${deleted}`, 'DELETE', undefined, 1)).status).toBe(200);
     expect((await call(`/reports/r/${withdrawn}/withdraw`, 'POST', {}, 5)).status).toBe(200);
+    expect(
+      (
+        await call(
+          `/reports/${moderated}/action`,
+          'POST',
+          { action: 'spam', expected_version: 1 },
+          1,
+        )
+      ).status,
+    ).toBe(200);
     const erased = (await db.prepare('SELECT id FROM tombstones').all<{ id: string }>()).results;
     const marker = (await db
       .prepare("SELECT value FROM meta WHERE key='marker_rev'")
@@ -851,7 +865,7 @@ describe('reports local D1', () => {
         )
         .bind(...Object.values(row))
         .run();
-    for (const id of [deleted, withdrawn])
+    for (const id of [deleted, withdrawn, moderated])
       await files
         .prepare("INSERT INTO files VALUES(?,1,5,'image/jpeg',64,'test',0,unhex(?))")
         .bind(id, Buffer.from(reportJpegFixture()).toString('hex'))
@@ -865,6 +879,11 @@ describe('reports local D1', () => {
           files.prepare('INSERT OR IGNORE INTO files_closed VALUES(?)').bind(id),
           files.prepare('DELETE FROM files WHERE report_id=?').bind(id),
         ]);
+      for (const { id } of fenced)
+        await db
+          .prepare('UPDATE reports SET files_count=0,files_bytes=0 WHERE id=?')
+          .bind(id)
+          .run();
       for (const { id } of erased)
         await db.prepare('DELETE FROM reports WHERE id=?').bind(id).run();
       for (const { id } of redacted)
@@ -882,11 +901,21 @@ describe('reports local D1', () => {
         .bind(Number(marker))
         .run();
     }
-    expect(await db.prepare('SELECT note,status FROM reports').first()).toEqual({
+    expect(
+      await db.prepare('SELECT note,status FROM reports WHERE id=?').bind(withdrawn).first(),
+    ).toEqual({
       note: '',
       status: 'withdrawn',
     });
-    expect(await db.prepare('SELECT COUNT(*) AS n FROM notes').first()).toEqual({ n: 0 });
+    expect(
+      await db.prepare('SELECT COUNT(*) AS n FROM notes WHERE report_id=?').bind(withdrawn).first(),
+    ).toEqual({ n: 0 });
+    expect(
+      await db
+        .prepare('SELECT files_count,files_bytes FROM reports WHERE id=?')
+        .bind(moderated)
+        .first(),
+    ).toEqual({ files_count: 0, files_bytes: 0 });
     expect(await files.prepare('SELECT COUNT(*) AS n FROM files').first()).toEqual({ n: 0 });
     await expect(
       files
@@ -902,7 +931,15 @@ describe('reports local D1', () => {
       ),
     ).toBeGreaterThan(Number(marker));
     const role = await call('/reports?hash=123&lang=en', 'GET', undefined, 1);
-    expect(await role.json()).toMatchObject([{ reporter_id: null, reporter_history: null }]);
+    const body = (await role.json()) as {
+      id: string;
+      reporter_id: number | null;
+      reporter_history: unknown;
+    }[];
+    expect(body.find((r) => r.id === withdrawn)).toMatchObject({
+      reporter_id: null,
+      reporter_history: null,
+    });
   });
   it('serialises concurrent uploads at three, scopes file reads, and removes files on withdrawal', async () => {
     const input = payload(),
