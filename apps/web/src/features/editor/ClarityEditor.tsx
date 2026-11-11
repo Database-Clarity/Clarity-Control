@@ -48,6 +48,7 @@ import { clarityHighlighting, clarityLanguage } from './language';
 import { editorScrollMargins, entryTopScroll, keepParagraphInView } from './scrollMargins';
 import { followKeyboard, visibleBand } from '../../ui/useKeyboardInset';
 import { findWidgetExtension, findWidgetPanel, openReplace } from './findWidget';
+import { globalFindExtension } from './globalFind/host';
 import { rememberSearch, restoreSearch } from './searchMemory';
 import { rawMode, setSymbolReveal, symbolExtensions, toggleRaw, toggleRawView } from './symbols';
 import { hasImportDependencies, validationDiagnostics } from './diagnostics';
@@ -234,6 +235,7 @@ function configuration(
     chipHost.of({ globals, ...chips }),
     validationDiagnostics(lang, globals, requireEnglish, references.selfHash),
     referenceExtensions({ ...references, lang, globals }),
+    globalFindExtension({ ...references, lang, globals }),
   ];
 }
 
