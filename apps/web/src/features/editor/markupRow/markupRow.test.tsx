@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { EditorView } from '@codemirror/view';
+import { undo } from '@codemirror/commands';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   markupIcons,
@@ -79,6 +80,36 @@ const entryButton = (id: string) => host.querySelector<HTMLButtonElement>(`[data
 const click = (node: HTMLElement) =>
   act(() => node.dispatchEvent(new MouseEvent('click', { bubbles: true })));
 
+it('keeps caret and undo in authoring form and callbacks preserve native markup', () => {
+  const changed = vi.fn();
+  const render = (value: string) =>
+    act(() =>
+      root.render(<ClarityEditor value={value} lang="en" globals={globals} onChange={changed} />),
+    );
+  const stored = 'Gives {{10}{20}} damage.';
+  render(stored);
+  const view = EditorView.findFromDOM(host.querySelector<HTMLElement>('.cm-editor')!)!;
+  expect(view.state.doc.toString()).toBe('Gives {{10}{20}} damage.');
+  const caret = view.state.doc.length;
+  act(() =>
+    view.dispatch({ changes: { from: caret, insert: '!' }, selection: { anchor: caret + 1 } }),
+  );
+  const emitted = changed.mock.calls.at(-1)![0] as string;
+  expect(emitted).toBe('Gives {{10}{20}} damage.!');
+  render(emitted);
+  expect(view.state.selection.main.head).toBe(caret + 1);
+  act(() => {
+    undo(view);
+  });
+  expect(view.state.doc.toString()).toBe('Gives {{10}{20}} damage.');
+  expect(changed.mock.calls.at(-1)![0]).toBe(stored);
+  const incomplete = 'Gives {{10}{';
+  render(incomplete);
+  expect(view.state.doc.toString()).toBe(incomplete);
+  act(() => view.dispatch({ changes: { from: incomplete.length, insert: '2' } }));
+  expect(changed.mock.calls.at(-1)![0]).toBe(incomplete + '2');
+});
+
 describe('the retired markup options', () => {
   const retired = [
     'inline:center',
@@ -118,6 +149,7 @@ describe('the markup row catalogue', () => {
         .map((item) => item.id),
     ).toEqual([
       'enhanced-arrow',
+      'base-enhanced-pair',
       'pve',
       'pvp',
       'pair',

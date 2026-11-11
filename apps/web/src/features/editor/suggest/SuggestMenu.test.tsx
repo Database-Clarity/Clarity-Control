@@ -200,6 +200,37 @@ describe('the suggestion menu', () => {
     expect(document.body.querySelector('[role=listbox]')!.textContent).not.toMatch(/Used in|485/);
   });
 
+  it('shows both variant results for the inline base/enhanced snippet without editing', () => {
+    const view = mount('Gains ');
+    press(view, ' ', { ctrlKey: true, keyCode: 32 });
+    const index = options().findIndex((option) => option.textContent === 'Base and enhanced text');
+    expect(index).toBeGreaterThanOrEqual(0);
+    for (let i = 0; i < index; i++) press(view, 'ArrowDown');
+    const preview = document.body.querySelector('[data-suggest-detail] [aria-label="Preview"]')!;
+    expect(preview.textContent).toMatch(/Base.*Gains base.*Enhanced.*Gains enhanced/s);
+    expect(changes).toEqual([]);
+  });
+
+  it('inserts native pairs with Enter and walks their two editable arms with Tab', () => {
+    const view = mount('Gains ');
+    press(view, ' ', { ctrlKey: true, keyCode: 32 });
+    const index = options().findIndex((option) => option.textContent === 'Base and enhanced text');
+    for (let i = 0; i < index; i++) press(view, 'ArrowDown');
+    press(view, 'Enter');
+    expect(view.state.doc.toString()).toBe('Gains {{base}{enhanced}}');
+    const picked = () =>
+      view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to);
+    expect(picked()).toBe('base');
+    act(() => view.dispatch(view.state.replaceSelection('10')));
+    press(view, 'Tab');
+    expect(picked()).toBe('enhanced');
+    act(() => view.dispatch(view.state.replaceSelection('20')));
+    press(view, 'Tab');
+    expect(view.state.selection.main.empty).toBe(true);
+    expect(view.state.doc.toString()).toBe('Gains {{10}{20}}');
+    expect(changes.at(-1)).toBe('Gains {{10}{20}}');
+  });
+
   it('inserting an enhanced section fills the enhanced arrow line', () => {
     const view = mount('Base text.\n\nenh');
     press(view, ' ', { ctrlKey: true, keyCode: 32 });

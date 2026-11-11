@@ -1,3 +1,4 @@
+import { baseEnhancedMessage, scanBaseEnhanced, resolveBaseEnhanced } from './baseEnhanced.js';
 import { evaluateMarkupMath } from './arithmetic.js';
 import { extractBlocks, extractVariables } from './syntax.js';
 import type { MarkupDiagnostic, MarkupGlobals } from './types.js';
@@ -133,6 +134,15 @@ export function prepareMarkup(
   onCondition?: (name: string, block: string) => void,
 ) {
   text = resolveImports(text, globals, diagnostics);
+  const enhanced = globals.type === 'Weapon Trait Enhanced';
+  // Diagnose authored structure before conditions or unused declarations can hide it.
+  // Keep the original text through legacy expansion: pair delimiters are token boundaries,
+  // so an arm adjacent to a variable or dollar sign cannot rewrite surrounding text.
+  for (const source of [text, globals.variables, globals.titles]) {
+    if (source.includes('{{') && scanBaseEnhanced(removeMarkupComments(source)).issues.length) {
+      diagnostics.push({ severity: 'error', message: baseEnhancedMessage });
+    }
+  }
   for (const [keyword, type] of markupConditions) {
     const matches = markupConditionMatches(text, keyword);
     for (const match of matches) onCondition?.(keyword, match[0]);
@@ -149,7 +159,12 @@ export function prepareMarkup(
     const value = variables[variable.slice(1)];
     if (value !== undefined) text = text.replaceAll(variable, value);
   }
-  text = evaluateMarkupMath(text);
+  text = resolveBaseEnhanced(
+    text.includes('{{') ? removeMarkupComments(text) : text,
+    enhanced,
+    diagnostics,
+    evaluateMarkupMath,
+  );
   const cleanText = removeUnusedText(text.trim());
   for (const variable of new Set(markupVariableReferences(cleanText))) {
     diagnostics.push({ severity: 'warning', message: `Unknown variable ${variable}.` });

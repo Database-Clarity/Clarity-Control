@@ -38,7 +38,7 @@ const payload = () => JSON.parse(envelope().payload) as PublishPayload;
 it('signs full canonical bytes; public endpoint round-trips with the actual publisher verifier', async () => {
   const response = await f.request('/publish', 'POST', value, 2);
   expect(response.status).toBe(202);
-  expect(f.subrequests).toBe(5);
+  expect(f.subrequests).toBe(7);
   const count = f.subrequests;
   const keyResponse = await worker.fetch(new Request('https://api.example/publish/key'), f.env, {
     waitUntil() {},
@@ -156,7 +156,7 @@ it.each([true, false])(
       }),
     );
     expect((await f.request('/publish', 'POST', value)).status).toBe(202);
-    expect(f.subrequests).toBe(landed ? 6 : 9);
+    expect(f.subrequests).toBe(landed ? 8 : 11);
     expect(Object.keys(f.current()).filter((p) => p.startsWith('publish/requests/'))).toEqual([
       requestPath,
     ]);
@@ -189,17 +189,17 @@ it('delayed create after RECORD loses its stale parent and returns the recorded 
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({ opId: A, result: { status: 'done' } });
   expect(f.current()[requestPath]).toBeUndefined();
-  expect(f.subrequests).toBe(6);
+  expect(f.subrequests).toBe(8);
 });
 
-it('exhausts races with final reconciliation, at most 10 requests (design cap 13, global cap 48)', async () => {
+it('exhausts races with final reconciliation, at most 13 requests (design cap 13, global cap 48)', async () => {
   const advance = () => {
     f.moveData();
     f.beforePatch = advance;
   };
   f.beforePatch = advance;
   expect((await f.request('/publish', 'POST', value)).status).toBe(503);
-  expect(f.subrequests).toBe(10);
+  expect(f.subrequests).toBe(13);
   expect(f.subrequests).toBeLessThanOrEqual(13);
   expect(f.current()[requestPath]).toBeUndefined();
 });
@@ -274,7 +274,7 @@ it('final create timeout that landed is reconciled before returning', async () =
     }),
   );
   expect((await f.request('/publish', 'POST', value)).status).toBe(202);
-  expect(f.subrequests).toBe(10);
+  expect(f.subrequests).toBe(13);
   expect(envelope()).toBeDefined();
 });
 it('status/kick query request IDs only; kick also avoids downloading a large terminal log', async () => {

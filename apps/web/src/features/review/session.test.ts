@@ -129,3 +129,27 @@ it('saved overlay expires after the TTL so newer edits by others show up, and ha
   const expired = applySavedOverlay(bundle, 1000 + overlayTtlMs + 1);
   expect(expired).toBe(bundle);
 });
+
+it('shows the server converter refusal and preserves pending native text', async () => {
+  const saved = make('{{10}{20}}');
+  const data: EditorData = {
+    items: { 10: { hash: 10, name: 'Demo', categoryId: 'perk', icon: '', inGameDescription: '' } },
+    categories: [{ id: 'perk', label: 'Perks', group: 'Weapons', order: 1 }],
+    aliases: {},
+    bundle: {
+      sourceCommit: 'saved',
+      generatedAt: at,
+      tooltips: { 10: saved },
+      pushed: {},
+      permissions: { users: {} },
+    },
+  };
+  useDataStore.setState({ status: 'ready', data, error: null });
+  const reason = 'Base/enhanced markup needs the new converter; it can be pushed after cut-over';
+  vi.mocked(pushSelected).mockRejectedValue(new Error(reason));
+  expect(await publishReviewed(await pendingTooltips(data), data, () => true)).toBe(false);
+  const { useReviewSession } = await import('./session');
+  expect(useReviewSession.getState().error).toContain(reason);
+  expect(useDataStore.getState().data?.bundle.tooltips[10].text.en?.text).toBe('{{10}{20}}');
+  expect(await pendingTooltips(data)).toHaveLength(1);
+});

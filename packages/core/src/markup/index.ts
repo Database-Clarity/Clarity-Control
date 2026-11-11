@@ -8,3 +8,4 @@ export * from './clashes.js';
 export * from './snippets.js';
 export * from './transforms.js';
 export * from './conflicts.js';
+export * from './baseEnhanced.js';

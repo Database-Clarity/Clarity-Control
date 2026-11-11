@@ -29,6 +29,7 @@ export type EntryGlyph =
   | { kind: 'mono'; text: string }
   | { kind: 'icon'; name: string }
   | { kind: 'pair' }
+  | { kind: 'base-enhanced-pair' }
   | { kind: 'pve' }
   | { kind: 'pvp' }
   | { kind: 'arrow'; text: string }
@@ -279,6 +280,16 @@ export function markupEntries(globals: MarkupGlobals, documentText = ''): Markup
       help: { block: 'enhanced' },
       plain: true,
     }),
+    viaTemplate(snippetById('base-enhanced-pair'), {
+      id: 'base-enhanced-pair',
+      group: 'Enhanced',
+      label: 'Base and enhanced text',
+      markup: '{{base}{enhanced}}',
+      keys: snippetById('base-enhanced-pair').keywords,
+      glyph: { kind: 'base-enhanced-pair' },
+      usage: snippetById('base-enhanced-pair').usage,
+      about: snippetById('base-enhanced-pair').about,
+    }),
     viaTemplate(snippetById('enhanced-formula'), {
       id: 'enhanced-formula',
       group: 'Enhanced',
@@ -426,6 +437,7 @@ export const entryGroups = [
 /** The owner's markup bar order (independent of the core icon registry). */
 export const rowOrder: readonly string[] = [
   'enhanced-arrow',
+  'base-enhanced-pair',
   '|',
   'pve',
   'pvp',

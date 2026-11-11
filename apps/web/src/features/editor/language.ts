@@ -1,14 +1,15 @@
 import { StreamLanguage, HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
-import { markupColors, markupEmpty, markupIcons } from '@clarity/core';
+import { baseEnhancedPairs, markupColors, markupEmpty, markupIcons } from '@clarity/core';
 
 const emptyTag = new RegExp(`<(${[...markupIcons, ...markupEmpty].join('|')})/>`);
 const textTag = new RegExp(`<(${markupColors.join('|')})\\b`);
 // Prose runs stop at every possible markup boundary; inside a table also at its cell pipes.
-const prose = /^[^<#$[/]+/;
-const tableProse = /^[^<#$[/|]+/;
+const prose = /^[^<#$[/{]+/;
+const tableProse = /^[^<#$[/|{]+/;
 
 export const clarityLanguage = StreamLanguage.define({
+  tokenTable: { baseArm: tags.special(tags.number), enhancedArm: tags.special(tags.variableName) },
   startState: () => ({ comment: false, declaration: false, formula: false, table: false }),
   token(stream, state) {
     if (stream.sol()) {
@@ -30,6 +31,22 @@ export const clarityLanguage = StreamLanguage.define({
     if (stream.match('/*')) {
       state.comment = true;
       return 'comment';
+    }
+    if (stream.peek() === '{') {
+      const pair = baseEnhancedPairs(stream.string).find((pair) => pair.from === stream.pos);
+      if (pair) {
+        stream.pos = pair.from + 2 + pair.base.length + 1;
+        return 'baseArm';
+      }
+    }
+    if (stream.peek() === '{' && stream.pos > 0 && stream.string[stream.pos - 1] === '}') {
+      const pair = baseEnhancedPairs(stream.string).find(
+        (pair) => pair.from + pair.base.length + 3 === stream.pos,
+      );
+      if (pair) {
+        stream.pos = pair.to;
+        return 'enhancedArm';
+      }
     }
     if ((stream.sol() || /\s/.test(stream.string.charAt(stream.pos - 1))) && stream.match(/\/\/.*/))
       return 'comment';
@@ -63,7 +80,7 @@ export const clarityLanguage = StreamLanguage.define({
     // Stack pipes (1|2|3, 5% | 10%) are plain prose; only the cell pipes of a table are markup.
     if (state.table && stream.match(/\|[bchr\d-]*/)) return 'typeName';
     if (stream.match(textTag)) return 'typeName';
-    if (stream.match(emptyTag) || stream.match(/<(?:title|link) |<\/?|\/>|\[[^\]]*\]/))
+    if (stream.match(emptyTag) || stream.match(/<(?:title|link) |<\/?|\/>|\[[^\]{}]*\]/))
       return 'tagName';
     // Plain prose is one unstyled run. Retain every possible markup/comment
     // boundary, while avoiding all of the token expressions for each letter.
@@ -76,6 +93,8 @@ export const clarityLanguage = StreamLanguage.define({
 
 export const clarityHighlighting = syntaxHighlighting(
   HighlightStyle.define([
+    { tag: tags.special(tags.number), class: 'cm-base-arm' },
+    { tag: tags.special(tags.variableName), class: 'cm-enhanced-arm' },
     { tag: tags.comment, color: 'var(--syn-comment)' },
     { tag: tags.keyword, color: 'var(--syn-keyword)' },
     { tag: tags.variableName, color: 'var(--var)' },

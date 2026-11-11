@@ -46,10 +46,10 @@ describe('push-live subrequests', () => {
       const response = await fixture.request('/push-live', 'POST', { hashes });
       expect(response.status).toBe(200);
       const batches = Math.ceil(count / 500);
-      expect(fixture.graphqlCalls).toBe(batches);
-      // token 1 + catalog 3 + (head, permissions, batches, marker, live head, live file 2, PUT)
+      expect(fixture.graphqlCalls).toBe(batches + 1);
+      // token 1 + catalog 3 + (head, permissions, batches, globals, marker, live head, live file 2, PUT)
       // + (head, permissions, live head, marker, commit 4)
-      expect(fixture.subrequests).toBe(19 + batches);
+      expect(fixture.subrequests).toBe(20 + batches);
       expect(fixture.subrequests).toBeLessThanOrEqual(subrequestLimit);
       expect(fixture.writes).toHaveLength(1);
       expect(fixture.commits).toHaveLength(1);
@@ -64,7 +64,7 @@ describe('push-live subrequests', () => {
     fixture.subrequests = 0;
     const response = await fixture.request('/push-live', 'POST', { hashes });
     expect(response.status).toBe(200);
-    expect(fixture.subrequests).toBe(19 + 6);
+    expect(fixture.subrequests).toBe(20 + 6);
     expect(Object.keys(fixture.current()['live/pushed.json'] as object)).toHaveLength(2600);
   });
 
@@ -74,9 +74,9 @@ describe('push-live subrequests', () => {
     fixture.subrequests = 0;
     const response = await fixture.request('/push-live', 'POST', { hashes });
     expect(response.status).toBe(200);
-    expect(fixture.graphqlCalls).toBe(2);
-    // first attempt 7 + 2 batches; each retry: head, live head, live file 2, PUT = 5
-    expect(fixture.subrequests).toBe(4 + (7 + 2) + 5 * 2 + 8);
+    expect(fixture.graphqlCalls).toBe(3);
+    // first attempt 8 + 2 batches; each retry: head, live head, live file 2, PUT = 5
+    expect(fixture.subrequests).toBe(4 + (8 + 2) + 5 * 2 + 8);
     expect(fixture.subrequests).toBeLessThanOrEqual(subrequestLimit);
   });
 
@@ -86,7 +86,7 @@ describe('push-live subrequests', () => {
     fixture.subrequests = 0;
     const response = await fixture.request('/push-live', 'POST', { hashes });
     expect(response.status).toBe(200);
-    expect(fixture.graphqlCalls).toBe(4);
+    expect(fixture.graphqlCalls).toBe(6);
     expect(fixture.subrequests).toBeLessThanOrEqual(subrequestLimit);
   });
 
@@ -120,7 +120,7 @@ describe('push-live subrequests', () => {
     fixture.subrequests = 0;
     const response = await fixture.request('/push-live', 'POST', { hashes });
     expect(response.status).toBe(200);
-    expect(fixture.subrequests).toBe(19 + 1 + 3);
+    expect(fixture.subrequests).toBe(20 + 1 + 3);
   });
 });
 

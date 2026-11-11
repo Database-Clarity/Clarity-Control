@@ -1,6 +1,7 @@
 import type { EditorState } from '@codemirror/state';
 import {
   findRetiredMarkup,
+  baseEnhancedPairs,
   markupCommentContext,
   markupIcons,
   type MarkupGlobals,
@@ -44,6 +45,10 @@ export interface HelpBlock {
 }
 
 export const helpBlocks: Readonly<Record<string, HelpBlock>> = {
+  'base-enhanced-pair': {
+    enhanced: true,
+    lines: [{ text: '{{10%}{15%}}', row: 'base-enhanced-pair' }],
+  },
   enhanced: {
     enhanced: true,
     lines: [
@@ -283,7 +288,7 @@ export const helpLayout: Readonly<Record<string, readonly string[]>> = {
   Text: ['inline:bold', 'inline:yellow', 'line:bold'],
   Icons: ['icon-word', ...icons],
   'Comments and spacing': ['comment', 'blank'],
-  Enhanced: ['enhanced-formula', 'enhanced-block', 'enhanced-arrow'],
+  Enhanced: ['base-enhanced-pair', 'enhanced-formula', 'enhanced-block', 'enhanced-arrow'],
   'Variables and math': ['decl-var', 'var-empty', 'math'],
   References: ['link', 'title', 'decl-title'],
   Sharing: ['decl-import', 'decl-export', 'decl-export-hidden'],
@@ -435,6 +440,8 @@ const within = (column: number, match: RegExpMatchArray) =>
 
 /** The help row for a construct on one line, with the caret at `column`. */
 function rowInLine(line: string, column: number): string | null {
+  if (baseEnhancedPairs(line).some((pair) => column >= pair.from && column <= pair.to))
+    return 'base-enhanced-pair';
   for (const match of line.matchAll(/#e\$\{[^}]*\}|\$\{[^}]*\}/g))
     if (within(column, match)) return match[0].startsWith('#e') ? 'enhanced-formula' : 'math';
   for (const match of line.matchAll(/<([a-zA-Z]+)(?:\s[^<>]*?)?\/>/g)) {
