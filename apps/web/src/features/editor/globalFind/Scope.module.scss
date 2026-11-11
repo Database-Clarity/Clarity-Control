@@ -1,21 +1,44 @@
 .scopes {
   display: flex;
+  flex: 1 0 100%;
   gap: 0.125rem;
   :global(.fw-button) {
     padding: 0 0.375rem;
   }
-  :global(button.fw-button[aria-pressed='true']) {
-    background: var(--sel);
-    color: var(--text);
-    box-shadow: inset 0 0 0 1px var(--accent-ink);
+}
+:global(.cm-editor .cm-panel.cm-search) .scopes :global(button[aria-pressed='true']) {
+  background: var(--ctl-pressed);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--accent-ink);
+}
+:global(.cm-editor .cm-panel.cm-search[data-has-scope]) {
+  flex-wrap: wrap;
+  :global(.fw-rows) {
+    flex-basis: 0;
   }
 }
-:global(.cm-search[data-scope='category']),
-:global(.cm-search[data-scope='all']) {
-  :global(.fw-expand),
+:global(.cm-editor .cm-panel.cm-search button[name='closeFind']).close {
+  margin-left: auto;
+}
+@media (max-width: 700px) {
+  :global(.cm-editor .cm-panel.cm-search[data-has-scope]) .scopes :global(.fw-button) {
+    height: 1.5rem;
+    min-height: 1.5rem;
+  }
+}
+:global(.cm-editor .cm-search[data-scope='category']),
+:global(.cm-editor .cm-search[data-scope='all']) {
   :global(.fw-replace),
   :global(.fw-count),
   :global(.fw-toggle[name='re']) {
     display: none !important;
+  }
+  :global(.fw-expand) {
+    visibility: hidden;
+  }
+  @media (max-width: 700px) {
+    :global(.fw-nav) {
+      display: none;
+    }
   }
 }

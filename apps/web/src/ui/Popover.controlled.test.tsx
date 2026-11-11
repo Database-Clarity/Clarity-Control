@@ -7,7 +7,56 @@ import { Popover } from './Popover';
 let cleanup: () => Promise<void>;
 afterEach(async () => {
   await cleanup?.();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
+it.each([420, 640])(
+  'aligns below the anchor with a %i px layout and a 420 px visual viewport',
+  async (layoutHeight) => {
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+    vi.stubGlobal('matchMedia', () => ({ matches: true }));
+    vi.stubGlobal('innerWidth', 390);
+    vi.stubGlobal('innerHeight', layoutHeight);
+    vi.stubGlobal(
+      'visualViewport',
+      Object.assign(new EventTarget(), { height: 420, width: 390, offsetTop: 0 }),
+    );
+    const mount = document.createElement('div');
+    const anchor = document.createElement('div');
+    document.body.append(anchor, mount);
+    vi.spyOn(anchor, 'getBoundingClientRect').mockReturnValue({
+      top: 120,
+      bottom: 250,
+      left: 12,
+      right: 354,
+      width: 342,
+      height: 130,
+      x: 12,
+      y: 120,
+      toJSON() {},
+    });
+    const root = createRoot(mount);
+    cleanup = async () => {
+      await act(async () => root.unmount());
+      mount.remove();
+      anchor.remove();
+    };
+    await act(async () =>
+      root.render(
+        <Popover label="Results" anchorElement={anchor} open>
+          <p>Result</p>
+        </Popover>,
+      ),
+    );
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog.style.left).toBe('12px');
+    expect(dialog.style.width).toBe('342px');
+    expect(dialog.style.top).toBe('254px');
+    expect(dialog.style.bottom).toBe('auto');
+    expect(dialog.style.maxHeight).toBe('158px');
+    expect(dialog.dataset.anchorCompact).toBe('true');
+  },
+);
 it('anchors a controlled portal without moving input focus, and closes on Escape, Back, and outside press', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   const mount = document.createElement('div');

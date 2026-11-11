@@ -3,6 +3,7 @@ import { useDataStore, type EditorData } from '../../../stores/data';
 import { useDraftStore } from '../../../stores/drafts';
 import type { FindEntry, FindOptions, FindResult } from './index';
 import { classifiedCategory } from '../../navigation/catalog';
+import { categoryDisplay } from '../../../services/categoryLabels';
 
 export function entryFor(tooltip: Tooltip, data: EditorData, lang: Lang): FindEntry | undefined {
   const item =
@@ -21,7 +22,7 @@ export function entryFor(tooltip: Tooltip, data: EditorData, lang: Lang): FindEn
     category:
       data.categories.find((category) => category.id === categoryId)?.label ??
       classified?.label ??
-      categoryId,
+      categoryDisplay(categoryId).label,
     lang: language,
     text,
   };

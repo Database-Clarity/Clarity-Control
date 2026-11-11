@@ -43,6 +43,7 @@ export class GlobalFindController {
     scopes.className = styles.scopes;
     scopes.setAttribute('role', 'group');
     scopes.setAttribute('aria-label', 'Search scope');
+    this.anchor.dataset.hasScope = '';
     for (const [scope, label] of [
       ['entry', 'This entry'],
       ['category', 'Category'],
@@ -57,7 +58,12 @@ export class GlobalFindController {
       scopes.append(button);
       this.buttons.push(button);
     }
-    rows.prepend(scopes);
+    const close = this.anchor.querySelector<HTMLButtonElement>('button[name="closeFind"]');
+    if (close) {
+      close.classList.add(styles.close);
+      scopes.append(close);
+    }
+    this.anchor.prepend(scopes);
     rows.append(this.mount);
     // The search input remains the sole focus owner for keyboard result navigation.
   }

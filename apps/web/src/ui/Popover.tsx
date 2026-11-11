@@ -98,10 +98,20 @@ export function Popover({
       if (!element || !anchor) return;
       const phone = isPhone();
       const area = visibleArea(window, phone ? clearTopRef.current?.() : undefined);
+      const rect = anchor.getBoundingClientRect();
+      if (anchorElement && phone) {
+        // Input-owned search results stay below the widget, clear of the keyboard.
+        // They may cover the unused markup dock while searching, rather than the header.
+        area.top = Math.max(area.top, rect.top);
+        area.bottom = (area.reach ?? area.bottom) - area.edge;
+        element.dataset.anchorCompact = String(area.bottom - rect.bottom - gap < 180);
+      } else {
+        delete element.dataset.anchorCompact;
+      }
       const input = {
-        trigger: anchor.getBoundingClientRect(),
+        trigger: rect,
         area,
-        width: phone ? Infinity : 560,
+        width: anchorElement ? rect.width : phone ? Infinity : 560,
         gap,
       };
       // Below first, at the final width, so the content's height is measured as it will wrap.

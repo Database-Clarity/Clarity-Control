@@ -363,12 +363,16 @@ class FindWidget implements Panel {
         this.search.focus();
         break;
       case 'next':
-        if (this.global && this.global.scope !== 'entry') this.global.step(1);
-        else findNext(view);
+        if (this.global && this.global.scope !== 'entry') {
+          this.global.step(1);
+          this.search.focus();
+        } else findNext(view);
         break;
       case 'prev':
-        if (this.global && this.global.scope !== 'entry') this.global.step(-1);
-        else findPrevious(view);
+        if (this.global && this.global.scope !== 'entry') {
+          this.global.step(-1);
+          this.search.focus();
+        } else findPrevious(view);
         break;
       case 'closeFind':
         closeSearchPanel(view);

@@ -65,10 +65,10 @@ export function Results({
               >
                 <span className={styles.name}>{result.name}</span>
                 <span className={styles.category}>
-                  {result.category} · {result.line}
+                  {result.category} · L{result.line}
                 </span>
-                <span className={styles.snippet}>
-                  {result.snippet.slice(0, result.markFrom)}
+                <span className={styles.snippet} data-prefix={result.markFrom > 0}>
+                  <span className={styles.prefix}>{result.snippet.slice(0, result.markFrom)}</span>
                   <mark>{result.snippet.slice(result.markFrom, result.markTo)}</mark>
                   {result.snippet.slice(result.markTo)}
                 </span>

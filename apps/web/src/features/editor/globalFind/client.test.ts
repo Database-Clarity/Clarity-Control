@@ -33,6 +33,9 @@ it('uses the view language or English, and preserves deliberately empty translat
     category: 'Perks',
   });
   expect(
+    entryFor({ ...tooltip, custom: { name: 'Globals', categoryId: 'none' } }, data, 'en'),
+  ).toMatchObject({ category: 'Other: none' });
+  expect(
     entryFor(
       { ...tooltip, text: { ...tooltip.text, de: { ...tooltip.text.en!, text: '' } } },
       data,

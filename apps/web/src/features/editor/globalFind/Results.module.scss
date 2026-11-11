@@ -26,7 +26,8 @@
   }
   mark {
     color: var(--text);
-    background: var(--hover);
+    background: var(--warn-bg);
+    outline: 1px solid var(--warn-edge);
     font-weight: 700;
   }
 }
@@ -39,4 +40,46 @@
 }
 .snippet {
   white-space: pre-wrap;
+}
+@media (max-width: 700px) {
+  .snippet {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+  :global([data-anchor-compact='true']) {
+    .status {
+      padding-block: 0.0625rem;
+      font-size: 0.6875rem;
+      line-height: 1.2;
+    }
+    .result {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 45%);
+      padding-block: 0.125rem;
+      font-size: 0.75rem;
+      line-height: 1.2;
+    }
+    .snippet {
+      grid-column: 1 / -1;
+      -webkit-line-clamp: 1;
+      &[data-prefix='true']::before {
+        content: '…';
+      }
+    }
+    .prefix {
+      display: none;
+    }
+    .name,
+    .category {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow: hidden;
+    }
+    .category {
+      font-size: 0.6875rem;
+      text-align: right;
+    }
+  }
 }

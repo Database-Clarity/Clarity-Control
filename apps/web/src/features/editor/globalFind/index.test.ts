@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FindIndex, resultLimit, type FindEntry, type FindOptions } from './index';
+import { FindIndex, resultLimit, snippetFor, type FindEntry, type FindOptions } from './index';
 const options: FindOptions = { search: 'cat', caseSensitive: false, wholeWord: false, raw: false };
 const entry = (hash: number, text: string, categoryId = 'a'): FindEntry => ({
   hash,
@@ -11,6 +11,17 @@ const entry = (hash: number, text: string, categoryId = 'a'): FindEntry => ({
 });
 
 describe('global text index', () => {
+  it('bounds snippets at words, indicates omitted context, and collapses masked tags', () => {
+    const text = 'beginning '.repeat(15) + 'before cat after ' + 'continuation '.repeat(20);
+    const from = text.indexOf('cat');
+    const snippet = snippetFor(text, from, from + 3);
+    expect(snippet.snippet).toMatch(/^…beginning .*continuation…$/);
+    expect(snippet.snippet.slice(snippet.markFrom, snippet.markTo)).toBe('cat');
+    expect(snippetFor('• \0\0\0 cat \0\0 end', 6, 9).snippet).toBe('• cat end');
+    expect(snippetFor('x'.repeat(10000) + 'cat' + 'y'.repeat(10000), 10000, 10003).snippet).toBe(
+      '…cat…',
+    );
+  });
   it('matches case and Unicode whole words, with exact authored offsets', () => {
     const index = new FindIndex();
     index.update([entry(1, 'Cat cat cats écat caté\ncat')]);

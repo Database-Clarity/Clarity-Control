@@ -100,6 +100,16 @@ it('sweeps entry/category/all, pending/committed query, keyboard/button activati
     });
     expect(document.querySelectorAll('[role="option"]')).toHaveLength(2);
     await act(async () => {
+      const next = view.dom.querySelector<HTMLButtonElement>('button[name="next"]')!;
+      next.focus();
+      next.click();
+    });
+    expect(document.activeElement).toBe(input);
+    // Return to the first row before exercising ArrowDown below.
+    await act(async () => {
+      view.dom.querySelector<HTMLButtonElement>('button[name="prev"]')!.click();
+    });
+    await act(async () => {
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     });
