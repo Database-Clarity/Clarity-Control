@@ -45,6 +45,7 @@ import { ReportsHttpError } from './api';
 import { ReportsPane } from './ReportsPane';
 import { useReportsIndex } from './indexStore';
 import { useTooltipReports } from './reportsCache';
+import { useReportsTab } from './tabStore';
 
 const report = (id: string, patch: Partial<PaneReport> = {}): PaneReport => ({
   id,
@@ -172,6 +173,13 @@ describe('Reports pane', () => {
     expect(host.textContent).toContain('No open reports in English');
     await click(buttons('Show resolved reports')[0]);
     expect(calls.fetch).toEqual([{ hash: 10, lang: 'en' }]);
+  });
+
+  it('focuses the list when opened by Alt+R or the header entry, even before it mounts', async () => {
+    act(() => useReportsTab.getState().openAndFocus());
+    await render(editor);
+    expect(document.activeElement?.getAttribute('role')).toBe('listbox');
+    expect(useReportsTab.getState().focusPending).toBe(false);
   });
 
   it('waits for the stepper to settle before fetching', async () => {

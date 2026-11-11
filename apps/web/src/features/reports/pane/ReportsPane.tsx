@@ -258,13 +258,17 @@ function ReportsBody({
   }, [showCopy, previewVisible, rebuild]);
 
   // Alt+R or the header entry: focus the first report once it is there.
-  const focusToken = useReportsTab((state) => state.focusToken);
-  const focused = useRef(focusToken);
+  const focusPending = useReportsTab((state) => state.focusPending);
+  const hasRows = shown.length > 0;
   useEffect(() => {
-    if (focused.current === focusToken || !reports) return;
-    focused.current = focusToken;
-    list.current?.focus();
-  }, [focusToken, reports]);
+    if (!focusPending) return;
+    if (hasRows) list.current?.focus();
+    // Nothing to focus once this tooltip has answered (no reports, or an error): drop the request
+    // rather than steal focus later.
+    else if (!wanted || reports || entry?.error) useReportsTab.getState().focusDone();
+    else return;
+    useReportsTab.getState().focusDone();
+  }, [focusPending, hasRows, wanted, reports, entry?.error]);
 
   const [message, setMessage] = useState<string>('');
   const [undo, setUndo] = useState<{ report: PaneReport; version: number; label: string } | null>(
