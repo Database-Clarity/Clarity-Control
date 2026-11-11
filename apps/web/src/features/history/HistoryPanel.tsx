@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Lang, Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
 import { type HistoryCommit } from '../../services/history';
@@ -8,11 +8,12 @@ import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { HistoryEntry } from './HistoryEntry';
+import { SkeletonRegion, SkeletonRows, SkeletonStatus } from '../../ui/Skeleton';
 import { PanelRow } from '../../ui/PanelRow';
 import { When } from '../../ui/When';
 import { lastEdit } from './lastEdit';
 import { itemFor } from '../navigation/catalog';
-import { useRevisionCache, type RevisionCache } from './revisions';
+import { useRevisionCache } from './revisions';
 import { revertDraft } from './revert';
 import { LegacyHistorySection } from './LegacyHistory';
 import styles from './History.module.scss';
@@ -20,7 +21,7 @@ import { isRelevant, projectHistory, viewScope, type HistoryScope } from './scop
 
 /**
  * One collapsed row: "Edited <date> by <author>, n revisions". Expanding it shows the commit list
- * with compare and Revert. The v2 list supplies the collapsed count; legacy history loads on open.
+ * with compare and Restore. Metadata may prefetch; revision bodies load only while open.
  * `attribution` is the open language's own last edit and legacy upload, shown above the commits.
  */
 export function HistoryPanel({
@@ -37,11 +38,6 @@ export function HistoryPanel({
   attribution?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-  const [revisions, setRevisions] = useState<{
-    cache: RevisionCache;
-    count: number;
-    more: boolean;
-  }>();
   const scope = useMemo(() => viewScope(language, readOnly), [language, readOnly]);
   const user = useAuthStore((state) => state.user);
   const tooltip = useDataStore((state) => state.data?.bundle.tooltips[hash]);
@@ -57,76 +53,23 @@ export function HistoryPanel({
       return;
     }
     if (!signedIn) return;
-    const controller = new AbortController();
-    void cache.page(1).then(
-      (result) =>
-        !controller.signal.aborted &&
-        setRevisions((previous) =>
-          previous?.cache === cache &&
-          previous.count === result.length &&
-          previous.more === (result.length === 30)
-            ? previous
-            : { cache, count: result.length, more: result.length === 30 },
-        ),
-      () => undefined,
-    );
-    return () => controller.abort();
-  }, [cache, signedIn, open, suspended]);
-  const recorded = revisions?.cache === cache ? revisions : undefined;
-  const [scopedCount, setScopedCount] = useState<{
-    cache: typeof cache;
-    scope: HistoryScope;
-    count: number;
-    more: boolean;
-  }>();
-  useEffect(() => {
-    if (!recorded || suspended || !signedIn) return;
-    let active = true;
-    let idle: number | undefined;
-    const prepare = async () => {
-      const entries = cache.peekPage(1) ?? [];
-      let count = 0;
-      for (let index = 0; index < entries.length; index++) {
-        if (!active) return;
-        const changes = await cache.classify(entries, index, 1, recorded.more);
-        if (isRelevant(changes, scope)) count++;
-      }
-      if (active) setScopedCount({ cache, scope, count, more: recorded.more });
-    };
-    // Skip tooltips passed during a navigation burst; classify only after dwell,
-    // or immediately when the user asks to open History.
-    const timer = window.setTimeout(
-      () => {
-        if (window.requestIdleCallback && !open)
-          idle = window.requestIdleCallback(() => void prepare().catch(() => undefined));
-        else void prepare().catch(() => undefined);
-      },
-      open ? 0 : 150,
-    );
-    return () => {
-      active = false;
-      window.clearTimeout(timer);
-      if (idle !== undefined) window.cancelIdleCallback(idle);
-    };
-  }, [recorded, cache, scope, suspended, signedIn, open]);
-  const count =
-    scopedCount?.cache === cache && scopedCount.scope === scope
-      ? `${scopedCount.count}${scopedCount.more ? '+' : ''} revision${scopedCount.count === 1 && !scopedCount.more ? '' : 's'}`
-      : undefined;
+    void cache.page(1).catch(() => undefined);
+  }, [cache, signedIn, suspended]);
+  useEffect(() => () => cache.cancelPending(), [cache]);
   return (
     <PanelRow
       label="History"
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={(next) => {
+        if (!next) cache.cancelPending();
+        setOpen(next);
+      }}
       summary={
         edit.at !== undefined ? (
           <>
             Edited <When value={edit.at} nowrap /> by {edit.by ?? 'unknown author'}
-            {count && `, ${count}`}
           </>
-        ) : (
-          (count ?? 'No recorded edits')
-        )
+        ) : undefined
       }
     >
       {attribution}
@@ -170,14 +113,11 @@ function HistoryContent({
   const hydrated = useDraftStore((state) => state.hydrated);
   const cache = useRevisionCache(hash);
   const [commits, setCommits] = useState<HistoryCommit[]>(() => cache.peekPage(1) ?? []);
-  const [visibleCount, setVisibleCount] = useState(4);
-  useEffect(() => {
-    if (suspended || visibleCount >= commits.length) return;
-    const frame = window.requestAnimationFrame(() =>
-      setVisibleCount((count) => Math.min(count + 4, commits.length)),
-    );
-    return () => window.cancelAnimationFrame(frame);
-  }, [commits.length, visibleCount, suspended]);
+  // One viewport-sized group, plus one group ahead. API pages stay unchanged.
+  const windowSize = 8;
+  const [visibleCount, setVisibleCount] = useState(windowSize);
+  const sentinel = useRef<HTMLLIElement>(null);
+  const prefetchedWindow = useRef<number>();
   const [page, setPage] = useState(1);
   const [loadedPage, setLoadedPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
@@ -214,26 +154,10 @@ function HistoryContent({
     );
     return () => controller.abort();
   }, [cache, page, attempt, suspended]);
-  useEffect(() => {
-    if (suspended || loading || !commits.length) return;
-    let idle: number | undefined;
-    const prefetch = () => {
-      for (const entry of commits.slice(0, 2))
-        void cache.version(entry.commit).catch(() => undefined);
-    };
-    const timer = window.setTimeout(() => {
-      if (window.requestIdleCallback) idle = window.requestIdleCallback(prefetch);
-      else prefetch();
-    }, 500);
-    return () => {
-      window.clearTimeout(timer);
-      if (idle !== undefined) window.cancelIdleCallback(idle);
-    };
-  }, [cache, commits, loading, suspended]);
   const [relevance, setRelevance] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(
       commits.flatMap((entry) => {
-        const changes = cache.peekChanges(entry.commit);
+        const changes = cache.peekChanges(entry);
         return changes ? [[entry.commit, isRelevant(changes, scope)]] : [];
       }),
     ),
@@ -243,8 +167,11 @@ function HistoryContent({
     if (suspended || loading) return;
     let active = true;
     setClassifying(true);
-    void (async () => {
-      for (let index = 0; index < commits.length; index++) {
+    let nextIndex = 0;
+    const limit = Math.min(commits.length, visibleCount + windowSize);
+    const run = async () => {
+      while (active && nextIndex < limit) {
+        const index = nextIndex++;
         const changes = await cache.classify(commits, index, loadedPage, hasMore);
         if (!active) return;
         setRelevance((previous) => ({
@@ -252,18 +179,68 @@ function HistoryContent({
           [commits[index].commit]: isRelevant(changes, scope),
         }));
       }
-      if (active) setClassifying(false);
-    })().catch((reason: unknown) => {
-      if (active) {
-        setError(errorMessage(reason));
-        setClassifying(false);
-      }
-    });
+    };
+    void Promise.all(Array.from({ length: 4 }, run)).then(
+      () => {
+        if (active) setClassifying(false);
+      },
+      (reason: unknown) => {
+        if (active) {
+          setError(errorMessage(reason));
+          setClassifying(false);
+        }
+      },
+    );
     return () => {
       active = false;
     };
-  }, [cache, commits, loadedPage, hasMore, scope, suspended, loading, attempt]);
-  const hidden = commits.filter((entry) => relevance[entry.commit] === false).length;
+  }, [cache, commits, loadedPage, hasMore, scope, suspended, loading, attempt, visibleCount]);
+  useEffect(() => {
+    if (suspended || typeof IntersectionObserver === 'undefined' || !sentinel.current) return;
+    const root = sentinel.current.closest('[data-open]')?.lastElementChild;
+    if (!root) return;
+    let scrolled = false;
+    let nearEnd = false;
+    const advance = () => {
+      if (scrolled && nearEnd) {
+        scrolled = false;
+        setVisibleCount((count) => count + windowSize);
+      }
+    };
+    const onScroll = () => {
+      scrolled = true;
+      advance();
+    };
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        nearEnd = Boolean(entry?.isIntersecting);
+        advance();
+      },
+      { root },
+    );
+    root.addEventListener('scroll', onScroll, { passive: true });
+    observer.observe(sentinel.current);
+    return () => {
+      observer.disconnect();
+      root.removeEventListener('scroll', onScroll);
+    };
+  }, [visibleCount, commits.length, suspended]);
+  useEffect(() => {
+    if (
+      !suspended &&
+      !loading &&
+      hasMore &&
+      visibleCount + windowSize > commits.length &&
+      prefetchedWindow.current !== visibleCount
+    ) {
+      prefetchedWindow.current = visibleCount;
+      setPage((value) => value + 1);
+    }
+  }, [visibleCount, commits.length, suspended, loading, hasMore]);
+  const range = commits.slice(0, Math.min(commits.length, visibleCount + windowSize));
+  const knownRange =
+    range.length > 0 && range.every((entry) => relevance[entry.commit] !== undefined);
+  const hidden = knownRange ? range.filter((entry) => relevance[entry.commit] === false).length : 0;
   const current = draft?.next ?? base;
   const canRestore =
     !readOnly &&
@@ -298,38 +275,59 @@ function HistoryContent({
       {notice && <p role="status">{notice}</p>}
       {hidden > 0 && (
         <p>
-          {hidden} {hidden === 1 ? 'change' : 'changes'} outside this view hidden
+          {hidden} {hidden === 1 ? 'change' : 'changes'} outside this view hidden (checked range)
         </p>
       )}
       {classifying && <p role="status">Checking revision scope...</p>}
-      <ol className={styles.commits}>
-        {commits
-          .slice(0, visibleCount)
-          .map(
-            (entry, index) =>
-              relevance[entry.commit] === true && (
-                <HistoryEntry
-                  key={entry.commit}
-                  scope={scope}
-                  entry={entry}
-                  index={index}
-                  commits={commits}
-                  page={loadedPage}
-                  hasMore={hasMore}
-                  cache={cache}
-                  current={current}
-                  item={item}
-                  translator={user?.role === 'translator'}
-                  canRestore={canRestore}
-                  onRestore={restore}
-                />
-              ),
-          )}
-        {visibleCount < commits.length && <li role="status">Preparing remaining revisions...</li>}
+      <ol
+        className={styles.commits}
+        aria-busy={
+          loading ||
+          commits.slice(0, visibleCount).some((entry) => relevance[entry.commit] === undefined)
+        }
+      >
+        {commits.slice(0, visibleCount).map((entry, index) =>
+          relevance[entry.commit] === undefined ? (
+            <li key={entry.commit} data-history-pending="true">
+              <SkeletonRegion>
+                <SkeletonRows count={1} columns={[65, 35]} rowHeight="3rem" />
+              </SkeletonRegion>
+              <SkeletonStatus>Checking revision scope</SkeletonStatus>
+            </li>
+          ) : (
+            relevance[entry.commit] === true && (
+              <HistoryEntry
+                key={entry.commit}
+                scope={scope}
+                entry={entry}
+                index={index}
+                commits={commits}
+                page={loadedPage}
+                hasMore={hasMore}
+                cache={cache}
+                current={current}
+                item={item}
+                translator={user?.role === 'translator'}
+                canRestore={canRestore}
+                onRestore={restore}
+              />
+            )
+          ),
+        )}
+        {visibleCount < commits.length && (
+          <li ref={sentinel} aria-hidden="true" data-history-more="true" />
+        )}
       </ol>
       {loading && <p role="status">Loading commits...</p>}
-      {!loading && !classifying && !commits.some((entry) => relevance[entry.commit]) && !error && (
-        <p>No changes in this view.</p>
+      {!loading &&
+        !classifying &&
+        (!commits.length || knownRange) &&
+        !commits.some((entry) => relevance[entry.commit]) &&
+        !error && <p>No changes in this checked range.</p>}
+      {visibleCount < commits.length && (
+        <button type="button" onClick={() => setVisibleCount((count) => count + windowSize)}>
+          Show older revisions
+        </button>
       )}
       {hasMore && !error && (
         <button type="button" disabled={loading} onClick={() => setPage((value) => value + 1)}>

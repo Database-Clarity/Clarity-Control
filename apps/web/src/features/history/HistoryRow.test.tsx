@@ -47,6 +47,7 @@ const originals = {
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   getHistory.mockReset();
+  getVersion.mockReset();
   getVersion.mockImplementation((_hash: number, sha: string) =>
     Promise.resolve({ tooltip: { ...tooltip, text: { en: { ...tooltip.text.en!, text: sha } } } }),
   );
@@ -77,7 +78,8 @@ it('keeps the v2 count ready and loads legacy history only on open', async () =>
   getHistory.mockResolvedValue({ page: 1, commits: [commit(1), commit(2), commit(3)] });
   await act(async () => root.render(<HistoryPanel hash={10} />));
   await act(async () => new Promise((resolve) => setTimeout(resolve, 180)));
-  expect(host.textContent ?? '').toMatch(/^History\s*Edited .* by ann, 3 revisions$/);
+  expect(host.textContent ?? '').toMatch(/^History\s*Edited .* by ann$/);
+  expect(getVersion).not.toHaveBeenCalled();
   expect(getHistory).toHaveBeenCalledTimes(1);
   expect(getLegacyHistory).not.toHaveBeenCalled();
   expect(host.querySelector('button[aria-expanded="false"]')).not.toBeNull();
@@ -113,7 +115,7 @@ it('says 30+ when a full page of commits came back', async () => {
   });
   await act(async () => root.render(<HistoryPanel hash={10} />));
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
-  expect(host.textContent).toContain('30+ revisions');
+  expect(host.textContent).not.toContain('30+ revisions');
 });
 
 it('loads published text into a local draft while preserving current associations', async () => {
@@ -223,7 +225,7 @@ it('uses one list request across expansion and refreshes stale rows on reopening
   vi.useRealTimers();
 });
 
-it('shows subjects and spreads mounting a full cached page across frames', async () => {
+it('renders only a bounded visible group and advances on request', async () => {
   const frames: FrameRequestCallback[] = [];
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => frames.push(callback));
   vi.stubGlobal('cancelAnimationFrame', vi.fn());
@@ -237,10 +239,16 @@ it('shows subjects and spreads mounting a full cached page across frames', async
   try {
     await act(async () => root.render(<HistoryPanel hash={10} />));
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
-    expect(host.querySelectorAll('ol li > button')).toHaveLength(4);
+    expect(host.querySelectorAll('ol li > button')).toHaveLength(8);
     expect(host.textContent).not.toContain('A long commit body');
     while (frames.length) await act(async () => frames.shift()!(0));
-    expect(host.querySelectorAll('ol li > button')).toHaveLength(30);
+    expect(host.querySelectorAll('ol li > button')).toHaveLength(8);
+    await act(async () =>
+      [...host.querySelectorAll('button')]
+        .find((button) => button.textContent === 'Show older revisions')!
+        .click(),
+    );
+    expect(host.querySelectorAll('ol li > button')).toHaveLength(16);
     expect(host.textContent).not.toContain('Preparing remaining revisions');
   } finally {
     vi.unstubAllGlobals();
@@ -278,7 +286,7 @@ it('refreshes the first page when saving advances bundle head after paging', asy
   expect(getHistory.mock.calls.filter(([, p]) => p === 1)).toHaveLength(2);
   expect(host.textContent).toContain('NEW HEAD REVISION');
   // Scope classification needs the next page's first revision as the final row's parent.
-  expect(getHistory.mock.calls.filter(([, p]) => p === 2)).toHaveLength(2);
+  expect(getHistory.mock.calls.filter(([, p]) => p === 2)).toHaveLength(1);
 });
 
 it('keeps an expanded history row open while cancelling suspended requests', async () => {
@@ -302,7 +310,7 @@ it('keeps an expanded history row open while cancelling suspended requests', asy
   expect(host.querySelectorAll('ol li')).toHaveLength(1);
 });
 
-it('prepares a scoped collapsed count without displaying other-language revisions', async () => {
+it('does not fetch bodies while collapsed, and shows only classified scoped revisions', async () => {
   getHistory.mockResolvedValue({ commits: [commit(3), commit(2), commit(1)] });
   getVersion.mockImplementation((_hash: number, sha: string) =>
     Promise.resolve({
@@ -317,9 +325,93 @@ it('prepares a scoped collapsed count without displaying other-language revision
   );
   await act(async () => root.render(<HistoryPanel hash={10} />));
   await act(async () => new Promise((resolve) => setTimeout(resolve, 180)));
-  expect(host.textContent).toContain('2 revisions');
+  expect(host.textContent).not.toContain('revisions');
+  expect(getVersion).not.toHaveBeenCalled();
   expect(host.querySelector('ol')).toBeNull();
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
   expect(host.querySelectorAll('ol li > button')).toHaveLength(2);
   expect(host.textContent).toContain('1 change outside this view hidden');
+});
+
+it('shows sized skeletons and cancels active and queued fallback bodies on close', async () => {
+  const signals: AbortSignal[] = [];
+  getHistory.mockResolvedValue({
+    commits: Array.from({ length: 30 }, (_, index) => commit(30 - index)),
+  });
+  getVersion.mockImplementation((_hash: number, _sha: string, signal: AbortSignal) => {
+    signals.push(signal);
+    return new Promise((_resolve, reject) =>
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+    );
+  });
+  await act(async () => root.render(<HistoryPanel hash={10} />));
+  expect(getVersion).not.toHaveBeenCalled();
+  const toggle = () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click();
+  await act(async () => toggle());
+  expect(host.querySelectorAll('[data-history-pending]')).toHaveLength(8);
+  expect(host.querySelector('ol')!.getAttribute('aria-busy')).toBe('true');
+  expect(host.querySelector('ol li > button')).toBeNull();
+  expect(host.textContent).not.toContain('outside this view hidden');
+  expect(signals).toHaveLength(4);
+  await act(async () => toggle());
+  expect(signals.every((signal) => signal.aborted)).toBe(true);
+  expect(getVersion).toHaveBeenCalledTimes(4);
+});
+
+it('uses batch hints without bodies and bounds fallback work to the visible group plus one ahead', async () => {
+  getHistory.mockResolvedValue({
+    commits: Array.from({ length: 30 }, (_, index) => ({
+      ...commit(30 - index),
+      message: `Hint\n\nClarity-Changed: 10=${index % 2 ? 'de' : 'en'};99=fr`,
+    })),
+  });
+  await act(async () => root.render(<HistoryPanel hash={10} />));
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  expect(getVersion).not.toHaveBeenCalled();
+  expect(host.querySelectorAll('ol li > button')).toHaveLength(4);
+  expect(host.textContent).toContain('8 changes outside this view hidden');
+  expect(host.querySelector('ol')!.getAttribute('aria-busy')).toBe('false');
+  expect(host.textContent).not.toContain('30 revisions');
+});
+
+it('requires scrolling to advance an intersecting sentinel, rather than draining history eagerly', async () => {
+  const observers = new Set<(entries: { isIntersecting: boolean }[]) => void>();
+  let scrollRoot: Element | null = null;
+  class Observer {
+    constructor(
+      private callback: (entries: { isIntersecting: boolean }[]) => void,
+      options: { root: Element },
+    ) {
+      observers.add(callback);
+      scrollRoot = options.root;
+    }
+    observe() {}
+    disconnect() {
+      observers.delete(this.callback);
+    }
+  }
+  vi.stubGlobal('IntersectionObserver', Observer);
+  try {
+    getHistory.mockResolvedValue({
+      commits: Array.from({ length: 30 }, (_, index) => ({
+        ...commit(30 - index),
+        message: 'Hint\n\nClarity-Changed: 10=en',
+      })),
+    });
+    await act(async () => root.render(<HistoryPanel hash={10} />));
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+    await act(async () =>
+      [...observers].forEach((callback) => callback([{ isIntersecting: true }])),
+    );
+    expect(host.querySelectorAll('ol li > button')).toHaveLength(8);
+    await act(async () => scrollRoot!.dispatchEvent(new Event('scroll')));
+    expect(host.querySelectorAll('ol li > button')).toHaveLength(16);
+    await act(async () =>
+      [...observers].forEach((callback) => callback([{ isIntersecting: true }])),
+    );
+    expect(host.querySelectorAll('ol li > button')).toHaveLength(16);
+    expect(getVersion).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
