@@ -663,19 +663,19 @@ export async function reports(request: Request, env: Env): Promise<Response> {
     reportAccess(access, lang);
     const rows = await sql(
       db,
-      'SELECT * FROM reports WHERE owner_hash=? AND lang=? ORDER BY created_at DESC LIMIT 200',
+      'SELECT * FROM reports WHERE owner_hash=? AND lang=? ORDER BY created_at DESC,id DESC LIMIT 200',
       hash,
       lang,
     ).all<ReportRow>();
     const notes = await sql(
       db,
-      'SELECT n.* FROM notes n JOIN reports r ON r.id=n.report_id WHERE r.owner_hash=? AND r.lang=? ORDER BY n.n LIMIT 1000',
+      'SELECT n.* FROM notes n WHERE n.report_id IN (SELECT id FROM reports WHERE owner_hash=? AND lang=? ORDER BY created_at DESC,id DESC LIMIT 200) ORDER BY n.n LIMIT 1000',
       hash,
       lang,
     ).all<{ report_id: string }>();
     const histories = await sql(
       db,
-      'SELECT * FROM reporters WHERE id IN (SELECT reporter_id FROM reports WHERE owner_hash=? AND lang=?)',
+      'SELECT * FROM reporters WHERE id IN (SELECT reporter_id FROM reports WHERE owner_hash=? AND lang=? ORDER BY created_at DESC,id DESC LIMIT 200)',
       hash,
       lang,
     ).all<{ id: number }>();
