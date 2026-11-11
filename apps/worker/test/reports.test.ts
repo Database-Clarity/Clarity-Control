@@ -120,7 +120,15 @@ beforeEach(async () => {
       "UPDATE meta SET value='0' WHERE key LIKE 'pause_%'",
     ].map((s) => db.prepare(s)),
   );
-  await files.prepare('DELETE FROM files').run();
+  await files.batch(
+    [
+      'DELETE FROM files',
+      'DELETE FROM files_closed',
+      'DELETE FROM limits',
+      "DELETE FROM meta WHERE key='sweep_cursor'",
+      "UPDATE meta SET value='0' WHERE key='size_after'",
+    ].map((s) => files.prepare(s)),
+  );
   fixture = new Fixture(privateKey);
   fixture.env.REPORTS_DB = db;
   fixture.env.REPORTS_FILES_DB = files;
@@ -157,6 +165,151 @@ beforeEach(async () => {
   );
 });
 describe('reports local D1', () => {
+  async function uploadRaceCase(operation: 'withdraw' | 'spam' | 'delete') {
+    const input = payload();
+    const response = await call('/reports', 'POST', input, 5),
+      { id } = (await response.json()) as { id: string };
+    const token = await signToken(
+      { purpose: 'session', id: 5, login: 'user5', exp: Math.floor(Date.now() / 1000) + 3600 },
+      fixture.env.SESSION_SECRET,
+    );
+    const upload = () =>
+      worker.fetch(
+        new Request(`https://api.example/reports/${id}/files`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'image/jpeg',
+            'X-Report-Request-Id': input.request_id,
+          },
+          body: reportJpegFixture(),
+        }),
+        fixture.env,
+        { waitUntil() {} },
+      );
+    const close = () =>
+      operation === 'withdraw'
+        ? call(`/reports/r/${id}/withdraw`, 'POST', {}, 5)
+        : operation === 'spam'
+          ? call(`/reports/${id}/action`, 'POST', { action: 'spam', expected_version: 1 }, 1)
+          : call(`/reports/${id}`, 'DELETE', undefined, 1);
+    return { id, upload, close };
+  }
+  function interceptStatement(
+    statement: ReportStatement,
+    before: () => Promise<void>,
+  ): ReportStatement {
+    return {
+      bind(...values) {
+        return interceptStatement(statement.bind(...values), before);
+      },
+      first<T>() {
+        return statement.first<T>();
+      },
+      all<T>() {
+        return statement.all<T>();
+      },
+      async run() {
+        await before();
+        return statement.run();
+      },
+    };
+  }
+  for (const operation of ['withdraw', 'spam', 'delete'] as const) {
+    it(`${operation} rejects an upload between file removal and report finalisation`, async () => {
+      const race = await uploadRaceCase(operation);
+      expect((await race.upload()).status).toBe(201);
+      let raced = false;
+      const before = async () => {
+        if (!raced) {
+          raced = true;
+          expect((await race.upload()).status).toBe(409);
+        }
+      };
+      fixture.env.REPORTS_DB = {
+        prepare(query) {
+          const statement = db.prepare(query);
+          return query.startsWith('DELETE FROM reports')
+            ? interceptStatement(statement, before)
+            : statement;
+        },
+        async batch(statements) {
+          await before();
+          return db.batch(statements);
+        },
+        exec(query) {
+          return db.exec(query);
+        },
+      };
+      expect((await race.close()).status).toBe(200);
+      expect(raced).toBe(true);
+      expect(await files.prepare('SELECT COUNT(*) AS n FROM files').first()).toEqual({ n: 0 });
+      expect(await files.prepare('SELECT report_id FROM files_closed').first()).toEqual({
+        report_id: race.id,
+      });
+      fixture.env.REPORTS_DB = db;
+    });
+    it(`${operation} fences an upload that passed its open-status read before removal`, async () => {
+      const race = await uploadRaceCase(operation);
+      let raced = false;
+      fixture.env.REPORTS_FILES_DB = {
+        prepare(query) {
+          return files.prepare(query);
+        },
+        async batch(statements) {
+          if (!raced) {
+            raced = true;
+            expect((await race.close()).status).toBe(200);
+          }
+          return files.batch(statements);
+        },
+        exec(query) {
+          return files.exec(query);
+        },
+      };
+      expect((await race.upload()).status).toBe(409);
+      expect(raced).toBe(true);
+      expect(await files.prepare('SELECT COUNT(*) AS n FROM files').first()).toEqual({ n: 0 });
+      fixture.env.REPORTS_FILES_DB = files;
+    });
+    it(`${operation} removes a committed upload before its report counter can finalise`, async () => {
+      const race = await uploadRaceCase(operation);
+      let raced = false;
+      const before = async () => {
+        if (!raced) {
+          raced = true;
+          expect((await race.close()).status).toBe(200);
+        }
+      };
+      fixture.env.REPORTS_DB = {
+        prepare(query) {
+          const statement = db.prepare(query);
+          return query.startsWith('UPDATE reports SET files_count=files_count+1')
+            ? interceptStatement(statement, before)
+            : statement;
+        },
+        batch(statements) {
+          return db.batch(statements);
+        },
+        exec(query) {
+          return db.exec(query);
+        },
+      };
+      expect((await race.upload()).status).toBe(409);
+      expect(raced).toBe(true);
+      expect(await files.prepare('SELECT COUNT(*) AS n FROM files').first()).toEqual({ n: 0 });
+      const report = await db
+        .prepare('SELECT files_count,status FROM reports WHERE id=?')
+        .bind(race.id)
+        .first();
+      expect(report).toEqual(
+        operation === 'delete'
+          ? null
+          : { files_count: 0, status: operation === 'spam' ? 'spam' : 'withdrawn' },
+      );
+      fixture.env.REPORTS_DB = db;
+    });
+  }
   it('uses note-level categories in the public anchor shape', async () => {
     const input = payload();
     input.notes = [
@@ -675,7 +828,11 @@ describe('reports local D1', () => {
     const redacted = (
       await db.prepare("SELECT id FROM reports WHERE status='withdrawn'").all<{ id: string }>()
     ).results;
+    const fenced = (
+      await files.prepare('SELECT report_id AS id FROM files_closed').all<{ id: string }>()
+    ).results;
     await db.prepare('DELETE FROM reports').run();
+    await files.prepare('DELETE FROM files_closed').run();
     for (const row of snapshots)
       await db
         .prepare(
@@ -703,8 +860,11 @@ describe('reports local D1', () => {
     // redaction in reports. These operations are idempotent on repeated restore.
     await db.prepare("UPDATE meta SET value='0' WHERE key='marker_rev'").run();
     for (let pass = 0; pass < 2; pass++) {
-      for (const { id } of [...erased, ...redacted])
-        await files.prepare('DELETE FROM files WHERE report_id=?').bind(id).run();
+      for (const { id } of [...erased, ...redacted, ...fenced])
+        await files.batch([
+          files.prepare('INSERT OR IGNORE INTO files_closed VALUES(?)').bind(id),
+          files.prepare('DELETE FROM files WHERE report_id=?').bind(id),
+        ]);
       for (const { id } of erased)
         await db.prepare('DELETE FROM reports WHERE id=?').bind(id).run();
       for (const { id } of redacted)
@@ -728,6 +888,12 @@ describe('reports local D1', () => {
     });
     expect(await db.prepare('SELECT COUNT(*) AS n FROM notes').first()).toEqual({ n: 0 });
     expect(await files.prepare('SELECT COUNT(*) AS n FROM files').first()).toEqual({ n: 0 });
+    await expect(
+      files
+        .prepare("INSERT INTO files VALUES(?,1,5,'image/jpeg',64,'test',0,unhex(?))")
+        .bind(withdrawn, Buffer.from(reportJpegFixture()).toString('hex'))
+        .run(),
+    ).rejects.toThrow('REPORT_FILES_CLOSED');
     expect(
       Number(
         (await db
@@ -765,7 +931,9 @@ describe('reports local D1', () => {
     expect(results.map((r) => r.status).sort()).toEqual([201, 201, 201, 429]);
     expect(await files.prepare('SELECT COUNT(*) AS n FROM files').first()).toEqual({ n: 3 });
     expect((await call(`/reports/${id}/files/1`, 'GET', undefined, 4)).status).toBe(403);
-    expect((await call(`/reports/${id}/files/1`, 'GET', undefined, 2)).status).toBe(200);
+    const editorFile = await call(`/reports/${id}/files/1`, 'GET', undefined, 2);
+    expect(editorFile.status).toBe(200);
+    expect(editorFile.headers.get('Vary')).toContain('Authorization');
     expect((await call(`/reports/${id}/files/1`, 'GET', undefined, 5)).status).toBe(200);
     expect((await call(`/reports/r/${id}/withdraw`, 'POST', {}, 5)).status).toBe(200);
     expect(await files.prepare('SELECT COUNT(*) AS n FROM files').first()).toEqual({ n: 0 });

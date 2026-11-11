@@ -579,6 +579,7 @@ export async function reports(request: Request, env: Env): Promise<Response> {
           'X-Content-Type-Options': 'nosniff',
           'Content-Security-Policy': "default-src 'none'; sandbox",
           'Content-Disposition': 'inline',
+          Vary: 'Authorization',
         },
       });
     }
@@ -659,6 +660,8 @@ export async function reports(request: Request, env: Env): Promise<Response> {
           String(result[1].meta.size_after ?? 0),
         ).run();
       } catch (error) {
+        if (String(error).includes('REPORT_FILES_CLOSED'))
+          throw new HttpError(409, 'Screenshots were removed from this report; uploads are closed');
         if (String(error).includes('CHECK constraint'))
           throw new HttpError(429, 'Screenshot limit reached');
         throw new HttpError(503, 'Attachments are unavailable');
@@ -1030,7 +1033,13 @@ export async function reports(request: Request, env: Env): Promise<Response> {
 }
 export async function deleteReportFiles(env: Env, id: string) {
   if (!env.REPORTS_FILES_DB) throw new HttpError(503, 'Attachments are unavailable');
-  await sql(env.REPORTS_FILES_DB, 'DELETE FROM files WHERE report_id=?', id).run();
+  await env.REPORTS_FILES_DB.batch(closeReportFiles(env.REPORTS_FILES_DB, id));
+}
+function closeReportFiles(files: ReportsDatabase, id: string): ReportStatement[] {
+  return [
+    sql(files, 'INSERT OR IGNORE INTO files_closed(report_id) VALUES(?)', id),
+    sql(files, 'DELETE FROM files WHERE report_id=?', id),
+  ];
 }
 
 /** Hourly, bounded batches: 1536 reports/day covers the public ceiling plus role holders. */
@@ -1077,9 +1086,7 @@ export async function purgeReports(env: Env) {
   // 30-day grace. Physical report deletion is files-first and retryable.
   const deleting = candidates.results.filter((row) => !['open', 'triaged'].includes(row.status));
   if (deleting.length)
-    await files.batch(
-      deleting.map((row) => sql(files, 'DELETE FROM files WHERE report_id=?', row.id)),
-    );
+    await files.batch(deleting.flatMap((row) => closeReportFiles(files, row.id)));
   await db.batch([
     ...candidates.results.map((row) =>
       ['open', 'triaged'].includes(row.status)
@@ -1127,7 +1134,7 @@ export async function purgeReports(env: Env) {
     );
   });
   await files.batch([
-    ...expired.map((id) => sql(files, 'DELETE FROM files WHERE report_id=?', id)),
+    ...expired.flatMap((id) => closeReportFiles(files, id)),
     sql(
       files,
       'DELETE FROM limits WHERE key IN (SELECT key FROM limits WHERE expires_at<? LIMIT 1000)',
