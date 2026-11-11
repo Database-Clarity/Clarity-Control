@@ -1,7 +1,7 @@
 import { baseEnhancedPublishMessage } from './markup/baseEnhanced.js';
 import { languages } from './languages.js';
 import type { LegacyCatalog, LegacyFacts, LegacyMetadata, LegacyPerk } from './legacy.js';
-import { hasTooltipText, tooltipSchema, type Tooltip } from './schemas.js';
+import { isTextlessDescription, tooltipSchema, type Tooltip } from './schemas.js';
 import { resolveAlias, type Aliases } from './aliases.js';
 import { validateTextWithReads } from './validation/index.js';
 
@@ -61,7 +61,7 @@ export function exportLegacy(
   for (const input of tooltips) {
     const tooltip = tooltipSchema.parse(input);
     // Reserved global libraries are required converter inputs, even when a library is empty.
-    if (tooltip.hash > 3 && !hasTooltipText(tooltip)) {
+    if (isTextlessDescription(tooltip)) {
       omitted.add(tooltip.hash);
       continue;
     }

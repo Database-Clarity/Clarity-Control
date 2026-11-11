@@ -362,3 +362,34 @@ it('a saved link-only record becomes publishable when text is added', async () =
     perks: { 123: { editor: { en: { main: 'Now written' } } } },
   });
 });
+
+it.each([2, 3, 4])(
+  'requires English when a link-only record gains a translation (role %s)',
+  async (id) => {
+    const base: Tooltip = { ...tooltip(), text: {} };
+    fixture.moveData({ 'tooltips/123.json': base });
+    const next: Tooltip = { ...base, text: { de: { ...tooltip().text.en!, text: 'Nur Deutsch' } } };
+    const response = await fixture.request(
+      '/save',
+      'POST',
+      { changes: [{ hash: 123, base, next }], message: 'Translate link-only' },
+      id,
+    );
+    expect(response.status).toBe(422);
+    expect(fixture.commits).toHaveLength(0);
+    expect(fixture.current()['tooltips/123.json']).toEqual(base);
+  },
+);
+it('checks the real head even if a translator forges a written base for a link-only record', async () => {
+  fixture.moveData({ 'tooltips/123.json': { ...tooltip(), text: {} } });
+  const base = tooltip();
+  const next = { ...base, text: { ...base.text, de: { ...base.text.en!, text: 'Nur Deutsch' } } };
+  const response = await fixture.request(
+    '/save',
+    'POST',
+    { changes: [{ hash: 123, base, next }], message: 'Forged source' },
+    4,
+  );
+  expect(response.status).toBe(422);
+  expect(fixture.commits).toHaveLength(0);
+});

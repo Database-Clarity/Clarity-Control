@@ -52,6 +52,16 @@ export function checkEdit(access: Access, base: Tooltip | null, next: Tooltip): 
   }
   if (access.role === 'translator' && base === null)
     throw new HttpError(403, 'Translators may not create tooltips');
+  // A link-only record is not an English source for translations. Check both the
+  // submitted base and the real head (save calls checkEdit again after merging).
+  if (
+    next.hash > 3 &&
+    base &&
+    !hasTooltipText(base) &&
+    hasTooltipText(next) &&
+    !next.text.en?.text.trim()
+  )
+    throw new HttpError(422, 'Write English text before adding translations to this tooltip');
   if (
     JSON.stringify(base?.archive) !== JSON.stringify(next.archive) &&
     access.role !== 'maintainer' &&

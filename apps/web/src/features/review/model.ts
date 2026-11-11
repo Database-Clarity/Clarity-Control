@@ -1,4 +1,4 @@
-import { hasTooltipText, resolveAlias, type Tooltip } from '@clarity/core';
+import { isTextlessDescription, resolveAlias, type Tooltip } from '@clarity/core';
 import { fingerprintDigests, prepareFingerprintWorker } from './fingerprints';
 import { useReviewQueue } from './queueStore';
 import { useDataStore, type EditorData } from '../../stores/data';
@@ -117,7 +117,7 @@ async function computePending(
 ): Promise<PendingTooltip[]> {
   const tooltips = Object.values(data.bundle.tooltips).filter(
     (tooltip) =>
-      hasTooltipText(tooltip) && resolveAlias(tooltip.hash, data.aliases) === tooltip.hash,
+      !isTextlessDescription(tooltip) && resolveAlias(tooltip.hash, data.aliases) === tooltip.hash,
   );
   const digests = await fingerprintDigests(tooltips, data.aliases);
   const categories = new Map(data.categories.map((entry) => [entry.id, entry]));
@@ -164,7 +164,7 @@ export function selectedPending(
   return pending
     .filter(
       ({ tooltip, unpublishable }) =>
-        hasTooltipText(tooltip) && !unpublishable && selected.has(tooltip.hash),
+        !isTextlessDescription(tooltip) && !unpublishable && selected.has(tooltip.hash),
     )
     .map(({ tooltip }) => tooltip.hash);
 }
@@ -174,7 +174,7 @@ export function publishableHashes(page: PendingTooltip[]): number[] {
   return page
     .filter(
       ({ tooltip, unpublishable, markerOnly }) =>
-        hasTooltipText(tooltip) && !unpublishable && !markerOnly,
+        !isTextlessDescription(tooltip) && !unpublishable && !markerOnly,
     )
     .map(({ tooltip }) => tooltip.hash);
 }

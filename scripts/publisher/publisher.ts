@@ -7,7 +7,7 @@ import {
   publishMonth,
   publishOpIdSchema,
   exportLegacy,
-  hasTooltipText,
+  isTextlessDescription,
   publishableHash,
   tooltipSchema,
   permissionsSchema,
@@ -347,7 +347,7 @@ export class Publisher {
         await this.record(opId, undefined, undefined, { status: 'stale', outcomes }, blob);
         return;
       }
-      if (tooltips.some((t) => !hasTooltipText(t))) {
+      if (tooltips.some(isTextlessDescription)) {
         await this.record(
           opId,
           undefined,

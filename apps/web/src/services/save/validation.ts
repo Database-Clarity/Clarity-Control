@@ -73,6 +73,22 @@ export function validateChanges(changes: Change[], data: EditorData): TooltipVal
   const issues = changes.flatMap(({ base, next: unmasked }) => {
     const next = tooltips[unmasked.hash]!;
     return [
+      ...(next.hash > 3 &&
+      base &&
+      !hasTooltipText(base) &&
+      hasTooltipText(next) &&
+      !next.text.en?.text.trim()
+        ? [
+            {
+              hash: next.hash,
+              lang: 'en' as const,
+              severity: 'error' as const,
+              message: 'Write English text before adding translations to this tooltip',
+              from: 0,
+              to: 0,
+            },
+          ]
+        : []),
       ...conflictMarkerIssues([{ hash: unmasked.hash, base, next: unmasked }]),
       ...validateGlobalAdditions({ base, next }, tooltips),
       // An error blocks if the tooltip's text there is edited, or if the text uses something this

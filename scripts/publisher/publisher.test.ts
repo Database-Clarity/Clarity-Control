@@ -180,6 +180,26 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     expect(tree['live/tooltips/123.json']).toBeUndefined();
   });
 
+  it('publishes an intentionally emptied reserved global library', async () => {
+    const f = await setup();
+    const global: Tooltip = {
+      hash: 2,
+      text: {},
+      associated: [],
+      custom: { name: 'Variables', categoryId: 'global' },
+    };
+    f.change(D, { 'tooltips/2.json': global });
+    await f.request(A, [2], { 2: await publishableHash(global) });
+    await f.pub.run();
+    const live = f.git.tree(f.git.head(L)!);
+    expect(f.pub.read(live, 'liveDescriptions.json')).toMatchObject({
+      perks: { 2: { editor: {} } },
+    });
+    expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
+      result: { status: 'done' },
+    });
+  });
+
   const A = '01K95H00000000000000000001',
     B = '01K95H00000000000000000002';
   const D = 'refs/heads/editor-data',

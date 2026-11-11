@@ -368,3 +368,37 @@ it('refuses signing an empty tooltip even with its exact digest', async () => {
   expect(response.status).toBe(422);
   expect(f.current()[requestPath]).toBeUndefined();
 });
+
+it('refuses signing a written tooltip whose association points at a link-only record', async () => {
+  const next = { ...tooltip(), associated: [125] };
+  f.moveData({
+    'tooltips/123.json': next,
+    'tooltips/125.json': { ...tooltip(), hash: 125, text: {} },
+  });
+  const response = await f.request(
+    '/publish',
+    'POST',
+    { ...value, expected: { 123: await publishableHash(next) } },
+    2,
+  );
+  expect(response.status).toBe(422);
+  expect(f.current()[requestPath]).toBeUndefined();
+});
+
+it('allows signing an intentionally emptied reserved global library', async () => {
+  const global = {
+    ...tooltip(),
+    hash: 2,
+    text: {},
+    custom: { name: 'Variables', categoryId: 'global' },
+  };
+  f.moveData({ 'tooltips/2.json': global });
+  const response = await f.request(
+    '/publish',
+    'POST',
+    { ...value, hashes: [2], expected: { 2: await publishableHash(global) } },
+    2,
+  );
+  expect(response.status).toBe(202);
+  expect(f.current()[requestPath]).toBeDefined();
+});

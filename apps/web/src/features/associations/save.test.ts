@@ -106,3 +106,23 @@ it('prepares and saves a new Compendium-only record beside a written tooltip', a
   for (const role of ['trial', 'translator'] as const)
     expect(permissionError([changes[0]], { id: 3, login: 'test', role })).toBeTruthy();
 });
+
+it('blocks translation-only promotion of an empty saved record in the web save pipeline', async () => {
+  const base = { ...tooltip(), text: {} };
+  const data = editorData();
+  data.bundle.tooltips[123] = base;
+  const next = { ...base, text: { de: { ...tooltip().text.en!, text: 'Nur Deutsch' } } };
+  const changes = [{ hash: 123, base, next }];
+  const user = { id: 4, login: 'dan', role: 'translator' as const, languages: ['de' as const] };
+  const { validateChanges } = await import('../../services/save/validation');
+  expect(permissionError(changes, user)).toBeNull();
+  expect(validateChanges(changes, data)).toContainEqual(
+    expect.objectContaining({
+      hash: 123,
+      lang: 'en',
+      severity: 'error',
+      message: expect.stringContaining('Write English'),
+    }),
+  );
+  await expect(prepareChanges(changes, user, data)).rejects.toThrow('Validation');
+});

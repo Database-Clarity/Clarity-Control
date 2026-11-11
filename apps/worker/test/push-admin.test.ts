@@ -558,3 +558,32 @@ it('refuses empty selections before any live or marker write', async () => {
   expect(fixture.live).toEqual(before);
   expect(fixture.commits).toHaveLength(0);
 });
+
+it.each([125, 456])(
+  'refuses association %s to an empty saved target before live writes',
+  async (target) => {
+    fixture.aliases = { 456: { to: 125, kind: 'frame' } };
+    fixture.moveData({
+      'tooltips/123.json': { ...tooltip(), associated: [target] },
+      'tooltips/125.json': { ...tooltip(), hash: 125, text: {} },
+    });
+    const live = structuredClone(fixture.live);
+    const response = await fixture.request('/push-live', 'POST', { hashes: [123] });
+    expect(response.status).toBe(422);
+    expect(fixture.live).toEqual(live);
+    expect(fixture.commits).toHaveLength(0);
+  },
+);
+
+it('allows an intentionally emptied reserved global library to be pushed', async () => {
+  const global = {
+    ...tooltip(),
+    hash: 2,
+    text: {},
+    custom: { name: 'Variables', categoryId: 'global' },
+  };
+  fixture.moveData({ 'tooltips/2.json': global });
+  const response = await fixture.request('/push-live', 'POST', { hashes: [2] });
+  expect(response.status).toBe(200);
+  expect(fixture.live).toMatchObject({ perks: { 2: { hash: 2, editor: {} } } });
+});

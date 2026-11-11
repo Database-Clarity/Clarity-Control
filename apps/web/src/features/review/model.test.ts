@@ -126,3 +126,16 @@ it('keeps text-less records out of Review and selection, then includes them afte
   expect(publishableHashes(injected)).toEqual([]);
   expect(selectedPending(new Set([123]), injected)).toEqual([]);
 });
+
+it('keeps an intentionally emptied reserved global library in Review and selection', async () => {
+  const global = {
+    ...tooltip,
+    hash: 2,
+    text: {},
+    custom: { name: 'Variables', categoryId: 'global' },
+  };
+  const entries = await pendingTooltips(data([global]));
+  expect(entries).toHaveLength(1);
+  expect(publishableHashes(entries)).toEqual([2]);
+  expect(selectedPending(new Set([2]), entries)).toEqual([2]);
+});
