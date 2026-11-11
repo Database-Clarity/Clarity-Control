@@ -67,59 +67,114 @@ export function globalPath(entry: GlobalDefinition, search = ''): string {
   return `/t/${entry.hash}?${params}`;
 }
 
-// Values do not change authored-reference identity. Cache each source independently so typing
-// in an aggregate never rescans the entire tooltip corpus.
-const usageCache = new WeakMap<
-  Tooltip,
-  { signature: string; entries: Map<string, GlobalUsage[]> }
->();
 export function globalUsageEntries(tooltips: Readonly<Record<string, Tooltip>>) {
-  const definitions = globalDefinitions(tooltips);
-  const signature = JSON.stringify(
-    definitions.map(({ kind, name, definitions }) => [kind, name, Object.keys(definitions)]),
+  const entries = globalDefinitions(tooltips).map((entry) => ({
+    ...entry,
+    usages: [] as GlobalUsage[],
+  }));
+  for (const indexed of buildGlobalUsageIndex(tooltips)) {
+    const entry = entries.find(
+      (entry) => entry.kind === indexed.kind && entry.name === indexed.name,
+    );
+    if (entry) entry.usages = indexed.usages;
+  }
+  const exports = new Map(
+    entries.filter((entry) => entry.kind === 'exports').map((entry) => [entry.name, entry]),
   );
-  const entries = definitions.map((entry) => ({ ...entry, usages: [] as GlobalUsage[] }));
-  for (const tooltip of Object.values(tooltips)) {
-    let cached = usageCache.get(tooltip);
-    if (cached?.signature !== signature) {
-      const refs = new Map<string, GlobalUsage[]>();
-      // Reuse the authored-reference index for variables and titles, retaining its precedence
-      // and language rules. Only usages belonging to this source enter its cached result.
-      for (const entry of buildGlobalUsageIndex({
-        2: tooltips[2],
-        3: tooltips[3],
-        [tooltip.hash]: tooltip,
-      })) {
-        refs.set(
-          `${entry.kind}:${entry.name}`,
-          entry.usages.filter((usage) => usage.hash === tooltip.hash),
-        );
-      }
+  if (exports.size)
+    for (const tooltip of Object.values(tooltips)) {
       for (const lang of languages) {
-        const original = (tooltip.text[lang]?.text ?? '').replace(/\r/g, '').split('\n');
-        uncomment(tooltip.text[lang]?.text ?? '')
+        const text = tooltip.text[lang]?.text;
+        if (!text) continue;
+        const original = text.replace(/\r/g, '').split('\n');
+        uncomment(text)
           .split('\n')
           .forEach((source, index) => {
             const match = /^import (.+?) from (global|1)$/.exec(source.trim());
-            if (!match) return;
-            const key = `exports:${match[1]}`;
-            const usages = refs.get(key) ?? [];
-            usages.push({ hash: tooltip.hash, lang, line: index + 1, source: original[index] });
-            refs.set(key, usages);
+            const entry = match && exports.get(match[1]);
+            if (entry && entry.definitions[lang] !== undefined)
+              entry.usages.push({
+                hash: tooltip.hash,
+                lang,
+                line: index + 1,
+                source: original[index],
+              });
           });
       }
-      cached = { signature, entries: refs };
-      usageCache.set(tooltip, cached);
     }
-    for (const entry of entries) {
-      entry.usages.push(
-        ...(cached.entries.get(`${entry.kind}:${entry.name}`) ?? []).filter(
-          (usage) => entry.definitions[usage.lang] !== undefined,
-        ),
-      );
-    }
-  }
   return entries;
+}
+
+const declarationSignature = (entries: readonly GlobalDefinition[]) =>
+  JSON.stringify(
+    entries.map(({ kind, name, definitions }) => [kind, name, Object.keys(definitions)]),
+  );
+
+/** Project draft references incrementally; aggregate value edits never rescan saved consumers. */
+export function createGlobalUsageProjection(saved: Readonly<Record<string, Tooltip>>) {
+  const baseline = globalUsageEntries(saved);
+  const signature = declarationSignature(baseline);
+  const sourceCache = new WeakMap<Tooltip, ReturnType<typeof globalUsageEntries>>();
+  const results = new WeakMap<object, ReturnType<typeof globalUsageEntries>>();
+  return (drafts: Readonly<Record<string, { next: Tooltip }>>) => {
+    const cached = results.get(drafts);
+    if (cached) return cached;
+    const aggregates = {
+      1: drafts[1]?.next ?? saved[1],
+      2: drafts[2]?.next ?? saved[2],
+      3: drafts[3]?.next ?? saved[3],
+    };
+    const definitions = globalDefinitions(aggregates);
+    let projected: ReturnType<typeof globalUsageEntries>;
+    if (declarationSignature(definitions) !== signature) {
+      // Added/removed declarations or languages change which references qualify.
+      projected = globalUsageEntries({
+        ...saved,
+        ...Object.fromEntries(Object.entries(drafts).map(([hash, draft]) => [hash, draft.next])),
+      });
+    } else {
+      const changed = new Set(Object.keys(drafts).map(Number));
+      const contributions = Object.values(drafts).map(({ next }) => {
+        let refs = sourceCache.get(next);
+        if (!refs) {
+          refs = globalUsageEntries({
+            1: saved[1],
+            2: saved[2],
+            3: saved[3],
+            [next.hash]: next,
+          }).map((entry) => ({
+            ...entry,
+            usages: entry.usages.filter((usage) => usage.hash === next.hash),
+          }));
+          sourceCache.set(next, refs);
+        }
+        return refs;
+      });
+      projected = definitions.map((entry) => ({
+        ...entry,
+        usages: [
+          ...(
+            baseline.find(
+              (candidate) => candidate.kind === entry.kind && candidate.name === entry.name,
+            )?.usages ?? []
+          ).filter((usage) => !changed.has(usage.hash)),
+          ...contributions.flatMap(
+            (entries) =>
+              entries.find(
+                (candidate) => candidate.kind === entry.kind && candidate.name === entry.name,
+              )?.usages ?? [],
+          ),
+        ].sort(
+          (a, b) =>
+            a.hash - b.hash ||
+            languages.indexOf(a.lang) - languages.indexOf(b.lang) ||
+            a.line - b.line,
+        ),
+      }));
+    }
+    results.set(drafts, projected);
+    return projected;
+  };
 }
 
 export function globalUsageCount(entries: readonly { usages: readonly GlobalUsage[] }[]): number {

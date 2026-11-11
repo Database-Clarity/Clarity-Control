@@ -1,20 +1,22 @@
 import { useMemo } from 'react';
-import { globalDefinitions, globalUsageEntries } from './model';
+import { globalDefinitions, createGlobalUsageProjection } from './model';
 import type { EditorData } from '../../stores/data';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 
+const projections = new WeakMap<object, ReturnType<typeof createGlobalUsageProjection>>();
+const noTooltips = {};
 export function useGlobals() {
-  const data = useDataStore((state) => state.data);
+  const tooltips = useDataStore((state) => state.data?.bundle.tooltips ?? noTooltips);
   const drafts = useDraftStore((state) => state.drafts);
-  return useMemo(
-    () =>
-      globalUsageEntries({
-        ...data?.bundle.tooltips,
-        ...Object.fromEntries(Object.entries(drafts).map(([hash, draft]) => [hash, draft.next])),
-      }),
-    [data, drafts],
-  );
+  return useMemo(() => {
+    let project = projections.get(tooltips);
+    if (!project) {
+      project = createGlobalUsageProjection(tooltips);
+      projections.set(tooltips, project);
+    }
+    return project(drafts);
+  }, [tooltips, drafts]);
 }
 
 /** Subscribe only to aggregate definitions, so ordinary tooltip typing cannot rebuild the finder. */
@@ -27,10 +29,9 @@ export function useGlobalDefinitions(override?: EditorData) {
   return useMemo(
     () =>
       globalDefinitions({
-        ...data?.bundle.tooltips,
-        ...(variables && { 2: variables }),
-        ...(titles && { 3: titles }),
-        ...(exports && { 1: exports }),
+        1: exports ?? data?.bundle.tooltips[1],
+        2: variables ?? data?.bundle.tooltips[2],
+        3: titles ?? data?.bundle.tooltips[3],
       }),
     [data, variables, titles, exports],
   );

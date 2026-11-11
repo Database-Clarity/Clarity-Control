@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { buildGlobalUsageIndex, type Tooltip } from '@clarity/core';
-import { globalDefinitions, globalPath, globalUsageCount, globalUsageEntries } from './model';
+import {
+  createGlobalUsageProjection,
+  globalDefinitions,
+  globalPath,
+  globalUsageCount,
+  globalUsageEntries,
+} from './model';
 
 const tooltip = (hash: number, text: string): Tooltip => ({
   hash,
@@ -66,4 +72,25 @@ describe('read-only aggregate globals', () => {
       1, 3,
     ]);
   });
+});
+
+it('incremental draft usage projections equal a fresh authored-reference index', () => {
+  const project = createGlobalUsageProjection(sources);
+  const rounds: Record<string, { next: Tooltip }>[] = [
+    {},
+    { 2: { next: tooltip(2, 'var Rate = 50\nvar Empty = empty') } },
+    { 10: { next: tooltip(10, '#Rate\nimport Shared from 1') } },
+    { 2: { next: tooltip(2, 'var New = 10') }, 10: { next: tooltip(10, '#New') } },
+    { 1: { next: tooltip(1, 'export hidden Shared (\n#Rate\n)') } },
+    {},
+  ];
+  for (const drafts of rounds) {
+    expect(project(drafts)).toEqual(
+      globalUsageEntries({
+        ...sources,
+        ...Object.fromEntries(Object.entries(drafts).map(([hash, { next }]) => [hash, next])),
+      }),
+    );
+    expect(project(drafts)).toBe(project(drafts));
+  }
 });
