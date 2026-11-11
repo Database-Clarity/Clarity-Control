@@ -347,8 +347,9 @@ describe('Settings popover', () => {
     await render();
     await openSettings();
     const dialog = popover()!;
-    // Anchored like every popover: under the opener (jsdom rects are 0), 8px from each side.
-    expect(dialog.style.top).toBe('4px');
+    // Anchored like every popover: under the opener (jsdom rects are 0, so the top edge clamps it
+    // to the visible area's 8px inset), 8px from each side.
+    expect(dialog.style.top).toBe('8px');
     expect(dialog.style.left).toBe('8px');
     expect(dialog.style.width).toBe(`${window.innerWidth - 16}px`);
     // The one sheet close: a square ×, named by its label.

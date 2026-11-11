@@ -60,7 +60,7 @@ describe('placeAnchored', () => {
   });
 
   it('opens above a trigger on the docked bar, flush with gap 0', () => {
-    const docked = { ...area, top: 124, bottom: 772 - 52 - 8 };
+    const docked = { ...area, top: 124, bottom: 772 - 52 - 8, reach: 772 };
     const placed = placeAnchored({
       trigger: rect(720, 52),
       area: docked,
@@ -90,6 +90,7 @@ describe('placeAnchored', () => {
       trigger: { top: 60, bottom: 88, left: 900, right: 980 },
       area: desktop,
       width: 560,
+      desktop: true,
     });
     expect(placed).toEqual({
       side: 'below',
@@ -99,6 +100,37 @@ describe('placeAnchored', () => {
       bottom: 'auto',
       maxHeight: 800 - 88 - 4 - 8,
     });
+  });
+
+  it('keeps the old desktop path near the bottom: below, at least 160 tall, no flip', () => {
+    const desktop = { top: 8, bottom: 792, width: 1280, layoutHeight: 800, edge: 8 };
+    const placed = placeAnchored({
+      trigger: { top: 600, bottom: 636, left: 900, right: 980 },
+      area: desktop,
+      width: 560,
+      height: 300,
+      desktop: true,
+    });
+    expect(placed).toMatchObject({ side: 'below', top: 640, bottom: 'auto', maxHeight: 160 });
+  });
+
+  it('clamps a trigger under the keyboard: the popover stays in the visible area', () => {
+    const keyboard = { ...area, bottom: 420 };
+    const placed = placeAnchored({
+      trigger: rect(600),
+      area: keyboard,
+      width: Infinity,
+      height: 200,
+    });
+    expect(placed.side).toBe('above');
+    // Its bottom edge sits on the visible bottom, not behind the keyboard.
+    expect(772 - (placed.bottom as number)).toBe(420);
+    expect(placed.maxHeight).toBe(420 - 8);
+  });
+
+  it('clamps a trigger scrolled off the top', () => {
+    const placed = placeAnchored({ trigger: rect(-100), area, width: Infinity, height: 200 });
+    expect(placed).toMatchObject({ side: 'below', top: 8, maxHeight: 764 - 8 });
   });
 });
 

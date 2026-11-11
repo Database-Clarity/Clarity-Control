@@ -29,6 +29,12 @@ export interface PlacementArea {
   layoutHeight: number;
   /** The gap kept from the left and right edges. */
   edge: number;
+  /**
+   * The lowest visible y (the visual viewport's bottom, before the docked bar and the edge): a
+   * trigger on the docked bar sits between `bottom` and here, and a popover above it may stand on
+   * it. Defaults to `bottom`.
+   */
+  reach?: number;
 }
 
 export interface Placement {
@@ -48,6 +54,7 @@ export function placeAnchored({
   height = 0,
   gap = 4,
   align = 'end',
+  desktop = false,
 }: {
   trigger: TriggerRect;
   area: PlacementArea;
@@ -59,30 +66,44 @@ export function placeAnchored({
   gap?: number;
   /** Which trigger edge the popover lines up with (start: left edges, end: right edges). */
   align?: 'start' | 'end';
+  /**
+   * The desktop placement as it always was: below the trigger, at least 160px tall, no flip and no
+   * vertical clamp (desktop renders stay pixel-identical).
+   */
+  desktop?: boolean;
 }): Placement {
   const { edge } = area;
   const fit = Math.max(0, Math.min(width, area.width - edge * 2));
   const wanted = align === 'end' ? trigger.right - fit : trigger.left;
   const left = Math.max(edge, Math.min(wanted, area.width - fit - edge));
-  const below = area.bottom - (trigger.bottom + gap);
-  const above = trigger.top - gap - area.top;
-  if (height <= below || below >= above) {
+  if (desktop) {
+    const top = trigger.bottom + gap;
     return {
       side: 'below',
       left,
       width: fit,
-      maxHeight: Math.max(0, below),
-      top: trigger.bottom + gap,
+      maxHeight: Math.max(160, area.bottom - top),
+      top,
       bottom: 'auto',
     };
+  }
+  // Each side starts at the trigger's edge, kept inside the visible area: a trigger under the
+  // keyboard or scrolled off the top never pushes the popover out of sight.
+  const reach = Math.max(area.bottom, area.reach ?? area.bottom);
+  const belowTop = Math.max(area.top, Math.min(trigger.bottom + gap, area.bottom));
+  const aboveBottom = Math.max(area.top, Math.min(trigger.top - gap, reach));
+  const below = area.bottom - belowTop;
+  const above = aboveBottom - area.top;
+  if ((below > 0 && height <= below) || below >= above) {
+    return { side: 'below', left, width: fit, maxHeight: below, top: belowTop, bottom: 'auto' };
   }
   return {
     side: 'above',
     left,
     width: fit,
-    maxHeight: Math.max(0, above),
+    maxHeight: above,
     top: 'auto',
-    bottom: area.layoutHeight - (trigger.top - gap),
+    bottom: area.layoutHeight - aboveBottom,
   };
 }
 
@@ -112,6 +133,7 @@ export function visibleArea(win: Window = window, clearTop?: number): PlacementA
   return {
     top: clearTop === undefined ? visibleTop + edge : Math.max(visibleTop, clearTop),
     bottom: visibleBottom - (Number.isFinite(dock) ? dock : 0) - edge,
+    reach: visibleBottom,
     width: win.innerWidth,
     layoutHeight,
     edge,

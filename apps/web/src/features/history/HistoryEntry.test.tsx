@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import { HistoryPanel } from './HistoryPanel';
 import { useAuthStore } from '../../stores/auth';
@@ -292,4 +292,42 @@ it('shows restored and deleted revisions without retrying immutable file absence
   await act(async () => entries()[0].click());
   await wait(0);
   expect(getVersion.mock.calls.filter(([, sha]) => sha === id(2))).toHaveLength(1);
+});
+
+describe('phone placement', () => {
+  let phone = true;
+  const viewport = Object.assign(new EventTarget(), { offsetTop: 0, height: 772, width: 390 });
+  beforeEach(() => {
+    phone = true;
+    viewport.height = 772;
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query.includes('700px') ? phone : false,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    vi.stubGlobal('visualViewport', viewport);
+    vi.stubGlobal('innerHeight', 772);
+    vi.stubGlobal('innerWidth', 390);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('follows the visual viewport (an iOS keyboard) while open', async () => {
+    await act(async () => entries()[1].focus());
+    await wait(0);
+    const before = dialog()!.style.maxHeight;
+    viewport.height = 300;
+    await act(async () => void viewport.dispatchEvent(new Event('resize')));
+    expect(dialog()!.style.maxHeight).not.toBe(before);
+    expect(parseFloat(dialog()!.style.maxHeight)).toBeLessThanOrEqual(300);
+  });
+
+  it('drops the phone bottom anchor when the layout turns desktop', async () => {
+    await act(async () => entries()[1].focus());
+    await wait(0);
+    dialog()!.style.bottom = '172px';
+    phone = false;
+    await act(async () => void window.dispatchEvent(new Event('resize')));
+    expect(dialog()!.style.bottom).toBe('auto');
+  });
 });

@@ -305,6 +305,8 @@ function RevisionPopover({
       Object.assign(element.style, {
         left: `${beside ? rect.right + 6 : Math.max(edge, window.innerWidth - width - edge)}px`,
         top: `${top}px`,
+        // A phone placement held it by its bottom edge (a rotation can switch placements).
+        bottom: 'auto',
         width: `${width}px`,
         maxHeight: `${window.innerHeight - edge * 2}px`,
       });
@@ -331,12 +333,18 @@ function RevisionPopover({
     if (!observer) measuredHeight = element.offsetHeight;
     place();
     observer?.observe(element);
+    // The visual viewport too: the iOS keyboard and its pan change the room without a resize.
+    const viewport = window.visualViewport;
     window.addEventListener('resize', refresh);
     window.addEventListener('scroll', refresh, true);
+    viewport?.addEventListener('resize', refresh);
+    viewport?.addEventListener('scroll', refresh);
     return () => {
       observer?.disconnect();
       window.removeEventListener('resize', refresh);
       window.removeEventListener('scroll', refresh, true);
+      viewport?.removeEventListener('resize', refresh);
+      viewport?.removeEventListener('scroll', refresh);
     };
   }, [anchor, initialGeometry]);
   useEffect(() => {

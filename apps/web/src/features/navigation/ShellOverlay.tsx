@@ -123,13 +123,15 @@ export function ShellOverlay({
       area,
       width: scaledPx(width),
       align,
+      desktop: !phone,
     };
     // Below first, at the final width, so the content's height is measured as it will wrap.
     const below = placeAnchored(input);
     applyPlacement(element, below);
+    if (!phone) return;
     const height = naturalHeight(element, element.querySelector<HTMLElement>(`.${styles.content}`));
     if (height > below.maxHeight) applyPlacement(element, placeAnchored({ ...input, height }));
-  }, [anchorRef, sheet, width, align]);
+  }, [anchorRef, sheet, phone, width, align]);
   useLayoutEffect(() => {
     if (!open) return;
     reposition();

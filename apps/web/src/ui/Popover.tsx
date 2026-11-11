@@ -87,10 +87,12 @@ export function Popover({
         area,
         width: phone ? Infinity : 560,
         gap,
+        desktop: !phone,
       };
       // Below first, at the final width, so the content's height is measured as it will wrap.
       const below = placeAnchored(input);
       applyPlacement(element, below);
+      if (!phone) return;
       const height = naturalHeight(element, element.firstElementChild as HTMLElement | null);
       if (height > below.maxHeight) applyPlacement(element, placeAnchored({ ...input, height }));
     };
