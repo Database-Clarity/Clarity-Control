@@ -87,6 +87,8 @@ export function HighlightLayer() {
     let frame = 0;
     let last = '[]';
     const update = () => {
+      // No marks and none shown: nothing can move (typing pauses the marks).
+      if (last === '[]' && !allReportMarks().length) return;
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         // Scrolling elsewhere (the editor, while typing) moves no badge: no render then.
@@ -97,8 +99,21 @@ export function HighlightLayer() {
         setPlaced(next);
       });
     };
+    // Only a scroll that can carry a mark moves a badge (the editor scrolls on every key).
+    const scroll = (event: Event) => {
+      const marks = allReportMarks();
+      if (!marks.length) return;
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        target !== document &&
+        !marks.some((mark) => target.contains(mark.range.startContainer))
+      )
+        return;
+      update();
+    };
     const unsubscribe = subscribeReportMarks(update);
-    window.addEventListener('scroll', update, { capture: true, passive: true });
+    window.addEventListener('scroll', scroll, { capture: true, passive: true });
     window.addEventListener('resize', update);
     // Layout can move a range without any scroll (the column resized, text reflowed).
     const sizes = new ResizeObserver(update);
@@ -110,7 +125,7 @@ export function HighlightLayer() {
       cancelAnimationFrame(frame);
       unsubscribe();
       sizes.disconnect();
-      window.removeEventListener('scroll', update, { capture: true });
+      window.removeEventListener('scroll', scroll, { capture: true });
       window.removeEventListener('resize', update);
     };
   }, []);

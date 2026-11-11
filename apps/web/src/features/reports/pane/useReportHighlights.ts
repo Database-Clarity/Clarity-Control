@@ -51,7 +51,28 @@ export function useReportHighlights({
     let generation = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let observed: Element[] = [];
-    const mutations = new MutationObserver(() => schedule());
+    // Typing changes the preview on every key: drop the marks at the first change (live ranges
+    // over changing text cost every frame and point at moving words), then mark again once quiet.
+    const mutations = new MutationObserver((records) => {
+      // A title popover opening or closing is not a text change.
+      const popover = (node: Node) =>
+        (node instanceof Element ? node : node.parentElement)?.closest('[role="tooltip"]') ||
+        (node instanceof Element && node.matches('[role="tooltip"]'));
+      if (
+        records.every(
+          (record) =>
+            popover(record.target) ||
+            (record.type === 'childList' &&
+              [...record.addedNodes, ...record.removedNodes].every(popover)),
+        )
+      )
+        return;
+      if (marks.current.length) {
+        marks.current = [];
+        setReportMarks(key, []);
+      }
+      schedule();
+    });
     const sizes = new ResizeObserver(() => schedule());
     const click = (event: Event) => {
       const { clientX, clientY } = event as MouseEvent;

@@ -101,10 +101,16 @@ export interface ReportsPaneProps {
  * reports costs no request.
  */
 export function ReportsPane(props: ReportsPaneProps) {
-  const { hash, lang, suspended } = props;
-  // Typing changes the text on every key; the notes re-resolve once typing pauses, so a key
-  // re-renders this shell only (the body and the badge layer are memoized).
+  // Typing changes the text on every key; the pane takes it once typing pauses, so a key costs
+  // this hook and one memo comparison, and the highlights pause meanwhile.
   const text = useSettledText(props.text);
+  return <ReportsPaneMemo {...props} text={text} typing={text !== props.text} />;
+}
+
+type PaneProps = ReportsPaneProps & { typing: boolean };
+
+const ReportsPaneMemo = memo(function ReportsPaneInner(props: PaneProps) {
+  const { hash, lang, suspended } = props;
   const entry = useTooltipReports((state) => state.entries[reportsKey(hash, lang)]);
   const load = useTooltipReports((state) => state.load);
   const count = useReportsIndex((state) => openCount(state.open, hash, lang));
@@ -134,11 +140,11 @@ export function ReportsPane(props: ReportsPaneProps) {
         </RightPaneHeader>
       }
     >
-      <ReportsBodyMemo key={`${hash}:${lang}`} {...props} text={text} />
+      <ReportsBodyMemo key={`${hash}:${lang}`} {...props} />
       <HighlightLayerMemo />
     </RightPane>
   );
-}
+});
 
 /** The text, held while it keeps changing: the latest value once it has been still for 400 ms. */
 function useSettledText(text: string) {
@@ -162,7 +168,8 @@ function ReportsBody({
   previewHost,
   suspended,
   ready,
-}: ReportsPaneProps) {
+  typing,
+}: PaneProps) {
   const count = useReportsIndex((state) => openCount(state.open, hash, lang));
   const indexFailed = useReportsIndex((state) => state.failed && !state.open);
   const entry = useTooltipReports((state) => state.entries[reportsKey(hash, lang)]);
@@ -236,7 +243,9 @@ function ReportsBody({
     targets,
     notes: numbered,
     selected: selected?.id ?? null,
-    enabled: settled && numbered.length > 0,
+    // Registered ranges make Chrome re-check every highlight on each DOM change (a frame per
+    // key while typing): the marks pause while the text changes and return once it settles.
+    enabled: settled && !typing && numbered.length > 0,
     onSelect: (id) => {
       setSelected(id);
       list.current?.querySelector<HTMLElement>(`[data-report="${id}"]`)?.scrollIntoView({
@@ -509,12 +518,12 @@ function usePreviewVisible(host: RefObject<HTMLElement | null>) {
       setVisible(false);
       return;
     }
-    const check = () => {
-      const rect = element.getBoundingClientRect();
-      setVisible(rect.width > 0 && rect.height > 0);
-    };
-    check();
-    const observer = new ResizeObserver(check);
+    const rect = element.getBoundingClientRect();
+    setVisible(rect.width > 0 && rect.height > 0);
+    // The observer's own box: no layout read on each resize (the preview grows as you type).
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setVisible(entry.contentRect.width > 0 && entry.contentRect.height > 0);
+    });
     observer.observe(element);
     watched.current.observer = observer;
   });
