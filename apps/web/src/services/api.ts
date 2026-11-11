@@ -12,8 +12,15 @@ export const apiUrl = import.meta.env.VITE_API_URL?.trim().replace(/\/+$/, '') |
 const userSchema = z.object({
   id: z.union([z.number(), z.string()]),
   login: z.string(),
-  role: z.enum(['maintainer', 'editor', 'trial', 'translator']).nullable(),
+  // `partner` (export partners, spec section 4) has no editing role: until the partner pages
+  // exist it reads as no role, so every editing control stays off for it.
+  role: z
+    .enum(['maintainer', 'editor', 'trial', 'translator', 'partner'])
+    .nullable()
+    .transform((role) => (role === 'partner' ? null : role)),
   languages: z.array(langSchema).optional(),
+  /** Export projects this account is a partner of. */
+  projects: z.array(z.string()).optional(),
 });
 export type User = z.infer<typeof userSchema>;
 export type Me = User;

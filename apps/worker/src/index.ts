@@ -4,9 +4,10 @@ import { agentGuidance } from './agentGuidance.js';
 import { callback, identity, login, siteOrigins } from './auth.js';
 import { managePermissions, history } from './admin.js';
 import { compendiumRefresh } from './compendium.js';
+import { exportsRoute } from './exports.js';
 import { GitHub } from './github.js';
 import { HttpError, json } from './http.js';
-import { permissions } from './permissions.js';
+import { partnerProjects, permissions, roleOf } from './permissions.js';
 import { publish, publishKey, publishStatus, publishKick } from './publish.js';
 import { pushLive } from './push.js';
 import { save } from './save.js';
@@ -40,13 +41,19 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (['GET', 'POST'].includes(request.method) && path === '/compendium/agent-guidance')
     return agentGuidance(request, github, user);
   if (request.method === 'GET' && path === '/me') {
-    const access = (await permissions(github, await github.head())).users[String(user.id)];
+    const config = await permissions(github, await github.head());
+    const projects = partnerProjects(config, user);
     return json({
       id: user.id,
       login: user.login,
-      role: access?.role ?? null,
-      languages: access?.languages ?? [],
+      role: roleOf(config, user),
+      languages: config.users[String(user.id)]?.languages ?? [],
+      ...(projects.length ? { projects } : {}),
     });
+  }
+  if (path === '/exports/projects' || path.startsWith('/exports/projects/')) {
+    const handled = exportsRoute(request, path, github, user);
+    if (handled) return handled;
   }
   if (request.method === 'POST' && path === '/save') return save(request, github, user);
   if (request.method === 'POST' && path === '/push-live') return pushLive(request, github, user);
@@ -108,10 +115,7 @@ const worker: {
     if (origin && allowed) {
       headers.set('Access-Control-Allow-Origin', origin);
       const reportPath = /^\/reports(?:\/|$)/.test(new URL(request.url).pathname);
-      headers.set(
-        'Access-Control-Allow-Methods',
-        reportPath ? 'GET, POST, PUT, DELETE, OPTIONS' : 'GET, POST, PUT, OPTIONS',
-      );
+      headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
       headers.set(
         'Access-Control-Allow-Headers',
         reportPath

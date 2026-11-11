@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { permissionsSchema, tooltipSchema } from '@clarity/core';
+import { permissionsSchema, stableStringify, tooltipSchema } from '@clarity/core';
 import { RefRace, type GitHub } from './github.js';
 import { body, hashParam, HttpError, json } from './http.js';
 import { permissions, requireAccess } from './permissions.js';
@@ -31,6 +31,11 @@ export async function managePermissions(
       throw new HttpError(409, 'Permissions changed since they were loaded; reload and retry');
     }
     const next = input.permissions;
+    // Partner membership changes only through PUT /exports/projects/:id/partners (logins resolved
+    // to ids there). A client that drops or edits `partners` here (an older bundle) is refused.
+    if (stableStringify(next.partners ?? null) !== stableStringify(current.partners ?? null)) {
+      throw new HttpError(400, 'Export partners are managed on the exports page');
+    }
     if (!Object.values(next.users).some((access) => access.role === 'maintainer')) {
       throw new HttpError(400, 'At least one maintainer must remain');
     }

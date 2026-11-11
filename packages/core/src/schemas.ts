@@ -59,6 +59,26 @@ export const permissionsSchema = z
         })
         .strict(),
     ),
+    /**
+     * Export partners (spec section 4): numeric GitHub id -> the export projects that account may
+     * edit. Optional and additive, so files without it parse as before. A user listed only here
+     * has the `partner` role: read-only, published data only, and nothing in `users` grants it.
+     */
+    partners: z
+      .record(
+        z.string().regex(/^[1-9]\d*$/),
+        z
+          .object({
+            login: z.string().min(1).max(39),
+            projects: z
+              .array(z.string().regex(/^[a-z][a-z0-9-]{1,31}$/))
+              .min(1)
+              .max(40)
+              .refine((list) => new Set(list).size === list.length, 'Duplicate project'),
+          })
+          .strict(),
+      )
+      .optional(),
   })
   .strict();
 export const pushedSchema = z.record(

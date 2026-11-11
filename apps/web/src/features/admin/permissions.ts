@@ -15,7 +15,8 @@ export function changeAccess(
   const users = { ...permissions.users };
   if (access) users[id] = access;
   else delete users[id];
-  const next = permissionsSchema.parse({ users });
+  // Spread first: everything besides `users` (the export `partners` map) is kept as loaded.
+  const next = permissionsSchema.parse({ ...permissions, users });
   if (!maintainerCount(next)) throw new Error('At least one maintainer must remain.');
   return next;
 }

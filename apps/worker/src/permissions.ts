@@ -21,6 +21,22 @@ export function requireAccess(
   return access;
 }
 
+/** Export projects the user is a partner of (spec section 4); empty for everyone else. */
+export function partnerProjects(config: Permissions, user: Identity): readonly string[] {
+  return config.partners?.[String(user.id)]?.projects ?? [];
+}
+
+/**
+ * The role `/me` reports. `users` decides; an account listed only in `partners` is a `partner`.
+ * `partner` is never accepted by `requireAccess`, so every route that checks `users` denies it
+ * by default; only the export routes read `partners`.
+ */
+export function roleOf(config: Permissions, user: Identity): Access['role'] | 'partner' | null {
+  return (
+    config.users[String(user.id)]?.role ?? (partnerProjects(config, user).length ? 'partner' : null)
+  );
+}
+
 export function checkEdit(access: Access, base: Tooltip | null, next: Tooltip): void {
   if (access.role === 'translator' && base === null)
     throw new HttpError(403, 'Translators may not create tooltips');
