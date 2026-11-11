@@ -117,6 +117,15 @@ describe('Popover', () => {
     expect(document.activeElement).toBe(dialog.querySelector('input'));
     tab(true);
     expect(document.activeElement).toBe(trigger);
+    const next = host.querySelector<HTMLButtonElement>('#next')!;
+    for (const item of [trigger, next])
+      item.getClientRects = () => [{ width: 20, height: 20 }] as unknown as DOMRectList;
+    next.focus();
+    tab(true);
+    expect(document.activeElement).toBe(dialog.querySelector('button'));
+    tab();
+    expect(document.activeElement).toBe(trigger);
+
     await act(async () => window.dispatchEvent(new PopStateEvent('popstate')));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(document.activeElement).toBe(trigger);

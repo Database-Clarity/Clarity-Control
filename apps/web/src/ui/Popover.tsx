@@ -119,6 +119,26 @@ export function Popover({
       } else if (!event.shiftKey && active === list.at(-1)) {
         // Let the browser continue after the trigger in the original document order.
         button.current?.focus();
+      } else if (event.shiftKey && list.length && !surface.current?.contains(active)) {
+        // The surface's portal is at the end of body. Re-enter it when navigating
+        // backwards from the control that originally followed the trigger.
+        const order = [
+          ...document.querySelectorAll<HTMLElement>(
+            'button, a[href], select, input, textarea, [tabindex]',
+          ),
+        ].filter(
+          (item) =>
+            item.tabIndex >= 0 &&
+            !item.matches(':disabled') &&
+            !item.closest('[inert]') &&
+            !surface.current?.contains(item) &&
+            item.getClientRects().length > 0,
+        );
+        const index = order.indexOf(button.current!);
+        if (index >= 0 && active === order[index + 1]) {
+          event.preventDefault();
+          list.at(-1)?.focus();
+        }
       }
     };
     document.addEventListener('keydown', tab, true);
