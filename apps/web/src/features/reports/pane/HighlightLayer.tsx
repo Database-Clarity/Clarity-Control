@@ -50,11 +50,12 @@ function place(marks: ReportMark[], native: boolean): Placed[] {
       rect.top < clip.bottom &&
       rect.right > clip.left &&
       rect.left < clip.right;
-    const first = rects[0]!;
+    // A footnote after the marked words: the end of the last line box, raised to its top, so it
+    // never covers the line above.
+    const last = rects[rects.length - 1]!;
     // One badge per number and body: a note can resolve in two previews (Compare).
-    const badgeKey = `${mark.n}:${Math.round(first.left)}:${Math.round(first.top)}`;
-    const badge =
-      inside(first) && !seen.has(badgeKey) ? { left: first.left, top: first.top } : null;
+    const badgeKey = `${mark.n}:${Math.round(last.right)}:${Math.round(last.top)}`;
+    const badge = inside(last) && !seen.has(badgeKey) ? { left: last.right, top: last.top } : null;
     seen.add(badgeKey);
     placed.push({
       key: `${index}:${mark.report}:${mark.n}`,

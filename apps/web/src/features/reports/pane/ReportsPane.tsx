@@ -16,6 +16,7 @@ import { errorMessage } from '../../../services/http';
 import { Dialog } from '../../../ui/Dialog';
 import { Popover } from '../../../ui/Popover';
 import { RightPane, RightPaneHeader } from '../../../ui/RightPane';
+import { phoneQuery, useMedia } from '../../../ui/useMedia';
 import { languageLabel } from '../../../languageLabels';
 import { MarkupSnippet } from '../../preview/TooltipPreview';
 import previewStyles from '../../preview/TooltipPreview.module.scss';
@@ -103,6 +104,7 @@ export function ReportsPane(props: ReportsPaneProps) {
   const entry = useTooltipReports((state) => state.entries[reportsKey(hash, lang)]);
   const load = useTooltipReports((state) => state.load);
   const count = useReportsIndex((state) => openCount(state.open, hash, lang));
+  const phone = useMedia(phoneQuery);
   return (
     <RightPane
       label="Reports"
@@ -110,18 +112,21 @@ export function ReportsPane(props: ReportsPaneProps) {
       className={styles.pane}
       header={
         <RightPaneHeader title="Reports">
-          <button
-            type="button"
-            className={styles.tool}
-            disabled={suspended || entry?.loading}
-            title="Load this tooltip's reports again"
-            onClick={() => {
-              void load(hash, lang, true, count);
-              refreshReportsIndex();
-            }}
-          >
-            Reload
-          </button>
+          {/* A phone's header row would hold only this; Retry covers a failed load there. */}
+          {!phone && (
+            <button
+              type="button"
+              className={styles.tool}
+              disabled={suspended || entry?.loading}
+              title="Load this tooltip's reports again"
+              onClick={() => {
+                void load(hash, lang, true, count);
+                refreshReportsIndex();
+              }}
+            >
+              Reload
+            </button>
+          )}
         </RightPaneHeader>
       }
     >
@@ -177,15 +182,20 @@ function ReportsBody({
   const [selectedId, setSelected] = useState<string | null>(null);
   const selected = shown.find((report) => report.id === selectedId) ?? shown[0] ?? null;
 
-  // Badge numbers: every anchored note of the open reports, in list order.
+  // Badge numbers: the open reports' notes that sit on today's text, in list order (a stale or
+  // whole-tooltip note has no highlight, so no number).
+  const display = useDisplay(text, globals, settled && active.length > 0);
   const numbered = useMemo(() => {
     const targets: NoteTarget[] = [];
+    if (!display) return targets;
     let number = 0;
     for (const report of active)
-      for (const note of report.notes)
-        if (!note.whole && note.exact) targets.push({ report, note, number: ++number });
+      for (const note of report.notes) {
+        const kind = resolveNote(display.text, display.rev, report, note).kind;
+        if (kind === 'exact' || kind === 'moved') targets.push({ report, note, number: ++number });
+      }
     return targets;
-  }, [active]);
+  }, [active, display]);
   const numberOf = (report: PaneReport, n: number) =>
     numbered.find((target) => target.report.id === report.id && target.note.n === n)?.number;
 
@@ -325,7 +335,6 @@ function ReportsBody({
     }
   }
 
-  const display = useDisplay(text, globals, settled && active.length > 0);
   const listId = useId();
   const maintainer = user.role === 'maintainer';
   const loadingFirst = wanted && !reports && !entry?.error;
@@ -839,8 +848,7 @@ function ActionBar({
   onDelete(): void;
 }) {
   const live = isActive(report);
-  if (report.status === 'withdrawn')
-    return <span className={styles.scope}>{report.id} · withdrawn</span>;
+  if (report.status === 'withdrawn') return <p className={styles.scope}>{report.id} · withdrawn</p>;
   const canReopen = !live && (report.status !== 'spam' || maintainer);
   const more: { label: string; run(): void; danger?: boolean }[] = [];
   if (live || report.status === 'fixed')
@@ -849,115 +857,130 @@ function ActionBar({
     more.push({ label: 'Spam', run: () => onAction({ action: 'spam' }), danger: true });
   if (maintainer) more.push({ label: 'Delete…', run: onDelete, danger: true });
   return (
-    <span className={styles.actions}>
-      <span className={styles.scope}>
+    <>
+      <p className={styles.scope}>
         {report.id} · {statusLabels[report.status]}
+      </p>
+      <span className={styles.actions}>
+        {live && report.status === 'open' && (
+          <button
+            type="button"
+            className={styles.action}
+            disabled={busy}
+            title="Triage (T)"
+            onClick={() => onAction({ action: 'triage' })}
+          >
+            Triage
+          </button>
+        )}
+        {live && report.claimed_by !== login && (
+          <button
+            type="button"
+            className={styles.action}
+            disabled={busy}
+            onClick={() => onAction({ action: 'claim' })}
+          >
+            Claim
+          </button>
+        )}
+        {live && (
+          <Popover
+            label="Reject reason"
+            className={styles.action}
+            flush
+            width={208}
+            trigger={<>Reject ▾</>}
+          >
+            {(close) => (
+              <ul className={styles.menu}>
+                {rejectReasons.map((reason) => (
+                  <li key={reason.value}>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        close();
+                        onAction({ action: 'reject', reason: reason.value });
+                      }}
+                    >
+                      {reason.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Popover>
+        )}
+        {live && others.length > 0 && (
+          <Popover
+            label="Duplicate of"
+            className={styles.action}
+            flush
+            width={288}
+            trigger={<>Duplicate of…</>}
+          >
+            {(close) => (
+              <ul className={styles.menu}>
+                {others.map((other) => (
+                  <li key={other.id}>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        close();
+                        onAction({ action: 'duplicate', of: other.id });
+                      }}
+                    >
+                      <span className={styles.id}>{other.id}</span>{' '}
+                      {categoryLabels[other.category] ?? other.category}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Popover>
+        )}
+        {canReopen && (
+          <button
+            type="button"
+            className={styles.action}
+            disabled={busy}
+            onClick={() => onAction({ action: 'reopen' })}
+          >
+            Reopen
+          </button>
+        )}
+        {more.length > 0 && (
+          <Popover
+            label="More report actions"
+            className={styles.action}
+            flush
+            width={176}
+            triggerLabel="More report actions"
+            trigger={<>⋯</>}
+          >
+            {(close) => (
+              <ul className={styles.menu}>
+                {more.map((item) => (
+                  <li key={item.label}>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      data-danger={item.danger || undefined}
+                      onClick={() => {
+                        close();
+                        item.run();
+                      }}
+                    >
+                      {item.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Popover>
+        )}
       </span>
-      {live && report.status === 'open' && (
-        <button
-          type="button"
-          className={styles.action}
-          disabled={busy}
-          title="Triage (T)"
-          onClick={() => onAction({ action: 'triage' })}
-        >
-          Triage
-        </button>
-      )}
-      {live && report.claimed_by !== login && (
-        <button
-          type="button"
-          className={styles.action}
-          disabled={busy}
-          onClick={() => onAction({ action: 'claim' })}
-        >
-          Claim
-        </button>
-      )}
-      {live && (
-        <Popover label="Reject reason" className={styles.action} flush trigger={<>Reject ▾</>}>
-          {(close) => (
-            <ul className={styles.menu}>
-              {rejectReasons.map((reason) => (
-                <li key={reason.value}>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => {
-                      close();
-                      onAction({ action: 'reject', reason: reason.value });
-                    }}
-                  >
-                    {reason.label}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Popover>
-      )}
-      {live && others.length > 0 && (
-        <Popover label="Duplicate of" className={styles.action} flush trigger={<>Duplicate of…</>}>
-          {(close) => (
-            <ul className={styles.menu}>
-              {others.map((other) => (
-                <li key={other.id}>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => {
-                      close();
-                      onAction({ action: 'duplicate', of: other.id });
-                    }}
-                  >
-                    <span className={styles.id}>{other.id}</span>{' '}
-                    {categoryLabels[other.category] ?? other.category}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Popover>
-      )}
-      {canReopen && (
-        <button
-          type="button"
-          className={styles.action}
-          disabled={busy}
-          onClick={() => onAction({ action: 'reopen' })}
-        >
-          Reopen
-        </button>
-      )}
-      {more.length > 0 && (
-        <Popover
-          label="More report actions"
-          className={styles.action}
-          flush
-          triggerLabel="More report actions"
-          trigger={<>⋯</>}
-        >
-          {(close) => (
-            <ul className={styles.menu}>
-              {more.map((item) => (
-                <li key={item.label}>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    data-danger={item.danger || undefined}
-                    onClick={() => {
-                      close();
-                      item.run();
-                    }}
-                  >
-                    {item.label}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Popover>
-      )}
-    </span>
+    </>
   );
 }

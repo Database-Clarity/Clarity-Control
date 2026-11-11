@@ -576,6 +576,11 @@
       height: var(--tap);
       padding: 0 0.125rem;
     }
+    // Four tabs (with Reports): equal quarters cut "Compendium" short, so each tab takes its
+    // label's width plus an equal share of the rest (all four fit whole at 390 and 150%).
+    &:has(> button:nth-child(4)) button {
+      flex: 1 1 auto;
+    }
     .tabLabel {
       min-width: 0;
       overflow: hidden;

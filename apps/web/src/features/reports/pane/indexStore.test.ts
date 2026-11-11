@@ -85,7 +85,7 @@ describe('reports marker index', () => {
   });
 
   it('translators see only their languages; others every language', () => {
-    const open = new Map([
+    const open = new Map<number, Record<string, number>>([
       [124726501, { en: 2, de: 1 }],
       [42, { en: 1 }],
     ]);
