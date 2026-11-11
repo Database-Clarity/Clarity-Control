@@ -7,8 +7,13 @@ import { replaceDraft } from '../../services/save/drafts';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
-import { HistoryEntry } from './HistoryEntry';
-import { SkeletonRegion, SkeletonRows, SkeletonStatus } from '../../ui/Skeleton';
+import { HistoryEntry, type HistoryEntryProps } from './HistoryEntry';
+import {
+  SkeletonRegion,
+  SkeletonRows,
+  SkeletonStatus,
+  useSkeletonVisible,
+} from '../../ui/Skeleton';
 import { PanelRow } from '../../ui/PanelRow';
 import { When } from '../../ui/When';
 import { lastEdit } from './lastEdit';
@@ -133,6 +138,16 @@ function HistoryContent({
     void cache.page(page).then(
       (result) => {
         if (controller.signal.aborted) return;
+        // Hints and completed cache entries never flash a skeleton on a new page.
+        setRelevance((previous) => ({
+          ...previous,
+          ...Object.fromEntries(
+            result.flatMap((entry) => {
+              const changes = cache.peekChanges(entry);
+              return changes ? [[entry.commit, isRelevant(changes, scope)]] : [];
+            }),
+          ),
+        }));
         setCommits((previous) =>
           page === 1
             ? result
@@ -153,7 +168,7 @@ function HistoryContent({
       },
     );
     return () => controller.abort();
-  }, [cache, page, attempt, suspended]);
+  }, [cache, page, attempt, suspended, scope]);
   const [relevance, setRelevance] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(
       commits.flatMap((entry) => {
@@ -167,30 +182,33 @@ function HistoryContent({
     if (suspended || loading) return;
     let active = true;
     setClassifying(true);
-    let nextIndex = 0;
     const limit = Math.min(commits.length, visibleCount + windowSize);
-    const run = async () => {
-      while (active && nextIndex < limit) {
-        const index = nextIndex++;
-        const changes = await cache.classify(commits, index, loadedPage, hasMore);
-        if (!active) return;
-        setRelevance((previous) => ({
-          ...previous,
-          [commits[index].commit]: isRelevant(changes, scope),
-        }));
-      }
-    };
-    void Promise.all(Array.from({ length: 4 }, run)).then(
-      () => {
-        if (active) setClassifying(false);
-      },
-      (reason: unknown) => {
-        if (active) {
-          setError(errorMessage(reason));
-          setClassifying(false);
+    const classifyGroup = async (start: number, end: number) => {
+      let nextIndex = start;
+      const run = async () => {
+        while (active && nextIndex < end) {
+          const index = nextIndex++;
+          const changes = await cache.classify(commits, index, loadedPage, hasMore);
+          if (!active) return;
+          setRelevance((previous) => ({
+            ...previous,
+            [commits[index].commit]: isRelevant(changes, scope),
+          }));
         }
-      },
-    );
+      };
+      await Promise.all(Array.from({ length: 4 }, run));
+    };
+    void (async () => {
+      const visibleEnd = Math.min(visibleCount, limit);
+      await classifyGroup(0, visibleEnd);
+      if (active) await classifyGroup(visibleEnd, limit);
+      if (active) setClassifying(false);
+    })().catch((reason: unknown) => {
+      if (active) {
+        setError(errorMessage(reason));
+        setClassifying(false);
+      }
+    });
     return () => {
       active = false;
     };
@@ -286,34 +304,24 @@ function HistoryContent({
           commits.slice(0, visibleCount).some((entry) => relevance[entry.commit] === undefined)
         }
       >
-        {commits.slice(0, visibleCount).map((entry, index) =>
-          relevance[entry.commit] === undefined ? (
-            <li key={entry.commit} data-history-pending="true">
-              <SkeletonRegion>
-                <SkeletonRows count={1} columns={[65, 35]} rowHeight="3rem" />
-              </SkeletonRegion>
-              <SkeletonStatus>Checking revision scope</SkeletonStatus>
-            </li>
-          ) : (
-            relevance[entry.commit] === true && (
-              <HistoryEntry
-                key={entry.commit}
-                scope={scope}
-                entry={entry}
-                index={index}
-                commits={commits}
-                page={loadedPage}
-                hasMore={hasMore}
-                cache={cache}
-                current={current}
-                item={item}
-                translator={user?.role === 'translator'}
-                canRestore={canRestore}
-                onRestore={restore}
-              />
-            )
-          ),
-        )}
+        {commits.slice(0, visibleCount).map((entry, index) => (
+          <ScopedHistoryEntry
+            key={entry.commit}
+            relevant={relevance[entry.commit]}
+            scope={scope}
+            entry={entry}
+            index={index}
+            commits={commits}
+            page={loadedPage}
+            hasMore={hasMore}
+            cache={cache}
+            current={current}
+            item={item}
+            translator={user?.role === 'translator'}
+            canRestore={canRestore}
+            onRestore={restore}
+          />
+        ))}
         {visibleCount < commits.length && (
           <li ref={sentinel} aria-hidden="true" data-history-more="true" />
         )}
@@ -336,4 +344,25 @@ function HistoryContent({
       )}
     </section>
   );
+}
+
+function ScopedHistoryEntry({
+  relevant,
+  ...props
+}: HistoryEntryProps & { relevant: boolean | undefined }) {
+  const skeleton = useSkeletonVisible(
+    relevant === undefined,
+    props.entry.commit,
+    relevant !== undefined,
+  );
+  if (skeleton)
+    return (
+      <li data-history-pending="true">
+        <SkeletonRegion>
+          <SkeletonRows count={1} columns={[65, 35]} rowHeight="3rem" />
+        </SkeletonRegion>
+        <SkeletonStatus>Checking revision scope</SkeletonStatus>
+      </li>
+    );
+  return relevant ? <HistoryEntry {...props} /> : null;
 }

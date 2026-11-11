@@ -39,6 +39,11 @@ const tooltip: Tooltip = {
 };
 let host: HTMLDivElement;
 let root: Root;
+const paintRows = () =>
+  act(async () => {
+    if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(410);
+    else await new Promise((resolve) => setTimeout(resolve, 410));
+  });
 const originals = {
   data: useDataStore.getState(),
   auth: useAuthStore.getState(),
@@ -86,6 +91,7 @@ it('keeps the v2 count ready and loads legacy history only on open', async () =>
   // The commit list is not in the row until it is expanded.
   expect(host.querySelector('ol')).toBeNull();
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  await paintRows();
   expect(host.querySelectorAll('ol li')).toHaveLength(3);
   await act(async () =>
     vi.waitFor(() => expect(getLegacyHistory).toHaveBeenCalledWith(10, expect.any(AbortSignal))),
@@ -99,6 +105,7 @@ it('shows the open language attribution inside the row, only once expanded', asy
   );
   expect(host.querySelector('[data-attribution]')).toBeNull();
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  await paintRows();
   const attribution = host.querySelector('[data-attribution]')!;
   expect(attribution.textContent).toBe('Edited by ann');
   // Above the commit list.
@@ -115,6 +122,7 @@ it('says 30+ when a full page of commits came back', async () => {
   });
   await act(async () => root.render(<HistoryPanel hash={10} />));
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  await paintRows();
   expect(host.textContent).not.toContain('30+ revisions');
 });
 
@@ -140,6 +148,7 @@ it('loads published text into a local draft while preserving current association
   });
   await act(async () => root.render(<HistoryPanel hash={10} />));
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  await paintRows();
   const section = host.querySelector('section[aria-label="Published before migration"]')!;
   await act(async () => section.querySelector<HTMLButtonElement>('ol button')!.click());
   const click = async (label: string) =>
@@ -165,6 +174,7 @@ it('does not ask the server when signed out, and says so when expanded', async (
   expect(getHistory).not.toHaveBeenCalled();
   expect(host.textContent).toContain('Edited');
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  await paintRows();
   expect(host.textContent).toContain('Sign in as a configured member');
   expect(host.textContent).not.toContain('No commits found');
 });
@@ -175,6 +185,7 @@ it('skips legacy fetches for tooltips passed during fast navigation', async () =
   try {
     await act(async () => root.render(<HistoryPanel hash={10} />));
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+    await paintRows();
     expect(getLegacyHistory).toHaveBeenCalledWith(10, expect.any(AbortSignal));
     getLegacyHistory.mockClear();
     for (const hash of [11, 12, 13, 14]) {
@@ -199,6 +210,7 @@ it('keeps v2 and legacy siblings distinct when the hash equals the cache identit
   try {
     await act(async () => root.render(<HistoryPanel hash={hash} />));
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+    await paintRows();
     expect(errors.mock.calls.some((args) => String(args[0]).includes('same key'))).toBe(false);
     expect(host.querySelectorAll(`section[aria-label="History for ${hash}"]`)).toHaveLength(1);
     expect(host.querySelectorAll('section[aria-label="Published before migration"]')).toHaveLength(
@@ -214,12 +226,15 @@ it('uses one list request across expansion and refreshes stale rows on reopening
   await act(async () => root.render(<HistoryPanel hash={10} />));
   const toggle = () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click();
   await act(async () => toggle());
+  await paintRows();
   expect(getHistory).toHaveBeenCalledTimes(1);
   await act(async () => toggle());
+  await paintRows();
   vi.useFakeTimers();
   vi.setSystemTime(Date.now() + 61_000);
   getHistory.mockResolvedValue({ page: 1, commits: [commit(2), commit(1)] });
   await act(async () => toggle());
+  await paintRows();
   expect(host.querySelectorAll('ol li')).toHaveLength(2);
   expect(getHistory).toHaveBeenCalledTimes(2);
   vi.useRealTimers();
@@ -239,6 +254,7 @@ it('renders only a bounded visible group and advances on request', async () => {
   try {
     await act(async () => root.render(<HistoryPanel hash={10} />));
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+    await paintRows();
     expect(host.querySelectorAll('ol li > button')).toHaveLength(8);
     expect(host.textContent).not.toContain('A long commit body');
     while (frames.length) await act(async () => frames.shift()!(0));
@@ -271,6 +287,7 @@ it('refreshes the first page when saving advances bundle head after paging', asy
   );
   await act(async () => root.render(<HistoryPanel hash={10} />));
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  await paintRows();
   // Advancing the visible range requests the next API page near its boundary.
   for (let index = 0; index < 3; index++) {
     await act(async () =>
@@ -286,6 +303,7 @@ it('refreshes the first page when saving advances bundle head after paging', asy
       data: { ...data, bundle: { ...data.bundle, sourceCommit: 'new-head' } },
     });
   });
+  await paintRows();
   // The parent has refreshed page 1, so the new revision must be visible in its child list too.
   expect(getHistory.mock.calls.filter(([, p]) => p === 1)).toHaveLength(2);
   expect(host.textContent).toContain('NEW HEAD REVISION');
@@ -303,6 +321,7 @@ it('keeps an expanded history row open while cancelling suspended requests', asy
   );
   await act(async () => root.render(<HistoryPanel hash={10} />));
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  await paintRows();
   const signal = getHistory.mock.calls[0][2] as AbortSignal;
   getHistory.mockClear();
   await act(async () => root.render(<HistoryPanel hash={10} suspended />));
@@ -311,6 +330,7 @@ it('keeps an expanded history row open while cancelling suspended requests', asy
   expect(getHistory).not.toHaveBeenCalled();
   await act(async () => root.render(<HistoryPanel hash={10} />));
   expect(host.querySelector('button[aria-expanded=true]')).not.toBeNull();
+  await paintRows();
   expect(host.querySelectorAll('ol li')).toHaveLength(1);
 });
 
@@ -333,6 +353,7 @@ it('does not fetch bodies while collapsed, and shows only classified scoped revi
   expect(getVersion).not.toHaveBeenCalled();
   expect(host.querySelector('ol')).toBeNull();
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  await paintRows();
   expect(host.querySelectorAll('ol li > button')).toHaveLength(2);
   expect(host.textContent).toContain('1 change outside this view hidden');
 });
@@ -352,12 +373,14 @@ it('shows sized skeletons and cancels active and queued fallback bodies on close
   expect(getVersion).not.toHaveBeenCalled();
   const toggle = () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click();
   await act(async () => toggle());
+  await paintRows();
   expect(host.querySelectorAll('[data-history-pending]')).toHaveLength(8);
   expect(host.querySelector('ol')!.getAttribute('aria-busy')).toBe('true');
   expect(host.querySelector('ol li > button')).toBeNull();
   expect(host.textContent).not.toContain('outside this view hidden');
   expect(signals).toHaveLength(4);
   await act(async () => toggle());
+  await paintRows();
   expect(signals.every((signal) => signal.aborted)).toBe(true);
   expect(getVersion).toHaveBeenCalledTimes(4);
 });
@@ -371,6 +394,7 @@ it('uses batch hints without bodies and bounds fallback work to the visible grou
   });
   await act(async () => root.render(<HistoryPanel hash={10} />));
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  await paintRows();
   expect(getVersion).not.toHaveBeenCalled();
   expect(host.querySelectorAll('ol li > button')).toHaveLength(4);
   expect(host.textContent).toContain('8 changes outside this view hidden');
@@ -404,6 +428,7 @@ it('requires scrolling to advance an intersecting sentinel, rather than draining
     });
     await act(async () => root.render(<HistoryPanel hash={10} />));
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+    await paintRows();
     await act(async () =>
       [...observers].forEach((callback) => callback([{ isIntersecting: true }])),
     );
@@ -418,4 +443,43 @@ it('requires scrolling to advance an intersecting sentinel, rather than draining
   } finally {
     vi.unstubAllGlobals();
   }
+});
+
+it('keeps fallback skeletons visible for the shared minimum after classification finishes', async () => {
+  vi.useFakeTimers();
+  try {
+    getHistory.mockResolvedValue({ commits: [commit(1)] });
+    await act(async () => root.render(<HistoryPanel hash={10} />));
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click();
+    });
+    expect(host.querySelector('[data-history-pending]')).not.toBeNull();
+    expect(host.querySelector('ol li > button')).toBeNull();
+    await act(async () => vi.advanceTimersByTimeAsync(399));
+    expect(host.querySelector('ol li > button')).toBeNull();
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(host.querySelector('ol li > button')).not.toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('renders trailer hints immediately when metadata arrives after opening', async () => {
+  let resolve!: (value: unknown) => void;
+  getHistory.mockImplementation(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  await act(async () => root.render(<HistoryPanel hash={10} />));
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click();
+  });
+  await act(async () =>
+    resolve({ commits: [{ ...commit(1), message: 'Hint\n\nClarity-Changed: 10=en' }] }),
+  );
+  expect(host.querySelector('ol li > button')).not.toBeNull();
+  expect(host.querySelector('[data-history-pending]')).toBeNull();
+  expect(getVersion).not.toHaveBeenCalled();
 });

@@ -76,6 +76,7 @@ beforeEach(async () => {
   root = createRoot(host);
   await act(async () => root.render(<HistoryPanel hash={10} />));
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  await wait(410);
 });
 afterEach(async () => {
   await act(async () => root.unmount());
@@ -256,7 +257,7 @@ it('keeps the translator rule: a note, and only assigned languages are restored'
     });
     root.render(<HistoryPanel hash={10} language="fr" />);
   });
-  await wait(0);
+  await wait(410);
   await act(async () => entries()[1].click());
   await wait(0);
   expect(dialog()!.textContent).toContain('only the shown, assigned translation language');
@@ -304,6 +305,7 @@ it('shows restored and deleted revisions without retrying immutable file absence
   await act(async () =>
     useAuthStore.setState({ user: { id: 10, login: 'delete-test', role: 'editor' } }),
   );
+  await wait(410);
   await act(async () => entries()[0].click());
   await wait(0);
   expect(dialog()!.textContent).toContain('Restored in this revision.');
@@ -373,7 +375,7 @@ it('filters against original parents and resets popovers when the language or ro
   await act(async () => {
     useAuthStore.setState({ user: { id: 4, login: 'new', role: 'maintainer' } });
   });
-  await wait(100);
+  await wait(410);
   expect(entries().map((button) => button.textContent)).toEqual([
     expect.stringContaining('Edit 5'),
     expect.stringContaining('Edit 3'),
@@ -384,7 +386,7 @@ it('filters against original parents and resets popovers when the language or ro
   await wait(0);
   expect(dialog()!.textContent).not.toContain('French');
   await act(async () => root.render(<HistoryPanel hash={10} language="fr" />));
-  await wait(100);
+  await wait(410);
   expect(dialog()).toBeNull();
   expect(entries()).toHaveLength(5);
   expect(host.querySelector('[aria-label="Published before migration"]')).toBeNull();
