@@ -745,7 +745,11 @@ describe('global declarations in the finder', () => {
     await mount('/t/2?global=Alpha', source);
     const base = source.bundle.tooltips[2];
     useDraftStore.setState({ hydrated: true });
-    await act(async () => useDraftStore.getState().edit(base, 'en', 'var Alpha = changed\nvar Beta = 20\nvar Gamma = new', 'test'));
+    await act(async () =>
+      useDraftStore
+        .getState()
+        .edit(base, 'en', 'var Alpha = changed\nvar Beta = 20\nvar Gamma = new', 'test'),
+    );
     expect(field().value).toBe('Alpha');
     await open();
     expect(options()).toHaveLength(3);

@@ -8,7 +8,7 @@ const tooltip = (hash: number, text: string): Tooltip => ({
   associated: [],
 });
 const sources = {
-  1: tooltip(1, 'export Shared (\n#Rate\n)'),
+  1: tooltip(1, 'export Shared (\n#Rate\n)\nexport hidden Secret (\nBody\n)'),
   2: tooltip(
     2,
     '// var Hidden = no\n/*\nvar AlsoHidden = no\n*/\nvar Rate = 10\nvar Empty = empty',
@@ -23,7 +23,13 @@ const sources = {
 describe('read-only aggregate globals', () => {
   it('extracts bare names and original source lines for every type, ignoring comments', () => {
     const entries = globalDefinitions(sources);
-    expect(entries.map(({ name }) => name).sort()).toEqual(['Empty', 'Heading', 'Rate', 'Shared']);
+    expect(entries.map(({ name }) => name).sort()).toEqual([
+      'Empty',
+      'Heading',
+      'Rate',
+      'Secret',
+      'Shared',
+    ]);
     expect(entries.find(({ name }) => name === 'Rate')).toMatchObject({
       hash: 2,
       lines: { en: 5 },

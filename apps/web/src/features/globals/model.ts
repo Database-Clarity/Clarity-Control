@@ -40,7 +40,11 @@ export function globalDefinitions(tooltips: Readonly<Record<string, Tooltip>>): 
               'gm',
             );
       for (const match of source.matchAll(pattern)) {
-        const name = match[1].trim();
+        const name = (
+          kind === 'variables'
+            ? match[1]
+            : match[1].replace(kind === 'titles' ? /title/gi : /export|hidden/gi, '')
+        ).trim();
         const key = `${kind}:${name}`;
         const entry = entries.get(key) ?? { kind, hash, name, definitions: {}, lines: {} };
         const body = kind === 'variables' ? match[2].trim() : match[2].replace(/^\n/, '');
