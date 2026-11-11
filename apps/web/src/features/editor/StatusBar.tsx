@@ -265,8 +265,14 @@ export function StatusBar({
         <span>{keyOf('key-leave')} leaves the editor</span>
         {conflicts && conflicts.count > 0 && <span>{keyOf('key-conflict')} next conflict</span>}
       </span>
-      {preview && (preview.unpreviewed > 0 || preview.collapsed) && (
-        <span className={styles.preview} data-attention={preview.unpreviewed > 0 || undefined}>
+      {preview && (
+        <span
+          className={styles.preview}
+          data-status-preview
+          data-inactive={!(preview.unpreviewed > 0 || preview.collapsed) || undefined}
+          aria-hidden={!(preview.unpreviewed > 0 || preview.collapsed) || undefined}
+          data-attention={preview.unpreviewed > 0 || undefined}
+        >
           <span
             className={styles.previewText}
             title={
@@ -277,7 +283,12 @@ export function StatusBar({
           >
             {preview.unpreviewed > 0 ? `${preview.unpreviewed} not previewed` : 'Preview hidden'}
           </span>
-          <button type="button" className={styles.item} onClick={preview.onShow}>
+          <button
+            type="button"
+            className={styles.item}
+            onClick={preview.onShow}
+            disabled={!(preview.unpreviewed > 0 || preview.collapsed)}
+          >
             Show preview
             <kbd>Alt+P</kbd>
           </button>

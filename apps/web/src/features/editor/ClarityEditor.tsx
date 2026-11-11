@@ -1,3 +1,4 @@
+import { offersBaseEnhanced, type ScopedMarkupGlobals } from './markupScope';
 import { listDot } from './listDot';
 import {
   lazy,
@@ -166,7 +167,7 @@ export interface ClarityEditorProps {
   value: string;
   lang: Lang;
   onChange: (value: string) => void;
-  globals: MarkupGlobals;
+  globals: ScopedMarkupGlobals;
   readOnly?: boolean;
   requireEnglish?: boolean;
   highlightLine?: number;
@@ -822,7 +823,8 @@ export function ClarityEditor({
     const sameDefinitions =
       previous.globals.variables === globals.variables &&
       previous.globals.titles === globals.titles &&
-      previous.globals.type === globals.type;
+      previous.globals.type === globals.type &&
+      offersBaseEnhanced(previous.globals) === offersBaseEnhanced(globals);
     const importFree = !hasImportDependencies(value, globals);
     if (
       previous.lang === lang &&

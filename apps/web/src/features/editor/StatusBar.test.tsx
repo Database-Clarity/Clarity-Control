@@ -79,7 +79,8 @@ describe('status bar', () => {
     render(bar({ preview: { unpreviewed: 0, collapsed: true, onShow } }));
     expect(host.textContent).toContain('Preview hidden');
     render(bar({ preview: { unpreviewed: 0, collapsed: false, onShow } }));
-    expect(host.textContent).not.toContain('Show preview');
+    expect(q('[data-status-preview]')?.getAttribute('data-inactive')).toBe('true');
+    expect(q('[data-status-preview] button')?.hasAttribute('disabled')).toBe(true);
   });
 
   it('toggles a panel through its button', () => {
