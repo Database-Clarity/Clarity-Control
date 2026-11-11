@@ -1,4 +1,10 @@
-import { permissionsSchema, stableStringify, type Permissions, type Tooltip } from '@clarity/core';
+import {
+  hasTooltipText,
+  permissionsSchema,
+  stableStringify,
+  type Permissions,
+  type Tooltip,
+} from '@clarity/core';
 import { HttpError } from './http.js';
 import type { GitHub } from './github.js';
 import type { Identity } from './types.js';
@@ -38,6 +44,12 @@ export function roleOf(config: Permissions, user: Identity): Access['role'] | 'p
 }
 
 export function checkEdit(access: Access, base: Tooltip | null, next: Tooltip): void {
+  if (!hasTooltipText(next) && (base === null || hasTooltipText(base))) {
+    if (!['maintainer', 'editor'].includes(access.role))
+      throw new HttpError(403, 'Only editors and maintainers can create link-only tooltips');
+    if (base === null && !next.compendium)
+      throw new HttpError(422, 'A text-less tooltip requires a Compendium link');
+  }
   if (access.role === 'translator' && base === null)
     throw new HttpError(403, 'Translators may not create tooltips');
   if (

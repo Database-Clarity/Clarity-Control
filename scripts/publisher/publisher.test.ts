@@ -166,6 +166,20 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('rejects a correctly signed link-only request without live or push-marker writes', async () => {
+    const f = await setup();
+    const empty = { ...f.tooltip, text: {} };
+    f.change(D, { 'tooltips/123.json': empty });
+    await f.request(A, [123], { 123: await publishableHash(empty) });
+    const live = f.git.head(L);
+    await f.pub.run();
+    expect(f.git.head(L)).toBe(live);
+    const tree = f.git.tree(f.git.head(D)!);
+    expect(f.pub.read(tree, paths(A).log)).toMatchObject({ result: { status: 'rejected' } });
+    expect(f.pub.read(tree, 'live/pushed.json')).toEqual({});
+    expect(tree['live/tooltips/123.json']).toBeUndefined();
+  });
+
   const A = '01K95H00000000000000000001',
     B = '01K95H00000000000000000002';
   const D = 'refs/heads/editor-data',

@@ -307,3 +307,58 @@ it('includes shown non-language fields and language removal in the save trailer'
     'Edit tooltip\n\nClarity-Changed: 123=de,custom,archive,compendium',
   );
 });
+
+it.each([1, 2, 3, 4])(
+  'limits text-less Compendium creation to editors and maintainers (role %s)',
+  async (id) => {
+    const next = {
+      hash: 125,
+      text: {},
+      associated: [],
+      compendium: {
+        gid: '1662574278',
+        rowKey: 'Demo',
+        snapshot: { plain: '', runs: [] },
+        snapshotAt: '2026-10-02T00:00:00Z',
+      },
+    };
+    const response = await fixture.request(
+      '/save',
+      'POST',
+      {
+        changes: [{ hash: 125, base: null, next }],
+        message: 'Confirm link',
+      },
+      id,
+    );
+    expect(response.status).toBe(id < 3 ? 200 : 403);
+    expect(fixture.commits).toHaveLength(id < 3 ? 1 : 0);
+  },
+);
+
+it('a saved link-only record becomes publishable when text is added', async () => {
+  const base: Tooltip = {
+    hash: 123,
+    text: {},
+    associated: [],
+    compendium: {
+      gid: '1662574278',
+      rowKey: 'Demo',
+      snapshot: { plain: '', runs: [] },
+      snapshotAt: '2026-10-02T00:00:00Z',
+    },
+  };
+  fixture.moveData({ 'tooltips/123.json': base });
+  const next = { ...base, text: tooltip('Now written').text };
+  const response = await fixture.request(
+    '/save',
+    'POST',
+    { changes: [{ hash: 123, base, next }], message: 'Write tooltip' },
+    2,
+  );
+  expect(response.status).toBe(200);
+  expect((await fixture.request('/push-live', 'POST', { hashes: [123] }, 2)).status).toBe(200);
+  expect(fixture.live).toMatchObject({
+    perks: { 123: { editor: { en: { main: 'Now written' } } } },
+  });
+});

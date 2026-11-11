@@ -1,6 +1,7 @@
 import {
   countConflicts,
   emptyEnglishMessage,
+  hasTooltipText,
   languages,
   maskConflicts,
   resolveAlias,
@@ -46,7 +47,7 @@ export function conflictMarkerIssues(changes: Change[]): TooltipValidationIssue[
 }
 
 export const noTooltipYet =
-  'This item has no tooltip yet. A Compendium link or other change can be saved once English text is written.';
+  'This item has no tooltip yet. Add a Compendium link or write English text before saving.';
 
 export function validateChanges(changes: Change[], data: EditorData): TooltipValidationIssue[] {
   const tooltips = { ...data.bundle.tooltips };
@@ -81,13 +82,21 @@ export function validateChanges(changes: Change[], data: EditorData): TooltipVal
       ...validateTooltip(next, (lang) => dependencies.globalsFor(next.hash, lang), base, {
         aliases: data.aliases,
         affectedBy: dependencies.affectedBy,
-      }).map((issue) =>
-        // Saving never creates a tooltip without English text. Say so where the user acts: a
-        // Compendium link on an item with no saved tooltip is refused for this reason alone.
-        !base && issue.lang === 'en' && issue.message === emptyEnglishMessage
-          ? { ...issue, message: noTooltipYet }
-          : issue,
-      ),
+      })
+        .map((issue) =>
+          !base && issue.lang === 'en' && issue.message === emptyEnglishMessage
+            ? { ...issue, message: noTooltipYet }
+            : issue,
+        )
+        .filter(
+          (issue) =>
+            !(
+              next.compendium &&
+              !hasTooltipText(next) &&
+              (!base || !hasTooltipText(base)) &&
+              issue.message === noTooltipYet
+            ),
+        ),
     ];
   });
   return [...issues, ...dependencies.outsideIssues()];

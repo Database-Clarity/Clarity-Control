@@ -115,3 +115,14 @@ describe('review selection and navigation', () => {
     expect(canPush({ id: 1, login: 'user', role: 'maintainer' })).toBe(true);
   });
 });
+
+it('keeps text-less records out of Review and selection, then includes them after text is added', async () => {
+  const empty = { ...tooltip, text: {} };
+  expect(await pendingTooltips(data([empty]))).toEqual([]);
+  const written = await pendingTooltips(data([tooltip]));
+  expect(publishableHashes(written)).toEqual([123]);
+  expect(selectedPending(new Set([123]), written)).toEqual([123]);
+  const injected = written.map((entry) => ({ ...entry, tooltip: empty }));
+  expect(publishableHashes(injected)).toEqual([]);
+  expect(selectedPending(new Set([123]), injected)).toEqual([]);
+});

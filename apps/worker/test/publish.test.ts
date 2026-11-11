@@ -352,3 +352,19 @@ it('rechecks digest binding at the new data head after a create race', async () 
   expect(response.status).toBe(409);
   expect(f.current()[requestPath]).toBeUndefined();
 });
+
+it('refuses signing an empty tooltip even with its exact digest', async () => {
+  const empty = { ...tooltip(), text: {} };
+  f.moveData({ 'tooltips/123.json': empty });
+  const response = await f.request(
+    '/publish',
+    'POST',
+    {
+      ...value,
+      expected: { 123: await publishableHash(empty) },
+    },
+    2,
+  );
+  expect(response.status).toBe(422);
+  expect(f.current()[requestPath]).toBeUndefined();
+});

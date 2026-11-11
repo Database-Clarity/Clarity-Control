@@ -72,3 +72,37 @@ vi.mock('../../services/save/validationWorker', () => ({
     return validateChanges(changes, data);
   },
 }));
+
+it('prepares and saves a new Compendium-only record beside a written tooltip', async () => {
+  const fixture = new Fixture(await makePrivateKey());
+  const data = editorData();
+  const linked = {
+    hash: 125,
+    text: {},
+    associated: [],
+    compendium: {
+      gid: '1662574278',
+      rowKey: 'Demo',
+      snapshot: { plain: '', runs: [] },
+      snapshotAt: '2026-10-02T00:00:00Z',
+    },
+  };
+  const changes = [
+    { hash: 125, base: null, next: linked },
+    { hash: 123, base: tooltip(), next: tooltip('Updated') },
+  ];
+  const prepared = await prepareChanges(changes, { id: 2, login: 'bob', role: 'editor' }, data);
+  const response = await fixture.request(
+    '/save',
+    'POST',
+    { changes: prepared, message: 'Confirm links' },
+    2,
+  );
+  expect(response.status).toBe(200);
+  expect(fixture.current()['tooltips/125.json']).toMatchObject(linked);
+  expect(fixture.current()['tooltips/123.json']).toMatchObject({
+    text: { en: { text: 'Updated' } },
+  });
+  for (const role of ['trial', 'translator'] as const)
+    expect(permissionError([changes[0]], { id: 3, login: 'test', role })).toBeTruthy();
+});

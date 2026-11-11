@@ -2,6 +2,7 @@ import { refuseBaseEnhanced } from './baseEnhanced.js';
 import { z } from 'zod';
 import {
   publishableHash,
+  hasTooltipText,
   exportLegacy,
   hashSchema,
   pushedSchema,
@@ -88,6 +89,8 @@ async function loadAtHead(
     if (!file) throw new HttpError(404, `Tooltip ${hash} does not exist`);
     const tooltip = tooltipSchema.parse(file.value);
     if (tooltip.hash !== hash) throw new HttpError(502, 'Stored tooltip hash mismatch');
+    if (!hasTooltipText(tooltip))
+      throw new HttpError(422, `Tooltip ${hash} has no text to publish`);
     tooltips.push(tooltip);
     snapshots[`live/tooltips/${hash}.json`] = tooltip;
     exportedHashes[hash] = await publishableHash(tooltip, aliases);

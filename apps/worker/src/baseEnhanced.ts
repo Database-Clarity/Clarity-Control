@@ -1,5 +1,6 @@
 import {
   baseEnhancedPublishMessage,
+  hasTooltipText,
   markupImports,
   resolveAlias,
   tooltipSchema,
@@ -47,6 +48,8 @@ export async function refuseBaseEnhanced(
     for (const hash of hashes) {
       const tooltip = known.get(hash);
       if (!tooltip) continue;
+      if (hash > 3 && !hasTooltipText(tooltip))
+        throw new HttpError(422, `Tooltip ${hash} has no text to publish`);
       for (const translation of Object.values(tooltip.text)) {
         if (!translation) continue;
         const text = translation.text;

@@ -549,3 +549,12 @@ describe('permissions and history', () => {
     expect((await fixture.request('/history/123', 'GET', undefined, 5)).status).toBe(403);
   });
 });
+
+it('refuses empty selections before any live or marker write', async () => {
+  fixture.moveData({ 'tooltips/123.json': { ...tooltip(), text: {} } });
+  const before = structuredClone(fixture.live);
+  const response = await fixture.request('/push-live', 'POST', { hashes: [123] });
+  expect(response.status).toBe(422);
+  expect(fixture.live).toEqual(before);
+  expect(fixture.commits).toHaveLength(0);
+});

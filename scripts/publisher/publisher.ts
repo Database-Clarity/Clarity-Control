@@ -7,6 +7,7 @@ import {
   publishMonth,
   publishOpIdSchema,
   exportLegacy,
+  hasTooltipText,
   publishableHash,
   tooltipSchema,
   permissionsSchema,
@@ -344,6 +345,16 @@ export class Publisher {
       }
       if (outcomes.some((e) => e.status !== 'accepted')) {
         await this.record(opId, undefined, undefined, { status: 'stale', outcomes }, blob);
+        return;
+      }
+      if (tooltips.some((t) => !hasTooltipText(t))) {
+        await this.record(
+          opId,
+          undefined,
+          undefined,
+          { status: 'rejected', error: 'Tooltip has no text to publish' },
+          blob,
+        );
         return;
       }
       if (tooltips.some((t) => !t.custom && !this.options.facts[t.hash])) {
