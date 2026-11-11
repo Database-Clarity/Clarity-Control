@@ -16,7 +16,7 @@ import type * as Engine from '../index.js';
 import type * as ConfigModule from '../config.js';
 import type { ExportConfig, ExportFile } from '../v1/config.js';
 import { locatePages, locateSim, type SiteState } from './pages.js';
-import { effectivePin, type Pin } from './pins.js';
+import { effectivePin, isPinId, type Pin } from './pins.js';
 import { BuildPool, childMain, type BuildJob, type BuildResult } from './pool.js';
 import {
   ensureCommit,
@@ -66,6 +66,11 @@ export type Manifest = {
   builtAt: string;
   pinId: string;
   files: Record<string, ManifestFile>;
+  /**
+   * ISO time each path last started a build, whatever its outcome (published or not): rotation
+   * order, so failures, freezes, and new files never starve the rest.
+   */
+  attempts?: Record<string, string>;
   snapshots: { buildId: string; files: Record<string, string> }[];
 };
 export type SiteNotice = {
@@ -90,27 +95,58 @@ export type SiteNotice = {
 
 const snapshotNames = ['engine.mjs', 'input.json', 'identical.json', 'catalog.json'] as const;
 
-function checkManifest(value: unknown): Manifest {
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+const isIsoTime = (value: unknown) =>
+  typeof value === 'string' &&
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(value) &&
+  !Number.isNaN(Date.parse(value));
+const isStrings = (value: unknown) =>
+  Array.isArray(value) && value.every((item) => typeof item === 'string');
+const isManifestFile = (file: unknown) =>
+  isRecord(file) &&
+  typeof file.sha256 === 'string' &&
+  /^[0-9a-f]{64}$/.test(file.sha256) &&
+  Number.isSafeInteger(file.bytes) &&
+  (file.bytes as number) >= 0 &&
+  isIsoTime(file.lastUpdate) &&
+  (file.lastBuilt === undefined || isIsoTime(file.lastBuilt)) &&
+  ['built', 'carried', 'frozen'].includes(file.outcome as string) &&
+  (file.retainUntil === undefined || typeof file.retainUntil === 'string') &&
+  (file.markers === undefined || isStrings(file.markers)) &&
+  (file.baseline === undefined || isStrings(file.baseline));
+
+/** The whole manifest contract; anything else on a project with deployments stops the deploy. */
+export function checkManifest(value: unknown): Manifest {
   const manifest = value as Manifest;
   const ok =
-    manifest &&
+    isRecord(value) &&
     manifest.manifestVersion === manifestVersion &&
     typeof manifest.buildId === 'string' &&
-    manifest.files &&
-    typeof manifest.files === 'object' &&
+    /^[0-9a-f]{16}$/.test(manifest.buildId) &&
+    isIsoTime(manifest.builtAt) &&
+    isPinId(manifest.pinId) &&
+    isRecord(manifest.files) &&
     Object.entries(manifest.files).every(
-      ([path, file]) =>
-        safeSitePath(path) &&
-        /^[0-9a-f]{64}$/.test(file.sha256) &&
-        Number.isSafeInteger(file.bytes) &&
-        typeof file.lastUpdate === 'string',
+      ([path, file]) => safeSitePath(path) && isManifestFile(file),
     ) &&
+    (manifest.attempts === undefined ||
+      (isRecord(manifest.attempts) &&
+        Object.entries(manifest.attempts).every(
+          ([path, time]) => safeSitePath(path) && isIsoTime(time),
+        ))) &&
     Array.isArray(manifest.snapshots) &&
+    manifest.snapshots.length > 0 &&
+    manifest.snapshots.length <= siteLimits.snapshotsCarried + 1 &&
     manifest.snapshots.every(
       (snapshot) =>
+        isRecord(snapshot) &&
+        typeof snapshot.buildId === 'string' &&
         /^[0-9a-f]{16}$/.test(snapshot.buildId) &&
-        snapshotNames.every((name) => /^[0-9a-f]{64}$/.test(snapshot.files?.[name] ?? '')),
-    );
+        isRecord(snapshot.files) &&
+        snapshotNames.every((name) => /^[0-9a-f]{64}$/.test(String(snapshot.files[name] ?? ''))),
+    ) &&
+    manifest.snapshots[0]!.buildId === manifest.buildId;
   if (!ok) throw new Error('The current site manifest is malformed');
   return manifest;
 }
@@ -161,6 +197,7 @@ export async function buildSite(options: Record<string, string>) {
   const nowIso = now.toISOString();
   const limits = {
     ...siteLimits,
+    projects: intOption(options, 'projects', siteLimits.projects),
     maxBytes: intOption(options, 'max-bytes', siteLimits.maxBytes),
     fileTimeoutMs: intOption(options, 'file-timeout', siteLimits.fileTimeoutMs),
     pool: intOption(options, 'pool', siteLimits.pool) || 1,
@@ -266,8 +303,12 @@ export async function buildSite(options: Record<string, string>) {
         .filter((name) => name.endsWith('.json'))
         .sort()
     : [];
-  const configs: ExportConfig[] = [];
-  const brokenProjects: string[] = [];
+  // The project bound covers everything served, built or carried: projects that already have
+  // published files take the slots first (their URLs stay), then new ones by id; a project past
+  // the bound is neither built nor carried. An invalid config with nothing published takes none.
+  const published = (id: string) =>
+    Object.keys(previous?.files ?? {}).some((path) => path.startsWith(`${id}/`));
+  const parsedConfigs: { id: string; name: string; parsed?: ExportConfig; error?: string }[] = [];
   for (const name of configFiles) {
     const id = name.slice(0, -'.json'.length);
     if (!engine.isValidId(id)) {
@@ -278,39 +319,52 @@ export async function buildSite(options: Record<string, string>) {
       });
       continue;
     }
-    if (configs.length + brokenProjects.length >= limits.projects) {
-      notices.push({
-        project: id,
-        kind: 'over-limit',
-        message: `More than ${limits.projects} projects: not built`,
-      });
-      brokenProjects.push(id);
-      continue;
-    }
     try {
       const parsed = config.migrateConfig(
         JSON.parse(readFileSync(join(projectsDir, name), 'utf8')),
       );
       if (parsed.id !== id) throw new Error(`id "${parsed.id}" differs from the file name`);
-      configs.push(parsed);
-      const unknown = config.unknownCategories(
-        parsed,
-        (catalog.categories as { id: string }[]).map((category) => category.id),
-      );
-      if (unknown.length)
-        notices.push({
-          project: id,
-          kind: 'compile',
-          message: `Categories the pinned catalog lacks: ${unknown.join(', ')}`,
-        });
+      parsedConfigs.push({ id, name, parsed });
     } catch (error) {
-      brokenProjects.push(id);
+      parsedConfigs.push({ id, name, error: (error as Error).message.slice(0, 300) });
+    }
+  }
+  parsedConfigs.sort(
+    (a, b) => Number(published(b.id)) - Number(published(a.id)) || a.id.localeCompare(b.id),
+  );
+  const configs: ExportConfig[] = [];
+  const brokenProjects: string[] = [];
+  let slots = 0;
+  for (const { id, name, parsed, error } of parsedConfigs) {
+    if (!parsed && !published(id)) {
+      notices.push({ project: id, kind: 'invalid-config', message: `${name}: ${error}` });
+      continue;
+    }
+    if (slots >= limits.projects) {
       notices.push({
         project: id,
-        kind: 'invalid-config',
-        message: `${name}: ${(error as Error).message.slice(0, 300)}`,
+        kind: 'over-limit',
+        message: `More than ${limits.projects} projects: not built or served`,
       });
+      continue;
     }
+    slots += 1;
+    if (!parsed) {
+      brokenProjects.push(id);
+      notices.push({ project: id, kind: 'invalid-config', message: `${name}: ${error}` });
+      continue;
+    }
+    configs.push(parsed);
+    const unknown = config.unknownCategories(
+      parsed,
+      (catalog.categories as { id: string }[]).map((category) => category.id),
+    );
+    if (unknown.length)
+      notices.push({
+        project: id,
+        kind: 'compile',
+        message: `Categories the pinned catalog lacks: ${unknown.join(', ')}`,
+      });
   }
 
   const entries: Entry[] = [];
@@ -488,9 +542,13 @@ export async function buildSite(options: Record<string, string>) {
 
   // 5c. Everything else builds in the pool, least recently built first, within the budget:
   //     nothing new starts after `carryAfterMs`, and at `budgetMs` running builds are killed.
+  //     The order is the last attempt, whatever its outcome (never attempted first).
+  const lastAttempt = (path: string) =>
+    previous?.attempts?.[path] ?? previous?.files[path]?.lastBuilt ?? '';
+  const attempts: Record<string, string> = {};
   builds.sort((a, b) => {
-    const at = previous?.files[a.path]?.lastBuilt ?? '';
-    const bt = previous?.files[b.path]?.lastBuilt ?? '';
+    const at = lastAttempt(a.path);
+    const bt = lastAttempt(b.path);
     return at === bt ? a.path.localeCompare(b.path) : at < bt ? -1 : 1;
   });
   const pool = new BuildPool(
@@ -515,6 +573,7 @@ export async function buildSite(options: Record<string, string>) {
     while (queue.length || running.size) {
       while (queue.length && running.size < limits.pool && elapsed() < limits.carryAfterMs) {
         const entry = queue.shift()!;
+        attempts[entry.path] = nowIso;
         const outPath = join(work, `out-${outPaths.size}.json`);
         outPaths.set(entry.path, outPath);
         const job: BuildJob = {
@@ -562,6 +621,10 @@ export async function buildSite(options: Record<string, string>) {
 
   for (const entry of skipped) {
     results.delete(entry.path);
+    // Killed at the budget or never started: it keeps its old place (it goes first next run).
+    const before = lastAttempt(entry.path);
+    if (before) attempts[entry.path] = before;
+    else delete attempts[entry.path];
     await carryOrDrop(
       entry,
       'budget',
@@ -729,6 +792,7 @@ export async function buildSite(options: Record<string, string>) {
     builtAt: nowIso,
     pinId: pin.pinId,
     files,
+    attempts,
     snapshots,
   };
   put('_build/status.json', encoder.encode(json(status)));

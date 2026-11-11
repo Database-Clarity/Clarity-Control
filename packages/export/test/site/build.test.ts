@@ -615,6 +615,89 @@ describe('build-site per-file outcomes', () => {
     );
   }, 180_000);
 
+  it('the project bound covers carried projects; published projects keep their slots', async () => {
+    harness = new Harness();
+    await harness.seed({
+      input: fixtureText(),
+      projects: {
+        zzone: project('zzone', [style('s1', 'zzone00001')]),
+        zztwo: project('zztwo', [style('s1', 'zztwo00001')]),
+      },
+    });
+    expectOk(harness.legacyRun());
+    const bound = ['--projects', '2'];
+    expectOk(harness.siteRun({ extra: bound }));
+    const projectsServed = () =>
+      [
+        ...new Set(
+          Object.keys(
+            harness.servedJson<{ files: Record<string, unknown> }>('_build/manifest.json').files,
+          )
+            .filter((path) => path.includes('/'))
+            .map((path) => path.split('/')[0]),
+        ),
+      ].sort();
+    expect(projectsServed()).toEqual(['zzone', 'zztwo']);
+    // Two new projects that sort first: over the bound, neither built nor served.
+    harness.commit('editor-data', {
+      'exports/projects/aaone.json': JSON.stringify(project('aaone', [style('s1', 'aaone00001')])),
+      'exports/projects/aatwo.json': JSON.stringify(project('aatwo', [style('s1', 'aatwo00001')])),
+    });
+    expectOk(harness.siteRun({ extra: bound }));
+    expect(projectsServed()).toEqual(['zzone', 'zztwo']);
+    const overLimit = () =>
+      harness
+        .servedJson<{ kind: string; project?: string }[]>('_build/notices.json')
+        .filter((notice) => notice.kind === 'over-limit')
+        .map((notice) => notice.project)
+        .sort();
+    expect(overLimit()).toEqual(['aaone', 'aatwo']);
+    // An invalid published config still holds its slot (its URLs are carried).
+    harness.commit('editor-data', { 'exports/projects/zzone.json': '{"schema":1}' });
+    expectOk(harness.siteRun({ extra: bound }));
+    expect(projectsServed()).toEqual(['zzone', 'zztwo']);
+    expect(overLimit()).toEqual(['aaone', 'aatwo']);
+    // Removing it frees the slot for the first new project.
+    harness.commit('editor-data', { 'exports/projects/zzone.json': null });
+    expectOk(harness.siteRun({ extra: bound }));
+    expect(projectsServed()).toEqual(['aaone', 'zztwo']);
+    expect(overLimit()).toEqual(['aatwo']);
+  }, 180_000);
+
+  it('failed builds rotate behind files the budget skipped (attempt order, not build time)', async () => {
+    harness = new Harness();
+    const files = Array.from({ length: 6 }, (_, index) =>
+      legacyFile(`f${index}`, `file00000${index}`, 'clarityV2'),
+    );
+    await harness.seed({
+      input: fixtureText(),
+      projects: {
+        alpha: project('alpha', files.slice(0, 3)),
+        beta: project('beta', files.slice(3)),
+      },
+    });
+    expectOk(harness.legacyRun());
+    expectOk(harness.siteRun());
+    // f0 and f1 hang every run; they hold both pool slots past the carry point in the first run.
+    harness.commit('converter', harness.wrapEngine({ hang: ['f0', 'f1'] }));
+    expectOk(harness.legacyRun());
+    const limits = ['--file-timeout', '3000', '--carry-after', '2000'];
+    const paths = files.map((file, index) => `${index < 3 ? 'alpha' : 'beta'}/v1/${file.id}.json`);
+    const attempted = () => {
+      const manifest = harness.servedJson<{ builtAt: string; attempts: Record<string, string> }>(
+        '_build/manifest.json',
+      );
+      return paths.filter((path) => manifest.attempts[path] === manifest.builtAt);
+    };
+    const first = harness.siteRun({ extra: limits });
+    expectOk(first);
+    expect(first.result).toMatchObject({ budgetHit: true });
+    expect(attempted()).toEqual(paths.slice(0, 2));
+    // The next run starts with the files the first one skipped, not the failures again.
+    expectOk(harness.siteRun({ extra: limits }));
+    expect(attempted()).toEqual(expect.arrayContaining(paths.slice(2, 4)));
+  }, 180_000);
+
   it('a corrupt or missing manifest on a project with deployments deploys nothing; an invalid config keeps its URLs', async () => {
     harness = new Harness();
     await harness.seed({
@@ -636,6 +719,24 @@ describe('build-site per-file outcomes', () => {
     expect(harness.served('beta/index.json')).toBeDefined();
     const canonical = readFileSync(join(harness.pages, 'canonical'), 'utf8');
     const manifestPath = join(harness.pages, 'deployments', canonical, '_build', 'manifest.json');
+    // Well-formed JSON that breaks the contract: each stops the deploy.
+    const good = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    const variants = [
+      { manifestVersion: 1, buildId: 'invalid', files: [], snapshots: [] },
+      { ...good, files: [] },
+      { ...good, builtAt: undefined },
+      { ...good, pinId: 'not-a-pin' },
+      { ...good, snapshots: [{ ...good.snapshots[0], buildId: '0123456789abcdef' }] },
+      { ...good, files: { ...good.files, 'beta/index.json': { sha256: 'x' } } },
+      { ...good, attempts: [] },
+    ];
+    for (const variant of variants) {
+      writeFileSync(manifestPath, JSON.stringify(variant));
+      const run = harness.siteRun();
+      expect(run.status).not.toBe(0);
+      expect(run.stderr).toMatch(/manifest is malformed/);
+      expect(readFileSync(join(harness.pages, 'canonical'), 'utf8')).toBe(canonical);
+    }
     writeFileSync(manifestPath, '{"manifestVersion":1,');
     expect(harness.siteRun().status).not.toBe(0);
     expect(readFileSync(join(harness.pages, 'canonical'), 'utf8')).toBe(canonical);
