@@ -3,11 +3,13 @@ import { memo, useMemo, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { globalUsageCount } from './model';
 import { useDataStore } from '../../stores/data';
-import { canonicalHash, itemFor } from '../navigation/catalog';
+import { canonicalHash, classifiedCategory, itemFor } from '../navigation/catalog';
 import { globalPath, globalTypes } from './model';
 import { RightPane, RightPaneHeader } from '../../ui/RightPane';
 import { useGlobals, useGlobalUsages } from './useGlobals';
 import styles from './GlobalsPage.module.scss';
+
+const tooltipCount = (count: number) => `Used in ${count} tooltip${count === 1 ? '' : 's'}`;
 
 export function GlobalsPage() {
   const entries = useGlobals();
@@ -40,7 +42,7 @@ export function GlobalsPage() {
                   >
                     {entry.name}
                   </Link>
-                  <span>Used in {globalUsageCount([entry])} tooltips</span>
+                  <span>{tooltipCount(globalUsageCount([entry]))}</span>
                 </li>
               ))}
           </ul>
@@ -97,7 +99,7 @@ export const GlobalUsages = memo(function GlobalUsages({
         className={styles.usagePane}
         label="Global usages"
         header={
-          <RightPaneHeader title="Usages">
+          <RightPaneHeader title="References">
             {usages.length > 25 && (
               <span className={styles.pager}>
                 <button
@@ -127,21 +129,29 @@ export const GlobalUsages = memo(function GlobalUsages({
         }
       >
         <div className={styles.usageBody}>
-          <p>Used in {globalUsageCount([{ usages }])} tooltips.</p>
-          {!usages.length && <p>No authored references.</p>}
+          {!usages.length && <p className={styles.empty}>No authored references.</p>}
           <ul className={styles.usages}>
-            {usages.slice(page * 25, (page + 1) * 25).map((usage) => (
-              <li key={`${usage.hash}:${usage.lang}:${usage.line}`}>
-                <Link
-                  to={`/t/${data ? canonicalHash(usage.hash, data) : usage.hash}?lang=${usage.lang}&line=${usage.line}&variant=${usage.hash}`}
-                >
-                  {data ? (itemFor(usage.hash, data)?.name ?? usage.hash) : usage.hash} /{' '}
-                  {languageLabel(usage.lang)} / line {usage.line}
-                </Link>
-                <small>{data ? itemFor(usage.hash, data)?.categoryId : ''}</small>
-                <pre>{usage.source}</pre>
-              </li>
-            ))}
+            {usages.slice(page * 25, (page + 1) * 25).map((usage) => {
+              const item = data && itemFor(usage.hash, data);
+              const category = data && classifiedCategory(item, data)?.label;
+              return (
+                <li key={`${usage.hash}:${usage.lang}:${usage.line}`}>
+                  <Link
+                    className={styles.usageLink}
+                    to={`/t/${data ? canonicalHash(usage.hash, data) : usage.hash}?lang=${usage.lang}&line=${usage.line}&variant=${usage.hash}`}
+                  >
+                    <span className={styles.usageName}>{item?.name ?? usage.hash}</span>
+                    <span className={styles.usageMeta}>
+                      {category && <span>{category}</span>}
+                      <span>
+                        {languageLabel(usage.lang)} · line {usage.line}
+                      </span>
+                    </span>
+                    <code>{usage.source}</code>
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         </div>
       </RightPane>
@@ -158,5 +168,5 @@ export const GlobalUsageCount = memo(function GlobalUsageCount({
   name: string;
 }) {
   const usages = useGlobalUsages(hash, name);
-  return <p className={styles.usageCount}>Used in {globalUsageCount([{ usages }])} tooltips</p>;
+  return <p className={styles.usageCount}>{tooltipCount(globalUsageCount([{ usages }]))}</p>;
 });

@@ -737,6 +737,7 @@ describe('global declarations in the finder', () => {
       'Beta',
     ]);
     expect(options()[1].title).toBe('20');
+    expect(options().every((option) => !option.querySelector('small'))).toBe(true);
     await press('ArrowDown');
     await press('Enter');
     expect(route()).toBe('/t/2?global=Beta');

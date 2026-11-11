@@ -210,7 +210,7 @@ const FinderOption = memo(function FinderOption({
       data-current={current || undefined}
       title={globalContents ?? shared}
       className={styles.option}
-      data-two-line={stacked || narrow || undefined}
+      data-two-line={(!row.global && (stacked || narrow)) || undefined}
       data-grouped={row.group || undefined}
       onMouseDown={(event) => event.preventDefault()}
       onMouseMove={() => !active && onActive(index)}
@@ -223,23 +223,27 @@ const FinderOption = memo(function FinderOption({
         {isDirty && <span className="sr-only">Unsaved draft: </span>}
         {stacked ? row.entry : row.name}
       </span>
-      <small>
-        {enhanced && (
-          <span className={styles.enhanced} title="Has an enhanced version">
-            <EnhancedArrow />
+      {row.global ? (
+        allCategories && <small>{row.category}</small>
+      ) : (
+        <small>
+          {enhanced && (
+            <span className={styles.enhanced} title="Has an enhanced version">
+              <EnhancedArrow />
+            </span>
+          )}
+          {!stacked && row.perk && <span className={styles.perk}>{row.perk}</span>}
+          <span className={styles.tail}>
+            {stacked ? row.all && `${row.name} · ` : row.perk && ' · '}
+            {row.kind && `${row.kind} · `}
+            {row.hash}
+            {row.extra && ` · ${row.extra}`}
+            {shared && !row.listsPieces && !row.group && ' · shared perk'}
+            {frames > 1 && ` ×${frames}`}
+            {item && allCategories && ` · ${row.category}`}
           </span>
-        )}
-        {!stacked && row.perk && <span className={styles.perk}>{row.perk}</span>}
-        <span className={styles.tail}>
-          {stacked ? row.all && `${row.name} · ` : row.perk && ' · '}
-          {row.kind && `${row.kind} · `}
-          {row.hash}
-          {row.extra && ` · ${row.extra}`}
-          {shared && !row.listsPieces && !row.group && ' · shared perk'}
-          {frames > 1 && ` ×${frames}`}
-          {item && allCategories && ` · ${row.category}`}
-        </span>
-      </small>
+        </small>
+      )}
     </li>
   );
 });
@@ -521,7 +525,11 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   // Compact is 2.25rem (follows the scale both ways); Large is max(44px, 2.75rem).
   const tap = touchSize === 'large' ? Math.max(44, 44 * scale) : 36 * scale;
   const rowHeight =
-    Math.round((touchRows ? tap + (narrow ? 18 * scale : 0) : 28 * scale) * 64) / 64;
+    Math.round(
+      (touchRows
+        ? tap + (narrow && !(selectedGlobal && !allCategories) ? 18 * scale : 0)
+        : 28 * scale) * 64,
+    ) / 64;
   const [viewportStore] = useState(createFinderViewport);
   const setViewport = viewportStore.set;
   const root = useRef<HTMLDivElement>(null);
