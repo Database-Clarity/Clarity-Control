@@ -1,0 +1,42 @@
+.results {
+  min-width: 0;
+  font-family: var(--font-ui, sans-serif);
+}
+.status {
+  padding: 0.375rem 0.5rem;
+  color: var(--text2);
+}
+.result {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.125rem;
+  width: 100%;
+  padding: 0.375rem 0.5rem;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  &:hover,
+  &[aria-selected='true'] {
+    background: var(--sel);
+  }
+  mark {
+    color: var(--text);
+    background: var(--hover);
+    font-weight: 700;
+  }
+}
+.name {
+  font-weight: 600;
+}
+.category {
+  font-size: 0.75rem;
+  color: var(--text2);
+}
+.snippet {
+  white-space: pre-wrap;
+}

@@ -1,4 +1,6 @@
 import { StateEffect, StateField, type Extension } from '@codemirror/state';
+import { GlobalFindController } from './globalFind/controller';
+import { globalFindHost } from './globalFind/host';
 import { EditorView, runScopeHandlers, type Panel, type ViewUpdate } from '@codemirror/view';
 import {
   findNext,
@@ -155,6 +157,7 @@ class FindWidget implements Panel {
   private quiet: ReturnType<typeof setTimeout> | undefined;
   private run = 0;
   private settle: ReturnType<typeof setTimeout>[] = [];
+  private global: GlobalFindController | undefined;
 
   constructor(private readonly view: EditorView) {
     this.query = getSearchQuery(view.state);
@@ -261,6 +264,18 @@ class FindWidget implements Panel {
       [...(this.expand ? [this.expand] : []), element('div', { class: 'fw-rows' }, rows)],
     );
     widgets.set(this.dom, this);
+    if (view.state.facet(globalFindHost)?.navigate())
+      this.global = new GlobalFindController(
+        view,
+        this.dom,
+        this.dom.querySelector('.fw-rows')!,
+        this.search,
+        () => {
+          this.setReplaceShown(this.global?.scope === 'entry' && replaceRowOpen(view.state));
+          this.sync(getSearchQuery(view.state));
+          this.rescan(0);
+        },
+      );
     this.dom.addEventListener('keydown', (event) => this.keydown(event));
     this.dom.addEventListener('input', () => this.commit());
     this.dom.addEventListener('change', () => this.commit());
@@ -278,6 +293,7 @@ class FindWidget implements Panel {
   }
 
   destroy() {
+    this.global?.destroy();
     window.removeEventListener('scroll', this.onScroll, true);
     for (const timer of this.settle) clearTimeout(timer);
     this.run++;
@@ -298,6 +314,7 @@ class FindWidget implements Panel {
   }
 
   focusReplace() {
+    this.global?.setScope('entry');
     this.showReplace(true);
     this.replace.focus();
     this.replace.select();
@@ -310,7 +327,8 @@ class FindWidget implements Panel {
     this.flags.case.setAttribute('aria-pressed', String(query.caseSensitive));
     this.flags.re.setAttribute('aria-pressed', String(query.regexp));
     this.flags.word.setAttribute('aria-pressed', String(query.wholeWord));
-    const invalid = Boolean(query.search) && !query.valid;
+    const invalid =
+      Boolean(query.search) && !query.valid && (!this.global || this.global.scope === 'entry');
     this.search.toggleAttribute('data-invalid', invalid);
     this.field.toggleAttribute('data-invalid', invalid);
   }
@@ -345,10 +363,12 @@ class FindWidget implements Panel {
         this.search.focus();
         break;
       case 'next':
-        findNext(view);
+        if (this.global && this.global.scope !== 'entry') this.global.step(1);
+        else findNext(view);
         break;
       case 'prev':
-        findPrevious(view);
+        if (this.global && this.global.scope !== 'entry') this.global.step(-1);
+        else findPrevious(view);
         break;
       case 'closeFind':
         closeSearchPanel(view);
@@ -372,6 +392,10 @@ class FindWidget implements Panel {
     const key = event.key;
     const mod = event.ctrlKey || event.metaKey;
     const view = this.view;
+    if (this.global?.keydown(event)) {
+      event.preventDefault();
+      return;
+    }
     if (runScopeHandlers(view, event, 'search-panel')) {
       event.preventDefault();
       return;
@@ -396,6 +420,7 @@ class FindWidget implements Panel {
   }
 
   update(update: ViewUpdate) {
+    this.global?.update();
     let queryChanged = false;
     for (const tr of update.transactions)
       for (const effect of tr.effects) {
@@ -474,6 +499,7 @@ class FindWidget implements Panel {
   private rescan(delay: number) {
     const token = ++this.run;
     clearTimeout(this.quiet);
+    if (this.global && this.global.scope !== 'entry') return;
     const start = () => {
       if (token !== this.run) return;
       const state = this.view.state;

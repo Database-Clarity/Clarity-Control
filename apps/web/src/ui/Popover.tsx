@@ -38,11 +38,14 @@ export function Popover({
   contain = false,
   gap = 4,
   clearTop,
+  open: controlledOpen,
+  onOpenChange,
+  anchorElement,
 }: {
   /** Names both the trigger's popup and the surface. */
   label: string;
   /** The trigger button's content. */
-  trigger: ReactNode;
+  trigger?: ReactNode;
   /** Content, or a function of `close` when the content needs to close the surface itself. */
   children: ReactNode | ((close: (restoreFocus?: boolean) => void) => ReactNode);
   className?: string;
@@ -64,15 +67,26 @@ export function Popover({
    * placement; the surface then never covers that chrome.
    */
   clearTop?: () => number;
+  /** Optional external control; an anchor keeps focus in an existing input. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  anchorElement?: HTMLElement;
 }) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const external = useRef({ controlledOpen, onOpenChange, anchorElement });
+  external.current = { controlledOpen, onOpenChange, anchorElement };
   const button = useRef<HTMLButtonElement>(null);
   const surface = useRef<HTMLDivElement>(null);
   const id = useId();
   useWorkspaceShortcutOwner(surface, open && contain);
   const close = useCallback((restoreFocus: boolean) => {
-    setOpen(false);
-    if (restoreFocus) button.current?.focus();
+    if (external.current.controlledOpen === undefined) setOpen(false);
+    external.current.onOpenChange?.(false);
+    if (restoreFocus) {
+      const anchor = external.current.anchorElement;
+      (anchor?.querySelector<HTMLElement>('input') ?? anchor ?? button.current)?.focus();
+    }
   }, []);
   const clearTopRef = useRef(clearTop);
   clearTopRef.current = clearTop;
@@ -80,11 +94,12 @@ export function Popover({
     if (!open) return;
     const place = () => {
       const element = surface.current;
-      if (!element || !button.current) return;
+      const anchor = anchorElement ?? button.current;
+      if (!element || !anchor) return;
       const phone = isPhone();
       const area = visibleArea(window, phone ? clearTopRef.current?.() : undefined);
       const input = {
-        trigger: button.current.getBoundingClientRect(),
+        trigger: anchor.getBoundingClientRect(),
         area,
         width: phone ? Infinity : 560,
         gap,
@@ -97,9 +112,9 @@ export function Popover({
     };
     place();
     return followPlacement(() => surface.current, place);
-  }, [open, gap]);
+  }, [open, gap, anchorElement]);
   useEffect(() => {
-    if (!open || contain) return;
+    if (!open || contain || anchorElement) return;
     // Preserve the trigger's place in sequential keyboard navigation across the portal.
     const items = () => [
       ...(surface.current?.querySelectorAll<HTMLElement>(
@@ -143,12 +158,17 @@ export function Popover({
     };
     document.addEventListener('keydown', tab, true);
     return () => document.removeEventListener('keydown', tab, true);
-  }, [open, contain]);
+  }, [open, contain, anchorElement]);
   useEffect(() => {
     if (!open) return;
     const outside = (event: PointerEvent) => {
       const target = event.target as Node;
-      if (surface.current?.contains(target) || button.current?.contains(target)) return;
+      if (
+        surface.current?.contains(target) ||
+        button.current?.contains(target) ||
+        external.current.anchorElement?.contains(target)
+      )
+        return;
       close(false);
     };
     const escape = (event: KeyboardEvent) => {
@@ -199,19 +219,24 @@ export function Popover({
   }, [open, contain]);
   return (
     <>
-      <button
-        ref={button}
-        type="button"
-        className={className}
-        title={triggerTitle}
-        aria-label={triggerLabel}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-controls={open ? id : undefined}
-        onClick={() => setOpen((value) => !value)}
-      >
-        {trigger}
-      </button>
+      {!anchorElement && (
+        <button
+          ref={button}
+          type="button"
+          className={className}
+          title={triggerTitle}
+          aria-label={triggerLabel}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-controls={open ? id : undefined}
+          onClick={() => {
+            if (controlledOpen === undefined) setOpen((value) => !value);
+            onOpenChange?.(!open);
+          }}
+        >
+          {trigger}
+        </button>
+      )}
       {open &&
         createPortal(
           <div ref={surface} id={id} role="dialog" aria-label={label} className={styles.surface}>
