@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react';
+import { picker, pickOption } from './finderPicker.testUtils';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -425,9 +426,7 @@ describe('tooltip finder combobox', () => {
     expect(field().value).toBe('Alpha helm');
     expect(field().getAttribute('aria-expanded')).toBe('false');
     expect(host.querySelector('[role="listbox"]')).toBeNull();
-    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Category"]')!.value).toBe(
-      'armor',
-    );
+    expect(picker(host, 'Category')!.dataset.value).toBe('armor');
     expect(host.textContent).toContain('1 of 3');
   });
 
@@ -533,9 +532,7 @@ describe('tooltip finder combobox', () => {
     await press('Enter');
     expect(route()).toBe('/t/21?lang=de');
     // The category follows the item.
-    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Category"]')!.value).toBe(
-      'weapons',
-    );
+    expect(picker(host, 'Category')!.dataset.value).toBe('weapons');
   });
 
   it('Enter on an empty result searches all categories instead of doing nothing', async () => {
@@ -586,11 +583,7 @@ describe('tooltip finder combobox', () => {
 
   it('changing the category opens its first tooltip', async () => {
     await mount();
-    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Category"]')!;
-    await act(async () => {
-      select.value = 'weapons';
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    await pickOption(picker(host, 'Category')!, 'weapons');
     expect(route()).toBe('/t/20?lang=de');
   });
 
@@ -632,9 +625,7 @@ describe('finder sheet form', () => {
     expect(options()).toHaveLength(3);
     // The category and stepper sit at the top, by the header title; the field and its list follow.
     const section = host.querySelector('section')!;
-    expect(
-      section.firstElementChild!.querySelector('select[aria-label="Category"]'),
-    ).not.toBeNull();
+    expect(picker(section.firstElementChild!, 'Category')).not.toBeNull();
     expect(section.children[1]).toBe(field().closest('[class*="combo"]'));
     await type('gam');
     expect(options()).toHaveLength(1);
@@ -781,11 +772,7 @@ describe('global declarations in the finder', () => {
   });
   it('opens the first declaration when switching global type', async () => {
     await mount('/t/10', source);
-    const category = host.querySelector<HTMLSelectElement>('[aria-label="Category"]')!;
-    await act(async () => {
-      category.value = 'globals-titles';
-      category.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    await pickOption(picker(host, 'Category')!, 'globals-titles');
     expect(route()).toBe('/t/3?global=Heading');
     expect(field().value).toBe('Heading');
   });

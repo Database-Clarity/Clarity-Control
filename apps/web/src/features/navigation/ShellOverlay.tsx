@@ -21,6 +21,7 @@ import { create } from 'zustand';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import styles from './ShellOverlay.module.scss';
 import { useWorkspaceShortcutOwner } from '../../ui/interaction';
+import { overlayPartAttribute } from './FinderPicker';
 
 const focusable =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -172,6 +173,8 @@ export function ShellOverlay({
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (panel.current?.contains(target) || anchorRef.current?.contains(target)) return;
+      // A list a control inside opened, portalled to the body (the finder's dropdowns).
+      if (target instanceof Element && target.closest(`[${overlayPartAttribute}]`)) return;
       if (document.querySelector('dialog[open]')) return;
       closeRef.current();
     };

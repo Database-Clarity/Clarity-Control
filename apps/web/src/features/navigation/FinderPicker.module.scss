@@ -1,0 +1,134 @@
+@use '../../data/variables' as theme;
+@use '../../ui/controls';
+
+// The finder dropdowns' trigger: drawn as the field it replaces (the native select), with the
+// selected label (an icon before it where the rows have icons) and a chevron on the right.
+.trigger {
+  @include controls.field;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+  padding-right: 0.5rem;
+  text-align: left;
+  cursor: pointer;
+
+  &[aria-expanded='true'] {
+    border-color: var(--accent-ink);
+  }
+
+  &:disabled {
+    cursor: default;
+  }
+}
+
+.value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  flex: none;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--text2);
+}
+
+// One icon box, the same in every row, the trigger, and the finder's entry list: rows never
+// shift while icons load, and a missing icon leaves the box empty.
+.icon {
+  flex: none;
+  display: inline-block;
+  width: 1.25rem;
+  height: 1.25rem;
+  overflow: hidden;
+  border-radius: 2px;
+
+  img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+}
+
+.popup {
+  position: fixed;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  @include controls.overlay-surface;
+  border-radius: 0.25rem;
+  overflow: hidden;
+}
+
+.listbox {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+  outline: none;
+
+  ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+}
+
+.heading {
+  padding: 0.375rem 0.625rem 0.125rem;
+  color: var(--text2);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+// The same row as the finder's entry list: highlight and current item drawn the same way.
+.option {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 1.75rem;
+  padding: 0 0.625rem 0 0.5rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+
+  @include theme.mobile-or-coarse {
+    min-height: var(--tap);
+    font-size: var(--ctl-text);
+  }
+
+  &[data-active] {
+    background: var(--hover);
+  }
+
+  &[data-current] {
+    border-left-color: var(--accent-ink);
+    font-weight: 700;
+    background: var(--sel);
+  }
+
+  &[data-current][data-active] {
+    background: var(--sel);
+    box-shadow: inset 0 0 0 1px var(--accent-ink);
+  }
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

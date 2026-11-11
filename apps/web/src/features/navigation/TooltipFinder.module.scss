@@ -151,7 +151,8 @@
 .option {
   display: grid;
   // The name wins the width; the right-hand text yields (a long perk truncates, never the piece).
-  grid-template-columns: 0.625rem minmax(0, 1fr) fit-content(55%);
+  // Draft mark, icon (a fixed 1.25rem box), name, then the right-hand text.
+  grid-template-columns: 0.625rem 1.25rem minmax(0, 1fr) fit-content(55%);
   align-items: center;
   gap: 0.375rem;
   min-height: 1.75rem;
@@ -186,7 +187,7 @@
   // A weapon's or activity's row keeps its kind, hash, and "shared" whole: only the entry name
   // ahead of them gives way.
   &[data-grouped] {
-    grid-template-columns: 0.625rem minmax(0, 1fr) fit-content(75%);
+    grid-template-columns: 0.625rem 1.25rem minmax(0, 1fr) fit-content(75%);
 
     .tail {
       flex: none;
@@ -195,18 +196,18 @@
 
   // The phone sheet cannot fit two names on one line: the entry above, its context below.
   &[data-two-line] {
-    grid-template-columns: 0.625rem minmax(0, 1fr);
+    grid-template-columns: 0.625rem 1.25rem minmax(0, 1fr);
     grid-template-rows: auto auto;
     align-content: center;
     row-gap: 0;
 
-    .mark {
+    > :nth-child(-n + 2) {
       grid-row: 1 / span 2;
     }
 
     .name,
     small {
-      grid-column: 2;
+      grid-column: 3;
     }
 
     small {
