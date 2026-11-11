@@ -6,8 +6,60 @@ import { guidedFixture } from '../../../test/guided-fixture';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { ReadingTooltip } from './ReadingTooltip';
+import { parseMarkup, type Tooltip } from '@clarity/core';
+
+vi.mock('@clarity/core', async (original) => {
+  const actual = await original<typeof import('@clarity/core')>();
+  return { ...actual, parseMarkup: vi.fn(actual.parseMarkup) };
+});
 
 afterEach(() => vi.unstubAllGlobals());
+
+it('keeps the English parse cached when a German draft is created, edited, or discarded', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const data = guidedFixture().editor;
+  const base: Tooltip = {
+    hash: 100,
+    associated: [],
+    text: {
+      en: { text: '<yellow English />', updatedAt: 'now', updatedBy: 'fixture' },
+    },
+  };
+  data.bundle.tooltips[100] = base;
+  useDataStore.setState({ data });
+  useDraftStore.setState({ drafts: {} });
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  vi.mocked(parseMarkup).mockClear();
+  try {
+    await act(async () => root.render(<ReadingTooltip text={base.text.en!.text} hash={100} />));
+    const parses = vi.mocked(parseMarkup).mock.calls.length;
+    expect(parses).toBeGreaterThan(0);
+    for (const text of ['Deutsch', 'Deutsch geändert']) {
+      await act(async () =>
+        useDraftStore.setState({
+          drafts: {
+            100: {
+              base,
+              next: {
+                ...base,
+                text: { ...base.text, de: { text, updatedAt: 'later', updatedBy: 'fixture' } },
+              },
+            },
+          },
+        }),
+      );
+      expect(host.textContent).toBe('English');
+      expect(vi.mocked(parseMarkup).mock.calls.length).toBe(parses);
+    }
+    await act(async () => useDraftStore.setState({ drafts: {} }));
+    expect(vi.mocked(parseMarkup).mock.calls.length).toBe(parses);
+  } finally {
+    await act(async () => root.unmount());
+    useDataStore.setState({ data: null });
+    useDraftStore.setState({ drafts: {} });
+  }
+});
 
 it('renders imported titles, links, tints, and each category variant, and invalidates changed imports', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

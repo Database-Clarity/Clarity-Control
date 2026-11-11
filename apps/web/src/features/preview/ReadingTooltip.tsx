@@ -12,6 +12,41 @@ import styles from './TooltipPreview.module.scss';
 const emptyGlobals: MarkupGlobals = { variables: '', titles: '' };
 const catalogs = new WeakMap<EditorData, WeakMap<Drafts, Map<Lang, MarkupGlobals>>>();
 const renders = new WeakMap<MarkupGlobals, Map<string, ReturnType<typeof parseMarkup>>>();
+const revisions = new WeakMap<
+  EditorData,
+  Map<
+    Lang,
+    {
+      checked: Drafts;
+      source: Drafts;
+      values: Map<string, string>;
+    }
+  >
+>();
+
+/** A translation edit must not schedule or reparse the unchanged English pane. */
+function languageRevision(data: EditorData | null, drafts: Drafts, lang: Lang): Drafts {
+  if (!data) return drafts;
+  let languages = revisions.get(data);
+  if (!languages) revisions.set(data, (languages = new Map()));
+  const previous = languages.get(lang);
+  if (previous?.checked === drafts) return previous.source;
+  const values = new Map<string, string>();
+  for (const [hash, draft] of Object.entries(drafts)) {
+    const text = draft.next.text[lang]?.text ?? '';
+    if (text !== (data.bundle.tooltips[hash]?.text[lang]?.text ?? '')) values.set(hash, text);
+  }
+  if (
+    previous &&
+    previous.values.size === values.size &&
+    [...values].every(([hash, text]) => previous.values.get(hash) === text)
+  ) {
+    previous.checked = drafts;
+    return previous.source;
+  }
+  languages.set(lang, { checked: drafts, source: drafts, values });
+  return drafts;
+}
 
 function globalsFor(data: EditorData | null, drafts: Drafts, lang: Lang) {
   if (!data) return emptyGlobals;
@@ -39,7 +74,7 @@ export const ReadingTooltip = memo(function ReadingTooltip({
   hash?: number;
 }) {
   const data = useDataStore((state) => state.data);
-  const drafts = useDraftStore((state) => state.drafts);
+  const drafts = useDraftStore((state) => languageRevision(data, state.drafts, lang));
   const globals = globalsFor(data, drafts, lang);
   const category =
     hash === undefined || !data ? undefined : archivedItemFor(hash, data)?.categoryId;
