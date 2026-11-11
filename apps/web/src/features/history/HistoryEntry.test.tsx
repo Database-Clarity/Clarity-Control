@@ -186,7 +186,7 @@ it('cancels pending hover on a closed row when another revision is pinned', asyn
   await wait(260);
   expect(entries()[0].getAttribute('aria-expanded')).toBe('false');
   expect(entries()[1].getAttribute('aria-expanded')).toBe('true');
-  expect(host.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+  expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
 });
 
 it('the first revision is shown as all new, and the cache means one request per commit', async () => {
@@ -376,4 +376,15 @@ it('filters against original parents and resets popovers when the language or ro
   await act(async () => useAuthStore.setState({ user: null }));
   expect(dialog()).toBeNull();
   expect(entries()).toHaveLength(0);
+});
+
+
+it('keeps a portaled popover open for its own pointer events and closes on outside presses', async () => {
+  await act(async () => entries()[0].click());
+  await wait(0);
+  expect(dialog()!.parentElement).toBe(document.body);
+  await act(async () => dialog()!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })));
+  expect(dialog()).not.toBeNull();
+  await act(async () => document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })));
+  expect(dialog()).toBeNull();
 });

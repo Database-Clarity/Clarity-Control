@@ -141,7 +141,7 @@ it('loads published text into a local draft while preserving current association
   await act(async () => section.querySelector<HTMLButtonElement>('ol button')!.click());
   const click = async (label: string) =>
     act(async () => {
-      const button = [...host.querySelectorAll('button')].find(
+      const button = [...document.querySelectorAll<HTMLButtonElement>('[role=dialog] button')].find(
         (button) => button.textContent === label,
       );
       expect(button).toBeDefined();

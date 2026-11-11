@@ -8,6 +8,7 @@ import {
   useState,
   type RefObject,
 } from 'react';
+import { createPortal } from 'react-dom';
 import type { Tooltip } from '@clarity/core';
 import type { Item } from '../../services/generator';
 import { scaledPx } from '../../ui/scale';
@@ -72,6 +73,7 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
   const [focus, setFocus] = useState(false);
   const [pinned, setPinned] = useState(false);
   const container = useRef<HTMLLIElement>(null);
+  const surface = useRef<HTMLDivElement>(null);
   const geometry = useRef<AnchorGeometry | undefined>(undefined);
   const trigger = useRef<HTMLButtonElement>(null);
   const timers = useRef<{
@@ -126,12 +128,21 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
   useEffect(() => {
     if (!open) return;
     const outside = (event: PointerEvent) => {
-      if (!container.current?.contains(event.target as Node)) close(false);
+      if (
+        !container.current?.contains(event.target as Node) &&
+        !surface.current?.contains(event.target as Node)
+      )
+        close(false);
     };
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       event.stopPropagation();
-      close(container.current?.contains(document.activeElement) ?? false);
+      close(
+        Boolean(
+          container.current?.contains(document.activeElement) ||
+          surface.current?.contains(document.activeElement),
+        ),
+      );
     };
     document.addEventListener('pointerdown', outside, true);
     document.addEventListener('keydown', escape, true);
@@ -174,7 +185,11 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
         }
       }}
       onBlur={(event) => {
-        if (event.currentTarget.contains(event.relatedTarget)) return;
+        if (
+          event.currentTarget.contains(event.relatedTarget) ||
+          surface.current?.contains(event.relatedTarget as Node)
+        )
+          return;
         dismissed.current = false;
         setFocus(false);
       }}
@@ -226,22 +241,26 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
           {entry.message.split(/\r?\n/, 1)[0]} <code>{entry.commit.slice(0, 8)}</code>
         </span>
       </button>
-      {open && (
-        <RevisionPopover
-          {...props}
-          id={id}
-          anchor={container}
-          initialGeometry={geometry}
-          translator={translator}
-          pinned={pinned}
-          onClose={close}
-        />
-      )}
+      {open &&
+        createPortal(
+          <RevisionPopover
+            surface={surface}
+            {...props}
+            id={id}
+            anchor={container}
+            initialGeometry={geometry}
+            translator={translator}
+            pinned={pinned}
+            onClose={close}
+          />,
+          document.body,
+        )}
     </li>
   );
 });
 
 function RevisionPopover({
+  surface,
   id,
   anchor,
   initialGeometry,
@@ -261,13 +280,13 @@ function RevisionPopover({
   legacy,
   scope,
 }: HistoryEntryProps & {
+  surface: RefObject<HTMLDivElement>;
   id: string;
   anchor: RefObject<HTMLElement | null>;
   initialGeometry: RefObject<AnchorGeometry | undefined>;
   pinned: boolean;
   onClose(restoreFocus: boolean): void;
 }) {
-  const surface = useRef<HTMLDivElement>(null);
   const [source, setSource] = useState<RevisionDiffSource>();
   const [error, setError] = useState<string>();
   const [attempt, setAttempt] = useState(0);
@@ -349,7 +368,7 @@ function RevisionPopover({
       viewport?.removeEventListener('resize', refresh);
       viewport?.removeEventListener('scroll', refresh);
     };
-  }, [anchor, initialGeometry]);
+  }, [anchor, initialGeometry, surface]);
   useEffect(() => {
     let live = true;
     setError(undefined);
