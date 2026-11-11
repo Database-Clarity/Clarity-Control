@@ -1,6 +1,7 @@
 import { createHash, createPublicKey, verify } from 'node:crypto';
 import {
   stableStringify,
+  baseEnhancedPublishMessage,
   publishPayloadSchema,
   publishIntentDigest,
   publishMonth,
@@ -351,6 +352,23 @@ export class Publisher {
           undefined,
           undefined,
           { status: 'rejected', error: 'Missing generator facts' },
+          blob,
+        );
+        return;
+      }
+      // The data head can advance after the Worker signs. In particular, stale
+      // translation fallback can hide raw native markup from publishableHash.
+      // Reject it terminally instead of letting exportLegacy wedge the queue.
+      if (
+        tooltips.some((tooltip) =>
+          Object.values(tooltip.text).some((translation) => translation?.text.includes('{{')),
+        )
+      ) {
+        await this.record(
+          opId,
+          undefined,
+          undefined,
+          { status: 'rejected', error: baseEnhancedPublishMessage },
           blob,
         );
         return;

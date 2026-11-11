@@ -7,6 +7,8 @@ import {
   publishBodySchema,
   publishIntentDigest,
   publishMonth,
+  publishableHash,
+  resolveAlias,
   publishOpIdSchema,
   publishPayloadSchema,
   stableStringify,
@@ -129,7 +131,13 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
     }
     if (checkedHead !== snapshot.head) {
       aliases ??= await loadAliases(github.env, github);
-      await refuseBaseEnhanced(github, snapshot.head, value.hashes, aliases);
+      const checked = await refuseBaseEnhanced(github, snapshot.head, value.hashes, aliases);
+      for (const hash of value.hashes) {
+        const tooltip = checked.get(resolveAlias(hash, aliases));
+        if (!tooltip || (await publishableHash(tooltip, aliases)) !== value.expected[hash]) {
+          throw new HttpError(409, `Tooltip ${hash} changed since review; refresh saved changes`);
+        }
+      }
       checkedHead = snapshot.head;
     }
     const { key } = await signingKey(github.env);

@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   stableStringify,
+  baseEnhancedPublishMessage,
   publishIntentDigest,
   publishableHash,
   classifyPublishIntent,
@@ -310,6 +311,40 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     await f.pub.run();
     f.assertDone();
   });
+  it('rejects native pairs hidden by stale translations and continues the publish queue', async () => {
+    const f = await setup();
+    const current: Tooltip = {
+      ...f.tooltip,
+      text: {
+        en: { ...f.tooltip.text.en!, updatedAt: '2026-10-01T00:00:00Z' },
+        fr: {
+          text: 'old translation',
+          updatedAt: '2026-01-01T00:00:00Z',
+          updatedBy: 'alice',
+          sourceUpdatedAt: '2026-01-01T00:00:00Z',
+        },
+      },
+    };
+    const edited = structuredClone(current);
+    edited.text.fr!.text = '{{un}{deux}}';
+    expect(await publishableHash(edited)).toBe(await publishableHash(current));
+    f.change(D, { 'tooltips/123.json': current });
+    await f.request(A, [123], { 123: await publishableHash(current) });
+    f.change(D, { 'tooltips/123.json': edited });
+    const live = f.git.head(L);
+    await f.pub.run();
+    expect(f.git.head(L)).toBe(live);
+    const tree = f.git.tree(f.git.head(D)!);
+    expect(tree[paths(A).request]).toBeUndefined();
+    expect(f.pub.read(tree, paths(A).log)).toMatchObject({
+      result: { status: 'rejected', error: baseEnhancedPublishMessage },
+    });
+    f.change(D, { 'tooltips/123.json': f.tooltip });
+    await f.request(B);
+    await f.pub.run();
+    f.assertDone(B);
+  });
+
   it('malformed request JSON cannot block receipt recovery or later valid requests', async () => {
     const f = await setup();
     await f.request();

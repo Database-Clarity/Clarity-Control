@@ -1,7 +1,7 @@
 import { createHash, generateKeyPairSync, createPublicKey } from 'node:crypto';
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
-import { publishMonth, type PublishPayload } from '@clarity/core';
-import { Fixture, makePrivateKey, config } from './fixture.js';
+import { publishMonth, publishableHash, type PublishPayload } from '@clarity/core';
+import { Fixture, makePrivateKey, config, tooltip } from './fixture.js';
 import worker from '../src/index.js';
 import { Publisher } from '../../../scripts/publisher/publisher.js';
 import type { Repository } from '../../../scripts/publisher/git.js';
@@ -21,9 +21,10 @@ let f: Fixture;
 beforeAll(async () => {
   appKey = await makePrivateKey();
 });
-beforeEach(() => {
+beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['Date'], now: time });
   f = new Fixture(appKey);
+  value.expected[123] = await publishableHash(tooltip(), f.aliases);
   f.env.PUBLISH_SIGNING_KEY = generateKeyPairSync('ed25519')
     .privateKey.export({ type: 'pkcs8', format: 'pem' })
     .toString();
@@ -336,4 +337,18 @@ it('isolates cached signing keys by exact secret and rejects removed or invalid 
   expect((await key()).status).toBe(503);
   f.env.PUBLISH_SIGNING_KEY = original;
   expect(((await (await key()).json()) as { fingerprint: string }).fingerprint).toBe(a.fingerprint);
+});
+
+it('does not sign an expected digest for paired text that was not scanned', async () => {
+  const expected = await publishableHash(tooltip('{{a}{b}}'), f.aliases);
+  const response = await f.request('/publish', 'POST', { ...value, expected: { 123: expected } });
+  expect(response.status).toBe(409);
+  expect(f.current()[requestPath]).toBeUndefined();
+  expect(f.writes).toHaveLength(0);
+});
+it('rechecks digest binding at the new data head after a create race', async () => {
+  f.beforePatch = () => f.moveData({ 'tooltips/123.json': tooltip('different plain text') });
+  const response = await f.request('/publish', 'POST', value);
+  expect(response.status).toBe(409);
+  expect(f.current()[requestPath]).toBeUndefined();
 });

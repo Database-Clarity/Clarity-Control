@@ -106,6 +106,29 @@ describe('push-live subrequests', () => {
     },
   );
 
+  it('preserves recording budget after nested import reads and repeated data races', async () => {
+    const hashes = seed(1);
+    const donor = (hash: number, text: string): Tooltip => ({ ...tooltip(text), hash });
+    fixture.moveData({
+      'tooltips/10000.json': donor(10000, 'import main from 60001'),
+      'tooltips/60001.json': donor(60001, 'import main from 60002'),
+      'tooltips/60002.json': donor(60002, 'import main from 60003'),
+      'tooltips/60003.json': donor(60003, 'import main from 60004'),
+      'tooltips/60004.json': donor(60004, 'plain'),
+    });
+    fixture.liveRaces = 2;
+    const race = () => {
+      fixture.moveData();
+      fixture.beforeLive = race;
+    };
+    fixture.beforeLive = race;
+    const response = await fixture.request('/push-live', 'POST', { hashes });
+    expect(response.status).toBe(409);
+    expect(fixture.writes).toHaveLength(0);
+    expect(fixture.commits).toHaveLength(0);
+    expect(fixture.subrequests).toBeLessThanOrEqual(subrequestLimit);
+  });
+
   it('refuses a selection beyond the request bound', async () => {
     const response = await fixture.request('/push-live', 'POST', {
       hashes: Array.from({ length: 10_001 }, (_, index) => index + 1),

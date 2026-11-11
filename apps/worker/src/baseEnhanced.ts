@@ -19,7 +19,7 @@ export async function refuseBaseEnhanced(
   roots: readonly number[],
   aliases: Aliases,
   loaded: readonly Tooltip[] = [],
-): Promise<void> {
+): Promise<ReadonlyMap<number, Tooltip>> {
   const known = new Map(loaded.map((tooltip) => [tooltip.hash, tooltip]));
   const visited = new Set<number>();
   let pending = [...roots, 2, 3];
@@ -27,7 +27,7 @@ export async function refuseBaseEnhanced(
     const hashes = [...new Set(pending.map((hash) => resolveAlias(hash, aliases)))].filter(
       (hash) => !visited.has(hash),
     );
-    if (!hashes.length) return;
+    if (!hashes.length) return known;
     hashes.forEach((hash) => visited.add(hash));
     const missing = hashes.filter((hash) => !known.has(hash));
     if (missing.length) {
@@ -58,4 +58,5 @@ export async function refuseBaseEnhanced(
       }
     }
   }
+  return known;
 }

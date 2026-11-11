@@ -143,6 +143,13 @@ export async function pushLive(
     const changed = new Set(
       canonicalHashes.filter((hash) => pushed[hash] !== exportedHashes[hash]),
     );
+    // Dependency traversal has a variable cost. Re-check the reservation after its
+    // actual reads, before any live I/O, so a successful PUT always leaves recordCost.
+    if (github.remaining < 4 + recordCost) {
+      if (!attempt)
+        throw new HttpError(503, 'This push needs too many upstream requests; push fewer tooltips');
+      break;
+    }
     const liveHead = await github.head(github.env.LIVE_BRANCH);
     const file = await github.requiredFile('liveDescriptions.json', liveHead);
     const live = liveSchema.parse(file.value);

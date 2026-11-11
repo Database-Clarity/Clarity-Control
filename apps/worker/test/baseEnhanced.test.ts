@@ -105,7 +105,7 @@ it('terminates cycles and missing imports without changing pair-free output', as
   });
   await expect(
     refuseBaseEnhanced(new GitHub(f.env), f.dataHead, [123], {}),
-  ).resolves.toBeUndefined();
+  ).resolves.toHaveProperty('size', 2);
 });
 it('checks new data heads again after a live write race', async () => {
   f.beforeLive = () => f.moveData({ 'tooltips/123.json': tooltip('{{a}{b}}') });
