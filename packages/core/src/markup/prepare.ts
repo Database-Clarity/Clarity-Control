@@ -135,12 +135,15 @@ export function prepareMarkup(
 ) {
   text = resolveImports(text, globals, diagnostics);
   const enhanced = globals.type === 'Weapon Trait Enhanced';
-  // Diagnose authored structure before conditions or unused declarations can hide it.
-  // Keep the original text through legacy expansion: pair delimiters are token boundaries,
-  // so an arm adjacent to a variable or dollar sign cannot rewrite surrounding text.
-  for (const source of [text, globals.variables, globals.titles]) {
-    if (source.includes('{{') && scanBaseEnhanced(removeMarkupComments(source)).issues.length) {
-      diagnostics.push({ severity: 'error', message: baseEnhancedMessage });
+  const nativePairs =
+    text.includes('{{') || globals.variables.includes('{{') || globals.titles.includes('{{');
+  // Ordinary documents keep the existing preparation path. Native syntax is validated
+  // before conditions or unused declarations can hide malformed structure.
+  if (nativePairs) {
+    for (const source of [text, globals.variables, globals.titles]) {
+      if (source.includes('{{') && scanBaseEnhanced(removeMarkupComments(source)).issues.length) {
+        diagnostics.push({ severity: 'error', message: baseEnhancedMessage });
+      }
     }
   }
   for (const [keyword, type] of markupConditions) {
@@ -159,12 +162,9 @@ export function prepareMarkup(
     const value = variables[variable.slice(1)];
     if (value !== undefined) text = text.replaceAll(variable, value);
   }
-  text = resolveBaseEnhanced(
-    text.includes('{{') ? removeMarkupComments(text) : text,
-    enhanced,
-    diagnostics,
-    evaluateMarkupMath,
-  );
+  text = nativePairs
+    ? resolveBaseEnhanced(removeMarkupComments(text), enhanced, diagnostics, evaluateMarkupMath)
+    : evaluateMarkupMath(text);
   const cleanText = removeUnusedText(text.trim());
   for (const variable of new Set(markupVariableReferences(cleanText))) {
     diagnostics.push({ severity: 'warning', message: `Unknown variable ${variable}.` });
