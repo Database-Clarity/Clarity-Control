@@ -742,6 +742,29 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       ).toBe('rejected');
     },
   );
+  it('parses permissions with the export partners map; a partner-only requester is refused', async () => {
+    const partners = {
+      '1': { login: 'alice', projects: ['dim'] },
+      '9': { login: 'p', projects: ['x1'] },
+    };
+    const f = await setup();
+    f.change(D, {
+      'config/permissions.json': { users: { '1': { login: 'alice', role: 'editor' } }, partners },
+    });
+    await f.request();
+    await f.pub.run();
+    f.assertDone();
+    const g = await setup();
+    g.change(D, { 'config/permissions.json': { users: {}, partners } });
+    await g.request();
+    const before = g.git.head(L);
+    await g.pub.run();
+    expect(g.git.head(L)).toBe(before);
+    expect(
+      g.pub.read<{ result: { status: string } }>(g.git.tree(g.git.head(D)!), paths(A).log)!.result
+        .status,
+    ).toBe('rejected');
+  });
   it('aliases canonicalize and one stale member rejects the whole request', async () => {
     const f = await setup();
     f.options.aliases = { 789: { to: 123, kind: 'sandbox' } };

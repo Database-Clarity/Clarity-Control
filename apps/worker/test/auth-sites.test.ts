@@ -72,7 +72,7 @@ describe('old origin is unchanged by the site allow-list', () => {
     },
   );
 
-  it("CORS for the old origin and localhost has exactly today's headers", async () => {
+  it("CORS for the old origin and localhost has today's headers plus DELETE", async () => {
     for (const origin of ['https://editor.example', 'http://localhost:5173']) {
       const response = await worker.fetch(
         new Request('https://api.example/save', { method: 'OPTIONS', headers: { Origin: origin } }),
@@ -81,7 +81,10 @@ describe('old origin is unchanged by the site allow-list', () => {
       );
       expect(response.status).toBe(204);
       expect(response.headers.get('Access-Control-Allow-Origin')).toBe(origin);
-      expect(response.headers.get('Access-Control-Allow-Methods')).toBe('GET, POST, PUT, OPTIONS');
+      // DELETE joined for DELETE /exports/projects/:id (export spec section 4).
+      expect(response.headers.get('Access-Control-Allow-Methods')).toBe(
+        'GET, POST, PUT, DELETE, OPTIONS',
+      );
       expect(response.headers.get('Access-Control-Allow-Headers')).toBe(
         'Authorization, Content-Type',
       );
