@@ -252,7 +252,11 @@ function HistoryContent({
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
-      {hidden > 0 && <p>{hidden} changes outside this view hidden</p>}
+      {hidden > 0 && (
+        <p>
+          {hidden} {hidden === 1 ? 'change' : 'changes'} outside this view hidden
+        </p>
+      )}
       {classifying && <p role="status">Checking revision scope...</p>}
       <ol className={styles.commits}>
         {commits

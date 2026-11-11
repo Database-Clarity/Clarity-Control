@@ -166,11 +166,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 0.5rem;
   white-space: nowrap;
 }
 
 .revisionTitle {
+  flex: 1 1 16rem;
   display: grid;
   min-width: 0;
   white-space: normal;
@@ -186,6 +188,14 @@
 .confirmRow {
   display: flex;
   gap: 0.375rem;
+}
+
+.revisionTitle .author {
+  flex-wrap: wrap;
+
+  a {
+    white-space: nowrap;
+  }
 }
 
 .revisionActions {

@@ -378,13 +378,14 @@ it('filters against original parents and resets popovers when the language or ro
   expect(entries()).toHaveLength(0);
 });
 
-
 it('keeps a portaled popover open for its own pointer events and closes on outside presses', async () => {
   await act(async () => entries()[0].click());
   await wait(0);
   expect(dialog()!.parentElement).toBe(document.body);
   await act(async () => dialog()!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })));
   expect(dialog()).not.toBeNull();
-  await act(async () => document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })));
+  await act(async () =>
+    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })),
+  );
   expect(dialog()).toBeNull();
 });
