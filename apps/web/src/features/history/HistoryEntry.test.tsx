@@ -428,6 +428,15 @@ it('bridges Tab into a portaled revision and Shift+Tab back to its trigger', asy
   );
   expect(document.activeElement).toBe(entries()[0]);
   expect(dialog()).not.toBeNull();
+  await act(async () => entries()[1].focus());
+  await act(async () =>
+    entries()[1].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }),
+    ),
+  );
+  await wait(30);
+  expect(document.activeElement?.textContent).toBe('Restore this revision');
+  expect(entries()[0].getAttribute('aria-expanded')).toBe('true');
 });
 
 it('focuses the restore confirmation and returns Cancel to Restore, keeping Escape usable', async () => {

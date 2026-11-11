@@ -204,6 +204,10 @@
   justify-items: start;
   border-top: 1px solid var(--hair);
   padding-top: 0.5rem;
+
+  p {
+    margin: 0;
+  }
 }
 
 .author {

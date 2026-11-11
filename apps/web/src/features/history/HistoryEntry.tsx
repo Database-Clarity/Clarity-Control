@@ -200,12 +200,33 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
         ref={trigger}
         type="button"
         className={styles.entryButton}
+        data-history-trigger
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? id : undefined}
         title="Show what this revision changed"
         onKeyDown={(event) => {
-          if (event.key !== 'Tab' || event.shiftKey || !open || !surface.current) return;
+          if (event.key !== 'Tab') return;
+          if (event.shiftKey) {
+            const rows = [
+              ...(container.current?.parentElement?.querySelectorAll<HTMLButtonElement>(
+                '[data-history-trigger]',
+              ) ?? []),
+            ];
+            const previous = rows[rows.indexOf(event.currentTarget) - 1];
+            if (!previous) return;
+            event.preventDefault();
+            previous.focus();
+            // Focus opens the previous revision; enter its last control after it renders.
+            window.requestAnimationFrame(() => {
+              if (!previous.isConnected || document.activeElement !== previous) return;
+              const dialog = document.getElementById(previous.getAttribute('aria-controls') ?? '');
+              const controls = dialog?.querySelectorAll<HTMLElement>(TAB_TARGETS);
+              controls?.item(controls.length - 1)?.focus();
+            });
+            return;
+          }
+          if (!open || !surface.current) return;
           event.preventDefault();
           setPinned(true);
           (surface.current.querySelector<HTMLElement>(TAB_TARGETS) ?? surface.current).focus();
