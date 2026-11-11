@@ -1,0 +1,23 @@
+# Replaces today's converter main.yml (unpinned `npm i @icemourne/description-converter` plus a
+# clean deploy action). Pushes made by people to `converter` build the legacy files and the data
+# site through the reusable workflow. The publish pipeline pushes with github.token, which starts no
+# workflow, so it calls build-outputs.yml itself as a downstream job (packages/export/INSTALL.md).
+name: Build and Deploy descriptions
+
+on:
+  push:
+    branches:
+      - converter
+
+permissions: {}
+
+jobs:
+  outputs:
+    if: github.repository == 'Database-Clarity/Live-Clarity-Database'
+    # The legacy job pushes `live` and `export-pins`; the site job lowers itself to read.
+    permissions:
+      contents: write
+    uses: Database-Clarity/Live-Clarity-Database/.github/workflows/build-outputs.yml@converter
+    with:
+      legacy: true
+    secrets: inherit
