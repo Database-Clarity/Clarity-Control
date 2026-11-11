@@ -3,6 +3,8 @@ name: Editor data pipeline (publish dry-run)
 on:
   push:
     branches: [editor-data]
+    # Project configs are built by exports.yml (data site only), never by the publish pipeline.
+    paths-ignore: ['exports/**']
 
 permissions:
   contents: write

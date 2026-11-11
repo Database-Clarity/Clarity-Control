@@ -47,8 +47,12 @@ export type { OutLine, OutSpan } from './v1/transform.js';
 export {
   filePath,
   projectIndex,
+  type FileNotice,
   type FileOutcome,
   type IndexFile,
   type ProjectIndex,
 } from './v1/project.js';
 export { decodeV1 } from '../decoder/decode-v1.mjs';
+
+// Vocabulary check (spec section 5): marker sets of an output file.
+export { markerChange, markerSet, outputTokens, type MarkerChange } from './v1/markers.js';
