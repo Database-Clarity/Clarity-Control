@@ -1,5 +1,5 @@
 import { markupStrayTags, parseLines } from './lines.js';
-import { prepareMarkup } from './prepare.js';
+import { prepareMarkup, prepareNativeTitle, markupVariableReferences } from './prepare.js';
 import type { MarkupDiagnostic, MarkupGlobals, MarkupLine, ParsedMarkup } from './types.js';
 
 export function parseMarkup(
@@ -8,9 +8,13 @@ export function parseMarkup(
 ): ParsedMarkup {
   const diagnostics: MarkupDiagnostic[] = [];
   const prepared = prepareMarkup(text, globals, diagnostics);
-  const titleBodies = Object.values(prepared.titles).map(
-    (content) => prepareMarkup(content, globals, []).text,
-  );
+  const titleBodies = prepared.nativeTitles
+    ? Object.entries(prepared.titles).map(([name, content]) =>
+        prepared.nativeTitles![name]
+          ? prepareNativeTitle(prepared.nativeTitles![name], globals)
+          : prepareMarkup(content, globals, []).text,
+      )
+    : Object.values(prepared.titles).map((content) => prepareMarkup(content, globals, []).text);
   for (const tag of new Set([prepared.text, ...titleBodies].flatMap(markupStrayTags))) {
     diagnostics.push({
       severity: 'warning',
@@ -19,7 +23,17 @@ export function parseMarkup(
   }
   const titles: Record<string, MarkupLine[]> = {};
   for (const [name, content] of Object.entries(prepared.titles)) {
-    titles[name] = parseLines(prepareMarkup(content, globals, diagnostics).text, {});
+    const native = prepared.nativeTitles?.[name];
+    // Surrounding title text keeps legacy preparation; native nodes stay opaque.
+    const body = native
+      ? prepareNativeTitle(native, globals)
+      : prepareMarkup(content, globals, diagnostics).text;
+    if (native) {
+      for (const variable of new Set(markupVariableReferences(body))) {
+        diagnostics.push({ severity: 'warning', message: `Unknown variable ${variable}.` });
+      }
+    }
+    titles[name] = parseLines(body, {});
   }
   return { lines: parseLines(prepared.text, titles), diagnostics };
 }

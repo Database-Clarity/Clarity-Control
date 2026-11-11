@@ -1,4 +1,4 @@
-import { baseEnhancedMessage, scanBaseEnhanced, resolveBaseEnhanced } from './baseEnhanced.js';
+import { baseEnhancedMessage, scanBaseEnhanced } from './baseEnhanced.js';
 import { evaluateMarkupMath } from './arithmetic.js';
 import { extractBlocks, extractVariables } from './syntax.js';
 import type { MarkupDiagnostic, MarkupGlobals } from './types.js';
@@ -66,20 +66,30 @@ export function removeMarkupComments(text: string): string {
     .replace(markupCommentPatterns[1], '');
 }
 
+const unusedMarkup = {
+  hidden: /^export hidden .* \([^]*?\n\)$/gm,
+  exportOpen: /^export .* \( *$\n/gm,
+  enhancedOpen: /^enhanced \($\n/gm,
+  titles: /\n?^title .+ \([^]*?\n\)$/gm,
+  close: /\n^\) *$/gm,
+  variables: /^var .* = .+$\n?/gm,
+  blanks: /\n\n\n+/gm,
+};
+
 /** Production blank-line and boundary-whitespace normalisation; does not discard authored text. */
 export function normalizeMarkupWhitespace(text: string): string {
-  return text.replace(/\n\n\n+/gm, '\n\n').trim();
+  return text.replace(unusedMarkup.blanks, '\n\n').trim();
 }
 
 export function removeUnusedText(text: string, removeTitles = true): string {
   text = removeMarkupComments(text)
-    .replace(/^export hidden .* \([^]*?\n\)$/gm, '')
-    .replace(/^export .* \( *$\n/gm, '')
-    .replace(/^enhanced \($\n/gm, '');
+    .replace(unusedMarkup.hidden, '')
+    .replace(unusedMarkup.exportOpen, '')
+    .replace(unusedMarkup.enhancedOpen, '');
   if (removeTitles) {
-    text = text.replace(/\n?^title .+ \([^]*?\n\)$/gm, '').replace(/\n^\) *$/gm, '');
+    text = text.replace(unusedMarkup.titles, '').replace(unusedMarkup.close, '');
   }
-  return normalizeMarkupWhitespace(text.replace(/^var .* = .+$\n?/gm, ''));
+  return normalizeMarkupWhitespace(text.replace(unusedMarkup.variables, ''));
 }
 
 function resolveImports(
@@ -127,6 +137,182 @@ function resolveImports(
   return text;
 }
 
+export type NativePiece = string | { base: string; enhanced: string; rendered?: string };
+const pairSource = (piece: Exclude<NativePiece, string>) => `{{${piece.base}}{${piece.enhanced}}}`;
+const pieceLength = (piece: NativePiece) =>
+  typeof piece === 'string' ? piece.length : pairSource(piece).length;
+const nativeSource = (pieces: readonly NativePiece[]) =>
+  pieces.map((piece) => (typeof piece === 'string' ? piece : pairSource(piece))).join('');
+const nativeStructure = (pieces: readonly NativePiece[]) =>
+  pieces
+    .map((piece) => (typeof piece === 'string' ? piece : '\uFFFC'.repeat(pieceLength(piece))))
+    .join('');
+const renderNative = (pieces: readonly NativePiece[]) =>
+  pieces.map((piece) => (typeof piece === 'string' ? piece : piece.rendered!)).join('');
+
+/** Native inline nodes stay opaque through variable, math, and title preparation. */
+function nativePieces(text: string): NativePiece[] {
+  if (!text.includes('{{')) return [text];
+  const pieces: NativePiece[] = [];
+  const visible = markupCommentContext(text);
+  let at = 0;
+  // Authored structure was validated before conditions; legacy #e removal may empty an arm.
+  for (const pair of scanBaseEnhanced(visible.text, true).pairs) {
+    const from = visible.offsets[pair.from],
+      to = visible.offsets[pair.to - 1] + 1;
+    pieces.push(text.slice(at, from), { base: pair.base, enhanced: pair.enhanced });
+    at = to;
+  }
+  pieces.push(text.slice(at));
+  return pieces;
+}
+function nativeSlice(pieces: readonly NativePiece[], from: number, to: number): NativePiece[] {
+  const output: NativePiece[] = [];
+  let at = 0;
+  for (const piece of pieces) {
+    const end = at + pieceLength(piece);
+    if (end > from && at < to) {
+      if (typeof piece === 'string')
+        output.push(piece.slice(Math.max(0, from - at), Math.min(piece.length, to - at)));
+      else {
+        if (from > at || to < end)
+          throw new Error('Structural cleanup crossed a native inline token');
+        output.push(piece);
+      }
+    }
+    at = end;
+  }
+  return output;
+}
+function nativeKeep(pieces: readonly NativePiece[], offsets: readonly number[]): NativePiece[] {
+  const output: NativePiece[] = [];
+  for (let index = 0; index < offsets.length;) {
+    const from = offsets[index++];
+    let to = from + 1;
+    while (index < offsets.length && offsets[index] === to) {
+      index++;
+      to++;
+    }
+    output.push(...nativeSlice(pieces, from, to));
+  }
+  return output;
+}
+function nativeRemove(pieces: NativePiece[], pattern: RegExp, keepPrefix = 0): NativePiece[] {
+  const output: NativePiece[] = [];
+  const source = nativeStructure(pieces);
+  let at = 0;
+  for (const match of source.matchAll(pattern)) {
+    output.push(...nativeSlice(pieces, at, match.index + keepPrefix));
+    at = match.index + match[0].length;
+  }
+  output.push(...nativeSlice(pieces, at, source.length));
+  return output;
+}
+function cleanNative(pieces: NativePiece[], removeTitles = true): NativePiece[] {
+  // Use the same deletion grammar as removeUnusedText, on an AST structural view.
+  // Masked node widths preserve ranges; their contents never become declarations or comments.
+  pieces = nativeKeep(pieces, markupCommentContext(nativeStructure(pieces)).offsets);
+  for (const pattern of [unusedMarkup.hidden, unusedMarkup.exportOpen, unusedMarkup.enhancedOpen])
+    pieces = nativeRemove(pieces, pattern);
+  if (removeTitles)
+    for (const pattern of [unusedMarkup.titles, unusedMarkup.close])
+      pieces = nativeRemove(pieces, pattern);
+  pieces = nativeRemove(pieces, unusedMarkup.variables);
+  pieces = nativeRemove(pieces, unusedMarkup.blanks, 2);
+  const source = nativeStructure(pieces);
+  return nativeSlice(pieces, source.length - source.trimStart().length, source.trimEnd().length);
+}
+function replaceNativeVariable(
+  pieces: NativePiece[],
+  variable: string,
+  value: string,
+): NativePiece[] {
+  const output: NativePiece[] = [];
+  const append = (piece: NativePiece) => {
+    const last = output.length - 1;
+    if (typeof piece === 'string' && typeof output[last] === 'string') output[last] += piece;
+    else output.push(piece);
+  };
+  for (const piece of pieces) {
+    if (typeof piece !== 'string' || !piece.includes(variable)) {
+      append(piece);
+      continue;
+    }
+    if (!value.includes('{{')) {
+      append(piece.replaceAll(variable, value));
+      continue;
+    }
+    piece.split(variable).forEach((part, index) => {
+      if (index) nativePieces(value).forEach(append);
+      append(part);
+    });
+  }
+  return output;
+}
+function prepareNativePieces(pieces: NativePiece[], globals: MarkupGlobals): NativePiece[] {
+  // References inside arms never drive surrounding legacy prefix replacement.
+  const references = pieces.flatMap((piece) =>
+    typeof piece === 'string' ? markupVariableReferences(piece) : [],
+  );
+  for (const variable of references) {
+    const variables = {
+      ...extractVariables(nativeSource(pieces)),
+      ...extractVariables(globals.variables),
+    };
+    globals.onVariable?.(variable.slice(1));
+    const value = variables[variable.slice(1)];
+    if (value !== undefined) pieces = replaceNativeVariable(pieces, variable, value);
+  }
+  const variables = {
+    ...extractVariables(nativeSource(pieces)),
+    ...extractVariables(globals.variables),
+  };
+  return pieces.map((piece) => {
+    if (typeof piece === 'string') return evaluateMarkupMath(piece);
+    if (piece.rendered !== undefined) return piece;
+    let arm = globals.type === 'Weapon Trait Enhanced' ? piece.enhanced : piece.base;
+    for (const variable of markupVariableReferences(arm)) {
+      globals.onVariable?.(variable.slice(1));
+      const value = variables[variable.slice(1)];
+      if (value !== undefined) arm = arm.replaceAll(variable, value);
+    }
+    return { ...piece, rendered: evaluateMarkupMath(arm) };
+  });
+}
+export function prepareNativeTitle(pieces: NativePiece[], globals: MarkupGlobals): string {
+  // Preserve legacy re-preparation for ordinary title text, while resolved nodes
+  // stay opaque: a literal # or dollar boundary can never turn into a new lookup.
+  return renderNative(cleanNative(prepareNativePieces(pieces, globals)));
+}
+function prepareNativeDocument(text: string, globals: MarkupGlobals) {
+  const pieces = prepareNativePieces(nativePieces(text), globals);
+  const titlePieces = cleanNative(pieces, false);
+  const source = nativeStructure(titlePieces);
+  const titles: Record<string, string> = {};
+  const nativeTitles: Record<string, NativePiece[]> = {};
+  const globalTitles = extractBlocks(globals.titles, 'title');
+  for (const match of source.matchAll(/^title [A-z0-9 ]+ \([^]*?\n\)$/gm)) {
+    const firstLine = match[0].indexOf('\n');
+    const name = match[0]
+      .slice(0, firstLine)
+      .replace(/title|\(.*/gi, '')
+      .trim();
+    const body = nativeSlice(
+      titlePieces,
+      match.index + firstLine + 1,
+      match.index + match[0].length - 2,
+    );
+    titles[name] = renderNative(body);
+    if (!(name in globalTitles) && body.some((piece) => typeof piece !== 'string'))
+      nativeTitles[name] = body;
+  }
+  return {
+    text: renderNative(cleanNative(pieces)),
+    titles: { ...titles, ...globalTitles },
+    nativeTitles,
+  };
+}
+
 export function prepareMarkup(
   text: string,
   globals: MarkupGlobals,
@@ -134,7 +320,6 @@ export function prepareMarkup(
   onCondition?: (name: string, block: string) => void,
 ) {
   text = resolveImports(text, globals, diagnostics);
-  const enhanced = globals.type === 'Weapon Trait Enhanced';
   const nativePairs =
     text.includes('{{') || globals.variables.includes('{{') || globals.titles.includes('{{');
   // Ordinary documents keep the existing preparation path. Native syntax is validated
@@ -155,23 +340,28 @@ export function prepareMarkup(
       if (keyword === 'enhanced') text = text.replaceAll('#e', '');
     }
   }
-  // Preserve the converter's one-pass, declaration-order expansion and global precedence.
-  for (const variable of markupVariableReferences(text)) {
-    const variables = { ...extractVariables(text), ...extractVariables(globals.variables) };
-    globals.onVariable?.(variable.slice(1));
-    const value = variables[variable.slice(1)];
-    if (value !== undefined) text = text.replaceAll(variable, value);
+  let native: ReturnType<typeof prepareNativeDocument> | undefined;
+  if (nativePairs) {
+    native = prepareNativeDocument(text, globals);
+    text = native.text;
+  } else {
+    // The established converter path is unchanged for ordinary documents.
+    for (const variable of markupVariableReferences(text)) {
+      const variables = { ...extractVariables(text), ...extractVariables(globals.variables) };
+      globals.onVariable?.(variable.slice(1));
+      const value = variables[variable.slice(1)];
+      if (value !== undefined) text = text.replaceAll(variable, value);
+    }
+    text = evaluateMarkupMath(text);
   }
-  text = nativePairs
-    ? resolveBaseEnhanced(removeMarkupComments(text), enhanced, diagnostics, evaluateMarkupMath)
-    : evaluateMarkupMath(text);
-  const cleanText = removeUnusedText(text.trim());
+  const cleanText = native ? text : removeUnusedText(text.trim());
   for (const variable of new Set(markupVariableReferences(cleanText))) {
     diagnostics.push({ severity: 'warning', message: `Unknown variable ${variable}.` });
   }
   return {
     text: cleanText,
-    titles: {
+    nativeTitles: native?.nativeTitles,
+    titles: native?.titles ?? {
       ...extractBlocks(removeUnusedText(text, false), 'title'),
       ...extractBlocks(globals.titles, 'title'),
     },

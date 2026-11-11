@@ -123,3 +123,20 @@ it('allows saving native pairs without lowering them', async () => {
   expect(response.status).toBe(200);
   expect(f.current()['tooltips/123.json']).toMatchObject({ text: { en: { text: '{{a}{b}}' } } });
 });
+
+it('preserves recording budget after a wide import graph falls back from GraphQL', async () => {
+  f.largeFile = true;
+  f.truncateGraphql = true;
+  const files: Record<string, unknown> = {};
+  const imports: string[] = [];
+  for (let index = 0; index < 29; index++) {
+    const hash = 1000 + index;
+    imports.push(`import main from ${hash}`);
+    files[`tooltips/${hash}.json`] = donor(`Donor ${index}`, hash);
+  }
+  f.moveData({ ...files, 'tooltips/123.json': tooltip(imports.join('\n')) });
+  const response = await f.request('/push-live', 'POST', { hashes: [123] });
+  expect(response.status).toBe(503);
+  expect(f.writes).toHaveLength(0);
+  expect(f.commits).toHaveLength(0);
+});

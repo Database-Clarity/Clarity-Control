@@ -1,5 +1,3 @@
-import type { MarkupDiagnostic } from './types.js';
-
 export interface BaseEnhancedPair {
   from: number;
   to: number;
@@ -12,7 +10,10 @@ export const baseEnhancedPublishMessage =
   'Base/enhanced markup needs the new converter; it can be pushed after cut-over';
 
 /** Native syntax only: no generated declarations, reserved names, or persistence transform. */
-export function scanBaseEnhanced(text: string): {
+export function scanBaseEnhanced(
+  text: string,
+  allowEmpty = false,
+): {
   pairs: BaseEnhancedPair[];
   issues: { from: number; to: number }[];
 } {
@@ -35,7 +36,7 @@ export function scanBaseEnhanced(text: string): {
         } else pos++;
       }
       const value = text.slice(begin, pos);
-      return value.trim() ? value : null;
+      return allowEmpty || value.trim() ? value : null;
     };
     const base = arm();
     if (base !== null && text.slice(pos, pos + 2) === '}{') {
@@ -55,25 +56,3 @@ export function scanBaseEnhanced(text: string): {
 }
 export const baseEnhancedPairs = (text: string) => scanBaseEnhanced(text).pairs;
 export const unfinishedBaseEnhanced = (text: string) => scanBaseEnhanced(text).issues;
-
-/** Resolve native inline tokens after imports, conditions, variables, and arithmetic. */
-export function resolveBaseEnhanced(
-  text: string,
-  enhanced: boolean,
-  diagnostics: MarkupDiagnostic[],
-  transform: (source: string) => string = (source) => source,
-): string {
-  if (!text.includes('{{')) return transform(text);
-  const parsed = scanBaseEnhanced(text);
-  if (parsed.issues.length) {
-    diagnostics.push({ severity: 'error', message: baseEnhancedMessage });
-  }
-  let result = '';
-  let at = 0;
-  for (const pair of parsed.pairs) {
-    result +=
-      transform(text.slice(at, pair.from)) + transform(enhanced ? pair.enhanced : pair.base);
-    at = pair.to;
-  }
-  return result + transform(text.slice(at));
-}
