@@ -453,7 +453,7 @@ export async function reports(request: Request, env: Env): Promise<Response> {
       (
         await sql(
           db,
-          "SELECT n.n,n.category,r.status,r.created_at AS age,r.variant,COALESCE(n.rev,r.rev) AS rev,n.start,n.end FROM reports r JOIN notes n ON n.report_id=r.id WHERE r.owner_hash=? AND r.lang=? AND r.status IN ('open','triaged') LIMIT 100",
+          "SELECT n.n,n.category,r.status,r.created_at AS age,r.variant,COALESCE(n.rev,r.rev) AS rev,n.start,n.end FROM reports r INDEXED BY reports_public JOIN notes n INDEXED BY notes_public ON n.report_id=r.id WHERE r.owner_hash=? AND r.lang=? AND r.status IN ('open','triaged') ORDER BY r.created_at DESC,r.id DESC LIMIT 14",
           hash,
           lang,
         ).all()

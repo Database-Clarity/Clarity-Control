@@ -165,6 +165,86 @@ beforeEach(async () => {
   );
 });
 describe('reports local D1', () => {
+  const publicReadEvidence: {
+    reports: number;
+    notes_per_report: number;
+    anchors: number;
+    rows_read: number;
+  }[] = [];
+  it.each([
+    [13, 1],
+    [14, 1],
+    [15, 1],
+    [100, 1],
+    [100, 5],
+    [2, 5],
+  ])(
+    'caps the public read at 40 D1 rows with %s reports and %s notes each',
+    async (reportCount, noteCount) => {
+      await db
+        .prepare(
+          "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<?) INSERT INTO reports(id,owner_hash,viewed_hash,variant,lang,rev,data_commit,category,note,trust,request_id,payload_hash,created_at,updated_at) SELECT 'public-'||x,123,123,'base','en','aaaaaaaaaaaaaaaa','1111111111111111111111111111111111111111','other','private','anonymous','public-'||x,'test',x,x FROM n",
+        )
+        .bind(reportCount)
+        .run();
+      await db
+        .prepare(
+          "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<?) INSERT INTO notes(report_id,n,category,text,exact,prefix,suffix,start,end,line,whole) SELECT r.id,n.x,'other','private','x','','',0,1,0,0 FROM reports r CROSS JOIN n",
+        )
+        .bind(noteCount)
+        .run();
+      let reads = -1;
+      const wrap = (original: ReportStatement): ReportStatement => ({
+        bind(...args) {
+          return wrap(original.bind(...args));
+        },
+        first<T>() {
+          return original.first<T>();
+        },
+        async all<T>() {
+          const result = await original.all<T>();
+          reads = result.meta?.rows_read ?? -1;
+          return result;
+        },
+        run() {
+          return original.run();
+        },
+      });
+      fixture.env.REPORTS_DB = {
+        prepare(query) {
+          const original = db.prepare(query);
+          return query.includes('INDEXED BY reports_public') ? wrap(original) : original;
+        },
+        batch(statements) {
+          return db.batch(statements);
+        },
+        exec(query) {
+          return db.exec(query);
+        },
+      };
+      const response = await call('/reports/public?hash=123&lang=en');
+      expect(response.status).toBe(200);
+      const rows = (await response.json()) as { age: number }[];
+      expect(rows).toHaveLength(Math.min(14, reportCount * noteCount));
+      expect(Math.min(...rows.map((row) => row.age))).toBeGreaterThanOrEqual(
+        Math.max(1, reportCount + 1 - Math.ceil(14 / noteCount)),
+      );
+      expect(reads).toBeGreaterThan(0);
+      expect(reads).toBeLessThanOrEqual(40);
+      publicReadEvidence.push({
+        reports: reportCount,
+        notes_per_report: noteCount,
+        anchors: rows.length,
+        rows_read: reads,
+      });
+      if (process.env.REPORTS_PUBLIC_EVIDENCE_OUTPUT)
+        writeFileSync(
+          process.env.REPORTS_PUBLIC_EVIDENCE_OUTPUT,
+          JSON.stringify(publicReadEvidence, null, 2),
+        );
+      fixture.env.REPORTS_DB = db;
+    },
+  );
   async function uploadRaceCase(operation: 'withdraw' | 'spam' | 'delete') {
     const input = payload();
     const response = await call('/reports', 'POST', input, 5),
@@ -1062,10 +1142,15 @@ describe('reports local D1', () => {
     expect(reporterReads[0].rows_read).toBeLessThanOrEqual(500);
     expect(purge).toHaveLength(8);
     expect(purge.reduce((n, s) => n + s.rows_read, 0)).toBeLessThanOrEqual(1024);
-    writeFileSync(
-      'D:/GitHub/Description-editor/.agents/reports/reports-server-query-bounds.json',
-      JSON.stringify({ reports: 10000, notes: 50000, inactive_marker_rows: 10000, scans }, null, 2),
-    );
+    if (process.env.REPORTS_QUERY_EVIDENCE_OUTPUT)
+      writeFileSync(
+        process.env.REPORTS_QUERY_EVIDENCE_OUTPUT,
+        JSON.stringify(
+          { reports: 10000, notes: 50000, inactive_marker_rows: 10000, scans },
+          null,
+          2,
+        ),
+      );
     fixture.env.REPORTS_DB = db;
   }, 60_000);
 });

@@ -14,6 +14,7 @@ CREATE TABLE reports (
 CREATE INDEX reports_list ON reports(status,created_at,id);
 CREATE INDEX reports_owner ON reports(owner_hash,lang,status);
 CREATE INDEX reports_owner_page ON reports(owner_hash,lang,created_at DESC,id DESC,reporter_id);
+CREATE INDEX reports_public ON reports(owner_hash,lang,created_at DESC,id DESC,status,variant,rev) WHERE status IN ('open','triaged');
 CREATE INDEX reports_purge ON reports(status,updated_at,id,version);
 CREATE INDEX reports_rollup_oldest ON reports(owner_hash,lang,status,category,trust,created_at,id);
 CREATE INDEX reports_rollup_updated ON reports(owner_hash,lang,status,category,trust,updated_at DESC,id);
@@ -25,6 +26,7 @@ CREATE TABLE notes (
  PRIMARY KEY(report_id,n)
 );
 CREATE TABLE events (report_id TEXT NOT NULL REFERENCES reports(id) ON DELETE CASCADE, at INTEGER NOT NULL, actor_id INTEGER, actor_login TEXT, action TEXT NOT NULL, from_status TEXT, to_status TEXT, reason TEXT);
+CREATE INDEX notes_public ON notes(report_id,n,category,start,end,rev);
 CREATE INDEX events_report ON events(report_id,at);
 CREATE TABLE same (report_id TEXT NOT NULL REFERENCES reports(id) ON DELETE CASCADE, principal_key TEXT NOT NULL, at INTEGER NOT NULL, UNIQUE(report_id,principal_key));
 CREATE TABLE open_counts (owner_hash INTEGER NOT NULL, lang TEXT NOT NULL, n INTEGER NOT NULL CHECK(n >= 0), PRIMARY KEY(owner_hash,lang));
