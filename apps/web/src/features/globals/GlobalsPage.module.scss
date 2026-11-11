@@ -38,6 +38,9 @@
   font-size: 0.8125rem;
   line-height: 1.4;
   color: var(--meta);
+  @include theme.mobile {
+    padding-inline: 0;
+  }
 }
 
 .usagePane {
