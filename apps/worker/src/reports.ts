@@ -612,31 +612,29 @@ export async function reports(request: Request, env: Env): Promise<Response> {
     }
     if (method === 'DELETE' && attachment[2]) {
       if (!(own && ['open', 'triaged'].includes(row.status))) reportMaintainer(await getAccess());
-      await sql(
+      const deleted = await sql(
         files,
-        'DELETE FROM files WHERE report_id=? AND n=?',
+        'DELETE FROM files WHERE report_id=? AND n=? RETURNING size',
         row.id,
         Number(attachment[2]),
-      ).run();
-      const totals = await sql(
-        files,
-        'SELECT COUNT(*) AS n,COALESCE(SUM(size),0) AS bytes FROM files WHERE report_id=?',
-        row.id,
-      ).first<{ n: number; bytes: number }>();
+      ).first<{ size: number }>();
+      // Apply only this deletion, never a cross-database totals snapshot that
+      // could overwrite an upload completed while this request was awaiting D1.
+      // Unclamped deltas also commute with an upload still finalising its count.
+      if (deleted)
+        await sql(
+          db,
+          "UPDATE reports SET files_count=files_count-1,files_bytes=files_bytes-? WHERE id=? AND status NOT IN ('withdrawn','spam')",
+          deleted.size,
+          row.id,
+        ).run();
       await sql(
         db,
-        'UPDATE reports SET files_count=?,files_bytes=? WHERE id=?',
-        totals!.n,
-        totals!.bytes,
-        row.id,
-      ).run();
-      await sql(
-        db,
-        "INSERT INTO events(report_id,at,actor_id,actor_login,action) VALUES(?,?,?,?,'delete-attachment')",
-        row.id,
+        "INSERT INTO events(report_id,at,actor_id,actor_login,action) SELECT id,?,?,?,'delete-attachment' FROM reports WHERE id=? AND status<>'withdrawn'",
         now(),
         user.id,
         user.login,
+        row.id,
       ).run();
       return json({ deleted: true });
     }

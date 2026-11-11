@@ -356,6 +356,141 @@ describe('reports local D1', () => {
       },
     };
   }
+  it('never restores attachment actor history after concurrent withdrawal', async () => {
+    const race = await uploadRaceCase('withdraw');
+    expect((await race.upload()).status).toBe(201);
+    let raced = false;
+    fixture.env.REPORTS_DB = {
+      prepare(query) {
+        const statement = db.prepare(query);
+        return query.startsWith('INSERT INTO events')
+          ? interceptStatement(statement, async () => {
+              if (!raced) {
+                raced = true;
+                expect((await race.close()).status).toBe(200);
+              }
+            })
+          : statement;
+      },
+      batch(statements) {
+        return db.batch(statements);
+      },
+      exec(query) {
+        return db.exec(query);
+      },
+    };
+    expect((await call(`/reports/${race.id}/files/1`, 'DELETE', undefined, 5)).status).toBe(200);
+    expect(raced).toBe(true);
+    const receipt = await call(`/reports/r/${race.id}/view`, 'POST', {}, 1);
+    expect(receipt.status).toBe(200);
+    expect(await receipt.json()).toMatchObject({ status: 'withdrawn', events: [] });
+    expect(await db.prepare('SELECT COUNT(*) AS n FROM events').first()).toEqual({ n: 0 });
+    fixture.env.REPORTS_DB = db;
+  });
+  it('preserves completed concurrent uploads when deleting an attachment', async () => {
+    const race = await uploadRaceCase('withdraw');
+    expect((await race.upload()).status).toBe(201);
+    let raced = false;
+    fixture.env.REPORTS_DB = {
+      prepare(query) {
+        const statement = db.prepare(query);
+        return query.startsWith('UPDATE reports SET files_count=')
+          ? interceptStatement(statement, async () => {
+              if (!raced) {
+                raced = true;
+                expect((await race.upload()).status).toBe(201);
+              }
+            })
+          : statement;
+      },
+      batch(statements) {
+        return db.batch(statements);
+      },
+      exec(query) {
+        return db.exec(query);
+      },
+    };
+    expect((await call(`/reports/${race.id}/files/1`, 'DELETE', undefined, 5)).status).toBe(200);
+    expect(raced).toBe(true);
+    expect(
+      await files.prepare('SELECT COUNT(*) AS n,SUM(size) AS bytes FROM files').first(),
+    ).toEqual({
+      n: 1,
+      bytes: reportJpegFixture().length,
+    });
+    expect(await db.prepare('SELECT files_count,files_bytes FROM reports').first()).toEqual({
+      files_count: 1,
+      files_bytes: reportJpegFixture().length,
+    });
+    fixture.env.REPORTS_DB = db;
+  });
+  it('commutes attachment deletion with pending upload bookkeeping and repeated deletion', async () => {
+    const race = await uploadRaceCase('withdraw');
+    let raced = false;
+    fixture.env.REPORTS_DB = {
+      prepare(query) {
+        const statement = db.prepare(query);
+        return query.startsWith('UPDATE reports SET files_count=files_count+1')
+          ? interceptStatement(statement, async () => {
+              if (!raced) {
+                raced = true;
+                expect(
+                  (await call(`/reports/${race.id}/files/1`, 'DELETE', undefined, 5)).status,
+                ).toBe(200);
+              }
+            })
+          : statement;
+      },
+      batch(statements) {
+        return db.batch(statements);
+      },
+      exec(query) {
+        return db.exec(query);
+      },
+    };
+    expect((await race.upload()).status).toBe(201);
+    expect(raced).toBe(true);
+    expect((await call(`/reports/${race.id}/files/1`, 'DELETE', undefined, 5)).status).toBe(200);
+    expect(await files.prepare('SELECT COUNT(*) AS n FROM files').first()).toEqual({ n: 0 });
+    expect(await db.prepare('SELECT files_count,files_bytes FROM reports').first()).toEqual({
+      files_count: 0,
+      files_bytes: 0,
+    });
+    fixture.env.REPORTS_DB = db;
+  });
+  it('does not subtract attachment totals after concurrent withdrawal clears them', async () => {
+    const race = await uploadRaceCase('withdraw');
+    expect((await race.upload()).status).toBe(201);
+    let raced = false;
+    fixture.env.REPORTS_DB = {
+      prepare(query) {
+        const statement = db.prepare(query);
+        return query.startsWith('UPDATE reports SET files_count=')
+          ? interceptStatement(statement, async () => {
+              if (!raced) {
+                raced = true;
+                expect((await race.close()).status).toBe(200);
+              }
+            })
+          : statement;
+      },
+      batch(statements) {
+        return db.batch(statements);
+      },
+      exec(query) {
+        return db.exec(query);
+      },
+    };
+    expect((await call(`/reports/${race.id}/files/1`, 'DELETE', undefined, 5)).status).toBe(200);
+    expect(raced).toBe(true);
+    expect(await db.prepare('SELECT status,files_count,files_bytes FROM reports').first()).toEqual({
+      status: 'withdrawn',
+      files_count: 0,
+      files_bytes: 0,
+    });
+    expect(await db.prepare('SELECT COUNT(*) AS n FROM events').first()).toEqual({ n: 0 });
+    fixture.env.REPORTS_DB = db;
+  });
   for (const operation of ['withdraw', 'spam', 'delete'] as const) {
     it(`${operation} rejects an upload between file removal and report finalisation`, async () => {
       const race = await uploadRaceCase(operation);
