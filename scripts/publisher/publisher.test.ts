@@ -536,7 +536,11 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       const result = JSON.parse(readFileSync(join(out, 'result.json'), 'utf8'));
       expect(result).toMatchObject({ dryRun: true, writesEnabled: false });
       if (valid) expect(result.error).toBeNull();
-      else expect(result.error).toContain('ZodError');
+      else {
+        expect(JSON.parse(result.error)).toEqual(
+          expect.arrayContaining([expect.objectContaining({ code: expect.any(String) })]),
+        );
+      }
       expect(f.git.git(['show-ref'])).toBe(before);
     }
   });
