@@ -1,3 +1,6 @@
+/** Semantic legacy type used by native markup preparation, never a UI label. */
+export const enhancedMarkupType = 'Weapon Trait Enhanced';
+
 export interface BaseEnhancedPair {
   from: number;
   to: number;

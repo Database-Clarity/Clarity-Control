@@ -9,7 +9,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import type { EditorView } from '@codemirror/view';
-import { parseMarkup, type Lang, type MarkupGlobals } from '@clarity/core';
+import { enhancedMarkupType, parseMarkup, type Lang, type MarkupGlobals } from '@clarity/core';
 import { MarkupSnippet } from '../../preview/TooltipPreview';
 import { acceptSuggestion, closeSuggest, moveSuggest, type SuggestSnapshot } from './state';
 import type { SuggestContext, SuggestItem } from './source';
@@ -306,9 +306,9 @@ export function SuggestMenu({
         ? {
             base: {
               ...globals,
-              type: globals.type === 'Weapon Trait Enhanced' ? undefined : globals.type,
+              type: globals.type === enhancedMarkupType ? undefined : globals.type,
             },
-            enhanced: { ...globals, type: 'Weapon Trait Enhanced' },
+            enhanced: { ...globals, type: enhancedMarkupType },
           }
         : null,
     [selected?.id, globals],

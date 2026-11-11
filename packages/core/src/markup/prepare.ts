@@ -1,4 +1,4 @@
-import { baseEnhancedMessage, scanBaseEnhanced } from './baseEnhanced.js';
+import { baseEnhancedMessage, enhancedMarkupType, scanBaseEnhanced } from './baseEnhanced.js';
 import { evaluateMarkupMath } from './arithmetic.js';
 import { extractBlocks, extractVariables } from './syntax.js';
 import type { MarkupDiagnostic, MarkupGlobals } from './types.js';
@@ -16,7 +16,7 @@ export function markupImports(text: string): string[] {
 }
 
 export const markupConditions = [
-  ['enhanced', 'Weapon Trait Enhanced'],
+  ['enhanced', enhancedMarkupType],
   ['catalyst', 'Weapon Catalyst Exotic'],
   ['exotic perk', 'Weapon Perk Exotic'],
 ] as const;
@@ -272,7 +272,7 @@ function prepareNativePieces(pieces: NativePiece[], globals: MarkupGlobals): Nat
   return pieces.map((piece) => {
     if (typeof piece === 'string') return evaluateMarkupMath(piece);
     if (piece.rendered !== undefined) return piece;
-    let arm = globals.type === 'Weapon Trait Enhanced' ? piece.enhanced : piece.base;
+    let arm = globals.type === enhancedMarkupType ? piece.enhanced : piece.base;
     for (const variable of markupVariableReferences(arm)) {
       globals.onVariable?.(variable.slice(1));
       const value = Object.hasOwn(variables, variable.slice(1))
