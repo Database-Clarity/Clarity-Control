@@ -1,0 +1,963 @@
+import { displayRevision, displayText, type Lang, type MarkupGlobals } from '@clarity/core';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type RefObject,
+} from 'react';
+import type { User } from '../../../services/api';
+import { errorMessage } from '../../../services/http';
+import { Dialog } from '../../../ui/Dialog';
+import { Popover } from '../../../ui/Popover';
+import { RightPane, RightPaneHeader } from '../../../ui/RightPane';
+import { languageLabel } from '../../../languageLabels';
+import { MarkupSnippet } from '../../preview/TooltipPreview';
+import previewStyles from '../../preview/TooltipPreview.module.scss';
+import {
+  deleteReport,
+  fetchScreenshot,
+  postReportAction,
+  ReportsHttpError,
+  type PaneAction,
+  type PaneReport,
+  type RejectReason,
+} from './api';
+import { HighlightLayer } from './HighlightLayer';
+import { openCount, refreshReportsIndex, useReportsIndex } from './indexStore';
+import { resolveNote } from './previewText';
+import { isActive, reportsKey, useTooltipReports } from './reportsCache';
+import { useReportsTab } from './tabStore';
+import { useReportHighlights, type NoteTarget } from './useReportHighlights';
+import styles from './ReportsPane.module.scss';
+
+export const categoryLabels: Record<string, string> = {
+  'wrong-value': 'Wrong value',
+  outdated: 'Outdated',
+  wording: 'Typo or wording',
+  translation: 'Translation',
+  missing: 'Missing information',
+  other: 'Other',
+};
+const rejectReasons: { value: RejectReason; label: string }[] = [
+  { value: 'not-an-issue', label: 'Not an issue' },
+  { value: 'works-as-described', label: 'Works as described' },
+  { value: 'out-of-scope', label: 'Out of scope' },
+  { value: 'unclear', label: 'Unclear' },
+];
+const statusLabels: Record<PaneReport['status'], string> = {
+  open: 'open',
+  triaged: 'triaged',
+  fixed: 'fixed',
+  closed: 'closed',
+  rejected: 'rejected',
+  duplicate: 'duplicate',
+  spam: 'spam',
+  withdrawn: 'withdrawn',
+};
+const pastTense: Partial<Record<PaneAction['action'], string>> = {
+  triage: 'triaged',
+  claim: 'claimed',
+  reopen: 'reopened',
+  close: 'closed',
+  reject: 'rejected',
+  duplicate: 'marked duplicate',
+  spam: 'marked spam',
+};
+
+export function age(seconds: number, now = Date.now() / 1000): string {
+  const delta = Math.max(0, now - seconds);
+  if (delta < 3600) return `${Math.max(1, Math.floor(delta / 60))} min`;
+  if (delta < 86400) return `${Math.floor(delta / 3600)} h`;
+  return `${Math.floor(delta / 86400)} d`;
+}
+
+export interface ReportsPaneProps {
+  hash: number;
+  lang: Lang;
+  user: User;
+  /** The text the base preview shows (drafts included) and its globals: the pane's own copy. */
+  text: string;
+  globals: MarkupGlobals;
+  /** Where the page renders its preview (inline or in the shell column). Read, never changed. */
+  previewHost: RefObject<HTMLElement | null>;
+  /** A navigation burst is running: show the count only, start nothing. */
+  suspended: boolean;
+  /** The preview painted this tooltip: fetches and highlights may start. */
+  ready: boolean;
+}
+
+/**
+ * The Reports tab: this tooltip's reports in this language, their notes, evidence, and the trust
+ * signal, one action bar for the selected report, and highlights on the rendered preview. Mounted
+ * only while the tab is open; the label count comes from the index, so a tooltip with no open
+ * reports costs no request.
+ */
+export function ReportsPane(props: ReportsPaneProps) {
+  const { hash, lang, suspended } = props;
+  const entry = useTooltipReports((state) => state.entries[reportsKey(hash, lang)]);
+  const load = useTooltipReports((state) => state.load);
+  const count = useReportsIndex((state) => openCount(state.open, hash, lang));
+  return (
+    <RightPane
+      label="Reports"
+      busy={entry?.loading}
+      className={styles.pane}
+      header={
+        <RightPaneHeader title="Reports">
+          <button
+            type="button"
+            className={styles.tool}
+            disabled={suspended || entry?.loading}
+            title="Load this tooltip's reports again"
+            onClick={() => {
+              void load(hash, lang, true, count);
+              refreshReportsIndex();
+            }}
+          >
+            Reload
+          </button>
+        </RightPaneHeader>
+      }
+    >
+      <ReportsBody key={`${hash}:${lang}`} {...props} />
+      <HighlightLayer />
+    </RightPane>
+  );
+}
+
+function ReportsBody({
+  hash,
+  lang,
+  user,
+  text,
+  globals,
+  previewHost,
+  suspended,
+  ready,
+}: ReportsPaneProps) {
+  const count = useReportsIndex((state) => openCount(state.open, hash, lang));
+  const indexFailed = useReportsIndex((state) => state.failed && !state.open);
+  const entry = useTooltipReports((state) => state.entries[reportsKey(hash, lang)]);
+  const load = useTooltipReports((state) => state.load);
+  const [showResolved, setShowResolved] = useState(false);
+  const reports = entry?.reports ?? null;
+  const active = useMemo(() => reports?.filter(isActive) ?? [], [reports]);
+  const resolved = useMemo(() => reports?.filter((report) => !isActive(report)) ?? [], [reports]);
+  // The index decides whether there is anything to fetch: 0 open = no request unless asked.
+  const wanted = count === null ? !indexFailed || showResolved : count > 0 || showResolved;
+  // The index moved since these reports were fetched and now disagrees with them: fetch again
+  // (once per index change; a list the index still disagrees with is kept as it is).
+  const stale =
+    reports !== null && count !== null && entry?.indexCount !== count && active.length !== count;
+  const settled = !suspended && ready;
+  useEffect(() => {
+    if (!settled || !wanted || entry?.loading || entry?.error) return;
+    if (reports && !stale) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // After the stepper settled and the preview painted: one frame later, off the paint.
+    const frame = requestAnimationFrame(() => {
+      timer = setTimeout(() => void load(hash, lang, stale, count), 0);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  }, [settled, wanted, reports, stale, entry?.loading, entry?.error, load, hash, lang, count]);
+
+  const shown = useMemo(
+    () => (showResolved ? [...active, ...resolved] : active),
+    [active, resolved, showResolved],
+  );
+  const [selectedId, setSelected] = useState<string | null>(null);
+  const selected = shown.find((report) => report.id === selectedId) ?? shown[0] ?? null;
+
+  // Badge numbers: every anchored note of the open reports, in list order.
+  const numbered = useMemo(() => {
+    const targets: NoteTarget[] = [];
+    let number = 0;
+    for (const report of active)
+      for (const note of report.notes)
+        if (!note.whole && note.exact) targets.push({ report, note, number: ++number });
+    return targets;
+  }, [active]);
+  const numberOf = (report: PaneReport, n: number) =>
+    numbered.find((target) => target.report.id === report.id && target.note.n === n)?.number;
+
+  // The pane's own copy of the tooltip when the preview is not on screen (toggle, phone, or a
+  // collapsed preview column): the highlights need a rendering to sit on.
+  const previewVisible = usePreviewVisible(previewHost);
+  const copy = useRef<HTMLDivElement>(null);
+  const showCopy = !previewVisible && numbered.length > 0;
+  const targets = useCallback(() => {
+    const found: Element[] = [];
+    const host = previewHost.current;
+    if (host)
+      for (const element of host.querySelectorAll(`.${previewStyles.description}`))
+        if (!element.closest(`.${previewStyles.associated}`)) found.push(element);
+    if (copy.current) found.push(copy.current.firstElementChild ?? copy.current);
+    return found;
+  }, [previewHost]);
+  const list = useRef<HTMLDivElement>(null);
+  const rebuild = useReportHighlights({
+    key: `pane:${hash}:${lang}`,
+    targets,
+    notes: numbered,
+    selected: selected?.id ?? null,
+    enabled: settled && numbered.length > 0,
+    onSelect: (id) => {
+      setSelected(id);
+      list.current?.querySelector<HTMLElement>(`[data-report="${id}"]`)?.scrollIntoView({
+        block: 'nearest',
+      });
+    },
+  });
+  useEffect(() => {
+    rebuild.current();
+  }, [showCopy, previewVisible, rebuild]);
+
+  // Alt+R or the header entry: focus the first report once it is there.
+  const focusToken = useReportsTab((state) => state.focusToken);
+  const focused = useRef(focusToken);
+  useEffect(() => {
+    if (focused.current === focusToken || !reports) return;
+    focused.current = focusToken;
+    list.current?.focus();
+  }, [focusToken, reports]);
+
+  const [message, setMessage] = useState<string>('');
+  const [undo, setUndo] = useState<{ report: PaneReport; version: number; label: string } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!undo) return;
+    const timer = setTimeout(() => setUndo(null), 5000);
+    return () => clearTimeout(timer);
+  }, [undo]);
+  const update = useTooltipReports((state) => state.update);
+  const remove = useTooltipReports((state) => state.remove);
+  const [pending, setPending] = useState<string | null>(null);
+  async function act(report: PaneReport, action: PaneAction, expected = report.version) {
+    setPending(report.id);
+    setMessage('');
+    try {
+      const result = await postReportAction(report.id, expected, action);
+      const patch: Partial<PaneReport> = { status: result.status, version: result.version };
+      if (action.action === 'claim') patch.claimed_by = user.login;
+      if (action.action === 'reject') patch.closed_note = action.reason;
+      if (action.action === 'duplicate') patch.duplicate_of = action.of;
+      update(hash, lang, report.id, patch);
+      setMessage(`${report.id} ${pastTense[action.action] ?? result.status}.`);
+      // Undo is the reverse action with the version it expects; triage and claim have none.
+      if (['reject', 'duplicate', 'close', 'spam'].includes(action.action))
+        setUndo({
+          report: { ...report, ...patch },
+          version: result.version,
+          label:
+            action.action === 'spam'
+              ? `${report.id} marked spam; its screenshots are deleted. Undo restores the status only.`
+              : `${report.id} ${pastTense[action.action]}.`,
+        });
+      else setUndo(null);
+      refreshReportsIndex();
+    } catch (error) {
+      if (error instanceof ReportsHttpError && error.status === 409) {
+        setMessage(`${report.id}: ${error.message}. Reloaded.`);
+        void load(hash, lang, true, count);
+      } else setMessage(`${report.id}: ${errorMessage(error)}`);
+    } finally {
+      setPending(null);
+    }
+  }
+  const [confirmDelete, setConfirmDelete] = useState<PaneReport | null>(null);
+  async function removeReport(report: PaneReport) {
+    setPending(report.id);
+    try {
+      await deleteReport(report.id);
+      remove(hash, lang, report.id);
+      setMessage(`${report.id} deleted.`);
+      setUndo(null);
+      refreshReportsIndex();
+    } catch (error) {
+      setMessage(`${report.id}: ${errorMessage(error)}`);
+    } finally {
+      setPending(null);
+      setConfirmDelete(null);
+    }
+  }
+
+  function onListKey(event: KeyboardEvent) {
+    if (!shown.length) return;
+    const at = Math.max(
+      0,
+      shown.findIndex((report) => report.id === selected?.id),
+    );
+    const to =
+      event.key === 'ArrowDown'
+        ? Math.min(shown.length - 1, at + 1)
+        : event.key === 'ArrowUp'
+          ? Math.max(0, at - 1)
+          : event.key === 'Home' || event.key === 'PageUp'
+            ? 0
+            : event.key === 'End' || event.key === 'PageDown'
+              ? shown.length - 1
+              : -1;
+    if (to >= 0) {
+      event.preventDefault();
+      setSelected(shown[to]!.id);
+      list.current
+        ?.querySelector<HTMLElement>(`[data-report="${shown[to]!.id}"]`)
+        ?.scrollIntoView({ block: 'nearest' });
+      return;
+    }
+    if (event.altKey || event.ctrlKey || event.metaKey || !selected || pending) return;
+    if (event.key === 't' && selected.status === 'open') {
+      event.preventDefault();
+      void act(selected, { action: 'triage' });
+    } else if (event.key === 'u' && undo) {
+      event.preventDefault();
+      void act(undo.report, { action: 'reopen' }, undo.version);
+    }
+  }
+
+  const display = useDisplay(text, globals, settled && active.length > 0);
+  const listId = useId();
+  const maintainer = user.role === 'maintainer';
+  const loadingFirst = wanted && !reports && !entry?.error;
+  return (
+    <DisplayContext.Provider value={display}>
+      <div className={styles.body}>
+        {showCopy && (
+          <div className={styles.copy} ref={copy}>
+            <MarkupSnippet text={text} lang={lang} globals={globals} />
+          </div>
+        )}
+        {previewVisible && numbered.length > 0 && (
+          <p className={styles.hint}>Highlights in the preview · click one to select its report</p>
+        )}
+        {entry?.error && (
+          <p className={styles.error} role="alert">
+            Cannot load reports: {entry.error}{' '}
+            <button
+              type="button"
+              className={styles.linkButton}
+              onClick={() => void load(hash, lang, true, count)}
+            >
+              Retry
+            </button>
+          </p>
+        )}
+        {indexFailed && count === null && !reports && (
+          <p className={styles.muted}>Report counts are unavailable right now.</p>
+        )}
+        {loadingFirst && settled && (
+          <p className={styles.muted} role="status">
+            Loading reports…
+          </p>
+        )}
+        {!settled && !reports && count !== null && count > 0 && (
+          <p className={styles.empty}>
+            {count} open {count === 1 ? 'report' : 'reports'}
+          </p>
+        )}
+        {!loadingFirst && !active.length && !entry?.error && (
+          <p className={styles.empty}>No open reports in {languageLabel(lang)}</p>
+        )}
+        <div
+          ref={list}
+          className={styles.list}
+          role="listbox"
+          aria-label="Reports"
+          aria-activedescendant={selected ? `${listId}-${selected.id}` : undefined}
+          tabIndex={shown.length ? 0 : -1}
+          onKeyDown={onListKey}
+          hidden={!shown.length}
+        >
+          {shown.map((report, index) => (
+            <ReportRow
+              key={report.id}
+              id={`${listId}-${report.id}`}
+              report={report}
+              selected={report.id === selected?.id}
+              first={index === active.length && index > 0}
+              numberOf={(n) => numberOf(report, n)}
+              onSelect={() => setSelected(report.id)}
+            />
+          ))}
+        </div>
+        {(resolved.length > 0 || (reports === null && !showResolved && count === 0)) && (
+          <button
+            type="button"
+            className={styles.linkButton}
+            onClick={() => setShowResolved((value) => !value)}
+          >
+            {showResolved
+              ? 'Hide resolved reports'
+              : reports === null
+                ? 'Show resolved reports'
+                : `Show ${resolved.length} resolved`}
+          </button>
+        )}
+        <div className={styles.bar} role="group" aria-label="Report actions">
+          <p className={styles.status} role="status" aria-live="polite">
+            {undo ? (
+              <>
+                {undo.label}{' '}
+                <button
+                  type="button"
+                  className={styles.linkButton}
+                  disabled={Boolean(pending)}
+                  onClick={() => void act(undo.report, { action: 'reopen' }, undo.version)}
+                >
+                  Undo
+                </button>
+              </>
+            ) : (
+              message
+            )}
+          </p>
+          {selected && (
+            <ActionBar
+              report={selected}
+              others={shown.filter(
+                (report) =>
+                  report.id !== selected.id &&
+                  !['duplicate', 'withdrawn', 'spam'].includes(report.status),
+              )}
+              login={user.login}
+              maintainer={maintainer}
+              busy={pending !== null}
+              onAction={(action) => void act(selected, action)}
+              onDelete={() => setConfirmDelete(selected)}
+            />
+          )}
+        </div>
+        {confirmDelete && (
+          <Dialog
+            title={`Delete ${confirmDelete.id}?`}
+            compact
+            busy={pending !== null}
+            onClose={() => setConfirmDelete(null)}
+            footer={
+              <>
+                <button type="button" data-autofocus onClick={() => setConfirmDelete(null)}>
+                  Cancel
+                </button>
+                <button type="button" onClick={() => void removeReport(confirmDelete)}>
+                  Delete report
+                </button>
+              </>
+            }
+          >
+            <p>
+              The report, its notes, its history, and its screenshots are removed for good. This
+              cannot be undone.
+            </p>
+          </Dialog>
+        )}
+      </div>
+    </DisplayContext.Provider>
+  );
+}
+
+/** Whether the page's preview is on screen (a hidden or collapsed one measures 0 × 0). */
+function usePreviewVisible(host: RefObject<HTMLElement | null>) {
+  const [visible, setVisible] = useState(false);
+  const watched = useRef<{ element: HTMLElement | null; observer?: ResizeObserver }>({
+    element: null,
+  });
+  // The host element changes when the preview moves between the column and the page, so check
+  // after every render, but subscribe again only for a different element.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const element = host.current;
+    if (watched.current.element === element && watched.current.observer) return;
+    watched.current.observer?.disconnect();
+    watched.current = { element };
+    if (!element) {
+      setVisible(false);
+      return;
+    }
+    const check = () => {
+      const rect = element.getBoundingClientRect();
+      setVisible(rect.width > 0 && rect.height > 0);
+    };
+    check();
+    const observer = new ResizeObserver(check);
+    observer.observe(element);
+    watched.current.observer = observer;
+  });
+  useEffect(() => () => watched.current.observer?.disconnect(), []);
+  return visible;
+}
+
+function Trust({ report }: { report: PaneReport }) {
+  if (report.trust === 'anonymous')
+    return (
+      <span
+        className={styles.trust}
+        data-trust="anonymous"
+        title="Anonymous report: counts for much less"
+      >
+        ○ anonymous
+      </span>
+    );
+  const history = report.reporter_history;
+  const login = report.reporter_login ?? 'account';
+  if (report.trust === 'role')
+    return (
+      <span className={styles.trust} data-trust="role" title="Filed by a role holder">
+        ◆ {login}
+      </span>
+    );
+  return (
+    <span
+      className={styles.trust}
+      data-trust="account"
+      title="Signed-in reporter; accepted = fixed or closed"
+    >
+      ● {login}
+      {history && ` · filed ${history.filed}, accepted ${history.accepted}`}
+    </span>
+  );
+}
+
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return '';
+  }
+};
+const safeLink = (url: string | null | undefined) =>
+  url && /^https:\/\//i.test(url) && hostOf(url) ? url : undefined;
+
+function ReportRow({
+  id,
+  report,
+  selected,
+  first,
+  numberOf,
+  onSelect,
+}: {
+  id: string;
+  report: PaneReport;
+  selected: boolean;
+  /** The first resolved report: a rule above it. */
+  first: boolean;
+  numberOf(n: number): number | undefined;
+  onSelect(): void;
+}) {
+  const variant =
+    report.variant === 'base' ? null : report.variant === 'enhanced' ? 'Enhanced' : 'Override';
+  const source = safeLink(report.source_url);
+  return (
+    <div
+      id={id}
+      role="option"
+      aria-selected={selected}
+      data-report={report.id}
+      data-first-resolved={first || undefined}
+      className={styles.report}
+      onClick={onSelect}
+    >
+      <div className={styles.reportHead}>
+        <span className={styles.id}>{report.id}</span>
+        <span className={styles.statusText} data-status={report.status}>
+          {statusLabels[report.status]}
+        </span>
+        {report.claimed_by && <span className={styles.meta}>claimed by {report.claimed_by}</span>}
+        <span className={styles.category}>
+          {categoryLabels[report.category] ?? report.category}
+        </span>
+        {report.same_count > 0 && (
+          <span className={styles.meta}>same issue ×{report.same_count + 1}</span>
+        )}
+        {variant && <span className={styles.meta}>{variant}</span>}
+        {report.seen_lang && report.seen_lang !== report.lang && (
+          <span className={styles.meta}>seen in {languageLabel(report.seen_lang as Lang)}</span>
+        )}
+        <span className={styles.right}>
+          <span className={styles.meta} title={new Date(report.created_at * 1000).toLocaleString()}>
+            {age(report.created_at)}
+          </span>
+          <Trust report={report} />
+        </span>
+      </div>
+      {report.status === 'withdrawn' ? (
+        <p className={styles.muted}>Withdrawn by the reporter; the text is removed.</p>
+      ) : (
+        <>
+          {report.notes.map((note) => (
+            <NoteView key={note.n} report={report} note={note} number={numberOf(note.n)} />
+          ))}
+          {report.note && <p className={styles.overall}>{report.note}</p>}
+          {(report.links.length > 0 || source || report.files_count > 0) && (
+            <div className={styles.evidence}>
+              {report.files_count > 0 && <Screenshots report={report} />}
+              {report.links.map((link) => {
+                const href = safeLink(link);
+                return (
+                  <span key={link} className={styles.link}>
+                    Video:{' '}
+                    {href ? (
+                      <a href={href} target="_blank" rel="noopener noreferrer">
+                        {link.replace(/^https:\/\//, '')}
+                      </a>
+                    ) : (
+                      link
+                    )}{' '}
+                    <span className={styles.meta}>({hostOf(link)})</span>
+                  </span>
+                );
+              })}
+              {report.source_url && (
+                <span className={styles.link}>
+                  Source:{' '}
+                  {source ? (
+                    <a href={source} target="_blank" rel="noopener noreferrer">
+                      {report.source_url.replace(/^https:\/\//, '')}
+                    </a>
+                  ) : (
+                    report.source_url
+                  )}
+                </span>
+              )}
+            </div>
+          )}
+        </>
+      )}
+      {report.duplicate_of && <p className={styles.muted}>Duplicate of {report.duplicate_of}</p>}
+      {report.closed_note && report.status === 'rejected' && (
+        <p className={styles.muted}>
+          Reason:{' '}
+          {rejectReasons.find((r) => r.value === report.closed_note)?.label ?? report.closed_note}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** The note's place in today's text, from the core resolver (same text the preview renders). */
+function NoteView({
+  report,
+  note,
+  number,
+}: {
+  report: PaneReport;
+  note: PaneReport['notes'][number];
+  number: number | undefined;
+}) {
+  const category =
+    note.category !== report.category ? (categoryLabels[note.category] ?? note.category) : null;
+  const whole = note.whole || !note.exact;
+  return (
+    <div className={styles.note}>
+      <span
+        className={styles.number}
+        data-empty={number === undefined || undefined}
+        aria-hidden={number === undefined || undefined}
+      >
+        {number ?? ''}
+      </span>
+      <div className={styles.noteBody}>
+        {whole ? (
+          <span className={styles.quoteLine}>
+            <span className={styles.whole}>Whole tooltip</span>
+            {category && <span className={styles.meta}> · {category}</span>}
+          </span>
+        ) : (
+          <NoteQuote report={report} note={note} category={category} />
+        )}
+        {note.text && <p className={styles.noteText}>{note.text}</p>}
+      </div>
+    </div>
+  );
+}
+
+function NoteQuote({
+  report,
+  note,
+  category,
+}: {
+  report: PaneReport;
+  note: PaneReport['notes'][number];
+  category: string | null;
+}) {
+  const state = useNoteState(report, note);
+  if (state === 'stale')
+    return (
+      <span className={styles.stale}>
+        <strong>Text changed since this report.</strong> Original:{' '}
+        <q className={styles.quote}>{note.exact}</q>
+        {category && <span className={styles.meta}> · {category}</span>}
+      </span>
+    );
+  return (
+    <span className={styles.quoteLine}>
+      <q className={styles.quote}>{note.exact}</q>
+      {state === 'moved' && <span className={styles.meta}> · moved</span>}
+      {category && <span className={styles.meta}> · {category}</span>}
+    </span>
+  );
+}
+
+/** Today's display text of the tooltip and its revision, for the pane's note states. */
+const DisplayContext = createContext<{ text: string; rev: string } | null>(null);
+
+function useNoteState(report: PaneReport, note: PaneReport['notes'][number]) {
+  const display = useContext(DisplayContext);
+  if (!display) return 'exact';
+  return resolveNote(display.text, display.rev, report, note).kind;
+}
+
+/** Computes the display text once per text change (core displayText, the selectors' basis). */
+function useDisplay(text: string, globals: MarkupGlobals, enabled: boolean) {
+  const display = useMemo(
+    () => (enabled ? displayText(text, globals) : null),
+    [text, globals, enabled],
+  );
+  const [value, setValue] = useState<{ text: string; rev: string } | null>(null);
+  useEffect(() => {
+    if (display === null) return;
+    let live = true;
+    void displayRevision(display).then((rev) => {
+      if (live) setValue({ text: display, rev });
+    });
+    return () => {
+      live = false;
+    };
+  }, [display]);
+  return value?.text === display ? value : null;
+}
+
+function Screenshots({ report }: { report: PaneReport }) {
+  const [open, setOpen] = useState(false);
+  const [images, setImages] = useState<(string | null | 'error')[]>([]);
+  const [zoom, setZoom] = useState<number | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    const urls: string[] = [];
+    void Promise.all(
+      Array.from({ length: report.files_count }, (_, i) =>
+        fetchScreenshot(report.id, i + 1).then(
+          (url) => {
+            if (url) urls.push(url);
+            return url;
+          },
+          () => 'error' as const,
+        ),
+      ),
+    ).then((result) => {
+      if (live) setImages(result);
+      else for (const url of urls) URL.revokeObjectURL(url);
+    });
+    return () => {
+      live = false;
+      for (const url of urls) URL.revokeObjectURL(url);
+      setImages([]);
+    };
+  }, [open, report.id, report.files_count]);
+  const shownImage = zoom === null ? null : images[zoom];
+  return (
+    <div className={styles.shots}>
+      <button
+        type="button"
+        className={styles.linkButton}
+        aria-expanded={open}
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen((value) => !value);
+        }}
+      >
+        {open ? '▾' : '▸'} {report.files_count}{' '}
+        {report.files_count === 1 ? 'screenshot' : 'screenshots'}
+      </button>
+      {open && (
+        <span className={styles.thumbs}>
+          {images.length === 0 && <span className={styles.meta}>Loading…</span>}
+          {images.map((url, index) =>
+            url === 'error' ? (
+              <span key={index} className={styles.meta}>
+                Cannot load {index + 1}
+              </span>
+            ) : url === null ? (
+              <span key={index} className={styles.meta}>
+                {index + 1} removed
+              </span>
+            ) : (
+              <button
+                key={index}
+                type="button"
+                className={styles.thumb}
+                aria-label={`Open screenshot ${index + 1}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setZoom(index);
+                }}
+              >
+                <img src={url} alt="" />
+              </button>
+            ),
+          )}
+        </span>
+      )}
+      {typeof shownImage === 'string' && shownImage !== 'error' && (
+        <Dialog title={`${report.id} · screenshot ${zoom! + 1}`} onClose={() => setZoom(null)}>
+          <img
+            className={styles.full}
+            src={shownImage}
+            alt={`Screenshot ${zoom! + 1} of ${report.id}`}
+          />
+        </Dialog>
+      )}
+    </div>
+  );
+}
+
+function ActionBar({
+  report,
+  others,
+  login,
+  maintainer,
+  busy,
+  onAction,
+  onDelete,
+}: {
+  report: PaneReport;
+  others: PaneReport[];
+  login: string;
+  maintainer: boolean;
+  busy: boolean;
+  onAction(action: PaneAction): void;
+  onDelete(): void;
+}) {
+  const live = isActive(report);
+  if (report.status === 'withdrawn')
+    return <span className={styles.scope}>{report.id} · withdrawn</span>;
+  const canReopen = !live && (report.status !== 'spam' || maintainer);
+  const more: { label: string; run(): void; danger?: boolean }[] = [];
+  if (live || report.status === 'fixed')
+    more.push({ label: 'Close', run: () => onAction({ action: 'close' }) });
+  if (live && maintainer)
+    more.push({ label: 'Spam', run: () => onAction({ action: 'spam' }), danger: true });
+  if (maintainer) more.push({ label: 'Delete…', run: onDelete, danger: true });
+  return (
+    <span className={styles.actions}>
+      <span className={styles.scope}>
+        {report.id} · {statusLabels[report.status]}
+      </span>
+      {live && report.status === 'open' && (
+        <button
+          type="button"
+          className={styles.action}
+          disabled={busy}
+          title="Triage (T)"
+          onClick={() => onAction({ action: 'triage' })}
+        >
+          Triage
+        </button>
+      )}
+      {live && report.claimed_by !== login && (
+        <button
+          type="button"
+          className={styles.action}
+          disabled={busy}
+          onClick={() => onAction({ action: 'claim' })}
+        >
+          Claim
+        </button>
+      )}
+      {live && (
+        <Popover label="Reject reason" className={styles.action} flush trigger={<>Reject ▾</>}>
+          {(close) => (
+            <ul className={styles.menu}>
+              {rejectReasons.map((reason) => (
+                <li key={reason.value}>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      close();
+                      onAction({ action: 'reject', reason: reason.value });
+                    }}
+                  >
+                    {reason.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Popover>
+      )}
+      {live && others.length > 0 && (
+        <Popover label="Duplicate of" className={styles.action} flush trigger={<>Duplicate of…</>}>
+          {(close) => (
+            <ul className={styles.menu}>
+              {others.map((other) => (
+                <li key={other.id}>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      close();
+                      onAction({ action: 'duplicate', of: other.id });
+                    }}
+                  >
+                    <span className={styles.id}>{other.id}</span>{' '}
+                    {categoryLabels[other.category] ?? other.category}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Popover>
+      )}
+      {canReopen && (
+        <button
+          type="button"
+          className={styles.action}
+          disabled={busy}
+          onClick={() => onAction({ action: 'reopen' })}
+        >
+          Reopen
+        </button>
+      )}
+      {more.length > 0 && (
+        <Popover
+          label="More report actions"
+          className={styles.action}
+          flush
+          triggerLabel="More report actions"
+          trigger={<>⋯</>}
+        >
+          {(close) => (
+            <ul className={styles.menu}>
+              {more.map((item) => (
+                <li key={item.label}>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    data-danger={item.danger || undefined}
+                    onClick={() => {
+                      close();
+                      item.run();
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Popover>
+      )}
+    </span>
+  );
+}

@@ -269,16 +269,17 @@ describe('translator tooltip page', () => {
   });
 
   describe('tablist', () => {
-    it('renders Editor · Preview · English with ARIA tab semantics', () => {
+    it('renders Editor · Preview · English · Reports with ARIA tab semantics', () => {
       const html = render('/t/10?lang=de');
       // Each label sits in its own span (it ellipsises inside an equal-width phone tab).
       const tabs = [
         ...html.matchAll(/<button[^>]*role="tab"[^>]*><span[^>]*>([^<]*)<\/span><\/button>/g),
       ];
-      expect(tabs.map((match) => match[1])).toEqual(['Editor', 'Preview', 'English']);
+      // Reports: the translator's own language (German here) is one they may read.
+      expect(tabs.map((match) => match[1])).toEqual(['Editor', 'Preview', 'English', 'Reports']);
       expect(html).toContain('role="tablist"');
       expect(html.match(/aria-selected="true"/g)).toHaveLength(1);
-      expect(html.match(/tabindex="-1"/g)).toHaveLength(2);
+      expect(html.match(/tabindex="-1"/g)).toHaveLength(3);
       for (const [tag] of tabs) {
         const controls = /aria-controls="([^"]+)"/.exec(tag)?.[1] ?? '';
         const id = /\bid="([^"]+)"/.exec(tag)?.[1] ?? '';
@@ -286,7 +287,7 @@ describe('translator tooltip page', () => {
         expect(html).toContain(`id="${controls}"`);
         expect(html).toContain(`aria-labelledby="${id}"`);
       }
-      expect(html.match(/role="tabpanel"/g)).toHaveLength(3);
+      expect(html.match(/role="tabpanel"/g)).toHaveLength(4);
     });
     it('keeps the editor and preview mounted while another panel is active', () => {
       const html = render('/t/10?lang=de');

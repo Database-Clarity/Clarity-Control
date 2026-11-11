@@ -7,6 +7,7 @@ import { workspaceMenu, workspacePath, type NavLink } from './links';
 import { ShellOverlay } from './ShellOverlay';
 import { AccountPicture, useIdentity } from './IdentityMenu';
 import { GearIcon } from './SettingsButton';
+import { ReportsEntry, ReportsMenuRow } from '../reports/pane/ReportsEntry';
 import styles from './WorkspaceTabs.module.scss';
 
 /**
@@ -88,10 +89,21 @@ export function WorkspaceTabs({
       </Link>
     </li>
   );
+  // Reports sits after the Compendium tab (or the last tab for roles without one).
+  const reportsAfter = primary.some(({ to }) => to === '/compendium')
+    ? '/compendium'
+    : primary.at(-1)?.to;
   return (
     <nav aria-label="Workspaces" className={styles.tabs}>
       <ul>
-        {primary.map(tab)}
+        {primary.map((link) =>
+          link.to === reportsAfter
+            ? [
+                tab(link),
+                <ReportsEntry key="reports" className={styles.tab} badgeClassName={styles.badge} />,
+              ]
+            : tab(link),
+        )}
         {more.length > 0 && (
           <li>
             <button
@@ -183,6 +195,11 @@ export function WorkspaceList({
             {to === '/compendium' && <CompendiumBadge count={count} className={styles.badge} />}
           </Link>
         ))}
+        <ReportsMenuRow
+          className={styles.row}
+          badgeClassName={styles.badge}
+          onNavigate={onNavigate}
+        />
       </nav>
       {onSettings && onAccount && <AccountRows onSettings={onSettings} onAccount={onAccount} />}
     </>

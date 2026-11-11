@@ -491,13 +491,15 @@ describe('editor page composition', () => {
     expect(useDraftStore.getState().discard).toHaveBeenCalledWith(10);
   });
 
-  it('on a phone: Editor / Preview / Compendium views, every panel mounted, one at a time', async () => {
+  it('on a phone: Editor / Preview / Compendium / Reports views, panels mounted, one at a time', async () => {
     phone = true;
     await render();
     const tabs = [...host.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent);
-    expect(tabs).toEqual(['Editor', 'Preview', 'Compendium']);
+    // Reports joins for role holders; its panel stays empty until the tab is opened.
+    expect(tabs).toEqual(['Editor', 'Preview', 'Compendium', 'Reports']);
     const panels = [...host.querySelectorAll<HTMLElement>('[role="tabpanel"]')];
-    expect(panels).toHaveLength(3);
+    expect(panels).toHaveLength(4);
+    expect(host.querySelector('[data-panel="reports"]')?.childElementCount).toBe(0);
     expect(host.querySelector('[data-panel="translation"]')?.getAttribute('data-active')).toBe(
       'true',
     );

@@ -20,6 +20,11 @@ vi.mock('../compendium/CompendiumBadge', async (original) => ({
   ...(await original<typeof import('../compendium/CompendiumBadge')>()),
   useCompendiumCount: () => mocks.count,
 }));
+// The Reports entry has its own tests (features/reports/pane); these cover the shell's tabs.
+vi.mock('../reports/pane/ReportsEntry', () => ({
+  ReportsEntry: () => null,
+  ReportsMenuRow: () => null,
+}));
 vi.mock('../../services/api', async (original) => ({
   ...(await original<typeof import('../../services/api')>()),
   apiUrl: 'https://api.test',
