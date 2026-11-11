@@ -2,6 +2,8 @@ import { createHash, createPublicKey, verify } from 'node:crypto';
 import {
   stableStringify,
   baseEnhancedPublishMessage,
+  isHeldSetBonus,
+  setBonusHoldMessage,
   publishPayloadSchema,
   publishIntentDigest,
   publishMonth,
@@ -369,6 +371,17 @@ export class Publisher {
           undefined,
           undefined,
           { status: 'rejected', error: baseEnhancedPublishMessage },
+          blob,
+        );
+        return;
+      }
+      // Set bonuses wait for cut-over (owner 2026-11-11): a terminal rejection before any write.
+      if (tooltips.some((t) => isHeldSetBonus(t, this.options.facts[t.hash]))) {
+        await this.record(
+          opId,
+          undefined,
+          undefined,
+          { status: 'rejected', error: setBonusHoldMessage },
           blob,
         );
         return;

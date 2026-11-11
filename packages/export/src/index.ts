@@ -14,6 +14,7 @@ export {
   type LegacyOptions,
   type LegacyPreset,
   type LegacyVersions,
+  type SandboxPerks,
 } from './legacy.js';
 
 // Configurable exports: config schema 1, the compiler, and format v1 (README.md, "Format v1").

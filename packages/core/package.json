@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./markup/arithmetic": "./src/markup/arithmetic.ts",
-    "./markup/parse": "./src/markup/parse.ts"
+    "./markup/parse": "./src/markup/parse.ts",
+    "./setBonus": "./src/setBonus.ts"
   },
   "scripts": {
     "test": "vitest run",

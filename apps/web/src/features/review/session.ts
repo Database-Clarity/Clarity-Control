@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { baseEnhancedPublishMessage, publishableHash } from '@clarity/core';
+import { baseEnhancedPublishMessage, publishableHash, setBonusHoldMessage } from '@clarity/core';
 import { pushSelected } from '../../services/history';
 import { errorMessage } from '../../services/http';
 import { sameUser, useAuthStore } from '../../stores/auth';
@@ -99,26 +99,30 @@ export async function publishReviewed(
   } catch (reason) {
     if (current()) {
       const message = errorMessage(reason);
-      let converterRefusal = message === baseEnhancedPublishMessage;
+      // Pre-write refusals: the converter cannot express it yet, or it waits for cut-over.
+      const refusals = [baseEnhancedPublishMessage, setBonusHoldMessage];
+      let refusal = refusals.find((text) => text === message);
       // The legacy API client wraps errors as text. Recognize only the Worker's exact
       // pre-write refusal; partial-write details and every other error stay visible.
       const prefix = 'API HTTP 422: ';
       if (message.startsWith(prefix)) {
         try {
           const value: unknown = JSON.parse(message.slice(prefix.length));
-          converterRefusal =
-            value !== null &&
-            typeof value === 'object' &&
-            Object.keys(value).length === 1 &&
-            'error' in value &&
-            value.error === baseEnhancedPublishMessage;
+          refusal = refusals.find(
+            (text) =>
+              value !== null &&
+              typeof value === 'object' &&
+              Object.keys(value).length === 1 &&
+              'error' in value &&
+              value.error === text,
+          );
         } catch {
           /* Keep the original error and its write-status warning. */
         }
       }
       useReviewSession.setState({
-        error: converterRefusal
-          ? `Not pushed: ${baseEnhancedPublishMessage}.`
+        error: refusal
+          ? `Not pushed: ${refusal}.`
           : `${message.replace(/[.!?]*$/, '.')} A failed push may have written live data; check the error details before retrying.`,
       });
     }

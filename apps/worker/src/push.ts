@@ -1,4 +1,5 @@
 import { refuseBaseEnhanced } from './baseEnhanced.js';
+import { refuseHeldSetBonuses } from './setBonusHold.js';
 import { z } from 'zod';
 import {
   publishableHash,
@@ -100,6 +101,7 @@ async function loadAtHead(
       throw new HttpError(422, `Missing generator facts for tooltip ${tooltip.hash}`);
     }
   }
+  refuseHeldSetBonuses(tooltips, facts);
   await refuseBaseEnhanced(github, head, canonicalHashes, aliases, tooltips);
   // A malformed marker is reported by the marker step below; here it just means "all changed".
   const pushed =
