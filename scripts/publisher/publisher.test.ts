@@ -3,13 +3,14 @@ import { seedPushGroups, pushTime } from '../../apps/worker/test/push-fixture.js
 import { execFileSync } from 'node:child_process';
 import { generateKeyPairSync, createHash, sign } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { RemoteRepository } from './remote.js';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   stableStringify,
+  baseEnhancedPublishMessage,
   publishIntentDigest,
   publishableHash,
   classifyPublishIntent,
@@ -310,6 +311,100 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     await f.pub.run();
     f.assertDone();
   });
+  it('rejects native pairs hidden by stale translations and continues the publish queue', async () => {
+    const f = await setup();
+    const current: Tooltip = {
+      ...f.tooltip,
+      text: {
+        en: { ...f.tooltip.text.en!, updatedAt: '2026-10-01T00:00:00Z' },
+        fr: {
+          text: 'old translation',
+          updatedAt: '2026-01-01T00:00:00Z',
+          updatedBy: 'alice',
+          sourceUpdatedAt: '2026-01-01T00:00:00Z',
+        },
+      },
+    };
+    const edited = structuredClone(current);
+    edited.text.fr!.text = '{{un}{deux}}';
+    expect(await publishableHash(edited)).toBe(await publishableHash(current));
+    f.change(D, { 'tooltips/123.json': current });
+    await f.request(A, [123], { 123: await publishableHash(current) });
+    f.change(D, { 'tooltips/123.json': edited });
+    const live = f.git.head(L);
+    await f.pub.run();
+    expect(f.git.head(L)).toBe(live);
+    const tree = f.git.tree(f.git.head(D)!);
+    expect(tree[paths(A).request]).toBeUndefined();
+    expect(f.pub.read(tree, paths(A).log)).toMatchObject({
+      result: { status: 'rejected', error: baseEnhancedPublishMessage },
+    });
+    f.change(D, { 'tooltips/123.json': f.tooltip });
+    await f.request(B);
+    await f.pub.run();
+    f.assertDone(B);
+  });
+
+  it('pinned runtime refuses native pairs and leaves later requests runnable', async () => {
+    const f = await setup();
+    const paired = { ...f.tooltip, text: { en: { ...f.tooltip.text.en!, text: '{{a}{b}}' } } };
+    f.change(D, { 'tooltips/123.json': paired });
+    await f.request(A, [123], { 123: await publishableHash(paired) });
+    const plain = { ...f.tooltip, hash: 124 };
+    f.options.facts[124] = { name: 'Plain', type: 'perk' };
+    f.change(D, { 'tooltips/124.json': plain });
+    await f.request(B, [124], { 124: await publishableHash(plain) });
+    const root = mkdtempSync(join(tmpdir(), 'native-pinned-runtime-'));
+    roots.push(root);
+    const config = join(root, 'config.json'),
+      out = join(root, 'artifacts'),
+      replay = join(root, 'replay.git');
+    writeFileSync(config, JSON.stringify(f.options));
+    execFileSync(
+      process.execPath,
+      [
+        resolve('scripts/publisher/template/.publisher/publisher.mjs'),
+        '--dry-run',
+        f.upstream,
+        config,
+        out,
+      ],
+      { stdio: 'pipe' },
+    );
+    const result = JSON.parse(readFileSync(join(out, 'result.json'), 'utf8'));
+    expect(result.error).toBeNull();
+    expect(result.liveHead).not.toBe(f.git.head(L));
+    execFileSync('git', ['clone', '--mirror', join(out, 'would-be-commits.bundle'), replay], {
+      stdio: 'pipe',
+    });
+    const log = JSON.parse(
+      execFileSync('git', ['--git-dir', replay, 'show', `${result.dataHead}:${paths(A).log}`], {
+        encoding: 'utf8',
+      }),
+    );
+    expect(log.result).toMatchObject({ status: 'rejected', error: baseEnhancedPublishMessage });
+    const nextLog = JSON.parse(
+      execFileSync('git', ['--git-dir', replay, 'show', `${result.dataHead}:${paths(B).log}`], {
+        encoding: 'utf8',
+      }),
+    );
+    expect(nextLog.result.status).toMatch(/done|unchanged/);
+    const live = JSON.parse(
+      execFileSync(
+        'git',
+        ['--git-dir', replay, 'show', `${result.liveHead}:liveDescriptions.json`],
+        { encoding: 'utf8' },
+      ),
+    );
+    expect(live.perks[123]).toBeUndefined();
+    expect(live.perks[124].editor.en.main).toBe('reviewed');
+    expect(() =>
+      execFileSync('git', ['--git-dir', replay, 'show', `${result.dataHead}:${paths(A).request}`], {
+        stdio: 'pipe',
+      }),
+    ).toThrow();
+  });
+
   it('malformed request JSON cannot block receipt recovery or later valid requests', async () => {
     const f = await setup();
     await f.request();
@@ -806,10 +901,11 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       );
     },
   );
-  it('fixed-now golden matches pushLive at afa1e8e byte for byte and pushed map', async () => {
-    // Pin the oracle's Git blobs from afa1e8e so future edits cannot silently change both sides.
+  it('fixed-now golden matches guarded pushLive byte for byte and pushed map', async () => {
+    // Retain the afa1e8e stamp oracle; re-pin push.ts for its reviewed native refusal
+    // and budget checks. The pair-free golden still matches byte for byte.
     for (const [path, expected] of [
-      ['apps/worker/src/push.ts', '9ada76155c1b69713aa3e8951552e447df10472f'],
+      ['apps/worker/src/push.ts', '7d2a6a8b94d866471f0bea26ddb31759cf933d72'],
       ['apps/worker/src/stamp.ts', 'debdbefc1657c970f27b1304e4c8ea509c54b4a1'],
     ]) {
       const content = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');

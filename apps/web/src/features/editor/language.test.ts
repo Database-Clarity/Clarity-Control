@@ -19,6 +19,18 @@ function highlights(text: string) {
   return ranges;
 }
 
+it('distinguishes base and enhanced arms, including formulas inside tags', () => {
+  expect(highlights('<pve {{${1+2}}{#damage}} />')).toEqual(
+    expect.arrayContaining([
+      { text: '{{${1+2}}', kind: 'number' },
+      { text: '{#damage}}', kind: 'variable' },
+    ]),
+  );
+  expect(highlights('<pvp [{{5}{8}}] />')).toEqual(expect.arrayContaining([
+    { text: '{{5}', kind: 'number' }, { text: '{8}}', kind: 'variable' },
+  ]));
+});
+
 it('retains markup and comment boundaries inside long unstyled prose', () => {
   const prefix = 'Ordinary prose with Unicode 🡅 and punctuation. '.repeat(40);
   const text = [

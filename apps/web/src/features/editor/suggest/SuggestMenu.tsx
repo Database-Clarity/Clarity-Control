@@ -9,7 +9,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import type { EditorView } from '@codemirror/view';
-import { parseMarkup, type Lang, type MarkupGlobals } from '@clarity/core';
+import { enhancedMarkupType, parseMarkup, type Lang, type MarkupGlobals } from '@clarity/core';
 import { MarkupSnippet } from '../../preview/TooltipPreview';
 import { acceptSuggestion, closeSuggest, moveSuggest, type SuggestSnapshot } from './state';
 import type { SuggestContext, SuggestItem } from './source';
@@ -300,13 +300,29 @@ export function SuggestMenu({
       ? null
       : selected.insert
     : selected?.preview;
+  const pairGlobals = useMemo(
+    () =>
+      selected?.id === 'snippet:base-enhanced-pair'
+        ? {
+            base: {
+              ...globals,
+              type: globals.type === enhancedMarkupType ? undefined : globals.type,
+            },
+            enhanced: { ...globals, type: enhancedMarkupType },
+          }
+        : null,
+    [selected?.id, globals],
+  );
   const previewText = useMemo(() => {
     if (!previewSource) return null;
     const text = snapshot.context.definitions
       ? `${snapshot.context.definitions}\n${previewSource}`
       : previewSource;
-    return parses(text, globals) ? text : null;
-  }, [previewSource, snapshot.context.definitions, globals]);
+    return parses(text, pairGlobals?.base ?? globals) &&
+      (!pairGlobals || parses(text, pairGlobals.enhanced))
+      ? text
+      : null;
+  }, [previewSource, snapshot.context.definitions, globals, pairGlobals]);
   const used = useMemo(
     () => (selected?.usage && usage ? usage.count(selected.usage) : undefined),
     [selected, usage],
@@ -338,6 +354,7 @@ export function SuggestMenu({
       style={style}
       data-suggest-menu
       data-short={short || undefined}
+      data-pair={pairGlobals ? '' : undefined}
       // Pressing inside never takes focus from the editor, so the caret and selection stay put.
       onMouseDown={(event) => event.preventDefault()}
     >
@@ -435,8 +452,20 @@ export function SuggestMenu({
           </pre>
         )}
         {previewText && (
-          <div className={styles.rendered} aria-label="Preview">
-            <MarkupSnippet text={previewText} lang={lang} globals={globals} />
+          <div
+            className={`${styles.rendered} ${pairGlobals ? styles.pairPreview : ''}`}
+            aria-label="Preview"
+          >
+            {pairGlobals ? (
+              <>
+                <span className={styles.variantLabel}>Base</span>
+                <MarkupSnippet text={previewText} lang={lang} globals={pairGlobals.base} />
+                <span className={styles.variantLabel}>Enhanced</span>
+                <MarkupSnippet text={previewText} lang={lang} globals={pairGlobals.enhanced} />
+              </>
+            ) : (
+              <MarkupSnippet text={previewText} lang={lang} globals={globals} />
+            )}
           </div>
         )}
         <p className={styles.about}>{selected.about}</p>

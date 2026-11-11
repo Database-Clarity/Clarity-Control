@@ -71,7 +71,14 @@ describe('the catalogue', () => {
         (diagnostic) => diagnostic.severity === 'error',
       );
       expect(diagnostics, snippet.id).toEqual([]);
-      expect(text, snippet.id).not.toContain('{{');
+      expect(text, snippet.id).not.toMatch(/\{\{\d+:/);
+      if (snippet.id === 'base-enhanced-pair') {
+        expect(text).toBe('{{base}{enhanced}}');
+        expect(JSON.stringify(parseMarkup(text, globals).lines)).toContain('base');
+        expect(
+          JSON.stringify(parseMarkup(text, { ...globals, type: 'Weapon Trait Enhanced' }).lines),
+        ).toContain('enhanced');
+      } else expect(text, snippet.id).not.toContain('{{');
     }
   });
 

@@ -24,6 +24,14 @@ export function EntryGlyph({ glyph }: { glyph: Glyph }) {
           <span className={styles.pvp}>[PvP]</span>
         </span>
       );
+    case 'base-enhanced-pair':
+      return (
+        <span className={styles.pair}>
+          <span style={{ color: 'var(--syn-number)' }}>B</span>
+          <span aria-hidden="true">|</span>
+          <span style={{ color: 'var(--var)' }}>E</span>
+        </span>
+      );
     case 'pve':
       return <span className={styles.pve}>PvE</span>;
     case 'pvp':

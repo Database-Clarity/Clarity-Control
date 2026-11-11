@@ -238,3 +238,29 @@ describe('PreviewColumn', () => {
     expect(host.querySelector('[aria-live]')?.textContent).toBe('No changes vs Base');
   });
 });
+
+it('renders native arms in Base, Enhanced, and Compare, including an enhanced importer', async () => {
+  const base = 'Damage {{10}{20}}.';
+  const props = {
+    baseText: base,
+    enhanced: [
+      {
+        ...enhanced,
+        text: 'import main from 10',
+        derived: false,
+        globals: { ...globals('Weapon Trait Enhanced'), imports: { 10: base } },
+      },
+    ],
+  };
+  await render({ ...props, mode: 'base' });
+  expect(host.textContent).toContain('Damage 10.');
+  expect(host.textContent).not.toContain('Damage 20.');
+  await render({ ...props, mode: 'enhanced' });
+  expect(host.textContent).toContain('Damage 20.');
+  expect(host.textContent).not.toContain('Damage 10.');
+  await render({ ...props, mode: 'compare' });
+  expect(host.textContent).toContain('1 change');
+  expect(host.textContent).toContain('10');
+  expect(host.textContent).toContain('20');
+  expect(host.textContent).not.toContain('{{');
+});

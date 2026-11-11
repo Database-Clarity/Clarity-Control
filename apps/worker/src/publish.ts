@@ -1,3 +1,5 @@
+import { refuseBaseEnhanced } from './baseEnhanced.js';
+import { loadAliases } from './catalog.js';
 import { z } from 'zod';
 import {
   classifyPublishIntent,
@@ -5,6 +7,8 @@ import {
   publishBodySchema,
   publishIntentDigest,
   publishMonth,
+  publishableHash,
+  resolveAlias,
   publishOpIdSchema,
   publishPayloadSchema,
   stableStringify,
@@ -96,7 +100,10 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
   };
   const digest = await publishIntentDigest(intent);
   const paths = opPaths(value.opId);
-  // Two create attempts plus a final reconciliation. Worst case 10 subrequests including token;
+  let checkedHead: string | undefined;
+  let aliases: Awaited<ReturnType<typeof loadAliases>> | undefined;
+  // Two create attempts plus a final reconciliation. Without imports, at most 13 requests
+  // including token, aliases, and native-markup checks; dependency reads use the shared budget.
   // a final read is mandatory even when the last create timed out after landing.
   for (let attempt = 0; attempt < 3; attempt++) {
     const snapshot = await github.publishSnapshot(['config/permissions.json', ...paths]);
@@ -121,6 +128,17 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
       validatePublishTime(value.opId, Date.now());
     } catch {
       throw new HttpError(400, 'Publish opId outside creation window');
+    }
+    if (checkedHead !== snapshot.head) {
+      aliases ??= await loadAliases(github.env, github);
+      const checked = await refuseBaseEnhanced(github, snapshot.head, value.hashes, aliases);
+      for (const hash of value.hashes) {
+        const tooltip = checked.get(resolveAlias(hash, aliases));
+        if (!tooltip || (await publishableHash(tooltip, aliases)) !== value.expected[hash]) {
+          throw new HttpError(409, `Tooltip ${hash} changed since review; refresh saved changes`);
+        }
+      }
+      checkedHead = snapshot.head;
     }
     const { key } = await signingKey(github.env);
     const payload = stableStringify({

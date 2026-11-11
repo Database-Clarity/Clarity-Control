@@ -46,10 +46,10 @@ describe('push-live subrequests', () => {
       const response = await fixture.request('/push-live', 'POST', { hashes });
       expect(response.status).toBe(200);
       const batches = Math.ceil(count / 500);
-      expect(fixture.graphqlCalls).toBe(batches);
-      // token 1 + catalog 3 + (head, permissions, batches, marker, live head, live file 2, PUT)
+      expect(fixture.graphqlCalls).toBe(batches + 1);
+      // token 1 + catalog 3 + (head, permissions, batches, globals, marker, live head, live file 2, PUT)
       // + (head, permissions, live head, marker, commit 4)
-      expect(fixture.subrequests).toBe(19 + batches);
+      expect(fixture.subrequests).toBe(20 + batches);
       expect(fixture.subrequests).toBeLessThanOrEqual(subrequestLimit);
       expect(fixture.writes).toHaveLength(1);
       expect(fixture.commits).toHaveLength(1);
@@ -64,7 +64,7 @@ describe('push-live subrequests', () => {
     fixture.subrequests = 0;
     const response = await fixture.request('/push-live', 'POST', { hashes });
     expect(response.status).toBe(200);
-    expect(fixture.subrequests).toBe(19 + 6);
+    expect(fixture.subrequests).toBe(20 + 6);
     expect(Object.keys(fixture.current()['live/pushed.json'] as object)).toHaveLength(2600);
   });
 
@@ -74,9 +74,9 @@ describe('push-live subrequests', () => {
     fixture.subrequests = 0;
     const response = await fixture.request('/push-live', 'POST', { hashes });
     expect(response.status).toBe(200);
-    expect(fixture.graphqlCalls).toBe(2);
-    // first attempt 7 + 2 batches; each retry: head, live head, live file 2, PUT = 5
-    expect(fixture.subrequests).toBe(4 + (7 + 2) + 5 * 2 + 8);
+    expect(fixture.graphqlCalls).toBe(3);
+    // first attempt 8 + 2 batches; each retry: head, live head, live file 2, PUT = 5
+    expect(fixture.subrequests).toBe(4 + (8 + 2) + 5 * 2 + 8);
     expect(fixture.subrequests).toBeLessThanOrEqual(subrequestLimit);
   });
 
@@ -86,7 +86,7 @@ describe('push-live subrequests', () => {
     fixture.subrequests = 0;
     const response = await fixture.request('/push-live', 'POST', { hashes });
     expect(response.status).toBe(200);
-    expect(fixture.graphqlCalls).toBe(4);
+    expect(fixture.graphqlCalls).toBe(6);
     expect(fixture.subrequests).toBeLessThanOrEqual(subrequestLimit);
   });
 
@@ -106,6 +106,29 @@ describe('push-live subrequests', () => {
     },
   );
 
+  it('preserves recording budget after nested import reads and repeated data races', async () => {
+    const hashes = seed(1);
+    const donor = (hash: number, text: string): Tooltip => ({ ...tooltip(text), hash });
+    fixture.moveData({
+      'tooltips/10000.json': donor(10000, 'import main from 60001'),
+      'tooltips/60001.json': donor(60001, 'import main from 60002'),
+      'tooltips/60002.json': donor(60002, 'import main from 60003'),
+      'tooltips/60003.json': donor(60003, 'import main from 60004'),
+      'tooltips/60004.json': donor(60004, 'plain'),
+    });
+    fixture.liveRaces = 2;
+    const race = () => {
+      fixture.moveData();
+      fixture.beforeLive = race;
+    };
+    fixture.beforeLive = race;
+    const response = await fixture.request('/push-live', 'POST', { hashes });
+    expect(response.status).toBe(409);
+    expect(fixture.writes).toHaveLength(0);
+    expect(fixture.commits).toHaveLength(0);
+    expect(fixture.subrequests).toBeLessThanOrEqual(subrequestLimit);
+  });
+
   it('refuses a selection beyond the request bound', async () => {
     const response = await fixture.request('/push-live', 'POST', {
       hashes: Array.from({ length: 10_001 }, (_, index) => index + 1),
@@ -120,7 +143,7 @@ describe('push-live subrequests', () => {
     fixture.subrequests = 0;
     const response = await fixture.request('/push-live', 'POST', { hashes });
     expect(response.status).toBe(200);
-    expect(fixture.subrequests).toBe(19 + 1 + 3);
+    expect(fixture.subrequests).toBe(20 + 1 + 3);
   });
 });
 

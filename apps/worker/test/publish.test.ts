@@ -1,7 +1,7 @@
 import { createHash, generateKeyPairSync, createPublicKey } from 'node:crypto';
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
-import { publishMonth, type PublishPayload } from '@clarity/core';
-import { Fixture, makePrivateKey, config } from './fixture.js';
+import { publishMonth, publishableHash, type PublishPayload } from '@clarity/core';
+import { Fixture, makePrivateKey, config, tooltip } from './fixture.js';
 import worker from '../src/index.js';
 import { Publisher } from '../../../scripts/publisher/publisher.js';
 import type { Repository } from '../../../scripts/publisher/git.js';
@@ -21,9 +21,10 @@ let f: Fixture;
 beforeAll(async () => {
   appKey = await makePrivateKey();
 });
-beforeEach(() => {
+beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['Date'], now: time });
   f = new Fixture(appKey);
+  value.expected[123] = await publishableHash(tooltip(), f.aliases);
   f.env.PUBLISH_SIGNING_KEY = generateKeyPairSync('ed25519')
     .privateKey.export({ type: 'pkcs8', format: 'pem' })
     .toString();
@@ -38,7 +39,7 @@ const payload = () => JSON.parse(envelope().payload) as PublishPayload;
 it('signs full canonical bytes; public endpoint round-trips with the actual publisher verifier', async () => {
   const response = await f.request('/publish', 'POST', value, 2);
   expect(response.status).toBe(202);
-  expect(f.subrequests).toBe(5);
+  expect(f.subrequests).toBe(7);
   const count = f.subrequests;
   const keyResponse = await worker.fetch(new Request('https://api.example/publish/key'), f.env, {
     waitUntil() {},
@@ -156,7 +157,7 @@ it.each([true, false])(
       }),
     );
     expect((await f.request('/publish', 'POST', value)).status).toBe(202);
-    expect(f.subrequests).toBe(landed ? 6 : 9);
+    expect(f.subrequests).toBe(landed ? 8 : 11);
     expect(Object.keys(f.current()).filter((p) => p.startsWith('publish/requests/'))).toEqual([
       requestPath,
     ]);
@@ -189,17 +190,17 @@ it('delayed create after RECORD loses its stale parent and returns the recorded 
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({ opId: A, result: { status: 'done' } });
   expect(f.current()[requestPath]).toBeUndefined();
-  expect(f.subrequests).toBe(6);
+  expect(f.subrequests).toBe(8);
 });
 
-it('exhausts races with final reconciliation, at most 10 requests (design cap 13, global cap 48)', async () => {
+it('exhausts races with final reconciliation, at most 13 requests (design cap 13, global cap 48)', async () => {
   const advance = () => {
     f.moveData();
     f.beforePatch = advance;
   };
   f.beforePatch = advance;
   expect((await f.request('/publish', 'POST', value)).status).toBe(503);
-  expect(f.subrequests).toBe(10);
+  expect(f.subrequests).toBe(13);
   expect(f.subrequests).toBeLessThanOrEqual(13);
   expect(f.current()[requestPath]).toBeUndefined();
 });
@@ -274,7 +275,7 @@ it('final create timeout that landed is reconciled before returning', async () =
     }),
   );
   expect((await f.request('/publish', 'POST', value)).status).toBe(202);
-  expect(f.subrequests).toBe(10);
+  expect(f.subrequests).toBe(13);
   expect(envelope()).toBeDefined();
 });
 it('status/kick query request IDs only; kick also avoids downloading a large terminal log', async () => {
@@ -336,4 +337,18 @@ it('isolates cached signing keys by exact secret and rejects removed or invalid 
   expect((await key()).status).toBe(503);
   f.env.PUBLISH_SIGNING_KEY = original;
   expect(((await (await key()).json()) as { fingerprint: string }).fingerprint).toBe(a.fingerprint);
+});
+
+it('does not sign an expected digest for paired text that was not scanned', async () => {
+  const expected = await publishableHash(tooltip('{{a}{b}}'), f.aliases);
+  const response = await f.request('/publish', 'POST', { ...value, expected: { 123: expected } });
+  expect(response.status).toBe(409);
+  expect(f.current()[requestPath]).toBeUndefined();
+  expect(f.writes).toHaveLength(0);
+});
+it('rechecks digest binding at the new data head after a create race', async () => {
+  f.beforePatch = () => f.moveData({ 'tooltips/123.json': tooltip('different plain text') });
+  const response = await f.request('/publish', 'POST', value);
+  expect(response.status).toBe(409);
+  expect(f.current()[requestPath]).toBeUndefined();
 });

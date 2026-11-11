@@ -1,3 +1,4 @@
+import { refuseBaseEnhanced } from './baseEnhanced.js';
 import { z } from 'zod';
 import {
   publishableHash,
@@ -45,15 +46,16 @@ const roles: Permissions['users'][string]['role'][] = ['maintainer', 'editor'];
 /**
  * Subrequests (Workers FREE plan: 50 per request; GitHub.subrequestLimit keeps two spare):
  *   token 1 + catalog 3 (once) +
- *   write live, per attempt: head 1, permissions 1*, tooltip batches ceil(n/500)*, marker 1*,
- *     live head 1, live file 2 (contents + blob, it is over 1 MB), PUT 1 = 7 + batches
+ *   write live, per attempt: head 1, permissions 1*, tooltip batches ceil(n/500)*, globals 1*, marker 1*,
+ *     live head 1, live file 2 (contents + blob, it is over 1 MB), PUT 1 = 8 + batches
  *   record, per attempt: head 1, permissions 1, live head 1, marker 1, commit 4 = 8
  * (* skipped when the data head did not move since the previous attempt). The total for a
- * first-try push is 19 + batches, i.e. 25 for all ~2500 tooltips; retries are counted and a
+ * first-try push without imports is 20 + batches, i.e. 26 for all ~2500 tooltips.
+ * Import graph reads also spend from the same fail-closed budget. A
  * retry that no longer fits stops before touching GitHub, so a push can never run the
  * platform out of subrequests halfway through (the dangerous point is after the live write).
  */
-const writeLiveCost = (batches: number) => 7 + batches;
+const writeLiveCost = (batches: number) => 8 + batches;
 const recordCost = 8;
 
 interface Loaded {
@@ -98,6 +100,7 @@ async function loadAtHead(
       throw new HttpError(422, `Missing generator facts for tooltip ${tooltip.hash}`);
     }
   }
+  await refuseBaseEnhanced(github, head, canonicalHashes, aliases, tooltips);
   // A malformed marker is reported by the marker step below; here it just means "all changed".
   const pushed =
     pushedSchema.safeParse((await github.requiredFile('live/pushed.json', head)).value).data ?? {};
@@ -140,6 +143,13 @@ export async function pushLive(
     const changed = new Set(
       canonicalHashes.filter((hash) => pushed[hash] !== exportedHashes[hash]),
     );
+    // Dependency traversal has a variable cost. Re-check the reservation after its
+    // actual reads, before any live I/O, so a successful PUT always leaves recordCost.
+    if (github.remaining < 4 + recordCost) {
+      if (!attempt)
+        throw new HttpError(503, 'This push needs too many upstream requests; push fewer tooltips');
+      break;
+    }
     const liveHead = await github.head(github.env.LIVE_BRANCH);
     const file = await github.requiredFile('liveDescriptions.json', liveHead);
     const live = liveSchema.parse(file.value);

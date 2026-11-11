@@ -1,3 +1,4 @@
+import { baseEnhancedPublishMessage } from './markup/baseEnhanced.js';
 import { languages } from './languages.js';
 import type { LegacyCatalog, LegacyFacts, LegacyMetadata, LegacyPerk } from './legacy.js';
 import { tooltipSchema, type Tooltip } from './schemas.js';
@@ -57,6 +58,10 @@ export function exportLegacy(
   const canonical: Record<string, LegacyEntry> = {};
   for (const input of tooltips) {
     const tooltip = tooltipSchema.parse(input);
+    // Last consumer boundary: native markup is stored, but cannot reach the old converter.
+    if (Object.values(tooltip.text).some((translation) => translation?.text.includes('{{'))) {
+      throw new Error(baseEnhancedPublishMessage);
+    }
     if (resolveAlias(tooltip.hash, aliases) !== tooltip.hash) {
       throw new Error(`Alias ${tooltip.hash} cannot have its own tooltip`);
     }

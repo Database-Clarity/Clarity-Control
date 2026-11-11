@@ -124,8 +124,21 @@
   }
   // The tint wins over the syntax colours inside it (numbers, [values], #variables); an inner tag wins
   // over an outer one because every non-tint piece inherits from its nearest tint.
-  :global(.cm-tint :not(.cm-tint)) {
+  :global(.cm-tint :not(.cm-tint):not(.cm-base-arm, .cm-enhanced-arm)) {
     color: inherit;
+  }
+  :global(.cm-base-arm) {
+    color: var(--syn-number);
+  }
+  :global(.cm-enhanced-arm) {
+    color: var(--var);
+  }
+  :global(.cm-base-arm),
+  :global(.cm-enhanced-arm) {
+    text-decoration-line: var(--pair-scope-decoration, none);
+    text-decoration-color: var(--pair-scope-color, currentColor);
+    text-decoration-thickness: 0.08em;
+    text-underline-offset: 0.16em;
   }
   :global(.cm-tint-yellow) {
     color: var(--tag-yellow);
@@ -141,9 +154,13 @@
   }
   :global(.cm-tint-pve) {
     color: var(--tag-pve);
+    --pair-scope-decoration: underline;
+    --pair-scope-color: var(--tag-pve);
   }
   :global(.cm-tint-pvp) {
     color: var(--tag-pvp);
+    --pair-scope-decoration: underline;
+    --pair-scope-color: var(--tag-pvp);
   }
   :global(.cm-tint-bold) {
     font-weight: 700;

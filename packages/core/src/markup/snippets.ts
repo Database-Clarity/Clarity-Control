@@ -109,6 +109,17 @@ const wrap = (tag: string, about: string): Snippet => ({
 
 export const markupSnippets: readonly Snippet[] = [
   {
+    id: 'base-enhanced-pair',
+    label: 'Base and enhanced text',
+    group: 'Enhanced',
+    template: '{{' + '{{1:base}}' + '}{' + '{{2:enhanced}}' + '}}',
+    keywords: 'base enhanced pair inline variant alternate',
+    usage: /\{\{/,
+    fromSelection: true,
+    about: 'Base, then enhanced. No nesting.',
+    help: { block: 'base-enhanced-pair' },
+  },
+  {
     id: 'pair',
     label: 'PvE and PvP values',
     group: 'Values',
