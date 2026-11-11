@@ -64,10 +64,25 @@ export function markRange(
   notes: DraftNote[],
   range: Mark,
   lang: string,
-): { notes: DraftNote[]; id?: string; added: boolean } {
+  /** The Re-mark note to reconnect; otherwise the first one waits for this mark. */
+  target?: string,
+): { notes: DraftNote[]; id?: string; added: boolean; reconnected?: boolean } {
   if (range.end <= range.start) return { notes, added: false };
   const hit = notes.filter((note) => note.mark && overlaps(note.mark, range));
   if (!hit.length) {
+    // A note whose text changed under it (locale switch, new data) takes the next fresh mark,
+    // keeping its explanation; this works at the five-note cap too.
+    const waiting = notes.filter((note) => !note.mark && note.remark);
+    const reconnect = waiting.find((note) => note.id === target) ?? waiting[0];
+    if (reconnect)
+      return {
+        notes: notes.map((note) =>
+          note === reconnect ? { ...note, mark: range, remark: undefined } : note,
+        ),
+        id: reconnect.id,
+        added: false,
+        reconnected: true,
+      };
     if (notes.length >= maxNotes) return { notes, added: false };
     const note: DraftNote = {
       id: noteId(),

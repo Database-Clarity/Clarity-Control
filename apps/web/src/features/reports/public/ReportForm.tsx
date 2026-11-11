@@ -249,6 +249,14 @@ export function ReportForm() {
   }, [needsCheck, render, ensureCheck]);
 
   useEffect(() => () => screenshots.forEach((shot) => URL.revokeObjectURL(shot.url)), []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Whether this form is still the one on screen (a late send result must not act for another).
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
 
   const clearError = (key: string) =>
     setErrors((current) => {
@@ -269,19 +277,39 @@ export function ReportForm() {
     if (n) setAnnounce(`Note ${n} added`);
   };
 
+  // The Re-mark note the next mark reconnects to ("Mark again"); the first one by default.
+  const retarget = useRef<string | null>(null);
+  const [targeted, setTargeted] = useState<string | null>(null);
+  const markAgain = (id: string) => {
+    retarget.current = id;
+    setTargeted(id);
+    document.querySelector<HTMLElement>(`.${styles.annotatable} [data-line]`)?.focus();
+  };
+
   const mark = useCallback(
     (range: Mark) => {
       if (!render || busyRef.current) return;
       setDraft((current) => {
         if (
           current.notes.length >= maxNotes &&
+          !current.notes.some((n) => !n.mark && n.remark) &&
           !current.notes.some((n) => n.mark && n.mark.start < range.end && range.start < n.mark.end)
         ) {
           setNotice('Up to 5 notes. Remove one to mark more.');
           return current;
         }
-        const result = markRange(current.notes, range, render.seenLang);
+        const result = markRange(
+          current.notes,
+          range,
+          render.seenLang,
+          retarget.current ?? undefined,
+        );
         if (result.added) added(result.notes, result.id);
+        if (result.reconnected) {
+          retarget.current = null;
+          setTargeted(null);
+          setAnnounce(`Note ${result.notes.findIndex((n) => n.id === result.id) + 1} marked again`);
+        }
         return { ...current, notes: result.notes };
       });
     },
@@ -564,6 +592,22 @@ export function ReportForm() {
           }
         }
       }
+      // This form may be gone (the reporter left, maybe came back and kept writing): then only
+      // the submitted draft itself is cleared; newer text stays, and the page stays where it is.
+      if (!alive.current) {
+        const stored = readDraft(viewed);
+        if (stored?.pending?.requestId === capability.requestId)
+          writeDraft(
+            viewed,
+            JSON.stringify(stored.notes) === JSON.stringify(kept.notes) &&
+              stored.overall === kept.overall &&
+              stored.source === kept.source &&
+              JSON.stringify(stored.links) === JSON.stringify(kept.links)
+              ? undefined
+              : { ...stored, pending: undefined },
+          );
+        return;
+      }
       writeDraft(viewed, undefined);
       const state: ReceiptState = {
         sent: true,
@@ -576,6 +620,17 @@ export function ReportForm() {
       };
       navigate(`/report/r/${result.id}`, { state });
     } catch (error) {
+      const refused =
+        error instanceof ReportApiError &&
+        error.status >= 400 &&
+        error.status < 500 &&
+        error.status !== 409;
+      if (!alive.current) {
+        const stored = readDraft(viewed);
+        if (refused && stored?.pending?.requestId === capability.requestId)
+          writeDraft(viewed, { ...stored, pending: undefined });
+        return;
+      }
       check.current?.reset();
       setPhase(
         error instanceof ReportApiError && error.message.startsWith('Human check')
@@ -584,13 +639,7 @@ export function ReportForm() {
       );
       setNotice(sendFailure(error));
       // A refused report is final for this payload: the next send is a new attempt.
-      if (
-        error instanceof ReportApiError &&
-        error.status >= 400 &&
-        error.status < 500 &&
-        error.status !== 409
-      )
-        setDraft((current) => ({ ...current, pending: undefined }));
+      if (refused) setDraft((current) => ({ ...current, pending: undefined }));
     }
   };
 
@@ -742,6 +791,8 @@ export function ReportForm() {
                   );
                 }}
                 onRemove={() => removeNote(note.id)}
+                targeted={targeted === note.id}
+                onMarkAgain={() => markAgain(note.id)}
               />
             ))}
           </ol>
@@ -960,6 +1011,8 @@ function NoteRow({
   error,
   onChange,
   onRemove,
+  targeted,
+  onMarkAgain,
 }: {
   n: number;
   note: DraftNote;
@@ -967,6 +1020,8 @@ function NoteRow({
   error?: string;
   onChange(next: Partial<DraftNote>): void;
   onRemove(): void;
+  targeted: boolean;
+  onMarkAgain(): void;
 }) {
   const errorId = `note-${note.id}-error`;
   return (
@@ -980,7 +1035,8 @@ function NoteRow({
             <q>{quote}</q>
           ) : note.remark ? (
             <>
-              <q>{note.remark}</q> <span className={styles.warnText}>Select this text again</span>
+              <q>{note.remark}</q>{' '}
+              <span className={styles.warnText}>Mark it again to reconnect this note</span>
             </>
           ) : (
             'Whole tooltip'
@@ -1021,6 +1077,16 @@ function NoteRow({
               </option>
             ))}
           </select>
+          {!note.mark && note.remark && (
+            <button
+              type="button"
+              className={styles.textButton}
+              aria-pressed={targeted}
+              onClick={onMarkAgain}
+            >
+              {targeted ? 'Mark it in the tooltip' : 'Mark again'}
+            </button>
+          )}
           <button type="button" className={styles.textButton} onClick={onRemove}>
             Remove note
           </button>

@@ -76,9 +76,14 @@ async function renderForm(entry: string) {
   const { useAuthStore } = await import('../../../stores/auth');
   useAuthStore.setState({ user: null, loading: false });
   const { ReportForm } = await import('./ReportForm');
-  const router = createMemoryRouter([{ path: '/report/:hash', element: <ReportForm /> }], {
-    initialEntries: [entry],
-  });
+  const router = createMemoryRouter(
+    [
+      { path: '/report/:hash', element: <ReportForm /> },
+      { path: '/report', element: <p>Picker</p> },
+      { path: '/report/r/:id', element: <p>Receipt</p> },
+    ],
+    { initialEntries: [entry] },
+  );
   await act(async () => root.render(<RouterProvider router={router} />));
   await flush();
   await flush();
@@ -86,6 +91,22 @@ async function renderForm(entry: string) {
 }
 
 const draftOf = () => JSON.parse(sessionStorage.getItem('clarity-report-draft:100') ?? 'null');
+
+async function typeInto(field: HTMLTextAreaElement, text: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+  await act(async () => {
+    setter.call(field, text);
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
+async function markFirstLine() {
+  const line = host.querySelector<HTMLElement>('[data-line]')!;
+  await act(async () => {
+    line.focus();
+    line.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  });
+}
 
 async function writeWholeNote(text: string) {
   const whole = [...host.querySelectorAll('button')].find((b) =>
@@ -116,6 +137,54 @@ describe('report form states', () => {
     expect(host.textContent).toContain('Deutsche Zeile');
     expect(draftOf()).toMatchObject({ lang: 'de' });
     expect(draftOf().notes[0]).toMatchObject({ mark: null, remark: 'English line one' });
+  });
+
+  it('reconnects a Re-mark note to the next mark, keeping its text', async () => {
+    stubFetch(() => json({}, 404));
+    const router = await renderForm('/report/100?lang=en');
+    await markFirstLine();
+    await typeInto(host.querySelector('textarea')!, 'Wrong number.');
+    await act(async () => router.navigate('/report/100?lang=de'));
+    await flush();
+    await flush();
+    await markFirstLine();
+    expect(draftOf().notes).toHaveLength(1);
+    expect(draftOf().notes[0]).toMatchObject({
+      text: 'Wrong number.',
+      mark: { start: 0, end: 14 },
+    });
+    expect(draftOf().notes[0].remark).toBeUndefined();
+  });
+
+  it('lets a late send result neither clear newer text nor move the page', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://worker.example');
+    let answer: (response: Response) => void = () => undefined;
+    stubFetch(
+      (url) =>
+        new Promise<Response>((resolve) => {
+          if (url.endsWith('/reports')) answer = resolve;
+        }),
+    );
+    mount.mockResolvedValue({
+      token: async () => 'XXXX.DUMMY.TOKEN.XXXX',
+      reset: () => undefined,
+      remove: () => undefined,
+    });
+    const router = await renderForm('/report/100?lang=en');
+    await writeWholeNote('First version of the note.');
+    await act(async () => host.querySelector('form')!.requestSubmit());
+    await flush();
+    await act(async () => router.navigate('/report'));
+    await act(async () => router.navigate('/report/100?lang=en'));
+    await flush();
+    await flush();
+    await typeInto(host.querySelector('textarea')!, 'A newer, unsent version.');
+    await act(async () => answer(json({ id: 'r-abcdefgh', status: 'open' })));
+    await flush();
+    expect(router.state.location.pathname).toBe('/report/100');
+    expect(draftOf().notes[0].text).toBe('A newer, unsent version.');
+    expect(draftOf().pending).toBeUndefined();
+    expect(sessionStorage.getItem('clarity-report-secret:r-abcdefgh')).toBeTruthy();
   });
 
   it('mounts the human check again on Send after a failed mount, and freezes the form while sending', async () => {
