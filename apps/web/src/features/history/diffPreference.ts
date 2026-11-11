@@ -10,12 +10,13 @@ const subscribe = (notify: () => void) => {
     window.removeEventListener('storage', notify);
   };
 };
-let fallback = false;
+let fallback: boolean | undefined;
 const read = () => {
+  if (fallback !== undefined) return fallback;
   try {
     return localStorage.getItem(key) === 'true';
   } catch {
-    return fallback;
+    return false;
   }
 };
 export function useRawDiff() {
@@ -23,11 +24,12 @@ export function useRawDiff() {
   return [
     raw,
     (next: boolean) => {
-      fallback = next;
       try {
         localStorage.setItem(key, String(next));
+        fallback = undefined;
       } catch {
-        /* Private storage can be unavailable. */
+        // A quota failure can leave reads working; retain the choice in memory too.
+        fallback = next;
       }
       window.dispatchEvent(new Event(event));
     },
