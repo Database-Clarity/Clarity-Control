@@ -156,9 +156,11 @@ describe('pins and the legacy job', () => {
     expectOk(harness.legacyRun());
     const pin1 = readJson(harness.show('export-pins', 'pins/latest.json'));
     expectOk(harness.siteRun());
-    // A publish lands on converter; the legacy job has not run yet; a config save builds now.
+    // A publish lands on converter with a new engine; the legacy job has not run yet; a config
+    // save builds now.
     const c2 = harness.commit('converter', {
       'liveDescriptions.json': edited(fixtureText(), 'v2'),
+      ...harness.wrapEngine({}, 'engine-2'),
     });
     harness.commit('editor-data', {
       'exports/projects/beta.json': JSON.stringify(
@@ -168,10 +170,16 @@ describe('pins and the legacy job', () => {
     const during = harness.siteRun();
     expectOk(during);
     expect(during.result).toMatchObject({ pinId: pin1.pinId });
+    // The pinned engine, not the converter head's.
+    expect(pin1.engine).toBe('harness');
     expect(harness.servedJson('_build/status.json')).toMatchObject({
       converterSha: pin1.converterSha,
       liveCommit: pin1.liveCommit,
+      engine: pin1.engine,
     });
+    const pinnedEngine = harness.show(pin1.converterSha, '.exports/engine.mjs');
+    const duringId = harness.servedJson<{ buildId: string }>('_build/status.json').buildId;
+    expect(harness.served(`_build/${duringId}/engine.mjs`)).toEqual(pinnedEngine);
     expect(harness.served('beta/v1/crayon.json')).toEqual(
       harness.show(pin1.liveCommit, 'descriptions/crayon.json'),
     );
@@ -188,15 +196,28 @@ describe('pins and the legacy job', () => {
     const pin2 = readJson(harness.show('export-pins', 'pins/latest.json'));
     expect(pin2.converterSha).toBe(c2);
     expectOk(harness.siteRun());
+    expect(pin2.engine).toBe('engine-2');
     expect(harness.servedJson('_build/status.json')).toMatchObject({
       pinId: pin2.pinId,
       converterSha: c2,
+      engine: 'engine-2',
     });
     for (const [path, name] of [
       ['alpha/v1/dim.json', 'dim.json'],
       ['beta/v1/crayon.json', 'crayon.json'],
     ])
       expect(harness.served(path!)).toEqual(harness.show(pin2.liveCommit, `descriptions/${name}`));
+    // A pin whose engine is not `.exports/PIN` at its converter SHA stops the build.
+    const canonical = readFileSync(join(harness.pages, 'canonical'), 'utf8');
+    const wrong = JSON.stringify({ ...pin2, engine: 'harness' });
+    harness.commit('export-pins', {
+      'pins/latest.json': wrong,
+      [`pins/${pin2.liveCommit}.json`]: wrong,
+    });
+    const mismatch = harness.siteRun();
+    expect(mismatch.status).not.toBe(0);
+    expect(mismatch.stderr).toMatch(/is not the pinned one/);
+    expect(readFileSync(join(harness.pages, 'canonical'), 'utf8')).toBe(canonical);
   }, 180_000);
 
   it('a crash between the live push and promotion: config-only runs use the landed record, the next legacy run promotes it', async () => {
@@ -391,6 +412,49 @@ describe('pins and the legacy job', () => {
 });
 
 describe('build-site per-file outcomes', () => {
+  it('a retained copy of a deployed legacy preset freezes on a vocabulary change; the active copy updates', async () => {
+    harness = new Harness();
+    const retained = [
+      {
+        path: 'alpha/v1/olddim.json',
+        uid: 'alpha00009',
+        formatVersion: 1,
+        snapshot: legacyFile('olddim', 'alpha00009', 'dim'),
+        until: '2099-01-01T00:00:00.000Z',
+      },
+    ];
+    await harness.seed({
+      input: plainSymbols(fixtureText()),
+      projects: { alpha: project('alpha', [legacyFile('dim', 'alpha00001', 'dim')], retained) },
+    });
+    expectOk(harness.legacyRun());
+    expectOk(harness.siteRun());
+    const old = harness.served('alpha/v1/olddim.json');
+    expect(old).toEqual(harness.served('alpha/v1/dim.json'));
+    // New input plants classes; the legacy job has no vocabulary file, so live's dim.json takes them.
+    harness.commit('converter', { 'liveDescriptions.json': fixtureText() });
+    expectOk(harness.legacyRun());
+    expectOk(harness.siteRun());
+    const liveCommit = readJson(harness.show('export-pins', 'pins/latest.json')).liveCommit;
+    const live = harness.show(liveCommit, 'descriptions/dim.json');
+    expect(live).not.toEqual(old);
+    expect(harness.served('alpha/v1/dim.json')).toEqual(live);
+    expect(harness.served('alpha/v1/olddim.json')).toEqual(old);
+    const manifest = harness.servedJson<{ files: Record<string, { outcome: string }> }>(
+      '_build/manifest.json',
+    );
+    expect(manifest.files['alpha/v1/olddim.json']!.outcome).toBe('frozen');
+    const notices =
+      harness.servedJson<{ kind: string; path?: string; message: string }[]>('_build/notices.json');
+    const frozen = notices.find(
+      (notice) => notice.path === 'alpha/v1/olddim.json' && notice.kind === 'frozen',
+    );
+    expect(frozen?.message).toMatch(/Breaking change \(added class /);
+    // The baseline stays: the next run still freezes it.
+    expectOk(harness.siteRun());
+    expect(harness.served('alpha/v1/olddim.json')).toEqual(old);
+  }, 180_000);
+
   it('one project fails or freezes while another updates; a carried file is checked by sha256', async () => {
     harness = new Harness();
     const retained = [
@@ -418,10 +482,12 @@ describe('build-site per-file outcomes', () => {
       gamma: harness.served('gamma/v1/v2c.json'),
     };
     // New input: planted classes freeze the retained URL; alpha's build hangs (killed at the limit).
-    harness.commit('converter', { 'liveDescriptions.json': edited(fixtureText(), 'v2') });
+    harness.commit('converter', {
+      'liveDescriptions.json': edited(fixtureText(), 'v2'),
+      ...harness.wrapEngine({ hang: ['cv'] }),
+    });
     expectOk(harness.legacyRun());
-    const engineDir = harness.wrapEngine({ hang: ['cv'] });
-    expectOk(harness.siteRun({ engineDir, extra: ['--file-timeout', '3000'] }));
+    expectOk(harness.siteRun({ extra: ['--file-timeout', '3000'] }));
     expect(harness.served('alpha/v1/cv.json')).toEqual(before.alpha);
     expect(harness.served('beta/v1/old.json')).toEqual(before.old);
     expect(harness.served('gamma/v1/v2c.json')).not.toEqual(before.gamma);
@@ -442,7 +508,7 @@ describe('build-site per-file outcomes', () => {
       join(harness.pages, 'deployments', canonical, 'alpha', 'v1', 'cv.json'),
       'tampered',
     );
-    const tampered = harness.siteRun({ engineDir, extra: ['--file-timeout', '3000'] });
+    const tampered = harness.siteRun({ extra: ['--file-timeout', '3000'] });
     expect(tampered.status).not.toBe(0);
     expect(tampered.stderr).toMatch(/does not match the manifest sha256/);
     expect(tampered.deployed).toBeUndefined();
@@ -527,16 +593,18 @@ describe('build-site per-file outcomes', () => {
     });
     expectOk(harness.legacyRun());
     expectOk(harness.siteRun());
-    const engineDir = harness.wrapEngine({
-      slowMs: Object.fromEntries(files.map((file) => [file.id, 1500])),
-    });
-    const first = harness.siteRun({ engineDir, extra: ['--carry-after', '2000'] });
+    harness.commit(
+      'converter',
+      harness.wrapEngine({ slowMs: Object.fromEntries(files.map((file) => [file.id, 1500])) }),
+    );
+    expectOk(harness.legacyRun());
+    const first = harness.siteRun({ extra: ['--carry-after', '2000'] });
     expectOk(first);
     expect(first.result).toMatchObject({ budgetHit: true });
     const builtFirst = builtPaths(harness.servedJson('_build/manifest.json'));
     expect(builtFirst.length).toBeGreaterThan(0);
     expect(builtFirst.length).toBeLessThan(6);
-    expectOk(harness.siteRun({ engineDir, extra: ['--carry-after', '2000'] }));
+    expectOk(harness.siteRun({ extra: ['--carry-after', '2000'] }));
     const builtSecond = builtPaths(harness.servedJson('_build/manifest.json'));
     expect(builtSecond.length).toBeGreaterThan(0);
     // The files the first run skipped go first (no starvation); only then any it rebuilt.

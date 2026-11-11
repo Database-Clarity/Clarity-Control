@@ -15,7 +15,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 
@@ -143,9 +143,20 @@ export class Harness {
       join(this.exports, 'config.json'),
       JSON.stringify({ generatorSha: this.generatorSha }),
     );
+    // `.exports/` is installed on converter, as INSTALL.md describes.
+    const install: Record<string, Uint8Array> = {};
+    for (const file of [
+      'engine.mjs',
+      'config.mjs',
+      'build-site.mjs',
+      'legacy-job.mjs',
+      'PIN',
+      'config.json',
+    ])
+      install[`.exports/${file}`] = readFileSync(join(this.exports, file));
     const converterSha = this.commit(
       'converter',
-      { 'liveDescriptions.json': input },
+      { 'liveDescriptions.json': input, ...install },
       'Updated by harness',
     );
     // live as today's deploy action left it: built from that converter commit.
@@ -189,9 +200,10 @@ export class Harness {
     return dir;
   }
 
-  /** Runs a script the way the workflow step does. */
+  /** Runs a script the way the workflow step does (`script`: a path, or a name in the install). */
   node(script: string, args: string[], env: NodeJS.ProcessEnv = {}): RunResult {
-    const run = spawnSync(process.execPath, [join(this.exports, script), ...args], {
+    const path = isAbsolute(script) ? script : join(this.exports, script);
+    const run = spawnSync(process.execPath, [path, ...args], {
       encoding: 'utf8',
       env: { ...process.env, GITHUB_STEP_SUMMARY: '', GITHUB_OUTPUT: '', ...env },
       maxBuffer: 64 * 1024 * 1024,
@@ -252,7 +264,8 @@ export class Harness {
       writeFileSync(path, JSON.stringify({ presets: vocab }));
       args.push('--vocab', path);
     }
-    const run = this.node('legacy-job.mjs', args);
+    // As in the workflow: the converter checkout's own `.exports/legacy-job.mjs`.
+    const run = this.node(join(dirs.converter, '.exports', 'legacy-job.mjs'), args);
     const resultPath = join(this.root, `legacy-${runId}-${attempt}.json`);
     if (existsSync(resultPath)) run.result = JSON.parse(readFileSync(resultPath, 'utf8'));
     return run;
@@ -267,7 +280,7 @@ export class Harness {
   }
 
   /** The site job: locate, build, then the (simulated) atomic Pages deploy when build says so. */
-  siteRun({ extra = [], engineDir }: { extra?: string[]; engineDir?: string } = {}): RunResult & {
+  siteRun({ extra = [] }: { extra?: string[] } = {}): RunResult & {
     deployed?: string;
     out: string;
   } {
@@ -275,20 +288,18 @@ export class Harness {
     const state = join(this.root, `state-${n}.json`);
     const out = join(this.root, `site-${n}`);
     const resultPath = join(this.root, `site-${n}.json`);
-    const located = this.node('build-site.mjs', [
-      'locate',
-      '--pages-sim',
-      this.pages,
-      '--out',
-      state,
-    ]);
+    // As in the workflow: the converter checkout's `.exports/build-site.mjs` (head); it loads the
+    // engine the pin names from converter by SHA.
+    const converter = this.checkout('converter');
+    const script = join(converter, '.exports', 'build-site.mjs');
+    const located = this.node(script, ['locate', '--pages-sim', this.pages, '--out', state]);
     if (located.status !== 0) return { ...located, out };
-    const run = this.node('build-site.mjs', [
+    const run = this.node(script, [
       'build',
       '--state',
       state,
       '--converter',
-      this.checkout('converter'),
+      converter,
       '--live',
       this.checkout('live'),
       '--pins',
@@ -301,7 +312,6 @@ export class Harness {
       out,
       '--result',
       resultPath,
-      ...(engineDir ? ['--engine-dir', engineDir] : []),
       ...extra,
     ]);
     const result = existsSync(resultPath)
@@ -336,15 +346,19 @@ export class Harness {
     return JSON.parse(bytes.toString('utf8')) as T;
   }
 
-  /** An engine wrapper that runs the real engine but makes chosen file ids slow, throw, or huge. */
-  wrapEngine(behaviour: { slowMs?: Record<string, number>; hang?: string[] }) {
-    const dir = mkdtempSync(join(this.root, 'engine-'));
-    for (const file of ['config.mjs', 'build-site.mjs', 'PIN'])
-      cpSync(join(this.exports, file), join(dir, file));
-    cpSync(join(this.exports, 'engine.mjs'), join(dir, 'real-engine.mjs'));
-    writeFileSync(
-      join(dir, 'engine.mjs'),
-      `import * as real from './real-engine.mjs';
+  /**
+   * Converter files that install an engine wrapper in `.exports/`: the real engine, except that
+   * chosen file ids are slow or hang. Commit them to `converter` (a new engine PIN).
+   */
+  wrapEngine(
+    behaviour: { slowMs?: Record<string, number>; hang?: string[] },
+    pin = 'harness-wrapped',
+  ): Record<string, string | Uint8Array> {
+    return {
+      '.exports/real-engine.mjs': readFileSync(join(this.exports, 'engine.mjs')),
+      '.exports/PIN': `${pin}
+`,
+      '.exports/engine.mjs': `import * as real from './real-engine.mjs';
 export * from './real-engine.mjs';
 const behaviour = ${JSON.stringify(behaviour)};
 export function compile(input, file, options) {
@@ -354,8 +368,7 @@ export function compile(input, file, options) {
   return real.compile(input, file, options);
 }
 `,
-    );
-    return dir;
+    };
   }
 
   cleanup() {

@@ -10,7 +10,7 @@
 // expression, or an eval. Nothing here commits to any repository.
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type * as Engine from '../index.js';
 import type * as ConfigModule from '../config.js';
@@ -167,7 +167,6 @@ export async function buildSite(options: Record<string, string>) {
     carryAfterMs: intOption(options, 'carry-after', siteLimits.carryAfterMs),
     budgetMs: intOption(options, 'budget', siteLimits.budgetMs),
   };
-  const engineDir = options['engine-dir'] ?? dirname(fileURLToPath(import.meta.url));
   const script = options.script ?? fileURLToPath(import.meta.url);
   const out = required(options, 'out');
   const resultPath = options.result;
@@ -216,6 +215,30 @@ export async function buildSite(options: Record<string, string>) {
     return JSON.parse(bytes.toString('utf8')) as unknown;
   };
   const catalog = { items: catalogPart('items.json'), categories: catalogPart('categories.json') };
+  // The engine the pin names: `.exports/` at pin.converterSha, the copy that built the legacy
+  // files (never the installed head copy that runs this script).
+  const work = mkdtempSync(join(tmpdir(), 'build-site-'));
+  const engineDir = join(work, 'engine');
+  const exportsListing = git(converterDir, [
+    'ls-tree',
+    '--name-only',
+    `${pin.converterSha}:.exports`,
+  ]);
+  for (const name of exportsListing
+    .split(/\r?\n/)
+    .filter((file) => /^[A-Za-z0-9._-]+$/.test(file))) {
+    const bytes = gitShow(converterDir, pin.converterSha, `.exports/${name}`);
+    if (bytes) writeFile(join(engineDir, name), bytes);
+  }
+  if (!existsSync(join(engineDir, 'engine.mjs')) || !existsSync(join(engineDir, 'config.mjs')))
+    throw new Error(`.exports/ at converter ${pin.converterSha} has no engine`);
+  const enginePin = existsSync(join(engineDir, 'PIN'))
+    ? readFileSync(join(engineDir, 'PIN'), 'utf8').trim()
+    : '';
+  if (enginePin !== pin.engine)
+    throw new Error(
+      `The engine at ${pin.converterSha} (${enginePin}) is not the pinned one (${pin.engine})`,
+    );
   const snapshotBytes: Record<(typeof snapshotNames)[number], Uint8Array> = {
     'engine.mjs': readFileSync(join(engineDir, 'engine.mjs')),
     'input.json': inputBytes,
@@ -226,9 +249,6 @@ export async function buildSite(options: Record<string, string>) {
     snapshotNames.map((name) => [name, sha256(snapshotBytes[name])]),
   ) as Record<(typeof snapshotNames)[number], string>;
   const buildId = sha256(snapshotNames.map((name) => snapshotShas[name]).join('\n')).slice(0, 16);
-  const enginePin = existsSync(join(engineDir, 'PIN'))
-    ? readFileSync(join(engineDir, 'PIN'), 'utf8').trim()
-    : 'unpinned';
 
   const engine = (await import(pathToFileURL(join(engineDir, 'engine.mjs')).href)) as typeof Engine;
   const config = (await import(
@@ -237,7 +257,6 @@ export async function buildSite(options: Record<string, string>) {
 
   if (existsSync(out) && readdirSync(out).length) throw new Error(`${out} is not empty`);
   mkdirSync(out, { recursive: true });
-  const work = mkdtempSync(join(tmpdir(), 'build-site-'));
   for (const name of snapshotNames) writeFile(join(work, name), snapshotBytes[name]);
 
   // 4. Projects (configs read as files; invalid ones carry their published files forward).
@@ -412,7 +431,34 @@ export async function buildSite(options: Record<string, string>) {
         );
         continue;
       }
+      let markers: string[];
+      try {
+        markers = engine.markerSet(
+          JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)),
+          engine.outputTokens(entry.file),
+        );
+      } catch (error) {
+        await carryOrDrop(
+          entry,
+          'build-failed',
+          `${name} is not valid JSON: ${(error as Error).message}`,
+        );
+        continue;
+      }
       const old = previous?.files[entry.path];
+      // A retained URL freezes on a breaking change even when it is a legacy copy (spec section 5):
+      // its baseline is the vocabulary it had on the day it was retained.
+      let baseline: string[] | undefined;
+      if (entry.kind === 'retained') {
+        baseline = old?.baseline ?? old?.markers ?? markers;
+        const change = engine.markerChange(baseline, markers);
+        if (change) {
+          await carryOrDrop(entry, 'frozen', breakingMessage(change), true);
+          const kept = outcomes.get(entry.path);
+          if (kept) kept.file = { ...kept.file, baseline };
+          continue;
+        }
+      }
       const hash = sha256(bytes);
       outcomes.set(entry.path, {
         bytes,
@@ -423,6 +469,8 @@ export async function buildSite(options: Record<string, string>) {
           lastBuilt: nowIso,
           outcome: record.outcome,
           ...(entry.until ? { retainUntil: entry.until } : {}),
+          markers,
+          ...(baseline ? { baseline } : {}),
         },
       });
       if (record.outcome !== 'built')
@@ -546,13 +594,7 @@ export async function buildSite(options: Record<string, string>) {
       baseline = old?.baseline ?? old?.markers ?? result.markers;
       const change = engine.markerChange(baseline, result.markers);
       if (change) {
-        const list = (items: string[]) => items.slice(0, 5).join(', ') || 'none';
-        await carryOrDrop(
-          entry,
-          'frozen',
-          `Breaking change (added ${list(change.added)}; removed ${list(change.removed)})`,
-          true,
-        );
+        await carryOrDrop(entry, 'frozen', breakingMessage(change), true);
         const kept = outcomes.get(entry.path);
         if (kept) kept.file = { ...kept.file, baseline };
         continue;
@@ -726,6 +768,11 @@ export async function buildSite(options: Record<string, string>) {
     ].join('\n'),
   );
 }
+
+const breakingMessage = (change: { added: string[]; removed: string[] }) => {
+  const list = (items: string[]) => items.slice(0, 5).join(', ') || 'none';
+  return `Breaking change (added ${list(change.added)}; removed ${list(change.removed)})`;
+};
 
 /** `exports/changelog.json`: `{ entries: [{ date, text }] }`, plain strings, bounded. */
 export function checkChangelog(

@@ -187,6 +187,12 @@ export async function runLegacy(options: Record<string, string>) {
 
   // 2. The current converter head and the stale-deploy guard.
   const converterSha = git(converterDir, ['rev-parse', 'HEAD']);
+  // The pin names the engine of `.exports/` at converterSha (site runs load that copy by SHA).
+  const installedPin = gitShow(converterDir, converterSha, '.exports/PIN')?.toString('utf8').trim();
+  if (installedPin !== enginePin)
+    throw new Error(
+      `This engine (${enginePin}) is not .exports/PIN at ${converterSha} (${installedPin ?? 'none'})`,
+    );
   const last = lastDeploy(liveDir, liveHead);
   if (last && last.converterSha !== converterSha) {
     let newer = false;
