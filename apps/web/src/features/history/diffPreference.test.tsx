@@ -45,7 +45,9 @@ it('defaults to rendered, synchronizes switches, and remembers Raw across remoun
     expect(host.querySelector('ins')?.textContent).toBe('New');
     vi.stubGlobal('localStorage', {
       getItem: () => 'false',
-      setItem: () => { throw new Error('quota'); },
+      setItem: () => {
+        throw new Error('quota');
+      },
       clear: () => {},
     });
     await act(async () => host.querySelector<HTMLInputElement>('[role="switch"]')!.click());

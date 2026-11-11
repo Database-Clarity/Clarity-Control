@@ -48,7 +48,7 @@ it('locates a source-only change even when the real renderer outputs identical l
     'Source changed: previous line 2; current line 2. Raw shows markup edits.',
   );
 });
-it('renders real imports, nested titles, and legacy tables without dropping their differences', () => {
+it('renders real imports and legacy tables without dropping their differences', () => {
   const result = renderedDiff(
     'import main from 42\n< table wide >\n| Old\n<$>',
     'import main from 43\n< table wide >\n| New\n<$>',
@@ -69,4 +69,23 @@ it('renders real imports, nested titles, and legacy tables without dropping thei
       .map((part) => part.text)
       .join(''),
   ).toContain('New');
+});
+
+it('marks changed title bodies even when the visible anchor text is unchanged', () => {
+  const result = renderedDiff(
+    'title Detail (\nOld detail\n)\n<title Info [Detail] />',
+    'title Detail (\nNew detail\n)\n<title Info [Detail] />',
+    globals,
+  );
+  const before = parts(result.before).find((part) => part.title);
+  const after = parts(result.after).find((part) => part.title);
+  expect(before?.text).toBe('Info');
+  expect(after?.text).toBe('Info');
+  expect(before?.diffKind).toBe('delete');
+  expect(after?.diffKind).toBe('insert');
+  expect(
+    parts(after?.title ?? [])
+      .map((part) => part.text)
+      .join(''),
+  ).toContain('New detail');
 });

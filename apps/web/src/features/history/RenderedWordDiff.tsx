@@ -1,7 +1,9 @@
 import { useMemo } from 'react';
 import { markupLanguage, type Lang, type MarkupLine, type MarkupSpan } from '@clarity/core';
 import { useDataStore } from '../../stores/data';
+import { useDraftStore } from '../../stores/drafts';
 import { tooltipImports } from '../../services/tooltipImports';
+import { previewDrafts } from '../conflicts/previewDrafts';
 import { classNames, PreviewSpan } from '../preview/TooltipPreview';
 import preview from '../preview/TooltipPreview.module.scss';
 import styles from './RenderedWordDiff.module.scss';
@@ -72,8 +74,13 @@ export function RenderedWordDiff({
   hash: number;
 }) {
   const data = useDataStore((state) => state.data);
+  // Read when the comparison receives a source snapshot; do not subscribe this
+  // renderer to every authoring keystroke (Working diff already waits for idle).
+  const drafts = useDraftStore.getState().drafts;
   const globals = useMemo(() => {
-    const imports = data ? tooltipImports(data.bundle.tooltips, {}, lang, data.aliases) : {};
+    const imports = data
+      ? tooltipImports(data.bundle.tooltips, previewDrafts(drafts), lang, data.aliases)
+      : {};
     const type = data?.categories.find(
       (category) => category.id === data.items[hash]?.categoryId,
     )?.legacyType;
@@ -83,7 +90,7 @@ export function RenderedWordDiff({
       imports,
       type,
     };
-  }, [lang, hash, data]);
+  }, [lang, hash, data, drafts]);
   const { result, busy } = useRenderedDiff(before, after, globals);
   return (
     <div className={styles.diff} aria-busy={busy || undefined}>
