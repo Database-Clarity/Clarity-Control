@@ -1,0 +1,756 @@
+{
+  "source": "Live catalogue 2026-11-11: Description-data-generator v2 templates/v2/items.json and Live-Clarity-Database editor-data-bundle (saved-text flags only); bundled manifest facts.",
+  "savedText": [
+    185041502, 697983358, 830282363, 1127992351, 1408087974, 1408087975, 1958555234, 1992361643,
+    2005566727, 3295115440, 3377448506, 3514694513, 3553394349, 3794918801
+  ],
+  "items": {
+    "5699512": {
+      "hash": 5699512,
+      "name": "Tempered Truss Rod",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "High stiffness for quick handling.\n  •  Greatly increases handling speed\n  •  Slightly decreases reload speed\n  •  Slightly decreases range",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 1697972157,
+      "enhancedHashes": [1834828808],
+      "enhancedHash": 1834828808
+    },
+    "13792278": {
+      "hash": 13792278,
+      "name": "Hitmark IS",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "Agile sight. Short zoom. \n  •  Greatly increases handling speed\n  •  Slightly increases range",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 2619833294
+    },
+    "13792279": {
+      "hash": 13792279,
+      "name": "Cleanshot IS",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "Snapshot sight. Short zoom.\n  •  Increases handling speed\n  •  Slightly increases range",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 2619833294
+    },
+    "52780822": {
+      "hash": 52780822,
+      "name": "Balanced Guard",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "Sword Guard has balanced overall defenses.",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 683359327,
+      "enhancedHashes": [2338887882],
+      "enhancedHash": 2338887882,
+      "sandboxPerkHashes": [2102846355]
+    },
+    "185041502": {
+      "hash": 185041502,
+      "name": "Volatile Battery",
+      "categoryId": "weapon-perk-exotic",
+      "inGameDescription": "This battery simultaneously exists in multiple timelines, causing the weapon to Overcharge.\n\n  •  Greatly increases magazine size",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "itemHash": 4289226715,
+      "itemName": "Vex Mythoclast",
+      "plugCategoryHash": 1757026848
+    },
+    "194952923": {
+      "hash": 194952923,
+      "name": "Signal MS5",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "Omolon ocular technology. Long zoom. Highlights enemy targets. \n  •  Increases range\n  •  Slightly decreases handling speed",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 2619833294
+    },
+    "202670084": {
+      "hash": 202670084,
+      "name": "Full Bore",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "Barrel optimized for distance.\n  •  Greatly increases range\n  •  Decreases stability\n  •  Slightly decreases handling speed",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 2833605196,
+      "enhancedHashes": [1871180748],
+      "enhancedHash": 1871180748
+    },
+    "265542500": {
+      "hash": 265542500,
+      "name": "Chain Bowstring",
+      "categoryId": "weapon-perk-exotic",
+      "inGameDescription": "Heavy-duty bowstring. Cabal design.\n  •  Slightly increases accuracy\n  •  Increases stability",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "itemHash": 2591746970,
+      "itemName": "Leviathan's Breath",
+      "plugCategoryHash": 3809303875
+    },
+    "269888150": {
+      "hash": 269888150,
+      "name": "Swordmaster's Guard",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "Sword Guard has low overall defenses, but increases charge rate.",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 683359327,
+      "enhancedHashes": [125241418],
+      "enhancedHash": 125241418,
+      "sandboxPerkHashes": [2523181609]
+    },
+    "332133599": {
+      "hash": 332133599,
+      "name": "Mini Frags",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "Grenades are smaller and more compact for easier reloading.\n  •  Increases magazine size\n  •  Increases reload speed\n  •  Decreases blast radius",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 2718120384,
+      "enhancedHashes": [3156458303],
+      "enhancedHash": 3156458303
+    },
+    "332773068": {
+      "hash": 332773068,
+      "name": "Volatile Launch",
+      "categoryId": "weapon-perk-exotic",
+      "inGameDescription": "This weapon is optimized for an especially explosive payload.\n  •  Greatly increases blast radius\n  •  Slightly decreases handling speed\n  •  Slightly decreases projectile speed",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "itemHash": 417164956,
+      "itemName": "Jötunn",
+      "plugCategoryHash": 1202604782
+    },
+    "436053704": {
+      "hash": 436053704,
+      "name": "Hungry Edge",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "Increased sword ammo.",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 1041766312,
+      "enhancedHashes": [1498024248],
+      "enhancedHash": 1498024248
+    },
+    "679225683": {
+      "hash": 679225683,
+      "name": "Light Mag",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "Improved reload and range.\n  •  Increases reload speed\n  •  Slightly increases range",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 1806783418,
+      "enhancedHashes": [1807273211],
+      "enhancedHash": 1807273211
+    },
+    "697983358": {
+      "hash": 697983358,
+      "name": "Offensive Grip",
+      "categoryId": "weapon-perk-exotic",
+      "inGameDescription": "Channel a paracausal grip on the hilt to bolster attack, maintaining your offensive power for longer.",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "itemHash": 3049715579,
+      "itemName": "Praxic Blade",
+      "plugCategoryHash": 190208416
+    },
+    "769709866": {
+      "hash": 769709866,
+      "name": "Tactical Heatsink",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "This weapon has multiple small improvements. Slightly improves stability, vent speed, and range.",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 1757026848,
+      "enhancedHashes": [3210123846],
+      "enhancedHash": 3210123846
+    },
+    "807993149": {
+      "hash": 807993149,
+      "name": "Ionized Heatsink",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "A large, heavy battery. Increases the time it takes to vent, in exchange for greatly reduced heat generation.",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 1757026848,
+      "enhancedHashes": [1454612425],
+      "enhancedHash": 1454612425
+    },
+    "830282363": {
+      "hash": 830282363,
+      "name": "Phase Magazine",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "Increases damage while lowering rate of fire.\n  •  Decreases magazine size",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 1806783418
+    },
+    "862848869": {
+      "hash": 862848869,
+      "name": "Polymer Grip",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "This weapon's grip is made of lighter material.\n  •  Increases handling speed",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 3962145884,
+      "enhancedHashes": [3358678417],
+      "enhancedHash": 3358678417
+    },
+    "938542991": {
+      "hash": 938542991,
+      "name": "Tempered Edge",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "Increased sword damage and ammo.",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 1041766312,
+      "enhancedHashes": [766579919],
+      "enhancedHash": 766579919
+    },
+    "1127992351": {
+      "hash": 1127992351,
+      "name": "Unyielding Handle",
+      "categoryId": "weapon-perk-exotic",
+      "inGameDescription": "Traditional guarding is disabled in favor of offensive capabilities. Gain damage resistance from being in combat for a short duration.",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "itemHash": 1753923263,
+      "itemName": "Wolfsbane",
+      "plugCategoryHash": 683359327,
+      "sandboxPerkHashes": [3219223817]
+    },
+    "1261178282": {
+      "hash": 1261178282,
+      "name": "Enduring Blade",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "Greatly increased sword ammo at the cost of damage.",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 1041766312,
+      "enhancedHashes": [3885243590],
+      "enhancedHash": 3885243590
+    },
+    "1263609309": {
+      "hash": 1263609309,
+      "name": "Ballistic Tuning",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "Power diverted from shield.\n  •  Greatly increases range\n  •  Decreases shield duration",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 1697972157,
+      "enhancedHashes": [2154730217],
+      "enhancedHash": 2154730217
+    },
+    "1380253176": {
+      "hash": 1380253176,
+      "name": "High-Explosive Ordnance",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "This weapon's projectiles are larger and travel faster.\n  •  Increases blast radius\n  •  Slightly increases projectile speed\n  •  Decreases magazine size",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 2718120384,
+      "enhancedHashes": [3781548872],
+      "enhancedHash": 3781548872
+    },
+    "1408087974": {
+      "hash": 1408087974,
+      "name": "Combat Sights",
+      "categoryId": "weapon-perk-exotic",
+      "inGameDescription": "Low-zoom sights with faster charge time and handling. Fires a three-round burst that reduces charge time even further on sustained hits. Displays ability energy. Select this scope to spawn with it equipped by default.",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "itemHash": 2044500762,
+      "itemName": "The Queenbreaker",
+      "plugCategoryHash": 2619833294,
+      "sandboxPerkHashes": [3272190948]
+    },
+    "1408087975": {
+      "hash": 1408087975,
+      "name": "Marksman Sights",
+      "categoryId": "weapon-perk-exotic",
+      "inGameDescription": "Long-range sights with slower charge time and greater damage. Fires a single bolt that chains to nearby targets and blinds them on hit. Displays ammo and charge levels. Select this scope to spawn with it equipped by default.",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "itemHash": 2044500762,
+      "itemName": "The Queenbreaker",
+      "plugCategoryHash": 2619833294,
+      "sandboxPerkHashes": [3272190949]
+    },
+    "1491926336": {
+      "hash": 1491926336,
+      "name": "Ranged Lens RLR5",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "Precision scope. Long zoom.\n  •  Decreases handling speed\n  •  Increases range",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 2619833294
+    },
+    "1958555234": {
+      "hash": 1958555234,
+      "name": "Balanced Grip",
+      "categoryId": "weapon-perk-exotic",
+      "inGameDescription": "Channel a paracausal grip, balanced between defense and attack.",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "itemHash": 3049715579,
+      "itemName": "Praxic Blade",
+      "plugCategoryHash": 190208416
+    },
+    "1992361643": {
+      "hash": 1992361643,
+      "name": "Anti-Taken Fletching",
+      "categoryId": "weapon-perk-exotic",
+      "inGameDescription": "Specialized to fight Taken targets.\n  •  Increases accuracy",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "itemHash": 814876684,
+      "itemName": "Wish-Ender",
+      "plugCategoryHash": 1257608559,
+      "sandboxPerkHashes": [2954419929]
+    },
+    "2005566727": {
+      "hash": 2005566727,
+      "name": "Nucleosynthetic Magazine",
+      "categoryId": "weapon-perk-exotic",
+      "inGameDescription": "This magazine continuously draws ammo from reserves. The magazine also enables firing Arc projectiles that detonate on impact.",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "itemHash": 3821409356,
+      "itemName": "Ex Diris",
+      "plugCategoryHash": 2718120384
+    },
+    "2363751990": {
+      "hash": 2363751990,
+      "name": "Infinite Guard",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "Sword Guard has balanced defenses and maximized endurance.",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 683359327,
+      "enhancedHashes": [4088159466],
+      "enhancedHash": 4088159466,
+      "sandboxPerkHashes": [983157083]
+    },
+    "2414725841": {
+      "hash": 2414725841,
+      "name": "Satou Precision Lens",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "Precision scope. Long zoom.\n  •  Greatly increases range\n  •  Decreases handling speed",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 2619833294
+    },
+    "2420895100": {
+      "hash": 2420895100,
+      "name": "Extended Mag",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "This weapon has a greatly increased magazine size, but reloads much slower.\n  •  Greatly increases magazine size\n  •  Greatly decreases reload speed\n  •  Increases airborne effectiveness",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 1806783418,
+      "enhancedHashes": [1890997540],
+      "enhancedHash": 1890997540
+    },
+    "2635532173": {
+      "hash": 2635532173,
+      "name": "Accurized Rounds",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "This weapon can fire longer distances.\n  •  Increases range",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 1806783418
+    },
+    "2827049491": {
+      "hash": 2827049491,
+      "name": "Honed Edge",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "Increased sword damage.",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 1041766312,
+      "enhancedHashes": [4270598587],
+      "enhancedHash": 4270598587
+    },
+    "2870095399": {
+      "hash": 2870095399,
+      "name": "Thermoplastic Grenades",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "Grenades fired from this weapon bounce further. \n  •  Increases stability \n  •  Increases projectile speed",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 2718120384,
+      "enhancedHashes": [1802305063],
+      "enhancedHash": 1802305063,
+      "sandboxPerkHashes": [2871257419]
+    },
+    "3295115440": {
+      "hash": 3295115440,
+      "name": "Defensive Grip",
+      "categoryId": "weapon-perk-exotic",
+      "inGameDescription": "Channel a paracausal grip on the hilt to bolster defense, maintaining block for longer.",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "itemHash": 3049715579,
+      "itemName": "Praxic Blade",
+      "plugCategoryHash": 190208416
+    },
+    "3377448506": {
+      "hash": 3377448506,
+      "name": "Tenacious Handle",
+      "categoryId": "weapon-perk-exotic",
+      "inGameDescription": "Traditional guarding is disabled in favor of offensive capabilities. Gain greatly increased damage resistance from being in combat for an extended duration.",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "itemHash": 1753923263,
+      "itemName": "Wolfsbane",
+      "plugCategoryHash": 683359327,
+      "sandboxPerkHashes": [3496789628]
+    },
+    "3492396210": {
+      "hash": 3492396210,
+      "name": "Implosion Rounds",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "This weapon's projectiles travel faster and have a controlled explosion.\n  •  Increases projectile speed\n  •  Greatly increases stability\n  •  Decreases blast radius",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 2718120384,
+      "enhancedHashes": [3807404750],
+      "enhancedHash": 3807404750
+    },
+    "3492498209": {
+      "hash": 3492498209,
+      "name": "Shortened Barrel",
+      "categoryId": "weapon-perk-exotic",
+      "inGameDescription": "Greatly improves handling at the cost of range and stability.",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "itemHash": 3371017761,
+      "itemName": "Conditional Finality",
+      "plugCategoryHash": 2833605196
+    },
+    "3514694513": {
+      "hash": 3514694513,
+      "name": "Balanced Tang",
+      "categoryId": "weapon-perk-exotic",
+      "inGameDescription": "A balanced tang for flexing between attack and deflection.",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "itemHash": 3049715579,
+      "itemName": "Praxic Blade",
+      "plugCategoryHash": 3761829271
+    },
+    "3553394349": {
+      "hash": 3553394349,
+      "name": "Rampager's Handle",
+      "categoryId": "weapon-perk-exotic",
+      "inGameDescription": "Traditional guarding is disabled in favor of offensive capabilities. Gain moderately increased damage resistance from being in combat for a moderate duration.",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "itemHash": 1753923263,
+      "itemName": "Wolfsbane",
+      "plugCategoryHash": 683359327,
+      "sandboxPerkHashes": [530737275]
+    },
+    "3666208348": {
+      "hash": 3666208348,
+      "name": "Jagged Edge",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "Increased damage at the cost of sword ammo.",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 1041766312,
+      "enhancedHashes": [3959569796],
+      "enhancedHash": 3959569796
+    },
+    "3794918801": {
+      "hash": 3794918801,
+      "name": "Fencing Tang",
+      "categoryId": "weapon-perk-exotic",
+      "inGameDescription": "A tang suitable for taking the offensive stance against opponents favoring attack.",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "itemHash": 3049715579,
+      "itemName": "Praxic Blade",
+      "plugCategoryHash": 3761829271
+    },
+    "4196967425": {
+      "hash": 4196967425,
+      "name": "Empowered Rail",
+      "categoryId": "weapon-perk",
+      "inGameDescription": "Imbuing a rail with paracausal energy improves the durability and effect duration of bolts.\n  •  Greatly increases persistence\n  •  Decreases handling speed",
+      "definitionType": "DestinyInventoryItemDefinition",
+      "plugCategoryHash": 2565854612,
+      "enhancedHashes": [2398680997],
+      "enhancedHash": 2398680997,
+      "sandboxPerkHashes": [1178623250]
+    }
+  },
+  "expected": {
+    "5699512": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "unchanged"
+    },
+    "13792278": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "unchanged"
+    },
+    "13792279": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "unchanged"
+    },
+    "52780822": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "owner-kept"
+    },
+    "185041502": {
+      "before": "weapon-attachment",
+      "listed": "weapon-perk-exotic",
+      "ruleId": "manifest-weapon-stat",
+      "excluded": true,
+      "group": "moved"
+    },
+    "194952923": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "unchanged"
+    },
+    "202670084": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "unchanged"
+    },
+    "265542500": {
+      "before": "weapon-attachment",
+      "listed": "weapon-perk-exotic",
+      "ruleId": "manifest-weapon-stat",
+      "excluded": true,
+      "group": "moved"
+    },
+    "269888150": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "unchanged"
+    },
+    "332133599": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "unchanged"
+    },
+    "332773068": {
+      "before": "weapon-attachment",
+      "listed": "weapon-perk-exotic",
+      "ruleId": "manifest-weapon-stat",
+      "excluded": true,
+      "group": "moved"
+    },
+    "436053704": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "unchanged"
+    },
+    "679225683": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "unchanged"
+    },
+    "697983358": {
+      "before": "weapon-attachment",
+      "listed": "weapon-perk-exotic",
+      "ruleId": "manifest-weapon-stat",
+      "excluded": true,
+      "group": "moved"
+    },
+    "769709866": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "unchanged"
+    },
+    "807993149": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "unchanged"
+    },
+    "830282363": {
+      "before": "weapon-attachment",
+      "listed": "attachment-effect",
+      "ruleId": "attachment-evidence-needed",
+      "excluded": false,
+      "group": "moved"
+    },
+    "862848869": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "unchanged"
+    },
+    "938542991": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "owner-kept"
+    },
+    "1127992351": {
+      "before": "weapon-attachment",
+      "listed": "weapon-perk-exotic",
+      "ruleId": "manifest-weapon-stat",
+      "excluded": true,
+      "group": "moved"
+    },
+    "1261178282": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "owner-kept"
+    },
+    "1263609309": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "unchanged"
+    },
+    "1380253176": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "unchanged"
+    },
+    "1408087974": {
+      "before": "weapon-attachment",
+      "listed": "weapon-perk-exotic",
+      "ruleId": "manifest-weapon-stat",
+      "excluded": true,
+      "group": "moved"
+    },
+    "1408087975": {
+      "before": "weapon-attachment",
+      "listed": "weapon-perk-exotic",
+      "ruleId": "manifest-weapon-stat",
+      "excluded": true,
+      "group": "moved"
+    },
+    "1491926336": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "unchanged"
+    },
+    "1958555234": {
+      "before": "weapon-attachment",
+      "listed": "weapon-perk-exotic",
+      "ruleId": "manifest-weapon-stat",
+      "excluded": true,
+      "group": "moved"
+    },
+    "1992361643": {
+      "before": "weapon-attachment",
+      "listed": "weapon-perk-exotic",
+      "ruleId": "manifest-weapon-stat",
+      "excluded": true,
+      "group": "moved"
+    },
+    "2005566727": {
+      "before": "weapon-attachment",
+      "listed": "weapon-perk-exotic",
+      "ruleId": "manifest-weapon-stat",
+      "excluded": true,
+      "group": "moved"
+    },
+    "2363751990": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "owner-kept"
+    },
+    "2414725841": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "unchanged"
+    },
+    "2420895100": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "unchanged"
+    },
+    "2635532173": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "unchanged"
+    },
+    "2827049491": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "owner-kept"
+    },
+    "2870095399": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "owner-kept"
+    },
+    "3295115440": {
+      "before": "weapon-attachment",
+      "listed": "weapon-perk-exotic",
+      "ruleId": "manifest-weapon-stat",
+      "excluded": true,
+      "group": "moved"
+    },
+    "3377448506": {
+      "before": "weapon-attachment",
+      "listed": "weapon-perk-exotic",
+      "ruleId": "manifest-weapon-stat",
+      "excluded": true,
+      "group": "moved"
+    },
+    "3492396210": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "unchanged"
+    },
+    "3492498209": {
+      "before": "weapon-attachment",
+      "listed": "weapon-perk-exotic",
+      "ruleId": "manifest-weapon-stat",
+      "excluded": true,
+      "group": "moved"
+    },
+    "3514694513": {
+      "before": "weapon-attachment",
+      "listed": "weapon-perk-exotic",
+      "ruleId": "manifest-weapon-stat",
+      "excluded": true,
+      "group": "moved"
+    },
+    "3553394349": {
+      "before": "weapon-attachment",
+      "listed": "weapon-perk-exotic",
+      "ruleId": "manifest-weapon-stat",
+      "excluded": true,
+      "group": "moved"
+    },
+    "3666208348": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "owner-kept"
+    },
+    "3794918801": {
+      "before": "weapon-attachment",
+      "listed": "weapon-perk-exotic",
+      "ruleId": "manifest-weapon-stat",
+      "excluded": true,
+      "group": "moved"
+    },
+    "4196967425": {
+      "before": "weapon-attachment",
+      "listed": "weapon-attachment",
+      "ruleId": "weapon-attachment",
+      "excluded": true,
+      "group": "unchanged"
+    }
+  }
+}

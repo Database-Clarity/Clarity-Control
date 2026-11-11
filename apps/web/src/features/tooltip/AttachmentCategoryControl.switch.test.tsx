@@ -8,6 +8,7 @@ import { useDraftStore } from '../../stores/drafts';
 import { useSaveState } from '../../services/save/state';
 import type { Tooltip } from '@clarity/core';
 import fixture from '../compendium/fixtures/triage.json';
+import census from '../compendium/fixtures/stat-only-census.json';
 
 vi.mock('../../services/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../services/api')>()),
@@ -139,9 +140,10 @@ it('classifies a native effect with the weapon-attachment override as an exclude
 });
 it('shows a two-way switch with both labels', async () => {
   await render(empty);
-  expect(buttons().map((b) => b.textContent)).toEqual([
-    'Stat-only Parts (no tooltip)',
-    'Parts with Effects (needs tooltip)',
+  expect(buttons().map((b) => b.textContent)).toEqual(['No tooltip', 'Needs tooltip']);
+  expect(buttons().map((b) => b.title)).toEqual([
+    'No tooltip: listed in Stat-only Parts',
+    'Needs tooltip: listed in Parts with Effects',
   ]);
   expect(buttons()[0].getAttribute('aria-pressed')).toBe('true');
 });
@@ -178,7 +180,7 @@ it('warns before demoting a tooltip with authored text, and cancel does nothing'
   await act(async () => buttons()[0].click());
   await act(async () =>
     buttons()
-      .find((b) => b.textContent?.startsWith('Move to'))!
+      .find((b) => b.textContent === 'Confirm: no tooltip')!
       .click(),
   );
   const [, change] = update.mock.calls.at(-1)!;
@@ -194,4 +196,36 @@ it('disables the switch for trial/translator/anonymous', async () => {
     expect(buttons().every((b) => b.disabled)).toBe(true);
   }
   expect(update).not.toHaveBeenCalled();
+});
+it('round-trips a stat-only part whose saved text makes it need a tooltip', async () => {
+  // Tempered Truss Rod (live record): the manifest rule says stat-only; its text says otherwise.
+  const rod = census.items['5699512'] as never as typeof item;
+  const text: Tooltip = { ...withText, hash: rod.hash };
+  await act(async () => root.render(<AttachmentCategoryControl base={text} item={rod} />));
+  expect(buttons()[1].getAttribute('aria-pressed')).toBe('true');
+  expect(buttons().map((b) => b.disabled)).toEqual([false, false]);
+  await act(async () => buttons()[0].click());
+  await act(async () =>
+    buttons()
+      .find((b) => b.textContent === 'Confirm: no tooltip')!
+      .click(),
+  );
+  const [, demote] = update.mock.calls.at(-1)!;
+  const demoted = demote(text);
+  expect(demoted.custom).toEqual({ name: rod.name, categoryId: 'weapon-attachment' });
+  draftOf(demoted);
+  await act(async () => root.render(<AttachmentCategoryControl base={text} item={rod} />));
+  expect(buttons()[0].getAttribute('aria-pressed')).toBe('true');
+  await act(async () => buttons()[1].click());
+  const [, promote] = update.mock.calls.at(-1)!;
+  expect(JSON.stringify(promote(demoted))).toBe(JSON.stringify(text));
+});
+it('titles say where an exotic part is listed', async () => {
+  const tang = census.items['3514694513'] as never as typeof item;
+  const base: Tooltip = { hash: tang.hash, text: {}, associated: [] };
+  await act(async () => root.render(<AttachmentCategoryControl base={base} item={tang} />));
+  expect(buttons().map((b) => b.title)).toEqual([
+    'No tooltip: listed under its exotic weapon',
+    'Needs tooltip: listed under its exotic weapon',
+  ]);
 });

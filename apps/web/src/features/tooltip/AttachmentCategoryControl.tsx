@@ -10,6 +10,8 @@ import {
   categoryLabel,
   classifyItem,
   effectCategory,
+  hasAuthoredText,
+  listingCategoryId,
 } from '../compendium/itemClassification';
 import styles from './TooltipPage.module.scss';
 
@@ -39,9 +41,6 @@ export function setTooltipCategory(
   }
   return { ...rest, custom: { name: custom?.name ?? item.name, categoryId: target } };
 }
-export function hasAuthoredText(tooltip: Tooltip): boolean {
-  return Object.values(tooltip.text).some((entry) => !!entry?.text.trim());
-}
 
 export function AttachmentCategoryControl({ base, item }: { base: Tooltip; item: Item }) {
   const user = useAuthStore((state) => state.user);
@@ -56,7 +55,9 @@ export function AttachmentCategoryControl({ base, item }: { base: Tooltip; item:
   )
     return null;
   const isEffect = classification.categoryId === effectCategory;
-  const native = classifyItem(item)?.categoryId ?? classification.categoryId;
+  // Native = without a category override; saved text alone can make a part need a tooltip.
+  const native =
+    classifyItem(item, { ...next, custom: undefined })?.categoryId ?? classification.categoryId;
   const hasOwnIdentity = !canSwitchCategory(next, item, native);
   const allowed =
     !hasOwnIdentity &&
@@ -74,24 +75,33 @@ export function AttachmentCategoryControl({ base, item }: { base: Tooltip; item:
       move(target);
     }
   };
-  const options = [attachmentCategory, effectCategory];
+  // Short labels; where the item lists goes in the button's title (exotic parts stay with their weapon).
+  const listedIn = (id: string) => {
+    const listing = listingCategoryId(item, { categoryId: id });
+    return listing === id ? `listed in ${categoryLabel(id)}` : 'listed under its exotic weapon';
+  };
+  const options = [
+    { id: attachmentCategory, label: 'No tooltip' },
+    { id: effectCategory, label: 'Needs tooltip' },
+  ];
   const hint = hasOwnIdentity
     ? 'This item has its own custom identity; change its category in the identity editor.'
     : 'This creates a category draft; use the normal save flow. Editor role or higher required.';
   return (
     <div className={styles.categoryRow}>
       <div role="group" aria-label="Attachment category" className={styles.categorySwitch}>
-        {options.map((id) => {
+        {options.map(({ id, label }) => {
           const selected = (id === effectCategory) === isEffect;
           return (
             <button
               key={id}
               type="button"
               aria-pressed={selected}
+              title={`${label}: ${listedIn(id)}`}
               disabled={!allowed}
               onClick={() => choose(id)}
             >
-              {categoryLabel(id)} {id === attachmentCategory ? '(no tooltip)' : '(needs tooltip)'}
+              {label}
             </button>
           );
         })}
@@ -107,14 +117,14 @@ export function AttachmentCategoryControl({ base, item }: { base: Tooltip; item:
               move(attachmentCategory);
             }}
           >
-            Move to {categoryLabel(attachmentCategory)}
+            Confirm: no tooltip
           </button>
           <button type="button" onClick={() => setConfirming(false)}>
             Cancel
           </button>
         </div>
       )}
-      <small title={hint}>{hint}</small>
+      <small>{hint}</small>
     </div>
   );
 }
