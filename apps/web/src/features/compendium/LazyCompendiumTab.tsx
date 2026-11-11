@@ -1,4 +1,3 @@
-import { useCompendiumSurface } from './backgroundActivity';
 import { Component, Suspense, lazy, useState, type ComponentType, type ReactNode } from 'react';
 
 const loadPage = () =>
@@ -29,7 +28,6 @@ export function LazyCompendiumTab({
 }: {
   load?: () => Promise<{ default: ComponentType }>;
 }) {
-  useCompendiumSurface();
   const [attempt, setAttempt] = useState(0);
   const [Page, setPage] = useState(() => lazy(load));
   return (

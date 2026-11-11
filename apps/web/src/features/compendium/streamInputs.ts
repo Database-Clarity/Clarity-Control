@@ -1,4 +1,3 @@
-import { compendiumInputPaused, waitForCompendiumInput } from './backgroundActivity';
 // Input models are JSON data. Bound serialization and transfer work so even a large
 // fixture/reloaded editor cannot become one main-thread structured-clone task.
 function* tokens(value: unknown, inArray = false): Generator<string> {
@@ -57,8 +56,6 @@ export async function streamInputs(
   send: (bytes: ArrayBuffer) => void,
   cancelled: () => boolean,
 ) {
-  if (compendiumInputPaused()) await waitForCompendiumInput();
-  if (cancelled()) throw new Error('Compendium inputs changed.');
   const encoder = new TextEncoder();
   let parts: string[] = [];
   let length = 0;
@@ -82,7 +79,6 @@ export async function streamInputs(
     if (length >= 32_768 || (++count % 64 === 0 && performance.now() >= deadline)) {
       flush();
       await yieldTask();
-      if (compendiumInputPaused()) await waitForCompendiumInput();
       deadline = performance.now() + 2;
     }
   }

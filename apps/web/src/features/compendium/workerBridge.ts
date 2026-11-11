@@ -1,4 +1,3 @@
-import { compendiumInputPaused, onCompendiumInputResume } from './backgroundActivity';
 import type { CompendiumData } from '@clarity/core';
 import { receiveWorkerResult, type WorkerReply } from './workerReplies';
 import { backgroundDecodePaused, onBackgroundDecodeResume } from './paneDecodeActivity';
@@ -31,7 +30,6 @@ export function createWorkerBridge(worker: Worker) {
   const schedule = (urgent = false) => {
     if (
       failure ||
-      (compendiumInputPaused() && !urgent) ||
       (backgroundDecodePaused() && !urgent) ||
       (scheduled && (!urgent || scheduledUrgent))
     )
@@ -40,13 +38,7 @@ export function createWorkerBridge(worker: Worker) {
     scheduledUrgent = urgent;
     const generation = ++scheduleGeneration;
     const run = (deadline?: IdleDeadline) => {
-      if (generation !== scheduleGeneration) return;
-      if (compendiumInputPaused() && !urgent) {
-        scheduled = false;
-        scheduledUrgent = false;
-        return;
-      }
-      decode(deadline);
+      if (generation === scheduleGeneration) decode(deadline);
     };
     const scheduler = (
       globalThis as typeof globalThis & {
@@ -82,15 +74,14 @@ export function createWorkerBridge(worker: Worker) {
     // Poll in small batches, including before the first node of each slice.
     while (steps++ % 16 !== 0 || (performance.now() < end && !inputPending())) {
       if (active && jobs.get(active.id) !== active.job) active = undefined;
-      if ((backgroundDecodePaused() || compendiumInputPaused()) && active && !active.job.urgent) {
+      if (backgroundDecodePaused() && active && !active.job.urgent) {
         arrivals.unshift({ id: active.id, steps: active.steps });
         active = undefined;
       }
       if (!active) {
-        const index =
-          backgroundDecodePaused() || compendiumInputPaused()
-            ? arrivals.findIndex((arrival) => jobs.get(arrival.id)?.urgent)
-            : 0;
+        const index = backgroundDecodePaused()
+          ? arrivals.findIndex((arrival) => jobs.get(arrival.id)?.urgent)
+          : 0;
         if (index < 0) break;
         const next = arrivals.splice(index, 1)[0];
         if (!next) break;
@@ -125,16 +116,10 @@ export function createWorkerBridge(worker: Worker) {
     if (active || arrivals.length)
       schedule(!!active?.job.urgent || arrivals.some((arrival) => jobs.get(arrival.id)?.urgent));
   }
-  const resume = () => {
+  const unsubscribe = onBackgroundDecodeResume(() => {
     if (active || arrivals.length)
       schedule(!!active?.job.urgent || arrivals.some((arrival) => jobs.get(arrival.id)?.urgent));
-  };
-  const unsubscribePane = onBackgroundDecodeResume(resume);
-  const unsubscribeInput = onCompendiumInputResume(resume);
-  const unsubscribe = () => {
-    unsubscribePane();
-    unsubscribeInput();
-  };
+  });
   const rejectAll = (error: Error) => {
     unsubscribe();
     for (const job of jobs.values()) job.reject(error);

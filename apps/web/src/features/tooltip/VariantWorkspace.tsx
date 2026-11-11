@@ -1,4 +1,3 @@
-import { useCompendiumSurface } from '../compendium/backgroundActivity';
 import {
   useEffect,
   useId,
@@ -159,11 +158,7 @@ export function VariantWorkspace({
   // before the width is measured) and on a phone a Compendium that is not the open view. Its
   // tab's dot is the pane's own result, so it shows only while the pane is open: a hidden pane
   // never matches or decodes for it, and never shows the previous tooltip's.
-  useCompendiumSurface(
-    compendiumLabel === 'Compendium' && present(compendium) && isActive('compendium'),
-  );
   const unmounted = (id: Panel) =>
-    (id === 'compendium' && compendiumLabel === 'Compendium' && !isActive(id)) ||
     hiddenTab(id) ||
     (paired && mode !== 'split' && id === 'compendium' && activePanel !== 'compendium');
   const panel = (id: Panel) =>

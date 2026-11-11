@@ -17,16 +17,6 @@ import { apiUrl } from '../../services/api';
 import { useSteppingActivity } from '../navigation/steppingActivity';
 import { LivePreviewIdentity } from '../preview/LivePreviewIdentity';
 
-// Static rendering has no measured pane width; compose the desktop split surface explicitly.
-vi.mock('./useWorkspaceDivider', () => ({
-  useWorkspaceDivider: () => ({
-    container: { current: null },
-    separator: null,
-    style: {},
-    split: true,
-  }),
-}));
-
 vi.mock('../navigation/steppingActivity', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../navigation/steppingActivity')>();
   return {
