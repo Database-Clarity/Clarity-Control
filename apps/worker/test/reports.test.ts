@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { reportBudget } from './reportsBudget.js';
+import { reportBudgetCases } from './reportsBudgetCases.js';
 import { generateKeyPairSync } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getPlatformProxy } from 'wrangler';
@@ -44,10 +46,18 @@ const payload = () => ({
   links: [],
   turnstile: 'valid',
 });
-async function call(path: string, method = 'GET', data?: unknown, id?: number, ip = '192.0.2.1') {
+async function call(
+  path: string,
+  method = 'GET',
+  data?: unknown,
+  id?: number,
+  ip = '192.0.2.1',
+  extra: Record<string, string> = {},
+) {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'CF-Connecting-IP': ip,
+    ...extra,
   };
   if (id)
     headers.Authorization = `Bearer ${await signToken({ purpose: 'session', id, login: `user${id}`, exp: Math.floor(Date.now() / 1000) + 3600 }, fixture.env.SESSION_SECRET)}`;
@@ -110,10 +120,21 @@ beforeEach(async () => {
   fixture.env.REPORTS_FILES_DB = files;
   fixture.env.TURNSTILE_SECRET = 'test-secret';
   const upstream = fixture.fetch.bind(fixture);
+  const budgetCatalog = JSON.stringify({
+    sourceCommit: '1'.repeat(40),
+    items: Object.fromEntries(
+      Array.from({ length: 1695 }, (_, i) => [
+        i + 1,
+        { owner: i + 1, langs: ['en', 'de', 'fr'], variant: 'base' },
+      ]),
+    ),
+  });
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       const value = String(url);
+      if (value.includes('report-items.worker.json'))
+        if (process.env.REPORTS_BUDGET) return new Response(budgetCatalog);
       if (value.includes('report-items.worker.json'))
         return new Response(
           JSON.stringify({
@@ -130,6 +151,59 @@ beforeEach(async () => {
   );
 });
 describe('reports local D1', () => {
+  it.skipIf(!process.env.REPORTS_BUDGET)(
+    'handler budget proxy',
+    async () => {
+      const rows: Record<string, unknown>[] = [];
+      await reportBudgetCases(
+        async (label, path, method = 'GET', data, id, extra = {}) => {
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            'CF-Connecting-IP': '192.0.2.100',
+            ...extra,
+          };
+          if (id)
+            headers.Authorization = `Bearer ${await signToken({ purpose: 'session', id, login: `user${id}`, exp: Math.floor(Date.now() / 1000) + 3600 }, fixture.env.SESSION_SECRET)}`;
+          const request = new Request(`https://api.example${path}`, {
+            method,
+            headers,
+            ...(data === undefined
+              ? {}
+              : {
+                  body: data instanceof Uint8Array ? Uint8Array.from(data) : JSON.stringify(data),
+                }),
+          });
+          const before = vi.mocked(globalThis.fetch).mock.calls.length;
+          const result = await reportBudget(request, fixture.env, { waitUntil() {} });
+          const network = vi.mocked(globalThis.fetch).mock.calls.length - before;
+          rows.push({
+            route: label,
+            status: result.response.status,
+            wall_ms: result.wallMs,
+            awaited_d1_ms: result.dbMs,
+            handler_proxy_ms: result.handlerMs,
+            subrequests: network + result.dbCalls,
+            d1_calls: result.dbCalls,
+            network_calls: network,
+          });
+          return result.response;
+        },
+        async (query) => {
+          await db.prepare(query).run();
+        },
+      );
+      const output = {
+        label: 'proxy; real CPU verified after deploy',
+        runtime: 'Node handler; getPlatformProxy local D1',
+        rows,
+      };
+      console.log(JSON.stringify(output));
+      if (process.env.REPORTS_BUDGET_OUTPUT)
+        writeFileSync(process.env.REPORTS_BUDGET_OUTPUT, JSON.stringify(output, null, 2));
+      expect(rows.every((r) => Number(r.status) < 400)).toBe(true);
+    },
+    60_000,
+  );
   it('migrates both stores, submits anonymously, and retries without spending a limit', async () => {
     const input = payload();
     const sent = await call('/reports', 'POST', input);
@@ -202,6 +276,81 @@ describe('reports local D1', () => {
       (await call(`/reports/${id}/action`, 'POST', { action: 'triage', expected_version: 1 }, 4))
         .status,
     ).toBe(200);
+  });
+  it('enforces the global ceiling atomically, exempts role holders, and prechecks before Turnstile', async () => {
+    const day = Math.floor(Date.now() / 86400000);
+    await db
+      .prepare('INSERT INTO limits VALUES(?,499,500,?)')
+      .bind(`global:${day}`, (day + 1) * 86400)
+      .run();
+    const sent = await Promise.all(
+      Array.from({ length: 3 }, (_, i) =>
+        call('/reports', 'POST', payload(), undefined, `192.0.2.${i + 10}`),
+      ),
+    );
+    expect(sent.map((r) => r.status).sort()).toEqual([201, 503, 503]);
+    expect(await db.prepare('SELECT COUNT(*) AS n FROM reports').first()).toEqual({ n: 1 });
+    const before = vi
+      .mocked(fetch)
+      .mock.calls.filter(([url]) => String(url).includes('siteverify')).length;
+    expect((await call('/reports', 'POST', payload())).status).toBe(503);
+    expect(
+      vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes('siteverify')).length,
+    ).toBe(before);
+    expect((await call('/reports', 'POST', payload(), 1)).status).toBe(201);
+  });
+  it('scopes receipts to the reporter or a role with access and rejects stale action versions', async () => {
+    const response = await call('/reports', 'POST', payload(), 5),
+      { id } = (await response.json()) as { id: string };
+    expect((await call(`/reports/r/${id}/view`, 'POST', {}, 6)).status).toBe(403);
+    expect(
+      (await call(`/reports/r/${id}/view`, 'POST', { secret: 'a'.repeat(43) }, 6)).status,
+    ).toBe(403);
+    expect((await call(`/reports/r/${id}/view`, 'POST', {}, 4)).status).toBe(403);
+    expect((await call(`/reports/r/${id}/view`, 'POST', {}, 3)).status).toBe(200);
+    expect(
+      (await call(`/reports/${id}/action`, 'POST', { action: 'triage', expected_version: 1 }, 2))
+        .status,
+    ).toBe(200);
+    expect(
+      (await call(`/reports/${id}/action`, 'POST', { action: 'close', expected_version: 1 }, 2))
+        .status,
+    ).toBe(409);
+    expect(
+      (await call(`/reports/${id}/action`, 'POST', { action: 'reopen', expected_version: 2 }, 2))
+        .status,
+    ).toBe(409);
+    expect(
+      (await call(`/reports/${id}/action`, 'POST', { action: 'spam', expected_version: 2 }, 2))
+        .status,
+    ).toBe(403);
+    expect(
+      (await call(`/reports/${id}/action`, 'POST', { action: 'close', expected_version: 2 }, 3))
+        .status,
+    ).toBe(200);
+    expect(
+      (await call(`/reports/${id}/action`, 'POST', { action: 'reopen', expected_version: 3 }, 3))
+        .status,
+    ).toBe(200);
+  });
+  it('invalidates a 304 after deleting the older of equal-timestamp reports', async () => {
+    const a = await call('/reports', 'POST', payload()),
+      b = await call('/reports', 'POST', payload());
+    expect(b.status).toBe(201);
+    const { id } = (await a.json()) as { id: string };
+    await db.prepare('UPDATE reports SET updated_at=100').run();
+    const before = await call('/reports/index', 'GET', undefined, 1),
+      etag = before.headers.get('ETag')!;
+    expect(
+      (await call('/reports/index', 'GET', undefined, 1, '192.0.2.1', { 'If-None-Match': etag }))
+        .status,
+    ).toBe(304);
+    expect((await call(`/reports/${id}`, 'DELETE', undefined, 1)).status).toBe(200);
+    const after = await call('/reports/index', 'GET', undefined, 1, '192.0.2.1', {
+      'If-None-Match': etag,
+    });
+    expect(after.status).toBe(200);
+    expect(await after.json()).toMatchObject({ open: { 123: { en: 1 } } });
   });
   it('withdraws, redacts selectors, bumps marker revision, and leaves a tombstone on purge', async () => {
     const input = payload(),
@@ -296,6 +445,38 @@ describe('reports local D1', () => {
     expect(await db.prepare('SELECT status FROM reports').first()).toEqual({ status: 'open' });
     expect(await db.prepare('SELECT COUNT(*) AS n FROM notes').first()).toEqual({ n: 1 });
     fixture.env.REPORTS_FILES_DB = files;
+  });
+  it('serialises concurrent uploads at three, scopes file reads, and removes files on withdrawal', async () => {
+    const input = payload(),
+      response = await call('/reports', 'POST', input, 5),
+      { id } = (await response.json()) as { id: string };
+    const bytes = Uint8Array.from([255, 216, 255, 225, 0, 6, 1, 2, 3, 4, 255, 218, 0, 2, 255, 217]);
+    const token = await signToken(
+      { purpose: 'session', id: 5, login: 'user5', exp: Math.floor(Date.now() / 1000) + 3600 },
+      fixture.env.SESSION_SECRET,
+    );
+    const upload = () =>
+      worker.fetch(
+        new Request(`https://api.example/reports/${id}/files`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'image/jpeg',
+            'X-Report-Request-Id': input.request_id,
+          },
+          body: bytes,
+        }),
+        fixture.env,
+        { waitUntil() {} },
+      );
+    const results = await Promise.all(Array.from({ length: 4 }, upload));
+    expect(results.map((r) => r.status).sort()).toEqual([201, 201, 201, 429]);
+    expect(await files.prepare('SELECT COUNT(*) AS n FROM files').first()).toEqual({ n: 3 });
+    expect((await call(`/reports/${id}/files/1`, 'GET', undefined, 4)).status).toBe(403);
+    expect((await call(`/reports/${id}/files/1`, 'GET', undefined, 2)).status).toBe(200);
+    expect((await call(`/reports/${id}/files/1`, 'GET', undefined, 5)).status).toBe(200);
+    expect((await call(`/reports/r/${id}/withdraw`, 'POST', {}, 5)).status).toBe(200);
+    expect(await files.prepare('SELECT COUNT(*) AS n FROM files').first()).toEqual({ n: 0 });
   });
 });
 it('normalises IPv6 /64 equivalents', () => {

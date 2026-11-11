@@ -95,6 +95,10 @@ export const reportSubmissionSchema = z
         n.anchor ? n.text.trim().length > 0 : n.text.trim().length > 0 || r.note.trim().length > 0,
       ),
     'Each mark needs a note',
+  )
+  .refine(
+    (r) => r.notes.every((n) => !n.anchor || n.anchor.rev === r.rev),
+    'Selectors must use the report revision',
   );
 export type ReportSubmission = z.infer<typeof reportSubmissionSchema>;
 export const reportActionSchema = z

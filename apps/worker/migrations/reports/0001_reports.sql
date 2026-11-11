@@ -18,7 +18,7 @@ CREATE INDEX reports_mine ON reports(reporter_id,created_at);
 CREATE TABLE notes (
  report_id TEXT NOT NULL REFERENCES reports(id) ON DELETE CASCADE, n INTEGER NOT NULL CHECK(n BETWEEN 1 AND 5),
  category TEXT NOT NULL, text TEXT NOT NULL, exact TEXT, prefix TEXT, suffix TEXT, start INTEGER, end INTEGER, line INTEGER, whole INTEGER NOT NULL,
- prev_exact TEXT, prev_prefix TEXT, prev_suffix TEXT, prev_start INTEGER, prev_end INTEGER,
+ rev TEXT, prev_rev TEXT, prev_exact TEXT, prev_prefix TEXT, prev_suffix TEXT, prev_start INTEGER, prev_end INTEGER,
  PRIMARY KEY(report_id,n)
 );
 CREATE TABLE events (report_id TEXT NOT NULL REFERENCES reports(id) ON DELETE CASCADE, at INTEGER NOT NULL, actor_id INTEGER, actor_login TEXT, action TEXT NOT NULL, from_status TEXT, to_status TEXT, reason TEXT);

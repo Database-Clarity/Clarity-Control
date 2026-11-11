@@ -108,8 +108,16 @@ const worker: {
     if (origin && allowed) {
       headers.set('Access-Control-Allow-Origin', origin);
       const reportPath = /^\/reports(?:\/|$)/.test(new URL(request.url).pathname);
-      headers.set('Access-Control-Allow-Methods', reportPath ? 'GET, POST, PUT, DELETE, OPTIONS' : 'GET, POST, PUT, OPTIONS');
-      headers.set('Access-Control-Allow-Headers', reportPath ? 'Authorization, Content-Type, If-None-Match, X-Report-Request-Id' : 'Authorization, Content-Type');
+      headers.set(
+        'Access-Control-Allow-Methods',
+        reportPath ? 'GET, POST, PUT, DELETE, OPTIONS' : 'GET, POST, PUT, OPTIONS',
+      );
+      headers.set(
+        'Access-Control-Allow-Headers',
+        reportPath
+          ? 'Authorization, Content-Type, If-None-Match, X-Report-Request-Id'
+          : 'Authorization, Content-Type',
+      );
       headers.set('Access-Control-Max-Age', '600');
     }
     headers.set('X-Content-Type-Options', 'nosniff');
