@@ -260,7 +260,9 @@ function prepareNativePieces(pieces: NativePiece[], globals: MarkupGlobals): Nat
       ...extractVariables(globals.variables),
     };
     globals.onVariable?.(variable.slice(1));
-    const value = variables[variable.slice(1)];
+    const value = Object.hasOwn(variables, variable.slice(1))
+      ? variables[variable.slice(1)]
+      : undefined;
     if (value !== undefined) pieces = replaceNativeVariable(pieces, variable, value);
   }
   const variables = {
@@ -273,7 +275,9 @@ function prepareNativePieces(pieces: NativePiece[], globals: MarkupGlobals): Nat
     let arm = globals.type === 'Weapon Trait Enhanced' ? piece.enhanced : piece.base;
     for (const variable of markupVariableReferences(arm)) {
       globals.onVariable?.(variable.slice(1));
-      const value = variables[variable.slice(1)];
+      const value = Object.hasOwn(variables, variable.slice(1))
+        ? variables[variable.slice(1)]
+        : undefined;
       if (value !== undefined) arm = arm.replaceAll(variable, value);
     }
     return { ...piece, rendered: evaluateMarkupMath(arm) };
@@ -288,8 +292,8 @@ function prepareNativeDocument(text: string, globals: MarkupGlobals) {
   const pieces = prepareNativePieces(nativePieces(text), globals);
   const titlePieces = cleanNative(pieces, false);
   const source = nativeStructure(titlePieces);
-  const titles: Record<string, string> = {};
-  const nativeTitles: Record<string, NativePiece[]> = {};
+  const titles: Record<string, string> = Object.create(null);
+  const nativeTitles: Record<string, NativePiece[]> = Object.create(null);
   const globalTitles = extractBlocks(globals.titles, 'title');
   for (const match of source.matchAll(/^title [A-z0-9 ]+ \([^]*?\n\)$/gm)) {
     const firstLine = match[0].indexOf('\n');
@@ -303,7 +307,7 @@ function prepareNativeDocument(text: string, globals: MarkupGlobals) {
       match.index + match[0].length - 2,
     );
     titles[name] = renderNative(body);
-    if (!(name in globalTitles) && body.some((piece) => typeof piece !== 'string'))
+    if (!Object.hasOwn(globalTitles, name) && body.some((piece) => typeof piece !== 'string'))
       nativeTitles[name] = body;
   }
   return {

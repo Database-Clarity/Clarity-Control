@@ -111,3 +111,15 @@ it('keeps pair-free comment and variable semantics when a global native definiti
   const nativeGlobal = { ...g, variables: g.variables + '\nvar Unused = {{a}{b}}' };
   expect(parseMarkup(text, nativeGlobal)).toEqual(parseMarkup(text, g));
 });
+
+it.each(['constructor', '__proto__', 'toString'])(
+  'preserves native title identity for %s',
+  (name) => {
+    const result = parseMarkup(`title ${name} (\n#{{C}{e}}\n)\n<title See [${name}] />`, globals());
+    expect(result.lines[0].linesContent?.[0].title?.[0].linesContent?.[0].text).toBe('#C');
+  },
+);
+it('treats undeclared prototype names as unknown variables inside native markup', () => {
+  expect(() => parseMarkup('{{a}{b}} #constructor', globals())).not.toThrow();
+  expect(render('{{#constructor}{b}}')).toBe('#constructor');
+});
