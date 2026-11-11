@@ -66,18 +66,25 @@ export function ReportReceipt() {
   useEffect(() => {
     if (authLoading) return;
     const controller = new AbortController();
-    reportReceipt(id, controller.signal).then(setReceipt, (error: unknown) => {
-      if (controller.signal.aborted) return;
-      setProblem(
-        error instanceof ReportApiError && error.status === 404
-          ? `There is no report ${id}. It may have been deleted.`
-          : error instanceof ReportApiError
-            ? error.message
-            : 'The report could not load.',
-      );
-    });
+    const live = () => !controller.signal.aborted;
+    reportReceipt(id, controller.signal).then(
+      (value) => live() && setReceipt(value),
+      (error: unknown) => {
+        if (controller.signal.aborted) return;
+        setProblem(
+          error instanceof ReportApiError && error.status === 404
+            ? `There is no report ${id}. It may have been deleted.`
+            : error instanceof ReportApiError
+              ? error.message
+              : 'The report could not load.',
+        );
+      },
+    );
     if (secret || user)
-      viewOwnReport(id, secret, controller.signal).then(setDetail, () => setDetail(null));
+      viewOwnReport(id, secret, controller.signal).then(
+        (value) => live() && setDetail(value),
+        () => live() && setDetail(null),
+      );
     return () => controller.abort();
   }, [id, secret, user, authLoading]);
 

@@ -31,6 +31,7 @@ export function MyReports() {
     const controller = new AbortController();
     myReports(controller.signal).then(
       (list) => {
+        if (controller.signal.aborted) return;
         setChanged(changedSince(list));
         setRows(list);
         markSeen(list);

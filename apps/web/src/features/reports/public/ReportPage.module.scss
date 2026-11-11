@@ -873,3 +873,8 @@
   font-size: 0.75rem;
   color: var(--text2);
 }
+
+// The form's fieldset only carries `disabled`; the grid lays out its sections.
+.frozen {
+  display: contents;
+}

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { Link, useLocation, useParams, useRoutes } from 'react-router-dom';
+import { useAuthStore } from '../../../stores/auth';
 import { phoneQuery, useMedia } from '../../../ui/useMedia';
 import { Brand } from '../../navigation/Brand';
 import { IdentityMenu } from '../../navigation/IdentityMenu';
@@ -15,10 +16,23 @@ function FormForItem() {
   return <ReportForm key={hash} />;
 }
 
+/** Receipt and My reports state belongs to one report and one account: either change starts afresh. */
+const useAccount = () => useAuthStore((state) => state.user?.login ?? '');
+
+export function ReceiptForReport() {
+  const { id } = useParams();
+  const account = useAccount();
+  return <ReportReceipt key={`${id}:${account}`} />;
+}
+
+export function MyReportsForAccount() {
+  return <MyReports key={useAccount()} />;
+}
+
 const routes = [
   { index: true, element: <ReportPicker /> },
-  { path: 'mine', element: <MyReports /> },
-  { path: 'r/:id', element: <ReportReceipt /> },
+  { path: 'mine', element: <MyReportsForAccount /> },
+  { path: 'r/:id', element: <ReceiptForReport /> },
   { path: ':hash', element: <FormForItem /> },
 ];
 
