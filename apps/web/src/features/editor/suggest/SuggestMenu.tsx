@@ -14,6 +14,7 @@ import { MarkupSnippet } from '../../preview/TooltipPreview';
 import { acceptSuggestion, closeSuggest, moveSuggest, type SuggestSnapshot } from './state';
 import type { SuggestContext, SuggestItem } from './source';
 import { phoneQuery, useMedia } from '../../../ui/useMedia';
+import { WithArrows } from '../../../ui/EnhancedArrow';
 import { dockedBarHeight, dockedTopChrome } from '../markupRow/dock';
 import type { UsageCorpus } from './usage';
 import styles from './SuggestMenu.module.scss';
@@ -420,7 +421,11 @@ export function SuggestMenu({
                 onClick={() => acceptSuggestion(view, row.index)}
               >
                 <span className={styles.label}>{item.label}</span>
-                {item.hint && <span className={styles.hint}>{item.hint}</span>}
+                {item.hint && (
+                  <span className={styles.hint}>
+                    <WithArrows text={item.hint} />
+                  </span>
+                )}
               </div>
             );
           })}

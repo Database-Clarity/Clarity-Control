@@ -153,3 +153,21 @@ describe('pipes', () => {
     ]);
   });
 });
+
+it('colours a formula like a pair: base number in the base colour, the rest enhanced', () => {
+  const arms = tagHighlighter([
+    { tag: tags.special(tags.number), class: 'base' },
+    { tag: tags.special(tags.variableName), class: 'enhanced' },
+    { tag: tags.number, class: 'number' },
+  ]);
+  const text = 'for #e${7+#d} s, ${10} flat';
+  const ranges: { text: string; kind: string }[] = [];
+  highlightTree(clarityLanguage.parser.parse(text), arms, (from, to, kind) =>
+    ranges.push({ text: text.slice(from, to), kind }),
+  );
+  expect(ranges).toEqual([
+    { text: '${7', kind: 'base' },
+    { text: '+#d}', kind: 'enhanced' },
+    { text: '${10}', kind: 'number' },
+  ]);
+});

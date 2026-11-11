@@ -23,3 +23,24 @@ export function EnhancedArrow({ title, size = 12 }: { title?: string; size?: num
     </svg>
   );
 }
+
+/** The stored arrow character (the global `e`): text that holds it shows the arrow drawing instead. */
+export const ENHANCED_ARROW_CHAR = '🡅';
+
+/**
+ * Plain text in which every stored arrow character is drawn as the enhanced arrow symbol (a value
+ * column, a raw definition line), never as the font's glyph in the surrounding text colour.
+ */
+export function WithArrows({ text }: { text: string }) {
+  if (!text.includes(ENHANCED_ARROW_CHAR)) return <>{text}</>;
+  return (
+    <>
+      {text.split(ENHANCED_ARROW_CHAR).map((part, index) => (
+        <span key={index}>
+          {index > 0 && <EnhancedArrow title="Enhanced arrow" />}
+          {part}
+        </span>
+      ))}
+    </>
+  );
+}
