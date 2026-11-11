@@ -3,19 +3,11 @@ import { Link } from 'react-router-dom';
 import { languageLabel } from '../../../languageLabels';
 import { myReports, ReportApiError, type MyReport } from '../../../services/reports';
 import { useAuthStore } from '../../../stores/auth';
+import { When } from '../../../ui/When';
 import { statusLabel } from './ReportReceipt';
 import { reportCatalog } from './tooltipRender';
 import { changedSince, markSeen } from './seen';
 import styles from './ReportPage.module.scss';
-
-const day = 86400;
-function when(seconds: number): string {
-  const elapsed = Date.now() / 1000 - seconds;
-  if (elapsed < day) return 'today';
-  if (elapsed < 2 * day) return 'yesterday';
-  if (elapsed < 30 * day) return `${Math.floor(elapsed / day)} days ago`;
-  return new Date(seconds * 1000).toLocaleDateString('en', { dateStyle: 'medium' });
-}
 
 /** #/report/mine: the signed-in account's reports, newest first; changed ones carry a dot. */
 export function MyReports() {
@@ -114,7 +106,7 @@ export function MyReports() {
                   {names[row.owner_hash] ?? `Tooltip ${row.owner_hash}`}
                 </span>
                 <span className={styles.mineMeta}>
-                  {row.id} · {languageLabel(row.lang)} · {when(row.created_at)}
+                  {row.id} · {languageLabel(row.lang)} · <When value={row.created_at * 1000} />
                 </span>
                 <span className={styles.status} data-status={statusLabel(row.status)}>
                   {statusLabel(row.status)}

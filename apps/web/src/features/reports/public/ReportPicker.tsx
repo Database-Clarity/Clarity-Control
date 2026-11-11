@@ -18,6 +18,7 @@ interface Entry {
 }
 
 const fold = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+const countFormat = new Intl.NumberFormat('en');
 
 /** One row per item a consumer can show: aliases with the same name and owner collapse. */
 export function pickerEntries(catalog: ReportCatalog): Entry[] {
@@ -150,7 +151,7 @@ export function ReportPicker() {
         </label>
         <span className={styles.muted}>
           {catalog
-            ? `Only items with a Clarity tooltip (${entries.length.toLocaleString('en')})`
+            ? `Only items with a Clarity tooltip (${countFormat.format(entries.length)})`
             : failed
               ? ''
               : 'Loading items…'}
