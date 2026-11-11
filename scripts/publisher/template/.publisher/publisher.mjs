@@ -20117,7 +20117,19 @@ var permissionsSchema = external_exports.object({
       role: external_exports.enum(["maintainer", "editor", "trial", "translator"]),
       languages: external_exports.array(langSchema).optional()
     }).strict()
-  )
+  ),
+  /**
+   * Export partners (spec section 4): numeric GitHub id -> the export projects that account may
+   * edit. Optional and additive, so files without it parse as before. A user listed only here
+   * has the `partner` role: read-only, published data only, and nothing in `users` grants it.
+   */
+  partners: external_exports.record(
+    external_exports.string().regex(/^[1-9]\d*$/),
+    external_exports.object({
+      login: external_exports.string().min(1).max(39),
+      projects: external_exports.array(external_exports.string().regex(/^[a-z][a-z0-9-]{1,31}$/)).min(1).max(40).refine((list) => new Set(list).size === list.length, "Duplicate project")
+    }).strict()
+  ).optional()
 }).strict();
 var pushedSchema = external_exports.record(
   external_exports.string().regex(/^(0|[1-9]\d*)$/).refine((value2) => Number(value2) <= 4294967295),
@@ -21995,6 +22007,107 @@ var aliasProposalsSchema = external_exports.object({
       reason: external_exports.literal("possible enhanced \u2014 maintainer call")
     }).strict()
   ).default([])
+}).strict();
+
+// packages/core/src/reports/schemas.ts
+var forbidden = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u;
+var reportText = (max) => external_exports.string().max(max).refine((s) => !forbidden.test(s), "Control and bidi characters are not allowed");
+var reportCategorySchema = external_exports.enum([
+  "wrong-value",
+  "outdated",
+  "wording",
+  "translation",
+  "missing",
+  "other"
+]);
+var reportStatusSchema = external_exports.enum([
+  "open",
+  "triaged",
+  "fixed",
+  "closed",
+  "rejected",
+  "duplicate",
+  "spam",
+  "withdrawn"
+]);
+var reportIdSchema = external_exports.string().regex(/^r-[a-z2-7]{8}$/);
+var reportAnchorSchema = external_exports.object({
+  rev: external_exports.string().regex(/^[a-f0-9]{16}$/),
+  exact: reportText(4096).min(1),
+  prefix: reportText(32),
+  suffix: reportText(32),
+  start: external_exports.number().int().min(0).max(4095),
+  end: external_exports.number().int().min(1).max(4096),
+  line: external_exports.number().int().min(0).max(4096)
+}).strict().refine((a) => a.end > a.start && a.end - a.start === a.exact.length, "Invalid selector bounds");
+var httpsUrl = reportText(2048).url().refine((s) => {
+  const u = new URL(s);
+  return u.protocol === "https:" && !u.username && !u.password;
+}, "An https URL is required");
+var reportVideoHosts = [
+  "youtube.com",
+  "youtu.be",
+  "clips.twitch.tv",
+  "streamable.com",
+  "imgur.com",
+  "i.imgur.com"
+];
+var reportVideoSchema = httpsUrl.refine(
+  (s) => reportVideoHosts.includes(new URL(s).hostname),
+  "Use YouTube, Twitch clips, Streamable, or imgur; Discord links expire"
+);
+var reportSubmissionSchema = external_exports.object({
+  request_id: external_exports.string().uuid(),
+  withdraw_secret: external_exports.string().regex(/^[A-Za-z0-9_-]{32,128}$/),
+  viewed_hash: external_exports.number().int().min(0).max(4294967295),
+  lang: langSchema,
+  seen_lang: langSchema.optional(),
+  rev: external_exports.string().regex(/^[a-f0-9]{16}$/),
+  data_commit: external_exports.string().regex(/^[a-f0-9]{40}$/),
+  category: reportCategorySchema,
+  note: reportText(1e3).default(""),
+  notes: external_exports.array(
+    external_exports.object({
+      category: reportCategorySchema,
+      text: reportText(500),
+      anchor: reportAnchorSchema.nullable()
+    }).strict()
+  ).min(1).max(5),
+  source_url: httpsUrl.optional(),
+  src: reportText(64).optional(),
+  links: external_exports.array(reportVideoSchema).max(2).default([]),
+  turnstile: external_exports.string().max(2048).optional()
+}).strict().refine(
+  (r) => r.notes.every(
+    (n) => n.anchor ? n.text.trim().length > 0 : n.text.trim().length > 0 || r.note.trim().length > 0
+  ),
+  "Each mark needs a note"
+).refine(
+  (r) => r.notes.every((n) => !n.anchor || n.anchor.rev === r.rev),
+  "Selectors must use the report revision"
+);
+var reportActionSchema = external_exports.object({
+  expected_version: external_exports.number().int().positive(),
+  action: external_exports.enum([
+    "triage",
+    "claim",
+    "resolve",
+    "confirmPublished",
+    "reopen",
+    "close",
+    "reject",
+    "duplicate",
+    "spam",
+    "reanchor",
+    "closedNote"
+  ]),
+  commit: external_exports.string().regex(/^[a-f0-9]{40}$/).optional(),
+  publishable: external_exports.string().regex(/^[a-f0-9]{16,64}$/).optional(),
+  of: reportIdSchema.optional(),
+  reason: external_exports.enum(["not-an-issue", "works-as-described", "out-of-scope", "unclear"]).optional(),
+  n: external_exports.number().int().min(1).max(5).optional(),
+  anchor: reportAnchorSchema.optional(),
+  text: reportText(1e3).optional()
 }).strict();
 
 // apps/worker/src/stamp.ts

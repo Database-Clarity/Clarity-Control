@@ -487,6 +487,59 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       ).toMatchObject({ status: conflict ? 'conflict' : 'duplicate' });
     },
   );
+  it('pinned runtime accepts additive partners and rejects invalid permissions without source writes', async () => {
+    const f = await setup();
+    const users = { '1': { login: 'alice', role: 'editor' } };
+    const partner = { login: 'bob', projects: ['dim', 'clarity'] };
+    const cases = [
+      { permissions: { users }, valid: true },
+      { permissions: { users, partners: {} }, valid: true },
+      { permissions: { users, partners: { '2': partner } }, valid: true },
+      { permissions: { users: {}, partners: { '2': partner } }, valid: true },
+      { permissions: { users, partners: { '02': partner } }, valid: false },
+      { permissions: { users, partners: { '2': { ...partner, projects: [] } } }, valid: false },
+      {
+        permissions: { users, partners: { '2': { ...partner, projects: ['dim', 'dim'] } } },
+        valid: false,
+      },
+      {
+        permissions: { users, partners: { '2': { ...partner, projects: ['../dim'] } } },
+        valid: false,
+      },
+      { permissions: { users, partners: { '2': { ...partner, login: '' } } }, valid: false },
+      { permissions: { users, partners: { '2': { ...partner, role: 'editor' } } }, valid: false },
+      { permissions: { users, extra: true }, valid: false },
+      { permissions: { users: { '1': { login: 'alice', role: 'partner' } } }, valid: false },
+    ];
+    const root = mkdtempSync(join(tmpdir(), 'publisher-permissions-cli-'));
+    roots.push(root);
+    const config = join(root, 'config.json');
+    writeFileSync(config, JSON.stringify(f.options));
+    for (const [index, { permissions, valid }] of cases.entries()) {
+      f.change(D, { 'config/permissions.json': permissions });
+      const before = f.git.git(['show-ref']);
+      const out = join(root, `case-${index}`);
+      const run = () =>
+        execFileSync(
+          process.execPath,
+          [
+            'scripts/publisher/template/.publisher/publisher.mjs',
+            '--dry-run',
+            f.upstream,
+            config,
+            out,
+          ],
+          { stdio: 'pipe' },
+        );
+      if (valid) expect(run).not.toThrow();
+      else expect(run).toThrow();
+      const result = JSON.parse(readFileSync(join(out, 'result.json'), 'utf8'));
+      expect(result).toMatchObject({ dryRun: true, writesEnabled: false });
+      if (valid) expect(result.error).toBeNull();
+      else expect(result.error).toContain('ZodError');
+      expect(f.git.git(['show-ref'])).toBe(before);
+    }
+  });
   it('plain-node dry-run CLI emits artifacts and never changes its input refs', async () => {
     const f = await setup();
     f.change(D, {
