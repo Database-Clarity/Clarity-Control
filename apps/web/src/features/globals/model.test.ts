@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGlobalUsageIndex, type Tooltip } from '@clarity/core';
+import { buildGlobalUsageIndex, markupImports, parseMarkup, type Tooltip } from '@clarity/core';
 import {
   createGlobalUsageProjection,
   globalDefinitions,
@@ -59,6 +59,34 @@ describe('read-only aggregate globals', () => {
   it('keeps aggregate routes distinct and drops stale reference highlights', () => {
     const entry = globalDefinitions(sources).find(({ name }) => name === 'Heading')!;
     expect(globalPath(entry, '?lang=de&line=900&variant=10')).toBe('/t/3?lang=de&global=Heading');
+  });
+  it('uses production import boundaries for authored export references', () => {
+    const lines = [
+      '  import Shared from global',
+      '\timport Shared from global',
+      '// import Shared from global',
+      '/*',
+      'import Shared from global',
+      '*/',
+      'import Shared from global // not recognised before comment removal',
+      'import Shared from global   ',
+      'import  Shared  from 1  ',
+      'import Shared from 10',
+    ];
+    const result = globalUsageEntries({ ...sources, 10: tooltip(10, lines.join('\n')) });
+    expect(result.find(({ name }) => name === 'Shared')?.usages).toEqual([
+      { hash: 10, lang: 'en', line: 8, source: lines[7] },
+      { hash: 10, lang: 'en', line: 9, source: lines[8] },
+    ]);
+    const globals = { variables: '', titles: '', imports: { 1: 'export Shared (\nExpanded\n)' } };
+    for (const line of [lines[0], lines[1], lines[6]]) {
+      expect(markupImports(line)).toEqual([]);
+      expect(JSON.stringify(parseMarkup(line, globals).lines)).not.toContain('Expanded');
+    }
+    for (const line of [lines[7], lines[8]]) {
+      expect(markupImports(line)).toEqual([line]);
+      expect(JSON.stringify(parseMarkup(line, globals).lines)).toContain('Expanded');
+    }
   });
   it('updates definitions and cached source usages after a draft changes', () => {
     globalUsageEntries(sources);

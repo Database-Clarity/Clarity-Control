@@ -433,7 +433,7 @@ function TooltipWorkspace({
               ? `#${selectedGlobal.name}`
               : selectedGlobal.kind === 'titles'
                 ? `<title ${selectedGlobal.name} [${selectedGlobal.name}] />`
-                : selectedGlobal.definitions[lang]!
+                : `import ${selectedGlobal.name} from global`
           : value
       }
       baseGlobals={globalsFor(hash)}

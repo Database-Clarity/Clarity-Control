@@ -1,6 +1,7 @@
 import {
   buildGlobalUsageIndex,
   languages,
+  markupImports,
   type GlobalUsage,
   type Lang,
   type Tooltip,
@@ -88,11 +89,15 @@ export function globalUsageEntries(tooltips: Readonly<Record<string, Tooltip>>) 
         const text = tooltip.text[lang]?.text;
         if (!text) continue;
         const original = text.replace(/\r/g, '').split('\n');
+        const imports = new Set(markupImports(text));
         uncomment(text)
           .split('\n')
           .forEach((source, index) => {
-            const match = /^import (.+?) from (global|1)$/.exec(source.trim());
-            const entry = match && exports.get(match[1]);
+            // Core recognises imports before removing comments. Keep that boundary,
+            // then exclude commented lines from this authored-reference list.
+            if (source !== original[index] || !imports.has(source)) return;
+            const match = /^import (.+) from (global|1) *$/.exec(source);
+            const entry = match && exports.get(match[1].trim());
             if (entry && entry.definitions[lang] !== undefined)
               entry.usages.push({
                 hash: tooltip.hash,
