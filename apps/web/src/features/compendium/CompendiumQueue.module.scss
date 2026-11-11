@@ -1,4 +1,7 @@
 .queue {
+  // The sidebar/sheet fixes this viewport's dimensions. Keep row selection and
+  // virtual-list layout inside it instead of invalidating the outer workspace.
+  contain: strict;
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
