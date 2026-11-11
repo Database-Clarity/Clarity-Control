@@ -44,10 +44,10 @@
   --sk-bg: var(--sheet-bg);
   --sk-bar: color-mix(in srgb, var(--sheet-bg), var(--sheet-text) 18%);
   --sk-shine: color-mix(in srgb, var(--sheet-bg), var(--sheet-text) 36%);
-  border: 0.8rem solid var(--sheet-bg);
+  border: calc(0.8rem * var(--cell-scale, 1)) solid var(--sheet-bg);
   border-radius: 0.25rem;
   margin-top: 0.6rem;
-  font-size: 10pt;
+  font-size: calc(10pt * var(--cell-scale, 1));
   line-height: 1.6;
 }
 .skeletonStatus {
@@ -275,12 +275,12 @@
     'Yu Gothic', sans-serif;
   background: var(--sheet-bg);
   color: var(--sheet-text);
-  padding: 0.8rem;
+  padding: calc(0.8rem * var(--cell-scale, 1));
   margin-top: 0.6rem;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   line-height: 1.6;
-  font-size: 10pt;
+  font-size: calc(10pt * var(--cell-scale, 1));
   border-radius: 0.25rem;
   a {
     color: inherit;
@@ -336,14 +336,14 @@
   display: block;
   margin-block: 0.125rem;
   // The edges reach into the cell's padding, so block text starts where other lines start.
-  margin-inline-start: -0.8rem;
+  margin-inline-start: calc(-0.8rem * var(--cell-scale, 1));
 }
 .old,
 .new,
 .unfold {
   display: block;
   box-sizing: border-box;
-  padding-inline-start: calc(0.8rem - 3px);
+  padding-inline-start: calc(0.8rem * var(--cell-scale, 1) - 3px);
   border-inline-start: 3px solid var(--sheet-ins-line);
   text-decoration: none;
 }
@@ -377,7 +377,7 @@
   border: 0;
   border-inline-start: 3px solid var(--sheet-del-line);
   border-radius: 0;
-  padding: 0 0 0.125rem calc(0.8rem - 3px);
+  padding: 0 0 calc(0.125rem * var(--cell-scale, 1)) calc(0.8rem * var(--cell-scale, 1) - 3px);
   background: color-mix(in srgb, var(--sheet-del-bg) 33%, transparent);
   color: var(--sheet-del-line);
   font: inherit;
@@ -454,14 +454,14 @@
   z-index: 4;
   inset-inline-start: 0;
   top: 100%;
-  padding: 0.7rem;
+  padding: calc(0.7rem * var(--cell-scale, 1));
   border: 1px solid var(--style-edge);
   background: var(--style-bg);
   color: var(--style-text);
   box-sizing: border-box;
   width: min(22rem, calc(100vw - 1rem));
   white-space: normal;
-  font-size: 0.9rem;
+  font-size: calc(0.9rem * var(--cell-scale, 1));
   // The popover is its own surface: nothing of the line it hangs from carries over.
   font-weight: 400;
   font-style: normal;
@@ -681,8 +681,8 @@
 .cellScroll {
   min-width: 0;
   max-width: 100%;
-  overflow: auto;
 }
 .cellScale {
   width: 100%;
+  min-width: 0;
 }

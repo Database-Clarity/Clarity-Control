@@ -106,7 +106,14 @@ function signature(host: HTMLElement) {
         'overflowWrap',
         'textDecoration',
       ] as const)
-        if (el.style[key]) style[key] = el.style[key];
+        if (el.style[key]) {
+          // These consumer fixtures have no editor scale. Canonicalize its 1× fallback
+          // so the semantic snapshot remains independent of the CSS spelling.
+          style[key] =
+            key === 'fontSize'
+              ? el.style[key].replace(/^calc\(([\d.]+pt) \* var\(--cell-scale, 1\)\)$/, '$1')
+              : el.style[key];
+        }
       if (el.tagName === 'A') context.push('href:' + el.getAttribute('href'));
       if (['INS', 'DEL', 'BUTTON', 'H4'].includes(el.tagName)) context.push(el.tagName);
       if (el.getAttribute('role') === 'tooltip') context.push('tooltip');

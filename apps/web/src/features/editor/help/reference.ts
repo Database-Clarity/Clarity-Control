@@ -84,6 +84,14 @@ export const helpEnhancedGlobals: MarkupGlobals = {
 /** The rows that are not markup options. */
 const extraRows: readonly Omit<HelpRow, 'words'>[] = [
   {
+    id: 'list-dot',
+    group: 'Lists',
+    label: 'List dot',
+    about: 'Start a list by typing a hyphen, then Space.',
+    example: '• text',
+    note: 'Type - then Space.',
+  },
+  {
     id: 'comment',
     group: 'Comments and spacing',
     label: 'Comment',
@@ -157,7 +165,8 @@ export const editorKeys: readonly EditorKey[] = [
     group: 'Keys: write',
     label: 'Markup row button',
     keys: '1 – 9',
-    about: 'Presses the nth button, with focus in the markup row. Arrows move along it; Esc leaves.',
+    about:
+      'Presses the nth button, with focus in the markup row. Arrows move along it; Esc leaves.',
     words: 'markup row toolbar number',
   },
   {
@@ -270,7 +279,8 @@ const icons = markupIcons.map((name) => `icon:${name}`);
 /** Where each row sits, group by group, in reading order. */
 export const helpLayout: Readonly<Record<string, readonly string[]>> = {
   Values: ['pair', 'pve', 'pvp', 'pvp-override'],
-  Text: ['bullet', 'inline:bold', 'inline:yellow', 'line:bold'],
+  Lists: ['list-dot'],
+  Text: ['inline:bold', 'inline:yellow', 'line:bold'],
   Icons: ['icon-word', ...icons],
   'Comments and spacing': ['comment', 'blank'],
   Enhanced: ['enhanced-formula', 'enhanced-block', 'enhanced-arrow'],
@@ -287,7 +297,7 @@ export const helpLayout: Readonly<Record<string, readonly string[]>> = {
 
 /** The sheet's columns: what goes in a line, what is declared around it, and the keys. */
 export const helpColumns: readonly (readonly string[])[] = [
-  ['Values', 'Text', 'Icons', 'Comments and spacing'],
+  ['Values', 'Lists', 'Text', 'Icons', 'Comments and spacing'],
   ['Enhanced', 'Variables and math', 'References', 'Sharing'],
   ['Keys: write', 'Keys: find and go', 'Keys: view'],
 ];
@@ -295,6 +305,7 @@ export const helpColumns: readonly (readonly string[])[] = [
 /** One column (a phone): markup only, by how often each group is written. */
 export const phoneGroups: readonly string[] = [
   'Values',
+  'Lists',
   'Text',
   'Icons',
   'Enhanced',
@@ -337,7 +348,8 @@ export function helpRows(): readonly HelpRow[] {
           note: help.note,
           block: help.block,
           entry,
-          words: `${entry.label} ${entry.markup} ${entry.keys} ${help.example ?? ''} ${lines.join(' ')} ${group}`.toLowerCase(),
+          words:
+            `${entry.label} ${entry.markup} ${entry.keys} ${help.example ?? ''} ${lines.join(' ')} ${group}`.toLowerCase(),
         });
       } else if (extra) {
         rows.push({
@@ -440,7 +452,9 @@ function rowInLine(line: string, column: number): string | null {
     if (name === 'link') return 'link';
     if (name === 'title') return 'title';
     if ((markupIcons as readonly string[]).includes(name))
-      return /^[A-Za-z]/.test(line.slice(match.index! + match[0].length)) ? 'icon-word' : `icon:${name}`;
+      return /^[A-Za-z]/.test(line.slice(match.index! + match[0].length))
+        ? 'icon-word'
+        : `icon:${name}`;
   }
   for (const match of line.matchAll(/#e(?![a-zA-Z0-9])|#[a-zA-Z0-9]+/g))
     if (within(column, match)) return match[0] === '#e' ? 'enhanced-arrow' : 'decl-var';
@@ -450,7 +464,7 @@ function rowInLine(line: string, column: number): string | null {
   if (/^import /.test(line)) return 'decl-import';
   if (/^export hidden /.test(line)) return 'decl-export-hidden';
   if (/^export /.test(line)) return 'decl-export';
-  if (line.startsWith('• ')) return 'bullet';
+  if (line.startsWith('• ')) return 'list-dot';
   return null;
 }
 
