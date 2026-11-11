@@ -44,6 +44,7 @@ export function EditorPaneHeader({
   markup,
   queue,
   queueBack,
+  draftLoader,
 }: {
   lang: Lang;
   onLanguage(lang: Lang): void;
@@ -67,6 +68,8 @@ export function EditorPaneHeader({
   queue?: React.ReactNode;
   /** Queue mode only: the way back to the queue, for the phone's More sheet. */
   queueBack?: { to: string; label: string };
+  /** "Load draft…" for an empty tooltip with an agent-written draft (editors and maintainers). */
+  draftLoader?: React.ReactNode;
 }) {
   const phone = useMedia(phoneQuery);
   if (phone)
@@ -82,6 +85,7 @@ export function EditorPaneHeader({
           markup,
           queue,
           queueBack,
+          draftLoader,
         }}
       />
     );
@@ -133,6 +137,7 @@ export function EditorPaneHeader({
           </button>
         </>
       )}
+      {draftLoader}
       {reason && (
         // The status bar under the editor says the whole sentence; the badge only names the state
         // (its tooltip has the sentence too), so the same words are not on screen twice.
@@ -225,6 +230,7 @@ function PhoneToolRow({
   markup,
   queue,
   queueBack,
+  draftLoader,
 }: Parameters<typeof EditorPaneHeader>[0]) {
   return (
     <>
@@ -232,7 +238,10 @@ function PhoneToolRow({
       {draft && (
         <span className={styles.dot} role="img" aria-label="Unsaved draft" title="Unsaved draft" />
       )}
+      {draftLoader}
       <PhoneTools
+        // The tools fit the room left of them: they measure again when the draft button comes or goes.
+        key={draftLoader ? 'after-draft' : 'tools'}
         markup={markup}
         draft={draft}
         saving={saving}
