@@ -104,11 +104,12 @@ export const FinderPicker = memo(function FinderPicker({
       align: 'start' as const,
       gap: 2,
     };
+    // At most about 14 rows: a long list (every exotic weapon) scrolls inside.
+    const cap = scaledPx(400);
+    const natural = Math.min(cap, (list.current?.scrollHeight ?? 0) + 2);
     const below = placeAnchored(input);
-    applyPlacement(element, below);
-    const natural = list.current?.scrollHeight ?? 0;
-    if (natural > below.maxHeight)
-      applyPlacement(element, placeAnchored({ ...input, height: natural + 2 }));
+    const placed = natural > below.maxHeight ? placeAnchored({ ...input, height: natural }) : below;
+    applyPlacement(element, { ...placed, maxHeight: Math.min(placed.maxHeight, cap) });
   }, []);
   useLayoutEffect(() => {
     if (!open) return;
@@ -286,7 +287,8 @@ export const FinderPicker = memo(function FinderPicker({
         }}
         onBlur={close}
       >
-        {icons && <FinderIcon icon={selected?.icon} />}
+        {/* The trigger shows an icon only when the value has one (no empty box before "All"). */}
+        {icons && selected?.icon && <FinderIcon icon={selected.icon} />}
         <span className={styles.value}>{selected?.label ?? empty ?? ''}</span>
         <span className={styles.chevron} aria-hidden="true" />
       </button>

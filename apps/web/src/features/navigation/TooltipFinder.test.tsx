@@ -634,6 +634,14 @@ describe('finder sheet form', () => {
     await render(true);
     expect(options()).toHaveLength(3);
   });
+  it('keeps its list open on a new category and highlights the item it opened', async () => {
+    await render(true);
+    await pickOption(picker(host, 'Category')!, 'weapons');
+    expect(field().getAttribute('aria-expanded')).toBe('true');
+    const current = options().find((option) => option.getAttribute('aria-selected') === 'true');
+    expect(current).toBeDefined();
+    expect(field().getAttribute('aria-activedescendant')).toBe(current!.id);
+  });
 });
 
 describe('finder sheet row choice', () => {

@@ -342,7 +342,8 @@
   gap: 0.25rem;
   min-width: 0;
 
-  button {
+  // The ‹ › arrows; the dropdown between them is drawn as a field.
+  > button:not([role='combobox']) {
     @include controls.button;
     flex: none;
     min-width: var(--tap);

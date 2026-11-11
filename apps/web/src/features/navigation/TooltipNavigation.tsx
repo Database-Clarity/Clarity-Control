@@ -686,7 +686,12 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     const layout = listLayout.current;
     if (!layout || pointerHighlight.current || !rows[active]) return;
     const top = active * rowHeight;
-    const next = top < layout.top ? top : Math.max(layout.top, top + rowHeight - layout.height);
+    // A list shorter than one row (a phone at a large scale with the keyboard up) keeps the
+    // row's top, its name, in view.
+    const next =
+      top < layout.top || rowHeight > layout.height
+        ? top
+        : Math.max(layout.top, top + rowHeight - layout.height);
     if (next !== layout.top) {
       layout.element.scrollTop = next;
       layout.top = next;
@@ -770,8 +775,12 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     setAllCategories(false);
     setAllGroups(false);
   };
+  // The open phone finder keeps its list: a new category, group, or Previous/Next shows the new
+  // place in it (the highlight follows below).
+  const keepListRef = useRef(false);
+  keepListRef.current = variant === 'sheet' && sheetOpen;
   useEffect(() => {
-    setOpen(false);
+    if (!keepListRef.current) setOpen(false);
     setQuery('');
     setAllCategories(false);
     setAllGroups(false);
@@ -787,6 +796,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       setAllGroups(false);
     }
   }, [variant, sheetOpen]);
+  const sheetPlace = variant === 'sheet' ? `${hash}:${place.group}` : '';
   useLayoutEffect(() => {
     if (!open) return;
     pointerHighlight.current = false;
@@ -794,9 +804,10 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       (row) => row.hash === hash && (!row.group || row.group === place.group),
     );
     setActive(query.trim() ? 0 : Math.max(0, index));
-    // Only a new query, scope or opening resets the highlight; route changes close the list.
+    // Only a new query, scope or opening resets the highlight; route changes close the list
+    // (the open phone finder keeps it, and its highlight moves to the new item).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, query, allCategories, allGroups]);
+  }, [open, query, allCategories, allGroups, sheetPlace]);
   useLayoutEffect(() => {
     if (!open || pointerHighlight.current) return;
     const element = list.current;
@@ -1233,6 +1244,26 @@ export const TooltipNavigation = memo(function TooltipNavigation({
               field and its list follow, and the list takes the rest of the room. */}
           <div className={styles.sheetBar}>
             {categoryNode}
+            {/* Touch screens have no Shift+wheel: one compact row steps through the category, beside the category; the group row goes under both. */}
+            <div role="group" aria-label="Step within category" className={styles.stepper}>
+              <button
+                type="button"
+                aria-label="Previous tooltip"
+                disabled={position.previous === undefined}
+                onClick={() => step.current(-1)}
+              >
+                ‹
+              </button>
+              {positionNode}
+              <button
+                type="button"
+                aria-label="Next tooltip"
+                disabled={position.next === undefined}
+                onClick={() => step.current(1)}
+              >
+                ›
+              </button>
+            </div>
             {groupNode && (
               <div
                 role="group"
@@ -1258,26 +1289,6 @@ export const TooltipNavigation = memo(function TooltipNavigation({
                 </button>
               </div>
             )}
-            {/* Touch screens have no Shift+wheel: one compact row steps through the category. */}
-            <div role="group" aria-label="Step within category" className={styles.stepper}>
-              <button
-                type="button"
-                aria-label="Previous tooltip"
-                disabled={position.previous === undefined}
-                onClick={() => step.current(-1)}
-              >
-                ‹
-              </button>
-              {positionNode}
-              <button
-                type="button"
-                aria-label="Next tooltip"
-                disabled={position.next === undefined}
-                onClick={() => step.current(1)}
-              >
-                ›
-              </button>
-            </div>
           </div>
           {comboNode}
         </>
