@@ -28,6 +28,7 @@ export class GlobalFindController {
   private failed = false;
   private buttons: HTMLButtonElement[] = [];
   private options = '';
+  private inputKey = '';
   private disposed = false;
 
   constructor(
@@ -123,11 +124,13 @@ export class GlobalFindController {
     };
     const key = JSON.stringify(options);
     if (!force && key === this.options) return;
+    const inputKey = JSON.stringify([query.search, query.caseSensitive, query.wholeWord]);
+    if (inputKey !== this.inputKey) this.open = Boolean(query.search);
+    this.inputKey = inputKey;
     this.options = key;
     this.pending = true;
     this.failed = false;
     this.active = 0;
-    this.open = Boolean(query.search);
     this.client.query(options, (response) => {
       this.response = response;
       this.pending = false;

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { expect, it, vi } from 'vitest';
-import { EditorState } from '@codemirror/state';
+import { Compartment, EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { openSearchPanel, search } from '@codemirror/search';
 import { findWidgetExtension, findWidgetPanel } from '../findWidget';
@@ -14,6 +14,13 @@ import { useDraftStore } from '../../../stores/drafts';
 it('sweeps entry/category/all, pending/committed query, keyboard/button activation, empty restore, and cancel', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   vi.useFakeTimers();
+  const createRange = document.createRange.bind(document);
+  vi.spyOn(document, 'createRange').mockImplementation(() => {
+    const range = createRange();
+    range.getClientRects = () => [] as unknown as DOMRectList;
+    range.getBoundingClientRect = () => new DOMRect();
+    return range;
+  });
   class WorkerMock {
     index = new FindIndex();
     onmessage?: (event: { data: unknown }) => void;
@@ -50,6 +57,14 @@ it('sweeps entry/category/all, pending/committed query, keyboard/button activati
     } as unknown as EditorData,
   });
   const navigate = vi.fn();
+  const globalContext = new Compartment();
+  const host = {
+    lang: 'en' as const,
+    globals: { variables: '', titles: '' },
+    selfHash: () => 1,
+    sources: () => undefined,
+    navigate: () => navigate,
+  };
   const view = new EditorView({
     parent: document.body,
     state: EditorState.create({
@@ -57,13 +72,7 @@ it('sweeps entry/category/all, pending/committed query, keyboard/button activati
       extensions: [
         search({ createPanel: findWidgetPanel }),
         findWidgetExtension,
-        globalFindExtension({
-          lang: 'en',
-          globals: { variables: '', titles: '' },
-          selfHash: () => 1,
-          sources: () => undefined,
-          navigate: () => navigate,
-        }),
+        globalContext.of(globalFindExtension(host)),
       ],
     }),
   });
@@ -150,6 +159,27 @@ it('sweeps entry/category/all, pending/committed query, keyboard/button activati
     expect(document.activeElement).toBe(input);
     await scope('This entry');
     expect(view.dom.querySelector('.cm-search')?.getAttribute('data-scope')).toBe('entry');
+    // Opening an English fallback changes the view language; that context refresh must
+    // preserve the explicit close performed by result activation.
+    await act(async () => {
+      view.dispatch({
+        effects: globalContext.reconfigure(globalFindExtension({ ...host, lang: 'de' })),
+      });
+    });
+    await scope('All');
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>('[role="option"]')!.click();
+    });
+    expect(navigate).toHaveBeenLastCalledWith({ type: 'tooltip', hash: 1, lang: 'en', line: 1 });
+    await act(async () => {
+      view.dispatch({ effects: globalContext.reconfigure(globalFindExtension(host)) });
+      await vi.runAllTimersAsync();
+    });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(view.state.selection.main).toMatchObject({ from: 0, to: 3 });
   } finally {
     await act(async () => {
       view.destroy();
@@ -158,6 +188,7 @@ it('sweeps entry/category/all, pending/committed query, keyboard/button activati
     useDataStore.setState({ data: null });
     useDraftStore.setState({ drafts: {} });
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     vi.useRealTimers();
   }
 });
