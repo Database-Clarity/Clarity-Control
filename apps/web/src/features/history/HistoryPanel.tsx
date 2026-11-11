@@ -255,7 +255,7 @@ function HistoryContent({
       setPage((value) => value + 1);
     }
   }, [visibleCount, commits.length, suspended, loading, hasMore]);
-  const range = commits.slice(0, Math.min(commits.length, visibleCount + windowSize));
+  const range = commits.slice(0, visibleCount);
   const knownRange =
     range.length > 0 && range.every((entry) => relevance[entry.commit] !== undefined);
   const hidden = knownRange ? range.filter((entry) => relevance[entry.commit] === false).length : 0;
@@ -292,8 +292,8 @@ function HistoryContent({
       )}
       {notice && <p role="status">{notice}</p>}
       {hidden > 0 && (
-        <p>
-          {hidden} {hidden === 1 ? 'change' : 'changes'} outside this view hidden (checked range)
+        <p className={styles.hiddenCount} title="Only changes relevant to this view are listed.">
+          {hidden} {hidden === 1 ? 'change' : 'changes'} hidden in this view
         </p>
       )}
       {classifying && <p role="status">Checking revision scope...</p>}
@@ -330,8 +330,8 @@ function HistoryContent({
       {!loading &&
         !classifying &&
         (!commits.length || knownRange) &&
-        !commits.some((entry) => relevance[entry.commit]) &&
-        !error && <p>No changes in this checked range.</p>}
+        !range.some((entry) => relevance[entry.commit]) &&
+        !error && <p>No relevant changes in these revisions.</p>}
       {visibleCount < commits.length && (
         <button type="button" onClick={() => setVisibleCount((count) => count + windowSize)}>
           Show older revisions

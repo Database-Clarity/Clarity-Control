@@ -355,7 +355,7 @@ it('does not fetch bodies while collapsed, and shows only classified scoped revi
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
   await paintRows();
   expect(host.querySelectorAll('ol li > button')).toHaveLength(2);
-  expect(host.textContent).toContain('1 change outside this view hidden');
+  expect(host.textContent).toContain('1 change hidden in this view');
 });
 
 it('shows sized skeletons and cancels active and queued fallback bodies on close', async () => {
@@ -377,7 +377,7 @@ it('shows sized skeletons and cancels active and queued fallback bodies on close
   expect(host.querySelectorAll('[data-history-pending]')).toHaveLength(8);
   expect(host.querySelector('ol')!.getAttribute('aria-busy')).toBe('true');
   expect(host.querySelector('ol li > button')).toBeNull();
-  expect(host.textContent).not.toContain('outside this view hidden');
+  expect(host.textContent).not.toContain('hidden in this view');
   expect(signals).toHaveLength(4);
   await act(async () => toggle());
   await paintRows();
@@ -397,7 +397,7 @@ it('uses batch hints without bodies and bounds fallback work to the visible grou
   await paintRows();
   expect(getVersion).not.toHaveBeenCalled();
   expect(host.querySelectorAll('ol li > button')).toHaveLength(4);
-  expect(host.textContent).toContain('8 changes outside this view hidden');
+  expect(host.textContent).toContain('4 changes hidden in this view');
   expect(host.querySelector('ol')!.getAttribute('aria-busy')).toBe('false');
   expect(host.textContent).not.toContain('30 revisions');
 });

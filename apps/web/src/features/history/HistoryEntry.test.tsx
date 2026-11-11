@@ -244,6 +244,7 @@ it('restores inside the popover after confirming, and never offers it on a read-
   expect(useDraftStore.getState().drafts[10]?.next.text.en?.text).toBe('one two');
   expect(dialog()).toBeNull();
   expect(host.textContent).toContain('loaded as a local draft');
+  expect(document.activeElement).toBe(entries()[1]);
   await act(async () => root.render(<HistoryPanel hash={10} readOnly />));
   await act(async () => entries()[1].click());
   await wait(0);
@@ -381,7 +382,7 @@ it('filters against original parents and resets popovers when the language or ro
     expect.stringContaining('Edit 3'),
     expect.stringContaining('Edit 1'),
   ]);
-  expect(host.textContent).toContain('2 changes outside this view hidden');
+  expect(host.textContent).toContain('2 changes hidden in this view');
   await act(async () => entries()[1].click());
   await wait(0);
   expect(dialog()!.textContent).not.toContain('French');
@@ -408,4 +409,46 @@ it('keeps a portaled popover open for its own pointer events and closes on outsi
     document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })),
   );
   expect(dialog()).toBeNull();
+});
+
+it('bridges Tab into a portaled revision and Shift+Tab back to its trigger', async () => {
+  await act(async () => entries()[0].focus());
+  await wait(0);
+  const compare = dialog()!.querySelector<HTMLButtonElement>('button')!;
+  await act(async () =>
+    entries()[0].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
+    ),
+  );
+  expect(document.activeElement).toBe(compare);
+  await act(async () =>
+    compare.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }),
+    ),
+  );
+  expect(document.activeElement).toBe(entries()[0]);
+  expect(dialog()).not.toBeNull();
+});
+
+it('focuses the restore confirmation and returns Cancel to Restore, keeping Escape usable', async () => {
+  await act(async () => entries()[0].click());
+  await wait(0);
+  const button = (label: string) =>
+    [...dialog()!.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent === label,
+    )!;
+  await act(async () => button('Restore this revision').click());
+  await act(async () =>
+    vi.waitFor(() => expect(document.activeElement).toBe(button('Load as draft'))),
+  );
+  await act(async () => button('Cancel').click());
+  expect(document.activeElement).toBe(button('Restore this revision'));
+  expect(useDraftStore.getState().drafts[10]).toBeUndefined();
+  await act(async () =>
+    document.activeElement!.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    ),
+  );
+  expect(dialog()).toBeNull();
+  expect(document.activeElement).toBe(entries()[0]);
 });

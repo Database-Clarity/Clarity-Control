@@ -32,6 +32,8 @@ const HOVER_DELAY = 120;
 const LEAVE_DELAY = 160;
 const LONG_PRESS = 500;
 const OPENED = 'clarity-history-entry-open';
+const TAB_TARGETS =
+  'a[href], button:not(:disabled), select:not(:disabled), input:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
 
 interface AnchorGeometry {
   rect: DOMRect;
@@ -202,6 +204,12 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
         aria-expanded={open}
         aria-controls={open ? id : undefined}
         title="Show what this revision changed"
+        onKeyDown={(event) => {
+          if (event.key !== 'Tab' || event.shiftKey || !open || !surface.current) return;
+          event.preventDefault();
+          setPinned(true);
+          (surface.current.querySelector<HTMLElement>(TAB_TARGETS) ?? surface.current).focus();
+        }}
         onPointerDown={(event) => {
           // Pointer focus precedes click in the same input task. Opening at both
           // stages renders and lays out the popover twice; keyboard focus still opens it.
@@ -252,6 +260,27 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
             translator={translator}
             pinned={pinned}
             onClose={close}
+            onPin={() => setPinned(true)}
+            onTabEdge={(backward) => {
+              if (backward) {
+                trigger.current?.focus();
+                return;
+              }
+              const items = [...document.querySelectorAll<HTMLElement>(TAB_TARGETS)];
+              const index = items.indexOf(trigger.current!);
+              const next = items
+                .slice(index + 1)
+                .find(
+                  (item) =>
+                    item.tabIndex >= 0 &&
+                    !surface.current?.contains(item) &&
+                    item.getClientRects().length > 0,
+                );
+              if (next) {
+                close(false);
+                next.focus();
+              } else close(true);
+            }}
           />,
           document.body,
         )}
@@ -266,6 +295,8 @@ function RevisionPopover({
   initialGeometry,
   pinned,
   onClose,
+  onPin,
+  onTabEdge,
   entry,
   index,
   commits,
@@ -286,6 +317,8 @@ function RevisionPopover({
   initialGeometry: RefObject<AnchorGeometry | undefined>;
   pinned: boolean;
   onClose(restoreFocus: boolean): void;
+  onPin(): void;
+  onTabEdge(backward: boolean): void;
 }) {
   const [source, setSource] = useState<RevisionDiffSource>();
   const [error, setError] = useState<string>();
@@ -293,6 +326,26 @@ function RevisionPopover({
   const [mode, setMode] = useState<'previous' | 'current'>('previous');
   const [confirm, setConfirm] = useState(false);
   const [restoreError, setRestoreError] = useState<string>();
+  const restoreButton = useRef<HTMLButtonElement>(null);
+  const confirmButton = useRef<HTMLButtonElement>(null);
+  const wasConfirming = useRef(false);
+  useEffect(() => {
+    if (!confirm) {
+      if (wasConfirming.current) restoreButton.current?.focus();
+      wasConfirming.current = false;
+      return;
+    }
+    wasConfirming.current = true;
+    let timer: number | undefined;
+    // Let placement settle before focusing/scrolling the new confirmation row.
+    const frame = window.requestAnimationFrame(() => {
+      timer = window.setTimeout(() => confirmButton.current?.focus(), 0);
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [confirm]);
   useLayoutEffect(() => {
     const element = surface.current;
     if (!element) return;
@@ -399,7 +452,7 @@ function RevisionPopover({
     if (!source?.revision) return;
     try {
       onRestore(source.revision);
-      onClose(false);
+      onClose(true);
     } catch (reason) {
       setRestoreError(errorMessage(reason));
     }
@@ -410,6 +463,22 @@ function RevisionPopover({
       ref={surface}
       id={id}
       role="dialog"
+      tabIndex={-1}
+      onFocusCapture={onPin}
+      onPointerDownCapture={onPin}
+      onKeyDown={(event) => {
+        if (event.key !== 'Tab') return;
+        const items = [...(surface.current?.querySelectorAll<HTMLElement>(TAB_TARGETS) ?? [])];
+        const edge = event.shiftKey ? items[0] : items.at(-1);
+        if (
+          !items.length ||
+          document.activeElement === edge ||
+          document.activeElement === surface.current
+        ) {
+          event.preventDefault();
+          onTabEdge(event.shiftKey);
+        }
+      }}
       aria-label={`Revision ${entry.commit.slice(0, 8)}`}
       data-pinned={pinned || undefined}
       className={`${popover.surface} ${styles.revision}`}
@@ -512,13 +581,13 @@ function RevisionPopover({
             {legacy && <p>Only language text is restored. Other tooltip fields stay unchanged.</p>}
             {translator && (
               <p>
-                Restore replaces only the shown, assigned translation language; other fields stay
-                unchanged.
+                Restore replaces only the shown, assigned translation language. English and tooltip
+                details are shown for comparison.
               </p>
             )}
             {restoreError && <p role="alert">{restoreError}</p>}
             {!confirm ? (
-              <button type="button" onClick={() => setConfirm(true)}>
+              <button ref={restoreButton} type="button" onClick={() => setConfirm(true)}>
                 Restore this revision
               </button>
             ) : (
@@ -528,7 +597,7 @@ function RevisionPopover({
                   or pushing.
                 </p>
                 <span className={styles.confirmRow}>
-                  <button type="button" onClick={restore}>
+                  <button ref={confirmButton} type="button" onClick={restore}>
                     Load as draft
                   </button>
                   <button type="button" onClick={() => setConfirm(false)}>
