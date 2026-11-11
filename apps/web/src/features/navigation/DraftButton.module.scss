@@ -200,16 +200,35 @@
 }
 
 // A phone popover is the page width at most: the name takes its own line (never cut while the
-// row has room), the languages, time, and Discard share the line under it.
+// row has room), the languages, time, and Discard share the line under it. Both lines keep their
+// tap height (Large makes them tall), with the text drawn toward the middle of the two-line row,
+// so it reads as one item.
 @include theme.mobile {
   .list li {
     grid-template-columns: minmax(0, 1fr) auto;
     row-gap: 0;
+    padding-block: 0.25rem;
   }
 
   .drafts .open {
     grid-column: 1 / -1;
+    align-items: flex-end;
     min-height: var(--tap-sm);
     height: var(--tap-sm);
+    padding-bottom: 0.125rem;
+  }
+
+  .meta {
+    align-self: start;
+    padding-top: 0.25rem;
+  }
+
+  // The quiet Discard (a rarely used, secondary link), its text on the meta's line.
+  .drafts .discard {
+    align-self: start;
+    align-items: flex-start;
+    min-height: var(--tap-sm);
+    height: var(--tap-sm);
+    padding-top: 0.25rem;
   }
 }
