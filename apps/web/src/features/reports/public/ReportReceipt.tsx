@@ -126,7 +126,7 @@ export function ReportReceipt() {
     <div className={`${styles.page} ${styles.receipt}`}>
       <h1 className={styles.receiptTitle}>
         Report {id}
-        {sent ? ' sent' : ''}
+        {sent && status !== 'withdrawn' ? ' sent' : ''}
       </h1>
       {(meta.length > 0 || status) && (
         <p className={styles.receiptMeta}>
@@ -167,7 +167,9 @@ export function ReportReceipt() {
       {link && (
         <>
           <label className={styles.label} htmlFor="receipt-link">
-            {sent ? 'Check its status any time at this link:' : 'Receipt link'}
+            {sent && status !== 'withdrawn'
+              ? 'Check its status any time at this link:'
+              : 'Receipt link'}
           </label>
           <textarea
             id="receipt-link"
@@ -177,9 +179,13 @@ export function ReportReceipt() {
             value={link}
             onFocus={(event) => event.currentTarget.select()}
           />
-          <p className={styles.muted}>
-            Keep this link: it is the only way to check or withdraw an anonymous report.
-          </p>
+          {status !== 'withdrawn' && (
+            <p className={styles.muted}>
+              {user
+                ? 'Keep this link to check or withdraw this report; it is also under My reports.'
+                : 'Keep this link: it is the only way to check or withdraw an anonymous report.'}
+            </p>
+          )}
         </>
       )}
       <div className={styles.actions}>

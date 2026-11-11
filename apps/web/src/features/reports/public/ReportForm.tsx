@@ -76,8 +76,10 @@ export interface ReceiptState {
   uploads: string[];
 }
 
+const anonymousWeight =
+  'Anonymous reports count for much less than reports from signed-in community members.';
 const burden =
-  'Anonymous reports count for much less than reports from signed-in community members. The burden of proof is on you: add a screenshot or video link, where you tested, and the patch version.';
+  'The burden of proof is on you: add a screenshot or video link, where you tested, and the patch version.';
 export const privacyLine =
   'Read by Clarity editors only. No email or IP is stored; your text and screenshots are never shown publicly. Signed-in reports show your GitHub name to editors.';
 const coarse = () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
@@ -662,7 +664,7 @@ export function ReportForm() {
         </p>
         <button
           type="button"
-          className={styles.textButton}
+          className={`${styles.textButton} ${styles.flush}`}
           onClick={addWhole}
           disabled={hasWhole || draft.notes.length >= maxNotes}
           title={
@@ -754,7 +756,8 @@ export function ReportForm() {
           {draft.links.map((link, index) => (
             <div key={index} className={styles.fieldRow}>
               <label htmlFor={`${formId}-link-${index}`} className={styles.label}>
-                Video link
+                Video link{' '}
+                <span className={styles.labelNote}>(YouTube, Twitch, Streamable, imgur)</span>
               </label>
               <input
                 id={`${formId}-link-${index}`}
@@ -763,7 +766,7 @@ export function ReportForm() {
                 inputMode="url"
                 value={link}
                 aria-invalid={Boolean(errors[`link-${index}`]) || undefined}
-                placeholder="https://youtu.be/… (YouTube, Twitch clips, Streamable, imgur)"
+                placeholder="https://"
                 onChange={(event) => {
                   clearError(`link-${index}`);
                   setDraft((current) => ({
@@ -782,7 +785,7 @@ export function ReportForm() {
           {draft.links.length < 2 && draft.links[0]?.trim() && (
             <button
               type="button"
-              className={styles.textButton}
+              className={`${styles.textButton} ${styles.flush}`}
               onClick={() => setDraft((current) => ({ ...current, links: [...current.links, ''] }))}
             >
               + Another video link
@@ -846,7 +849,9 @@ export function ReportForm() {
             </>
           )}
         </p>
-        {!user?.role && <p className={styles.burden}>{burden}</p>}
+        {!user?.role && (
+          <p className={styles.burden}>{user ? burden : `${anonymousWeight} ${burden}`}</p>
+        )}
         <p className={`${styles.muted} ${styles.privacyNarrow}`}>{privacyLine}</p>
 
         <div className={styles.footer}>

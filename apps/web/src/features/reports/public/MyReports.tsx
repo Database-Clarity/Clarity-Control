@@ -83,8 +83,8 @@ export function MyReports() {
   return (
     <div className={`${styles.page} ${styles.mine}`}>
       <div className={styles.mineHead}>
-        <h1 className={styles.receiptTitle}>My reports</h1>
-        <Link className={styles.linkButton} to="/report">
+        <h1 className={styles.visuallyHidden}>My reports</h1>
+        <Link className={`${styles.linkButton} ${styles.flush}`} to="/report">
           Report an issue
         </Link>
       </div>
@@ -104,12 +104,12 @@ export function MyReports() {
           {rows.map((row) => (
             <li key={row.id}>
               <Link className={styles.mineRow} to={`/report/r/${row.id}`}>
-                <span className={styles.mineDot} data-on={changed.has(row.id) || undefined}>
-                  {changed.has(row.id) && (
-                    <span className={styles.visuallyHidden}>Changed since your last visit: </span>
-                  )}
-                </span>
                 <span className={styles.mineName}>
+                  {changed.has(row.id) && (
+                    <span className={styles.mineDot}>
+                      <span className={styles.visuallyHidden}>Changed since your last visit: </span>
+                    </span>
+                  )}
                   {names[row.owner_hash] ?? `Tooltip ${row.owner_hash}`}
                 </span>
                 <span className={styles.mineMeta}>
