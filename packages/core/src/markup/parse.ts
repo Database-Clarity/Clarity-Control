@@ -2,6 +2,8 @@ import { markupStrayTags, parseLines } from './lines.js';
 import { prepareMarkup, prepareNativeTitle, markupVariableReferences } from './prepare.js';
 import type { MarkupDiagnostic, MarkupGlobals, MarkupLine, ParsedMarkup } from './types.js';
 
+export type { MarkupGlobals, MarkupLine, MarkupSpan, ParsedMarkup } from './types.js';
+
 export function parseMarkup(
   text: string,
   globals: MarkupGlobals = { variables: '', titles: '' },

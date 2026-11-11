@@ -15,3 +15,40 @@ export {
   type LegacyPreset,
   type LegacyVersions,
 } from './legacy.js';
+
+// Configurable exports: config schema 1, the compiler, and format v1 (README.md, "Format v1").
+export * from './v1/vocabulary.js';
+export type {
+  ExportConfig,
+  ExportFile,
+  FileData,
+  FileFormat,
+  LegacyFile,
+  Migration,
+  StyleFile,
+  SymbolRule,
+} from './v1/config.js';
+export {
+  compile,
+  compileStages,
+  encodeV1,
+  validateV1,
+  type Catalog,
+  type CompileOptions,
+  type CompileStage,
+  type Descriptions,
+  type ExpandedItem,
+  type FormatV1File,
+  type Notice,
+  type Plan,
+} from './v1/compile.js';
+export { defaultData, newStyleFile, styleFormats, styleShapes } from './v1/styles.js';
+export type { OutLine, OutSpan } from './v1/transform.js';
+export {
+  filePath,
+  projectIndex,
+  type FileOutcome,
+  type IndexFile,
+  type ProjectIndex,
+} from './v1/project.js';
+export { decodeV1 } from '../decoder/decode-v1.mjs';
