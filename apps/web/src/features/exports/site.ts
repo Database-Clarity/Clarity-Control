@@ -66,6 +66,8 @@ export const noticeSchema = z.object({
   path: z.string().optional(),
   kind: z.string(),
   message: z.string(),
+  /** The engine's own notice (kind `compile`); `message` holds it cut to 300 characters. */
+  detail: z.record(z.string(), z.unknown()).optional(),
 });
 export type SiteNotice = z.infer<typeof noticeSchema>;
 
@@ -113,11 +115,11 @@ const failureKinds = new Set([
 ]);
 export const isFailure = (notice: SiteNotice) => failureKinds.has(notice.kind);
 
-/** A notice's text for people: compile notices carry their detail as JSON. */
+/** A notice's text for people: compile notices carry the engine's notice as `detail`. */
 export function noticeText(notice: SiteNotice): string {
   if (notice.kind !== 'compile') return notice.message;
   try {
-    const detail = JSON.parse(notice.message) as Record<string, unknown>;
+    const detail = notice.detail ?? (JSON.parse(notice.message) as Record<string, unknown>);
     switch (detail.kind) {
       case 'unchosen-symbol':
         return `Symbols not chosen (dropped, text kept): ${String(detail.symbols)}`;
