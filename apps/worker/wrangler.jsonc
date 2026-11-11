@@ -5,18 +5,18 @@
   "compatibility_date": "2025-11-01",
   "workers_dev": true,
   "account_id": "c5ec2772673dc72f5e58587ef4c80ff8",
-  // PLACEHOLDER IDs: root creates the databases and replaces these before deployment.
+  // D1 databases created by root 2026-11-11 (clarity-reports, clarity-reports-files).
   "d1_databases": [
     {
       "binding": "REPORTS_DB",
       "database_name": "clarity-reports",
-      "database_id": "PLACEHOLDER-REPORTS-DATABASE-ID",
+      "database_id": "cc64d535-2c2b-47d1-b531-500334536610",
       "migrations_dir": "migrations/reports",
     },
     {
       "binding": "REPORTS_FILES_DB",
       "database_name": "clarity-reports-files",
-      "database_id": "PLACEHOLDER-FILES-DATABASE-ID",
+      "database_id": "2c528593-c394-436b-a005-3dead7dff004",
       "migrations_dir": "migrations/files",
     },
   ],
