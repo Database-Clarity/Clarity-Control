@@ -3,7 +3,7 @@ import { seedPushGroups, pushTime } from '../../apps/worker/test/push-fixture.js
 import { execFileSync } from 'node:child_process';
 import { generateKeyPairSync, createHash, sign } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { RemoteRepository } from './remote.js';
 import { tmpdir } from 'node:os';
@@ -343,6 +343,66 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     await f.request(B);
     await f.pub.run();
     f.assertDone(B);
+  });
+
+  it('pinned runtime refuses native pairs and leaves later requests runnable', async () => {
+    const f = await setup();
+    const paired = { ...f.tooltip, text: { en: { ...f.tooltip.text.en!, text: '{{a}{b}}' } } };
+    f.change(D, { 'tooltips/123.json': paired });
+    await f.request(A, [123], { 123: await publishableHash(paired) });
+    const plain = { ...f.tooltip, hash: 124 };
+    f.options.facts[124] = { name: 'Plain', type: 'perk' };
+    f.change(D, { 'tooltips/124.json': plain });
+    await f.request(B, [124], { 124: await publishableHash(plain) });
+    const root = mkdtempSync(join(tmpdir(), 'native-pinned-runtime-'));
+    roots.push(root);
+    const config = join(root, 'config.json'),
+      out = join(root, 'artifacts'),
+      replay = join(root, 'replay.git');
+    writeFileSync(config, JSON.stringify(f.options));
+    execFileSync(
+      process.execPath,
+      [
+        resolve('scripts/publisher/template/.publisher/publisher.mjs'),
+        '--dry-run',
+        f.upstream,
+        config,
+        out,
+      ],
+      { stdio: 'pipe' },
+    );
+    const result = JSON.parse(readFileSync(join(out, 'result.json'), 'utf8'));
+    expect(result.error).toBeNull();
+    expect(result.liveHead).not.toBe(f.git.head(L));
+    execFileSync('git', ['clone', '--mirror', join(out, 'would-be-commits.bundle'), replay], {
+      stdio: 'pipe',
+    });
+    const log = JSON.parse(
+      execFileSync('git', ['--git-dir', replay, 'show', `${result.dataHead}:${paths(A).log}`], {
+        encoding: 'utf8',
+      }),
+    );
+    expect(log.result).toMatchObject({ status: 'rejected', error: baseEnhancedPublishMessage });
+    const nextLog = JSON.parse(
+      execFileSync('git', ['--git-dir', replay, 'show', `${result.dataHead}:${paths(B).log}`], {
+        encoding: 'utf8',
+      }),
+    );
+    expect(nextLog.result.status).toMatch(/done|unchanged/);
+    const live = JSON.parse(
+      execFileSync(
+        'git',
+        ['--git-dir', replay, 'show', `${result.liveHead}:liveDescriptions.json`],
+        { encoding: 'utf8' },
+      ),
+    );
+    expect(live.perks[123]).toBeUndefined();
+    expect(live.perks[124].editor.en.main).toBe('reviewed');
+    expect(() =>
+      execFileSync('git', ['--git-dir', replay, 'show', `${result.dataHead}:${paths(A).request}`], {
+        stdio: 'pipe',
+      }),
+    ).toThrow();
   });
 
   it('malformed request JSON cannot block receipt recovery or later valid requests', async () => {

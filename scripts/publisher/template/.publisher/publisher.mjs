@@ -20073,6 +20073,7 @@ var compendiumLinkSchema = external_exports.object({
   snapshot: compendiumCellSchema,
   snapshotAt: external_exports.string().datetime({ offset: true }),
   cells: compendiumCellOffsetsSchema.optional(),
+  sourceAnchor: compendiumPositionSchema.optional(),
   parts: external_exports.array(external_exports.string()).optional(),
   setBonusPieces: external_exports.union([external_exports.literal(2), external_exports.literal(4)]).optional()
 }).strict();
@@ -20168,6 +20169,9 @@ function incomingAliases(hash2, aliases) {
   return index.get(hash2) ?? [];
 }
 
+// packages/core/src/markup/baseEnhanced.ts
+var baseEnhancedPublishMessage = "Base/enhanced markup needs the new converter; it can be pushed after cut-over";
+
 // packages/core/src/exportLegacy.ts
 function exportFacts(facts) {
   if (!facts) return {};
@@ -20197,6 +20201,9 @@ function exportLegacy(tooltips, now, catalog, aliases = {}) {
   const canonical = {};
   for (const input2 of tooltips) {
     const tooltip = tooltipSchema.parse(input2);
+    if (Object.values(tooltip.text).some((translation) => translation?.text.includes("{{"))) {
+      throw new Error(baseEnhancedPublishMessage);
+    }
     if (resolveAlias(tooltip.hash, aliases) !== tooltip.hash) {
       throw new Error(`Alias ${tooltip.hash} cannot have its own tooltip`);
     }
@@ -20340,6 +20347,7 @@ var markupIcons = [
   "stasis",
   "void",
   "strand",
+  "prismatic",
   "heavy",
   "primary",
   "special",
@@ -20352,6 +20360,9 @@ var markupIcons = [
 ];
 var markupEmpty = ["background", "breakSpaces", "bold"];
 var markupLineClasses = [...markupColors, ...markupEmpty];
+var markupRetiredColors = ["blue", "green", "purple"];
+var markupRetiredLineStyles = ["center", "breakSpaces", "background"];
+var markupRetired = [...markupRetiredColors, ...markupRetiredLineStyles];
 
 // packages/core/src/markup/snippets.ts
 var wrap = (tag, about) => ({
@@ -20366,6 +20377,17 @@ var wrap = (tag, about) => ({
 });
 var markupSnippets = [
   {
+    id: "base-enhanced-pair",
+    label: "Base and enhanced text",
+    group: "Enhanced",
+    template: "{{{{1:base}}}{{{2:enhanced}}}}",
+    keywords: "base enhanced pair inline variant alternate",
+    usage: /\{\{/,
+    fromSelection: true,
+    about: "Base, then enhanced. No nesting.",
+    help: { block: "base-enhanced-pair" }
+  },
+  {
     id: "pair",
     label: "PvE and PvP values",
     group: "Values",
@@ -20373,7 +20395,8 @@ var markupSnippets = [
     keywords: "pve pvp pair both numbers values",
     usage: /<pve [^<>]*\/>\s*<pvp /,
     fromSelection: true,
-    about: "A value for PvE and the bracketed PvP value beside it."
+    about: "A value for PvE and the bracketed PvP value beside it.",
+    help: { example: "<pve 1 /> <pvp [2] />" }
   },
   {
     id: "pve",
@@ -20383,7 +20406,8 @@ var markupSnippets = [
     keywords: "pve value number",
     usage: /<pve /,
     wraps: true,
-    about: "A PvE-only value."
+    about: "A PvE-only value.",
+    help: { example: "<pve PvE: 10%|20% />" }
   },
   {
     id: "pvp",
@@ -20393,7 +20417,8 @@ var markupSnippets = [
     keywords: "pvp value number",
     usage: /<pvp /,
     wraps: true,
-    about: "A PvP-only value, shown in brackets."
+    about: "A PvP-only value, shown in brackets.",
+    help: { example: "<pvp PvP: 2%|4% />" }
   },
   {
     id: "pvp-override",
@@ -20403,16 +20428,8 @@ var markupSnippets = [
     keywords: "pvp override after value unit seconds",
     usage: /[\w%] <pvp \[/,
     fromSelection: true,
-    about: "A plain value followed by the PvP number; the unit stays outside the tag."
-  },
-  {
-    id: "stack-list",
-    label: "Stack list a|b|c",
-    group: "Stacks",
-    template: "{{1:a}}|{{2:b}}|{{3:c}} at 1|2|3 Stacks",
-    keywords: "stacks pipe list scale levels",
-    usage: /\d\|[^\n]*Stacks/,
-    about: "One value per Stack, separated by pipes."
+    about: "A plain value followed by the PvP number; the unit stays outside the tag.",
+    help: { example: "1 <pvp [2] /> stacks" }
   },
   {
     id: "enhanced-block",
@@ -20422,7 +20439,8 @@ var markupSnippets = [
     keywords: "enhanced block arrow section var",
     usage: /^enhanced \(/m,
     block: true,
-    about: "The enhanced-only section. The #e line already carries the enhanced arrow."
+    about: "The enhanced-only section. The #e line already carries the enhanced arrow.",
+    help: { block: "enhanced" }
   },
   {
     id: "enhanced-formula",
@@ -20431,16 +20449,18 @@ var markupSnippets = [
     template: "#e${{{1:base}}+#d}",
     keywords: "enhanced formula e d base add bonus",
     usage: /#e\$\{/,
-    about: "The base value with the enhanced bonus #d added in the enhanced version."
+    about: "The base value with the enhanced bonus #d added in the enhanced version.",
+    help: { block: "enhanced" }
   },
   {
     id: "icon-word",
     label: "Element icon and word",
     group: "Icons",
     template: "<{{1:solar}}/>{{2:Solar}}",
-    keywords: "element icon word arc solar void stasis strand kinetic",
-    usage: /<(?:kinetic|arc|solar|void|stasis|strand)\/>[A-Za-z]/,
-    about: "An element icon followed by its name."
+    keywords: "element icon word arc solar void stasis strand prismatic kinetic",
+    usage: /<(?:kinetic|arc|solar|void|stasis|strand|prismatic)\/>[A-Za-z]/,
+    about: "An element icon followed by its name.",
+    help: { example: "Applies <arc/>Jolt." }
   },
   {
     id: "title-ref",
@@ -20464,9 +20484,6 @@ var markupSnippets = [
   },
   wrap("yellow", "Yellow text."),
   wrap("bold", "Bold text."),
-  wrap("blue", "Blue text."),
-  wrap("green", "Green text."),
-  wrap("purple", "Purple text."),
   {
     id: "decl-var",
     label: "var name = value",
@@ -20475,7 +20492,8 @@ var markupSnippets = [
     keywords: "var variable declare define",
     usage: /^var /m,
     block: true,
-    about: "A variable, used elsewhere as #name."
+    about: "A variable, used elsewhere as #name.",
+    help: { example: "var Zoom = 1\nZoom +#Zoom" }
   },
   {
     id: "decl-title",
@@ -20485,7 +20503,8 @@ var markupSnippets = [
     keywords: "title block definition global",
     usage: /^title [A-Za-z0-9 ]+ \(/m,
     block: true,
-    about: "A title definition other text can point at."
+    about: "A title definition other text can point at.",
+    help: { block: "title" }
   },
   {
     id: "decl-export",
@@ -20495,7 +20514,8 @@ var markupSnippets = [
     keywords: "export share",
     usage: /^export /m,
     block: true,
-    about: "A named text other tooltips can import."
+    about: "A named text other tooltips can import.",
+    help: { example: "export name ( \u2026 )", note: "Drawn here too." }
   },
   {
     id: "decl-export-hidden",
@@ -20505,7 +20525,8 @@ var markupSnippets = [
     keywords: "export hidden share",
     usage: /^export hidden /m,
     block: true,
-    about: "An export that does not show in this tooltip."
+    about: "An export that does not show in this tooltip.",
+    help: { example: "export hidden name ( \u2026 )", note: "Not drawn here." }
   },
   {
     id: "decl-import",
@@ -20515,27 +20536,8 @@ var markupSnippets = [
     keywords: "import use",
     usage: /^import /m,
     block: true,
-    about: "Brings in text another tooltip or the globals export."
-  },
-  {
-    id: "decl-catalyst",
-    label: "catalyst ( \u2026 )",
-    group: "Blocks",
-    template: "catalyst (\n{{1:text}}\n)",
-    keywords: "catalyst exotic",
-    usage: /^catalyst \(/m,
-    block: true,
-    about: "Text shown only on the exotic catalyst version."
-  },
-  {
-    id: "decl-exotic-perk",
-    label: "exotic perk ( \u2026 )",
-    group: "Blocks",
-    template: "exotic perk (\n{{1:text}}\n)",
-    keywords: "exotic perk",
-    usage: /^exotic perk \(/m,
-    block: true,
-    about: "Text shown only on the exotic perk version."
+    about: "Brings in text another tooltip or the globals export.",
+    help: { example: "import main from 554409585", note: "Draws its text." }
   }
 ];
 var markupTags = [
@@ -20555,13 +20557,13 @@ var markupTags = [
     usage: /<pvp /,
     about: "A PvP-only value, shown in brackets."
   },
-  ...["yellow", "blue", "green", "purple", "center", "background"].map((name) => ({
+  ...["yellow"].map((name) => ({
     id: `tag:${name}`,
     label: `<${name} />`,
     template: `<${name} {{1:text}} />`,
     keywords: name,
     usage: new RegExp(`<${name} `),
-    about: name === "center" ? "Centred text." : `${name[0].toUpperCase()}${name.slice(1)} text.`
+    about: `${name[0].toUpperCase()}${name.slice(1)} text.`
   })),
   {
     id: "tag:bold",
@@ -20595,6 +20597,7 @@ var iconAbout = {
   stasis: "Stasis damage icon.",
   void: "Void damage icon.",
   strand: "Strand damage icon.",
+  prismatic: "Prismatic subclass icon.",
   heavy: "Heavy ammo icon.",
   primary: "Primary ammo icon.",
   special: "Special ammo icon.",
@@ -20611,6 +20614,7 @@ var styleAbout = {
   breakSpaces: "Keeps the spaces at the end of the line.",
   bold: "Makes the whole line bold."
 };
+var retiredLineStyles = markupRetiredLineStyles;
 var markupSymbols = [
   ...markupIcons.map((name) => ({
     id: `icon:${name}`,
@@ -20619,7 +20623,7 @@ var markupSymbols = [
     usage: new RegExp(`<${name}/>`),
     about: iconAbout[name] ?? "Icon."
   })),
-  ...["center", ...markupEmpty].map((name) => ({
+  ...markupEmpty.filter((name) => !retiredLineStyles.includes(name)).map((name) => ({
     id: `style:${name}`,
     name,
     keywords: `${name} line style`,
@@ -20682,6 +20686,13 @@ var glyphPolicy = {
 var escape = (text) => text.replace(/[\\\][\-^]/g, "\\$&");
 var allowed = glyphPolicy.ranges.map(([a, b]) => `${escape(String.fromCodePoint(a))}-${escape(String.fromCodePoint(b))}`).join("") + escape(glyphPolicy.characters);
 var unverified = new RegExp(`[^${allowed}]`, "gu");
+
+// packages/core/src/validation/retired.ts
+var retiredColours = markupRetiredColors;
+var retiredWrappers = [...retiredColours, "center", "background", "breakSpaces"];
+var retiredMarkers = [...retiredColours, ...markupRetiredLineStyles];
+var marker = new RegExp(`^<(${retiredMarkers.join("|")})\\s*/>$`);
+var wrapper = new RegExp(`^<(${retiredWrappers.join("|")})\\s+([\\s\\S]*?)\\s*/>$`);
 
 // packages/core/src/compendium/config.ts
 var glossary = {
@@ -22259,6 +22270,18 @@ var Publisher = class {
           void 0,
           void 0,
           { status: "rejected", error: "Missing generator facts" },
+          blob
+        );
+        return;
+      }
+      if (tooltips.some(
+        (tooltip) => Object.values(tooltip.text).some((translation) => translation?.text.includes("{{"))
+      )) {
+        await this.record(
+          opId,
+          void 0,
+          void 0,
+          { status: "rejected", error: baseEnhancedPublishMessage },
           blob
         );
         return;
