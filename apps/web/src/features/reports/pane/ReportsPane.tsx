@@ -442,7 +442,13 @@ function ReportsBody({
                 : `Show ${resolved.length} resolved`}
           </button>
         )}
-        <div className={styles.bar} role="group" aria-label="Report actions">
+        <div
+          className={styles.bar}
+          role="group"
+          aria-label="Report actions"
+          // The live region stays mounted for announcements; with nothing in it the bar has no chrome.
+          data-empty={(!selected && !undo && !message) || undefined}
+        >
           <p className={styles.status} role="status" aria-live="polite">
             {undo ? (
               <>
@@ -474,6 +480,11 @@ function ReportsBody({
               onAction={(action) => void act(selected, action)}
               onDelete={() => setConfirmDelete(selected)}
             />
+          )}
+          {selected && (
+            <p className={styles.keys} aria-hidden="true">
+              ↑↓ select · T triage · U undo · Alt+R opens this tab
+            </p>
           )}
         </div>
         {confirmDelete && (
@@ -919,7 +930,11 @@ function ActionBar({
             className={styles.action}
             flush
             width={208}
-            trigger={<>Reject ▾</>}
+            trigger={
+              <>
+                Reject <span className={styles.caret}>▾</span>
+              </>
+            }
           >
             {(close) => (
               <ul className={styles.menu}>

@@ -115,7 +115,7 @@
     background: var(--hover);
   }
   &[aria-selected='true'] {
-    background: var(--sel);
+    background: color-mix(in srgb, var(--accent-ink) 10%, transparent);
     border-color: var(--accent-ink);
   }
   &[data-first-resolved] {
@@ -307,6 +307,26 @@
   padding: 0.25rem 0.5rem;
   background: var(--chrome);
   border-top: 1px solid var(--hair);
+  &[data-empty] {
+    padding: 0;
+    background: none;
+    border: 0;
+  }
+}
+.keys {
+  margin: 0.25rem 0 0;
+  font-size: 0.6875rem;
+  color: var(--text3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  @include theme.mobile-or-coarse {
+    display: none;
+  }
+}
+.caret {
+  font-size: 0.75em;
+  line-height: 1;
 }
 .status {
   margin: 0;
@@ -334,6 +354,9 @@
 }
 .action {
   @include controls.button;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   padding: 0 0.5rem;
   white-space: nowrap;
 }
@@ -377,20 +400,16 @@
   overflow: hidden;
 }
 .badge {
+  // A raised footnote number just before the quote, in the word gap (the mock): no disc, so it
+  // never covers a glyph.
   position: fixed;
-  transform: translate(1px, -0.375rem);
-  min-width: 0.75rem;
-  height: 0.75rem;
-  padding: 0 0.125rem;
+  transform: translate(calc(-100% - 1px), -0.3125rem);
   font-size: 0.625rem;
   font-weight: 700;
-  line-height: 0.75rem;
-  text-align: center;
-  color: var(--page);
-  background: var(--warn);
-  border-radius: 0.375rem;
+  line-height: 1;
+  color: var(--warn);
   &[data-selected] {
-    outline: 1px solid var(--text);
+    text-decoration: underline;
   }
 }
 .fallbackMark {
