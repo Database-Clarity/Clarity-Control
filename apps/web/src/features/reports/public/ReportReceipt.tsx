@@ -214,7 +214,7 @@ export function ReportReceipt() {
           </button>
         )}
       </div>
-      <p className={styles.muted}>
+      <p className={styles.muted} hidden={!user && status === 'withdrawn'}>
         {user ? (
           <>
             Find every report you sent under <Link to="/report/mine">My reports</Link>.
