@@ -85,9 +85,17 @@ export function HighlightLayer() {
   useEffect(() => {
     const native = nativeHighlights();
     let frame = 0;
+    let last = '[]';
     const update = () => {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => setPlaced(place(allReportMarks(), native)));
+      frame = requestAnimationFrame(() => {
+        // Scrolling elsewhere (the editor, while typing) moves no badge: no render then.
+        const next = place(allReportMarks(), native);
+        const signature = JSON.stringify(next);
+        if (signature === last) return;
+        last = signature;
+        setPlaced(next);
+      });
     };
     const unsubscribe = subscribeReportMarks(update);
     window.addEventListener('scroll', update, { capture: true, passive: true });

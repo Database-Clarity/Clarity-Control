@@ -1,6 +1,7 @@
 import { displayRevision, displayText, type Lang, type MarkupGlobals } from '@clarity/core';
 import {
   createContext,
+  memo,
   useCallback,
   useContext,
   useEffect,
@@ -101,6 +102,9 @@ export interface ReportsPaneProps {
  */
 export function ReportsPane(props: ReportsPaneProps) {
   const { hash, lang, suspended } = props;
+  // Typing changes the text on every key; the notes re-resolve once typing pauses, so a key
+  // re-renders this shell only (the body and the badge layer are memoized).
+  const text = useSettledText(props.text);
   const entry = useTooltipReports((state) => state.entries[reportsKey(hash, lang)]);
   const load = useTooltipReports((state) => state.load);
   const count = useReportsIndex((state) => openCount(state.open, hash, lang));
@@ -130,11 +134,24 @@ export function ReportsPane(props: ReportsPaneProps) {
         </RightPaneHeader>
       }
     >
-      <ReportsBody key={`${hash}:${lang}`} {...props} />
-      <HighlightLayer />
+      <ReportsBodyMemo key={`${hash}:${lang}`} {...props} text={text} />
+      <HighlightLayerMemo />
     </RightPane>
   );
 }
+
+/** The text, held while it keeps changing: the latest value once it has been still for 400 ms. */
+function useSettledText(text: string) {
+  const [settled, setSettled] = useState(text);
+  useEffect(() => {
+    if (text === settled) return;
+    const timer = setTimeout(() => setSettled(text), 400);
+    return () => clearTimeout(timer);
+  }, [text, settled]);
+  return settled;
+}
+
+const HighlightLayerMemo = memo(HighlightLayer);
 
 function ReportsBody({
   hash,
@@ -984,3 +1001,5 @@ function ActionBar({
     </>
   );
 }
+
+const ReportsBodyMemo = memo(ReportsBody);
