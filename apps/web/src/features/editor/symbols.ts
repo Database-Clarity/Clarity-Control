@@ -72,13 +72,20 @@ function* lineTokens(text: string, offset: number) {
   }
 }
 
-/** Finds every icon tag in a text, including one written inside another tag. */
+/** The symbol name of the enhanced arrow, written `#e` (the global variable e). */
+export const enhancedArrowSymbol = 'enhanced-arrow';
+
+/**
+ * Finds every icon tag in a text, including one written inside another tag, and every enhanced
+ * arrow (`#e`, also the one in front of `#e${base+#d}`), which is drawn as a symbol like the icons.
+ */
 export function findSymbols(text: string, offset = 0): SymbolRange[] {
   const found: SymbolRange[] = [];
-  for (const match of text.matchAll(/<(\w+)\/>/g)) {
-    if (!icons.has(match[1])) continue;
+  for (const match of text.matchAll(/<(\w+)\/>|#e(?![A-Za-z0-9])/g)) {
+    const name = match[1] ?? enhancedArrowSymbol;
+    if (match[1] !== undefined && !icons.has(name)) continue;
     const from = offset + (match.index ?? 0);
-    found.push({ from, to: from + match[0].length, kind: 'icon', name: match[1] });
+    found.push({ from, to: from + match[0].length, kind: 'icon', name });
   }
   return found;
 }
@@ -113,8 +120,11 @@ class SymbolWidget extends WidgetType {
     element.className = 'cm-symbol cm-symbol-icon';
     element.setAttribute('aria-hidden', 'true');
     element.dataset.symbol = this.name;
-    // The icon classes are the preview's own, so the light theme's outlined copies come along.
-    element.classList.add(previewStyles[this.name] ?? '');
+    // The icon classes are the preview's own, so the light theme's outlined copies come along. The
+    // enhanced arrow is the preview's arrow drawing in the same 12px box (ClarityEditor.module.scss).
+    element.classList.add(
+      this.name === enhancedArrowSymbol ? 'cm-symbol-arrow' : (previewStyles[this.name] ?? ''),
+    );
     return element;
   }
   ignoreEvent() {
@@ -301,6 +311,20 @@ const symbolDecorations = StateField.define<DecorationSet>({
     ),
   ],
 });
+
+/**
+ * Whether a drawn symbol (an icon or the `#e` arrow) covers the position. The symbol's own popover
+ * is its hover, so the reference hover stays away from a drawn `#e` (raw view keeps it).
+ */
+export function drawnSymbolAt(state: EditorState, pos: number): boolean {
+  const decorations = state.field(symbolDecorations, false);
+  if (!decorations) return false;
+  let found = false;
+  decorations.between(pos, pos, (from, to, value) => {
+    if (value.spec.widget && from <= pos && pos <= to) found = true;
+  });
+  return found;
+}
 
 function popoverFor(state: EditorState): Popover | null {
   if (state.field(rawMode) || state.field(reveal) !== 'popover') return null;
