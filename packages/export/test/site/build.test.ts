@@ -595,16 +595,19 @@ describe('build-site per-file outcomes', () => {
     expectOk(harness.siteRun());
     harness.commit(
       'converter',
-      harness.wrapEngine({ slowMs: Object.fromEntries(files.map((file) => [file.id, 1500])) }),
+      harness.wrapEngine({ slowMs: Object.fromEntries(files.map((file) => [file.id, 6000])) }),
     );
+    // The carry point counts from the start of the run, setup included: with 6 s builds and a
+    // 10 s carry point, the first wave always starts (setup under 10 s) and the third never does.
+    const carry = ['--carry-after', '10000'];
     expectOk(harness.legacyRun());
-    const first = harness.siteRun({ extra: ['--carry-after', '2000'] });
+    const first = harness.siteRun({ extra: carry });
     expectOk(first);
     expect(first.result).toMatchObject({ budgetHit: true });
     const builtFirst = builtPaths(harness.servedJson('_build/manifest.json'));
     expect(builtFirst.length).toBeGreaterThan(0);
     expect(builtFirst.length).toBeLessThan(6);
-    expectOk(harness.siteRun({ extra: ['--carry-after', '2000'] }));
+    expectOk(harness.siteRun({ extra: carry }));
     const builtSecond = builtPaths(harness.servedJson('_build/manifest.json'));
     expect(builtSecond.length).toBeGreaterThan(0);
     // The files the first run skipped go first (no starvation); only then any it rebuilt.
@@ -613,7 +616,7 @@ describe('build-site per-file outcomes', () => {
     expect(builtSecond.filter((path) => skipped.includes(path))).toHaveLength(
       Math.min(skipped.length, builtSecond.length),
     );
-  }, 180_000);
+  }, 300_000);
 
   it('the project bound covers carried projects; published projects keep their slots', async () => {
     harness = new Harness();
@@ -679,9 +682,11 @@ describe('build-site per-file outcomes', () => {
     expectOk(harness.legacyRun());
     expectOk(harness.siteRun());
     // f0 and f1 hang every run; they hold both pool slots past the carry point in the first run.
+    // The carry point counts from the start of the run, setup included: 10 s leaves room for a
+    // slow setup, and the 20 s timeout keeps both slots busy past it.
     harness.commit('converter', harness.wrapEngine({ hang: ['f0', 'f1'] }));
     expectOk(harness.legacyRun());
-    const limits = ['--file-timeout', '3000', '--carry-after', '2000'];
+    const limits = ['--file-timeout', '20000', '--carry-after', '10000'];
     const paths = files.map((file, index) => `${index < 3 ? 'alpha' : 'beta'}/v1/${file.id}.json`);
     const attempted = () => {
       const manifest = harness.servedJson<{ builtAt: string; attempts: Record<string, string> }>(
@@ -696,7 +701,7 @@ describe('build-site per-file outcomes', () => {
     // The next run starts with the files the first one skipped, not the failures again.
     expectOk(harness.siteRun({ extra: limits }));
     expect(attempted()).toEqual(expect.arrayContaining(paths.slice(2, 4)));
-  }, 180_000);
+  }, 300_000);
 
   it('a corrupt or missing manifest on a project with deployments deploys nothing; an invalid config keeps its URLs', async () => {
     harness = new Harness();
