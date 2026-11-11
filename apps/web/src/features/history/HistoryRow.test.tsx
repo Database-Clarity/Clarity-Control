@@ -271,10 +271,14 @@ it('refreshes the first page when saving advances bundle head after paging', asy
   );
   await act(async () => root.render(<HistoryPanel hash={10} />));
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
-  const more = [...host.querySelectorAll('button')].find(
-    (b) => b.textContent === 'Load more commits',
-  )!;
-  await act(async () => more.click());
+  // Advancing the visible range requests the next API page near its boundary.
+  for (let index = 0; index < 3; index++) {
+    await act(async () =>
+      [...host.querySelectorAll('button')]
+        .find((button) => button.textContent === 'Show older revisions')!
+        .click(),
+    );
+  }
   advanced = true;
   await act(async () => {
     const data = useDataStore.getState().data!;

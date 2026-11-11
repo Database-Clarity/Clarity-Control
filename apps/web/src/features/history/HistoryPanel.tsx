@@ -329,7 +329,7 @@ function HistoryContent({
           Show older revisions
         </button>
       )}
-      {hasMore && !error && (
+      {visibleCount >= commits.length && hasMore && !error && (
         <button type="button" disabled={loading} onClick={() => setPage((value) => value + 1)}>
           Load more commits
         </button>
