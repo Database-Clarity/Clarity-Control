@@ -163,3 +163,26 @@ const items = decodeV1(await (await fetch(url)).json());
 
 Apps can poll `/<project>/index.json` (`projectIndex`), about 1 KB, which lists each file's
 sha256, size, and last update, and download a file only when its sha256 changes.
+
+## Building the site and the old URLs
+
+Two Node scripts, bundled into `dist/` and installed as `.exports/` on the `converter` branch
+(`INSTALL.md`), run in the workflows in `workflows/` (spec section 3):
+
+- **`legacy-job.mjs run`** builds the seven old-URL files from the current `converter` head, keeps
+  a failed or frozen file's old bytes from `live`, bumps `versions.json`, pushes `live` (only when
+  the input is newer than the last deploy and `live` did not move), and writes the publish pin to
+  `export-pins` in two phases (`pending/<pinId>.json`, then `pins/<liveCommit>.json` and
+  `pins/latest.json`). It promotes a landed pending pin at its start. `legacy-job.mjs vocab`
+  captures the vocabulary baseline (`exports/legacy-vocab.json`) that freezes a file on a breaking
+  change.
+- **`build-site.mjs locate`** finds the served Pages deployment (or zero deployments: bootstrap);
+  **`build-site.mjs build`** builds every project from the effective pin into a folder: each file
+  in a killable child process (20 s, two at a time, 10 min budget, nothing new after 8 min, least
+  recently built first), legacy-preset files copied from `live` at the pin, failed or skipped files
+  carried from the served deployment (sha256-checked), plus `_headers`, `<project>/index.json`,
+  `changelog.json`, and `_build/` (manifest, status, notices, and the preview snapshot). The
+  workflow then deploys the folder in one Pages deployment.
+
+`test/site/` runs every case through these scripts against local bare repositories and a
+simulated Pages project (no network).

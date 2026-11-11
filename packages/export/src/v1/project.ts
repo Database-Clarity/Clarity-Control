@@ -22,11 +22,14 @@ export type IndexFile = {
   until?: string;
 };
 
+/** A notice about one file: the compiler's own (`Notice`) or build-site's (carried, frozen, ...). */
+export type FileNotice = (Notice | { kind: string; message: string }) & { file: string };
+
 export type ProjectIndex = {
   project: string;
   name: string;
   files: IndexFile[];
-  notices: (Notice & { file: string })[];
+  notices: FileNotice[];
 };
 
 /**
@@ -37,7 +40,7 @@ export type ProjectIndex = {
 export function projectIndex(
   config: ExportConfig,
   built: Readonly<Record<string, Omit<IndexFile, 'id' | 'formatVersion' | 'path' | 'until'>>>,
-  notices: readonly (Notice & { file: string })[] = [],
+  notices: readonly FileNotice[] = [],
 ): ProjectIndex {
   const files: IndexFile[] = [];
   for (const file of config.files) {
