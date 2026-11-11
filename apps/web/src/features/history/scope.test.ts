@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Tooltip } from '@clarity/core';
-import { classifyRevision, englishScope, isRelevant, projectHistory, viewScope } from './scope';
+import {
+  classifyRevision,
+  changesFromTrailer,
+  englishScope,
+  isRelevant,
+  projectHistory,
+  viewScope,
+} from './scope';
 import { revertDraft, restoreLegacyText } from './revert';
 
 const stamp = { updatedAt: '2026-10-01T00:00:00Z', updatedBy: 'a' };
@@ -74,4 +81,28 @@ describe('history view scope', () => {
     expect(result.text.de).toEqual(current.text.de);
     expect(result.associated).toEqual(current.associated);
   });
+});
+
+it('reads only this tooltip from the last save trailer, and rejects unknown hints', () => {
+  expect(
+    changesFromTrailer(
+      'Batch\n\nClarity-Changed: 123=fr\n\nClarity-Changed: 123=en,associations;124=de',
+      123,
+    ),
+  ).toEqual({ languages: ['en'], fields: ['associated'] });
+  expect(changesFromTrailer('Clarity-Changed: 123=en;124=de', 124)).toEqual({
+    languages: ['de'],
+    fields: [],
+  });
+  expect(changesFromTrailer('Clarity-Changed: 123=none', 123)).toEqual({
+    languages: [],
+    fields: [],
+  });
+  for (const message of [
+    'Old revision',
+    'Clarity-Changed: 123=en,unknown',
+    'Clarity-Changed: 123=en;123=de',
+    'Clarity-Changed: 456=fr',
+  ])
+    expect(changesFromTrailer(message, 123)).toBeUndefined();
 });

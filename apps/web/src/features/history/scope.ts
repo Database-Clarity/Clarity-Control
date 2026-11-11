@@ -89,3 +89,25 @@ export function classifyInWorker(
     }
   });
 }
+
+/** The final trailer is authoritative for this display hint, including batch saves.
+ * Unknown/malformed tokens fall back to body classification. Never used for writes.
+ */
+export function changesFromTrailer(message: string, hash: number): RevisionChanges | undefined {
+  const line = message?.trimEnd().split(/\r?\n/).at(-1);
+  if (!line?.startsWith('Clarity-Changed: ')) return;
+  const entries = line.slice('Clarity-Changed: '.length).split(';');
+  const found = entries.filter((entry) => entry.startsWith(`${hash}=`));
+  if (found.length !== 1) return;
+  const tokens = found[0].slice(String(hash).length + 1).split(',');
+  if (tokens.length === 1 && tokens[0] === 'none') return { languages: [], fields: [] };
+  const result: RevisionChanges = { languages: [], fields: [] };
+  for (const token of tokens) {
+    if (languages.includes(token as Lang)) result.languages.push(token as Lang);
+    else if (token === 'associations') result.fields.push('associated');
+    else if (sharedFields.includes(token as SharedField) && token !== 'associated')
+      result.fields.push(token as SharedField);
+    else return;
+  }
+  return result;
+}
