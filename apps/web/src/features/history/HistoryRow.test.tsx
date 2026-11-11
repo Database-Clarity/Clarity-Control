@@ -76,6 +76,7 @@ afterEach(async () => {
 it('keeps the v2 count ready and loads legacy history only on open', async () => {
   getHistory.mockResolvedValue({ page: 1, commits: [commit(1), commit(2), commit(3)] });
   await act(async () => root.render(<HistoryPanel hash={10} />));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 180)));
   expect(host.textContent ?? '').toMatch(/^History\s*Edited .* by ann, 3 revisions$/);
   expect(getHistory).toHaveBeenCalledTimes(1);
   expect(getLegacyHistory).not.toHaveBeenCalled();
@@ -299,4 +300,26 @@ it('keeps an expanded history row open while cancelling suspended requests', asy
   await act(async () => root.render(<HistoryPanel hash={10} />));
   expect(host.querySelector('button[aria-expanded=true]')).not.toBeNull();
   expect(host.querySelectorAll('ol li')).toHaveLength(1);
+});
+
+it('prepares a scoped collapsed count without displaying other-language revisions', async () => {
+  getHistory.mockResolvedValue({ commits: [commit(3), commit(2), commit(1)] });
+  getVersion.mockImplementation((_hash: number, sha: string) =>
+    Promise.resolve({
+      tooltip: {
+        ...tooltip,
+        text: {
+          en: { ...tooltip.text.en!, text: sha === commit(3).commit ? 'two' : 'one' },
+          ...(sha !== commit(1).commit ? { fr: { ...tooltip.text.en!, text: 'un' } } : {}),
+        },
+      },
+    }),
+  );
+  await act(async () => root.render(<HistoryPanel hash={10} />));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 180)));
+  expect(host.textContent).toContain('2 revisions');
+  expect(host.querySelector('ol')).toBeNull();
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  expect(host.querySelectorAll('ol li > button')).toHaveLength(2);
+  expect(host.textContent).toContain('1 change outside this view hidden');
 });

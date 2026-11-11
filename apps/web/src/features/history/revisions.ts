@@ -34,6 +34,7 @@ function remember<K, V>(map: Map<K, Promise<V>>, key: K, limit: number, make: ()
 }
 
 export function createRevisionCache(hash: number) {
+  const changes = new Map<string, RevisionChanges>();
   const classifications = new Map<string, Promise<RevisionChanges>>();
   const versions = new Map<string, Promise<Tooltip | null>>();
   const pages = new Map<number, Promise<HistoryCommit[]>>();
@@ -141,9 +142,13 @@ export function createRevisionCache(hash: number) {
             commit ? version(commit) : null,
           ),
         ]);
-        return classifyInWorker(previous, revision);
+        const result = await classifyInWorker(previous, revision);
+        changes.set(commits[index].commit, result);
+        while (changes.size > 180) changes.delete(changes.keys().next().value!);
+        return result;
       });
     },
+    peekChanges: (commit: string) => changes.get(commit),
     cancelPending() {
       for (const [controller, evict] of [...pending]) {
         pending.delete(controller);
@@ -174,7 +179,7 @@ export function createRevisionCache(hash: number) {
 }
 
 type ScopedRevisionCache = ReturnType<typeof createRevisionCache>;
-export type RevisionCache = Omit<ScopedRevisionCache, 'classify'>;
+export type RevisionCache = Omit<ScopedRevisionCache, 'classify' | 'peekChanges'>;
 const caches = new Map<string, ScopedRevisionCache>();
 // Never reuse authenticated responses across sign-in or permission changes.
 useAuthStore.subscribe((state, previous) => {

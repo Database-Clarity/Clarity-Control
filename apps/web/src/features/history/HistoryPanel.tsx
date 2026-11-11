@@ -73,9 +73,46 @@ export function HistoryPanel({
     return () => controller.abort();
   }, [cache, signedIn, open, suspended]);
   const recorded = revisions?.cache === cache ? revisions : undefined;
-  const count = recorded
-    ? `${recorded.count}${recorded.more ? '+' : ''} revision${recorded.count === 1 && !recorded.more ? '' : 's'}`
-    : undefined;
+  const [scopedCount, setScopedCount] = useState<{
+    cache: typeof cache;
+    scope: HistoryScope;
+    count: number;
+    more: boolean;
+  }>();
+  useEffect(() => {
+    if (!recorded || suspended || !signedIn) return;
+    let active = true;
+    let idle: number | undefined;
+    const prepare = async () => {
+      const entries = cache.peekPage(1) ?? [];
+      let count = 0;
+      for (let index = 0; index < entries.length; index++) {
+        if (!active) return;
+        const changes = await cache.classify(entries, index, 1, recorded.more);
+        if (isRelevant(changes, scope)) count++;
+      }
+      if (active) setScopedCount({ cache, scope, count, more: recorded.more });
+    };
+    // Skip tooltips passed during a navigation burst; classify only after dwell,
+    // or immediately when the user asks to open History.
+    const timer = window.setTimeout(
+      () => {
+        if (window.requestIdleCallback && !open)
+          idle = window.requestIdleCallback(() => void prepare().catch(() => undefined));
+        else void prepare().catch(() => undefined);
+      },
+      open ? 0 : 150,
+    );
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+      if (idle !== undefined) window.cancelIdleCallback(idle);
+    };
+  }, [recorded, cache, scope, suspended, signedIn, open]);
+  const count =
+    scopedCount?.cache === cache && scopedCount.scope === scope
+      ? `${scopedCount.count}${scopedCount.more ? '+' : ''} revision${scopedCount.count === 1 && !scopedCount.more ? '' : 's'}`
+      : undefined;
   return (
     <PanelRow
       label="History"
@@ -193,7 +230,14 @@ function HistoryContent({
       if (idle !== undefined) window.cancelIdleCallback(idle);
     };
   }, [cache, commits, loading, suspended]);
-  const [relevance, setRelevance] = useState<Record<string, boolean>>({});
+  const [relevance, setRelevance] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(
+      commits.flatMap((entry) => {
+        const changes = cache.peekChanges(entry.commit);
+        return changes ? [[entry.commit, isRelevant(changes, scope)]] : [];
+      }),
+    ),
+  );
   const [classifying, setClassifying] = useState(false);
   useEffect(() => {
     if (suspended || loading) return;
