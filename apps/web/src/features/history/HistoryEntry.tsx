@@ -341,12 +341,13 @@ function RevisionPopover({
     const observer =
       typeof ResizeObserver === 'undefined'
         ? undefined
-        : new ResizeObserver(([entry]) => {
-            if (!entry) return;
+        : new ResizeObserver((entries) => {
+            const entry = entries.find((entry) => entry.target === element);
             // Match offsetHeight's border-box rounding without a fresh layout read.
-            measuredHeight = Math.round(
-              entry.borderBoxSize?.[0]?.blockSize ?? element.offsetHeight,
-            );
+            if (entry)
+              measuredHeight = Math.round(
+                entry.borderBoxSize?.[0]?.blockSize ?? element.offsetHeight,
+              );
             // ResizeObserver runs after layout; read all geometry before writing.
             geometry = measureAnchor(anchor.current);
             place();
@@ -355,6 +356,8 @@ function RevisionPopover({
     if (!observer) measuredHeight = element.offsetHeight;
     place();
     observer?.observe(element);
+    // Lazy classifications can remove or resize earlier rows without scrolling.
+    if (anchor.current?.parentElement) observer?.observe(anchor.current.parentElement);
     // The visual viewport too: the iOS keyboard and its pan change the room without a resize.
     const viewport = window.visualViewport;
     window.addEventListener('resize', refresh);

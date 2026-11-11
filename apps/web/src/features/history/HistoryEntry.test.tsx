@@ -150,12 +150,30 @@ it('positions from ResizeObserver sizes without synchronously measuring the new 
     expect(bounds).toHaveBeenCalled();
     await act(async () =>
       observers[0](
-        [{ borderBoxSize: [{ blockSize: 300.4 }] } as unknown as ResizeObserverEntry],
+        [
+          {
+            target: dialog(),
+            borderBoxSize: [{ blockSize: 300.4 }],
+          } as unknown as ResizeObserverEntry,
+        ],
         {} as ResizeObserver,
       ),
     );
     expect(dialog()!.style.top).toBe(`${window.innerHeight - 300 - 8}px`);
     expect(dialog()!.style.left).toBe('306px');
+    bounds.mockReturnValue(new DOMRect(100, 200, 200, 50));
+    await act(async () =>
+      observers[0](
+        [
+          {
+            target: row.parentElement,
+            borderBoxSize: [{ blockSize: 1000 }],
+          } as unknown as ResizeObserverEntry,
+        ],
+        {} as ResizeObserver,
+      ),
+    );
+    expect(dialog()!.style.top).toBe('200px');
     expect(height).not.toHaveBeenCalled();
   } finally {
     height.mockRestore();
