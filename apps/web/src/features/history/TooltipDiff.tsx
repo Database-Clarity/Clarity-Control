@@ -7,6 +7,9 @@ import { SourceRef } from '../compendium/SourceRef';
 import { linkLocation } from '../compendium/sourceLocation';
 import { useCompendiumStore } from '../compendium/store';
 import { HistoryWordDiff } from './HistoryWordDiff';
+import { RenderedWordDiff } from './RenderedWordDiff';
+import { useRawDiff } from './diffPreference';
+import renderedStyles from './RenderedWordDiff.module.scss';
 import {
   attachmentCategory,
   categoryLabel,
@@ -61,6 +64,7 @@ export function TooltipDiff({
   eagerLanguages?: boolean;
 }) {
   const changed = languages.filter((lang) => before?.text[lang]?.text !== current.text[lang]?.text);
+  const [sourceView, setSourceView] = useRawDiff();
   const dateSettings = useSyncedSettings();
   const [rendered, setRendered] = useState(1);
   const busy = !raw && !eagerLanguages && rendered < changed.length;
@@ -81,6 +85,16 @@ export function TooltipDiff({
   }, [busy, rendered]);
   return (
     <div className={styles.diff} aria-busy={busy || undefined}>
+      <label className={renderedStyles.toggle}>
+        <input
+          type="checkbox"
+          role="switch"
+          aria-label="Raw diff"
+          checked={sourceView}
+          onChange={(event) => setSourceView(event.currentTarget.checked)}
+        />{' '}
+        Raw
+      </label>
       {changed.map((lang, index) => (
         <section
           key={lang}
@@ -89,7 +103,7 @@ export function TooltipDiff({
           data-pending-render={(busy && index >= rendered) || undefined}
         >
           <h4>{languageLabel(lang)}</h4>
-          {raw && (
+          {sourceView && raw && (
             <div className={styles.columns}>
               <div>
                 <strong>Previous / live</strong>
@@ -101,10 +115,19 @@ export function TooltipDiff({
               </div>
             </div>
           )}
-          <HistoryWordDiff
-            before={before?.text[lang]?.text ?? ''}
-            after={current.text[lang]?.text ?? ''}
-          />
+          {sourceView ? (
+            <HistoryWordDiff
+              before={before?.text[lang]?.text ?? ''}
+              after={current.text[lang]?.text ?? ''}
+            />
+          ) : (
+            <RenderedWordDiff
+              before={before?.text[lang]?.text ?? ''}
+              after={current.text[lang]?.text ?? ''}
+              lang={lang}
+              hash={current.hash}
+            />
+          )}
         </section>
       ))}
       {(before?.compendium || current.compendium) &&

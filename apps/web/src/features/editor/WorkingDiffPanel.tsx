@@ -61,7 +61,7 @@ export function WorkingDiffPanel({
     const scroller = element?.closest<HTMLElement>('[data-overlay-scroll]');
     if (!element || !scroller) return;
     const reveal = () => {
-      const mark = element.querySelector('ins, del');
+      const mark = element.querySelector('ins, del') ?? element.querySelector('[data-source-change]');
       if (!mark) return;
       const top = mark.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
       if (top > scroller.clientHeight * 0.6) scroller.scrollTop += top - scroller.clientHeight / 3;

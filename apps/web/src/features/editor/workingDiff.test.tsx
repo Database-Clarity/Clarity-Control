@@ -9,8 +9,8 @@ import { WORKING_DIFF_DELAY } from './WorkingDiffPanel';
 import { hasWorkingChanges, inView } from './workingDiff';
 
 const diffWords = vi.hoisted(() => vi.fn());
-vi.mock('../../ui/diff', async (original) => {
-  const actual = await original<typeof import('../../ui/diff')>();
+vi.mock('../../ui/diff/diffWords', async (original) => {
+  const actual = await original<typeof import('../../ui/diff/diffWords')>();
   diffWords.mockImplementation(actual.diffWords);
   return { ...actual, diffWords };
 });
