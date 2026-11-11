@@ -22,15 +22,16 @@ import type { Env, Identity } from './types.js';
 export interface ReportStatement {
   bind(...values: (string | number | null | ArrayBuffer | number[])[]): ReportStatement;
   first<T = Record<string, unknown>>(): Promise<T | null>;
-  all<T = Record<string, unknown>>(): Promise<{ results: T[] }>;
+  all<T = Record<string, unknown>>(): Promise<{ results: T[]; meta?: { rows_read?: number } }>;
   run(): Promise<{ meta: { changes: number; size_after?: number } }>;
 }
 export interface ReportsDatabase {
   prepare(sql: string): ReportStatement;
-  batch(
-    statements: ReportStatement[],
-  ): Promise<
-    { results: Record<string, string | number>[]; meta: { changes: number; size_after?: number } }[]
+  batch(statements: ReportStatement[]): Promise<
+    {
+      results: Record<string, string | number>[];
+      meta: { changes: number; size_after?: number; rows_read?: number };
+    }[]
   >;
   exec(sql: string): Promise<unknown>;
 }
@@ -452,7 +453,7 @@ export async function reports(request: Request, env: Env): Promise<Response> {
       (
         await sql(
           db,
-          "SELECT n.n,r.category,r.status,r.created_at AS age,r.variant,COALESCE(n.rev,r.rev) AS rev,n.start,n.end FROM reports r JOIN notes n ON n.report_id=r.id WHERE r.owner_hash=? AND r.lang=? AND r.status IN ('open','triaged') LIMIT 100",
+          "SELECT n.n,n.category,r.status,r.created_at AS age,r.variant,COALESCE(n.rev,r.rev) AS rev,n.start,n.end FROM reports r JOIN notes n ON n.report_id=r.id WHERE r.owner_hash=? AND r.lang=? AND r.status IN ('open','triaged') LIMIT 100",
           hash,
           lang,
         ).all()
@@ -780,36 +781,42 @@ export async function reports(request: Request, env: Env): Promise<Response> {
       const parts = cursor.split(':');
       const owner = hashParam(parts[0]);
       const lang = reportLang(parts[1] ?? null);
-      conditions.push('(owner_hash>? OR (owner_hash=? AND lang>?))');
-      values.push(owner, owner, lang);
+      conditions.push('(owner_hash,lang)>(?,?)');
+      values.push(owner, lang);
     }
     if (!url.searchParams.has('status')) conditions.push("status IN ('open','triaged','fixed')");
     const since = url.searchParams.get('since');
     if (since) {
       const time = Number(since);
       if (!Number.isSafeInteger(time) || time < 0) throw new HttpError(400, 'Invalid age filter');
-      conditions.push('created_at>=?');
-      values.push(time);
     }
-    if (url.searchParams.get('signed_in') === '1') conditions.push('reporter_id IS NOT NULL');
+    if (url.searchParams.get('signed_in') === '1') conditions.push("trust IN ('account','role')");
     const result = await sql(
       db,
-      `SELECT owner_hash,lang,COUNT(*) AS reports,MIN(created_at) AS created_at,MAX(updated_at) AS updated_at,SUM(status IN ('open','triaged')) AS open,SUM(status='fixed') AS awaiting_publish,MAX(trust='role') AS has_role,MAX(reporter_id IS NOT NULL) AS has_account FROM reports ${conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''} GROUP BY owner_hash,lang ORDER BY owner_hash,lang LIMIT 201`,
+      `SELECT owner_hash,lang,SUM(n) AS reports,MIN(created_at) AS created_at,MAX(updated_at) AS updated_at,SUM(CASE WHEN status IN ('open','triaged') THEN n ELSE 0 END) AS open,SUM(CASE WHEN status='fixed' THEN n ELSE 0 END) AS awaiting_publish,MAX(trust='role') AS has_role,MAX(trust<>'anonymous') AS has_account FROM report_rollups INDEXED BY rollups_list ${conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''} GROUP BY owner_hash,lang ${since ? 'HAVING MIN(created_at)>=?' : ''} ORDER BY owner_hash,lang LIMIT 201`,
       ...values,
+      ...(since ? [Number(since)] : []),
     ).all();
     const rows = result.results.slice(0, 200);
     const last = rows.at(-1);
-    const etag = `"${await reportDigest(JSON.stringify(rows))}"`;
+    const representation = {
+      rows,
+      cursor: result.results.length > 200 ? `${last?.owner_hash}:${last?.lang}` : null,
+    };
+    const etag = `"${await reportDigest(JSON.stringify(representation))}"`;
     if (request.headers.get('If-None-Match') === etag)
       return new Response(null, {
         status: 304,
-        headers: { ETag: etag, 'Cache-Control': 'private, max-age=0', Vary: 'Authorization' },
+        headers: {
+          ETag: etag,
+          'Cache-Control': 'private, max-age=0',
+          Vary: 'Authorization',
+          'Access-Control-Expose-Headers': 'ETag',
+        },
       });
-    const response = json({
-      rows,
-      cursor: result.results.length > 200 ? `${last?.owner_hash}:${last?.lang}` : null,
-    });
+    const response = json(representation);
     response.headers.set('ETag', etag);
+    response.headers.set('Cache-Control', 'private, max-age=0');
     response.headers.set('Vary', 'Authorization');
     response.headers.set('Access-Control-Expose-Headers', 'ETag');
     return response;
@@ -1032,25 +1039,53 @@ export async function purgeReports(env: Env) {
     files = env.REPORTS_FILES_DB,
     time = now();
   if (!files) throw new HttpError(503, 'Attachments are unavailable');
-  const candidates = await sql(
-    db,
-    `SELECT id,status,version FROM reports WHERE (status IN ('open','triaged') AND updated_at<?) OR (status='spam' AND updated_at<?) OR (status IN ('fixed','closed','rejected','duplicate','withdrawn') AND updated_at<?) ORDER BY updated_at LIMIT 64`,
-    time - 365 * 86400,
-    time - 7 * 86400,
-    time - 180 * 86400,
-  ).all<ReportRow>();
-  // Complete every file deletion before the report transaction; a failure
-  // leaves all report rows intact for the next invocation.
-  if (candidates.results.length)
+  const statuses = [
+    'open',
+    'triaged',
+    'spam',
+    'fixed',
+    'closed',
+    'rejected',
+    'duplicate',
+    'withdrawn',
+  ];
+  const pages = await db.batch(
+    statuses.map((status) =>
+      sql(
+        db,
+        'SELECT id,status,version,updated_at FROM reports INDEXED BY reports_purge WHERE status=? AND updated_at<? ORDER BY updated_at,id LIMIT 64',
+        status,
+        time - (['open', 'triaged'].includes(status) ? 365 : status === 'spam' ? 7 : 180) * 86400,
+      ),
+    ),
+  );
+  // At most 8 x 64 covered index entries, regardless of retained history.
+  const candidates = {
+    results: pages
+      .flatMap((page) =>
+        page.results.map((row) => ({
+          id: String(row.id),
+          status: String(row.status),
+          version: Number(row.version),
+          updated_at: Number(row.updated_at),
+        })),
+      )
+      .sort((a, b) => a.updated_at - b.updated_at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .slice(0, 64),
+  };
+  // Stale open reports close now and retain screenshots for the terminal
+  // 30-day grace. Physical report deletion is files-first and retryable.
+  const deleting = candidates.results.filter((row) => !['open', 'triaged'].includes(row.status));
+  if (deleting.length)
     await files.batch(
-      candidates.results.map((row) => sql(files, 'DELETE FROM files WHERE report_id=?', row.id)),
+      deleting.map((row) => sql(files, 'DELETE FROM files WHERE report_id=?', row.id)),
     );
   await db.batch([
     ...candidates.results.map((row) =>
       ['open', 'triaged'].includes(row.status)
         ? sql(
             db,
-            "UPDATE reports SET status='closed',closed_note='stale',files_count=0,files_bytes=0,version=version+1,updated_at=? WHERE id=? AND version=?",
+            "UPDATE reports SET status='closed',closed_note='stale',version=version+1,updated_at=? WHERE id=? AND version=?",
             time,
             row.id,
             row.version,

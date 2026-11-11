@@ -1,4 +1,22 @@
 import { reportJpegFixture, reportPngFixture, reportWebpFixture } from './reportsImages.js';
+export function mergeBudgetRows(
+  baseline: Record<string, unknown>[],
+  rows: Record<string, unknown>[],
+) {
+  const replacements = new Map(
+    rows.map((row) => [row.route, { ...row, evidence: 'code-review-refresh' }]),
+  );
+  const merged = baseline.map(
+    (row) =>
+      replacements.get(row.route) ?? { ...row, evidence: row.evidence ?? '6f20ac85-baseline' },
+  );
+  return [
+    ...merged,
+    ...rows
+      .filter((row) => !baseline.some((old) => old.route === row.route))
+      .map((row) => ({ ...row, evidence: 'code-review-refresh' })),
+  ];
+}
 export type BudgetSend = (
   label: string,
   path: string,

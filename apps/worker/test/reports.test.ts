@@ -1,13 +1,18 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { reportBudget } from './reportsBudget.js';
-import { reportBudgetCases } from './reportsBudgetCases.js';
+import { reportBudgetCases, mergeBudgetRows } from './reportsBudgetCases.js';
 import { generateKeyPairSync } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getPlatformProxy } from 'wrangler';
 import worker from '../src/index.js';
 import { Fixture } from './fixture.js';
 import { signToken } from '../src/crypto.js';
-import { type ReportsDatabase, reportIP, purgeReports } from '../src/reports.js';
+import {
+  type ReportsDatabase,
+  type ReportStatement,
+  reportIP,
+  purgeReports,
+} from '../src/reports.js';
 import { reportImage } from '../src/reportsFiles.js';
 import { reportJpegFixture } from './reportsImages.js';
 
@@ -152,6 +157,103 @@ beforeEach(async () => {
   );
 });
 describe('reports local D1', () => {
+  it('uses note-level categories in the public anchor shape', async () => {
+    const input = payload();
+    input.notes = [
+      { ...input.notes[0], category: 'wording' },
+      { ...input.notes[0], category: 'translation' },
+    ];
+    expect((await call('/reports', 'POST', input)).status).toBe(201);
+    const publicNotes = (await (await call('/reports/public?hash=123&lang=en')).json()) as {
+      category: string;
+    }[];
+    expect(publicNotes.map((n) => n.category)).toEqual(['wording', 'translation']);
+  });
+  it('includes pagination state in the list ETag on insert and delete', async () => {
+    await db
+      .prepare(
+        "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<200) INSERT INTO reports(id,owner_hash,viewed_hash,variant,lang,rev,data_commit,category,note,trust,request_id,payload_hash,created_at,updated_at) SELECT 'page-'||x,1000+x,1000+x,'base','en','aaaaaaaaaaaaaaaa','1111111111111111111111111111111111111111','other','private','anonymous','page-'||x,'test',1,1 FROM n",
+      )
+      .run();
+    const first = await call('/reports/list', 'GET', undefined, 1),
+      etag = first.headers.get('ETag')!;
+    expect(await first.json()).toMatchObject({ cursor: null });
+    await db
+      .prepare(
+        "INSERT INTO reports(id,owner_hash,viewed_hash,variant,lang,rev,data_commit,category,note,trust,request_id,payload_hash,created_at,updated_at) VALUES('extra',1201,1201,'base','en','aaaaaaaaaaaaaaaa','1111111111111111111111111111111111111111','other','private','anonymous','extra','test',1,1)",
+      )
+      .run();
+    const added = await call('/reports/list', 'GET', undefined, 1, '192.0.2.1', {
+      'If-None-Match': etag,
+    });
+    expect(added.status).toBe(200);
+    const nextTag = added.headers.get('ETag')!;
+    expect(await added.json()).toMatchObject({ cursor: '1200:en' });
+    await db.prepare("DELETE FROM reports WHERE id='extra'").run();
+    const removed = await call('/reports/list', 'GET', undefined, 1, '192.0.2.1', {
+      'If-None-Match': nextTag,
+    });
+    expect(removed.status).toBe(200);
+    expect(await removed.json()).toMatchObject({ cursor: null });
+  });
+  it('filters Age on the oldest matching report while retaining the whole group count', async () => {
+    await db
+      .prepare(
+        "INSERT INTO reports(id,owner_hash,viewed_hash,variant,lang,rev,data_commit,category,note,trust,request_id,payload_hash,created_at,updated_at) VALUES('age-old',42,42,'base','en','aaaaaaaaaaaaaaaa','1111111111111111111111111111111111111111','other','old','anonymous','age-old','test',10,20),('age-new',42,42,'base','en','aaaaaaaaaaaaaaaa','1111111111111111111111111111111111111111','wording','new','anonymous','age-new','test',100,200)",
+      )
+      .run();
+    const all = await call('/reports/list?since=10', 'GET', undefined, 1);
+    expect(await all.json()).toMatchObject({
+      rows: [{ owner_hash: 42, reports: 2, created_at: 10 }],
+    });
+    expect(await (await call('/reports/list?since=50', 'GET', undefined, 1)).json()).toMatchObject({
+      rows: [],
+    });
+    expect(
+      await (await call('/reports/list?since=50&category=wording', 'GET', undefined, 1)).json(),
+    ).toMatchObject({ rows: [{ reports: 1, created_at: 100 }] });
+    await db.prepare("DELETE FROM reports WHERE id='age-old'").run();
+    expect(await (await call('/reports/list?since=50', 'GET', undefined, 1)).json()).toMatchObject({
+      rows: [{ reports: 1, created_at: 100 }],
+    });
+    await db.prepare("UPDATE reports SET status='rejected' WHERE id='age-new'").run();
+    expect(await (await call('/reports/list', 'GET', undefined, 1)).json()).toMatchObject({
+      rows: [],
+    });
+    expect(
+      await (await call('/reports/list?status=rejected', 'GET', undefined, 1)).json(),
+    ).toMatchObject({ rows: [{ reports: 1 }] });
+  });
+  it('preserves screenshots for 30 days after stale closure and reconciles expired file totals', async () => {
+    const response = await call('/reports', 'POST', payload(), 5),
+      { id } = (await response.json()) as { id: string };
+    await files
+      .prepare("INSERT INTO files VALUES(?,1,5,'image/jpeg',64,'test',0,unhex(?))")
+      .bind(id, Buffer.from(reportJpegFixture()).toString('hex'))
+      .run();
+    await db
+      .prepare('UPDATE reports SET updated_at=0,files_count=1,files_bytes=64 WHERE id=?')
+      .bind(id)
+      .run();
+    await purgeReports(fixture.env);
+    expect(await db.prepare('SELECT status,files_count,files_bytes FROM reports').first()).toEqual({
+      status: 'closed',
+      files_count: 1,
+      files_bytes: 64,
+    });
+    expect(await files.prepare('SELECT COUNT(*) AS n FROM files').first()).toEqual({ n: 1 });
+    await db
+      .prepare('UPDATE reports SET updated_at=? WHERE id=?')
+      .bind(Math.floor(Date.now() / 1000) - 31 * 86400, id)
+      .run();
+    await purgeReports(fixture.env);
+    expect(await db.prepare('SELECT status,files_count,files_bytes FROM reports').first()).toEqual({
+      status: 'closed',
+      files_count: 0,
+      files_bytes: 0,
+    });
+    expect(await files.prepare('SELECT COUNT(*) AS n FROM files').first()).toEqual({ n: 0 });
+  });
   it('accepts localhost Turnstile tokens only with the explicit local development switch', async () => {
     const upstream = globalThis.fetch;
     vi.stubGlobal(
@@ -261,6 +363,11 @@ describe('reports local D1', () => {
                   body: data instanceof Uint8Array ? Uint8Array.from(data) : JSON.stringify(data),
                 }),
           });
+          if (
+            process.env.REPORTS_BUDGET_FILTER &&
+            !new RegExp(process.env.REPORTS_BUDGET_FILTER).test(label)
+          )
+            return worker.fetch(request, fixture.env, { waitUntil() {} });
           const before = vi.mocked(globalThis.fetch).mock.calls.length;
           const result = await reportBudget(request, fixture.env, { waitUntil() {} });
           const network = vi.mocked(globalThis.fetch).mock.calls.length - before;
@@ -285,6 +392,15 @@ describe('reports local D1', () => {
         runtime: 'Node handler; getPlatformProxy local D1',
         rows,
       };
+      if (process.env.REPORTS_BUDGET_FILTER && process.env.REPORTS_BUDGET_OUTPUT)
+        output.rows = mergeBudgetRows(
+          (
+            JSON.parse(readFileSync(process.env.REPORTS_BUDGET_OUTPUT, 'utf8')) as {
+              rows: Record<string, unknown>[];
+            }
+          ).rows,
+          rows,
+        );
       console.log(JSON.stringify(output));
       if (process.env.REPORTS_BUDGET_OUTPUT)
         writeFileSync(process.env.REPORTS_BUDGET_OUTPUT, JSON.stringify(output, null, 2));
@@ -654,6 +770,99 @@ describe('reports local D1', () => {
     expect((await call(`/reports/r/${id}/withdraw`, 'POST', {}, 5)).status).toBe(200);
     expect(await files.prepare('SELECT COUNT(*) AS n FROM files').first()).toEqual({ n: 0 });
   });
+  it('bounds D1 rows read independently of 10,000 retained reports and 50,000 notes', async () => {
+    await db
+      .prepare(
+        "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<10000) INSERT INTO reports(id,owner_hash,viewed_hash,variant,lang,rev,data_commit,status,category,note,trust,request_id,payload_hash,created_at,updated_at) SELECT 'history-'||x,123,123,'base','en','aaaaaaaaaaaaaaaa','1111111111111111111111111111111111111111','closed','other','private','anonymous','history-'||x,'test',x,x FROM n",
+      )
+      .run();
+    await db
+      .prepare(
+        "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<5) INSERT INTO notes(report_id,n,category,text,exact,prefix,suffix,start,end,line,whole) SELECT r.id,n.x,'other','note','x','','',0,1,0,0 FROM reports r CROSS JOIN n",
+      )
+      .run();
+    await db
+      .prepare(
+        "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<10000) INSERT INTO open_counts SELECT 100000+x,'en',0 FROM n",
+      )
+      .run();
+    const scans: { query: string; rows_read: number }[] = [];
+    const originals = new WeakMap<ReportStatement, { statement: ReportStatement; query: string }>();
+    const capture = (query: string, rows: number | undefined) => {
+      expect(rows).toBeTypeOf('number');
+      scans.push({ query, rows_read: rows! });
+    };
+    const wrap = (statement: ReportStatement, query: string): ReportStatement => {
+      const result: ReportStatement = {
+        bind(...args) {
+          return wrap(statement.bind(...args), query);
+        },
+        async first<T>() {
+          const result = await statement.all<T>();
+          capture(query, result.meta?.rows_read);
+          return result.results[0] ?? null;
+        },
+        async all<T>() {
+          const result = await statement.all<T>();
+          capture(query, result.meta?.rows_read);
+          return result;
+        },
+        run() {
+          return statement.run();
+        },
+      };
+      originals.set(result, { statement, query });
+      return result;
+    };
+    fixture.env.REPORTS_DB = {
+      prepare(query) {
+        return wrap(db.prepare(query), query);
+      },
+      async batch(statements) {
+        const result = await db.batch(statements.map((s) => originals.get(s)!.statement));
+        result.forEach((row, i) =>
+          capture(originals.get(statements[i])!.query, row.meta.rows_read),
+        );
+        return result;
+      },
+      exec(query) {
+        return db.exec(query);
+      },
+    };
+    expect((await call('/reports/index', 'GET', undefined, 1)).status).toBe(200);
+    const list = await call('/reports/list?status=closed', 'GET', undefined, 1);
+    expect(await list.json()).toMatchObject({ rows: [{ reports: 10000 }] });
+    const body = await call('/reports?hash=123&lang=en', 'GET', undefined, 1);
+    const reports = (await body.json()) as { notes: unknown[] }[];
+    expect(reports).toHaveLength(200);
+    expect(reports.every((r) => r.notes.length === 5)).toBe(true);
+    await purgeReports(fixture.env);
+    const marker = scans.filter((s) => s.query.includes('FROM open_counts'));
+    const grouped = scans.filter((s) => s.query.includes('FROM report_rollups'));
+    const owner = scans.filter((s) => s.query.startsWith('SELECT * FROM reports WHERE owner_hash'));
+    const noteReads = scans.filter((s) => s.query.startsWith('SELECT n.* FROM notes'));
+    const reporterReads = scans.filter((s) => s.query.startsWith('SELECT * FROM reporters'));
+    const purge = scans.filter((s) =>
+      s.query.startsWith('SELECT id,status,version,updated_at FROM reports'),
+    );
+    expect(marker).toHaveLength(1);
+    expect(marker[0].rows_read).toBeLessThan(10);
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0].rows_read).toBeLessThan(20);
+    expect(owner).toHaveLength(1);
+    expect(owner[0].rows_read).toBeLessThanOrEqual(500);
+    expect(noteReads).toHaveLength(1);
+    expect(noteReads[0].rows_read).toBeLessThanOrEqual(3500);
+    expect(reporterReads).toHaveLength(1);
+    expect(reporterReads[0].rows_read).toBeLessThanOrEqual(500);
+    expect(purge).toHaveLength(8);
+    expect(purge.reduce((n, s) => n + s.rows_read, 0)).toBeLessThanOrEqual(1024);
+    writeFileSync(
+      'D:/GitHub/Description-editor/.agents/reports/reports-server-query-bounds.json',
+      JSON.stringify({ reports: 10000, notes: 50000, inactive_marker_rows: 10000, scans }, null, 2),
+    );
+    fixture.env.REPORTS_DB = db;
+  }, 60_000);
 });
 it('normalises IPv6 /64 equivalents', () => {
   expect(reportIP('2001:0db8:0001:0002:abcd::1')).toBe(reportIP('2001:db8:1:2::2'));

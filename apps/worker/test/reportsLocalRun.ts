@@ -1,6 +1,6 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { reportBudgetCases } from './reportsBudgetCases.js';
+import { reportBudgetCases, mergeBudgetRows } from './reportsBudgetCases.js';
 const root = process.argv[2] ?? 'http://127.0.0.1:5193';
 const checked = async (path: string, init?: RequestInit) => {
   const response = await fetch(root + path, init);
@@ -47,6 +47,10 @@ await reportBudgetCases(
       ...extra,
     };
     if (id) headers.Authorization = `Bearer ${tokens.get(id)}`;
+    const selected =
+      !process.env.REPORTS_BUDGET_FILTER ||
+      new RegExp(process.env.REPORTS_BUDGET_FILTER).test(label);
+    if (!selected) headers['X-Report-Budget'] = 'off';
     const start = performance.now();
     const response = await fetch(root + path, {
       method,
@@ -56,14 +60,15 @@ await reportBudgetCases(
         : { body: data instanceof Uint8Array ? Uint8Array.from(data) : JSON.stringify(data) }),
     });
     const bytes = await response.arrayBuffer();
-    rows.push({
-      route: label,
-      status: response.status,
-      end_to_end_ms: performance.now() - start,
-      handler_proxy_ms: Number(response.headers.get('X-Local-Handler-Proxy-Ms')),
-      awaited_d1_ms: Number(response.headers.get('X-Local-D1-Awaited-Ms')),
-      subrequests: Number(response.headers.get('X-Local-Subrequests')),
-    });
+    if (selected)
+      rows.push({
+        route: label,
+        status: response.status,
+        end_to_end_ms: performance.now() - start,
+        handler_proxy_ms: Number(response.headers.get('X-Local-Handler-Proxy-Ms')),
+        awaited_d1_ms: Number(response.headers.get('X-Local-D1-Awaited-Ms')),
+        subrequests: Number(response.headers.get('X-Local-Subrequests')),
+      });
     return new Response(response.status === 304 ? null : bytes, response);
   },
   async (sql) => {
@@ -75,6 +80,19 @@ const output = {
   runtime: 'wrangler dev local workerd; local D1; mocked upstreams',
   rows,
 };
+if (process.env.REPORTS_BUDGET_FILTER)
+  output.rows = mergeBudgetRows(
+    (
+      JSON.parse(
+        readFileSync(
+          process.env.REPORTS_LOCAL_OUTPUT ??
+            'D:/GitHub/Description-editor/.agents/reports/reports-server-workerd-proxy.json',
+          'utf8',
+        ),
+      ) as { rows: Record<string, unknown>[] }
+    ).rows,
+    rows,
+  );
 console.log(JSON.stringify(output, null, 2));
 writeFileSync(
   process.env.REPORTS_LOCAL_OUTPUT ??

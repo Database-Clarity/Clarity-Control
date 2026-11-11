@@ -1,6 +1,7 @@
 // Local confirmation adapter only. Never used by the production Wrangler entrypoint.
 import { signToken } from '../src/crypto.js';
 import { reportBudget } from './reportsBudget.js';
+import worker from '../src/index.js';
 import type { Env, Context } from '../src/types.js';
 const permissions = {
   users: { '1': { login: 'owner', role: 'maintainer' }, '5': { login: 'account', role: null } },
@@ -67,6 +68,8 @@ export default {
         ),
       });
     }
+    if (request.headers.get('X-Report-Budget') === 'off')
+      return worker.fetch(request, env, context);
     const start = network;
     const result = await reportBudget(request, env, context);
     const response = new Response(result.response.body, result.response);
