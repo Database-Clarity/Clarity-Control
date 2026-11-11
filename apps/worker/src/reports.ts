@@ -1,0 +1,918 @@
+import { z } from 'zod';
+import {
+  langSchema,
+  reportSubmissionSchema,
+  reportActionSchema,
+  stableStringify,
+  publishableHash,
+  tooltipSchema,
+  aliasesSchema,
+  pushedSchema,
+  type ReportSubmission,
+} from '@clarity/core';
+import { historySchema } from './history.js';
+import { reportImage, reportImageBody } from './reportsFiles.js';
+import { identity, siteOrigins } from './auth.js';
+import { GitHub } from './github.js';
+import { body, hashParam, HttpError, json } from './http.js';
+import { permissions, type Access } from './permissions.js';
+import type { Env, Identity } from './types.js';
+
+/** Narrow structural binding contract; no dependency on global Workers DOM types. */
+export interface ReportStatement {
+  bind(...values: (string | number | null | ArrayBuffer | number[])[]): ReportStatement;
+  first<T = Record<string, unknown>>(): Promise<T | null>;
+  all<T = Record<string, unknown>>(): Promise<{ results: T[] }>;
+  run(): Promise<{ meta: { changes: number; size_after?: number } }>;
+}
+export interface ReportsDatabase {
+  prepare(sql: string): ReportStatement;
+  batch(
+    statements: ReportStatement[],
+  ): Promise<
+    { results: Record<string, string | number>[]; meta: { changes: number; size_after?: number } }[]
+  >;
+  exec(sql: string): Promise<unknown>;
+}
+export interface ReportRow {
+  id: string;
+  owner_hash: number;
+  viewed_hash: number;
+  variant: string;
+  lang: string;
+  status: string;
+  version: number;
+  reporter_id: number | null;
+  request_id: string;
+  payload_hash: string;
+  withdraw_hash: string | null;
+  created_at: number;
+  updated_at: number;
+  fix_publishable: string | null;
+  published_at: number | null;
+}
+const now = () => Math.floor(Date.now() / 1000);
+export async function reportDigest(value: string): Promise<string> {
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(hash), (n) => n.toString(16).padStart(2, '0')).join('');
+}
+export function reportDB(env: Env): ReportsDatabase {
+  if (!env.REPORTS_DB) throw new HttpError(503, 'Reports are unavailable');
+  return env.REPORTS_DB;
+}
+export const sql = (db: ReportsDatabase, text: string, ...values: (string | number | null)[]) =>
+  db.prepare(text).bind(...values);
+export async function reportRow(db: ReportsDatabase, id: string): Promise<ReportRow> {
+  const row = await sql(db, 'SELECT * FROM reports WHERE id=?', id).first<ReportRow>();
+  if (!row) throw new HttpError(404, 'Report not found');
+  return row;
+}
+export function reportAccess(access: Access | undefined, lang?: string): void {
+  if (
+    !access ||
+    (lang && access.role === 'translator' && !access.languages?.some((l) => l === lang))
+  )
+    throw new HttpError(403, 'Permission denied');
+}
+export function reportMaintainer(access: Access | undefined): void {
+  if (access?.role !== 'maintainer') throw new HttpError(403, 'Maintainer role required');
+}
+const catalogSchema = z.object({
+  sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
+  items: z.record(
+    z.string(),
+    z.object({
+      owner: z.number().int().min(0).max(0xffffffff),
+      langs: z.array(langSchema),
+      variant: z.string().regex(/^(base|enhanced|override:\d+)$/),
+    }),
+  ),
+});
+let catalogCache: { key: string; until: number; data: z.infer<typeof catalogSchema> } | undefined;
+async function catalog(env: Env) {
+  const key = `${env.GITHUB_OWNER}/${env.GITHUB_REPO}`;
+  if (catalogCache?.key === key && catalogCache.until > Date.now()) return catalogCache.data;
+  try {
+    const response = await fetch(
+      `https://raw.githubusercontent.com/${key}/editor-data-bundle/report-items.worker.json`,
+      { signal: AbortSignal.timeout(5000) },
+    );
+    if (!response.ok) throw new Error('Catalog unavailable');
+    const data = catalogSchema.parse(await response.json());
+    catalogCache = { key, data, until: Date.now() + 300_000 };
+    return data;
+  } catch {
+    if (catalogCache?.key === key) return catalogCache.data;
+    throw new HttpError(503, 'Reports are unavailable');
+  }
+}
+
+/** Canonicalises equivalent IPv6 spellings through the URL parser before /64 masking. */
+export function reportIP(ip: string): string {
+  if (!ip.includes(':')) return ip;
+  let host: string;
+  try {
+    host = new URL(`http://[${ip}]/`).hostname.slice(1, -1);
+  } catch {
+    throw new HttpError(400, 'Invalid client address');
+  }
+  const [left, right] = host.split('::');
+  const a = left ? left.split(':') : [];
+  const b = right ? right.split(':') : [];
+  const words =
+    right !== undefined ? [...a, ...Array<string>(8 - a.length - b.length).fill('0'), ...b] : a;
+  return words
+    .slice(0, 4)
+    .map((s) => Number.parseInt(s, 16).toString(16))
+    .join(':');
+}
+type Limit = { key: string; cap: number; expires: number };
+async function admission(
+  request: Request,
+  env: Env,
+  db: ReportsDatabase,
+  user: Identity | undefined,
+  access: Access | undefined,
+): Promise<Limit[]> {
+  const time = now(),
+    day = Math.floor(time / 86400),
+    expires = (day + 1) * 86400;
+  const settings = await db
+    .prepare("SELECT key,value FROM meta WHERE key IN ('pause_all','pause_anonymous')")
+    .all<{ key: string; value: string }>();
+  if (settings.results.some((r) => r.value === '1' && (r.key === 'pause_all' || !user)))
+    throw new HttpError(503, 'Reports are paused');
+  if (
+    user &&
+    (await sql(db, 'SELECT reporter_id FROM blocked WHERE reporter_id=?', user.id).first())
+  )
+    throw new HttpError(403, 'Reporting is blocked');
+  // A single salt row is replaced daily. Concurrent isolates read back the winning salt.
+  await sql(
+    db,
+    "INSERT INTO meta(key,value) VALUES('daily_salt',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE substr(meta.value,1,instr(meta.value,':')-1) <> ?",
+    `${day}:${crypto.randomUUID()}`,
+    String(day),
+  ).run();
+  const salt = await db
+    .prepare("SELECT value FROM meta WHERE key='daily_salt'")
+    .first<{ value: string }>();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(salt!.value),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const ip = request.headers.get('CF-Connecting-IP');
+  if (!ip) throw new HttpError(503, 'Client address unavailable');
+  const hmac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(reportIP(ip)));
+  const hashed = Array.from(new Uint8Array(hmac), (b) => b.toString(16).padStart(2, '0')).join('');
+  const limits = [
+    {
+      key: `ip10m:${hashed}:${Math.floor(time / 600)}`,
+      cap: 3,
+      expires: (Math.floor(time / 600) + 1) * 600,
+    },
+    { key: `ipday:${hashed}:${day}`, cap: 20, expires },
+  ];
+  if (user) limits.push({ key: `acc:${user.id}:${day}`, cap: 20, expires });
+  if (!access) limits.push({ key: `global:${day}`, cap: 500, expires });
+  await checkLimits(db, limits);
+  return limits;
+}
+async function checkLimits(db: ReportsDatabase, limits: Limit[]) {
+  const rows = await sql(
+    db,
+    `SELECT key,count,cap FROM limits WHERE key IN (${limits.map(() => '?').join(',')})`,
+    ...limits.map((l) => l.key),
+  ).all<{ key: string; count: number; cap: number }>();
+  const full = limits.find((l) => rows.results.some((r) => r.key === l.key && r.count >= r.cap));
+  if (full)
+    throw new HttpError(
+      full.key.startsWith('global:') ? 503 : 429,
+      full.key.startsWith('global:') ? 'Reports are paused' : 'Report limit reached',
+      { key: full.key.split(':')[0], retry_after: Math.max(1, full.expires - now()) },
+    );
+}
+function limitStatements(db: ReportsDatabase, limits: Limit[]) {
+  return limits.map((l) =>
+    sql(
+      db,
+      'INSERT INTO limits(key,count,cap,expires_at) VALUES(?,1,?,?) ON CONFLICT(key) DO UPDATE SET count=count+1',
+      l.key,
+      l.cap,
+      l.expires,
+    ),
+  );
+}
+async function turnstile(env: Env, token: string | undefined) {
+  if (!env.TURNSTILE_SECRET || !token) throw new HttpError(400, 'Human check required');
+  try {
+    const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      body: new URLSearchParams({ secret: env.TURNSTILE_SECRET, response: token }),
+      signal: AbortSignal.timeout(5000),
+    });
+    const data = z
+      .object({
+        success: z.boolean(),
+        hostname: z.string().optional(),
+        action: z.string().optional(),
+      })
+      .parse(await response.json());
+    const hosts = siteOrigins(env).map((s) => new URL(s).hostname);
+    if (new URL(env.SITE_ORIGIN).hostname === 'localhost') hosts.push('localhost');
+    if (
+      !response.ok ||
+      !data.success ||
+      data.action !== 'report' ||
+      !hosts.includes(data.hostname ?? '')
+    )
+      throw new Error('Failed check');
+  } catch {
+    throw new HttpError(400, 'Human check failed; retry');
+  }
+}
+async function submit(
+  request: Request,
+  env: Env,
+  db: ReportsDatabase,
+  user: Identity | undefined,
+  access: Access | undefined,
+) {
+  const input = await body(request, reportSubmissionSchema, 8192);
+  const { turnstile: token, ...payload } = input;
+  const payloadHash = await reportDigest(
+    stableStringify({ ...payload, reporter_id: user?.id ?? null }),
+  );
+  const retry = async () => {
+    const old = await sql(
+      db,
+      'SELECT id,status,payload_hash FROM reports WHERE request_id=?',
+      input.request_id,
+    ).first<{ id: string; status: string; payload_hash: string }>();
+    if (!old) return null;
+    if (old.payload_hash !== payloadHash)
+      throw new HttpError(409, 'Request id belongs to a different report');
+    return json({ id: old.id, status: old.status });
+  };
+  const existing = await retry();
+  if (existing) return existing;
+  const limits = await admission(request, env, db, user, access);
+  const items = await catalog(env),
+    item = items.items[input.viewed_hash];
+  if (!item) throw new HttpError(422, 'Unknown tooltip');
+  const lang = item.langs.includes(input.lang)
+    ? input.lang
+    : item.langs.includes('en')
+      ? 'en'
+      : null;
+  if (!lang) throw new HttpError(422, 'Tooltip has no reportable text');
+  if (!access) await turnstile(env, token);
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz234567';
+  const id =
+    'r-' + Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => alphabet[b & 31]).join('');
+  const time = now();
+  const statements = [
+    ...limitStatements(db, limits),
+    sql(
+      db,
+      `INSERT INTO reports(id,owner_hash,viewed_hash,variant,lang,seen_lang,rev,data_commit,category,note,source_url,src,reporter_id,reporter_login,trust,withdraw_hash,request_id,payload_hash,created_at,updated_at,links) VALUES(${Array(21).fill('?').join(',')})`,
+      id,
+      item.owner,
+      input.viewed_hash,
+      item.variant,
+      lang,
+      input.seen_lang ?? (lang !== input.lang ? input.lang : null),
+      input.rev,
+      input.data_commit,
+      input.category,
+      input.note,
+      input.source_url ?? null,
+      input.src ?? null,
+      user?.id ?? null,
+      user?.login ?? null,
+      access ? 'role' : user ? 'account' : 'anonymous',
+      await reportDigest(input.withdraw_secret),
+      input.request_id,
+      payloadHash,
+      time,
+      time,
+      JSON.stringify(input.links),
+    ),
+    ...input.notes.map((n, index) => noteStatement(db, id, index + 1, n)),
+    sql(
+      db,
+      "INSERT INTO events(report_id,at,actor_id,actor_login,action,to_status) VALUES(?,?,?,?,'submit','open')",
+      id,
+      time,
+      user?.id ?? null,
+      user?.login ?? null,
+    ),
+  ];
+  try {
+    await db.batch(statements);
+  } catch (error) {
+    const raced = await retry();
+    if (raced) return raced;
+    if (String(error).includes('CHECK constraint')) await checkLimits(db, limits);
+    throw new HttpError(503, 'Reports are unavailable');
+  }
+  return json({ id, status: 'open' }, 201);
+}
+function noteStatement(
+  db: ReportsDatabase,
+  id: string,
+  n: number,
+  note: ReportSubmission['notes'][number],
+) {
+  const a = note.anchor;
+  return sql(
+    db,
+    'INSERT INTO notes(report_id,n,category,text,exact,prefix,suffix,start,end,line,whole) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+    id,
+    n,
+    note.category,
+    note.text,
+    a?.exact ?? null,
+    a?.prefix ?? null,
+    a?.suffix ?? null,
+    a?.start ?? null,
+    a?.end ?? null,
+    a?.line ?? null,
+    a ? 0 : 1,
+  );
+}
+export async function reportOwn(
+  row: ReportRow,
+  user: Identity | undefined,
+  secret: string | undefined,
+) {
+  if (user && user.id === row.reporter_id) return true;
+  if (!row.reporter_id && secret && row.withdraw_hash) {
+    const digest = await reportDigest(secret);
+    // Compare fixed-size digests without an early return on differing bytes.
+    let diff = 0;
+    for (let i = 0; i < 64; i++) diff |= digest.charCodeAt(i) ^ row.withdraw_hash.charCodeAt(i);
+    return diff === 0;
+  }
+  return false;
+}
+async function detail(db: ReportsDatabase, row: ReportRow) {
+  const notes = await sql(db, 'SELECT * FROM notes WHERE report_id=? ORDER BY n', row.id).all();
+  const { withdraw_hash: _withdraw, payload_hash: _payload, request_id: _request, ...safe } = row;
+  void _withdraw;
+  void _payload;
+  void _request;
+  const reporter = row.reporter_id === null ? null : await sql(db,'SELECT filed,accepted,rejected FROM reporters WHERE id=?',row.reporter_id).first();
+  return { ...safe, notes: notes.results, reporter_history: reporter };
+}
+
+export async function reports(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url),
+    path = url.pathname,
+    method = request.method;
+  const db = reportDB(env);
+  // Public endpoints do not resolve an identity or access GitHub.
+  if (method === 'GET' && path === '/reports/public') {
+    const hash = hashParam(url.searchParams.get('hash') ?? '');
+    const lang = langSchema.parse(url.searchParams.get('lang'));
+    return json(
+      (
+        await sql(
+          db,
+          "SELECT n.n,r.category,r.status,r.created_at AS age,r.variant,r.rev,n.start,n.end FROM reports r JOIN notes n ON n.report_id=r.id WHERE r.owner_hash=? AND r.lang=? AND r.status IN ('open','triaged') LIMIT 100",
+          hash,
+          lang,
+        ).all()
+      ).results,
+    );
+  }
+  const receipt = /^\/reports\/r\/(r-[a-z2-7]{8})(?:\/(view|withdraw))?$/.exec(path);
+  if (receipt && method === 'GET' && !receipt[2]) {
+    const row = await sql(
+      db,
+      'SELECT status,closed_note FROM reports WHERE id=?',
+      receipt[1],
+    ).first();
+    if (!row) throw new HttpError(404, 'Report not found');
+    return json(row);
+  }
+  const user = request.headers.has('Authorization') ? await identity(request, env) : undefined;
+  let access: Access | undefined;
+  if (user) {
+    const github = new GitHub(env);
+    access = (await permissions(github, await github.head())).users[String(user.id)];
+  }
+  if (path === '/reports' && method === 'POST') return submit(request, env, db, user, access);
+  if (receipt && method === 'POST' && receipt[2]) {
+    const input = await body(
+      request,
+      z.object({ secret: z.string().max(128).optional() }).strict(),
+      512,
+    );
+    const row = await reportRow(db, receipt[1]);
+    const own = await reportOwn(row, user, input.secret);
+    if (receipt[2] === 'view') {
+      if (!own) reportAccess(access, row.lang);
+      return json(await detail(db, row));
+    }
+    if (!own) throw new HttpError(403, 'Receipt access denied');
+    if (!['open', 'triaged', 'withdrawn'].includes(row.status))
+      throw new HttpError(409, 'Only open reports may be withdrawn');
+    await deleteReportFiles(env, row.id);
+    const result = await db.batch([
+      sql(
+        db,
+        "UPDATE reports SET status='withdrawn',note='',links='[]',source_url=NULL,src=NULL,reporter_login=NULL,closed_note=NULL,version=version+1,updated_at=? WHERE id=? AND status IN ('open','triaged') AND version=?",
+        now(),
+        row.id,
+        row.version,
+      ),
+      sql(
+        db,
+        "DELETE FROM notes WHERE report_id=? AND EXISTS(SELECT 1 FROM reports WHERE id=? AND status='withdrawn')",
+        row.id,
+        row.id,
+      ),
+      sql(
+        db,
+        "DELETE FROM events WHERE report_id=? AND EXISTS(SELECT 1 FROM reports WHERE id=? AND status='withdrawn')",
+        row.id,
+        row.id,
+      ),
+    ]);
+    if (!result[0].meta.changes && row.status !== 'withdrawn')
+      throw new HttpError(409, 'Report changed; reload');
+    return json({ id: row.id, status: 'withdrawn' });
+  }
+  if (method === 'GET' && path === '/reports/mine') {
+    if (!user) throw new HttpError(401, 'Sign in required');
+    return json(
+      (
+        await sql(
+          db,
+          'SELECT id,status,owner_hash,lang,created_at,updated_at,closed_note FROM reports WHERE reporter_id=? ORDER BY created_at DESC LIMIT 200',
+          user.id,
+        ).all()
+      ).results,
+    );
+  }
+  const attachment = /^\/reports\/(r-[a-z2-7]{8})\/files(?:\/([1-3]))?$/.exec(path);
+  if (attachment) {
+    if (!user) throw new HttpError(401, 'Sign in required');
+    const row = await reportRow(db, attachment[1]),
+      files = env.REPORTS_FILES_DB;
+    if (!files) throw new HttpError(503, 'Attachments are unavailable');
+    const own = row.reporter_id === user.id;
+    if (method === 'GET' && attachment[2]) {
+      if (!own) reportAccess(access, row.lang);
+      if (['spam', 'withdrawn'].includes(row.status))
+        throw new HttpError(404, 'Screenshot unavailable');
+      const file = await sql(
+        files,
+        'SELECT mime,bytes FROM files WHERE report_id=? AND n=?',
+        row.id,
+        Number(attachment[2]),
+      ).first<{ mime: string; bytes: number[] }>();
+      if (!file) throw new HttpError(404, 'Screenshot unavailable');
+      return new Response(Uint8Array.from(file.bytes), {
+        headers: {
+          'Content-Type': file.mime,
+          'Cache-Control': 'private, max-age=3600',
+          'X-Content-Type-Options': 'nosniff',
+          'Content-Security-Policy': "default-src 'none'; sandbox",
+          'Content-Disposition': 'inline',
+        },
+      });
+    }
+    if (method === 'DELETE' && attachment[2]) {
+      if (!(own && ['open', 'triaged'].includes(row.status))) reportMaintainer(access);
+      await sql(
+        files,
+        'DELETE FROM files WHERE report_id=? AND n=?',
+        row.id,
+        Number(attachment[2]),
+      ).run();
+      await sql(
+        db,
+        "INSERT INTO events(report_id,at,actor_id,actor_login,action) VALUES(?,?,?,?,'delete-attachment')",
+        row.id,
+        now(),
+        user.id,
+        user.login,
+      ).run();
+      return json({ deleted: true });
+    }
+    if (method === 'POST' && !attachment[2]) {
+      if (!own) throw new HttpError(403, 'Only the reporter may upload');
+      if (
+        !['open', 'triaged'].includes(row.status) ||
+        now() - row.created_at > 600 ||
+        request.headers.get('X-Report-Request-Id') !== row.request_id
+      )
+        throw new HttpError(403, 'Upload key expired or invalid');
+      const image = reportImage(await reportImageBody(request));
+      if (request.headers.get('Content-Type') !== image.mime)
+        throw new HttpError(415, 'Screenshot type does not match');
+      const size = await files
+        .prepare("SELECT value FROM meta WHERE key='size_after'")
+        .first<{ value: string }>();
+      if (Number(size?.value ?? 0) > 450_000_000)
+        throw new HttpError(503, 'Attachments are full; link a video instead');
+      const day = Math.floor(now() / 86400),
+        key = `files:${user.id}:${day}`;
+      const hash = await crypto.subtle.digest('SHA-256', Uint8Array.from(image.bytes));
+      const sha = Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, '0')).join('');
+      try {
+        const result = await files.batch([
+          sql(
+            files,
+            'INSERT INTO limits VALUES(?,1,30,?) ON CONFLICT(key) DO UPDATE SET count=count+1',
+            key,
+            (day + 1) * 86400,
+          ),
+          files
+            .prepare(
+              'INSERT INTO files(report_id,n,reporter_id,mime,size,sha256,created_at,bytes) SELECT ?,COALESCE((SELECT n FROM (SELECT 1 n UNION SELECT 2 UNION SELECT 3) WHERE n NOT IN (SELECT n FROM files WHERE report_id=?) ORDER BY n LIMIT 1),4),?,?,?,?,?,?',
+            )
+            .bind(
+              row.id,
+              row.id,
+              user.id,
+              image.mime,
+              image.bytes.length,
+              sha,
+              now(),
+              Uint8Array.from(image.bytes).buffer,
+            ),
+        ]);
+        await sql(
+          files,
+          "UPDATE meta SET value=? WHERE key='size_after'",
+          String(result[1].meta.size_after ?? 0),
+        ).run();
+      } catch (error) {
+        if (String(error).includes('CHECK constraint'))
+          throw new HttpError(429, 'Screenshot limit reached');
+        throw new HttpError(503, 'Attachments are unavailable');
+      }
+      const current = await sql(
+        db,
+        "UPDATE reports SET files_count=files_count+1,files_bytes=files_bytes+? WHERE id=? AND status IN ('open','triaged')",
+        image.bytes.length,
+        row.id,
+      ).run();
+      if (!current.meta.changes) {
+        await deleteReportFiles(env, row.id);
+        throw new HttpError(409, 'Report is no longer open');
+      }
+      return json({ uploaded: true }, 201);
+    }
+  }
+  reportAccess(access);
+  if (method === 'GET' && path === '/reports/index') {
+    const cached = await db
+      .prepare("SELECT value FROM meta WHERE key='marker_rev'")
+      .first<{ value: string }>();
+    const headers = {
+      ETag: `"${cached!.value}"`,
+      'Cache-Control': 'private, max-age=300',
+      Vary: 'Authorization',
+      'Access-Control-Expose-Headers': 'ETag',
+    };
+    if (request.headers.get('If-None-Match') === headers.ETag)
+      return new Response(null, { status: 304, headers });
+    // Snapshot revision and counts together: never label an old snapshot with a new revision.
+    const result = await db.batch([
+      db.prepare("SELECT value FROM meta WHERE key='marker_rev'"),
+      db.prepare('SELECT owner_hash,lang,n FROM open_counts WHERE n>0'),
+    ]);
+    // D1 batch read results have the same result shape as all().
+    const rows = result;
+    const rev = String(rows[0].results[0].value),
+      etag = `"${rev}"`;
+    headers.ETag = etag;
+    const open: Record<string, Record<string, number>> = {};
+    for (const row of rows[1].results) (open[row.owner_hash] ??= {})[row.lang] = Number(row.n);
+    return new Response(JSON.stringify({ v: 1, rev, open }), {
+      headers: { ...headers, 'Content-Type': 'application/json' },
+    });
+  }
+  if (method === 'GET' && path === '/reports') {
+    const hash = hashParam(url.searchParams.get('hash') ?? '');
+    const lang = langSchema.parse(url.searchParams.get('lang'));
+    reportAccess(access, lang);
+    const rows = await sql(
+      db,
+      'SELECT * FROM reports WHERE owner_hash=? AND lang=? ORDER BY created_at DESC LIMIT 200',
+      hash,
+      lang,
+    ).all<ReportRow>();
+    const notes = await sql(db,'SELECT n.* FROM notes n JOIN reports r ON r.id=n.report_id WHERE r.owner_hash=? AND r.lang=? ORDER BY n.n LIMIT 1000',hash,lang).all<{report_id:string}>();
+    const histories = await sql(db,'SELECT * FROM reporters WHERE id IN (SELECT reporter_id FROM reports WHERE owner_hash=? AND lang=?)',hash,lang).all<{id:number}>();
+    return json(rows.results.map((row) => {
+      const {withdraw_hash: _withdraw, payload_hash: _payload, request_id: _request, ...safe} = row;
+      void _withdraw; void _payload; void _request;
+      return {...safe,notes:notes.results.filter((n) => n.report_id===row.id),reporter_history:histories.results.find((h) => h.id===row.reporter_id) ?? null};
+    }));
+  }
+  if (method === 'GET' && path === '/reports/admin') {
+    reportMaintainer(access);
+    if (!env.REPORTS_FILES_DB) throw new HttpError(503,'Attachments are unavailable');
+    return json({files:await env.REPORTS_FILES_DB.prepare("SELECT value AS size_after FROM meta WHERE key='size_after'").first()});
+  }
+  if (method === 'GET' && path === '/reports/list') {
+    const conditions: string[] = [],
+      values: (string | number)[] = [];
+    if (access!.role === 'translator') {
+      const langs = access!.languages ?? [];
+      if (!langs.length) return json({ rows: [], cursor: null });
+      conditions.push(`lang IN (${langs.map(() => '?').join(',')})`);
+      values.push(...langs);
+    }
+    for (const key of ['status', 'lang', 'category'] as const) {
+      const value = url.searchParams.get(key);
+      if (value) {
+        conditions.push(`${key}=?`);
+        values.push(value);
+      }
+    }
+    const cursor = url.searchParams.get('cursor');
+    if (cursor) {
+      conditions.push('id>?');
+      values.push(cursor);
+    }
+    const result = await sql(
+      db,
+      `SELECT id,owner_hash,lang,status,category,created_at,updated_at,trust,reporter_id,reporter_login,version FROM reports ${conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''} ORDER BY id LIMIT 201`,
+      ...values,
+    ).all();
+    const rows = result.results.slice(0, 200);
+    return json({ rows, cursor: result.results.length > 200 ? rows.at(-1)?.id : null });
+  }
+  if (method === 'POST' && path === '/reports/admin') {
+    reportMaintainer(access);
+    const input = await body(
+      request,
+      z.discriminatedUnion('action', [
+        z
+          .object({
+            action: z.literal('pause'),
+            scope: z.enum(['all', 'anonymous']),
+            value: z.boolean(),
+          })
+          .strict(),
+        z
+          .object({ action: z.enum(['block', 'unblock']), id: z.number().int().positive() })
+          .strict(),
+        z.object({ action: z.literal('purge-now') }).strict(),
+      ]),
+      512,
+    );
+    if (input.action === 'pause')
+      await sql(
+        db,
+        'UPDATE meta SET value=? WHERE key=?',
+        input.value ? '1' : '0',
+        `pause_${input.scope}`,
+      ).run();
+    else if (input.action === 'block')
+      await sql(
+        db,
+        'INSERT OR REPLACE INTO blocked(reporter_id,by,at) VALUES(?,?,?)',
+        input.id,
+        user!.login,
+        now(),
+      ).run();
+    else if (input.action === 'unblock')
+      await sql(db, 'DELETE FROM blocked WHERE reporter_id=?', input.id).run();
+    else await purgeReports(env);
+    return json({ ok: true });
+  }
+  const item = /^\/reports\/(r-[a-z2-7]{8})(?:\/(action))?$/.exec(path);
+  if (item) {
+    const row = await reportRow(db, item[1]);
+    reportAccess(access, row.lang);
+    if (method === 'DELETE' && !item[2]) {
+      reportMaintainer(access);
+      await deleteReportFiles(env, row.id);
+      await sql(db, 'DELETE FROM reports WHERE id=?', row.id).run();
+      return json({ deleted: true });
+    }
+    if (method === 'POST' && item[2]) {
+      const input = await body(request, reportActionSchema, 8192);
+      if (input.expected_version !== row.version)
+        throw new HttpError(409, 'Report changed; reload');
+      if (row.status === 'withdrawn') throw new HttpError(409, 'Report withdrawn');
+      const fields: string[] = [],
+        params: (string | number | null)[] = [];
+      const set = (key: string, value: string | number | null) => {
+        fields.push(`${key}=?`);
+        params.push(value);
+      };
+      const active = ['open', 'triaged'].includes(row.status);
+      let status = row.status;
+      if (input.action === 'triage') {
+        if (!active) throw new HttpError(409, 'Report is resolved');
+        status = 'triaged';
+      }
+      if (input.action === 'claim') {
+        if (!active) throw new HttpError(409, 'Report is resolved');
+        set('claimed_by', user!.login);
+        status = 'triaged';
+      }
+      if (input.action === 'resolve') {
+        if (!active || !input.commit || !input.publishable)
+          throw new HttpError(400, 'Open report, commit, and publishable hash required');
+        const github = new GitHub(env),
+          head = await github.head();
+        const query = new URLSearchParams({
+          sha: head,
+          path: `tooltips/${row.owner_hash}.json`,
+          per_page: '1',
+        });
+        const history = historySchema.parse(await github.result(`/commits?${query}`));
+        const [file, aliases] = await github.files(
+          [`tooltips/${row.owner_hash}.json`, 'aliases.json'],
+          head,
+        );
+        if (
+          history[0]?.sha !== input.commit ||
+          !file ||
+          (await publishableHash(
+            tooltipSchema.parse(file.value),
+            aliasesSchema.parse(aliases?.value ?? {}),
+          )) !== input.publishable
+        )
+          throw new HttpError(409, 'Fix does not match the latest tooltip save');
+        status = 'fixed';
+        set('fix_commit', input.commit);
+        set('fix_publishable', input.publishable);
+        set('fixed_by', user!.login);
+        set('fixed_at', now());
+        set('published_at', null);
+      }
+      if (input.action === 'confirmPublished') {
+        if (row.status !== 'fixed' || input.publishable !== row.fix_publishable)
+          throw new HttpError(409, 'Fix evidence changed');
+        const github = new GitHub(env),
+          head = await github.head();
+        const pushed = pushedSchema.parse(
+          (await github.requiredFile('live/pushed.json', head)).value,
+        );
+        if (pushed[row.owner_hash] !== input.publishable)
+          throw new HttpError(409, 'Fix is not published');
+        if (!row.published_at) set('published_at', now());
+      }
+      if (input.action === 'reopen') {
+        if (active) throw new HttpError(409, 'Report already open');
+        status = 'open';
+        set('published_at', null);
+      }
+      if (input.action === 'close') status = 'closed';
+      if (input.action === 'reject') {
+        if (!input.reason) throw new HttpError(400, 'Reason required');
+        status = 'rejected';
+        set('closed_note', input.reason);
+      }
+      if (input.action === 'duplicate') {
+        if (!input.of || input.of === row.id) throw new HttpError(400, 'Duplicate target required');
+        const target = await reportRow(db, input.of);
+        reportAccess(access, target.lang);
+        if (
+          target.owner_hash !== row.owner_hash ||
+          target.lang !== row.lang ||
+          ['duplicate', 'withdrawn', 'spam'].includes(target.status)
+        )
+          throw new HttpError(400, 'Invalid duplicate target');
+        status = 'duplicate';
+        set('duplicate_of', target.id);
+      }
+      if (input.action === 'spam') {
+        reportMaintainer(access);
+        await deleteReportFiles(env, row.id);
+        status = 'spam';
+      }
+      if (input.action === 'closedNote') {
+        if (input.text === undefined) throw new HttpError(400, 'Text required');
+        set('closed_note', input.text);
+      }
+      const extra: ReportStatement[] = [];
+      if (input.action === 'reanchor') {
+        if (!input.n || !input.anchor) throw new HttpError(400, 'Note and anchor required');
+        const note = await sql(
+          db,
+          'SELECT n FROM notes WHERE report_id=? AND n=?',
+          row.id,
+          input.n,
+        ).first();
+        if (!note) throw new HttpError(404, 'Note not found');
+        const a = input.anchor;
+        extra.push(
+          sql(
+            db,
+            'UPDATE notes SET prev_exact=exact,prev_prefix=prefix,prev_suffix=suffix,prev_start=start,prev_end=end,exact=?,prefix=?,suffix=?,start=?,end=?,line=?,whole=0 WHERE report_id=? AND n=? AND changes()>0',
+            a.exact,
+            a.prefix,
+            a.suffix,
+            a.start,
+            a.end,
+            a.line,
+            row.id,
+            input.n,
+          ),
+        );
+        set('rev', a.rev);
+      }
+      set('status', status);
+      set('updated_at', now());
+      const result = await db.batch([
+        sql(
+          db,
+          `UPDATE reports SET ${fields.join(',')},version=version+1 WHERE id=? AND version=?`,
+          ...params,
+          row.id,
+          row.version,
+        ),
+        ...extra,
+        sql(
+          db,
+          'INSERT INTO events(report_id,at,actor_id,actor_login,action,from_status,to_status,reason) SELECT ?,?,?,?,?,?,?,? WHERE changes()>0',
+          row.id,
+          now(),
+          user!.id,
+          user!.login,
+          input.action,
+          row.status,
+          status,
+          input.reason ?? null,
+        ),
+      ]);
+      if (!result[0].meta.changes) throw new HttpError(409, 'Report changed; reload');
+      return json({ id: row.id, status, version: row.version + 1 });
+    }
+  }
+  throw new HttpError(404, 'Endpoint not found');
+}
+export async function deleteReportFiles(env: Env, id: string) {
+  if (!env.REPORTS_FILES_DB) throw new HttpError(503, 'Attachments are unavailable');
+  await sql(env.REPORTS_FILES_DB, 'DELETE FROM files WHERE report_id=?', id).run();
+}
+
+/** Bounded per invocation; files are deleted first, so a failed delete preserves the report. */
+export async function purgeReports(env: Env) {
+  const db = reportDB(env),
+    time = now();
+  const candidates = await sql(
+    db,
+    `SELECT * FROM reports WHERE (status IN ('open','triaged') AND updated_at<?) OR (status='spam' AND updated_at<?) OR (status NOT IN ('open','triaged') AND updated_at<?) ORDER BY updated_at LIMIT 8`,
+    time - 365 * 86400,
+    time - 7 * 86400,
+    time - 180 * 86400,
+  ).all<ReportRow>();
+  for (const row of candidates.results) {
+    await deleteReportFiles(env, row.id);
+    if (['open', 'triaged'].includes(row.status))
+      await sql(
+        db,
+        "UPDATE reports SET status='closed',closed_note='stale',version=version+1,updated_at=? WHERE id=? AND version=?",
+        time,
+        row.id,
+        row.version,
+      ).run();
+    else await sql(db, 'DELETE FROM reports WHERE id=? AND version=?', row.id, row.version).run();
+  }
+  await db.batch([
+    sql(
+      db,
+      'DELETE FROM limits WHERE key IN (SELECT key FROM limits WHERE expires_at<? LIMIT 100)',
+      time,
+    ),
+    sql(
+      db,
+      "DELETE FROM meta WHERE key='daily_salt' AND substr(value,1,instr(value,':')-1)<>?",
+      String(Math.floor(time / 86400)),
+    ),
+  ]);
+  if (env.REPORTS_FILES_DB) {
+    const files = await env.REPORTS_FILES_DB.prepare(
+      'SELECT DISTINCT report_id FROM files ORDER BY created_at LIMIT 20',
+    ).all<{ report_id: string }>();
+    for (const file of files.results) {
+      const row = await sql(
+        db,
+        'SELECT status,updated_at FROM reports WHERE id=?',
+        file.report_id,
+      ).first<{ status: string; updated_at: number }>();
+      if (!row || (!['open', 'triaged'].includes(row.status) && row.updated_at < time - 30 * 86400))
+        await deleteReportFiles(env, file.report_id);
+    }
+    await sql(
+      env.REPORTS_FILES_DB,
+      'DELETE FROM limits WHERE key IN (SELECT key FROM limits WHERE expires_at<? LIMIT 100)',
+      time,
+    ).run();
+  }
+}

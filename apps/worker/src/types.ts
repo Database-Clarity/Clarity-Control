@@ -1,4 +1,7 @@
 export interface Env {
+  REPORTS_DB?: import('./reports.js').ReportsDatabase;
+  REPORTS_FILES_DB?: import('./reports.js').ReportsDatabase;
+  TURNSTILE_SECRET?: string;
   SITE_ORIGIN: string;
   /** Extra allowed site origins, comma-separated (CORS and sign-in return); `SITE_ORIGIN` is always allowed. */
   SITE_ORIGINS?: string;

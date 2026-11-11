@@ -17,3 +17,4 @@ export * from './status/index.js';
 export * from './compendium/index.js';
 export * from './settings.js';
 export * from './aliasGroups.js';
+export * from './reports/index.js';

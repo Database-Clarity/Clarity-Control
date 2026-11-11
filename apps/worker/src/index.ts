@@ -10,6 +10,7 @@ import { permissions } from './permissions.js';
 import { publish, publishKey, publishStatus, publishKick } from './publish.js';
 import { pushLive } from './push.js';
 import { save } from './save.js';
+import { reports, purgeReports } from './reports.js';
 import { userSettings } from './settings.js';
 import type { Context, Env } from './types.js';
 
@@ -18,6 +19,7 @@ async function route(request: Request, env: Env): Promise<Response> {
   const path = url.pathname;
   if (request.method === 'GET' && path === '/auth/login') return login(request, env);
   if (request.method === 'GET' && path === '/auth/callback') return callback(request, env);
+  if (path === '/reports' || path.startsWith('/reports/')) return reports(request, env);
   if (publisherConfig.enabled && path === '/push-live') throw new HttpError(410, 'Use /publish');
   if (!publisherConfig.enabled && ['/publish', '/publish/kick'].includes(path))
     throw new HttpError(503, 'Publisher is not enabled');
@@ -59,7 +61,13 @@ async function route(request: Request, env: Env): Promise<Response> {
   throw new HttpError(404, 'Endpoint not found');
 }
 
-const worker: { fetch(request: Request, env: Env, context: Context): Promise<Response> } = {
+const worker: {
+  fetch(request: Request, env: Env, context: Context): Promise<Response>;
+  scheduled(event: unknown, env: Env, context: Context): void;
+} = {
+  scheduled(_event, env, context) {
+    context.waitUntil(purgeReports(env));
+  },
   async fetch(request, env) {
     const origin = request.headers.get('Origin');
     const allowed = !origin || [...siteOrigins(env), 'http://localhost:5173'].includes(origin);
@@ -99,8 +107,9 @@ const worker: { fetch(request: Request, env: Env, context: Context): Promise<Res
     headers.append('Vary', 'Origin');
     if (origin && allowed) {
       headers.set('Access-Control-Allow-Origin', origin);
-      headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
-      headers.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+      const reportPath = /^\/reports(?:\/|$)/.test(new URL(request.url).pathname);
+      headers.set('Access-Control-Allow-Methods', reportPath ? 'GET, POST, PUT, DELETE, OPTIONS' : 'GET, POST, PUT, OPTIONS');
+      headers.set('Access-Control-Allow-Headers', reportPath ? 'Authorization, Content-Type, If-None-Match, X-Report-Request-Id' : 'Authorization, Content-Type');
       headers.set('Access-Control-Max-Age', '600');
     }
     headers.set('X-Content-Type-Options', 'nosniff');
