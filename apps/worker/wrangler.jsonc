@@ -20,7 +20,7 @@
       "migrations_dir": "migrations/files",
     },
   ],
-  "triggers": { "crons": ["0 0 * * *"] },
+  "triggers": { "crons": ["0 * * * *"] },
   "secrets": {
     "required": [
       "GITHUB_CLIENT_SECRET",

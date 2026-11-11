@@ -1,3 +1,4 @@
+import { reportJpegFixture, reportPngFixture, reportWebpFixture } from './reportsImages.js';
 export type BudgetSend = (
   label: string,
   path: string,
@@ -47,6 +48,7 @@ export async function reportBudgetCases(send: BudgetSend, execute: (sql: string)
   await execute('DELETE FROM limits');
   const selector = {
     ...payload,
+    viewed_hash: 124,
     request_id: crypto.randomUUID(),
     note: '',
     notes: [
@@ -62,21 +64,12 @@ export async function reportBudgetCases(send: BudgetSend, execute: (sql: string)
   await send('Receipt status', `/reports/r/${id}`);
   await send('Receipt full five notes', `/reports/r/${id}/view`, 'POST', {}, 5);
   for (const mime of ['image/jpeg', 'image/png', 'image/webp']) {
-    const image = new Uint8Array(524288),
-      view = new DataView(image.buffer);
-    if (mime === 'image/jpeg') image.set([255, 216, 255, 218]);
-    if (mime === 'image/png') {
-      image.set([137, 80, 78, 71, 13, 10, 26, 10]);
-      view.setUint32(8, image.length - 32);
-      image.set(new TextEncoder().encode('IDAT'), 12);
-      image.set(new TextEncoder().encode('IEND'), image.length - 8);
-    }
-    if (mime === 'image/webp') {
-      image.set(new TextEncoder().encode('RIFF'));
-      view.setUint32(4, image.length - 8, true);
-      image.set(new TextEncoder().encode('WEBPVP8 '), 8);
-      view.setUint32(16, image.length - 20, true);
-    }
+    const image =
+      mime === 'image/jpeg'
+        ? reportJpegFixture(524288)
+        : mime === 'image/png'
+          ? reportPngFixture(524288)
+          : reportWebpFixture(524288);
     const result = await send(`Upload 512 KiB ${mime}`, `/reports/${id}/files`, 'POST', image, 5, {
       'Content-Type': mime,
       'X-Report-Request-Id': payload.request_id,
@@ -134,5 +127,5 @@ export async function reportBudgetCases(send: BudgetSend, execute: (sql: string)
     { action: 'pause', scope: 'anonymous', value: true },
     1,
   );
-  await send('Purge bounded eight reports', '/reports/admin', 'POST', { action: 'purge-now' }, 1);
+  await send('Purge bounded 64 reports', '/reports/admin', 'POST', { action: 'purge-now' }, 1);
 }

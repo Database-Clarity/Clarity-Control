@@ -150,7 +150,7 @@ async function admission(
   db: ReportsDatabase,
   user: Identity | undefined,
   access: Access | undefined,
-): Promise<Limit[]> {
+): Promise<{ limits: Limit[]; attempt: Limit }> {
   const time = now(),
     day = Math.floor(time / 86400),
     expires = (day + 1) * 86400;
@@ -195,8 +195,13 @@ async function admission(
   ];
   if (user) limits.push({ key: `acc:${user.id}:${day}`, cap: 20, expires });
   if (!access) limits.push({ key: `global:${day}`, cap: 500, expires });
-  await checkLimits(db, limits);
-  return limits;
+  const attempt = {
+    key: `attempt10m:${hashed}:${Math.floor(time / 600)}`,
+    cap: 10,
+    expires: (Math.floor(time / 600) + 1) * 600,
+  };
+  await checkLimits(db, access ? limits : [...limits, attempt]);
+  return { limits, attempt };
 }
 async function checkLimits(db: ReportsDatabase, limits: Limit[]) {
   const rows = await sql(
@@ -239,7 +244,7 @@ async function turnstile(env: Env, token: string | undefined) {
       })
       .parse(await response.json());
     const hosts = siteOrigins(env).map((s) => new URL(s).hostname);
-    hosts.push('localhost');
+    if (env.REPORTS_ALLOW_LOCALHOST === 'true') hosts.push('localhost');
     if (
       !response.ok ||
       !data.success ||
@@ -256,7 +261,7 @@ async function submit(
   env: Env,
   db: ReportsDatabase,
   user: Identity | undefined,
-  access: Access | undefined,
+  resolveAccess: () => Promise<Access | undefined>,
 ) {
   const input = await body(request, reportSubmissionSchema, 8192);
   const { turnstile: token, ...payload } = input;
@@ -276,7 +281,8 @@ async function submit(
   };
   const existing = await retry();
   if (existing) return existing;
-  const limits = await admission(request, env, db, user, access);
+  const access = await resolveAccess();
+  const { limits, attempt } = await admission(request, env, db, user, access);
   const items = await catalog(env);
   const selected = catalogItemSchema.safeParse(items.items[input.viewed_hash], { jitless: true });
   if (!selected.success) throw new HttpError(422, 'Unknown tooltip');
@@ -287,7 +293,21 @@ async function submit(
       ? 'en'
       : null;
   if (!lang) throw new HttpError(422, 'Tooltip has no reportable text');
-  if (!access) await turnstile(env, token);
+  if (!access) {
+    // Reserve a human-check attempt before the external call. Failed checks
+    // and races cannot repeatedly consume siteverify without spending a limit.
+    try {
+      await db.batch(limitStatements(db, [attempt]));
+    } catch (error) {
+      if (String(error).includes('CHECK constraint'))
+        throw new HttpError(429, 'Human check limit reached', {
+          key: 'attempt10m',
+          retry_after: Math.max(1, attempt.expires - now()),
+        });
+      throw new HttpError(503, 'Reports are unavailable');
+    }
+    await turnstile(env, token);
+  }
   const alphabet = 'abcdefghijklmnopqrstuvwxyz234567';
   const id =
     'r-' + Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => alphabet[b & 31]).join('');
@@ -397,7 +417,26 @@ async function detail(db: ReportsDatabase, row: ReportRow) {
     'SELECT at,actor_id,actor_login,action,from_status,to_status,reason FROM events WHERE report_id=? ORDER BY at DESC LIMIT 100',
     row.id,
   ).all();
-  return { ...safe, notes: notes.results, reporter_history: reporter, events: events.results };
+  return {
+    ...safe,
+    reporter_id: row.status === 'withdrawn' ? null : row.reporter_id,
+    notes: notes.results,
+    reporter_history: row.status === 'withdrawn' ? null : reporter,
+    events: events.results,
+  };
+}
+async function reporterDetail(db: ReportsDatabase, row: ReportRow) {
+  const safe = await sql(
+    db,
+    'SELECT id,owner_hash,viewed_hash,variant,lang,seen_lang,rev,data_commit,status,category,note,source_url,src,links,created_at,updated_at,closed_note,files_count,files_bytes FROM reports WHERE id=?',
+    row.id,
+  ).first();
+  const notes = await sql(
+    db,
+    'SELECT n,category,text,exact,prefix,suffix,start,end,line,whole,rev FROM notes WHERE report_id=? ORDER BY n',
+    row.id,
+  ).all();
+  return { ...safe, notes: notes.results };
 }
 
 export async function reports(request: Request, env: Env): Promise<Response> {
@@ -436,22 +475,23 @@ export async function reports(request: Request, env: Env): Promise<Response> {
     if (!user) return undefined;
     const key = `${env.GITHUB_OWNER}/${env.GITHUB_REPO}/${env.DATA_BRANCH}`;
     if (
-      method === 'GET' &&
       reportPermissionsCache?.key === key &&
-      reportPermissionsCache.until > Date.now()
+      reportPermissionsCache.until > Date.now() &&
+      (method === 'GET' || !reportPermissionsCache.users[String(user.id)])
     )
       access = reportPermissionsCache.users[String(user.id)];
     else {
       const github = new GitHub(env);
       const config = await permissions(github, await github.head());
       access = config.users[String(user.id)];
-      if (method === 'GET')
-        reportPermissionsCache = { key, until: Date.now() + 60_000, users: config.users };
+      // A cached absence can only deny privileges. Every positive write-role
+      // decision still re-reads permissions; anonymous/account admission stays
+      // protected by Turnstile and D1 rather than spending GitHub calls per try.
+      reportPermissionsCache = { key, until: Date.now() + 60_000, users: config.users };
     }
     return access;
   };
-  if (path === '/reports' && method === 'POST')
-    return submit(request, env, db, user, await getAccess());
+  if (path === '/reports' && method === 'POST') return submit(request, env, db, user, getAccess);
   if (receipt && method === 'POST' && receipt[2]) {
     const input = await body(
       request,
@@ -461,7 +501,8 @@ export async function reports(request: Request, env: Env): Promise<Response> {
     const row = await reportRow(db, receipt[1]);
     const own = await reportOwn(row, user, input.secret);
     if (receipt[2] === 'view') {
-      if (!own) reportAccess(await getAccess(), row.lang);
+      if (own) return json(await reporterDetail(db, row));
+      reportAccess(await getAccess(), row.lang);
       return json(await detail(db, row));
     }
     if (!own) throw new HttpError(403, 'Receipt access denied');
@@ -518,12 +559,19 @@ export async function reports(request: Request, env: Env): Promise<Response> {
         throw new HttpError(404, 'Screenshot unavailable');
       const file = await sql(
         files,
-        'SELECT mime,bytes FROM files WHERE report_id=? AND n=?',
+        'SELECT mime,hex(bytes) AS hex FROM files WHERE report_id=? AND n=?',
         row.id,
         Number(attachment[2]),
-      ).first<{ mime: string; bytes: number[] }>();
+      ).first<{ mime: string; hex: string }>();
       if (!file) throw new HttpError(404, 'Screenshot unavailable');
-      return new Response(Uint8Array.from(file.bytes), {
+      const nativeHex = (
+        Uint8Array as typeof Uint8Array & { fromHex?: (text: string) => Uint8Array<ArrayBuffer> }
+      ).fromHex;
+      const bytes = nativeHex ? nativeHex(file.hex) : new Uint8Array(file.hex.length / 2);
+      if (!nativeHex)
+        for (let i = 0; i < bytes.length; i++)
+          bytes[i] = Number.parseInt(file.hex.slice(i * 2, i * 2 + 2), 16);
+      return new Response(bytes, {
         headers: {
           'Content-Type': file.mime,
           'Cache-Control': 'private, max-age=3600',
@@ -581,7 +629,7 @@ export async function reports(request: Request, env: Env): Promise<Response> {
         throw new HttpError(503, 'Attachments are full; link a video instead');
       const day = Math.floor(now() / 86400),
         key = `files:${user.id}:${day}`;
-      const hash = await crypto.subtle.digest('SHA-256', Uint8Array.from(image.bytes));
+      const hash = await crypto.subtle.digest('SHA-256', image.bytes);
       const sha = Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, '0')).join('');
       // Bind one string, then decode in SQLite: D1's byte-array binding validates
       // half a million JS numbers synchronously for a maximum-size screenshot.
@@ -692,8 +740,12 @@ export async function reports(request: Request, env: Env): Promise<Response> {
         void _request;
         return {
           ...safe,
+          reporter_id: row.status === 'withdrawn' ? null : row.reporter_id,
           notes: notes.results.filter((n) => n.report_id === row.id),
-          reporter_history: histories.results.find((h) => h.id === row.reporter_id) ?? null,
+          reporter_history:
+            row.status === 'withdrawn'
+              ? null
+              : (histories.results.find((h) => h.id === row.reporter_id) ?? null),
         };
       }),
     );
@@ -974,33 +1026,40 @@ export async function deleteReportFiles(env: Env, id: string) {
   await sql(env.REPORTS_FILES_DB, 'DELETE FROM files WHERE report_id=?', id).run();
 }
 
-/** Bounded per invocation; files are deleted first, so a failed delete preserves the report. */
+/** Hourly, bounded batches: 1536 reports/day covers the public ceiling plus role holders. */
 export async function purgeReports(env: Env) {
   const db = reportDB(env),
+    files = env.REPORTS_FILES_DB,
     time = now();
+  if (!files) throw new HttpError(503, 'Attachments are unavailable');
   const candidates = await sql(
     db,
-    `SELECT * FROM reports WHERE (status IN ('open','triaged') AND updated_at<?) OR (status='spam' AND updated_at<?) OR (status NOT IN ('open','triaged') AND updated_at<?) ORDER BY updated_at LIMIT 8`,
+    `SELECT id,status,version FROM reports WHERE (status IN ('open','triaged') AND updated_at<?) OR (status='spam' AND updated_at<?) OR (status IN ('fixed','closed','rejected','duplicate','withdrawn') AND updated_at<?) ORDER BY updated_at LIMIT 64`,
     time - 365 * 86400,
     time - 7 * 86400,
     time - 180 * 86400,
   ).all<ReportRow>();
-  for (const row of candidates.results) {
-    await deleteReportFiles(env, row.id);
-    if (['open', 'triaged'].includes(row.status))
-      await sql(
-        db,
-        "UPDATE reports SET status='closed',closed_note='stale',version=version+1,updated_at=? WHERE id=? AND version=?",
-        time,
-        row.id,
-        row.version,
-      ).run();
-    else await sql(db, 'DELETE FROM reports WHERE id=? AND version=?', row.id, row.version).run();
-  }
+  // Complete every file deletion before the report transaction; a failure
+  // leaves all report rows intact for the next invocation.
+  if (candidates.results.length)
+    await files.batch(
+      candidates.results.map((row) => sql(files, 'DELETE FROM files WHERE report_id=?', row.id)),
+    );
   await db.batch([
+    ...candidates.results.map((row) =>
+      ['open', 'triaged'].includes(row.status)
+        ? sql(
+            db,
+            "UPDATE reports SET status='closed',closed_note='stale',files_count=0,files_bytes=0,version=version+1,updated_at=? WHERE id=? AND version=?",
+            time,
+            row.id,
+            row.version,
+          )
+        : sql(db, 'DELETE FROM reports WHERE id=? AND version=?', row.id, row.version),
+    ),
     sql(
       db,
-      'DELETE FROM limits WHERE key IN (SELECT key FROM limits WHERE expires_at<? LIMIT 100)',
+      'DELETE FROM limits WHERE key IN (SELECT key FROM limits WHERE expires_at<? ORDER BY expires_at LIMIT 1000)',
       time,
     ),
     sql(
@@ -1009,33 +1068,44 @@ export async function purgeReports(env: Env) {
       String(Math.floor(time / 86400)),
     ),
   ]);
-  if (env.REPORTS_FILES_DB) {
-    const cursor = await env.REPORTS_FILES_DB.prepare(
-      "SELECT value FROM meta WHERE key='sweep_cursor'",
-    ).first<{ value: string }>();
-    const files = await sql(
-      env.REPORTS_FILES_DB,
-      'SELECT DISTINCT report_id FROM files WHERE report_id>? ORDER BY report_id LIMIT 8',
-      cursor?.value ?? '',
-    ).all<{ report_id: string }>();
-    await sql(
-      env.REPORTS_FILES_DB,
-      "INSERT INTO meta VALUES('sweep_cursor',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-      files.results.length === 8 ? files.results.at(-1)!.report_id : '',
-    ).run();
-    for (const file of files.results) {
-      const row = await sql(
+  const cursor = await files
+    .prepare("SELECT value FROM meta WHERE key='sweep_cursor'")
+    .first<{ value: string }>();
+  const page = await sql(
+    files,
+    'SELECT DISTINCT report_id FROM files WHERE report_id>? ORDER BY report_id LIMIT 64',
+    cursor?.value ?? '',
+  ).all<{ report_id: string }>();
+  const ids = page.results.map((r) => r.report_id);
+  const rows = ids.length
+    ? await sql(
         db,
-        'SELECT status,updated_at FROM reports WHERE id=?',
-        file.report_id,
-      ).first<{ status: string; updated_at: number }>();
-      if (!row || (!['open', 'triaged'].includes(row.status) && row.updated_at < time - 30 * 86400))
-        await deleteReportFiles(env, file.report_id);
-    }
-    await sql(
-      env.REPORTS_FILES_DB,
-      'DELETE FROM limits WHERE key IN (SELECT key FROM limits WHERE expires_at<? LIMIT 100)',
+        `SELECT id,status,updated_at FROM reports WHERE id IN (${ids.map(() => '?').join(',')})`,
+        ...ids,
+      ).all<ReportRow>()
+    : { results: [] };
+  const byId = new Map(rows.results.map((row) => [row.id, row]));
+  const expired = ids.filter((id) => {
+    const row = byId.get(id);
+    return (
+      !row || (!['open', 'triaged'].includes(row.status) && row.updated_at < time - 30 * 86400)
+    );
+  });
+  await files.batch([
+    ...expired.map((id) => sql(files, 'DELETE FROM files WHERE report_id=?', id)),
+    sql(
+      files,
+      'DELETE FROM limits WHERE key IN (SELECT key FROM limits WHERE expires_at<? LIMIT 1000)',
       time,
-    ).run();
-  }
+    ),
+    sql(
+      files,
+      "INSERT INTO meta VALUES('sweep_cursor',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+      ids.length === 64 ? ids.at(-1)! : '',
+    ),
+  ]);
+  if (expired.length)
+    await db.batch(
+      expired.map((id) => sql(db, 'UPDATE reports SET files_count=0,files_bytes=0 WHERE id=?', id)),
+    );
 }

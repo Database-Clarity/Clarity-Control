@@ -9,6 +9,7 @@ import { Fixture } from './fixture.js';
 import { signToken } from '../src/crypto.js';
 import { type ReportsDatabase, reportIP, purgeReports } from '../src/reports.js';
 import { reportImage } from '../src/reportsFiles.js';
+import { reportJpegFixture } from './reportsImages.js';
 
 let proxy: Awaited<
   ReturnType<
@@ -151,6 +152,93 @@ beforeEach(async () => {
   );
 });
 describe('reports local D1', () => {
+  it('accepts localhost Turnstile tokens only with the explicit local development switch', async () => {
+    const upstream = globalThis.fetch;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: RequestInfo | URL, init?: RequestInit) =>
+        String(url).includes('siteverify')
+          ? new Response(JSON.stringify({ success: true, hostname: 'localhost', action: 'report' }))
+          : upstream(url, init),
+      ),
+    );
+    expect((await call('/reports', 'POST', payload())).status).toBe(400);
+    fixture.env.REPORTS_ALLOW_LOCALHOST = 'true';
+    expect((await call('/reports', 'POST', payload())).status).toBe(201);
+  });
+  it('keeps editor and moderation identities out of reporter receipt bodies', async () => {
+    for (const reporter of [undefined, 5]) {
+      const input = payload(),
+        sent = await call('/reports', 'POST', input, reporter),
+        { id } = (await sent.json()) as { id: string };
+      expect(
+        (await call(`/reports/${id}/action`, 'POST', { action: 'claim', expected_version: 1 }, 2))
+          .status,
+      ).toBe(200);
+      const view = await call(
+        `/reports/r/${id}/view`,
+        'POST',
+        { secret: input.withdraw_secret },
+        reporter,
+      );
+      expect(view.status).toBe(200);
+      const text = await view.text();
+      for (const field of [
+        'actor_id',
+        'actor_login',
+        'claimed_by',
+        'fixed_by',
+        'reporter_history',
+        'duplicate_of',
+        'possible_duplicate_of',
+        'user2',
+        'events',
+      ])
+        expect(text).not.toContain(field);
+      expect(JSON.parse(text)).toHaveProperty('notes');
+    }
+  });
+  it('bounds failed human checks and avoids repeated GitHub lookups for null-role submitters', async () => {
+    const upstream = globalThis.fetch;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: RequestInfo | URL, init?: RequestInit) =>
+        String(url).includes('siteverify')
+          ? new Response(JSON.stringify({ success: false }))
+          : upstream(url, init),
+      ),
+    );
+    const before = fixture.subrequests;
+    for (let i = 0; i < 10; i++)
+      expect((await call('/reports', 'POST', payload(), 5)).status).toBe(400);
+    expect((await call('/reports', 'POST', payload(), 5)).status).toBe(429);
+    expect(
+      vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes('siteverify')).length,
+    ).toBe(10);
+    expect(fixture.subrequests - before).toBeLessThanOrEqual(3);
+    expect(
+      await db.prepare("SELECT count FROM limits WHERE key LIKE 'attempt10m:%'").first(),
+    ).toEqual({ count: 10 });
+  });
+  it('purges more than the designed daily report volume within one day and drains expired limit rows', async () => {
+    await db
+      .prepare(
+        "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<500) INSERT INTO reports(id,owner_hash,viewed_hash,variant,lang,rev,data_commit,category,note,trust,request_id,payload_hash,created_at,updated_at) SELECT 'retention-'||x,123,123,'base','en','aaaaaaaaaaaaaaaa','1111111111111111111111111111111111111111','other','private','anonymous','retention-'||x,'test',0,0 FROM n",
+      )
+      .run();
+    await db.prepare("UPDATE reports SET status='spam'").run();
+    await db
+      .prepare(
+        "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<250) INSERT INTO limits SELECT 'expired-'||x,1,3,0 FROM n",
+      )
+      .run();
+    await purgeReports(fixture.env);
+    expect(await db.prepare('SELECT COUNT(*) AS n FROM reports').first()).toEqual({ n: 436 });
+    expect(await db.prepare('SELECT COUNT(*) AS n FROM limits').first()).toEqual({ n: 0 });
+    for (let hour = 1; hour < 8; hour++) await purgeReports(fixture.env);
+    expect(await db.prepare('SELECT COUNT(*) AS n FROM reports').first()).toEqual({ n: 0 });
+    expect(await db.prepare('SELECT COUNT(*) AS n FROM tombstones').first()).toEqual({ n: 500 });
+  });
   it.skipIf(!process.env.REPORTS_BUDGET)(
     'handler budget proxy',
     async () => {
@@ -446,11 +534,99 @@ describe('reports local D1', () => {
     expect(await db.prepare('SELECT COUNT(*) AS n FROM notes').first()).toEqual({ n: 1 });
     fixture.env.REPORTS_FILES_DB = files;
   });
+  it('reapplies exported deletion and withdrawal privacy state to both restored databases', async () => {
+    const a = payload(),
+      b = payload();
+    const deleted = ((await (await call('/reports', 'POST', a)).json()) as { id: string }).id;
+    const withdrawn = ((await (await call('/reports', 'POST', b, 5)).json()) as { id: string }).id;
+    const snapshots = (
+      await db.prepare('SELECT * FROM reports').all<Record<string, string | number | null>>()
+    ).results;
+    const notes = (
+      await db.prepare('SELECT * FROM notes').all<Record<string, string | number | null>>()
+    ).results;
+    for (const id of [deleted, withdrawn])
+      await files
+        .prepare("INSERT INTO files VALUES(?,1,5,'image/jpeg',64,'test',0,unhex(?))")
+        .bind(id, Buffer.from(reportJpegFixture()).toString('hex'))
+        .run();
+    expect((await call(`/reports/${deleted}`, 'DELETE', undefined, 1)).status).toBe(200);
+    expect((await call(`/reports/r/${withdrawn}/withdraw`, 'POST', {}, 5)).status).toBe(200);
+    const erased = (await db.prepare('SELECT id FROM tombstones').all<{ id: string }>()).results;
+    const marker = (await db
+      .prepare("SELECT value FROM meta WHERE key='marker_rev'")
+      .first<{ value: string }>())!.value;
+    const redacted = (
+      await db.prepare("SELECT id FROM reports WHERE status='withdrawn'").all<{ id: string }>()
+    ).results;
+    await db.prepare('DELETE FROM reports').run();
+    for (const row of snapshots)
+      await db
+        .prepare(
+          `INSERT INTO reports(${Object.keys(row).join(',')}) VALUES(${Object.keys(row)
+            .map(() => '?')
+            .join(',')})`,
+        )
+        .bind(...Object.values(row))
+        .run();
+    for (const row of notes)
+      await db
+        .prepare(
+          `INSERT INTO notes(${Object.keys(row).join(',')}) VALUES(${Object.keys(row)
+            .map(() => '?')
+            .join(',')})`,
+        )
+        .bind(...Object.values(row))
+        .run();
+    for (const id of [deleted, withdrawn])
+      await files
+        .prepare("INSERT INTO files VALUES(?,1,5,'image/jpeg',64,'test',0,unhex(?))")
+        .bind(id, Buffer.from(reportJpegFixture()).toString('hex'))
+        .run();
+    // Runbook: files first for the union, then tombstone deletes and withdrawal
+    // redaction in reports. These operations are idempotent on repeated restore.
+    await db.prepare("UPDATE meta SET value='0' WHERE key='marker_rev'").run();
+    for (let pass = 0; pass < 2; pass++) {
+      for (const { id } of [...erased, ...redacted])
+        await files.prepare('DELETE FROM files WHERE report_id=?').bind(id).run();
+      for (const { id } of erased)
+        await db.prepare('DELETE FROM reports WHERE id=?').bind(id).run();
+      for (const { id } of redacted)
+        await db.batch([
+          db
+            .prepare(
+              "UPDATE reports SET status='withdrawn',note='',source_url=NULL,src=NULL,links='[]',reporter_login=NULL,closed_note=NULL,files_count=0,files_bytes=0 WHERE id=?",
+            )
+            .bind(id),
+          db.prepare('DELETE FROM notes WHERE report_id=?').bind(id),
+          db.prepare('DELETE FROM events WHERE report_id=?').bind(id),
+        ]);
+      await db
+        .prepare("UPDATE meta SET value=MAX(CAST(value AS INTEGER),?)+1 WHERE key='marker_rev'")
+        .bind(Number(marker))
+        .run();
+    }
+    expect(await db.prepare('SELECT note,status FROM reports').first()).toEqual({
+      note: '',
+      status: 'withdrawn',
+    });
+    expect(await db.prepare('SELECT COUNT(*) AS n FROM notes').first()).toEqual({ n: 0 });
+    expect(await files.prepare('SELECT COUNT(*) AS n FROM files').first()).toEqual({ n: 0 });
+    expect(
+      Number(
+        (await db
+          .prepare("SELECT value FROM meta WHERE key='marker_rev'")
+          .first<{ value: string }>())!.value,
+      ),
+    ).toBeGreaterThan(Number(marker));
+    const role = await call('/reports?hash=123&lang=en', 'GET', undefined, 1);
+    expect(await role.json()).toMatchObject([{ reporter_id: null, reporter_history: null }]);
+  });
   it('serialises concurrent uploads at three, scopes file reads, and removes files on withdrawal', async () => {
     const input = payload(),
       response = await call('/reports', 'POST', input, 5),
       { id } = (await response.json()) as { id: string };
-    const bytes = Uint8Array.from([255, 216, 255, 225, 0, 6, 1, 2, 3, 4, 255, 218, 0, 2, 255, 217]);
+    const bytes = reportJpegFixture();
     const token = await signToken(
       { purpose: 'session', id: 5, login: 'user5', exp: Math.floor(Date.now() / 1000) + 3600 },
       fixture.env.SESSION_SECRET,
