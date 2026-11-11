@@ -229,7 +229,10 @@ function TooltipWorkspace({
     setRemembered(next);
     setSearch(withLanguage(search, next));
   }
-  const globalDefinitions = useGlobalDefinitions();
+  const globalDefinitions = useGlobalDefinitions(
+    undefined,
+    [1, 2, 3].includes(hashOverride ?? Number(parameter)) && search.has('global'),
+  );
   const selectedGlobal = globalDefinitions.find(
     (entry) =>
       entry.hash === (hashOverride ?? Number(parameter)) && entry.name === search.get('global'),
@@ -498,7 +501,8 @@ function TooltipWorkspace({
   const overrideTargets = overrides.map((variant) => ({ hash: variant, name: nameOf(variant) }));
   const editing = (variant: number, base: Tooltip) => (
     <ClarityEditor
-      stepping={suspended}
+      stepping={suspended && !selectedGlobal}
+      focusHighlight={!selectedGlobal}
       value={textOf(variant)}
       lang={lang}
       globals={globalsFor(variant)}

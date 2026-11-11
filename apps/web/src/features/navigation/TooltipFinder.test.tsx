@@ -72,6 +72,9 @@ async function mount(path = '/t/10?lang=de', source: EditorData = data) {
 const field = () => host.querySelector<HTMLInputElement>('input[role="combobox"]')!;
 const options = () => [...host.querySelectorAll<HTMLElement>('[role="option"]')];
 const route = () => host.querySelector('[data-route]')!.textContent;
+async function paintGlobals() {
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 60)));
+}
 async function type(value: string) {
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field(), value);
@@ -750,11 +753,14 @@ describe('global declarations in the finder', () => {
         .getState()
         .edit(base, 'en', 'var Alpha = changed\nvar Beta = 20\nvar Gamma = new', 'test'),
     );
+    await paintGlobals();
     expect(field().value).toBe('Alpha');
     await open();
+    await paintGlobals();
     expect(options()).toHaveLength(3);
     expect(options()[0].title).toBe('changed');
     await act(async () => useDraftStore.getState().discard(2));
+    await paintGlobals();
     expect(options()).toHaveLength(2);
     expect(options()[0].title).toBe('10');
   });
@@ -766,6 +772,7 @@ describe('global declarations in the finder', () => {
     await open();
     expect(options()[0].title).toBe('changed');
     await act(async () => useDraftStore.getState().discard(2));
+    await paintGlobals();
     expect(options()[0].title).toBe('10');
   });
   it('opens the first declaration when switching global type', async () => {

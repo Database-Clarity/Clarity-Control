@@ -1,14 +1,56 @@
-import { useMemo } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 import { globalDefinitions, globalUsageEntries, createGlobalUsageProjection } from './model';
 import type { EditorData } from '../../stores/data';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 
+// Derived globals never subscribe with a resolver on the authoring store's input path.
+// Visible surfaces refresh after a presented frame; hidden surfaces do no draft work.
+const noDrafts: ReturnType<typeof useDraftStore.getState>['drafts'] = {};
+let paintedDrafts = useDraftStore.getState().drafts;
+const listeners = new Set<() => void>();
+let unsubscribeDrafts: (() => void) | undefined;
+let frame: number | undefined;
+let timer: ReturnType<typeof setTimeout> | undefined;
+function subscribePainted(listener: () => void) {
+  if (!listeners.size) {
+    paintedDrafts = useDraftStore.getState().drafts;
+    unsubscribeDrafts = useDraftStore.subscribe((state, previous) => {
+      if (state.drafts === previous.drafts || frame !== undefined || timer !== undefined) return;
+      frame = requestAnimationFrame(() => {
+        frame = undefined;
+        timer = setTimeout(() => {
+          timer = undefined;
+          paintedDrafts = useDraftStore.getState().drafts;
+          listeners.forEach((notify) => notify());
+        }, 0);
+      });
+    });
+  }
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+    if (!listeners.size) {
+      unsubscribeDrafts?.();
+      unsubscribeDrafts = undefined;
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      if (timer !== undefined) clearTimeout(timer);
+      frame = undefined;
+      timer = undefined;
+    }
+  };
+}
+const subscribeNothing = () => () => {};
+function usePaintedDrafts(enabled = true) {
+  const snapshot = () => (enabled ? paintedDrafts : noDrafts);
+  return useSyncExternalStore(enabled ? subscribePainted : subscribeNothing, snapshot, snapshot);
+}
+
 const projections = new WeakMap<object, ReturnType<typeof createGlobalUsageProjection>>();
 const noTooltips = {};
 export function useGlobals() {
   const tooltips = useDataStore((state) => state.data?.bundle.tooltips ?? noTooltips);
-  const drafts = useDraftStore((state) => state.drafts);
+  const drafts = usePaintedDrafts();
   return useMemo(() => {
     let project = projections.get(tooltips);
     if (!project) {
@@ -20,12 +62,13 @@ export function useGlobals() {
 }
 
 /** Subscribe only to aggregate definitions, so ordinary tooltip typing cannot rebuild the finder. */
-export function useGlobalDefinitions(override?: EditorData) {
+export function useGlobalDefinitions(override?: EditorData, enabled = true) {
   const stored = useDataStore((state) => state.data);
   const data = override ?? stored;
-  const variables = useDraftStore((state) => state.drafts[2]?.next);
-  const titles = useDraftStore((state) => state.drafts[3]?.next);
-  const exports = useDraftStore((state) => state.drafts[1]?.next);
+  const drafts = usePaintedDrafts(enabled);
+  const variables = drafts[2]?.next;
+  const titles = drafts[3]?.next;
+  const exports = drafts[1]?.next;
   return useMemo(
     () =>
       globalDefinitions({
@@ -38,7 +81,7 @@ export function useGlobalDefinitions(override?: EditorData) {
 }
 
 /** Finder lists change only when declaration identity changes; values update in hover leaves. */
-export function useGlobalCatalog(data: EditorData) {
+export function useGlobalCatalog(data: EditorData, live = true) {
   const select = useMemo(() => {
     let previous: ReturnType<typeof globalDefinitions> = [];
     let signature = '';
@@ -62,7 +105,11 @@ export function useGlobalCatalog(data: EditorData) {
       return previous;
     };
   }, [data]);
-  return useDraftStore(select);
+  const snapshot = () =>
+    select({ drafts: live ? paintedDrafts : noDrafts } as ReturnType<
+      typeof useDraftStore.getState
+    >);
+  return useSyncExternalStore(live ? subscribePainted : subscribeNothing, snapshot, snapshot);
 }
 
 export function useGlobalHover(
@@ -83,15 +130,15 @@ export function useGlobalHover(
 const noUsages: ReturnType<typeof globalUsageEntries>[number]['usages'] = [];
 export function useGlobalUsages(hash: number, name: string) {
   const tooltips = useDataStore((state) => state.data?.bundle.tooltips ?? noTooltips);
-  const select = useMemo(() => {
+  const snapshot = useMemo(() => {
     let project = projections.get(tooltips);
     if (!project) {
       project = createGlobalUsageProjection(tooltips);
       projections.set(tooltips, project);
     }
-    return (state: ReturnType<typeof useDraftStore.getState>) =>
-      project!(state.drafts).find((entry) => entry.hash === hash && entry.name === name)?.usages ??
+    return () =>
+      project!(paintedDrafts).find((entry) => entry.hash === hash && entry.name === name)?.usages ??
       noUsages;
   }, [tooltips, hash, name]);
-  return useDraftStore(select);
+  return useSyncExternalStore(subscribePainted, snapshot, snapshot);
 }

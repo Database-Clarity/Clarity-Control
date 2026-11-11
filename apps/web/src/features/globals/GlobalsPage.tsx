@@ -1,5 +1,5 @@
 import { languageLabel } from '../../languageLabels';
-import { memo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { globalUsageCount } from './model';
 import { useDataStore } from '../../stores/data';
@@ -86,31 +86,34 @@ export const GlobalUsages = memo(function GlobalUsages({
 }) {
   const usages = useGlobalUsages(hash, name);
   const data = useDataStore((state) => state.data);
-  return (
-    <RightPane
-      className={styles.usagePane}
-      label="Global usages"
-      header={<RightPaneHeader title="Usages" />}
-    >
-      <div className={styles.usageBody}>
-        <p>Used in {globalUsageCount([{ usages }])} tooltips.</p>
-        {!usages.length && <p>No authored references.</p>}
-        <ul className={styles.usages}>
-          {usages.map((usage) => (
-            <li key={`${usage.hash}:${usage.lang}:${usage.line}`}>
-              <Link
-                to={`/t/${data ? canonicalHash(usage.hash, data) : usage.hash}?lang=${usage.lang}&line=${usage.line}&variant=${usage.hash}`}
-              >
-                {data ? (itemFor(usage.hash, data)?.name ?? usage.hash) : usage.hash} /{' '}
-                {languageLabel(usage.lang)} / line {usage.line}
-              </Link>
-              <small>{data ? itemFor(usage.hash, data)?.categoryId : ''}</small>
-              <pre>{usage.source}</pre>
-            </li>
-          ))}
-        </ul>
-      </div>
-    </RightPane>
+  return useMemo(
+    () => (
+      <RightPane
+        className={styles.usagePane}
+        label="Global usages"
+        header={<RightPaneHeader title="Usages" />}
+      >
+        <div className={styles.usageBody}>
+          <p>Used in {globalUsageCount([{ usages }])} tooltips.</p>
+          {!usages.length && <p>No authored references.</p>}
+          <ul className={styles.usages}>
+            {usages.map((usage) => (
+              <li key={`${usage.hash}:${usage.lang}:${usage.line}`}>
+                <Link
+                  to={`/t/${data ? canonicalHash(usage.hash, data) : usage.hash}?lang=${usage.lang}&line=${usage.line}&variant=${usage.hash}`}
+                >
+                  {data ? (itemFor(usage.hash, data)?.name ?? usage.hash) : usage.hash} /{' '}
+                  {languageLabel(usage.lang)} / line {usage.line}
+                </Link>
+                <small>{data ? itemFor(usage.hash, data)?.categoryId : ''}</small>
+                <pre>{usage.source}</pre>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </RightPane>
+    ),
+    [usages, data],
   );
 });
 

@@ -425,7 +425,11 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   const base = useId();
   const listId = `${base}-list`;
   const optionId = (row: Row) => `${base}-o${row.key}`;
-  const globalDefinitions = useGlobalCatalog(data);
+  const finderLocation = useLocation();
+  const globalDefinitions = useGlobalCatalog(
+    data,
+    open || new URLSearchParams(finderLocation.search).has('global'),
+  );
   const groups = useMemo(
     () => navigationGroups(data, '', globalDefinitions),
     [data, globalDefinitions],

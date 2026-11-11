@@ -47,7 +47,8 @@ export function globalDefinitions(tooltips: Readonly<Record<string, Tooltip>>): 
         ).trim();
         const key = `${kind}:${name}`;
         const entry = entries.get(key) ?? { kind, hash, name, definitions: {}, lines: {} };
-        const body = kind === 'variables' ? match[2].trim() : match[0].split('\n').slice(1, -1).join('\n');
+        const body =
+          kind === 'variables' ? match[2].trim() : match[0].split('\n').slice(1, -1).join('\n');
         entry.definitions[lang] = kind === 'variables' && body === 'empty' ? '' : body;
         entry.lines[lang] = source.slice(0, match.index).split('\n').length;
         entries.set(key, entry);
