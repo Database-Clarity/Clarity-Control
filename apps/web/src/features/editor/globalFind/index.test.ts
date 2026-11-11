@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { EditorState } from '@codemirror/state';
+import { SearchQuery } from '@codemirror/search';
 import { FindIndex, resultLimit, snippetFor, type FindEntry, type FindOptions } from './index';
 const options: FindOptions = { search: 'cat', caseSensitive: false, wholeWord: false, raw: false };
 const entry = (hash: number, text: string, categoryId = 'a'): FindEntry => ({
@@ -11,6 +13,35 @@ const entry = (hash: number, text: string, categoryId = 'a'): FindEntry => ({
 });
 
 describe('global text index', () => {
+  it.each([
+    { name: 'punctuation word boundaries', text: 'a(cat)b', search: '(cat)' },
+    { name: 'escaped newline', text: 'a\nb', search: String.raw`a\nb` },
+    { name: 'escaped tab', text: 'a\tb', search: String.raw`a\tb` },
+    { name: 'escaped backslash', text: String.raw`C:\new`, search: String.raw`C:\\new` },
+    { name: 'decomposed query', text: 'café', search: 'cafe\u0301' },
+    { name: 'decomposed document', text: 'cafe\u0301', search: 'café' },
+    { name: 'Unicode compatibility', text: 'Kelvin KELVIN kelvin', search: 'kelvin' },
+    { name: 'Unicode word categories', text: '𐐀cat𐐀 cat', search: 'cat' },
+    { name: 'CRLF document offsets', text: 'foo\r\ncat', search: 'cat' },
+  ])('preserves widget parity for $name', ({ text, search }) => {
+    const state = EditorState.create({ doc: text });
+    const index = new FindIndex();
+    index.update([entry(1, text)]);
+    for (const caseSensitive of [false, true])
+      for (const wholeWord of [false, true]) {
+        const query = new SearchQuery({ search, caseSensitive, wholeWord });
+        const expected: { from: number; to: number }[] = [];
+        const cursor = query.getCursor(state);
+        for (let next = cursor.next(); !next.done; next = cursor.next())
+          expected.push({ from: next.value.from, to: next.value.to });
+        for (const raw of [false, true]) {
+          const results = index.query({ search, caseSensitive, wholeWord, raw }).results;
+          expect(results.map(({ from, to }) => ({ from, to }))).toEqual(expected);
+          for (const result of results)
+            expect(result.matched).toBe(state.doc.sliceString(result.from, result.to));
+        }
+      }
+  });
   it('bounds snippets at words, indicates omitted context, and collapses masked tags', () => {
     const text = 'beginning '.repeat(15) + 'before cat after ' + 'continuation '.repeat(20);
     const from = text.indexOf('cat');
@@ -44,6 +75,7 @@ describe('global text index', () => {
     expect(result[0]).toMatchObject({ from: 11, to: 14, line: 2, matched: 'cat' });
     expect(index.query({ ...options, raw: true }).results).toHaveLength(2);
     expect(index.query({ ...options, search: 'color' }).results).toHaveLength(0);
+    expect(index.query({ ...options, search: String.raw`\n` }).results).toHaveLength(0);
   });
   it('filters category, overlays changed and empty drafts, and removes discarded entries', () => {
     const index = new FindIndex();

@@ -1,3 +1,6 @@
+import { EditorState } from '@codemirror/state';
+import { SearchQuery } from '@codemirror/search';
+
 export interface FindEntry {
   hash: number;
   name: string;
@@ -59,28 +62,56 @@ export function searchableText(text: string, raw: boolean): string {
 }
 
 export class FindIndex {
-  private entries = new Map<number, { entry: FindEntry; visible: string }>();
+  private entries = new Map<
+    number,
+    {
+      entry: FindEntry;
+      raw: EditorState;
+      visible: EditorState;
+      visibleText: string;
+      tags: { from: number; to: number }[];
+    }
+  >();
 
   update(entries: FindEntry[], removed: number[] = []) {
     for (const hash of removed) this.entries.delete(hash);
-    for (const entry of entries)
-      this.entries.set(entry.hash, { entry, visible: searchableText(entry.text, false) });
+    for (const entry of entries) {
+      // The actual editor normalizes line separators on load. Keep its document offsets,
+      // including when an external source still contains CRLF or lone CR characters.
+      const raw = EditorState.create({ doc: entry.text });
+      const text = raw.doc.toString();
+      const visibleText = searchableText(text, false);
+      this.entries.set(entry.hash, {
+        entry: { ...entry, text },
+        raw,
+        visible: visibleText === text ? raw : EditorState.create({ doc: visibleText }),
+        visibleText,
+        tags: [...text.matchAll(/<[^>]*>/g)].map((tag) => ({
+          from: tag.index,
+          to: tag.index + tag[0].length,
+        })),
+      });
+    }
   }
 
   query(options: FindOptions): { results: FindResult[]; capped: boolean } {
     const results: FindResult[] = [];
     if (!options.search) return { results, capped: false };
-    const escaped = options.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const expression = new RegExp(
-      options.wholeWord ? `(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])` : escaped,
-      options.caseSensitive ? 'gu' : 'giu',
-    );
-    for (const { entry, visible } of this.entries.values()) {
+    // Reuse the widget's literal matcher, normalization, escaping, and word boundaries.
+    // These states and cursors live exclusively in the search worker.
+    const query = new SearchQuery({
+      search: options.search,
+      caseSensitive: options.caseSensitive,
+      wholeWord: options.wholeWord,
+    });
+    for (const { entry, raw, visible, visibleText, tags } of this.entries.values()) {
       if (options.categoryId !== undefined && entry.categoryId !== options.categoryId) continue;
-      const text = options.raw ? entry.text : visible;
-      for (const match of text.matchAll(expression)) {
-        const from = match.index;
-        const to = from + match[0].length;
+      const text = options.raw ? entry.text : visibleText;
+      const cursor = query.getCursor(options.raw ? raw : visible);
+      for (let next = cursor.next(); !next.done; next = cursor.next()) {
+        const { from, to } = next.value;
+        // Even a query for a newline or NUL must not find hidden tag characters.
+        if (!options.raw && tags.some((tag) => from < tag.to && to > tag.from)) continue;
         if (results.length === resultLimit) return { results, capped: true };
         const { text: _text, ...metadata } = entry;
         void _text;
@@ -88,7 +119,7 @@ export class FindIndex {
           ...metadata,
           from,
           to,
-          line: text.slice(0, from).split('\n').length,
+          line: raw.doc.lineAt(from).number,
           ...snippetFor(text, from, to),
           matched: entry.text.slice(from, to),
           raw: options.raw,
