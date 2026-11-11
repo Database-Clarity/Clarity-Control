@@ -173,3 +173,28 @@ describe('visibleArea', () => {
     expect(result).toMatchObject({ top: 8, bottom: 764, edge: 8 });
   });
 });
+
+describe('placeAnchored with the real visible area', () => {
+  const phoneWindow = (height: number, dock: number) =>
+    ({
+      innerWidth: 390,
+      innerHeight: 772,
+      visualViewport: { offsetTop: 0, height },
+      matchMedia: () => ({ matches: true }),
+      document: { documentElement: {} },
+      getComputedStyle: () => ({ getPropertyValue: () => `${dock}px`, fontSize: '16px' }),
+    }) as unknown as Window;
+
+  it('keeps a popover off the docked bar when its trigger is under the keyboard', () => {
+    const area = visibleArea(phoneWindow(480, 52));
+    const placed = placeAnchored({ trigger: rect(600), area, width: Infinity, height: 200 });
+    // The bar covers 428-480: the popover's bottom edge stays above it.
+    expect(772 - (placed.bottom as number)).toBeLessThanOrEqual(480 - 52);
+  });
+
+  it('still stands flush on a trigger that is on the docked bar', () => {
+    const area = visibleArea(phoneWindow(480, 52));
+    const placed = placeAnchored({ trigger: rect(437, 43), area, width: Infinity, gap: 0 });
+    expect(placed).toMatchObject({ side: 'above', bottom: 772 - 437 });
+  });
+});

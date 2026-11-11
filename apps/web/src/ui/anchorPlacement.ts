@@ -89,7 +89,10 @@ export function placeAnchored({
   }
   // Each side starts at the trigger's edge, kept inside the visible area: a trigger under the
   // keyboard or scrolled off the top never pushes the popover out of sight.
-  const reach = Math.max(area.bottom, area.reach ?? area.bottom);
+  // Only a trigger that is itself on screen (on the docked bar) may be stood on below `bottom`;
+  // a trigger pushed under the keyboard clamps to the dock-cleared limit.
+  const visible = Math.max(area.bottom, area.reach ?? area.bottom);
+  const reach = trigger.bottom <= visible + 0.5 ? visible : area.bottom;
   const belowTop = Math.max(area.top, Math.min(trigger.bottom + gap, area.bottom));
   const aboveBottom = Math.max(area.top, Math.min(trigger.top - gap, reach));
   const below = area.bottom - belowTop;
