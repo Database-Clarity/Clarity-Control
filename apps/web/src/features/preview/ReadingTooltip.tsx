@@ -1,0 +1,62 @@
+import { memo } from 'react';
+import { markupLanguage, parseMarkup, type Lang, type MarkupGlobals } from '@clarity/core';
+import { useDataStore, type EditorData } from '../../stores/data';
+import { useDraftStore } from '../../stores/drafts';
+import type { Drafts } from '../../services/draftStorage';
+import { tooltipImports } from '../../services/tooltipImports';
+import { previewDrafts, previewText } from '../conflicts/previewDrafts';
+import { archivedItemFor } from '../archive/archive';
+import { Lines } from './TooltipPreview';
+import styles from './TooltipPreview.module.scss';
+
+const emptyGlobals: MarkupGlobals = { variables: '', titles: '' };
+const catalogs = new WeakMap<EditorData, WeakMap<Drafts, Map<Lang, MarkupGlobals>>>();
+const renders = new WeakMap<MarkupGlobals, Map<string, ReturnType<typeof parseMarkup>>>();
+
+function globalsFor(data: EditorData | null, drafts: Drafts, lang: Lang) {
+  if (!data) return emptyGlobals;
+  let snapshots = catalogs.get(data);
+  if (!snapshots) catalogs.set(data, (snapshots = new WeakMap()));
+  let languages = snapshots.get(drafts);
+  if (!languages) snapshots.set(drafts, (languages = new Map()));
+  let globals = languages.get(lang);
+  if (!globals) {
+    const imports = tooltipImports(data.bundle.tooltips, previewDrafts(drafts), lang, data.aliases);
+    globals = { variables: imports[2] ?? '', titles: imports[3] ?? '', imports };
+    languages.set(lang, globals);
+  }
+  return globals;
+}
+
+/** Reading surfaces share preview spans, styles, and top-layer title popovers. */
+export const ReadingTooltip = memo(function ReadingTooltip({
+  text,
+  lang = 'en',
+  hash,
+}: {
+  text: string;
+  lang?: Lang;
+  hash?: number;
+}) {
+  const data = useDataStore((state) => state.data);
+  const drafts = useDraftStore((state) => state.drafts);
+  const globals = globalsFor(data, drafts, lang);
+  const category =
+    hash === undefined || !data ? undefined : archivedItemFor(hash, data)?.categoryId;
+  const type = data?.categories.find((entry) => entry.id === category)?.legacyType;
+  let cache = renders.get(globals);
+  if (!cache) renders.set(globals, (cache = new Map()));
+  const key = JSON.stringify([type, text]);
+  let parsed = cache.get(key);
+  if (!parsed) {
+    parsed = parseMarkup(previewText(text), { ...globals, type });
+    // Bound each revision's cache; old data and draft snapshots are weakly held.
+    if (cache.size >= 128) cache.delete(cache.keys().next().value!);
+    cache.set(key, parsed);
+  }
+  return (
+    <div className={styles.snippet} lang={markupLanguage(lang)}>
+      <Lines lines={parsed.lines} />
+    </div>
+  );
+});
