@@ -24,6 +24,13 @@ Nothing here is installed by this repository. Each step is a production change t
 - Until step E, today's `bundle.yml` also runs on every editor-data push; it needs the same
   `paths-ignore: ['exports/**']` if configs are written before step E.
 
+## After installing
+
+- The first runs from `converter` (main.yml) and `editor-data` (exports.yml) must reach the deploy
+  step with the token (environment `data-site-deploy`, deployment branches `converter` and
+  `editor-data`), and a run from any other ref must be refused by the environment. This could not
+  be run before the install (it needs the workflows in the repository).
+
 ## The publish pipeline's downstream job
 
 Its `converter` push uses `github.token`, which starts no workflow, so once the pipeline writes to
