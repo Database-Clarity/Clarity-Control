@@ -325,7 +325,6 @@
   }
 }
 .caret {
-  font-size: 0.75em;
   line-height: 1;
 }
 .status {
@@ -403,8 +402,8 @@
   // A raised footnote number just before the quote, in the word gap (the mock): no disc, so it
   // never covers a glyph.
   position: fixed;
-  transform: translate(calc(-100% - 1px), -0.3125rem);
-  font-size: 0.625rem;
+  // em of the badge, which is sized from the marked text: the same fit at every UI scale.
+  transform: translate(calc(-100% - 0.1em), -0.4em);
   font-weight: 700;
   line-height: 1;
   color: var(--warn);

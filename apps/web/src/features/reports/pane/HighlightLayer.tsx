@@ -12,7 +12,8 @@ interface Placed {
   key: string;
   n: number;
   selected: boolean;
-  badge: { left: number; top: number } | null;
+  /** The badge follows the marked text's size (the preview does not scale with the UI). */
+  badge: { left: number; top: number; size: number } | null;
   /** Fallback only: the tint rectangles where the browser has no CSS Custom Highlight API. */
   rects: { left: number; top: number; width: number; height: number }[];
 }
@@ -54,8 +55,11 @@ function place(marks: ReportMark[], native: boolean): Placed[] {
     const first = rects[0]!;
     // One badge per number and body: a note can resolve in two previews (Compare).
     const badgeKey = `${mark.n}:${Math.round(first.left)}:${Math.round(first.top)}`;
+    const size = parent ? parseFloat(getComputedStyle(parent).fontSize) || 16 : 16;
     const badge =
-      inside(first) && !seen.has(badgeKey) ? { left: first.left, top: first.top } : null;
+      inside(first) && !seen.has(badgeKey)
+        ? { left: first.left, top: first.top, size: Math.round(size * 0.6 * 10) / 10 }
+        : null;
     seen.add(badgeKey);
     placed.push({
       key: `${index}:${mark.report}:${mark.n}`,
@@ -146,7 +150,7 @@ export function HighlightLayer() {
             <span
               className={styles.badge}
               data-selected={mark.selected || undefined}
-              style={{ left: mark.badge.left, top: mark.badge.top }}
+              style={{ left: mark.badge.left, top: mark.badge.top, fontSize: mark.badge.size }}
             >
               {mark.n}
             </span>
