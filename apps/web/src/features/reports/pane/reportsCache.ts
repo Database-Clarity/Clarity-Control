@@ -11,8 +11,13 @@ export interface ReportsEntry {
 }
 
 interface CacheState {
-  /** `${hash}:${lang}` -> reports, kept for the session (the pane fetches only on open). */
+  /** `${hash}:${lang}` -> reports, kept for this session (the pane fetches only on open). */
   entries: Record<string, ReportsEntry>;
+  /** The session the entries belong to (account, role, languages, token); another one starts over. */
+  owner: string | null;
+  /** Bumped on every clear: a response for an older generation is dropped. */
+  generation: number;
+  setOwner(owner: string | null): void;
   load(hash: number, lang: string, force?: boolean, indexCount?: number | null): Promise<void>;
   /** Replace one report after an action (the Worker answered with its new status and version). */
   update(hash: number, lang: string, id: string, patch: Partial<PaneReport>): void;
@@ -25,8 +30,17 @@ const inflight = new Map<string, Promise<void>>();
 
 export const useTooltipReports = create<CacheState>((set, get) => ({
   entries: {},
+  owner: null,
+  generation: 0,
+  setOwner(owner) {
+    if (get().owner === owner) return;
+    get().clear();
+    set({ owner });
+  },
   load(hash, lang, force = false, indexCount = null) {
     const key = reportsKey(hash, lang);
+    const generation = get().generation;
+    const current = () => get().generation === generation;
     const running = inflight.get(key);
     if (running) return running;
     const entry = get().entries[key];
@@ -38,15 +52,18 @@ export const useTooltipReports = create<CacheState>((set, get) => ({
       },
     }));
     const promise = fetchTooltipReports(hash, lang)
-      .then((reports) =>
+      .then((reports) => {
+        // Signed out, another account, or cleared meanwhile: this body is not for this session.
+        if (!current()) return;
         set((state) => ({
           entries: {
             ...state.entries,
             [key]: { reports, loading: false, error: null, indexCount },
           },
-        })),
-      )
-      .catch((error: unknown) =>
+        }));
+      })
+      .catch((error: unknown) => {
+        if (!current()) return;
         set((state) => ({
           entries: {
             ...state.entries,
@@ -57,9 +74,11 @@ export const useTooltipReports = create<CacheState>((set, get) => ({
               indexCount,
             },
           },
-        })),
-      )
-      .finally(() => inflight.delete(key));
+        }));
+      })
+      .finally(() => {
+        if (inflight.get(key) === promise) inflight.delete(key);
+      });
     inflight.set(key, promise);
     return promise;
   },
@@ -96,7 +115,7 @@ export const useTooltipReports = create<CacheState>((set, get) => ({
   },
   clear() {
     inflight.clear();
-    set({ entries: {} });
+    set((state) => ({ entries: {}, generation: state.generation + 1 }));
   },
 }));
 

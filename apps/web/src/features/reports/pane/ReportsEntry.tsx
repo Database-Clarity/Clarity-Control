@@ -9,6 +9,7 @@ import { editorName } from '../../navigation/catalog';
 import { ShellOverlay } from '../../navigation/ShellOverlay';
 import {
   openPairs,
+  refreshReportsIndex,
   reportLanguages,
   seesReports,
   useReportsIndex,
@@ -18,6 +19,17 @@ import { useReportsTab } from './tabStore';
 import styles from './ReportsEntry.module.scss';
 
 /** Tooltip + language pairs with open reports for this viewer, by count then name. */
+function CountsUnavailable() {
+  return (
+    <p className={styles.empty}>
+      Report counts are unavailable right now.{' '}
+      <button type="button" className={styles.retry} onClick={refreshReportsIndex}>
+        Retry
+      </button>
+    </p>
+  );
+}
+
 function useWorklist() {
   const user = useAuthStore((state) => state.user);
   const open = useReportsIndex((state) => state.open);
@@ -147,7 +159,7 @@ export function ReportsEntry({
         modal={false}
       >
         {failed ? (
-          <p className={styles.empty}>Report counts are unavailable right now.</p>
+          <CountsUnavailable />
         ) : (
           <Worklist
             rows={rows}
@@ -194,7 +206,7 @@ export function ReportsMenuRow({
       </button>
       {expanded &&
         (failed ? (
-          <p className={styles.empty}>Report counts are unavailable right now.</p>
+          <CountsUnavailable />
         ) : (
           <Worklist
             rows={rows}

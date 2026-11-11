@@ -224,6 +224,8 @@ export function TooltipPreview({
       className={[styles.preview, fill ? styles.fill : ''].filter(Boolean).join(' ')}
       lang={markupLanguage(lang)}
       aria-label={`${name} preview`}
+      // Which tooltip's own text this body renders (report highlights anchor per variant).
+      data-preview-hash={replaced ? undefined : tooltipHash}
     >
       <div className={styles.top}>
         <PreviewHeader

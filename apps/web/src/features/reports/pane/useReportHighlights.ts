@@ -9,6 +9,14 @@ export interface NoteTarget {
   report: PaneReport;
   note: PaneReport['notes'][number];
   number: number;
+  /** The tooltip (base or a variant) whose text the note quotes: it marks only that body. */
+  variant: number;
+}
+
+/** A rendered tooltip body and the tooltip whose text it shows. */
+export interface HighlightTarget {
+  element: Element;
+  variant: number;
 }
 
 const visible = (element: Element) => {
@@ -31,7 +39,7 @@ export function useReportHighlights({
   onSelect,
 }: {
   key: string;
-  targets(): Element[];
+  targets(): HighlightTarget[];
   notes: NoteTarget[];
   selected: string | null;
   enabled: boolean;
@@ -94,15 +102,17 @@ export function useReportHighlights({
     };
     const build = async () => {
       const run = ++generation;
-      const elements = latest.current.targets();
-      observe(elements);
+      const bodies = latest.current.targets();
+      observe(bodies.map((body) => body.element));
       const next: ReportMark[] = [];
-      for (const element of elements) {
+      for (const { element, variant } of bodies) {
         if (!visible(element)) continue;
+        if (!latest.current.notes.some((target) => target.variant === variant)) continue;
         const map = mapRenderedText(element);
         const rev = await displayRevision(map.text);
         if (disposed || run !== generation) return;
-        for (const { report, note, number } of latest.current.notes) {
+        for (const { report, note, number, variant: quoted } of latest.current.notes) {
+          if (quoted !== variant) continue;
           const anchor = resolveNote(map.text, rev, report, note);
           if (anchor.kind !== 'exact' && anchor.kind !== 'moved') continue;
           const range = rangeFor(map, anchor.start, anchor.end);
@@ -142,7 +152,10 @@ export function useReportHighlights({
 
   // New reports or another target set: rebuild now. Selection only restyles the same ranges.
   const notesKey = notes
-    .map(({ report, note, number }) => `${report.id}:${report.version}:${note.n}:${number}`)
+    .map(
+      ({ report, note, number, variant }) =>
+        `${report.id}:${report.version}:${note.n}:${number}:${variant}`,
+    )
     .join('|');
   useEffect(() => {
     rebuild.current();

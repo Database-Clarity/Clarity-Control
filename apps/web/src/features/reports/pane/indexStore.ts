@@ -5,6 +5,7 @@ import { apiUrl } from '../../../services/api';
 import { useAuthStore } from '../../../stores/auth';
 import { useDataStore } from '../../../stores/data';
 import { fetchReportsIndex } from './api';
+import { useTooltipReports } from './reportsCache';
 
 /** Revalidate on focus at most this often (the Worker also sends max-age=300). */
 export const revalidateMs = 300_000;
@@ -56,8 +57,10 @@ export const useReportsIndex = create<IndexState>((set, get) => ({
           });
       })
       .catch(() => {
-        // Failure = no markers; the next focus tries again.
-        if (get().owner === owner) set({ failed: true, checkedAt: Date.now() });
+        // Failure = no markers, even after an earlier success (a 403 means the role is gone):
+        // drop the old counts; the next focus or Retry tries again.
+        if (get().owner === owner)
+          set({ open: null, etag: undefined, failed: true, checkedAt: Date.now() });
       })
       .finally(() => {
         if (get().loading === loading) set({ loading: null });
@@ -103,7 +106,14 @@ export function openPairs(
   return pairs;
 }
 
-const ownerKey = (user: User) => `${user.id}:${user.role}`;
+/** A short fingerprint of the session token (never the token itself in a key). */
+function fingerprint(token: string | null) {
+  let hash = 0;
+  for (const char of token ?? '') hash = (hash * 31 + char.charCodeAt(0)) | 0;
+  return (hash >>> 0).toString(36);
+}
+const ownerKey = (user: User, token: string | null) =>
+  `${user.id}:${user.role}:${(user.languages ?? []).join(',')}:${fingerprint(token)}`;
 
 /**
  * Loads the index once per session, at idle after the editor data, for role holders only, and
@@ -112,10 +122,13 @@ const ownerKey = (user: User) => `${user.id}:${user.role}`;
  */
 export function useReportsIndexLoader() {
   const user = useAuthStore((state) => state.user);
+  const token = useAuthStore((state) => state.token);
   const ready = useDataStore((state) => state.status === 'ready');
   const allowed = seesReports(user);
-  const key = allowed ? ownerKey(user) : null;
+  const key = allowed ? ownerKey(user, token) : null;
   useEffect(() => {
+    // Report bodies are private to the session that fetched them.
+    useTooltipReports.getState().setOwner(key);
     if (!key) {
       if (useReportsIndex.getState().owner) useReportsIndex.getState().reset();
       return;

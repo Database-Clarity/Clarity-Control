@@ -10,6 +10,7 @@ const calls = vi.hoisted(() => ({
   actions: [] as { id: string; expected: number; action: unknown }[],
   reports: [] as unknown[],
   actionResult: null as null | (() => unknown),
+  shots: {} as Record<number, string>,
 }));
 vi.mock('./api', async (original) => {
   const actual = await original<typeof import('./api')>();
@@ -33,7 +34,7 @@ vi.mock('./api', async (original) => {
       return { id, status, version: expected + 1 };
     }),
     deleteReport: vi.fn(async () => undefined),
-    fetchScreenshot: vi.fn(async () => null),
+    fetchScreenshot: vi.fn(async (_id: string, n: number) => calls.shots[n] ?? null),
   };
 });
 vi.mock('./indexStore', async (original) => ({
@@ -103,7 +104,15 @@ async function settle() {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
 }
-async function render(user: User, options: { count: number; suspended?: boolean } = { count: 2 }) {
+async function render(
+  user: User,
+  options: {
+    count: number;
+    suspended?: boolean;
+    text?: string;
+    variants?: { hash: number; text: string; globals: { variables: string; titles: string } }[];
+  } = { count: 2 },
+) {
   useReportsIndex.setState({ open: new Map([[10, { en: options.count }]]), owner: 'x' });
   await act(async () =>
     root.render(
@@ -111,8 +120,9 @@ async function render(user: User, options: { count: number; suspended?: boolean 
         hash={10}
         lang="en"
         user={user}
-        text="7.5% Light"
+        text={options.text ?? '7.5% Light'}
         globals={{ variables: '', titles: '' }}
+        variants={options.variants}
         previewHost={createRef()}
         suspended={options.suspended ?? false}
         ready
@@ -142,6 +152,8 @@ beforeEach(() => {
   calls.fetch.length = 0;
   calls.actions.length = 0;
   calls.actionResult = null;
+  calls.shots = {};
+  vi.stubGlobal('URL', Object.assign(URL, { revokeObjectURL: vi.fn() }));
   calls.reports = [
     report('r-aaaaaaaa'),
     report('r-bbbbbbbb', {
@@ -265,6 +277,84 @@ describe('Reports pane', () => {
     await click(buttons('Spam')[0]);
     expect(host.textContent).toContain(
       'r-aaaaaaaa marked spam; its screenshots are deleted. Undo restores the status only.',
+    );
+  });
+
+  it('keys reach the list only from the list: T in the screenshot lightbox posts nothing', async () => {
+    calls.reports = [report('r-aaaaaaaa', { files_count: 1 })];
+    calls.shots = { 2: 'blob:shot-2' };
+    // jsdom has no modal dialogs.
+    HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+      this.open = true;
+    };
+    HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+      this.open = false;
+    };
+    await render(editor, { count: 1 });
+    const list = host.querySelector<HTMLElement>('[role="listbox"]')!;
+    await click(buttons('▸ 1 screenshot')[0]);
+    // Slot 1 was deleted: the one that survives is slot 2, shown under its own number.
+    const thumb = document.querySelector<HTMLButtonElement>('[aria-label="Open screenshot 2"]');
+    expect(thumb).not.toBeNull();
+    await click(thumb!);
+    const dialog = document.querySelector<HTMLElement>('dialog')!;
+    expect(dialog).not.toBeNull();
+    await act(async () => {
+      dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 't', bubbles: true }));
+      thumb!.dispatchEvent(new KeyboardEvent('keydown', { key: 't', bubbles: true }));
+    });
+    await settle();
+    expect(calls.actions).toHaveLength(0);
+    // On the list itself, T triages.
+    await act(async () => {
+      list.dispatchEvent(new KeyboardEvent('keydown', { key: 't', bubbles: true }));
+    });
+    await settle();
+    expect(calls.actions).toEqual([
+      { id: 'r-aaaaaaaa', expected: 3, action: { action: 'triage' } },
+    ]);
+  });
+
+  it('spam drops the screenshots from the cached report and the row', async () => {
+    calls.reports = [report('r-aaaaaaaa', { files_count: 2 })];
+    calls.shots = { 1: 'blob:1', 2: 'blob:2' };
+    await render(maintainer, { count: 1 });
+    await click(buttons('▸ 2 screenshots')[0]);
+    calls.actionResult = () => ({ id: 'r-aaaaaaaa', status: 'spam', version: 4 });
+    await click(document.querySelector<HTMLButtonElement>('[aria-label="More report actions"]')!);
+    await click(buttons('Spam')[0]);
+    const cached = useTooltipReports.getState().entries['10:en']!.reports!;
+    expect(cached[0]).toMatchObject({ status: 'spam', files_count: 0 });
+    expect(document.querySelector('[aria-label^="Open screenshot"]')).toBeNull();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:1');
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:2');
+  });
+
+  it('anchors a note to the version it was made on; resolved notes get a state too', async () => {
+    calls.reports = [
+      // Quotes the enhanced version's text, which the base does not have.
+      report('r-aaaaaaaa', {
+        variant: 'enhanced',
+        viewed_hash: 11,
+        notes: [{ ...report('x').notes[0]!, exact: 'Heavy 12%', start: 0, end: 9 }],
+      }),
+      // Resolved, and its quote is gone from today's base text.
+      report('r-cccccccc', {
+        status: 'closed',
+        notes: [{ ...report('x').notes[0]!, exact: 'Vanished words', start: 20, end: 34 }],
+      }),
+    ];
+    await render(editor, {
+      count: 1,
+      text: 'Base text only',
+      variants: [{ hash: 11, text: 'Heavy 12%', globals: { variables: '', titles: '' } }],
+    });
+    const enhanced = host.querySelector('[data-report="r-aaaaaaaa"]')!;
+    expect(enhanced.textContent).toContain('Heavy 12%');
+    expect(enhanced.textContent).not.toContain('Text changed since this report.');
+    await click(buttons('Show 1 resolved')[0]);
+    expect(host.querySelector('[data-report="r-cccccccc"]')!.textContent).toContain(
+      'Text changed since this report.',
     );
   });
 });

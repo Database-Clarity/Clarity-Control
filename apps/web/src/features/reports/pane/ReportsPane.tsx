@@ -35,7 +35,7 @@ import { openCount, refreshReportsIndex, useReportsIndex } from './indexStore';
 import { resolveNote } from './previewText';
 import { isActive, reportsKey, useTooltipReports } from './reportsCache';
 import { useReportsTab } from './tabStore';
-import { useReportHighlights, type NoteTarget } from './useReportHighlights';
+import { useReportHighlights, type HighlightTarget, type NoteTarget } from './useReportHighlights';
 import styles from './ReportsPane.module.scss';
 
 export const categoryLabels: Record<string, string> = {
@@ -86,6 +86,8 @@ export interface ReportsPaneProps {
   /** The text the base preview shows (drafts included) and its globals: the pane's own copy. */
   text: string;
   globals: MarkupGlobals;
+  /** The enhanced versions the preview can show, as rendered: a note anchors to the one viewed. */
+  variants?: readonly PaneVariant[];
   /** Where the page renders its preview (inline or in the shell column). Read, never changed. */
   previewHost: RefObject<HTMLElement | null>;
   /** A navigation burst is running: show the count only, start nothing. */
@@ -102,12 +104,35 @@ export interface ReportsPaneProps {
  */
 export function ReportsPane(props: ReportsPaneProps) {
   // Typing changes the text on every key; the pane takes it once typing pauses, so a key costs
-  // this hook and one memo comparison, and the highlights pause meanwhile.
-  const text = useSettledText(props.text);
-  return <ReportsPaneMemo {...props} text={text} typing={text !== props.text} />;
+  // these hooks and one memo comparison, and the highlights pause meanwhile.
+  const latest = props.variants ?? noVariants;
+  const text = useSettled(props.text, sameText);
+  const variants = useSettled(latest, sameVariants);
+  const typing = text !== props.text || !sameVariants(variants, latest);
+  return <ReportsPaneMemo {...props} text={text} variants={variants} typing={typing} />;
 }
 
-type PaneProps = ReportsPaneProps & { typing: boolean };
+/** One enhanced version as the preview renders it. */
+export interface PaneVariant {
+  hash: number;
+  text: string;
+  globals: MarkupGlobals;
+}
+const noVariants: readonly PaneVariant[] = [];
+const sameText = (a: string, b: string) => a === b;
+const sameVariants = (a: readonly PaneVariant[], b: readonly PaneVariant[]) =>
+  a === b ||
+  (a.length === b.length &&
+    a.every(
+      (view, i) =>
+        view.hash === b[i]!.hash && view.text === b[i]!.text && view.globals === b[i]!.globals,
+    ));
+
+/** The tooltip whose text a report quotes: the base, or the enhanced version it was made on. */
+const quotedHash = (report: PaneReport, base: number) =>
+  report.variant === 'base' ? base : report.viewed_hash;
+
+type PaneProps = ReportsPaneProps & { variants: readonly PaneVariant[]; typing: boolean };
 
 const ReportsPaneMemo = memo(function ReportsPaneInner(props: PaneProps) {
   const { hash, lang, suspended } = props;
@@ -146,14 +171,15 @@ const ReportsPaneMemo = memo(function ReportsPaneInner(props: PaneProps) {
   );
 });
 
-/** The text, held while it keeps changing: the latest value once it has been still for 400 ms. */
-function useSettledText(text: string) {
-  const [settled, setSettled] = useState(text);
+/** A value, held while it keeps changing: the latest one once it has been still for 400 ms. */
+function useSettled<T>(value: T, same: (a: T, b: T) => boolean) {
+  const [settled, setSettled] = useState(value);
+  const fresh = same(value, settled);
   useEffect(() => {
-    if (text === settled) return;
-    const timer = setTimeout(() => setSettled(text), 400);
+    if (fresh) return;
+    const timer = setTimeout(() => setSettled(value), 400);
     return () => clearTimeout(timer);
-  }, [text, settled]);
+  }, [value, fresh]);
   return settled;
 }
 
@@ -165,6 +191,7 @@ function ReportsBody({
   user,
   text,
   globals,
+  variants,
   previewHost,
   suspended,
   ready,
@@ -206,20 +233,30 @@ function ReportsBody({
   const [selectedId, setSelected] = useState<string | null>(null);
   const selected = shown.find((report) => report.id === selectedId) ?? shown[0] ?? null;
 
-  // Badge numbers: the open reports' notes that sit on today's text, in list order (a stale or
-  // whole-tooltip note has no highlight, so no number).
-  const display = useDisplay(text, globals, settled && active.length > 0);
+  // Badge numbers: the open reports' notes that sit on today's text of the version they were made
+  // on, in list order (a stale or whole-tooltip note has no highlight, so no number). Resolved
+  // reports get note states too, so a quote whose text is gone reads as changed.
+  const contexts = useMemo(
+    () => [{ hash, text, globals }, ...variants.filter((view) => view.hash !== hash)],
+    [hash, text, globals, variants],
+  );
+  const display = useDisplays(contexts, settled && (reports?.length ?? 0) > 0);
   const numbered = useMemo(() => {
     const targets: NoteTarget[] = [];
     if (!display) return targets;
     let number = 0;
-    for (const report of active)
+    for (const report of active) {
+      const variant = quotedHash(report, hash);
+      const today = display.get(variant);
+      if (!today) continue;
       for (const note of report.notes) {
-        const kind = resolveNote(display.text, display.rev, report, note).kind;
-        if (kind === 'exact' || kind === 'moved') targets.push({ report, note, number: ++number });
+        const kind = resolveNote(today.text, today.rev, report, note).kind;
+        if (kind === 'exact' || kind === 'moved')
+          targets.push({ report, note, number: ++number, variant });
       }
+    }
     return targets;
-  }, [active, display]);
+  }, [active, display, hash]);
   const numberOf = (report: PaneReport, n: number) =>
     numbered.find((target) => target.report.id === report.id && target.note.n === n)?.number;
 
@@ -227,16 +264,24 @@ function ReportsBody({
   // collapsed preview column): the highlights need a rendering to sit on.
   const previewVisible = usePreviewVisible(previewHost);
   const copy = useRef<HTMLDivElement>(null);
-  const showCopy = !previewVisible && numbered.length > 0;
+  // The copy is the base text: it carries the base's marks (a variant's show on its own preview).
+  const showCopy = !previewVisible && numbered.some((target) => target.variant === hash);
   const targets = useCallback(() => {
-    const found: Element[] = [];
+    const found: HighlightTarget[] = [];
     const host = previewHost.current;
     if (host)
-      for (const element of host.querySelectorAll(`.${previewStyles.description}`))
-        if (!element.closest(`.${previewStyles.associated}`)) found.push(element);
-    if (copy.current) found.push(copy.current.firstElementChild ?? copy.current);
+      for (const element of host.querySelectorAll(`.${previewStyles.description}`)) {
+        if (element.closest(`.${previewStyles.associated}`)) continue;
+        // Each preview body names the tooltip it renders; Compare's diff names none.
+        const variant = Number(
+          element.closest('[data-preview-hash]')?.getAttribute('data-preview-hash'),
+        );
+        if (variant) found.push({ element, variant });
+      }
+    if (copy.current)
+      found.push({ element: copy.current.firstElementChild ?? copy.current, variant: hash });
     return found;
-  }, [previewHost]);
+  }, [previewHost, hash]);
   const list = useRef<HTMLDivElement>(null);
   const rebuild = useReportHighlights({
     key: `pane:${hash}:${lang}`,
@@ -291,6 +336,9 @@ function ReportsBody({
       if (action.action === 'claim') patch.claimed_by = user.login;
       if (action.action === 'reject') patch.closed_note = action.reason;
       if (action.action === 'duplicate') patch.duplicate_of = action.of;
+      // Spam deletes the screenshots for good (Undo restores the status only): drop them here
+      // too, which unmounts the thumbnails and revokes their blobs, including reads in flight.
+      if (action.action === 'spam') patch.files_count = 0;
       update(hash, lang, report.id, patch);
       setMessage(`${report.id} ${pastTense[action.action] ?? result.status}.`);
       // Undo is the reverse action with the version it expects; triage and claim have none.
@@ -332,7 +380,9 @@ function ReportsBody({
   }
 
   function onListKey(event: KeyboardEvent) {
-    if (!shown.length) return;
+    // Only keys pressed on the list itself: a dialog opened from a row (the screenshot lightbox,
+    // portalled but still a React child) or a control inside a row keeps its own keys.
+    if (!shown.length || event.defaultPrevented || event.target !== event.currentTarget) return;
     const at = Math.max(
       0,
       shown.findIndex((report) => report.id === selected?.id),
@@ -369,7 +419,7 @@ function ReportsBody({
   const maintainer = user.role === 'maintainer';
   const loadingFirst = wanted && !reports && !entry?.error;
   return (
-    <DisplayContext.Provider value={display}>
+    <DisplayContext.Provider value={display ? { displays: display, base: hash } : null}>
       <div className={styles.body}>
         {showCopy && (
           <div className={styles.copy} ref={copy}>
@@ -757,64 +807,84 @@ function NoteQuote({
   );
 }
 
-/** Today's display text of the tooltip and its revision, for the pane's note states. */
-const DisplayContext = createContext<{ text: string; rev: string } | null>(null);
+type Display = { text: string; rev: string };
+
+/** Today's display text and revision of the base and each enhanced version, for note states. */
+const DisplayContext = createContext<{ displays: Map<number, Display>; base: number } | null>(null);
 
 function useNoteState(report: PaneReport, note: PaneReport['notes'][number]) {
-  const display = useContext(DisplayContext);
-  if (!display) return 'exact';
-  return resolveNote(display.text, display.rev, report, note).kind;
+  const context = useContext(DisplayContext);
+  // Not computed yet, or a version the preview cannot show now: the quote, with no verdict.
+  const today = context?.displays.get(quotedHash(report, context.base));
+  if (!today) return 'unknown';
+  return resolveNote(today.text, today.rev, report, note).kind;
 }
 
-/** Computes the display text once per text change (core displayText, the selectors' basis). */
-function useDisplay(text: string, globals: MarkupGlobals, enabled: boolean) {
-  const display = useMemo(
-    () => (enabled ? displayText(text, globals) : null),
-    [text, globals, enabled],
+/** Each version's display text, once per text change (core displayText, the selectors' basis). */
+function useDisplays(contexts: readonly PaneVariant[], enabled: boolean) {
+  const displays = useMemo(
+    () =>
+      enabled
+        ? contexts.map((context) => ({
+            hash: context.hash,
+            text: displayText(context.text, context.globals),
+          }))
+        : null,
+    [contexts, enabled],
   );
-  const [value, setValue] = useState<{ text: string; rev: string } | null>(null);
+  const [value, setValue] = useState<{
+    source: typeof displays;
+    map: Map<number, Display>;
+  } | null>(null);
   useEffect(() => {
-    if (display === null) return;
+    if (displays === null) return;
     let live = true;
-    void displayRevision(display).then((rev) => {
-      if (live) setValue({ text: display, rev });
+    void Promise.all(
+      displays.map(({ hash, text }) =>
+        displayRevision(text).then((rev) => [hash, { text, rev }] as const),
+      ),
+    ).then((entries) => {
+      if (live) setValue({ source: displays, map: new Map(entries) });
     });
     return () => {
       live = false;
     };
-  }, [display]);
-  return value?.text === display ? value : null;
+  }, [displays]);
+  return value?.source === displays ? value.map : null;
 }
 
 function Screenshots({ report }: { report: PaneReport }) {
   const [open, setOpen] = useState(false);
-  const [images, setImages] = useState<(string | null | 'error')[]>([]);
+  const [images, setImages] = useState<{ n: number; url: string | null | 'error' }[] | null>(null);
   const [zoom, setZoom] = useState<number | null>(null);
   useEffect(() => {
     if (!open) return;
     let live = true;
     const urls: string[] = [];
+    // files_count is how many survive, not the highest slot (deleting 1 of 2 leaves slot 2):
+    // probe every slot (the Worker keeps at most three) and show the ones that answer.
     void Promise.all(
-      Array.from({ length: report.files_count }, (_, i) =>
-        fetchScreenshot(report.id, i + 1).then(
+      [1, 2, 3].map((n) =>
+        fetchScreenshot(report.id, n).then(
           (url) => {
-            if (url) urls.push(url);
-            return url;
+            if (url && live) urls.push(url);
+            else if (url) URL.revokeObjectURL(url);
+            return { n, url };
           },
-          () => 'error' as const,
+          () => ({ n, url: 'error' as const }),
         ),
       ),
     ).then((result) => {
-      if (live) setImages(result);
-      else for (const url of urls) URL.revokeObjectURL(url);
+      if (live) setImages(result.filter((image) => image.url !== null));
     });
     return () => {
       live = false;
       for (const url of urls) URL.revokeObjectURL(url);
-      setImages([]);
+      setImages(null);
     };
   }, [open, report.id, report.files_count]);
-  const shownImage = zoom === null ? null : images[zoom];
+  const shownImage =
+    zoom === null ? null : (images?.find((image) => image.n === zoom)?.url ?? null);
   return (
     <div className={styles.shots}>
       <button
@@ -831,39 +901,36 @@ function Screenshots({ report }: { report: PaneReport }) {
       </button>
       {open && (
         <span className={styles.thumbs}>
-          {images.length === 0 && <span className={styles.meta}>Loading…</span>}
-          {images.map((url, index) =>
+          {images === null && <span className={styles.meta}>Loading…</span>}
+          {images?.length === 0 && <span className={styles.meta}>Screenshots removed</span>}
+          {images?.map(({ n, url }) =>
             url === 'error' ? (
-              <span key={index} className={styles.meta}>
-                Cannot load {index + 1}
-              </span>
-            ) : url === null ? (
-              <span key={index} className={styles.meta}>
-                {index + 1} removed
+              <span key={n} className={styles.meta}>
+                Cannot load {n}
               </span>
             ) : (
               <button
-                key={index}
+                key={n}
                 type="button"
                 className={styles.thumb}
-                aria-label={`Open screenshot ${index + 1}`}
+                aria-label={`Open screenshot ${n}`}
                 onClick={(event) => {
                   event.stopPropagation();
-                  setZoom(index);
+                  setZoom(n);
                 }}
               >
-                <img src={url} alt="" />
+                <img src={url ?? undefined} alt="" />
               </button>
             ),
           )}
         </span>
       )}
       {typeof shownImage === 'string' && shownImage !== 'error' && (
-        <Dialog title={`${report.id} · screenshot ${zoom! + 1}`} onClose={() => setZoom(null)}>
+        <Dialog title={`${report.id} · screenshot ${zoom}`} onClose={() => setZoom(null)}>
           <img
             className={styles.full}
             src={shownImage}
-            alt={`Screenshot ${zoom! + 1} of ${report.id}`}
+            alt={`Screenshot ${zoom} of ${report.id}`}
           />
         </Dialog>
       )}

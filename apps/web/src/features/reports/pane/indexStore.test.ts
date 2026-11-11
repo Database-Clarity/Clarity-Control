@@ -4,12 +4,14 @@ const requests = vi.hoisted(() => [] as { path: string; init?: RequestInit }[]);
 const server = vi.hoisted(() => ({
   rev: '7',
   open: {} as Record<string, Record<string, number>>,
+  fail: false,
 }));
 vi.mock('../../../services/api', async (original) => ({
   ...(await original<typeof import('../../../services/api')>()),
   apiUrl: 'https://api.test',
   apiRequest: async (path: string, init?: RequestInit) => {
     requests.push({ path, init });
+    if (server.fail) return new Response('forbidden', { status: 403 });
     const etag = `"${server.rev}"`;
     if (new Headers(init?.headers).get('If-None-Match') === etag)
       return new Response(null, { status: 304, headers: { ETag: etag } });
@@ -24,6 +26,7 @@ import { openCount, openPairs, reportLanguages, revalidateMs, useReportsIndex } 
 beforeEach(() => {
   requests.length = 0;
   server.rev = '7';
+  server.fail = false;
   server.open = { '124726501': { en: 2, de: 1 }, '42': { en: 1 } };
   useReportsIndex.getState().reset();
 });
@@ -82,6 +85,20 @@ describe('reports marker index', () => {
     await useReportsIndex.getState().load('2:translator');
     expect(new Headers(requests[1]!.init?.headers).get('If-None-Match')).toBeNull();
     expect(useReportsIndex.getState().open?.size).toBe(0);
+  });
+
+  it('a failed revalidation after a success drops the old counts and the ETag', async () => {
+    await useReportsIndex.getState().load('1:editor');
+    expect(useReportsIndex.getState().open?.size).toBe(2);
+    server.fail = true;
+    await useReportsIndex.getState().load('1:editor', true);
+    expect(useReportsIndex.getState()).toMatchObject({ open: null, etag: undefined, failed: true });
+    // Retry: a fresh request without the stale ETag restores the markers.
+    server.fail = false;
+    await useReportsIndex.getState().load('1:editor', true);
+    expect(new Headers(requests.at(-1)!.init?.headers).get('If-None-Match')).toBeNull();
+    expect(useReportsIndex.getState()).toMatchObject({ failed: false });
+    expect(useReportsIndex.getState().open?.size).toBe(2);
   });
 
   it('translators see only their languages; others every language', () => {

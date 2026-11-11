@@ -532,6 +532,7 @@ function TooltipWorkspace({
               user={user}
               text={value}
               globals={globalsFor(hash)}
+              variants={enhancedViews}
               previewHost={previewHost}
               suspended={suspended}
               ready={previewPainted === hash}
