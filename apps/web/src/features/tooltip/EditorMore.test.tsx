@@ -73,9 +73,9 @@ async function mount(spies: ReturnType<typeof handlers>, props: { draft?: boolea
     ),
   );
 }
-const q = <T extends Element = HTMLElement>(selector: string) => host.querySelector<T>(selector);
+const q = <T extends Element = HTMLElement>(selector: string) => document.querySelector<T>(selector);
 const button = (name: string) =>
-  [...host.querySelectorAll<HTMLElement>('button, a')].find((element) =>
+  [...document.querySelectorAll<HTMLElement>('button, a')].find((element) =>
     (element.getAttribute('aria-label') ?? element.textContent ?? '').startsWith(name),
   );
 const click = (element: Element | undefined) =>
@@ -105,7 +105,7 @@ describe('More (phone tool row)', () => {
     // Focus moves into the sheet, onto its first row.
     expect(document.activeElement?.textContent).toBe('Markup barOn');
     expect(
-      [...host.querySelectorAll('[role="dialog"] li > button, [role="dialog"] li > a')].map(
+      [...document.querySelectorAll('[role="dialog"] li > button, [role="dialog"] li > a')].map(
         (row) => row.textContent,
       ),
     ).toEqual([
@@ -126,7 +126,7 @@ describe('More (phone tool row)', () => {
     expect(document.activeElement?.getAttribute('aria-label')).toBe("Discard this tooltip's draft");
     await click(button('Discard this tooltip'));
     await click(
-      [...host.querySelectorAll<HTMLElement>('[role="dialog"] button')].find(
+      [...document.querySelectorAll<HTMLElement>('[role="dialog"] button')].find(
         (element) => element.textContent === 'Discard',
       ),
     );
@@ -241,7 +241,7 @@ describe('inline tools (phone tool row)', () => {
     expect(spies.onDiscard).not.toHaveBeenCalled();
     await click(button('Discard this tooltip'));
     await click(
-      [...host.querySelectorAll<HTMLElement>('[role="dialog"] button')].find(
+      [...document.querySelectorAll<HTMLElement>('[role="dialog"] button')].find(
         (element) => element.textContent === 'Discard',
       ),
     );
@@ -265,7 +265,7 @@ describe('inline tools (phone tool row)', () => {
     expect(button('Discard this tooltip')).toBeDefined();
     await openMore();
     expect(
-      [...host.querySelectorAll('[role="dialog"] li > button, [role="dialog"] li > a')].map(
+      [...document.querySelectorAll('[role="dialog"] li > button, [role="dialog"] li > a')].map(
         (row) => row.textContent,
       ),
     ).toEqual([

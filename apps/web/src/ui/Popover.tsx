@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import {
   applyPlacement,
   followPlacement,
@@ -87,18 +88,42 @@ export function Popover({
         area,
         width: phone ? Infinity : 560,
         gap,
-        desktop: !phone,
       };
       // Below first, at the final width, so the content's height is measured as it will wrap.
       const below = placeAnchored(input);
       applyPlacement(element, below);
-      if (!phone) return;
       const height = naturalHeight(element, element.firstElementChild as HTMLElement | null);
       if (height > below.maxHeight) applyPlacement(element, placeAnchored({ ...input, height }));
     };
     place();
     return followPlacement(() => surface.current, place);
   }, [open, gap]);
+  useEffect(() => {
+    if (!open || contain) return;
+    // Preserve the trigger's place in sequential keyboard navigation across the portal.
+    const items = () => [
+      ...(surface.current?.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), a[href], select:not(:disabled), input:not(:disabled), textarea:not(:disabled), [tabindex="0"]',
+      ) ?? []),
+    ];
+    const tab = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab') return;
+      const list = items();
+      const active = document.activeElement;
+      if (!event.shiftKey && active === button.current && list.length) {
+        event.preventDefault();
+        list[0].focus();
+      } else if (event.shiftKey && active === list[0]) {
+        event.preventDefault();
+        button.current?.focus();
+      } else if (!event.shiftKey && active === list.at(-1)) {
+        // Let the browser continue after the trigger in the original document order.
+        button.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', tab, true);
+    return () => document.removeEventListener('keydown', tab, true);
+  }, [open, contain]);
   useEffect(() => {
     if (!open) return;
     const outside = (event: PointerEvent) => {
@@ -111,9 +136,12 @@ export function Popover({
       event.stopPropagation();
       close(true);
     };
+    const back = () => close(true);
+    window.addEventListener('popstate', back);
     document.addEventListener('pointerdown', outside, true);
     document.addEventListener('keydown', escape, true);
     return () => {
+      window.removeEventListener('popstate', back);
       document.removeEventListener('pointerdown', outside, true);
       document.removeEventListener('keydown', escape, true);
     };
@@ -164,15 +192,17 @@ export function Popover({
       >
         {trigger}
       </button>
-      {open && (
-        <div ref={surface} id={id} role="dialog" aria-label={label} className={styles.surface}>
-          <div className={flush ? `${styles.body} ${styles.flush}` : styles.body}>
-            {typeof children === 'function'
-              ? children((restore = true) => close(restore))
-              : children}
-          </div>
-        </div>
-      )}
+      {open &&
+        createPortal(
+          <div ref={surface} id={id} role="dialog" aria-label={label} className={styles.surface}>
+            <div className={flush ? `${styles.body} ${styles.flush}` : styles.body}>
+              {typeof children === 'function'
+                ? children((restore = true) => close(restore))
+                : children}
+            </div>
+          </div>,
+          document.body,
+        )}
     </>
   );
 }

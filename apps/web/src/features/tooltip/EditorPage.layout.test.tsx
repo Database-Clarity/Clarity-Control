@@ -438,9 +438,9 @@ describe('editor page composition', () => {
     expect(button('Stored form')).toBeUndefined();
     const trigger = button('Grouped 4')!;
     expect(trigger).toBeDefined();
-    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
     await act(async () => trigger.click());
-    const popover = host.querySelector('[role="dialog"]')!;
+    const popover = document.querySelector('[role="dialog"]')!;
     expect(popover.getAttribute('aria-label')).toBe('Grouped manifest perks');
     const rows = [...popover.querySelectorAll<HTMLElement>('[data-grouped]')];
     expect(rows.map((row) => row.dataset.grouped)).toEqual(['10', '11', '12', '13']);
@@ -451,7 +451,7 @@ describe('editor page composition', () => {
     await act(async () => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
-    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(document.activeElement).toBe(trigger);
     signIn('editor');
     await render();
