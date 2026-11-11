@@ -273,7 +273,14 @@ if (built) {
     root: web,
     configLoader: 'runner',
     logLevel: 'warn',
-    build: { outDir, emptyOutDir: true },
+    build: {
+      outDir,
+      emptyOutDir: true,
+      // The G-PREVIEW page joins the build so its workers are the production ones too.
+      rollupOptions: {
+        input: { main: join(web, 'index.html'), preview: join(web, 'test/exports-preview.html') },
+      },
+    },
   });
   server = await preview({
     root: web,
@@ -410,7 +417,8 @@ if (perfOnly) {
 if (!process.argv.includes('--skip-preview')) {
   const context = await browser.newContext();
   const page = await context.newPage();
-  await page.goto(`${appOrigin}/test/exports-preview.html`);
+  const loaded = await page.goto(`${appOrigin}/test/exports-preview.html`);
+  assert.equal(loaded?.status(), 200, 'G-PREVIEW page');
   await page.waitForFunction(() => window.previewCheck, undefined, { timeout: 600_000 });
   const check = await page.evaluate(() => window.previewCheck);
   assert.ok(!check.error, check.error);
