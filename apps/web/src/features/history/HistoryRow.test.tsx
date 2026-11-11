@@ -10,6 +10,7 @@ import { useDraftStore } from '../../stores/drafts';
 import { createRevisionCache } from './revisions';
 
 const getHistory = vi.fn();
+const getVersion = vi.fn();
 const getLegacyHistory = vi.fn();
 vi.mock('../../services/legacyHistory', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../services/legacyHistory')>()),
@@ -22,6 +23,7 @@ vi.mock('../../services/api', async (importOriginal) => ({
 vi.mock('../../services/history', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../services/history')>()),
   getHistory: (...args: unknown[]) => getHistory(...args),
+  getVersion: (...args: unknown[]) => getVersion(...args),
 }));
 
 const commit = (n: number) => ({
@@ -45,6 +47,9 @@ const originals = {
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   getHistory.mockReset();
+  getVersion.mockImplementation((_hash: number, sha: string) =>
+    Promise.resolve({ tooltip: { ...tooltip, text: { en: { ...tooltip.text.en!, text: sha } } } }),
+  );
   getLegacyHistory.mockReset().mockResolvedValue(null);
   useDataStore.setState({
     data: {
@@ -271,7 +276,8 @@ it('refreshes the first page when saving advances bundle head after paging', asy
   // The parent has refreshed page 1, so the new revision must be visible in its child list too.
   expect(getHistory.mock.calls.filter(([, p]) => p === 1)).toHaveLength(2);
   expect(host.textContent).toContain('NEW HEAD REVISION');
-  expect(getHistory.mock.calls.filter(([, p]) => p === 2)).toHaveLength(1);
+  // Scope classification needs the next page's first revision as the final row's parent.
+  expect(getHistory.mock.calls.filter(([, p]) => p === 2)).toHaveLength(2);
 });
 
 it('keeps an expanded history row open while cancelling suspended requests', async () => {

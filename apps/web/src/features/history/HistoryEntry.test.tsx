@@ -95,8 +95,8 @@ it('opens on hover with that revision diffed against its predecessor, per langua
   expect(dialog()).not.toBeNull();
   // Revision 3 against revision 2: only " three" is new in English, " deux" in French.
   expect(dialog()!.querySelector('ins')!.textContent).toBe(' three');
-  expect(dialog()!.textContent).toContain('French');
-  expect(dialog()!.querySelectorAll('ins')).toHaveLength(2);
+  expect(dialog()!.textContent).not.toContain('French');
+  expect(dialog()!.querySelectorAll('ins')).toHaveLength(1);
   expect(dialog()!.querySelector('pre')).toBeNull();
   // The popover floats: it is not inside the list's flow.
   expect(dialog()!.style.left).not.toBe('');
@@ -211,7 +211,7 @@ it('compares with the current draft from inside the popover', async () => {
   )!;
   await act(async () => compare.click());
   expect(compare.getAttribute('aria-pressed')).toBe('true');
-  expect(dialog()!.textContent).toContain('courant');
+  expect(dialog()!.textContent).not.toContain('courant');
 });
 
 it('restores inside the popover after confirming, and never offers it on a read-only page', async () => {
@@ -232,14 +232,16 @@ it('restores inside the popover after confirming, and never offers it on a read-
 });
 
 it('keeps the translator rule: a note, and only assigned languages are restored', async () => {
-  useAuthStore.setState({
-    user: { id: 2, login: 'tess', role: 'translator', languages: ['fr'] },
+  await act(async () => {
+    useAuthStore.setState({
+      user: { id: 2, login: 'tess', role: 'translator', languages: ['fr'] },
+    });
+    root.render(<HistoryPanel hash={10} language="fr" />);
   });
-  await act(async () => root.render(<HistoryPanel hash={10} />));
   await wait(0);
   await act(async () => entries()[1].click());
   await wait(0);
-  expect(dialog()!.textContent).toContain('only your assigned translation languages');
+  expect(dialog()!.textContent).toContain('only the shown, assigned translation language');
   const button = (label: string) =>
     [...dialog()!.querySelectorAll('button')].find((b) => b.textContent === label)!;
   await act(async () => button('Restore this revision').click());
@@ -279,6 +281,10 @@ it('shows restored and deleted revisions without retrying immutable file absence
     sha === id(2)
       ? Promise.reject(new Error('API HTTP 404: {"error":"Tooltip did not exist at that commit"}'))
       : Promise.resolve({ commit: sha, tooltip: versions[sha] }),
+  );
+  getVersion.mockClear();
+  await act(async () =>
+    useAuthStore.setState({ user: { id: 10, login: 'delete-test', role: 'editor' } }),
   );
   await act(async () => entries()[0].click());
   await wait(0);
@@ -330,4 +336,44 @@ describe('phone placement', () => {
     await act(async () => void window.dispatchEvent(new Event('resize')));
     expect(dialog()!.style.bottom).toBe('auto');
   });
+});
+
+it('filters against original parents and resets popovers when the language or role changes', async () => {
+  getHistory.mockResolvedValue({
+    commits: [commit(5), commit(4), commit(3), commit(2), commit(1)],
+  });
+  const scoped = {
+    [id(1)]: revision('one'),
+    [id(2)]: revision('one', 'un'), // hidden French-only revision
+    [id(3)]: revision('two', 'un'),
+    [id(4)]: revision('two', 'deux'), // hidden French-only revision
+    [id(5)]: { ...revision('two', 'deux'), associated: [20] },
+  };
+  getVersion.mockImplementation((_hash: number, sha: string) =>
+    Promise.resolve({ tooltip: scoped[sha] }),
+  );
+  await act(async () => {
+    useAuthStore.setState({ user: { id: 4, login: 'new', role: 'maintainer' } });
+  });
+  await wait(100);
+  expect(entries().map((button) => button.textContent)).toEqual([
+    expect.stringContaining('Edit 5'),
+    expect.stringContaining('Edit 3'),
+    expect.stringContaining('Edit 1'),
+  ]);
+  expect(host.textContent).toContain('2 changes outside this view hidden');
+  await act(async () => entries()[1].click());
+  await wait(0);
+  expect(dialog()!.textContent).not.toContain('French');
+  await act(async () => root.render(<HistoryPanel hash={10} language="fr" />));
+  await wait(100);
+  expect(dialog()).toBeNull();
+  expect(entries()).toHaveLength(5);
+  expect(host.querySelector('[aria-label="Published before migration"]')).toBeNull();
+  await act(async () => entries()[1].click());
+  await wait(0);
+  expect(dialog()!.textContent).toContain('French');
+  await act(async () => useAuthStore.setState({ user: null }));
+  expect(dialog()).toBeNull();
+  expect(entries()).toHaveLength(0);
 });

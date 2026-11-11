@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { classifyInWorker, type RevisionChanges } from './scope';
 import type { Tooltip } from '@clarity/core';
 import { getHistory, getVersion, type HistoryCommit } from '../../services/history';
 import { useAuthStore } from '../../stores/auth';
@@ -33,6 +34,7 @@ function remember<K, V>(map: Map<K, Promise<V>>, key: K, limit: number, make: ()
 }
 
 export function createRevisionCache(hash: number) {
+  const classifications = new Map<string, Promise<RevisionChanges>>();
   const versions = new Map<string, Promise<Tooltip | null>>();
   const pages = new Map<number, Promise<HistoryCommit[]>>();
   const pending = new Map<AbortController, () => void>();
@@ -131,6 +133,17 @@ export function createRevisionCache(hash: number) {
   };
   return {
     identity: ++cacheIdentity,
+    classify(commits: HistoryCommit[], index: number, loadedPage: number, more: boolean) {
+      return remember(classifications, commits[index].commit, 180, async () => {
+        const [revision, previous] = await Promise.all([
+          version(commits[index].commit),
+          predecessor(commits, index, loadedPage, more).then((commit) =>
+            commit ? version(commit) : null,
+          ),
+        ]);
+        return classifyInWorker(previous, revision);
+      });
+    },
     cancelPending() {
       for (const [controller, evict] of [...pending]) {
         pending.delete(controller);
@@ -160,14 +173,15 @@ export function createRevisionCache(hash: number) {
   };
 }
 
-export type RevisionCache = ReturnType<typeof createRevisionCache>;
-const caches = new Map<string, RevisionCache>();
+type ScopedRevisionCache = ReturnType<typeof createRevisionCache>;
+export type RevisionCache = Omit<ScopedRevisionCache, 'classify'>;
+const caches = new Map<string, ScopedRevisionCache>();
 // Never reuse authenticated responses across sign-in or permission changes.
 useAuthStore.subscribe((state, previous) => {
   if (state.user !== previous.user) caches.clear();
 });
 
-export function useRevisionCache(hash: number): RevisionCache {
+export function useRevisionCache(hash: number): ScopedRevisionCache {
   const user = useAuthStore((state) => state.user);
   const head = useDataStore((state) => state.data?.bundle.sourceCommit);
   return useMemo(() => {

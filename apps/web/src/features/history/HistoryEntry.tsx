@@ -14,6 +14,7 @@ import { scaledPx } from '../../ui/scale';
 import type { HistoryCommit } from '../../services/history';
 import { errorMessage } from '../../services/http';
 import { CommitAuthor } from './CommitAuthor';
+import { projectHistory, type HistoryScope } from './scope';
 import { TooltipDiff } from './TooltipDiff';
 import type { RevisionCache, RevisionDiffSource } from './revisions';
 import popover from '../../ui/Popover.module.scss';
@@ -40,6 +41,7 @@ const measureAnchor = (anchor: HTMLElement | null): AnchorGeometry | undefined =
   anchor ? { rect: anchor.getBoundingClientRect(), width: scaledPx(480) } : undefined;
 
 export interface HistoryEntryProps {
+  scope?: HistoryScope;
   entry: HistoryCommit;
   index: number;
   commits: HistoryCommit[];
@@ -257,6 +259,7 @@ function RevisionPopover({
   canRestore,
   onRestore,
   legacy,
+  scope,
 }: HistoryEntryProps & {
   id: string;
   anchor: RefObject<HTMLElement | null>;
@@ -360,6 +363,16 @@ function RevisionPopover({
     // The entry's own commit identifies the request; the list only grows.
   }, [cache, entry.commit, attempt]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const shown =
+    scope && source
+      ? {
+          ...source,
+          revision: projectHistory(source.revision, scope),
+          previous: projectHistory(source.previous, scope),
+        }
+      : source;
+  const shownCurrent = scope && current ? projectHistory(current, scope)! : current;
+
   function restore() {
     if (!source?.revision) return;
     try {
@@ -418,12 +431,14 @@ function RevisionPopover({
           </p>
         )}
         {!source && !error && <p role="status">Loading revision...</p>}
-        {source &&
+        {shown &&
           (legacy && mode === 'previous' ? (
-            source.hasPredecessor ? (
+            shown.hasPredecessor ? (
               <TooltipDiff
-                before={source.revision}
-                current={source.previous ?? { hash: current?.hash ?? 0, text: {}, associated: [] }}
+                before={shown.revision}
+                current={
+                  shown.previous ?? { hash: shownCurrent?.hash ?? 0, text: {}, associated: [] }
+                }
                 raw={false}
                 eagerLanguages
               />
@@ -435,32 +450,34 @@ function RevisionPopover({
             )
           ) : mode === 'previous' ? (
             <>
-              {!source.revision ? (
+              {!shown.revision ? (
                 <p>Deleted in this revision.</p>
               ) : (
-                !source.previous && (
+                !shown.previous && (
                   <p>
-                    {source.hasPredecessor
+                    {shown.hasPredecessor
                       ? 'Restored in this revision.'
                       : 'First revision: everything is new.'}
                   </p>
                 )
               )}
               <TooltipDiff
-                before={source.previous}
+                before={shown.previous}
                 current={
-                  source.revision ?? { hash: source.previous?.hash ?? 0, text: {}, associated: [] }
+                  shown.revision ?? { hash: shown.previous?.hash ?? 0, text: {}, associated: [] }
                 }
                 item={item}
                 raw={false}
               />
             </>
           ) : (
-            current && (
+            shownCurrent && (
               <TooltipDiff
-                before={source.revision}
+                before={shown.revision}
                 current={
-                  legacy ? { hash: current.hash, text: current.text, associated: [] } : current
+                  legacy
+                    ? { hash: shownCurrent.hash, text: shownCurrent.text, associated: [] }
+                    : shownCurrent
                 }
                 item={item}
                 raw={false}
@@ -473,7 +490,7 @@ function RevisionPopover({
             {legacy && <p>Only language text is restored. Other tooltip fields stay unchanged.</p>}
             {translator && (
               <p>
-                Restore replaces only your assigned translation languages; other fields stay
+                Restore replaces only the shown, assigned translation language; other fields stay
                 unchanged.
               </p>
             )}

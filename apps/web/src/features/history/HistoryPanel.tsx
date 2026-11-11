@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import type { Tooltip } from '@clarity/core';
+import type { Lang, Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
 import { type HistoryCommit } from '../../services/history';
 import { errorMessage } from '../../services/http';
@@ -16,6 +16,7 @@ import { useRevisionCache, type RevisionCache } from './revisions';
 import { revertDraft } from './revert';
 import { LegacyHistorySection } from './LegacyHistory';
 import styles from './History.module.scss';
+import { isRelevant, projectHistory, viewScope, type HistoryScope } from './scope';
 
 /**
  * One collapsed row: "Edited <date> by <author>, n revisions". Expanding it shows the commit list
@@ -27,7 +28,9 @@ export function HistoryPanel({
   readOnly = false,
   suspended = false,
   attribution,
+  language = 'en',
 }: {
+  language?: Lang;
   hash: number;
   readOnly?: boolean;
   suspended?: boolean;
@@ -39,10 +42,13 @@ export function HistoryPanel({
     count: number;
     more: boolean;
   }>();
+  const scope = useMemo(() => viewScope(language, readOnly), [language, readOnly]);
   const user = useAuthStore((state) => state.user);
   const tooltip = useDataStore((state) => state.data?.bundle.tooltips[hash]);
   const draft = useDraftStore((state) => state.drafts[hash]);
-  const edit = lastEdit(draft?.next ?? tooltip ?? { hash, text: {}, associated: [] });
+  const edit = lastEdit(
+    projectHistory(draft?.next ?? tooltip ?? null, scope) ?? { hash, text: {}, associated: [] },
+  );
   const signedIn = Boolean(apiUrl && user?.role);
   const cache = useRevisionCache(hash);
   useEffect(() => {
@@ -90,18 +96,26 @@ export function HistoryPanel({
       {!signedIn ? <p>Sign in as a configured member to view v2 history.</p> : null}
       {signedIn && (
         <HistoryContent
-          key={`v2-${cache.identity}`}
+          key={`v2-${cache.identity}-${language}-${readOnly}`}
+          scope={scope}
           hash={hash}
           readOnly={readOnly}
           suspended={suspended}
         />
       )}
-      <LegacyHistorySection key="legacy" hash={hash} readOnly={readOnly} />
+      {language === 'en' && (
+        <LegacyHistorySection
+          key={`legacy-${user?.id}-${user?.role}`}
+          hash={hash}
+          readOnly={readOnly}
+        />
+      )}
     </PanelRow>
   );
 }
 
 function HistoryContent({
+  scope,
   hash,
   readOnly = false,
   suspended = false,
@@ -109,6 +123,7 @@ function HistoryContent({
   hash: number;
   readOnly?: boolean;
   suspended?: boolean;
+  scope: HistoryScope;
 }) {
   const user = useAuthStore((state) => state.user);
   const base = useDataStore((state) => state.data?.bundle.tooltips[hash]);
@@ -178,6 +193,33 @@ function HistoryContent({
       if (idle !== undefined) window.cancelIdleCallback(idle);
     };
   }, [cache, commits, loading, suspended]);
+  const [relevance, setRelevance] = useState<Record<string, boolean>>({});
+  const [classifying, setClassifying] = useState(false);
+  useEffect(() => {
+    if (suspended || loading) return;
+    let active = true;
+    setClassifying(true);
+    void (async () => {
+      for (let index = 0; index < commits.length; index++) {
+        const changes = await cache.classify(commits, index, loadedPage, hasMore);
+        if (!active) return;
+        setRelevance((previous) => ({
+          ...previous,
+          [commits[index].commit]: isRelevant(changes, scope),
+        }));
+      }
+      if (active) setClassifying(false);
+    })().catch((reason: unknown) => {
+      if (active) {
+        setError(errorMessage(reason));
+        setClassifying(false);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [cache, commits, loadedPage, hasMore, scope, suspended, loading, attempt]);
+  const hidden = commits.filter((entry) => relevance[entry.commit] === false).length;
   const current = draft?.next ?? base;
   const canRestore = !readOnly && hydrated && Boolean(base);
 
@@ -185,12 +227,12 @@ function HistoryContent({
     (version: Tooltip) => {
       setNotice(undefined);
       if (!base || !current || !user || !hydrated) return;
-      replaceDraft(base, revertDraft(current, version, user));
+      replaceDraft(base, revertDraft(current, version, user, scope));
       setNotice(
         'Historical version loaded as a local draft. Review it in the editor and use the normal save flow to commit it; nothing was saved or pushed automatically.',
       );
     },
-    [base, current, user, hydrated],
+    [base, current, user, hydrated, scope],
   );
 
   return (
@@ -204,27 +246,37 @@ function HistoryContent({
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
+      {hidden > 0 && <p>{hidden} changes outside this view hidden</p>}
+      {classifying && <p role="status">Checking revision scope...</p>}
       <ol className={styles.commits}>
-        {commits.slice(0, visibleCount).map((entry, index) => (
-          <HistoryEntry
-            key={entry.commit}
-            entry={entry}
-            index={index}
-            commits={commits}
-            page={loadedPage}
-            hasMore={hasMore}
-            cache={cache}
-            current={current}
-            item={item}
-            translator={user?.role === 'translator'}
-            canRestore={canRestore}
-            onRestore={restore}
-          />
-        ))}
+        {commits
+          .slice(0, visibleCount)
+          .map(
+            (entry, index) =>
+              relevance[entry.commit] === true && (
+                <HistoryEntry
+                  key={entry.commit}
+                  scope={scope}
+                  entry={entry}
+                  index={index}
+                  commits={commits}
+                  page={loadedPage}
+                  hasMore={hasMore}
+                  cache={cache}
+                  current={current}
+                  item={item}
+                  translator={user?.role === 'translator'}
+                  canRestore={canRestore}
+                  onRestore={restore}
+                />
+              ),
+          )}
         {visibleCount < commits.length && <li role="status">Preparing remaining revisions...</li>}
       </ol>
       {loading && <p role="status">Loading commits...</p>}
-      {!loading && !commits.length && !error && <p>No commits found for this tooltip.</p>}
+      {!loading && !classifying && !commits.some((entry) => relevance[entry.commit]) && !error && (
+        <p>No changes in this view.</p>
+      )}
       {hasMore && !error && (
         <button type="button" disabled={loading} onClick={() => setPage((value) => value + 1)}>
           Load more commits

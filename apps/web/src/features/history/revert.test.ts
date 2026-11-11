@@ -43,14 +43,14 @@ describe('history draft restoration', () => {
     );
     expect({ ...result, text: {} }).toEqual({ ...rich, text: {} });
     expect(result.text.en?.text).toBe('Old');
-    expect(result.text.de).toBeUndefined();
+    expect(result.text.de).toEqual(rich.text.de);
     expect(rich.text.de).toBeDefined();
   });
   it('limits legacy restore to assigned languages and verified identities', () => {
     const user = { id: 2, login: 'bob', role: 'translator' as const, languages: ['de' as const] };
     const result = restoreLegacyText(current, version, user, true);
     expect(result.text.en).toEqual(current.text.en);
-    expect(result.text.de).toBeUndefined();
+    expect(result.text.de).toEqual(current.text.de);
     expect(result.associated).toEqual(current.associated);
     expect(() => restoreLegacyText(current, version, user, false)).toThrow('not verified');
     expect(() => restoreLegacyText(current, version, { ...user, role: null }, true)).toThrow(
@@ -60,19 +60,24 @@ describe('history draft restoration', () => {
       'different tooltip',
     );
   });
-  it('restores a full version for editors without mutating either input', () => {
+  it('restores English and shown fields without changing hidden languages', () => {
     const result = revertDraft(current, version, { id: 1, login: 'alice', role: 'editor' });
-    expect(result).toEqual(version);
+    expect(result).toEqual({ ...version, text: { ...current.text, en: version.text.en } });
     expect(result).not.toBe(version);
     expect(current.associated).toEqual([456]);
   });
   it('restores only assigned translator languages, including absent historical text', () => {
-    const result = revertDraft(current, version, {
-      id: 2,
-      login: 'bob',
-      role: 'translator',
-      languages: ['de'],
-    });
+    const result = revertDraft(
+      current,
+      version,
+      {
+        id: 2,
+        login: 'bob',
+        role: 'translator',
+        languages: ['de'],
+      },
+      { languages: ['en', 'de'], fields: ['associated'] },
+    );
     expect(result.text.de).toBeUndefined();
     expect(result.text.en).toEqual(current.text.en);
     expect(result.text.fr).toEqual(current.text.fr);

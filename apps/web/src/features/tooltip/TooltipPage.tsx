@@ -440,6 +440,7 @@ function TooltipWorkspace({
       <ManifestTextRow hash={activeHash} />
       {!readOnly && <AssociationsPanel hash={activeHash} suspended={suspended} />}
       <HistoryPanel
+        language={lang}
         hash={activeHash}
         readOnly={readOnly}
         suspended={suspended}
