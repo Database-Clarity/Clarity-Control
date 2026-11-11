@@ -79,6 +79,26 @@ afterEach(async () => {
   useDraftStore.setState(originals.drafts);
 });
 
+it('keeps English legacy upload attribution when migrated edit timestamps are unknown', async () => {
+  getHistory.mockResolvedValue({ page: 1, commits: [] });
+  const migrated: Tooltip = {
+    ...tooltip,
+    text: {
+      en: { ...tooltip.text.en!, updatedAt: '1970-01-01T00:00:00Z', updatedBy: '' },
+      fr: { ...tooltip.text.en!, updatedAt: '2026-11-01T00:00:00Z', updatedBy: 'hidden-fr-author' },
+    },
+    legacy: { lastUpload: Date.parse('2025-01-01T00:00:00Z'), uploadedBy: 'legacy-uploader' },
+  };
+  useDataStore.setState((state) => ({
+    data: { ...state.data!, bundle: { ...state.data!.bundle, tooltips: { 10: migrated } } },
+  }));
+  await act(async () => root.render(<HistoryPanel hash={10} />));
+  expect(host.textContent).toContain('by legacy-uploader');
+  expect(host.textContent).not.toContain('hidden-fr-author');
+  expect(host.querySelector('time')?.getAttribute('datetime')).toBe('2025-01-01T00:00:00.000Z');
+  expect(getVersion).not.toHaveBeenCalled();
+});
+
 it('keeps the v2 count ready and loads legacy history only on open', async () => {
   getHistory.mockResolvedValue({ page: 1, commits: [commit(1), commit(2), commit(3)] });
   await act(async () => root.render(<HistoryPanel hash={10} />));

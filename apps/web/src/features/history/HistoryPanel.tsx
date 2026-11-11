@@ -47,9 +47,9 @@ export function HistoryPanel({
   const user = useAuthStore((state) => state.user);
   const tooltip = useDataStore((state) => state.data?.bundle.tooltips[hash]);
   const draft = useDraftStore((state) => state.drafts[hash]);
-  const edit = lastEdit(
-    projectHistory(draft?.next ?? tooltip ?? null, scope) ?? { hash, text: {}, associated: [] },
-  );
+  const value = draft?.next ?? tooltip;
+  const shown = projectHistory(value ?? null, scope) ?? { hash, text: {}, associated: [] };
+  const edit = lastEdit(language === 'en' ? { ...shown, legacy: value?.legacy } : shown);
   const signedIn = Boolean(apiUrl && user?.role);
   const cache = useRevisionCache(hash);
   useEffect(() => {
