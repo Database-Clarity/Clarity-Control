@@ -362,6 +362,9 @@ if (perfOnly) {
   await ready(page, '[aria-label="Bold mode"]');
   await sampleShown(page);
   await page.evaluate(() => {
+    // Input-to-paint: from the pointer event's own timestamp, so Playwright's actionability
+    // waits before it dispatches (two stable frames) are not counted as app time.
+    document.addEventListener('pointerdown', (event) => (window.__inputAt = event.timeStamp), true);
     window.longTasks = [];
     new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) window.longTasks.push(entry.duration);
@@ -373,22 +376,22 @@ if (perfOnly) {
     for (const row of rows) {
       const group = page.locator(`[aria-label="${row} mode"]`);
       const buttons = group.locator('button:not([disabled]):not([aria-pressed="true"])');
-      const ms = await page.evaluate(async () => {
+      const ms = await page.evaluate(() => {
+        window.__inputAt = null;
         const entry = document.querySelector('[data-config-version]');
-        const before = Number(entry.getAttribute('data-config-version'));
-        window.__clickAt = performance.now();
-        return before;
+        return Number(entry.getAttribute('data-config-version'));
       });
       await buttons.first().click();
       const elapsed = await page.evaluate(
         (before) =>
           new Promise((done) => {
             const check = () => {
+              if (window.__inputAt === null) return requestAnimationFrame(check);
               const entry = document.querySelector('[data-config-version]');
               const asked = Number(entry.getAttribute('data-config-version'));
               const shown = Number(entry.getAttribute('data-rendered-version'));
               if (asked > before && shown === asked)
-                requestAnimationFrame(() => done(performance.now() - window.__clickAt));
+                requestAnimationFrame(() => done(performance.now() - window.__inputAt));
               else requestAnimationFrame(check);
             };
             check();
