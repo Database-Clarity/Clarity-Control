@@ -110,26 +110,46 @@ describe('the retired markup options', () => {
 });
 
 describe('the markup row catalogue', () => {
-  it('is ordered: bullet, pair, PvE, PvP, 15 icons, enhanced arrow, link, title, bold + yellow', () => {
-    const ids = rowEntries(markupEntries(globals)).map((item) =>
-      item === rowSeparator ? '|' : item.id,
-    );
-    expect(ids).toEqual([
-      'bullet',
-      '|',
-      'pair',
+  it('uses the owner order, Exotic label, and symbol-only arrow', () => {
+    const entries = markupEntries(globals);
+    expect(
+      rowEntries(entries)
+        .filter((item) => item !== rowSeparator)
+        .map((item) => item.id),
+    ).toEqual([
+      'enhanced-arrow',
       'pve',
       'pvp',
-      '|',
-      ...markupIcons.map((name) => `icon:${name}`),
-      '|',
-      'enhanced-arrow',
+      'pair',
+      ...[
+        'kinetic',
+        'arc',
+        'solar',
+        'void',
+        'stasis',
+        'strand',
+        'prismatic',
+        'primary',
+        'special',
+        'heavy',
+        'barrier',
+        'overload',
+        'unstoppable',
+        'warlock',
+        'hunter',
+        'titan',
+      ].map((name) => `icon:${name}`),
       'link',
       'title',
-      '|',
       'inline:bold',
       'inline:yellow',
     ]);
+    expect(entries.some((entry) => entry.id === 'bullet')).toBe(false);
+    expect(entries.find((entry) => entry.id === 'inline:yellow')?.label).toBe('Exotic (yellow)');
+    expect(entries.find((entry) => entry.id === 'enhanced-arrow')?.glyph).toEqual({
+      kind: 'arrow',
+      text: '',
+    });
     expect(markupIcons).toHaveLength(16);
     expect(rowOrder.filter((id) => id.startsWith('icon:'))).toHaveLength(16);
   });
@@ -213,15 +233,6 @@ describe('the markup row', () => {
     expect(second.state.doc.toString()).toBe('y <pvp [value] />');
   });
 
-  it('puts a bullet at the start of every selected line, once', () => {
-    const view = mount('one\ntwo\n• three');
-    act(() => view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } }));
-    click(entryButton('bullet'));
-    expect(view.state.doc.toString()).toBe('• one\n• two\n• three');
-    click(entryButton('bullet'));
-    expect(view.state.doc.toString()).toBe('• one\n• two\n• three');
-  });
-
   it('the enhanced arrow is plain #e at the caret and never replaces the selection', () => {
     const view = mount('Amount 5');
     act(() => view.dispatch({ selection: { anchor: 7, head: 8 } }));
@@ -251,25 +262,26 @@ describe('the markup row', () => {
     expect(document.activeElement).toBe(buttons[1]);
     key(buttons[1]!, 'ArrowLeft');
     expect(document.activeElement).toBe(buttons[0]);
-    // 1 = bullet
+    // 1 = enhanced arrow
     key(buttons[0]!, '1');
-    expect(view.state.doc.toString()).toBe('• Deals ');
+    expect(view.state.doc.toString()).toBe('Deals #e');
     key(buttons[0]!, 'End');
     expect(document.activeElement).toBe(buttons.at(-1));
   });
 
   it('shows the markup on hover and the number key for the first nine', () => {
     mount('x');
-    expect(entryButton('bullet').title).toContain('key 1');
+    expect(entryButton('enhanced-arrow').title).toContain('key 1');
     expect(entryButton('pair').title).toContain('<pve value /> <pvp [value] />');
     expect(entryButton('inline:bold').title).not.toContain('key');
+    expect(entryButton('inline:yellow').title).toContain('Exotic (yellow)');
   });
 
   it('never takes focus from the text when pressed', () => {
     mount('x');
     const event = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
     act(() => {
-      entryButton('bullet').dispatchEvent(event);
+      entryButton('enhanced-arrow').dispatchEvent(event);
     });
     expect(event.defaultPrevented).toBe(true);
   });

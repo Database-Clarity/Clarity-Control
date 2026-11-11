@@ -180,7 +180,7 @@ export const MarkupRow = memo(function MarkupRow({
                 tabIndex={own === active ? 0 : -1}
                 aria-label={item.label}
                 aria-keyshortcuts={key ? String(key) : undefined}
-                title={`${item.markup}${key ? `  ·  key ${key} while here` : ''}`}
+                title={`${item.id === 'inline:yellow' ? `${item.label}: ` : ''}${item.markup}${key ? `  ·  key ${key} while here` : ''}`}
                 // Pressing never moves focus out of the text, so the selection stays put.
                 onMouseDown={(event) => event.preventDefault()}
                 onFocus={() => setActive(own)}

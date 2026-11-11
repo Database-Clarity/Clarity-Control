@@ -1,3 +1,4 @@
+import { listDot } from './listDot';
 import {
   lazy,
   startTransition,
@@ -606,6 +607,7 @@ export function ClarityEditor({
       indentOnInput(),
       bracketMatching(),
       clarityLanguage,
+      listDot,
       clarityHighlighting,
       suggestExtension(),
       chipsExtension(),
