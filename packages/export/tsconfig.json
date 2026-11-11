@@ -8,7 +8,9 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
+    "allowJs": true,
+    "checkJs": true,
     "types": ["node"]
   },
-  "include": ["src", "test", "build.mjs"]
+  "include": ["src", "test", "decoder", "build.mjs"]
 }
