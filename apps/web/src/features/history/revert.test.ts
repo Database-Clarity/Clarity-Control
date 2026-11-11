@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { type Tooltip } from '@clarity/core';
 import { revertDraft, restoreLegacyText } from './revert';
+import { englishScope } from './scope';
 
 const current: Tooltip = {
   hash: 123,
@@ -61,7 +62,12 @@ describe('history draft restoration', () => {
     );
   });
   it('restores English and shown fields without changing hidden languages', () => {
-    const result = revertDraft(current, version, { id: 1, login: 'alice', role: 'editor' });
+    const result = revertDraft(
+      current,
+      version,
+      { id: 1, login: 'alice', role: 'editor' },
+      englishScope,
+    );
     expect(result).toEqual({ ...version, text: { ...current.text, en: version.text.en } });
     expect(result).not.toBe(version);
     expect(current.associated).toEqual([456]);

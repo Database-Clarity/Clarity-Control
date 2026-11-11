@@ -6,10 +6,21 @@ export function revertDraft(
   current: Tooltip,
   version: Tooltip,
   user: User,
-  scope: HistoryScope = englishScope,
+  scope?: HistoryScope,
 ): Tooltip {
   if (current.hash !== version.hash) throw new Error('Cannot restore a different tooltip');
   if (!user.role) throw new Error('You do not have permission to restore history');
+  // Recovery and Review load whole versions; History always supplies its view scope.
+  if (!scope) {
+    if (user.role !== 'translator') return structuredClone(version);
+    const next = structuredClone(current);
+    for (const language of user.languages ?? []) {
+      const text = version.text[language];
+      if (text) next.text[language] = structuredClone(text);
+      else delete next.text[language];
+    }
+    return next;
+  }
   const next = structuredClone(current);
   for (const language of scope.languages) {
     if (user.role === 'translator' && (language === 'en' || !user.languages?.includes(language)))
