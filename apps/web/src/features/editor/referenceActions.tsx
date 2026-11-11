@@ -20,6 +20,7 @@ import {
 } from '@codemirror/view';
 import type { Lang, MarkupGlobals } from '@clarity/core';
 import { ReferencePopover } from './ReferencePopover';
+import { drawnSymbolAt } from './symbols';
 import {
   isInComment,
   localDefinitions,
@@ -262,10 +263,14 @@ export function referenceExtensions(host: ReferenceHost): Extension {
     pinned,
     link,
     linkHints,
-    hoverTooltip((view, pos, side) => tooltipFor(view.state, pos, side), {
-      hideOnChange: true,
-      hoverTime: 300,
-    }),
+    hoverTooltip(
+      (view, pos, side) =>
+        drawnSymbolAt(view.state, pos) ? null : tooltipFor(view.state, pos, side),
+      {
+        hideOnChange: true,
+        hoverTime: 300,
+      },
+    ),
     EditorView.domEventHandlers({
       mousedown(event, view) {
         if (event.button !== 0 || !modifierHeld(event)) return false;

@@ -7,7 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseMarkup, type MarkupGlobals } from '@clarity/core';
 import { ClarityEditor } from './ClarityEditor';
 import { useSettingsStore } from '../../stores/settings';
-import { findSymbols, findTags, pinTag, symbolExtensions } from './symbols';
+import {
+  drawnSymbolAt,
+  findSymbols,
+  findTags,
+  pinTag,
+  symbolExtensions,
+  toggleRaw,
+} from './symbols';
 
 const globals: MarkupGlobals = { variables: '', titles: '' };
 const doc = 'Deal <arc/> damage <yellow 5 /> <solar/> and <pve 3 /> done.\n<void/>';
@@ -61,6 +68,39 @@ describe('findSymbols / findTags', () => {
       ['icon', 'void', '<void/>'],
     ]);
     expect(findSymbols('<unknown/> <notatag >')).toEqual([]);
+  });
+
+  it('finds the enhanced arrow #e as a symbol, also before a formula, never inside a longer name', () => {
+    const text = '#e Lasts #e${7+#d} s. <yellow #e 5 /> #effect #e2 ##e';
+    const found = findSymbols(text).map((s) => [s.name, s.from, text.slice(s.from, s.to)]);
+    expect(found).toEqual([
+      ['enhanced-arrow', 0, '#e'],
+      ['enhanced-arrow', 9, '#e'],
+      ['enhanced-arrow', 30, '#e'],
+      ['enhanced-arrow', 51, '#e'],
+    ]);
+  });
+
+  it('draws #e as an arrow symbol that hides in raw view and reveals like an icon', () => {
+    const { view } = mount('Up #e and <arc/>');
+    expect(symbols().map((s) => s.dataset.symbol)).toEqual(['enhanced-arrow', 'arc']);
+    expect(symbols()[0].classList.contains('cm-symbol-arrow')).toBe(true);
+    expect(content()).toBe('Up  and ');
+    // A drawn #e is a symbol, so the variable's reference hover stays away from it.
+    expect([2, 3, 4, 5, 6].map((pos) => drawnSymbolAt(view.state, pos))).toEqual([
+      false,
+      true,
+      true,
+      true,
+      false,
+    ]);
+    // Selecting it (a click or the arrows) opens the same popover with its markup.
+    act(() => view.dispatch({ selection: { anchor: 3, head: 5 } }));
+    expect(document.querySelector('.cm-symbol-popover code')?.textContent).toBe('#e');
+    act(() => view.dispatch({ effects: toggleRaw.of(true) }));
+    expect(symbols()).toEqual([]);
+    expect(content()).toBe('Up #e and <arc/>');
+    expect(drawnSymbolAt(view.state, 4)).toBe(false);
   });
 
   it('pairs colour tags per line with the markup ranges', () => {

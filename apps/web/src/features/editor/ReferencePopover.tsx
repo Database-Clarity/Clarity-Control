@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { Lang, MarkupGlobals } from '@clarity/core';
 import { MarkupSnippet } from '../preview';
+import { WithArrows } from '../../ui/EnhancedArrow';
 import type { ResolvedReference } from './references';
 import styles from './ReferencePopover.module.scss';
 
@@ -82,7 +83,7 @@ export function ReferencePopover({
         </div>
       )}
       <code className={styles.raw} title={resolved.value}>
-        {rawLine(shown)}
+        <WithArrows text={rawLine(shown)} />
       </code>
       {resolved.note && <p className={styles.note}>{resolved.note}</p>}
       {onOpen && (

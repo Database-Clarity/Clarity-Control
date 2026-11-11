@@ -22,13 +22,35 @@ function highlights(text: string) {
 it('distinguishes base and enhanced arms, including formulas inside tags', () => {
   expect(highlights('<pve {{${1+2}}{#damage}} />')).toEqual(
     expect.arrayContaining([
-      { text: '{{${1+2}}', kind: 'number' },
-      { text: '{#damage}}', kind: 'variable' },
+      { text: '{{', kind: 'tag' },
+      { text: '${1+2}', kind: 'number' },
+      { text: '}{', kind: 'tag' },
+      { text: '#damage', kind: 'variable' },
+      { text: '}}', kind: 'tag' },
     ]),
   );
-  expect(highlights('<pvp [{{5}{8}}] />')).toEqual(expect.arrayContaining([
-    { text: '{{5}', kind: 'number' }, { text: '{8}}', kind: 'variable' },
-  ]));
+  expect(highlights('<pvp [{{5}{8}}] />')).toEqual(
+    expect.arrayContaining([
+      { text: '{{', kind: 'tag' },
+      { text: '5', kind: 'number' },
+      { text: '}{', kind: 'tag' },
+      { text: '8', kind: 'variable' },
+      { text: '}}', kind: 'tag' },
+    ]),
+  );
+  // Two pairs on a line and the prose after them; a pair never runs onto the next line.
+  expect(highlights('a {{1}{2}} b {{x y}{z}} c\n{{3}')).toEqual([
+    { text: '{{', kind: 'tag' },
+    { text: '1', kind: 'number' },
+    { text: '}{', kind: 'tag' },
+    { text: '2', kind: 'variable' },
+    { text: '}}', kind: 'tag' },
+    { text: '{{', kind: 'tag' },
+    { text: 'x y', kind: 'number' },
+    { text: '}{', kind: 'tag' },
+    { text: 'z', kind: 'variable' },
+    { text: '}}', kind: 'tag' },
+  ]);
 });
 
 it('retains markup and comment boundaries inside long unstyled prose', () => {
@@ -130,4 +152,22 @@ describe('pipes', () => {
       { text: '<$>', kind: 'type' },
     ]);
   });
+});
+
+it('colours a formula like a pair: base number in the base colour, the rest enhanced', () => {
+  const arms = tagHighlighter([
+    { tag: tags.special(tags.number), class: 'base' },
+    { tag: tags.special(tags.variableName), class: 'enhanced' },
+    { tag: tags.number, class: 'number' },
+  ]);
+  const text = 'for #e${7+#d} s, ${10} flat';
+  const ranges: { text: string; kind: string }[] = [];
+  highlightTree(clarityLanguage.parser.parse(text), arms, (from, to, kind) =>
+    ranges.push({ text: text.slice(from, to), kind }),
+  );
+  expect(ranges).toEqual([
+    { text: '${7', kind: 'base' },
+    { text: '+#d}', kind: 'enhanced' },
+    { text: '${10}', kind: 'number' },
+  ]);
 });
