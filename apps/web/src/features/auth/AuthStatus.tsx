@@ -46,10 +46,13 @@ export function identitySummary(state: {
 export function IdentityStatus({
   onAction,
   picture,
+  accountRows,
 }: {
   onAction?: () => void;
   /** The signed-in account's picture, beside its name and role. */
   picture?: ReactNode;
+  /** Rows for the signed-in account, between who and Sign out (My reports). */
+  accountRows?: ReactNode;
 }) {
   const { user, loading, error, load, logout } = useAuthStore();
   const location = useLocation();
@@ -97,6 +100,7 @@ export function IdentityStatus({
             </p>
           )}
         </div>
+        {accountRows}
         <button
           type="button"
           onClick={() => {

@@ -43,6 +43,24 @@ test('validates permissions and language restrictions', () => {
   ]) expect(permissionsSchema.safeParse({ users: { '123': user } }).success).toBe(false);
   expect(permissionsSchema.safeParse({ users: { alice: { login: 'alice', role: 'editor' } } }).success).toBe(false);
 });
+test('permissions accept files with and without the optional partners map', () => {
+  const users = { '1': { login: 'alice', role: 'maintainer' as const } };
+  expect(permissionsSchema.parse({ users })).toEqual({ users });
+  const partners = { '42': { login: 'Partner', projects: ['dim', 'light-gg'] } };
+  expect(permissionsSchema.parse({ users, partners })).toEqual({ users, partners });
+  expect(permissionsSchema.parse({ users, partners: {} })).toEqual({ users, partners: {} });
+  for (const bad of [
+    { alice: { login: 'alice', projects: ['dim'] } },
+    { '42': { login: 'p', projects: [] } },
+    { '42': { login: 'p', projects: ['dim', 'dim'] } },
+    { '42': { login: 'p', projects: ['../dim'] } },
+    { '42': { login: 'p', projects: ['Dim'] } },
+    { '42': { login: 'p', projects: ['dim'], role: 'maintainer' } },
+    { '42': { login: '', projects: ['dim'] } },
+  ])
+    expect(permissionsSchema.safeParse({ users, partners: bad }).success).toBe(false);
+  expect(permissionsSchema.safeParse({ users, extra: {} }).success).toBe(false);
+});
 test('pushed requires canonical hash keys and SHA-256 values', () => {
   expect(pushedSchema.parse({ '0': 'a'.repeat(64) })).toEqual({ '0': 'a'.repeat(64) });
   for (const value of [{ '01': 'a'.repeat(64) }, { '4294967296': 'a'.repeat(64) }, { '42': 'abc' }]) {
