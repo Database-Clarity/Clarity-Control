@@ -631,7 +631,10 @@ function TooltipWorkspace({
       {hosted && (
         <ShellSlot name="left">
           <div className={styles.leftStack}>
-            <div className={styles.previewBody}>
+            <div
+              className={styles.previewBody}
+              data-global-preview={selectedGlobal ? true : undefined}
+            >
               {previews}
               {selectedGlobal && (
                 <GlobalUsageCount hash={selectedGlobal.hash} name={selectedGlobal.name} />

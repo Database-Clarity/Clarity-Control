@@ -22,7 +22,11 @@ afterEach(async () => {
 const render = () =>
   act(async () =>
     root.render(
-      <VariantWorkspace editor={<div>Editor</div>} compendium={<div>Compendium pane</div>} />,
+      <VariantWorkspace
+        editor={<div>Editor</div>}
+        compendium={<div>Compendium pane</div>}
+        initialPanel="compendium"
+      />,
     ),
   );
 const dot = () => host.querySelector('[role="tab"] [role="img"]');
@@ -37,5 +41,15 @@ it('marks the Compendium tab when the pane has matched or needs-review text, and
   expect(dot()?.getAttribute('aria-label')).toBe('Needs review');
   expect(dot()?.getAttribute('data-status')).toBe('review');
   await act(async () => usePaneStatus.getState().set(5, undefined));
+  expect(dot()).toBeNull();
+});
+
+it('does not present a hidden pane result as current', async () => {
+  await act(async () =>
+    root.render(
+      <VariantWorkspace editor={<div>Editor</div>} compendium={<div>Compendium pane</div>} />,
+    ),
+  );
+  await act(async () => usePaneStatus.getState().set(5, 'matched'));
   expect(dot()).toBeNull();
 });

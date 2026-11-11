@@ -1,3 +1,4 @@
+import { trackCompendiumInput, useCompendiumSurfaces } from './backgroundActivity';
 import { useEffect, useMemo } from 'react';
 import { useDataStore } from '../../stores/data';
 import { useCompendiumStore } from './store';
@@ -17,22 +18,30 @@ import { pickerIdleScheduler, warmPickerRowIndexes } from './pickerRows';
 export type CompendiumCount =
   { state: 'loading' } | { state: 'error' } | { state: 'ready'; count: number };
 
-/** Number of Compendium changes waiting for review. One load owner: whoever mounts this first. */
+const noDrafts = {};
+/** Count retained from the same source; preparation starts only for a visible Compendium surface. */
 export function useCompendiumCount(): CompendiumCount {
+  const visible = useCompendiumSurfaces((state) => state.visible);
+  useEffect(trackCompendiumInput, []);
   const editor = useDataStore((state) => state.data);
   const tooltips = editor?.bundle.tooltips;
-  const drafts = useDraftStore((state) => state.drafts);
+  const drafts = useDraftStore((state) => (visible ? state.drafts : noDrafts));
   const userId = useAuthStore((state) => state.user?.id);
   const { data, error, load } = useCompendiumStore();
-  const { prepared } = useDisplayMatches(editor, data, drafts, userId);
+  const { prepared } = useDisplayMatches(
+    visible ? editor : null,
+    visible ? data : null,
+    drafts,
+    userId,
+  );
   useEffect(() => {
-    if (!editor || data) return;
+    if (!visible || !editor || data) return;
     void load();
     const bridge = pendingCompendiumWorker();
     if (bridge) prewarmMatchingSession(editor, bridge);
-  }, [editor, data, load]);
+  }, [editor, data, load, visible]);
   useEffect(() => {
-    if (!editor || !data || !prepared) return;
+    if (!visible || !editor || !data || !prepared) return;
     // Prepare the entire review model fairly, regardless of viewport, selection or route.
     // Separate idle jobs keep this work out of editor input and foreground navigation.
     const evidence = () =>
@@ -68,8 +77,9 @@ export function useCompendiumCount(): CompendiumCount {
       cancelProposals?.();
       idle.cancel();
     };
-  }, [editor, data, prepared, userId]);
+  }, [editor, data, prepared, userId, visible]);
   useEffect(() => {
+    if (!visible) return;
     const start = () => {
       void load();
       void import('./CompendiumTab');
@@ -83,7 +93,7 @@ export function useCompendiumCount(): CompendiumCount {
     }
     const id = setTimeout(start, 0);
     return () => clearTimeout(id);
-  }, [load]);
+  }, [load, visible]);
   const count = useMemo(
     () => (tooltips && data ? compendiumChanges(tooltips, data).length : null),
     [tooltips, data],

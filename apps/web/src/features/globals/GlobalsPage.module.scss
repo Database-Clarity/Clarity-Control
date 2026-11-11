@@ -55,6 +55,7 @@
 }
 
 .usagePane {
+  contain: layout paint;
   max-height: calc(100dvh - 6rem);
   .usages {
     padding: 0;
@@ -82,4 +83,8 @@
   span {
     font-variant-numeric: tabular-nums;
   }
+}
+
+:global([data-global-preview]) {
+  contain: layout paint;
 }
