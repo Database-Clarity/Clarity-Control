@@ -249,7 +249,7 @@ export function DraftButton({ iconOnly = false }: { iconOnly?: boolean }) {
         onClose={() => setOpen(false)}
         label="Drafts"
         anchorRef={button}
-        width={380}
+        width={460}
         align="end"
       >
         <DraftsContent onClose={() => setOpen(false)} />
