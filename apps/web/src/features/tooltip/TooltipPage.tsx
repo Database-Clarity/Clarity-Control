@@ -341,7 +341,9 @@ function TooltipWorkspace({
   const globalsFor = (variant: number): ScopedMarkupGlobals =>
     typedGlobals(
       legacyOf(variant),
-      categoriesWithEnhanced(data).has(data.items[variant]?.categoryId ?? ''),
+      categoriesWithEnhanced(data).has(
+        data.items[variant]?.categoryId ?? archivedItemFor(variant, data)?.categoryId ?? '',
+      ),
     );
   const textOf = (variant: number) =>
     (drafts[variant]?.next ?? tooltipFor(variant, data)).text[lang]?.text ?? '';
