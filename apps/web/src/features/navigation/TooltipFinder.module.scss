@@ -10,7 +10,7 @@
   min-width: 0;
   width: 100%;
 
-  // The phone sheet: the field first, the list open and filling the sheet, one row below it.
+  // The phone finder: the controls on top, then the field, and the list open and filling the rest.
   &[data-variant='sheet'] {
     flex: 1 1 auto;
     min-height: 0;
@@ -151,11 +151,12 @@
 .option {
   display: grid;
   // The name wins the width; the right-hand text yields (a long perk truncates, never the piece).
-  grid-template-columns: 0.625rem minmax(0, 1fr) fit-content(55%);
+  // Icon (a fixed 1.25rem box, the draft mark on its corner), name, then the right-hand text.
+  grid-template-columns: 1.25rem minmax(0, 1fr) fit-content(55%);
   align-items: center;
   gap: 0.375rem;
   min-height: 1.75rem;
-  padding: 0 0.625rem 0 0.375rem;
+  padding: 0 0.625rem 0 0.5rem;
   font-size: 0.8125rem;
   cursor: pointer;
   border-left: 2px solid transparent;
@@ -186,7 +187,7 @@
   // A weapon's or activity's row keeps its kind, hash, and "shared" whole: only the entry name
   // ahead of them gives way.
   &[data-grouped] {
-    grid-template-columns: 0.625rem minmax(0, 1fr) fit-content(75%);
+    grid-template-columns: 1.25rem minmax(0, 1fr) fit-content(75%);
 
     .tail {
       flex: none;
@@ -195,12 +196,12 @@
 
   // The phone sheet cannot fit two names on one line: the entry above, its context below.
   &[data-two-line] {
-    grid-template-columns: 0.625rem minmax(0, 1fr);
+    grid-template-columns: 1.25rem minmax(0, 1fr);
     grid-template-rows: auto auto;
     align-content: center;
     row-gap: 0;
 
-    .mark {
+    > :nth-child(-n + 2) {
       grid-row: 1 / span 2;
     }
 
@@ -248,9 +249,32 @@
   }
 }
 
+// The draft mark sits on the icon's top-left corner (same cell), so the name keeps the room.
 .mark {
+  grid-column: 1;
+  grid-row: 1;
+  z-index: 1;
+  // Centred like the icon box, then moved onto its top-left corner: anchored to the icon (not
+  // the row's edge), so it stays inside the row at every row height.
+  align-self: center;
+  justify-self: start;
+  transform: translate(-0.25rem, -0.3rem);
   color: var(--accent-ink);
-  text-align: center;
+  font-weight: 700;
+  line-height: 1;
+  text-shadow:
+    0 0 2px var(--raised),
+    0 0 2px var(--raised);
+
+  &:empty {
+    display: none;
+  }
+}
+
+// The icon box shares the first column with the mark.
+.option > :nth-child(2) {
+  grid-column: 1;
+  grid-row: 1;
 }
 
 .enhanced {
@@ -306,7 +330,8 @@
   background: var(--raised);
 }
 
-// One line: the category, then the stepper on the right edge (it wraps under at a large scale).
+// The phone finder's top rows: the category, then the stepper on the right edge (it wraps under at a
+// large scale), then the group row.
 .sheetBar {
   flex: none;
   display: flex;
@@ -315,8 +340,10 @@
   min-width: 0;
   gap: 0.375rem;
 
+  // A zero basis: the category takes what the stepper leaves and never pushes it onto a row of
+  // its own (at UI 150 a 9rem basis did).
   .finder[data-variant='sheet'] & .category {
-    flex: 1 1 9rem;
+    flex: 1 1 0;
     width: auto;
     min-width: 0;
     max-width: none;
@@ -340,7 +367,8 @@
   gap: 0.25rem;
   min-width: 0;
 
-  button {
+  // The ‹ › arrows; the dropdown between them is drawn as a field.
+  > button:not([role='combobox']) {
     @include controls.button;
     flex: none;
     min-width: var(--tap);

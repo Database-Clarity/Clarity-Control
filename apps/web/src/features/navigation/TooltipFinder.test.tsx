@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react';
+import { picker, pickOption } from './finderPicker.testUtils';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -425,9 +426,7 @@ describe('tooltip finder combobox', () => {
     expect(field().value).toBe('Alpha helm');
     expect(field().getAttribute('aria-expanded')).toBe('false');
     expect(host.querySelector('[role="listbox"]')).toBeNull();
-    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Category"]')!.value).toBe(
-      'armor',
-    );
+    expect(picker(host, 'Category')!.dataset.value).toBe('armor');
     expect(host.textContent).toContain('1 of 3');
   });
 
@@ -533,9 +532,7 @@ describe('tooltip finder combobox', () => {
     await press('Enter');
     expect(route()).toBe('/t/21?lang=de');
     // The category follows the item.
-    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Category"]')!.value).toBe(
-      'weapons',
-    );
+    expect(picker(host, 'Category')!.dataset.value).toBe('weapons');
   });
 
   it('Enter on an empty result searches all categories instead of doing nothing', async () => {
@@ -584,13 +581,28 @@ describe('tooltip finder combobox', () => {
     expect(field().value).toBe('Gamma helm');
   });
 
+  it('an open category list owns Shift+wheel: the item does not step under it', async () => {
+    await mount();
+    const shiftWheel = () =>
+      act(async () => {
+        window.dispatchEvent(
+          new WheelEvent('wheel', { shiftKey: true, deltaY: 100, bubbles: true, cancelable: true }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+    await act(async () => picker(host, 'Category')!.click());
+    expect(picker(host, 'Category')!.getAttribute('aria-expanded')).toBe('true');
+    await shiftWheel();
+    expect(route()).toBe('/t/10?lang=de');
+    // Closed again, Shift+wheel steps as before.
+    await act(async () => picker(host, 'Category')!.click());
+    await shiftWheel();
+    expect(route()).toBe('/t/11?lang=de');
+  });
+
   it('changing the category opens its first tooltip', async () => {
     await mount();
-    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Category"]')!;
-    await act(async () => {
-      select.value = 'weapons';
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    await pickOption(picker(host, 'Category')!, 'weapons');
     expect(route()).toBe('/t/20?lang=de');
   });
 
@@ -609,7 +621,7 @@ describe('tooltip finder combobox', () => {
       'Next tooltip',
     ]);
     expect(buttons[0].disabled).toBe(true);
-    expect(row.textContent).toBe('‹1 of 3›');
+    expect(row.textContent).toBe('‹1/31 of 3›');
   });
 });
 
@@ -624,21 +636,30 @@ describe('finder sheet form', () => {
         </MemoryRouter>,
       ),
     );
-  it('opens its list with the sheet, field first, and starts clean when the sheet closes', async () => {
+  it('opens its list with the sheet, controls on top, and starts clean when the sheet closes', async () => {
     await render(false);
     expect(field().getAttribute('aria-expanded')).toBe('false');
     await render(true);
     expect(field().getAttribute('aria-expanded')).toBe('true');
     expect(options()).toHaveLength(3);
-    expect(host.querySelector('section')!.firstElementChild).toBe(
-      field().closest('[class*="combo"]'),
-    );
+    // The category and stepper sit at the top, by the header title; the field and its list follow.
+    const section = host.querySelector('section')!;
+    expect(picker(section.firstElementChild!, 'Category')).not.toBeNull();
+    expect(section.children[1]).toBe(field().closest('[class*="combo"]'));
     await type('gam');
     expect(options()).toHaveLength(1);
     await render(false);
     expect(field().getAttribute('aria-expanded')).toBe('false');
     await render(true);
     expect(options()).toHaveLength(3);
+  });
+  it('keeps its list open on a new category and highlights the item it opened', async () => {
+    await render(true);
+    await pickOption(picker(host, 'Category')!, 'weapons');
+    expect(field().getAttribute('aria-expanded')).toBe('true');
+    const current = options().find((option) => option.getAttribute('aria-selected') === 'true');
+    expect(current).toBeDefined();
+    expect(field().getAttribute('aria-activedescendant')).toBe(current!.id);
   });
 });
 
@@ -778,11 +799,7 @@ describe('global declarations in the finder', () => {
   });
   it('opens the first declaration when switching global type', async () => {
     await mount('/t/10', source);
-    const category = host.querySelector<HTMLSelectElement>('[aria-label="Category"]')!;
-    await act(async () => {
-      category.value = 'globals-titles';
-      category.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    await pickOption(picker(host, 'Category')!, 'globals-titles');
     expect(route()).toBe('/t/3?global=Heading');
     expect(field().value).toBe('Heading');
   });

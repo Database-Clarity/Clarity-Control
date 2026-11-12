@@ -6,6 +6,9 @@ import { draftCount, snapshotVersion, type Snapshot } from './snapshot';
 import { applySnapshot, browserIO, previewMerge, type ApplyResult } from './storage';
 import styles from './Migrate.module.scss';
 
+const refusalReason =
+  'Nothing was removed; the drafts could not be merged in this browser, so choose Try again.';
+
 type Preview = Awaited<ReturnType<typeof previewMerge>>;
 type View =
   | { kind: 'idle' }
@@ -35,8 +38,8 @@ export function MigratePage() {
         preview: await previewMerge(snapshot, browserIO()),
         fromWindow,
       });
-    } catch (error) {
-      const message = `Cannot read this browser's drafts: ${errorMessage(error)}`;
+    } catch {
+      const message = refusalReason;
       // Tell the old site too, or its page would wait on "Sent" for ever.
       if (fromWindow) receiver.current?.reply({ ...stamp, type: 'refused', reason: message });
       setView({ kind: 'error', message });
@@ -76,8 +79,8 @@ export function MigratePage() {
             0,
           ),
         });
-    } catch (error) {
-      const message = `The merge stopped: ${errorMessage(error)}. Nothing was removed anywhere; run it again to continue.`;
+    } catch {
+      const message = refusalReason;
       if (fromWindow) receiver.current?.reply({ ...stamp, type: 'refused', reason: message });
       setView({ kind: 'error', message });
     }
@@ -233,7 +236,7 @@ export function MigratePage() {
           </p>
           <div className={styles.actions}>
             <button type="button" onClick={startOver}>
-              Start over
+              Try again
             </button>
             {picker}
           </div>
@@ -244,7 +247,7 @@ export function MigratePage() {
           <p role="status">Cancelled. Nothing was changed here or in the old editor.</p>
           <div className={styles.actions}>
             <button type="button" onClick={startOver}>
-              Start over
+              Try again
             </button>
           </div>
         </>

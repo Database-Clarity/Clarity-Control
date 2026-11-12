@@ -121,12 +121,14 @@ export function startSender(
 ): { stop(): void; checkClosed(): boolean } {
   let sent = false;
   let finished = false;
+  let refused = false;
   const listener = (event: MessageEvent) => {
     if (event.source !== target || event.origin !== destination || finished) return;
     const data: unknown = event.data;
     if (readyMessage.safeParse(data).success) {
       if (sent) return;
       sent = true;
+      refused = false;
       void payload.then(
         (text) => {
           target.postMessage({ ...stamp, type: 'snapshot', payload: text }, destination);
@@ -146,10 +148,11 @@ export function startSender(
       finished = true;
       return handlers.onDone(done.data.stored, done.data.unplaced);
     }
-    const refused = refusedMessage.safeParse(data);
-    if (refused.success) {
+    const refusal = refusedMessage.safeParse(data);
+    if (refusal.success) {
       sent = false;
-      handlers.onRefused(refused.data.reason);
+      refused = true;
+      handlers.onRefused(refusal.data.reason);
     }
   };
   source.addEventListener('message', listener);
@@ -157,6 +160,7 @@ export function startSender(
   return {
     stop: () => source.removeEventListener('message', listener),
     checkClosed: () => {
+      if (target.closed && refused) return true;
       if (target.closed && !finished) {
         finished = true;
         handlers.onClosed();

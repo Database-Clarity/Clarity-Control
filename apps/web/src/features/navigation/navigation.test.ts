@@ -254,16 +254,16 @@ describe('tooltip catalog', () => {
         createElement(TooltipNavigation, { data }),
       ),
     );
-    expect(markup.match(/<select/g)).toHaveLength(1);
-    expect(markup).toContain('<optgroup label="Armor">');
-    expect(markup).toContain('<optgroup label="Weapons">');
+    // The category is one custom dropdown (a select-only combobox), closed until asked.
+    expect(markup).not.toContain('<select');
+    expect(markup.match(/<button[^>]*role="combobox"[^>]*aria-label="Category"/g)).toHaveLength(1);
     expect(markup).not.toContain('<details');
     // The combobox shows the current item and keeps its list closed until asked.
     expect(markup).toMatch(/<input[^>]*role="combobox"[^>]*aria-expanded="false"[^>]*value="Base"/);
     expect(markup).not.toContain('role="listbox"');
     expect(markup).not.toContain('Step within category');
-    expect(markup.match(/<button/g)).toBeNull();
-    expect(markup).toContain('value="later" selected=""');
+    expect(markup.match(/<button/g)).toHaveLength(1);
+    expect(markup).toContain('data-value="later"');
   });
   it('marks shared perks in the navigation item and callout', () => {
     const shared: EditorData = {
@@ -432,7 +432,7 @@ describe('tooltip catalog', () => {
       ),
     );
     // One category entry for the whole frame group; the variants have no entry of their own.
-    expect(markup).toContain('>Later</option>');
+    expect(markup).toMatch(/aria-label="Category"[^>]*data-value="later"[^>]*title="Later"/);
   });
 });
 
