@@ -14,7 +14,7 @@ const options = { budgetMs: 10000, maxParts: 1000 };
 /**
  * Accounts against the real final diff and independently re-verifies every
  * "shown" claim against that diff: each claimed token must be a distinct marked
- * word or marked line structure on the claimed rendered line.
+ * word, icon, link, title, or line structure on the claimed rendered line.
  */
 function account(before: string, after: string, context = globals) {
   const diff = renderedDiff(before, after, context);
@@ -30,9 +30,13 @@ function account(before: string, after: string, context = globals) {
           (available.get(`${side}|${index}|${word}`) ?? 0) + 1,
         );
       if (line.diffKind === kind) add('¶');
-      for (const span of (line.linesContent ?? []) as DiffSpan[])
-        if (span.diffKind === kind && !span.link && !span.title)
-          for (const word of span.text?.split(/\s+/).filter(Boolean) ?? []) add(word);
+      for (const span of (line.linesContent ?? []) as DiffSpan[]) {
+        if (span.diffKind !== kind) continue;
+        if (span.link) add(`‹link›${span.text}›${span.link}`);
+        else if (span.title) add(`‹title›${span.text}`);
+        else if (span.text) span.text.split(/\s+/).filter(Boolean).forEach(add);
+        else for (const name of span.classNames ?? []) add(`<${name}/>`);
+      }
     });
   }
   for (const entry of accounts)
@@ -149,9 +153,10 @@ describe('named repros, forward and reverse', () => {
     ...both('<pve/>Same line', '<bold/>Same line'),
   ])('icon, tag, and tint changes are marked and accounted: %j → %j', (before, after) => {
     const { accounts, diff } = account(before, after);
+    // Each is either proven by its own marked span or line bar, or flagged.
     expect(count(accounts, 'unchecked')).toBe(0);
-    expect(count(accounts, 'marker')).toBeGreaterThan(0);
-    expect(JSON.stringify([diff.before, diff.after])).toContain('diffKind');
+    expect(JSON.stringify(diff.before)).toContain('"diffKind":"delete"');
+    expect(JSON.stringify(diff.after)).toContain('"diffKind":"insert"');
   });
   it('plain word edits need no marker', () => {
     for (const [before, after] of [
@@ -234,8 +239,14 @@ it('accounts for every hunk of seeded random edits, forward and reverse', () => 
       () => `<title ${word()} [${pick(['T', 'U'])}] />`,
       () => `<${pick(['pve', 'pvp', 'bold'])} ${text()} />`,
       () => `${text()} <${pick(['arc', 'void', 'primary'])}/>`,
+      () => `${text()} <link ${word()} [https://example.com/${word()}] />`,
       () => `<pve/>${text()}`,
       () => `enhanced (\n${text()}\n)`,
+      () => `${text()} {{${text()}}{${text()}}}`,
+      () => `${text()} \${1 + ${pick(['2', '3'])}}`,
+      () => `< table wide >\n| ${text()} |b ${text()}\n<$>`,
+      () => `${text()} <pve/> ${text()}`,
+      () => `#e ${text()}`,
     ])();
   const mutate = (lines: string[]) => {
     const next = [...lines];

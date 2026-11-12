@@ -1,6 +1,8 @@
 import {
   markupColors,
   markupCommentContext,
+  markupIcons,
+  markupLineClasses,
   markupDefinitions,
   extractBlocks,
   extractVariables,
@@ -158,9 +160,10 @@ export function sourceParts(before: string, after: string): Part[] {
 }
 
 // Source characters whose meaning is markup in production: variable references,
-// tags, table cells, native pairs, title/link targets, math, the enhanced arrow,
-// and comment delimiters. A hunk containing one is never "plain text".
-const markupCharacters = /[#<>|{}[\]$\r]|🡅|\/\/|\/\*|\*\//u;
+// tags, table cells, native pairs, title/link targets, math, and comment
+// delimiters. Outside a recognised inline token, a hunk containing one is
+// never accounted as shown.
+const markupCharacters = /[#<>|{}[\]$\r]|\/\/|\/\*|\*\//;
 // Whole lines that production removes, replaces, or reads as structure.
 const constructLines = [
   /^var /,
@@ -176,15 +179,31 @@ const constructLines = [
   /^\s*(<\/weapons\s*>|<\$\$>)\s*$/i,
 ];
 const textWrappers = new Set<string>([...markupColors, 'background', 'bold']);
+const words = (text: string) => text.split(/\s+/).filter(Boolean);
+const breaks = (text: string) => text.split('\n').length - 1;
+type Side = 'before' | 'after';
+
+/** A complete inline tag and the marked final-diff tokens it must claim (null: unprovable). */
+interface InlineToken {
+  from: number;
+  to: number;
+  /** A text wrapper's inner words, which render literally in its colour. */
+  inner?: [number, number];
+  expect: string[] | null;
+}
 
 /**
- * 1 where a source character renders literally as plain text, 0 where production
- * may hide, move, replace, or restyle it. Deliberately conservative: a wrong 0
- * only costs a redundant marker, while a wrong 1 could let an edit vanish.
+ * Where production renders source as itself. `context` is 1 outside hidden or
+ * transformed regions (comments, definitions, conditions, native pairs, tables,
+ * construct lines, math, and lines whose references carry markup); `tokens`
+ * lists the inline tags, which render only as their own spans. Deliberately
+ * conservative: a wrong 0 or null only costs a redundant marker, never a
+ * vanished edit.
  */
-function literalMask(text: string, globals: MarkupGlobals): Uint8Array {
-  const mask = new Uint8Array(text.length).fill(1);
-  const clear = (from: number, to: number) => mask.fill(0, Math.max(0, from), to);
+function sourceContext(text: string, globals: MarkupGlobals) {
+  const context = new Uint8Array(text.length).fill(1);
+  const tokens: InlineToken[] = [];
+  const clear = (from: number, to: number) => context.fill(0, Math.max(0, from), to);
   const clean = markupCommentContext(text);
   for (const range of clean.comments) clear(range.from, range.to);
   const cleanRange = (index: number, length: number) =>
@@ -208,32 +227,61 @@ function literalMask(text: string, globals: MarkupGlobals): Uint8Array {
       return value === undefined || markupCharacters.test(value);
     });
     if (markupValue || constructLines.some((pattern) => pattern.test(line))) clear(start, end + 1);
-    for (const match of line.matchAll(/<.+?\/>/g)) {
-      const from = start + match.index,
-        to = from + match[0].length;
-      clear(from, to);
-      // Only a text wrapper's inner words render literally (in its colour).
-      const wrapper = /^<(\w+) /.exec(match[0]);
-      if (wrapper && textWrappers.has(wrapper[1]) && match[0].endsWith(' />'))
-        mask.fill(1, from + wrapper[0].length, to - 3);
-    }
     for (const match of line.matchAll(/\$\{.+?\}/g))
       clear(start + match.index, start + match.index + match[0].length);
+    // Production lifts the first marker of each line class off the line (a
+    // changed class marks the line's structure token), then reads inline tags.
+    let scan = line;
+    for (const name of markupLineClasses) {
+      const marker = `<${name}/>`,
+        index = scan.indexOf(marker);
+      if (index < 0) continue;
+      tokens.push({ from: start + index, to: start + index + marker.length, expect: ['¶'] });
+      scan = scan.slice(0, index) + ' '.repeat(marker.length) + scan.slice(index + marker.length);
+    }
+    for (const match of scan.matchAll(/<.+?\/>/g)) {
+      const source = match[0],
+        from = start + match.index,
+        to = from + source.length;
+      const wrapper = /^<(\w+)/.exec(source)?.[1] ?? '';
+      const target = /^<(link|title) ([^[\]<>]+) \[([^[\]<>]+)\] \/>$/.exec(source);
+      if (
+        textWrappers.has(wrapper) &&
+        source.startsWith(`<${wrapper} `) &&
+        source.endsWith(' />')
+      ) {
+        const inner = source.slice(wrapper.length + 2, -3);
+        tokens.push({
+          from,
+          to,
+          inner: [from + wrapper.length + 2, to - 3],
+          expect: markupCharacters.test(inner) ? null : words(inner),
+        });
+      } else if (markupIcons.includes(wrapper) && source === `<${wrapper}/>`)
+        tokens.push({ from, to, expect: [source] });
+      else if (target)
+        tokens.push({
+          from,
+          to,
+          expect: [
+            target[1] === 'link' ? `‹link›${target[2]}›${target[3]}` : `‹title›${target[2]}`,
+          ],
+        });
+      else tokens.push({ from, to, expect: null });
+    }
     start = end + 1;
   }
-  return mask;
+  tokens.sort((a, b) => a.from - b.from);
+  return { context, tokens };
 }
-
-const words = (text: string) => text.split(/\s+/).filter(Boolean);
-const breaks = (text: string) => text.split('\n').length - 1;
-type Side = 'before' | 'after';
 
 /**
  * Accounts for every raw source hunk against the FINAL rendered diff (the
- * renderedDiff output the user sees). A plain-text hunk is "shown" only when
- * each of its words, and a line break it adds or removes, claims a distinct
- * marked token on the rendered lines it occupies. Every other hunk inside the
- * budget gets a located marker; the rest are unchecked.
+ * renderedDiff output the user sees). A source hunk is "shown" only when each
+ * rendered piece it should produce (literal words, complete icon, link, title,
+ * and colour tags, line classes, and a line break it adds or removes) claims a
+ * distinct marked token on the rendered lines it occupies. Every other hunk
+ * inside the budget gets a located marker; the rest are unchecked.
  */
 export function accountHunks(
   before: string,
@@ -248,27 +296,69 @@ export function accountHunks(
     maxParts = options.maxParts ?? 40;
   const parts = sourceParts(before, after);
   const texts = { before, after };
-  const masks = { before: literalMask(before, globals), after: literalMask(after, globals) };
+  const sources = { before: sourceContext(before, globals), after: sourceContext(after, globals) };
   // Marked tokens of the final diff, per side and rendered line. Tables are
-  // never plain text, so only line structure and line content can be claimed.
+  // never provable, so only line structure and line content can be claimed.
   type Token = { line: number; word: string; used: boolean };
   const pool = (lines: DiffLine[], kind: 'insert' | 'delete') => {
     const tokens: Token[] = [];
     lines.forEach((line, index) => {
-      if (line.diffKind === kind) tokens.push({ line: index, word: '¶', used: false });
-      for (const span of (line.linesContent ?? []) as DiffSpan[])
-        if (span.diffKind === kind && !span.link && !span.title && span.text)
-          for (const word of words(span.text)) tokens.push({ line: index, word, used: false });
+      const add = (word: string) => tokens.push({ line: index, word, used: false });
+      if (line.diffKind === kind) add('¶');
+      for (const span of (line.linesContent ?? []) as DiffSpan[]) {
+        if (span.diffKind !== kind) continue;
+        if (span.link) add(`‹link›${span.text}›${span.link}`);
+        else if (span.title) add(`‹title›${span.text}`);
+        else if (span.text) words(span.text).forEach(add);
+        else for (const name of span.classNames ?? []) add(`<${name}/>`);
+      }
     });
     return tokens;
   };
   const pools = { before: pool(diff.before, 'delete'), after: pool(diff.after, 'insert') };
-  // Rendered line of a source offset; the 'x' keeps a trailing break counted.
-  const lineAt = (side: Side, offset: number) =>
-    Math.min(
-      diff[side].length,
-      Math.max(0, parseMarkup(texts[side].slice(0, offset) + 'x', globals).lines.length - 1),
-    );
+  // What a source range must claim, or null when it cannot be proven cheaply.
+  const expectation = (side: Side, from: number, to: number): string[] | null => {
+    const { context, tokens } = sources[side];
+    if (!context.subarray(from, to).every((bit) => bit === 1)) return null;
+    const pieces: string[] = [],
+      expected: string[] = [];
+    let at = from;
+    for (const token of tokens) {
+      if (token.to <= from || token.from >= to) continue;
+      if (token.inner && from >= token.inner[0] && to <= token.inner[1]) continue;
+      if (token.from < from || token.to > to || !token.expect) return null;
+      pieces.push(texts[side].slice(at, token.from));
+      expected.push(...token.expect);
+      at = token.to;
+    }
+    pieces.push(texts[side].slice(at, to));
+    const rest = pieces.join(' ');
+    return markupCharacters.test(rest) ? null : [...words(rest), ...expected];
+  };
+  // Line breaks render only between literal, rendered text: next to hidden or
+  // removed source, or at either end of the document, production collapses or
+  // trims them. Every whitespace run a break-changing hunk touches must be
+  // bounded by literal text on both sides.
+  const settled = (side: Side, from: number, to: number) => {
+    const text = texts[side],
+      { context } = sources[side];
+    while (from > 0 && /\s/.test(text[from - 1])) from--;
+    while (to < text.length && /\s/.test(text[to])) to++;
+    for (const run of text.slice(from, to).matchAll(/\s*\n\s*/g)) {
+      const a = from + run.index,
+        b = a + run[0].length;
+      if (a === 0 || b === text.length || !context[a - 1] || !context[b]) return false;
+    }
+    return true;
+  };
+  // Rendered line of a source offset; the 'x' keeps a trailing break counted
+  // (on its own line after hidden source, so it cannot join a construct).
+  const lineAt = (side: Side, offset: number) => {
+    const prefix = texts[side].slice(0, offset),
+      own = offset > 0 && prefix.at(-1) !== '\n' && !sources[side].context[offset - 1];
+    const lines = parseMarkup(prefix + (own ? '\nx' : 'x'), globals).lines.length;
+    return Math.min(diff[side].length, Math.max(0, lines - 1));
+  };
   const definitions = (text: string) => {
     const clean = markupCommentContext(text),
       bodies = extractBlocks(clean.text, 'title');
@@ -308,23 +398,31 @@ export function accountHunks(
         : startLine(text, from) === sourceLine(text, Math.max(from, to - 1))
           ? `line ${startLine(text, from)}`
           : `lines ${startLine(text, from)}–${sourceLine(text, to - 1)}`;
-  const literal = (side: Side, from: number, to: number) =>
-    masks[side].subarray(from, to).every((bit) => bit === 1);
 
   const accounts: HunkAccount[] = [];
   for (const part of parts) {
     if (accounts.length >= maxParts || now() - start >= budget) break;
     const old = before.slice(part.from, part.to),
       next = after.slice(part.nextFrom, part.nextTo);
-    const plain =
-      part.kind === 'source' &&
-      !markupCharacters.test(old) &&
-      !markupCharacters.test(next) &&
-      literal('before', part.from, part.to) &&
-      literal('after', part.nextFrom, part.nextTo);
+    const expected =
+      part.kind === 'source'
+        ? {
+            before: expectation('before', part.from, part.to),
+            after: expectation('after', part.nextFrom, part.nextTo),
+          }
+        : undefined;
+    const provable =
+      !!expected?.before &&
+      !!expected.after &&
+      (!/\n/.test(old + next) ||
+        (settled('before', part.from, part.to) && settled('after', part.nextFrom, part.nextTo)));
     const added = breaks(next) - breaks(old);
+    const needed = {
+      before: [...(expected?.before ?? []), ...(added < 0 ? ['¶'] : [])],
+      after: [...(expected?.after ?? []), ...(added > 0 ? ['¶'] : [])],
+    };
     let shown: ['before' | 'after', number, string][] | undefined;
-    if (plain && (words(old).length || words(next).length || added)) {
+    if (provable && (needed.before.length || needed.after.length)) {
       const claims: Token[] = [];
       const claim = (side: Side, from: number, to: number, needed: string[]) => {
         if (!needed.length) return true;
@@ -346,8 +444,8 @@ export function accountHunks(
         return true;
       };
       const ok =
-        claim('before', part.from, part.to, [...words(old), ...(added < 0 ? ['¶'] : [])]) &&
-        claim('after', part.nextFrom, part.nextTo, [...words(next), ...(added > 0 ? ['¶'] : [])]);
+        claim('before', part.from, part.to, needed.before) &&
+        claim('after', part.nextFrom, part.nextTo, needed.after);
       if (!ok) {
         for (const token of claims) token.used = false;
         shown = undefined;
@@ -360,12 +458,12 @@ export function accountHunks(
       continue;
     }
     const definition =
-      !plain && (part.kind === 'source' || part.kind === 'variable')
+      !provable && (part.kind === 'source' || part.kind === 'variable')
         ? (overlapping('after', part.nextFrom, part.nextTo) ??
           overlapping('before', part.from, part.to))
         : undefined;
-    const label = plain
-      ? words(old).length || words(next).length
+    const label = provable
+      ? needed.before.length || needed.after.length
         ? 'Text'
         : 'Line break or spacing'
       : (definition?.label ??
