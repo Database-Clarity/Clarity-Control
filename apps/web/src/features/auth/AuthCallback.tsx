@@ -14,15 +14,16 @@ export function completeCallback(
   dependencies: {
     setSession: (token: string) => void;
     takeReturnPath: () => string;
-    consumePendingSignIn: () => boolean;
+    consumePendingSignIn: (nonce: string | null) => boolean;
   } = { setSession, takeReturnPath, consumePendingSignIn },
 ): CallbackOutcome {
-  // Login CSRF guard: only a sign-in this tab started may deliver a session. Rejected callbacks
+  // Login CSRF guard: only a sign-in this browser started may deliver a session. Rejected callbacks
   // never touch existing sessions or the remembered route.
-  if (!dependencies.consumePendingSignIn())
+  if (!dependencies.consumePendingSignIn(parameters.get('client')))
     return {
       kind: 'error',
-      message: 'Sign-in was not started in this tab, so the login link was ignored. Sign in again.',
+      message:
+        'Sign-in was not started in this browser, so the login link was ignored. Sign in again.',
     };
   const session = parameters.get('session');
   if (!session)
