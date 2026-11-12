@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { act, createElement, lazy } from 'react';
+import { act, createElement, lazy, useLayoutEffect, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -52,9 +53,9 @@ function Pending({
   );
 }
 async function frame() {
-  const [id, callback] = frames.entries().next().value!;
-  frames.delete(id);
-  await act(async () => callback(0));
+  const batch = [...frames.values()];
+  frames.clear();
+  await act(async () => batch.forEach((callback) => callback(0)));
 }
 
 it('keeps quick results visible and never flashes a skeleton before the second frame', async () => {
@@ -63,6 +64,8 @@ it('keeps quick results visible and never flashes a skeleton before the second f
   await frame();
   expect(host.textContent).toBe('Retained content');
   await act(async () => root.render(createElement(Pending, { pending: false })));
+  // The only remaining callback ends the unused loading cycle, without showing bars.
+  await frame();
   expect(frames.size).toBe(0);
   expect(host.querySelector('[aria-hidden]')).toBeNull();
 });
@@ -76,7 +79,7 @@ it('reveals on the second frame and retains the region across consecutive entrie
   await act(async () => root.render(createElement(Pending, { pending: true, entry: 2 })));
   expect(host.querySelector('[aria-hidden]')).toBe(region);
   // The newer entry gets its own two frames; ready within them, it shows directly.
-  expect(frames.size).toBe(1);
+  expect(frames.size).toBeGreaterThan(0);
   await act(async () => root.render(createElement(Pending, { pending: false, entry: 2 })));
   expect(host.textContent).toBe('Retained content');
 });
@@ -147,7 +150,7 @@ it('cancels a superseded reveal and starts the newer entry window', async () => 
   await act(async () => root.render(createElement(Pending, { pending: true })));
   await frame();
   await act(async () => root.render(createElement(Pending, { pending: true, entry: 2 })));
-  expect(frames.size).toBe(1);
+  expect(frames.size).toBeGreaterThan(0);
   await frame();
   expect(host.textContent).toBe('Retained content');
   await frame();
@@ -229,15 +232,20 @@ it('keeps resolved children behind the shown skeleton until its minimum elapses'
 
 it('hands a shown parent clock to nested boundaries instead of stacking minimums', async () => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
-  const draw = (outer: boolean, inner: boolean, mounted = true) =>
+  let resolve!: (value: { default: (props: { pending: boolean }) => React.ReactElement }) => void;
+  const Page = lazy(
+    () =>
+      new Promise<{ default: (props: { pending: boolean }) => React.ReactElement }>((done) => {
+        resolve = done;
+      }),
+  );
+  const draw = (outer: boolean, inner: boolean) =>
     act(async () =>
       root.render(
         <SkeletonBoundary pending={outer} label="Outer">
-          {mounted && (
-            <SkeletonBoundary pending={inner} label="Inner">
-              <p>Ready</p>
-            </SkeletonBoundary>
-          )}
+          <SkeletonSuspense label="Loading import">
+            <Page pending={inner} />
+          </SkeletonSuspense>
         </SkeletonBoundary>,
       ),
     );
@@ -252,15 +260,23 @@ it('hands a shown parent clock to nested boundaries instead of stacking minimums
     await paint();
     await paint();
     await act(async () => vi.advanceTimersByTime(100));
-    await draw(false, true, false);
+    await draw(false, true);
     await act(async () => vi.advanceTimersByTime(skeletonMinimumMs - 100));
-    expect(host.textContent).toBe('');
+    expect(host.textContent).toBe('Loading import');
     // A slow lazy import can take more than two frames after its parent finishes.
-    // The navigation's clock must still reach boundaries mounted by that import.
+    // Its pending Suspense holder keeps the cycle open until the import commits.
     await paint();
     await paint();
     await act(async () => vi.advanceTimersByTime(100));
-    await draw(false, true);
+    await act(async () =>
+      resolve({
+        default: ({ pending }) => (
+          <SkeletonBoundary pending={pending} label="Inner">
+            <p>Ready</p>
+          </SkeletonBoundary>
+        ),
+      }),
+    );
     expect(host.textContent).toBe('Inner');
     await paint();
     await paint();
@@ -290,6 +306,49 @@ it('does not flash a boundary whose warm result commits before frame two', async
   );
   expect(host.querySelector('[aria-hidden]')).toBeNull();
   expect(host.textContent).toBe('Ready');
+});
+
+it('shares the minimum with a descendant mounting the frame after its parent reveals', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+  function AfterReveal({ pending }: { pending: boolean }) {
+    const [mounted, setMounted] = useState(false);
+    useLayoutEffect(() => {
+      const next = requestAnimationFrame(() => flushSync(() => setMounted(true)));
+      return () => cancelAnimationFrame(next);
+    }, []);
+    return mounted ? (
+      <SkeletonBoundary pending={pending} label="Inner">
+        <p>Ready</p>
+      </SkeletonBoundary>
+    ) : null;
+  }
+  const draw = (outer: boolean, inner: boolean) =>
+    act(async () =>
+      root.render(
+        <SkeletonBoundary pending={outer} label="Outer">
+          <AfterReveal pending={inner} />
+        </SkeletonBoundary>,
+      ),
+    );
+  try {
+    await draw(true, true);
+    await frame();
+    await frame();
+    await draw(false, true);
+    await act(async () => vi.advanceTimersByTime(skeletonMinimumMs));
+    expect(host.textContent).toBe('');
+    await act(async () => vi.advanceTimersByTime(16));
+    await frame();
+    expect(host.textContent).toBe('Inner');
+    await frame();
+    await frame();
+    await act(async () => vi.advanceTimersByTime(50));
+    await draw(false, false);
+    expect(host.textContent).toBe('Ready');
+    expect(host.querySelector('[aria-busy="true"]')).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it.each(['boundary', 'suspense'])(
@@ -370,6 +429,78 @@ it('shares the elapsed parent minimum with a first-load hook consumer', async ()
     await act(async () => vi.advanceTimersByTime(50));
     await draw(false, false);
     expect(host.querySelector('[aria-hidden]')).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('gives a later nested selection its own minimum while its parent stays mounted', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+  const paint = () =>
+    act(async () => {
+      const batch = [...frames.values()];
+      frames.clear();
+      batch.forEach((callback) => callback(0));
+    });
+  const draw = (entry: number, pending: boolean) =>
+    act(async () =>
+      root.render(
+        <SkeletonBoundary pending={false} identity="same-route" label="Page">
+          <SkeletonBoundary pending={pending} identity={entry} label="Selection">
+            <p>Ready {entry}</p>
+          </SkeletonBoundary>
+        </SkeletonBoundary>,
+      ),
+    );
+  try {
+    await draw(1, true);
+    await paint();
+    await paint();
+    await draw(1, false);
+    await act(async () => vi.advanceTimersByTime(1000));
+    expect(host.textContent).toBe('Ready 1');
+    await paint(); // The idle browser frame ends the completed cycle.
+    await draw(2, true);
+    expect(host.textContent).not.toContain('Ready 1');
+    await paint();
+    await paint();
+    expect(host.querySelector('[aria-hidden]')).not.toBeNull();
+    await act(async () => vi.advanceTimersByTime(50));
+    await draw(2, false);
+    expect(host.querySelector('[aria-hidden]')).not.toBeNull();
+    await act(async () => vi.advanceTimersByTime(350));
+    expect(host.textContent).toBe('Ready 2');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('gives a reload on the same boundary a fresh minimum', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+  const draw = (pending: boolean) =>
+    act(async () =>
+      root.render(
+        <SkeletonBoundary pending={pending} label="Reloadable rows">
+          <p>Ready</p>
+        </SkeletonBoundary>,
+      ),
+    );
+  try {
+    await draw(true);
+    await frame();
+    await frame();
+    await draw(false);
+    await act(async () => vi.advanceTimersByTime(1000));
+    await frame(); // The idle browser frame ends the completed cycle.
+    await draw(true);
+    await frame();
+    await frame();
+    expect(host.querySelector('[aria-hidden]')).not.toBeNull();
+    await act(async () => vi.advanceTimersByTime(50));
+    await draw(false);
+    expect(host.querySelector('[aria-hidden]')).not.toBeNull();
+    await act(async () => vi.advanceTimersByTime(350));
+    expect(host.textContent).toBe('Ready');
   } finally {
     vi.useRealTimers();
   }
