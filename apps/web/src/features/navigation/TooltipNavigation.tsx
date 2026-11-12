@@ -74,6 +74,9 @@ import {
 import { touchQuery, useMedia } from '../../ui/useMedia';
 import { useScaleFactor } from '../../ui/usePaneDivider';
 import styles from './TooltipFinder.module.scss';
+import { FinderPicker, type PickerSection } from './FinderPicker';
+import { FinderIcon } from './FinderIcon';
+import { groupIcon } from './groupIcons';
 
 // Stepping asks the preview leave guard before it moves anything; see createStepping.
 const pathname = (route: string) => route.split('?')[0];
@@ -219,6 +222,7 @@ const FinderOption = memo(function FinderOption({
       <span className={styles.mark} aria-hidden="true">
         {isDirty ? '*' : ''}
       </span>
+      <FinderIcon icon={item?.icon} />
       <span className={styles.name}>
         {isDirty && <span className="sr-only">Unsaved draft: </span>}
         {stacked ? row.entry : row.name}
@@ -682,7 +686,12 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     const layout = listLayout.current;
     if (!layout || pointerHighlight.current || !rows[active]) return;
     const top = active * rowHeight;
-    const next = top < layout.top ? top : Math.max(layout.top, top + rowHeight - layout.height);
+    // A list shorter than one row (a phone at a large scale with the keyboard up) keeps the
+    // row's top, its name, in view.
+    const next =
+      top < layout.top || rowHeight > layout.height
+        ? top
+        : Math.max(layout.top, top + rowHeight - layout.height);
     if (next !== layout.top) {
       layout.element.scrollTop = next;
       layout.top = next;
@@ -766,8 +775,12 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     setAllCategories(false);
     setAllGroups(false);
   };
+  // The open phone finder keeps its list: a new category, group, or Previous/Next shows the new
+  // place in it (the highlight follows below).
+  const keepListRef = useRef(false);
+  keepListRef.current = variant === 'sheet' && sheetOpen;
   useEffect(() => {
-    setOpen(false);
+    if (!keepListRef.current) setOpen(false);
     setQuery('');
     setAllCategories(false);
     setAllGroups(false);
@@ -783,6 +796,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       setAllGroups(false);
     }
   }, [variant, sheetOpen]);
+  const sheetPlace = variant === 'sheet' ? `${hash}:${place.group}` : '';
   useLayoutEffect(() => {
     if (!open) return;
     pointerHighlight.current = false;
@@ -790,9 +804,10 @@ export const TooltipNavigation = memo(function TooltipNavigation({
       (row) => row.hash === hash && (!row.group || row.group === place.group),
     );
     setActive(query.trim() ? 0 : Math.max(0, index));
-    // Only a new query, scope or opening resets the highlight; route changes close the list.
+    // Only a new query, scope or opening resets the highlight; route changes close the list
+    // (the open phone finder keeps it, and its highlight moves to the new item).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, query, allCategories, allGroups]);
+  }, [open, query, allCategories, allGroups, sheetPlace]);
   useLayoutEffect(() => {
     if (!open || pointerHighlight.current) return;
     const element = list.current;
@@ -1104,69 +1119,66 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     </div>
   );
   const sheet = variant === 'sheet';
-  const categoryNode = useMemo(
-    () => (
-      <select
-        aria-label="Category"
-        className={styles.category}
-        value={selectedCategory?.id ?? ''}
-        disabled={!sections.length}
-        onChange={(event) => {
-          // A new category opens its first entry, in the scope of every group.
-          const next = sections.find((category) => category.id === event.target.value);
-          const grouping = next && groupedSection(next, data);
-          const first = grouping ? grouping.all[0] : next?.items[0];
-          if (!first) return;
-          const scope = grouping ? scopeValue(first as Entry, true, grouping.firstGroup) : null;
-          chooseRef.current(first.hash, scope, next?.items[0]?.global);
-        }}
-      >
-        {!sections.length && <option value="">No matching categories</option>}
-        {groups.map((group) => (
-          <optgroup key={group.name} label={group.name}>
-            {group.sections.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.label}
-              </option>
-            ))}
-          </optgroup>
-        ))}
-      </select>
-    ),
-    [groups, sections, selectedCategory?.id, data],
-  );
-  const groupOptions = useMemo(
+  const categorySections = useMemo<PickerSection[]>(
     () =>
-      grouped && [
-        <option key="all" value="all">
-          {grouped.allLabel}
-        </option>,
-        ...grouped.groups.map((group) => (
-          <option key={group.id} value={group.id}>
-            {group.label}
-          </option>
-        )),
-      ],
+      groups.map((group) => ({
+        label: group.name,
+        options: group.sections.map((category) => ({ id: category.id, label: category.label })),
+      })),
+    [groups],
+  );
+  const categoryNode = (
+    <FinderPicker
+      label="Category"
+      className={styles.category}
+      sections={categorySections}
+      value={selectedCategory?.id ?? ''}
+      empty="No matching categories"
+      onChange={(id) => {
+        // A new category opens its first entry, in the scope of every group.
+        const next = sections.find((category) => category.id === id);
+        const grouping = next && groupedSection(next, data);
+        const first = grouping ? grouping.all[0] : next?.items[0];
+        if (!first) return;
+        const scope = grouping ? scopeValue(first as Entry, true, grouping.firstGroup) : null;
+        chooseRef.current(first.hash, scope, next?.items[0]?.global);
+      }}
+    />
+  );
+  const groupSections = useMemo<PickerSection[]>(
+    () =>
+      grouped
+        ? [
+            {
+              options: [
+                { id: 'all', label: grouped.allLabel },
+                ...grouped.groups.map((group) => ({
+                  id: group.id,
+                  label: group.label,
+                  icon: groupIcon(grouped, group.id),
+                })),
+              ],
+            },
+          ]
+        : [],
     [grouped],
   );
   const groupValue = grouped && !place.all && grouped.byId.has(place.group) ? place.group : 'all';
   const groupNode = grouped && (
-    <select
-      aria-label={grouped.groupLabel}
-      title={grouped.byId.get(groupValue)?.label ?? grouped.allLabel}
+    <FinderPicker
+      label={grouped.groupLabel}
       className={styles.group}
+      sections={groupSections}
       value={groupValue}
-      onChange={(event) => {
-        const id = event.target.value;
+      icons={grouped.grouping === 'weapon'}
+      onChange={(id) => {
         const target = id === 'all' ? undefined : grouped.byId.get(id)?.entries[0];
         // "All" widens the scope and keeps the item; a group opens its first entry.
         if (id === 'all') chooseRef.current(hash, scopeValue(entry, true, grouped.firstGroup));
         else if (target)
           chooseRef.current(target.hash, scopeValue(target, false, grouped.firstGroup) ?? null);
       }}
-    >
-      {groupOptions}
-    </select>
+    />
   );
   const neighbourGroup = (direction: number) => {
     const at = grouped?.groupIndex.get(place.group);
@@ -1174,9 +1186,18 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   };
   const entryKeys = grouped && swapWheel ? 'Alt+Shift' : 'Shift';
   const groupKeys = swapWheel ? 'Shift' : 'Alt+Shift';
+  const positionText = positionLabel(position, grouped ? selectedCategory?.label : undefined);
+  // The phone stepper shows "58/138" so it fits beside the category; the status reads in words.
   const positionNode = (
     <span className={styles.position} role="status">
-      {positionLabel(position, grouped ? selectedCategory?.label : undefined)}
+      {sheet && position.index ? (
+        <>
+          <span aria-hidden="true">{`${position.index}/${position.total}`}</span>
+          <span className="sr-only">{positionText}</span>
+        </>
+      ) : (
+        positionText
+      )}
     </span>
   );
   const comboNode = (
@@ -1228,9 +1249,30 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     <section aria-label="Tooltip navigation" className={styles.finder} data-variant={variant}>
       {sheet ? (
         <>
-          {comboNode}
+          {/* The controls sit at the top, next to the header title that opened the finder; the
+              field and its list follow, and the list takes the rest of the room. */}
           <div className={styles.sheetBar}>
             {categoryNode}
+            {/* Touch screens have no Shift+wheel: one compact row steps through the category, beside the category; the group row goes under both. */}
+            <div role="group" aria-label="Step within category" className={styles.stepper}>
+              <button
+                type="button"
+                aria-label="Previous tooltip"
+                disabled={position.previous === undefined}
+                onClick={() => step.current(-1)}
+              >
+                ‹
+              </button>
+              {positionNode}
+              <button
+                type="button"
+                aria-label="Next tooltip"
+                disabled={position.next === undefined}
+                onClick={() => step.current(1)}
+              >
+                ›
+              </button>
+            </div>
             {groupNode && (
               <div
                 role="group"
@@ -1256,27 +1298,8 @@ export const TooltipNavigation = memo(function TooltipNavigation({
                 </button>
               </div>
             )}
-            {/* Touch screens have no Shift+wheel: one compact row steps through the category. */}
-            <div role="group" aria-label="Step within category" className={styles.stepper}>
-              <button
-                type="button"
-                aria-label="Previous tooltip"
-                disabled={position.previous === undefined}
-                onClick={() => step.current(-1)}
-              >
-                ‹
-              </button>
-              {positionNode}
-              <button
-                type="button"
-                aria-label="Next tooltip"
-                disabled={position.next === undefined}
-                onClick={() => step.current(1)}
-              >
-                ›
-              </button>
-            </div>
           </div>
+          {comboNode}
         </>
       ) : (
         <>

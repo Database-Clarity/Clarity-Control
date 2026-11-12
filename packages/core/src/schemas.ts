@@ -90,5 +90,13 @@ export const pushedSchema = z.record(
 );
 export type LangText = z.infer<typeof langTextSchema>;
 export type Tooltip = z.infer<typeof tooltipSchema>;
+/** Metadata-only records stay in editor-data, never in consumer inputs or push queues. */
+export function hasTooltipText(tooltip: Tooltip): boolean {
+  return Object.values(tooltip.text).some((entry) => entry?.text.trim());
+}
+/** Reserved declaration libraries remain consumer inputs even when intentionally cleared. */
+export function isTextlessDescription(tooltip: Tooltip): boolean {
+  return tooltip.hash > 3 && !hasTooltipText(tooltip);
+}
 export type Permissions = z.infer<typeof permissionsSchema>;
 export type Pushed = z.infer<typeof pushedSchema>;

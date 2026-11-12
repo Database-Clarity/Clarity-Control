@@ -128,6 +128,14 @@ describe('phone header', () => {
     expect(document.activeElement).toBe(mark());
   });
 
+  it('Back closes an open overlay (the route still moves)', async () => {
+    await mount(person('maintainer'));
+    await click(mark());
+    expect(document.querySelector('[data-shell-overlay]')).not.toBeNull();
+    await act(async () => void window.dispatchEvent(new PopStateEvent('popstate')));
+    expect(document.querySelector('[data-shell-overlay]')).toBeNull();
+  });
+
   it('signed out: Sign in sits in the menu and leads to the GitHub sign-in', async () => {
     await mount(null);
     expect(document.querySelector('header a[href="https://api.test/login"]')).toBeNull();
