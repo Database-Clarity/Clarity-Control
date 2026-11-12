@@ -21,7 +21,11 @@ import {
 } from './reference';
 import './MarkupHelp';
 
-const globals: MarkupGlobals = { variables: 'var e = 🡅', titles: '' };
+const globals: MarkupGlobals & { allowBaseEnhanced: boolean } = {
+  allowBaseEnhanced: true,
+  variables: 'var e = 🡅',
+  titles: '',
+};
 const adagio =
   'Weapon Kills grant the following for #e${7+#d} seconds:\n• 10 Range\n\nenhanced (\nvar d = 1\n#e Buff duration is increased by 1 second.\n)';
 
@@ -144,14 +148,14 @@ describe('the sheet in the editor', () => {
     vi.unstubAllGlobals();
   });
 
-  const mount = async (doc: string, readOnly = false) => {
+  const mount = async (doc: string, readOnly = false, allowBaseEnhanced = true) => {
     await act(async () =>
       root.render(
         <ClarityEditor
           value={doc}
           lang="en"
           onChange={() => undefined}
-          globals={globals}
+          globals={{ ...globals, allowBaseEnhanced }}
           readOnly={readOnly}
           markupRow
         />,
@@ -160,7 +164,8 @@ describe('the sheet in the editor', () => {
     return EditorView.findFromDOM(host.querySelector<HTMLElement>('.cm-editor')!)!;
   };
   const sheet = () => document.querySelector<HTMLElement>('[data-markup-help]');
-  const active = () => sheet()?.querySelector('[aria-selected="true"]')?.getAttribute('data-help-row');
+  const active = () =>
+    sheet()?.querySelector('[aria-selected="true"]')?.getAttribute('data-help-row');
   const press = async (target: Element, key: string, init: KeyboardEventInit = {}) => {
     const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init });
     await act(async () => {
@@ -168,6 +173,18 @@ describe('the sheet in the editor', () => {
     });
     return event;
   };
+
+  it.each([true, false])('documents base/enhanced but scopes Insert to eligible categories (%s)', async (allowed) => {
+    const view = await mount('{{10%}{15%}}', false, allowed);
+    act(() => { view.focus(); view.dispatch({ selection: { anchor: 3 } }); });
+    await press(host.querySelector('.cm-content')!, 'F1');
+    expect(active()).toBe('base-enhanced-pair');
+    expect([...sheet()!.querySelectorAll('button')].some((button) => button.textContent?.startsWith('Insert'))).toBe(allowed);
+    if (!allowed) {
+      await press(document.activeElement!, 'Enter');
+      expect(view.state.doc.toString()).toBe('{{10%}{15%}}');
+    }
+  });
 
   it('F1 opens on the markup under the caret, F1 closes, and Esc gives focus back', async () => {
     const view = await mount(adagio);
@@ -263,9 +280,9 @@ describe('the sheet in the editor', () => {
     act(() => view.focus());
     await press(host.querySelector('.cm-content')!, 'F1');
     expect(sheet()).not.toBeNull();
-    expect([...sheet()!.querySelectorAll('button')].some((b) => /Insert/.test(b.textContent ?? ''))).toBe(
-      false,
-    );
+    expect(
+      [...sheet()!.querySelectorAll('button')].some((b) => /Insert/.test(b.textContent ?? '')),
+    ).toBe(false);
     await press(document.activeElement!, 'Enter');
     expect(view.state.doc.toString()).toBe('Deals');
   });
@@ -293,7 +310,9 @@ describe('the sheet in the editor', () => {
     expect(parked).not.toBeNull();
     expect(parked.hasAttribute('inert')).toBe(true);
     expect(parked.getAttribute('aria-hidden')).toBe('true');
-    expect(document.querySelector('#editor-panel-help, [data-editor-overlay], [data-markup-help]')).toBeNull();
+    expect(
+      document.querySelector('#editor-panel-help, [data-editor-overlay], [data-markup-help]'),
+    ).toBeNull();
     act(() => view.dispatch({ selection: { anchor: 40 } }));
     await press(content, 'F1');
     expect(sheet()).toBe(parked);

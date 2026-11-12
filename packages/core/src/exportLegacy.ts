@@ -1,8 +1,9 @@
 import { baseEnhancedPublishMessage } from './markup/baseEnhanced.js';
 import { languages } from './languages.js';
 import type { LegacyCatalog, LegacyFacts, LegacyMetadata, LegacyPerk } from './legacy.js';
-import { tooltipSchema, type Tooltip } from './schemas.js';
+import { isTextlessDescription, tooltipSchema, type Tooltip } from './schemas.js';
 import { resolveAlias, type Aliases } from './aliases.js';
+import { validateTextWithReads } from './validation/index.js';
 
 function exportFacts(facts: LegacyFacts | undefined): Partial<LegacyFacts> {
   if (!facts) return {};
@@ -56,8 +57,14 @@ export function exportLegacy(
   }
   const entries: Record<string, LegacyExportEntry> = {};
   const canonical: Record<string, LegacyEntry> = {};
+  const omitted = new Set<number>();
   for (const input of tooltips) {
     const tooltip = tooltipSchema.parse(input);
+    // Reserved global libraries are required converter inputs, even when a library is empty.
+    if (isTextlessDescription(tooltip)) {
+      omitted.add(tooltip.hash);
+      continue;
+    }
     // Last consumer boundary: native markup is stored, but cannot reach the old converter.
     if (Object.values(tooltip.text).some((translation) => translation?.text.includes('{{'))) {
       throw new Error(baseEnhancedPublishMessage);
@@ -103,6 +110,44 @@ export function exportLegacy(
       uploadToLive: tooltip.legacy?.uploadToLive ?? false,
       updateTracker: { ...tooltip.legacy?.updateTracker, descriptions },
     };
+  }
+  // Check the real resolver's reads, including nested imports and global title bodies.
+  // Never silently turn an import of an omitted record into a dangling consumer reference.
+  if (omitted.size) {
+    for (const language of languages) {
+      const imports = Object.fromEntries(
+        Object.entries(canonical).map(([hash, entry]) => [
+          hash,
+          entry.editor[language]?.main ?? '',
+        ]),
+      );
+      for (const alias of Object.keys(aliases)) {
+        const target = resolveAlias(Number(alias), aliases);
+        if (canonical[target]) imports[alias] = imports[target] ?? '';
+      }
+      for (const entry of Object.values(canonical)) {
+        if (entry.associated?.some((hash) => omitted.has(hash)))
+          throw new Error(`Tooltip ${entry.hash} associates an empty tooltip`);
+        const text = entry.editor[language]?.main;
+        if (text === undefined) continue;
+        const { reads } = validateTextWithReads(
+          text,
+          language,
+          {
+            imports,
+            variables: imports[2] ?? '',
+            titles: imports[3] ?? '',
+          },
+          false,
+          entry.hash,
+          aliases,
+        );
+        for (const hash of reads.imports.values()) {
+          if (omitted.has(hash))
+            throw new Error(`Tooltip ${entry.hash} imports empty tooltip ${hash}`);
+        }
+      }
+    }
   }
   for (const [alias, { kind }] of Object.entries(aliases)) {
     const target = resolveAlias(Number(alias), aliases);

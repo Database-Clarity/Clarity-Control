@@ -17,7 +17,8 @@ import { markupEntries, rowEntries, rowOrder, rowSeparator } from './entries';
 import { useMarkupRow } from './useMarkupRow';
 import { useSettingsStore } from '../../../stores/settings';
 
-const globals: MarkupGlobals = {
+const globals: MarkupGlobals & { allowBaseEnhanced: boolean } = {
+  allowBaseEnhanced: true,
   variables: 'var e = 🡅\nvar damage = 25',
   titles: 'title G_refill (\nRefills the magazine.\n)',
 };

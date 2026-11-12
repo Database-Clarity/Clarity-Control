@@ -352,3 +352,80 @@ it('rechecks digest binding at the new data head after a create race', async () 
   expect(response.status).toBe(409);
   expect(f.current()[requestPath]).toBeUndefined();
 });
+
+it('refuses signing an empty tooltip even with its exact digest', async () => {
+  const empty = { ...tooltip(), text: {} };
+  f.moveData({ 'tooltips/123.json': empty });
+  const response = await f.request(
+    '/publish',
+    'POST',
+    {
+      ...value,
+      expected: { 123: await publishableHash(empty, f.aliases) },
+    },
+    2,
+  );
+  expect(response.status).toBe(422);
+  expect(f.current()[requestPath]).toBeUndefined();
+});
+
+it('refuses signing a written tooltip whose association points at a link-only record', async () => {
+  const next = { ...tooltip(), associated: [125] };
+  f.moveData({
+    'tooltips/123.json': next,
+    'tooltips/125.json': { ...tooltip(), hash: 125, text: {} },
+  });
+  const response = await f.request(
+    '/publish',
+    'POST',
+    { ...value, expected: { 123: await publishableHash(next, f.aliases) } },
+    2,
+  );
+  expect(response.status).toBe(422);
+  expect(f.current()[requestPath]).toBeUndefined();
+});
+
+it('allows signing an intentionally emptied reserved global library', async () => {
+  const global = {
+    ...tooltip(),
+    hash: 2,
+    text: {},
+    custom: { name: 'Variables', categoryId: 'global' },
+  };
+  f.moveData({ 'tooltips/2.json': global });
+  const response = await f.request(
+    '/publish',
+    'POST',
+    { ...value, hashes: [2], expected: { 2: await publishableHash(global, f.aliases) } },
+    2,
+  );
+  expect(response.status).toBe(202);
+  expect(f.current()[requestPath]).toBeDefined();
+});
+
+it.each(['native', 'transitive'] as const)(
+  'signs a reference without walking the target draft (%s)',
+  async (mode) => {
+    const root = { ...tooltip(), associated: [125] };
+    f.moveData({
+      'tooltips/123.json': root,
+      'tooltips/125.json': {
+        ...tooltip(mode === 'native' ? '{{base|enhanced}}' : 'Written draft'),
+        hash: 125,
+        associated: mode === 'transitive' ? [126] : [],
+      },
+      'tooltips/126.json': { ...tooltip(), hash: 126, text: {} },
+    });
+    expect(
+      (
+        await f.request(
+          '/publish',
+          'POST',
+          { ...value, expected: { 123: await publishableHash(root, f.aliases) } },
+          2,
+        )
+      ).status,
+    ).toBe(202);
+    expect(f.current()[requestPath]).toBeDefined();
+  },
+);
