@@ -58,6 +58,35 @@ it('rejects parser errors, retired markup, invented exotic names, and non-trait 
   );
   expect(validateDraft(item, '\uE000', editor, app).length).toBeGreaterThan(0);
 });
+it('accepts only the guide-derived metric, value, and uncertainty together', () => {
+  const input = {
+    ...item,
+    source: {
+      text: 'Grants 0.6?x Ready Duration Multiplier, 0.8x Accuracy Cone Size, and 0.9x Reload Duration Multiplier.',
+    },
+  };
+  expect(
+    validateDraft(
+      input,
+      'Grants 40?% decreased Ready Animation Duration, 20% decreased Accuracy Cone Size, and 10% decreased Reload Animation Duration.',
+      editor,
+      app,
+    ),
+  ).toEqual([]);
+  for (const text of [
+    '40% decreased Ready Animation Duration.',
+    '40?% decreased Damage.',
+    '40? damage.',
+    '41?% decreased Ready Animation Duration.',
+    '20% decreased Accuracy Cone Size. Deals 20 damage.',
+  ]) {
+    expect(
+      validateDraft(input, text, editor, app).some((error) =>
+        error.startsWith('Unsupported number:'),
+      ),
+    ).toBe(true);
+  }
+});
 it('finds base exotic wording through item names and declines ambiguous base identities', () => {
   const e = {
     items: {

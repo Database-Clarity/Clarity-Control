@@ -149,6 +149,29 @@ export const numbers = (text) =>
         .match(/\d+(?:\.\d+)?/g) ?? []
     ).map((n) => String(Number(n))),
   );
+
+// Only the guide's named multiplier conversions justify a new numeric value.
+// Keep their evidence attached to the metric and uncertainty, rather than
+// adding a computed number to a general whitelist (which could justify damage).
+export function convertedNumbers(source) {
+  return [
+    ...source.matchAll(
+      /\b(0\.\d+)(\?)?x\s+((?:[A-Za-z/-]+\s+){0,5}Duration(?:\s+Multiplier)?|Accuracy\s+Cone\s+Size(?:\s+Multiplier)?|Draw\s+Time(?:\s+Multiplier)?)/gi,
+    ),
+  ].map((match) => {
+    const metric = match[3]
+      .replace(/\s+Multiplier$/i, '')
+      .replace(/\s+Animation(?= Duration$)/i, '');
+    const label = /Duration$/i.test(metric)
+      ? metric.replace(/Duration$/i, 'Animation Duration')
+      : metric;
+    return {
+      value: String(Number(((1 - Number(match[1])) * 100).toFixed(8))),
+      uncertain: !!match[2],
+      label,
+    };
+  });
+}
 export function validateDraft(item, english, editor, app) {
   if (typeof english !== 'string' || !english.trim()) return ['Missing English'];
   const errors = [];
@@ -170,7 +193,23 @@ export function validateDraft(item, english, editor, app) {
   if (app.retiredWarnings(english).length) errors.push('Retired markup');
   // Class-item wording may come from the base, but its values must come from the cell (guide A1).
   const allowed = numbers(item.source.text);
-  for (const number of numbers(english))
+  const conversions = convertedNumbers(item.source.text);
+  // A conversion is allowed only in its correct phrase. Remove those phrases
+  // before checking the remaining literal numbers, so the same number elsewhere
+  // cannot borrow the conversion's evidence.
+  const literalEnglish = english.replace(
+    /(\d+(?:\.\d+)?)(\?)?%\s+decreased\s+([A-Za-z/ -]*?(?:Animation Duration|Accuracy Cone Size|Draw Time))/gi,
+    (phrase, value, question, label) =>
+      conversions.some(
+        (conversion) =>
+          conversion.value === String(Number(value)) &&
+          conversion.uncertain === !!question &&
+          normal(conversion.label) === normal(label),
+      )
+        ? phrase.replace(/\d+(?:\.\d+)?/, '')
+        : phrase,
+  );
+  for (const number of numbers(literalEnglish))
     if (!allowed.has(number)) errors.push(`Unsupported number: ${number}`);
   // Exotic cross-references must both exist and be present in the supplied evidence.
   const names = new Set(
