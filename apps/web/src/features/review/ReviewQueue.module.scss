@@ -1,3 +1,4 @@
+@use '../../ui/controls';
 // The left column: one filter row, the counts line, and the virtual list (no card, no hashes).
 .queue {
   // The Compendium tab's font list and size: the queue opens from there with these fonts already
@@ -54,10 +55,9 @@
   margin: 0.25rem 0.375rem;
   color: var(--text2);
 
+  // The same control as the page's "Clear filters".
   button {
-    height: 1.5rem;
-    padding: 0 0.5rem;
-    font: inherit;
+    @include controls.button;
     white-space: nowrap;
   }
 }

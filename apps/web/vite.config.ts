@@ -29,6 +29,16 @@ export default defineConfig({
       },
       async resolveId(source, importer, options) {
         const suffix = '?report-public';
+        // First paint parses with zod/mini; Send, receipts, and My reports load the shared
+        // classic schemas later. Separate copies keep classic's share of zod's core in those
+        // lazy chunks instead of the entry (a shared module would be placed in the entry).
+        const mini = '?report-mini';
+        if (importer?.endsWith(mini) || (source === 'zod/mini' && importer?.endsWith(suffix))) {
+          const base = (importer ?? '').replace(/\?report-(public|mini)$/, '');
+          const resolved = await this.resolve(source, base, { ...options, skipSelf: true });
+          if (!resolved || resolved.external || resolved.id.includes('?')) return resolved;
+          return { ...resolved, id: resolved.id + mini };
+        }
         if (!source.endsWith(suffix) && !importer?.endsWith(suffix)) return null;
         const from = importer?.replace(suffix, '');
         const renderer: Record<string, string> = {
@@ -46,6 +56,16 @@ export default defineConfig({
         });
         if (!resolved || resolved.external || resolved.id.includes('?')) return resolved;
         const id = resolved.id.replaceAll('\\', '/');
+        // The shared sign-in modules on the public page's first paint read only sign-in,
+        // sessions, `/me`, and authorized requests: give them services/apiAuth.ts, without the
+        // editor's save and settings schemas. A name it lacks fails the build.
+        if (
+          id.endsWith('/apps/web/src/services/api.ts') &&
+          /\/apps\/web\/src\/(stores\/auth\.ts|features\/auth\/AuthStatus\.tsx)$/.test(
+            from?.replaceAll('\\', '/') ?? '',
+          )
+        )
+          return { ...resolved, id: resolved.id.replace(/api\.ts$/, 'apiAuth.ts') + suffix };
         if (
           /\.[cm]?[jt]sx?$/.test(id) &&
           (/\/(apps\/web|packages\/core)\//.test(id) ||

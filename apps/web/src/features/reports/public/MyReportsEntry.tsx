@@ -11,7 +11,7 @@ export function MyReportsEntry({ onNavigate }: { onNavigate?: () => void }) {
   const [changed, setChanged] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
-    void Promise.all([import('../../../services/reports'), import('./seen')])
+    void Promise.all([import('../../../services/reportAccount'), import('./seen')])
       .then(([{ myReports }, { changedSince }]) => myReports(controller.signal).then(changedSince))
       .then((ids) => setChanged(ids.size > 0))
       .catch(() => setChanged(false));

@@ -156,4 +156,20 @@
     padding-bottom: calc(0.25rem + env(safe-area-inset-bottom, 0px));
     border-top: 1px solid var(--line);
   }
+
+  // A short prompt (Withdraw, Discard draft) is a sheet as tall as its content, on the bottom edge
+  // (above the keyboard), not a mostly empty full-height page.
+  .compact {
+    // Anchored by its bottom edge only, so its height is its content.
+    top: auto;
+    height: auto;
+    border-top: 1px solid var(--pop-edge);
+    border-radius: 0.5rem 0.5rem 0 0;
+
+    .body {
+      flex: 0 1 auto;
+      min-height: 0;
+      overflow: auto;
+    }
+  }
 }
