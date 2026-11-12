@@ -468,6 +468,18 @@ describe('markup insertion', () => {
       ).toBeNull();
     });
 
+    test("inserts in Valiant Charge's stored text between the math block and #plural", () => {
+      const doc =
+        'Taking any damage while Guarding increases Lunge Distance by 80% for the next swing within #e${1+#d} #plural.\n\nvar plural = second\nenhanced (\nvar plural = seconds\nvar d = 0.5\n#e Buff Duration is increased by 0.5 seconds.\n)';
+      const host = { ...enhanced, variables: 'var e = 🡅' };
+      const point = doc.indexOf('#plural');
+      for (const caret of [point - 1, point]) {
+        const state = EditorState.create({ doc, selection: { anchor: caret } });
+        for (const id of ids)
+          expect(markupTransaction(state, option(id), host), `${id}@${caret}`).not.toBeNull();
+      }
+    });
+
     test.each([
       ['right after the closing brace', 'Lunge ↑${1+#d}', '↑${1+#d}'.length],
       ['right before the math block', 'Lunge ↑${1+#d}', '↑'.length],
