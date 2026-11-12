@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   compendiumNameVariants,
   compendiumPreferredTabs,
@@ -113,12 +113,28 @@ export function LinkPicker({
     Record<string, { gid: string; row?: CompendiumMatch['row'] }>
   >({});
   const cellKey = `${gid}:${anchorRow?.rowIndex}:${anchorRow?.anchor?.col}`;
-  const sheets =
-    visited[cellKey] || !gid ? visited : { ...visited, [cellKey]: { gid, row: anchorRow } };
+  // The sheet for a new anchor mounts in its own (interruptible) render after the input
+  // task has committed and painted the controls, never inside the click or keypress.
+  const [shown, setShown] = useState<{ key: string; gid: string; row?: CompendiumMatch['row'] }>();
+  const pending = !!gid && shown?.key !== cellKey;
   useEffect(() => {
-    if (gid)
-      setVisited((old) => (old[cellKey] ? old : { ...old, [cellKey]: { gid, row: anchorRow } }));
-  }, [gid, anchorRow, cellKey]);
+    if (!pending) return;
+    const target = { key: cellKey, gid, row: anchorRow };
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => startTransition(() => setShown(target));
+    channel.port2.postMessage(null);
+    return () => {
+      channel.port1.close();
+      channel.port2.close();
+    };
+  }, [pending, cellKey, gid, anchorRow]);
+  const sheets = !shown || visited[shown.key] ? visited : { ...visited, [shown.key]: shown };
+  useEffect(() => {
+    if (shown)
+      setVisited((old) =>
+        old[shown.key] ? old : { ...old, [shown.key]: { gid: shown.gid, row: shown.row } },
+      );
+  }, [shown]);
   const { rows, exact } = useMemo(
     () =>
       pickerRows(
@@ -129,6 +145,23 @@ export function LinkPicker({
       ),
     [data, gid, category, query, section],
   );
+  // At most 100 rows; they render in chunks of 20, one task each, so neither the opening
+  // click nor a tab change carries every row's render, layout, and paint at once.
+  const shownTarget = Math.min(100, rows.length);
+  const [rowChunk, setRowChunk] = useState({ rows, count: 20 });
+  if (rowChunk.rows !== rows) setRowChunk({ rows, count: 20 });
+  const shownCount = rowChunk.rows === rows ? rowChunk.count : 20;
+  const rowsPending = shownCount < shownTarget;
+  useEffect(() => {
+    if (!rowsPending) return;
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => setRowChunk({ rows, count: shownCount + 20 });
+    channel.port2.postMessage(null);
+    return () => {
+      channel.port1.close();
+      channel.port2.close();
+    };
+  }, [rows, shownCount, rowsPending]);
   function choose(match: CompendiumMatch) {
     if (!canEdit) return;
     const link = data && confirmCompendiumSelection(match, data);
@@ -157,7 +190,7 @@ export function LinkPicker({
   if (!data) return null;
   const tab = data.tabs.find((tab) => tab.gid === gid);
   return (
-    <section aria-label="Link a Compendium row">
+    <section aria-label="Link a Compendium row" aria-busy={pending || rowsPending}>
       <h3>Choose tab and row</h3>
       <label>
         Compendium tab{' '}
@@ -245,7 +278,7 @@ export function LinkPicker({
       {error && <p role="alert">{error}</p>}
       <ul className={styles.rows}>
         {tab &&
-          rows.slice(0, 100).map((row) => (
+          rows.slice(0, Math.min(shownTarget, shownCount)).map((row) => (
             <li key={`${row.rowIndex}:${row.name}`}>
               <small className={styles.rowRange}>
                 <SourceRef location={matchLocation({ tab, row }, data)} show="range" />
@@ -264,7 +297,7 @@ export function LinkPicker({
         const savedTab = data.tabs.find((entry) => entry.gid === saved.gid);
         return (
           savedTab && (
-            <div key={key} hidden={key !== cellKey}>
+            <div key={key} hidden={!gid || key !== shown?.key}>
               <CellPicker
                 tab={savedTab}
                 data={data}
