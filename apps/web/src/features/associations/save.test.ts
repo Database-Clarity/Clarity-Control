@@ -72,3 +72,109 @@ vi.mock('../../services/save/validationWorker', () => ({
     return validateChanges(changes, data);
   },
 }));
+
+it('prepares and saves a new Compendium-only record beside a written tooltip', async () => {
+  const fixture = new Fixture(await makePrivateKey());
+  const data = editorData();
+  const linked = {
+    hash: 125,
+    text: {},
+    associated: [],
+    compendium: {
+      gid: '1662574278',
+      rowKey: 'Demo',
+      snapshot: { plain: '', runs: [] },
+      snapshotAt: '2026-10-02T00:00:00Z',
+    },
+  };
+  const changes = [
+    { hash: 125, base: null, next: linked },
+    { hash: 123, base: tooltip(), next: tooltip('Updated') },
+  ];
+  const prepared = await prepareChanges(changes, { id: 2, login: 'bob', role: 'editor' }, data);
+  const response = await fixture.request(
+    '/save',
+    'POST',
+    { changes: prepared, message: 'Confirm links' },
+    2,
+  );
+  expect(response.status).toBe(200);
+  expect(fixture.current()['tooltips/125.json']).toMatchObject(linked);
+  expect(fixture.current()['tooltips/123.json']).toMatchObject({
+    text: { en: { text: 'Updated' } },
+  });
+  for (const role of ['trial', 'translator'] as const)
+    expect(permissionError([changes[0]], { id: 3, login: 'test', role })).toBeTruthy();
+});
+
+it('blocks translation-only promotion of an empty saved record in the web save pipeline', async () => {
+  const base = { ...tooltip(), text: {} };
+  const data = editorData();
+  data.bundle.tooltips[123] = base;
+  const next = { ...base, text: { de: { ...tooltip().text.en!, text: 'Nur Deutsch' } } };
+  const changes = [{ hash: 123, base, next }];
+  const user = { id: 4, login: 'dan', role: 'translator' as const, languages: ['de' as const] };
+  const { validateChanges } = await import('../../services/save/validation');
+  expect(permissionError(changes, user)).toBeNull();
+  expect(validateChanges(changes, data)).toContainEqual(
+    expect.objectContaining({
+      hash: 123,
+      lang: 'en',
+      severity: 'error',
+      message: expect.stringContaining('Write English'),
+    }),
+  );
+  await expect(prepareChanges(changes, user, data)).rejects.toThrow('Validation');
+});
+
+it.each([1, 2, 3].flatMap((hash) => [3, 4].map((id) => ({ hash, id }))))(
+  'allows role $id to clear an assigned reserved library $hash through web preparation and Worker save',
+  async ({ hash, id }) => {
+    const fixture = new Fixture(await makePrivateKey());
+    const language = id === 3 ? 'en' : 'de';
+    const base = {
+      ...tooltip(),
+      hash,
+      text: { [language]: { ...tooltip().text.en!, text: 'var unused = 1' } },
+    };
+    const next = { ...base, text: {} };
+    fixture.moveData({ [`tooltips/${hash}.json`]: base });
+    const data = editorData();
+    data.bundle.tooltips[hash] = base;
+    const user = {
+      id,
+      login: id === 3 ? 'carol' : 'dan',
+      role: id === 3 ? ('trial' as const) : ('translator' as const),
+      ...(id === 4 ? { languages: ['de' as const] } : {}),
+    };
+    const changes = [{ hash, base, next }];
+    expect(permissionError(changes, user)).toBeNull();
+    const prepared = await prepareChanges(changes, user, data);
+    const response = await fixture.request(
+      '/save',
+      'POST',
+      { changes: prepared, message: 'Clear unused library' },
+      id,
+    );
+    expect(response.status).toBe(200);
+    expect(fixture.current()[`tooltips/${hash}.json`]).toMatchObject({ hash, text: {} });
+  },
+);
+it('still refuses clearing an unassigned reserved-library language', async () => {
+  const fixture = new Fixture(await makePrivateKey());
+  const base = {
+    ...tooltip(),
+    hash: 2,
+    text: { en: { ...tooltip().text.en!, text: 'var unused = 1' } },
+  };
+  fixture.moveData({ 'tooltips/2.json': base });
+  const changes = [{ hash: 2, base, next: { ...base, text: {} } }];
+  expect(
+    permissionError(changes, { id: 4, login: 'dan', role: 'translator', languages: ['de'] }),
+  ).toBeTruthy();
+  expect(
+    (await fixture.request('/save', 'POST', { changes, message: 'Clear unassigned library' }, 4))
+      .status,
+  ).toBe(403);
+  expect(fixture.commits).toHaveLength(0);
+});

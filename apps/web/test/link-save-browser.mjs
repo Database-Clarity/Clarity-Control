@@ -188,8 +188,7 @@ try {
     assert.deepEqual(errors, []);
     console.log('PASS 4: recovered draft uses its own base for the empty-English diagnostic');
   }
-  // 5. An item with no saved tooltip: Confirm drafts the link, the review refuses the save and
-  // says why in plain words; the editor shows no empty-English error for it.
+  // 5. An item with no saved tooltip: Confirm and save a link-only record.
   {
     const { page, errors } = await open('#/compendium?hash=103');
     const confirm = page.getByRole('button', { name: /^Confirm/ });
@@ -198,12 +197,24 @@ try {
     await reviewDrafts(page);
     const save = page.getByRole('button', { name: 'Save changes' });
     await save.waitFor();
-    assert.equal(await save.isDisabled(), true, 'a link on an item without a tooltip is refused');
-    await page.getByText('This item has no tooltip yet.').first().waitFor();
+    await page.waitForFunction(
+      () =>
+        ![...document.querySelectorAll('button')].find((b) => b.textContent === 'Save changes')
+          ?.disabled,
+    );
+    assert.equal(await save.isEnabled(), true, 'a link on an item without a tooltip can save');
     assert.equal(await page.getByText('must not be empty').count(), 0);
-    assert.equal(await page.evaluate(() => window.linkSave.saves.length), 0);
+    await save.click();
+    await page.waitForFunction(() => window.linkSave.saves.length === 1);
+    const sent = await page.evaluate(() => window.linkSave.saves[0][0]);
+    assert.equal(sent.base, null);
+    assert.ok(sent.next.compendium);
+    assert.equal(
+      Object.values(sent.next.text).some((entry) => entry.text.trim()),
+      false,
+    );
     assert.deepEqual(errors, []);
-    console.log('PASS 5: item without a saved tooltip is refused with a plain explanation');
+    console.log('PASS 5: item without a saved tooltip saves its Compendium link');
   }
   // 6. Only the donor is drafted. Validation still names and protects its saved dependent.
   {

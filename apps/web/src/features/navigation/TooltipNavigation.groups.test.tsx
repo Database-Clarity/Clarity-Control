@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react';
+import { picker, pickerLabels, pickOption } from './finderPicker.testUtils';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -93,17 +94,13 @@ async function mount(path: string, sheet = false) {
   );
 }
 const field = () => host.querySelector<HTMLInputElement>('input[role="combobox"]')!;
-const select = (label: string) =>
-  host.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`);
+const select = (label: string) => picker(host, label);
 const route = () => host.querySelector('[data-route]')!.textContent;
 const position = () => host.querySelector<HTMLElement>('span[role="status"]:not(.sr-only)')!;
 const rows = () => [...host.querySelectorAll<HTMLElement>('[role="option"]')];
 const rest = () => act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
-async function choose(target: HTMLSelectElement, value: string) {
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(target, value);
-    target.dispatchEvent(new Event('change', { bubbles: true }));
-  });
+async function choose(target: HTMLButtonElement, value: string) {
+  await pickOption(target, value);
   await rest();
 }
 async function wheel(init: WheelEventInit) {
@@ -127,7 +124,6 @@ async function type(value: string) {
     field().dispatchEvent(new Event('input', { bubbles: true }));
   });
 }
-const labels = (target: HTMLSelectElement) => [...target.options].map((option) => option.text);
 
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -147,26 +143,30 @@ afterEach(async () => {
 describe('Exotic Weapons dropdowns', () => {
   it('folds the four kinds into one category and lists weapons A–Z after "All exotic weapons", with no counts', async () => {
     await mount('/t/100');
-    expect(labels(select('Category')!)).toEqual(['Exotic Weapons', 'Armor Mods', 'Activity Mods']);
-    expect(labels(select('Weapon')!)).toEqual([
+    expect(await pickerLabels(select('Category')!)).toEqual([
+      'Exotic Weapons',
+      'Armor Mods',
+      'Activity Mods',
+    ]);
+    expect(await pickerLabels(select('Weapon')!)).toEqual([
       'All exotic weapons',
       'Dead Messenger',
       'Hard Light',
       'Whisper of the Worm',
     ]);
-    expect(select('Weapon')!.value).toBe('1001');
+    expect(select('Weapon')!.dataset.value).toBe('1001');
     expect(position().textContent).toBe('1 of 3');
   });
 
   it('derives the weapon from the route: the item, an explicit owner, or All', async () => {
     await mount('/t/103');
-    expect(select('Weapon')!.value).toBe('1002');
+    expect(select('Weapon')!.dataset.value).toBe('1002');
     expect(position().textContent).toBe('1 of 2');
     await mount('/t/101?g=1002');
-    expect(select('Weapon')!.value).toBe('1002');
+    expect(select('Weapon')!.dataset.value).toBe('1002');
     expect(position().textContent).toBe('2 of 2');
     await mount('/t/103?g=all');
-    expect(select('Weapon')!.value).toBe('all');
+    expect(select('Weapon')!.dataset.value).toBe('all');
     expect(position().textContent).toBe('4 of 6');
   });
 
@@ -176,22 +176,22 @@ describe('Exotic Weapons dropdowns', () => {
     expect(select('Activity')).toBeNull();
     await mount('/t/518521232');
     expect(select('Weapon')).toBeNull();
-    expect(labels(select('Activity')!)).toEqual([
+    expect(await pickerLabels(select('Activity')!)).toEqual([
       'All activities',
       'Vault of Glass',
       'Nightmares (Shadowkeep)',
     ]);
-    expect(select('Activity')!.value).toBe('enhancements.raid_v520');
+    expect(select('Activity')!.dataset.value).toBe('enhancements.raid_v520');
   });
 
   it('opens the first entry of a new category in the All scope, and of a weapon in its own', async () => {
     await mount('/t/12');
     await choose(select('Category')!, 'exotic-weapons');
     expect(route()).toBe('/t/100?g=all');
-    expect(select('Weapon')!.value).toBe('all');
+    expect(select('Weapon')!.dataset.value).toBe('all');
     await choose(select('Weapon')!, '1002');
     expect(route()).toBe('/t/103');
-    expect(select('Weapon')!.value).toBe('1002');
+    expect(select('Weapon')!.dataset.value).toBe('1002');
     await choose(select('Category')!, 'armor-mod-activity');
     expect(route()).toBe('/t/518521232?g=all');
   });
@@ -200,11 +200,11 @@ describe('Exotic Weapons dropdowns', () => {
     await mount('/t/101?g=1002');
     await choose(select('Weapon')!, 'all');
     expect(route()).toBe('/t/101?g=all:1002');
-    expect(select('Weapon')!.value).toBe('all');
+    expect(select('Weapon')!.dataset.value).toBe('all');
     expect(position().textContent).toBe('5 of 6');
     await act(async () => back());
     expect(route()).toBe('/t/101?g=1002');
-    expect(select('Weapon')!.value).toBe('1002');
+    expect(select('Weapon')!.dataset.value).toBe('1002');
   });
 
   it('keeps the language when the scope changes', async () => {
@@ -236,14 +236,14 @@ describe('Exotic Weapons stepping', () => {
     await wheel({ shiftKey: true });
     expect(route()).toBe('/t/101?g=all:1002');
     expect(position().textContent).toBe('5 of 6');
-    expect(select('Weapon')!.value).toBe('all');
+    expect(select('Weapon')!.dataset.value).toBe('all');
   });
 
   it('Alt+Shift+wheel moves one weapon and stops at the last', async () => {
     await mount('/t/101');
     await wheel({ shiftKey: true, altKey: true });
     expect(route()).toBe('/t/103');
-    expect(select('Weapon')!.value).toBe('1002');
+    expect(select('Weapon')!.dataset.value).toBe('1002');
     await wheel({ shiftKey: true, altKey: true });
     expect(route()).toBe('/t/104');
     await wheel({ shiftKey: true, altKey: true });
@@ -394,7 +394,7 @@ describe('Exotic Weapons list', () => {
     await press('Escape');
     expect(rows()).toHaveLength(0);
     expect(route()).toBe('/t/100');
-    expect(select('Weapon')!.value).toBe('1001');
+    expect(select('Weapon')!.dataset.value).toBe('1001');
   });
 
   it('keeps one row per listing while typing, so a hash listed twice never leaves a stale copy', async () => {
@@ -428,8 +428,10 @@ describe('phone sheet', () => {
     await act(async () => next.click());
     await rest();
     expect(route()).toBe('/t/103');
-    expect(select('Weapon')!.value).toBe('1002');
-    expect(position().textContent).toBe('1 of 2');
+    expect(select('Weapon')!.dataset.value).toBe('1002');
+    // The phone stepper shows "1/2"; the status reads in words.
+    expect(position().querySelector('[aria-hidden]')!.textContent).toBe('1/2');
+    expect(position().querySelector('.sr-only')!.textContent).toBe('1 of 2');
   });
 
   it('has no weapon row in a category without groups', async () => {

@@ -206,8 +206,9 @@ describe('applying a snapshot', () => {
         '4': draft(4, 'unsent'),
       },
     });
-    const removed = await clearMoved(sent, { 'tooltips:user:7': ['1', '2'] }, io);
+    const removed = await clearMoved(sent, { 'tooltips:user:7': ['1', '1', '2'] }, io);
     expect(removed).toBe(1);
+    expect(await clearMoved(sent, { 'tooltips:user:7': ['1', '1', '2'] }, io)).toBe(0);
     expect(Object.keys(buckets.get('tooltips:user:7')!).sort()).toEqual(['2', '3', '4']);
   });
 
@@ -435,11 +436,15 @@ describe('sender handshake (old site)', () => {
     expect(waiting.events).toEqual(['waiting', 'closed']);
   });
 
-  it('lets the user retry after the receiver refuses', async () => {
-    const { page, popup, events, ready } = setup(Promise.resolve('{}'));
+  it('keeps refusal on close and lets the user retry after the receiver refuses', async () => {
+    const { page, popup, events, ready, sender } = setup(Promise.resolve('{}'));
     page.deliver(popup.target, newOrigin, ready);
     await flush();
     page.deliver(popup.target, newOrigin, { ...stamp, type: 'refused', reason: 'nope' });
+    popup.target.closed = true;
+    expect(sender.checkClosed()).toBe(true);
+    expect(events.at(-1)).toBe('refused:nope');
+    popup.target.closed = false;
     expect(events.at(-1)).toBe('refused:nope');
     page.deliver(popup.target, newOrigin, ready);
     await flush();
@@ -461,7 +466,7 @@ describe('moved page start', () => {
         snapshot: snapshot({ tooltips: { '1': draft(1, 'a') } }),
         unreadable: ['tooltips:user:7'],
       }),
-    ).toEqual({ kind: 'unreadable' });
+    ).toEqual({ kind: 'idle', drafts: 1 });
   });
 
   it('collectSnapshot reports a bucket that fails validation as unreadable', async () => {

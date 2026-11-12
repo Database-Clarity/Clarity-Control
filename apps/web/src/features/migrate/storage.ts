@@ -134,7 +134,7 @@ export async function clearMoved(
     const storage = io.open(bucket);
     const current = await storage.read();
     const next = { ...current };
-    for (const hash of hashes) {
+    for (const hash of new Set(hashes)) {
       // Own keys only: a hash such as `constructor` must never match an inherited property.
       const draft = Object.hasOwn(sentDrafts, hash) ? sentDrafts[hash] : undefined;
       if (

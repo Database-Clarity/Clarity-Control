@@ -7,6 +7,7 @@ import {
   publishMonth,
   publishOpIdSchema,
   exportLegacy,
+  isTextlessDescription,
   publishableHash,
   tooltipSchema,
   permissionsSchema,
@@ -83,6 +84,25 @@ export class Publisher {
   }
   read<T>(tree: Tree, path: string): T | undefined {
     return tree[path] ? (JSON.parse(this.git.blob(tree[path])) as T) : undefined;
+  }
+  /** Check direct association targets at the drain snapshot, without walking their drafts. */
+  checkAssociatedDescriptions(tree: Tree, tooltips: readonly Tooltip[]): void {
+    const known = new Map(tooltips.map((tooltip) => [tooltip.hash, tooltip]));
+    for (const tooltip of tooltips) {
+      for (const reference of tooltip.associated) {
+        const hash = resolveAlias(reference, this.options.aliases);
+        let target = known.get(hash);
+        if (!target) {
+          const value = this.read<unknown>(tree, `tooltips/${hash}.json`);
+          if (value === undefined) continue;
+          target = tooltipSchema.parse(value);
+          if (target.hash !== hash) throw new Error('Stored association tooltip hash mismatch');
+          known.set(hash, target);
+        }
+        if (isTextlessDescription(target))
+          throw new Error(`Association ${tooltip.hash} -> ${hash} has no text to publish`);
+      }
+    }
   }
   queue(head: string): string[] {
     const pending = new Set(
@@ -344,6 +364,28 @@ export class Publisher {
       }
       if (outcomes.some((e) => e.status !== 'accepted')) {
         await this.record(opId, undefined, undefined, { status: 'stale', outcomes }, blob);
+        return;
+      }
+      if (tooltips.some(isTextlessDescription)) {
+        await this.record(
+          opId,
+          undefined,
+          undefined,
+          { status: 'rejected', error: 'Tooltip has no text to publish' },
+          blob,
+        );
+        return;
+      }
+      try {
+        this.checkAssociatedDescriptions(tree, tooltips);
+      } catch (error) {
+        await this.record(
+          opId,
+          undefined,
+          undefined,
+          { status: 'rejected', error: String(error) },
+          blob,
+        );
         return;
       }
       if (tooltips.some((t) => !t.custom && !this.options.facts[t.hash])) {
