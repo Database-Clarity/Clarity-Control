@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { dateFormats, timeDisplays, type SyncedSettings } from '@clarity/core';
 import {
   useSettingsStore,
@@ -21,12 +22,16 @@ import styles from './Settings.module.scss';
 
 const example = '2023-02-12T20:12:00Z';
 
+let zoneList: string[] | undefined;
+/** The browser's time zones, listed once per page: the list never changes while it runs. */
 function timeZones(): string[] {
+  if (zoneList) return zoneList;
   try {
-    return Intl.supportedValuesOf('timeZone').filter((zone) => zone !== 'UTC');
+    zoneList = Intl.supportedValuesOf('timeZone').filter((zone) => zone !== 'UTC');
   } catch {
-    return ['Europe/London', 'Europe/Berlin', 'America/New_York', 'America/Los_Angeles'];
+    zoneList = ['Europe/London', 'Europe/Berlin', 'America/New_York', 'America/Los_Angeles'];
   }
+  return zoneList;
 }
 
 /**
@@ -90,6 +95,42 @@ export function ScaleControl({
   );
 }
 
+/**
+ * The time zone select. Its ~450 zones are options only once it is focused or pressed (a closed
+ * select shows just its value, at a fixed width): building and styling them all made opening
+ * Settings the slowest part of the popover. Pressing it fills the list before the picker opens.
+ */
+function ZoneSelect({
+  value,
+  zones,
+  onChange,
+}: {
+  value: string;
+  zones: string[];
+  onChange: (zone: string) => void;
+}) {
+  const [listed, setListed] = useState(false);
+  const shown = listed ? zones : zones.filter((zone) => zone === value);
+  return (
+    <select
+      value={value}
+      onFocus={() => setListed(true)}
+      onPointerDown={() => {
+        if (!listed) flushSync(() => setListed(true));
+      }}
+      onChange={(event) => onChange(event.target.value)}
+    >
+      <option value="auto">Browser ({browserTimeZone()})</option>
+      <option value="UTC">UTC</option>
+      {shown.map((zone) => (
+        <option key={zone} value={zone}>
+          {zone.replaceAll('_', ' ')}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 export function SettingsContent() {
   const state = useSettingsStore();
   const { settings, device, update, updateDevice, remember, retry, resetPaneWidths } = state;
@@ -108,14 +149,18 @@ export function SettingsContent() {
     const layout = () => {
       for (const label of page.querySelectorAll('fieldset > label')) {
         const select = label.querySelector('select');
-        const text = select?.selectedOptions[0]?.textContent ?? '';
+        // The selected option by index: `selectedOptions` walks every option (~450 time zones).
+        const text = select ? (select.options[select.selectedIndex]?.textContent ?? '') : '';
         label.toggleAttribute('data-wide', !select || text.length > 24);
       }
+      for (const fieldset of page.querySelectorAll('fieldset'))
+        fieldset.removeAttribute('data-stack');
+      // Desktop never stacks. Reading styles or geometry here would flush the style and layout of
+      // the whole page in the open commit; the stacking check below needs it only on phones.
+      if (!phone) return;
       // A control squeezed below its 11.5rem width by a long name has no room beside it either.
       const basis = parseFloat(getComputedStyle(document.documentElement).fontSize) * 11.5 - 1;
       for (const fieldset of page.querySelectorAll('fieldset')) {
-        fieldset.removeAttribute('data-stack');
-        if (!phone) continue;
         const stacked = [...fieldset.querySelectorAll(':scope > label')].some((label) => {
           const select = label.querySelector('select');
           if (!select) return false;
@@ -183,18 +228,11 @@ export function SettingsContent() {
         </label>
         <label>
           Time zone
-          <select
+          <ZoneSelect
             value={settings.timeZone}
-            onChange={(event) => update({ timeZone: event.target.value })}
-          >
-            <option value="auto">Browser ({browserTimeZone()})</option>
-            <option value="UTC">UTC</option>
-            {zoneOptions.map((zone) => (
-              <option key={zone} value={zone}>
-                {zone.replaceAll('_', ' ')}
-              </option>
-            ))}
-          </select>
+            zones={zoneOptions}
+            onChange={(timeZone) => update({ timeZone })}
+          />
         </label>
         <p className={styles.example}>
           Example: {formatDate(example, settings)}
@@ -296,8 +334,8 @@ export function SettingsContent() {
         </label>
         <p className={styles.hint}>
           Sets the size of the text you edit, on this device only. Automatic follows the interface
-          scale; a size in px ignores it. Touch screens keep at least 16 px so the page does not zoom
-          on focus.
+          scale; a size in px ignores it. Touch screens keep at least 16 px so the page does not
+          zoom on focus.
         </p>
         <label>
           Accept suggestion chips with
