@@ -45,7 +45,7 @@
 
 .usagePane {
   contain: layout paint;
-  max-height: calc(100dvh - 6rem);
+  max-height: calc(var(--app-h) - 6rem);
   font-size: 0.8125rem;
   line-height: 1.4;
   // The pane tab says Usages; keep the reference unit beside its range on phones too.

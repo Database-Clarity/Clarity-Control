@@ -51,6 +51,7 @@ const tooltipShown = () => host.querySelector('[data-line]') !== null;
 
 beforeEach(() => {
   vi.resetModules();
+  vi.stubEnv('VITE_API_URL', '');
   mount.mockReset();
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   host = document.createElement('div');
@@ -75,7 +76,7 @@ afterEach(() => {
 /** Serves the catalog, tooltip files, and public anchors; `api` answers Worker calls. */
 function stubFetch(api: (url: string, init?: RequestInit) => Promise<Response> | Response) {
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url.includes('report-items.json')) return json(catalog);
+    if (url.includes('report-items.json') || url.includes('/report-catalog/')) return json(catalog);
     const file = /\/tooltips\/(\d+)\.json$/.exec(url);
     if (file) return json(file[1] === '100' ? tooltip : globalsFile);
     if (url.includes('/reports/public')) return json([]);
@@ -134,6 +135,212 @@ async function writeWholeNote(text: string) {
 }
 
 describe('report form states', () => {
+  it.each([false, true])(
+    'loads live data before first paint and retries an unanswered send after reload with the same capability (legacy %s)',
+    async (legacy) => {
+      vi.stubEnv('VITE_API_URL', 'https://worker.example');
+      mount.mockResolvedValue({ token: async () => 'valid', reset() {}, remove() {} });
+      const sent: { request_id: string; withdraw_secret: string; data_commit: string }[] = [];
+      const fetch = stubFetch((_url, init) => {
+        sent.push(JSON.parse(String(init?.body)));
+        if (sent.length === 1) throw new TypeError('Response lost after possible storage');
+        return json({ id: 'r-abcdefgh', status: 'open' });
+      });
+      const original = fetch.getMockImplementation()!;
+      fetch.mockImplementation(async (url, init) => {
+        if (url.includes('report-items.json'))
+          return json({ ...catalog, sourceCommit: 'b'.repeat(40) });
+        if (url.includes('/report-catalog/')) throw new Error('A build shard must never be read');
+        return original(url, init);
+      });
+      await renderForm('/report/100?lang=en');
+      await writeWholeNote('Retry this report exactly once.');
+      await act(async () => host.querySelector('form')!.requestSubmit());
+      await until(
+        () => host.textContent!.includes('Reports are unavailable right now.'),
+        'the lost response',
+      );
+      const pending = draftOf().pending;
+      expect(pending).toBeTruthy();
+      if (legacy) {
+        const body = JSON.parse(pending.payload);
+        delete body.owner_hash;
+        delete body.variant;
+        pending.payload = JSON.stringify(body);
+        sessionStorage.setItem(
+          'clarity-report-draft:100',
+          JSON.stringify({ ...draftOf(), pending }),
+        );
+      }
+      act(() => root.unmount());
+      root = createRoot(host);
+      vi.resetModules();
+      const router = await renderForm('/report/100?lang=en');
+      await until(
+        () => host.querySelector('textarea')?.value === 'Retry this report exactly once.',
+        'the restored note',
+      );
+      expect(draftOf().pending).toEqual(pending);
+      await act(async () => host.querySelector('form')!.requestSubmit());
+      await until(
+        () => router.state.location.pathname.startsWith('/report/r/'),
+        'the recovered receipt',
+      );
+      expect(sent).toHaveLength(2);
+      expect(sent[1]).toEqual(
+        legacy ? { ...sent[0], owner_hash: undefined, variant: undefined } : sent[0],
+      );
+      expect(sent[0].data_commit).toBe('b'.repeat(40));
+      expect(sessionStorage.getItem('clarity-report-secret:r-abcdefgh')).toBe(
+        sent[0].withdraw_secret,
+      );
+      expect(fetch.mock.calls.some(([url]) => String(url).includes('/report-catalog/'))).toBe(
+        false,
+      );
+    },
+  );
+
+  it('refreshes a changed live catalog on Send, preserves old quotes, and submits only the reviewed owner text', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://worker.example');
+    mount.mockResolvedValue({ token: async () => 'valid', reset() {}, remove() {} });
+    let submitted:
+      | {
+          data_commit: string;
+          viewed_hash: number;
+          notes: { text: string; anchor: { exact: string } }[];
+        }
+      | undefined;
+    const fetch = stubFetch((_url, init) => {
+      submitted = JSON.parse(String(init?.body));
+      return json({ id: 'r-abcdefgh', status: 'open' }, 201);
+    });
+    const original = fetch.getMockImplementation()!;
+    const fresh = {
+      ...catalog,
+      sourceCommit: 'b'.repeat(40),
+      items: {
+        '100': {
+          ...catalog.items['100'],
+          owner: 200,
+          variant: 'override:200',
+          name: 'Current owner',
+        },
+      },
+    };
+    fetch.mockImplementation(async (url, init) => {
+      if (url.includes('report-items.json') && tooltipShown()) return json(fresh);
+      if (url.includes('/tooltips/200.json'))
+        return json({ text: { en: { text: 'Current owner text' } } });
+      return original(url, init);
+    });
+    const router = await renderForm('/report/100?lang=en');
+    await markFirstLine();
+    await typeInto(host.querySelector('textarea')!, 'Original note.');
+    await act(async () => host.querySelector('form')!.requestSubmit());
+    await until(() => host.textContent!.includes('The tooltip changed.'), 'the live tooltip');
+    expect(submitted).toBeUndefined();
+    expect(host.textContent).toContain('Current owner text');
+    expect(draftOf().notes[0]).toMatchObject({
+      text: 'Original note.',
+      mark: null,
+      remark: 'English line one',
+    });
+    await markFirstLine();
+    await act(async () => host.querySelector('form')!.requestSubmit());
+    await until(
+      () => router.state.location.pathname.startsWith('/report/r/'),
+      'the submitted receipt',
+    );
+    expect(submitted).toMatchObject({
+      data_commit: 'b'.repeat(40),
+      viewed_hash: 100,
+      notes: [{ text: 'Original note.', anchor: { exact: 'Current owner text' } }],
+    });
+  });
+
+  it('keeps the draft and unlocks Send when live-catalog validation is unavailable', async () => {
+    const fetch = stubFetch(() => json({}, 404));
+    const original = fetch.getMockImplementation()!;
+    fetch.mockImplementation(async (url, init) =>
+      url.includes('report-items.json') && tooltipShown() ? json({}, 503) : original(url, init),
+    );
+    await renderForm('/report/100?lang=en');
+    await writeWholeNote('Keep this while the catalog is unavailable.');
+    await act(async () => host.querySelector('form')!.requestSubmit());
+    await until(
+      () => host.textContent!.includes('Could not check the latest tooltip'),
+      'the refresh failure',
+    );
+    expect(host.querySelector('fieldset')!.disabled).toBe(false);
+    expect(draftOf().notes[0].text).toBe('Keep this while the catalog is unavailable.');
+    expect(fetch.mock.calls.filter(([url]) => String(url).endsWith('/reports'))).toHaveLength(0);
+  });
+
+  it('shows a removed item without submitting or discarding the saved draft', async () => {
+    const fetch = stubFetch(() => json({}, 404));
+    const original = fetch.getMockImplementation()!;
+    fetch.mockImplementation(async (url, init) =>
+      url.includes('report-items.json') && tooltipShown()
+        ? json({ ...catalog, sourceCommit: 'b'.repeat(40), items: {} })
+        : original(url, init),
+    );
+    await renderForm('/report/100?lang=en');
+    await writeWholeNote('Keep this if the source disappears.');
+    await act(async () => host.querySelector('form')!.requestSubmit());
+    await until(
+      () => host.textContent!.includes('has no Clarity tooltip to report'),
+      'the removed item',
+    );
+    expect(draftOf().notes[0].text).toBe('Keep this if the source disappears.');
+    expect(fetch.mock.calls.filter(([url]) => String(url).endsWith('/reports'))).toHaveLength(0);
+  });
+
+  it('recovers a Worker commit conflict without automatically retrying another identity', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://worker.example');
+    mount.mockResolvedValue({ token: async () => 'valid', reset() {}, remove() {} });
+    const fetch = stubFetch(() =>
+      json({ error: 'Tooltip data changed; reload before sending' }, 409),
+    );
+    await renderForm('/report/100?lang=en');
+    await writeWholeNote('Keep this if publication races Send.');
+    await act(async () => host.querySelector('form')!.requestSubmit());
+    await until(
+      () => host.textContent!.includes('The report catalog is updating.'),
+      'the commit conflict',
+    );
+    expect(host.querySelector('fieldset')!.disabled).toBe(false);
+    expect(draftOf().pending).toBeUndefined();
+    expect(draftOf().notes[0].text).toBe('Keep this if publication races Send.');
+    expect(fetch.mock.calls.filter(([url]) => String(url).endsWith('/reports'))).toHaveLength(1);
+  });
+
+  it('does not submit or replace navigation when a catalog refresh finishes after leaving', async () => {
+    let answer: (response: Response) => void = () => undefined;
+    const fetch = stubFetch(() => json({}, 404));
+    const original = fetch.getMockImplementation()!;
+    fetch.mockImplementation(async (url, init) =>
+      url.includes('report-items.json') && tooltipShown()
+        ? new Promise<Response>((resolve) => {
+            answer = resolve;
+          })
+        : original(url, init),
+    );
+    const router = await renderForm('/report/100?lang=en');
+    await writeWholeNote('Kept while checking the latest catalog.');
+    await act(async () => host.querySelector('form')!.requestSubmit());
+    await until(
+      () => fetch.mock.calls.some(([url]) => String(url).includes('report-items.json')),
+      'the catalog refresh',
+    );
+    expect(host.querySelector('fieldset')!.disabled).toBe(true);
+    await act(async () => router.navigate('/report'));
+    await act(async () => answer(json(catalog)));
+    await flush();
+    expect(router.state.location.pathname).toBe('/report');
+    expect(fetch.mock.calls.filter(([url]) => String(url).endsWith('/reports'))).toHaveLength(0);
+    expect(draftOf().notes[0].text).toBe('Kept while checking the latest catalog.');
+  });
+
   it('turns marks into Re-mark notes when the locale changes through the URL', async () => {
     stubFetch(() => json({}, 404));
     const router = await renderForm('/report/100?lang=en');
@@ -168,7 +375,7 @@ describe('report form states', () => {
   it('lets a late send result neither clear newer text nor move the page', async () => {
     vi.stubEnv('VITE_API_URL', 'https://worker.example');
     let answer: (response: Response) => void = () => undefined;
-    stubFetch(
+    const fetch = stubFetch(
       (url) =>
         new Promise<Response>((resolve) => {
           if (url.endsWith('/reports')) answer = resolve;
@@ -182,7 +389,10 @@ describe('report form states', () => {
     const router = await renderForm('/report/100?lang=en');
     await writeWholeNote('First version of the note.');
     await act(async () => host.querySelector('form')!.requestSubmit());
-    await flush();
+    await until(
+      () => fetch.mock.calls.some(([url]) => String(url).endsWith('/reports')),
+      'the submitted request',
+    );
     await act(async () => router.navigate('/report'));
     await act(async () => router.navigate('/report/100?lang=en'));
     await until(() => tooltipShown() && host.querySelector('textarea') !== null, 'the kept note');
@@ -214,7 +424,7 @@ describe('report form states', () => {
     await writeWholeNote('The value is wrong in the current patch.');
     const form = host.querySelector('form')!;
     await act(async () => form.requestSubmit());
-    await flush();
+    await until(() => mount.mock.calls.length === 2, 'the human check retry');
     expect(mount).toHaveBeenCalledTimes(2);
     expect(host.querySelector('fieldset')!.disabled).toBe(true);
     await act(async () => answer(json({ id: 'r-abcdefgh', status: 'open' })));
@@ -229,7 +439,8 @@ describe('receipt and My reports scope', () => {
       if (url.endsWith('/reports/r/r-aaaaaaaa') || url.endsWith('/reports/r/r-bbbbbbbb'))
         return json({ status: 'open', closed_note: null });
       if (url.endsWith('/view')) return json({}, 404);
-      if (url.includes('report-items.json')) return json(catalog);
+      if (url.includes('report-items.json') || url.includes('/report-catalog/'))
+        return json(catalog);
       if (url.endsWith('/reports/mine'))
         return json([
           {
@@ -258,7 +469,10 @@ describe('receipt and My reports scope', () => {
       { initialEntries: ['/report/r/r-aaaaaaaa?w=secret-a-000000000000000000000000000000'] },
     );
     await act(async () => root.render(<RouterProvider router={router} />));
-    await flush();
+    await until(
+      () => fetch.mock.calls.some(([url]) => String(url).endsWith('/view')),
+      'the first receipt',
+    );
     await act(async () => router.navigate('/report/r/r-bbbbbbbb'));
     await flush();
     const views = fetch.mock.calls.filter(([url]) => String(url).endsWith('/view'));
@@ -271,7 +485,7 @@ describe('receipt and My reports scope', () => {
       useAuthStore.setState({ user: { login: 'alice' } as never, loading: false }),
     );
     await act(async () => router.navigate('/report/mine'));
-    await flush();
+    await until(() => host.textContent?.includes('A only') ?? false, 'the account’s reports');
     expect(host.textContent).toContain('A only');
     fetch.mockImplementation(async (url: string) =>
       url.endsWith('/reports/mine') ? json({ error: 'Down' }, 503) : json(catalog),

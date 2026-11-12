@@ -6,6 +6,7 @@
 // section label) and not drawn a second time.
 .body {
   --diff-bg: transparent;
+  padding: 0.5rem 0.25rem;
   // On a phone the diff sits right under 16px editor text: one step up from the panel's 12px.
   @include theme.mobile-or-coarse {
     font-size: 0.875rem;
@@ -17,15 +18,27 @@
 
   // The lines the renderer adds under the text (associations, category, archive, Compendium
   // cell) take the same side inset as the word diff's own padding.
-  p,
-  > div > :not(section, p) {
+  > div > p {
     margin: 0;
     padding: 0 0.75rem 0.5rem;
     overflow-wrap: anywhere;
   }
+}
 
-  > div > :first-child:not(section) {
-    padding-top: 0.5rem;
+.heading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.caption {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 480px) {
+  .prefix {
+    display: none;
   }
 }
 

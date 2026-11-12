@@ -7,6 +7,10 @@ import { SourceRef } from '../compendium/SourceRef';
 import { linkLocation } from '../compendium/sourceLocation';
 import { useCompendiumStore } from '../compendium/store';
 import { HistoryWordDiff } from './HistoryWordDiff';
+import { RenderedWordDiff } from './RenderedWordDiff';
+import { useRawDiff } from './diffPreference';
+import { RawDiffToggle } from './RawDiffToggle';
+import renderedStyles from './RenderedWordDiff.module.scss';
 import {
   attachmentCategory,
   categoryLabel,
@@ -51,6 +55,8 @@ export function TooltipDiff({
   item,
   raw = true,
   eagerLanguages = false,
+  working = false,
+  responsive = false,
 }: {
   before: Tooltip | null;
   current: Tooltip;
@@ -59,8 +65,13 @@ export function TooltipDiff({
   raw?: boolean;
   /** Bounded published snapshots render together; offscreen layout remains contained. */
   eagerLanguages?: boolean;
+  /** Working panel supplies a fixed header control and saved/unsaved labels. */
+  working?: boolean;
+  /** Wide Working and Review containers compare side by side. History stays stacked. */
+  responsive?: boolean;
 }) {
   const changed = languages.filter((lang) => before?.text[lang]?.text !== current.text[lang]?.text);
+  const [sourceView] = useRawDiff();
   const dateSettings = useSyncedSettings();
   const [rendered, setRendered] = useState(1);
   const busy = !raw && !eagerLanguages && rendered < changed.length;
@@ -81,6 +92,7 @@ export function TooltipDiff({
   }, [busy, rendered]);
   return (
     <div className={styles.diff} aria-busy={busy || undefined}>
+      {!working && !changed.length && <RawDiffToggle />}
       {changed.map((lang, index) => (
         <section
           key={lang}
@@ -88,23 +100,39 @@ export function TooltipDiff({
           aria-label={`${languageLabel(lang)} comparison`}
           data-pending-render={(busy && index >= rendered) || undefined}
         >
-          <h4>{languageLabel(lang)}</h4>
-          {raw && (
+          {!working && (
+            <div className={renderedStyles.languageHead}>
+              <h4>{languageLabel(lang)}</h4>
+              <RawDiffToggle />
+            </div>
+          )}
+          {sourceView && raw && (
             <div className={styles.columns}>
               <div>
-                <strong>Previous / live</strong>
+                <strong>{working ? 'Saved' : 'Previous / live'}</strong>
                 <pre>{before?.text[lang]?.text ?? '(not present)'}</pre>
               </div>
               <div>
-                <strong>Current</strong>
+                <strong>{working ? 'Unsaved' : 'Current'}</strong>
                 <pre>{current.text[lang]?.text ?? '(not present)'}</pre>
               </div>
             </div>
           )}
-          <HistoryWordDiff
-            before={before?.text[lang]?.text ?? ''}
-            after={current.text[lang]?.text ?? ''}
-          />
+          {sourceView ? (
+            <HistoryWordDiff
+              before={before?.text[lang]?.text ?? ''}
+              after={current.text[lang]?.text ?? ''}
+            />
+          ) : (
+            <RenderedWordDiff
+              before={before?.text[lang]?.text ?? ''}
+              after={current.text[lang]?.text ?? ''}
+              lang={lang}
+              hash={current.hash}
+              working={working}
+              responsive={responsive}
+            />
+          )}
         </section>
       ))}
       {(before?.compendium || current.compendium) &&

@@ -75,6 +75,11 @@ const oldData = useDataStore.getState(),
   oldAuth = useAuthStore.getState(),
   oldSave = useSaveState.getState();
 beforeEach(() => {
+  const storage = new Map<string, string>();
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => storage.set(key, value),
+  });
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   vi.stubGlobal(
     'ResizeObserver',
@@ -415,6 +420,19 @@ it('requires explicit destination review before staging one target draft and the
   await act(async () => button('Current (10)').click());
   expect(host.textContent).toContain('Archived text');
   expect(host.textContent).toContain('Destination current text');
+  const raw = host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Raw diff"]')!;
+  expect(raw.getAttribute('aria-checked')).toBe('false');
+  expect(host.textContent).toContain('Previous / live');
+  await act(async () => raw.click());
+  expect(localStorage.getItem('clarity-diff-raw:v1')).toBe('true');
+  expect(host.textContent).not.toContain('Previous / live');
+  await act(async () => button('Cancel').click());
+  await act(async () => button('Associate with new item').click());
+  await act(async () => button('Current (10)').click());
+  expect(host.querySelector('[aria-label="Raw diff"]')?.getAttribute('aria-checked')).toBe('true');
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Raw diff"]')!.click());
+  expect(localStorage.getItem('clarity-diff-raw:v1')).toBe('false');
+
   expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(true);
   expect(updateDrafts).not.toHaveBeenCalled();
   await act(async () => button('Confirm association as drafts').click());

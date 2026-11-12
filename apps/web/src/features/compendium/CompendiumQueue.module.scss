@@ -203,7 +203,7 @@
 
 @media (max-width: 700px) {
   .queue {
-    height: 70dvh;
+    height: calc(0.7 * var(--app-h));
   }
 }
 

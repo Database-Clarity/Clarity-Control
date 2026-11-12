@@ -1,0 +1,93 @@
+@use '../../ui/controls';
+
+.diff {
+  min-width: 0;
+}
+.sides {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+}
+.sides > div {
+  min-width: 0;
+  > strong {
+    display: block;
+    padding: 0 0.5rem;
+    margin-bottom: 0.25rem;
+  }
+}
+.responsive {
+  container-type: inline-size;
+  container-name: diff-comparison;
+}
+@container diff-comparison (min-width: 40rem) {
+  .sides {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.sourceChange {
+  margin: 0 0.5rem 0.75rem;
+  padding-inline-start: 0.5rem;
+  border-inline-start: 2px solid var(--text2);
+  color: var(--text);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+.missing {
+  color: var(--text2);
+  font-style: italic;
+}
+.body {
+  min-width: 0;
+  overflow-x: auto;
+  del {
+    background: var(--del-bg);
+    text-decoration: line-through;
+  }
+  ins {
+    background: var(--ins-bg);
+    text-decoration: underline;
+  }
+  // Structure changes: a gutter bar in the snippet's own padding, so text never moves.
+  .lineInsert,
+  .lineDelete {
+    margin-inline-start: -0.5rem;
+    padding-inline-start: 0.5rem;
+    min-height: 0.5rem;
+    box-shadow: inset 3px 0 0 var(--ins);
+  }
+  .lineDelete {
+    box-shadow: inset 3px 0 0 var(--del-text);
+  }
+}
+.toggle[role='switch'] {
+  @include controls.button;
+  &[aria-checked='true'] {
+    background: var(--sel);
+    border-color: var(--accent-ink);
+  }
+}
+// Keep the same compact control size even inside History's generic button rule.
+.toggle[role='switch'] {
+  flex: none;
+  padding: 0 0.5rem;
+  min-height: 1.5rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.languageHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  h4 {
+    margin: 0;
+  }
+}
+.diff[data-one-sided] .body {
+  ins,
+  del {
+    text-decoration: none;
+  }
+}

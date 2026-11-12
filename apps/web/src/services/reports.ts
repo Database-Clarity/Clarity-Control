@@ -1,10 +1,10 @@
+import { langSchema } from '../../../../packages/core/src/languages';
 import {
-  langSchema,
   reportCategorySchema,
   reportIdSchema,
   reportStatusSchema,
   type ReportSubmission,
-} from '@clarity/core';
+} from '../../../../packages/core/src/reports/schemas';
 import { z } from 'zod';
 import { apiRequest, apiUrl } from './api';
 
@@ -25,22 +25,8 @@ const tooltipFileSchema = z.object({
 });
 export type ReportTooltipFile = z.infer<typeof tooltipFileSchema>;
 
-const catalogItemSchema = z.object({
-  owner: z.number().int().nonnegative(),
-  langs: z.array(z.string()),
-  variant: z.string(),
-  name: z.string(),
-  icon: z.string(),
-  category: z.string(),
-  type: z.string(),
-});
-export type ReportCatalogItem = z.infer<typeof catalogItemSchema>;
-const catalogSchema = z.object({
-  v: z.literal(1),
-  sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
-  items: z.record(z.string(), catalogItemSchema),
-});
-export type ReportCatalog = z.infer<typeof catalogSchema>;
+export type { ReportCatalog, ReportCatalogItem } from './reportCatalog';
+import { reportCatalogSchema, type ReportCatalog } from './reportCatalog';
 
 const publicAnchorSchema = z.object({
   n: z.number().int(),
@@ -159,7 +145,7 @@ async function call<T>(
 export async function loadReportCatalog(signal?: AbortSignal): Promise<ReportCatalog> {
   const response = await fetch(reportCatalogUrl, { signal, cache: 'no-cache' });
   if (!response.ok) throw new Error(`Report catalog: HTTP ${response.status}`);
-  return catalogSchema.parse(await response.json());
+  return reportCatalogSchema.parse(await response.json());
 }
 
 /**

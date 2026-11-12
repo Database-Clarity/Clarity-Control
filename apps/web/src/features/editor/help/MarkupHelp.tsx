@@ -17,6 +17,7 @@ import { parseMarkup, type MarkupGlobals, type ParsedMarkup } from '@clarity/cor
 import { Lines } from '../../preview/TooltipPreview';
 import previewStyles from '../../preview/TooltipPreview.module.scss';
 import { phoneQuery, useMedia } from '../../../ui/useMedia';
+import { keyboardLift } from '../../../ui/useKeyboardInset';
 import { EntryGlyph } from '../markupRow/EntryGlyph';
 import { entryMessage } from '../markupRow/entries';
 import {
@@ -233,7 +234,8 @@ export const MarkupHelp = memo(function MarkupHelp({
           (selector) => document.querySelector(selector)?.getBoundingClientRect().bottom ?? 0,
         ),
       );
-      const height = window.innerHeight;
+      // The sheet's bottom sits on the keyboard (--kb-lift): the height above it.
+      const height = window.innerHeight - keyboardLift();
       // On the tool row's lower edge while it is on screen and leaves the sheet a useful height;
       // else the default height (85% of the screen, at most 44rem), but never above the header.
       const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
