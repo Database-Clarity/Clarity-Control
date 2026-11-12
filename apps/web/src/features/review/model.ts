@@ -1,4 +1,4 @@
-import { resolveAlias, type Tooltip } from '@clarity/core';
+import { isTextlessDescription, resolveAlias, type Tooltip } from '@clarity/core';
 import { fingerprintDigests, prepareFingerprintWorker } from './fingerprints';
 import { heldSetBonus } from './setBonusHold';
 import { useReviewQueue } from './queueStore';
@@ -53,7 +53,10 @@ export function sidebarChanges(entries: PendingTooltip[]): SidebarPendingChange[
   return queue;
 }
 /** Hand the left-column queue every pending entry (it groups and collapses marker-only itself). */
-export function publishSidebar(entries: PendingTooltip[], sidebar = useSidebarQueueStore.getState()) {
+export function publishSidebar(
+  entries: PendingTooltip[],
+  sidebar = useSidebarQueueStore.getState(),
+) {
   useReviewQueue.getState().setEntries(entries);
   sidebar.setPendingChanges(sidebarChanges(entries));
 }
@@ -114,7 +117,8 @@ async function computePending(
   pushed = data.bundle.pushed,
 ): Promise<PendingTooltip[]> {
   const tooltips = Object.values(data.bundle.tooltips).filter(
-    (tooltip) => resolveAlias(tooltip.hash, data.aliases) === tooltip.hash,
+    (tooltip) =>
+      !isTextlessDescription(tooltip) && resolveAlias(tooltip.hash, data.aliases) === tooltip.hash,
   );
   const digests = await fingerprintDigests(tooltips, data.aliases);
   const categories = new Map(data.categories.map((entry) => [entry.id, entry]));
@@ -160,14 +164,20 @@ export function selectedPending(
   pending: PendingTooltip[],
 ): number[] {
   return pending
-    .filter(({ tooltip, unpublishable }) => !unpublishable && selected.has(tooltip.hash))
+    .filter(
+      ({ tooltip, unpublishable }) =>
+        !isTextlessDescription(tooltip) && !unpublishable && selected.has(tooltip.hash),
+    )
     .map(({ tooltip }) => tooltip.hash);
 }
 
 /** What "Select page" picks: never the marker-only leftovers, which a data task clears. */
 export function publishableHashes(page: PendingTooltip[]): number[] {
   return page
-    .filter(({ unpublishable, markerOnly }) => !unpublishable && !markerOnly)
+    .filter(
+      ({ tooltip, unpublishable, markerOnly }) =>
+        !isTextlessDescription(tooltip) && !unpublishable && !markerOnly,
+    )
     .map(({ tooltip }) => tooltip.hash);
 }
 

@@ -3,10 +3,41 @@ import { expect, it } from 'vitest';
 import { exportLegacy, baseEnhancedPublishMessage, migrateLegacy } from '../src/index.js';
 import { database, tooltip } from './helpers.js';
 
-it.each(['live', 'intermediate'])('keeps %s legacy fixture consumer bytes identical', (name) => {
-  const values = migrateLegacy(database(name));
+it.each(['live', 'intermediate'])('keeps retained %s consumer bytes identical to the original golden', (name) => {
+  const source = database(name);
+  const values = migrateLegacy(source);
   expect(values).toHaveLength(2761);
-  const actual = JSON.stringify(exportLegacy(values, 0));
+  const retained = exportLegacy(values, 0);
+  const omitted = Object.values(source.perks).filter(
+    (perk) => perk.hash > 3 && !Object.values(perk.editor).some((text) => text?.main.trim()),
+  );
+  expect(Object.keys(retained)).toHaveLength(name === 'live' ? 1777 : 1779);
+  expect(Object.keys(source.perks).filter((hash) => !retained[hash])).toEqual(
+    omitted.map((perk) => String(perk.hash)),
+  );
+  // Reinsert only permitted empty entries from their immutable source metadata.
+  // Keeping the ORIGINAL full-output digest proves every retained serialized byte
+  // still matches, rather than approving a newly generated candidate digest.
+  const restored = { ...retained };
+  for (const perk of omitted) {
+    const value = values.find((tooltip) => tooltip.hash === perk.hash)!;
+    const editor = structuredClone(perk.editor);
+    for (const text of Object.values(editor)) if (text) text.secondary = text.main;
+    restored[perk.hash] = {
+      ...value.legacy,
+      hash: perk.hash,
+      editor,
+      uploadedBy: perk.uploadedBy,
+      lastUpload: perk.lastUpload,
+      inLiveDatabase: perk.inLiveDatabase,
+      uploadToLive: perk.uploadToLive,
+      updateTracker: {
+        ...value.legacy?.updateTracker,
+        descriptions: perk.updateTracker?.descriptions ?? {},
+      },
+    };
+  }
+  const actual = JSON.stringify(restored);
   const expected =
     name === 'live'
       ? '22fd496f9d9970eb2750697f51374f0849395aa9000df1ee1a909e6de819f5a7'

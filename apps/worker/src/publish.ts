@@ -4,6 +4,7 @@ import { loadAliases } from './catalog.js';
 import { z } from 'zod';
 import {
   classifyPublishIntent,
+  isTextlessDescription,
   permissionsSchema,
   publishBodySchema,
   publishIntentDigest,
@@ -138,6 +139,8 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
       );
       for (const hash of value.hashes) {
         const tooltip = checked.get(resolveAlias(hash, aliases));
+        if (tooltip && isTextlessDescription(tooltip))
+          throw new HttpError(422, `Tooltip ${hash} has no text to publish`);
         if (!tooltip || (await publishableHash(tooltip, aliases)) !== value.expected[hash]) {
           throw new HttpError(409, `Tooltip ${hash} changed since review; refresh saved changes`);
         }

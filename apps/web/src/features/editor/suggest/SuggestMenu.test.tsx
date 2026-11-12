@@ -201,7 +201,7 @@ describe('the suggestion menu', () => {
   });
 
   it('shows both variant results for the inline base/enhanced snippet without editing', () => {
-    const view = mount('Gains ');
+    const view = mount('Gains ', { globals: { ...globals, allowBaseEnhanced: true } });
     press(view, ' ', { ctrlKey: true, keyCode: 32 });
     const index = options().findIndex((option) => option.textContent === 'Base and enhanced text');
     expect(index).toBeGreaterThanOrEqual(0);
@@ -212,7 +212,7 @@ describe('the suggestion menu', () => {
   });
 
   it('inserts native pairs with Enter and walks their two editable arms with Tab', () => {
-    const view = mount('Gains ');
+    const view = mount('Gains ', { globals: { ...globals, allowBaseEnhanced: true } });
     press(view, ' ', { ctrlKey: true, keyCode: 32 });
     const index = options().findIndex((option) => option.textContent === 'Base and enhanced text');
     for (let i = 0; i < index; i++) press(view, 'ArrowDown');

@@ -1,3 +1,4 @@
+import { offersBaseEnhanced } from '../markupScope';
 import type { EditorState } from '@codemirror/state';
 import {
   applicableTransforms,
@@ -460,6 +461,7 @@ function build(
     }
     for (const tag of markupTags) addSnippet(snippetOf(tag), 'Tags');
     for (const snippet of markupSnippets) {
+      if (snippet.id === 'base-enhanced-pair' && !offersBaseEnhanced(globals)) continue;
       if (snippet.id === 'enhanced-formula' && !every) continue;
       // The Tags category carries the single tags (colours, PvE, PvP).
       if (snippet.group === 'Format' || snippet.id === 'pve' || snippet.id === 'pvp') continue;

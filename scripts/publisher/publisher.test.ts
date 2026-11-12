@@ -166,6 +166,101 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('rejects a correctly signed link-only request without live or push-marker writes', async () => {
+    const f = await setup();
+    const empty = { ...f.tooltip, text: {} };
+    f.change(D, { 'tooltips/123.json': empty });
+    await f.request(A, [123], { 123: await publishableHash(empty) });
+    const live = f.git.head(L);
+    await f.pub.run();
+    expect(f.git.head(L)).toBe(live);
+    const tree = f.git.tree(f.git.head(D)!);
+    expect(f.pub.read(tree, paths(A).log)).toMatchObject({ result: { status: 'rejected' } });
+    expect(f.pub.read(tree, 'live/pushed.json')).toEqual({});
+    expect(tree['live/tooltips/123.json']).toBeUndefined();
+  });
+
+  it('publishes an intentionally emptied reserved global library', async () => {
+    const f = await setup();
+    const global: Tooltip = {
+      hash: 2,
+      text: {},
+      associated: [],
+      custom: { name: 'Variables', categoryId: 'global' },
+    };
+    f.change(D, { 'tooltips/2.json': global });
+    await f.request(A, [2], { 2: await publishableHash(global) });
+    await f.pub.run();
+    const live = f.git.tree(f.git.head(L)!);
+    expect(f.pub.read(live, 'liveDescriptions.json')).toMatchObject({
+      perks: { 2: { editor: {} } },
+    });
+    expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
+      result: { status: 'done' },
+    });
+  });
+
+  it.each([125, 456])(
+    'rejects association-race after target %s becomes text-less',
+    async (target) => {
+      const f = await setup();
+      f.options.aliases = { 456: { to: 125, kind: 'frame' } };
+      const root = { ...f.tooltip, associated: [target] };
+      const associated: Tooltip = {
+        ...f.tooltip,
+        hash: 125,
+        custom: { name: 'Associated', categoryId: 'perk' },
+      };
+      f.change(D, { 'tooltips/123.json': root, 'tooltips/125.json': associated });
+      await f.request(A, [123], { 123: await publishableHash(root, f.options.aliases) });
+      f.change(D, { 'tooltips/125.json': { ...associated, text: {} } });
+      const live = f.git.head(L);
+      await f.pub.run();
+      expect(f.git.head(L)).toBe(live);
+      const tree = f.git.tree(f.git.head(D)!);
+      expect(f.pub.read(tree, paths(A).log)).toMatchObject({ result: { status: 'rejected' } });
+      expect(f.pub.read(tree, 'live/pushed.json')).toEqual({});
+    },
+  );
+
+  it.each(['native', 'transitive'] as const)(
+    'checks only direct associations, ignoring an unselected target draft (%s)',
+    async (mode) => {
+      const f = await setup();
+      const published = {
+        hash: 125,
+        editor: { en: { main: 'Published', secondary: 'Published' } },
+      };
+      f.change(L, { 'liveDescriptions.json': { perks: { 125: published }, databaseSettings: {} } });
+      const root = { ...f.tooltip, associated: [125] };
+      f.change(D, {
+        'tooltips/123.json': root,
+        'tooltips/125.json': {
+          ...f.tooltip,
+          hash: 125,
+          associated: mode === 'transitive' ? [126] : [],
+          text: {
+            en: {
+              ...f.tooltip.text.en!,
+              text: mode === 'native' ? '{{base|enhanced}}' : 'Written draft',
+            },
+          },
+        },
+        'tooltips/126.json': { ...f.tooltip, hash: 126, text: {} },
+      });
+      await f.request(A, [123], { 123: await publishableHash(root) });
+      await f.pub.run();
+      const live = f.pub.read<{ perks: Record<string, unknown> }>(
+        f.git.tree(f.git.head(L)!),
+        'liveDescriptions.json',
+      )!;
+      expect(live.perks[125]).toEqual(published);
+      expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
+        result: { status: 'done' },
+      });
+    },
+  );
+
   const A = '01K95H00000000000000000001',
     B = '01K95H00000000000000000002';
   const D = 'refs/heads/editor-data',
@@ -925,10 +1020,11 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     },
   );
   it('fixed-now golden matches guarded pushLive byte for byte and pushed map', async () => {
-    // Retain the afa1e8e stamp oracle; re-pin push.ts for its reviewed native refusal,
-    // budget checks, and set-bonus hold. The pair-free golden still matches byte for byte.
+    // Retain the afa1e8e stamp oracle; re-pin push.ts for its reviewed native refusal
+    // and budget checks, the link-only empty-description guard, and the set-bonus hold.
+    // The written, pair-free golden still matches byte for byte; empty refusals are tested above.
     for (const [path, expected] of [
-      ['apps/worker/src/push.ts', '60af34675b583fe8e70081ee82d0dbc53321211a'],
+      ['apps/worker/src/push.ts', 'e180a24fadc74f8979d94dcab9ec2867b417569d'],
       ['apps/worker/src/stamp.ts', 'debdbefc1657c970f27b1304e4c8ea509c54b4a1'],
     ]) {
       const content = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
