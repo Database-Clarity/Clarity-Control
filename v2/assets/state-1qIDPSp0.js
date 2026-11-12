@@ -1,0 +1,1 @@
+import{c as o}from"./react-B6R2CAyk.js";const r=o(e=>({locked:!1,review:null,close:()=>e({locked:!1,review:null})}));function s(e,t={}){if(r.getState().locked)throw new Error("Finish the open save review first.");if(!e.length)throw new Error("There are no changes to save.");r.setState({locked:!0,review:{changes:e,submitted:t}})}export{s as r,r as u};
