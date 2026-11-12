@@ -38,7 +38,7 @@ const conflictSchema = z.object({
 });
 export type SaveConflict = z.infer<typeof conflictSchema>;
 export type SaveResult =
-  | { kind: 'saved'; commit: string; tooltips: Tooltip[] }
+  | { kind: 'saved'; commit: string; tooltips: Tooltip[]; savedAt?: number }
   | { kind: 'conflicts'; conflicts: z.infer<typeof conflictSchema>[] }
   | { kind: 'retry'; error: string };
 
@@ -119,6 +119,8 @@ export async function save(changes: Change[], message: string): Promise<SaveResu
     .object({
       commit: z.string(),
       tooltips: z.array(tooltipSchema),
+      // Older Workers omit this field; malformed times use the same browser-clock fallback.
+      savedAt: z.number().int().nonnegative().max(8.64e15).optional().catch(undefined),
     })
     .parse(await response.json());
   return { kind: 'saved', ...data };

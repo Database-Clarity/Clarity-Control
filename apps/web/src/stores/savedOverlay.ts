@@ -8,16 +8,22 @@ import type { Bundle } from '../services/bundle';
  * than the TTL, so newer edits by other people still show up. A full page reload clears it.
  */
 export const overlayTtlMs = 15 * 60 * 1000;
-// Allow five minutes for browser/CI clock differences before trusting bundle chronology.
-// This remains a heuristic: larger clock skew or delayed builds of older commits can retire
-// entries too early. Server-provided save times are a follow-up once the save pipeline settles.
+// With no server time, preserve the legacy browser-clock fallback and its five-minute margin.
 export const overlayClockSkewMs = 5 * 60 * 1000;
-type Entry = { at: number; tooltip: Tooltip | null }; // null = deleted
+// Server and CI clocks still differ slightly; five seconds covers small synchronization jitter.
+export const overlayServerSkewMs = 5 * 1000;
+type Entry = { at: number; serverAt?: number; tooltip: Tooltip | null }; // null = deleted
 const entries = new Map<number, Entry>();
 
-export function rememberSaved(tooltips: Tooltip[], deleted: number[] = [], now = Date.now()): void {
-  for (const tooltip of tooltips) entries.set(tooltip.hash, { at: now, tooltip });
-  for (const hash of deleted) entries.set(hash, { at: now, tooltip: null });
+export function rememberSaved(
+  tooltips: Tooltip[],
+  deleted: number[] = [],
+  now = Date.now(),
+  serverAt?: number,
+): void {
+  serverAt = Number.isFinite(serverAt) ? serverAt : undefined;
+  for (const tooltip of tooltips) entries.set(tooltip.hash, { at: now, serverAt, tooltip });
+  for (const hash of deleted) entries.set(hash, { at: now, serverAt, tooltip: null });
 }
 
 export function clearSavedOverlay(): void {
@@ -32,7 +38,12 @@ export function applySavedOverlay(bundle: Bundle, now = Date.now()): Bundle {
     const caughtUp = entry.tooltip
       ? fetched !== undefined && stableStringify(fetched) === stableStringify(entry.tooltip)
       : fetched === undefined;
-    if (caughtUp || generatedAt > entry.at + overlayClockSkewMs || now - entry.at > overlayTtlMs) {
+    const newer =
+      generatedAt >
+      (entry.serverAt === undefined
+        ? entry.at + overlayClockSkewMs
+        : entry.serverAt + overlayServerSkewMs);
+    if (caughtUp || newer || now - entry.at > overlayTtlMs) {
       entries.delete(hash);
       continue;
     }
