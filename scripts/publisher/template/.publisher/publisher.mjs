@@ -23895,8 +23895,8 @@ var Publisher = class {
     throw new Error("Publish unresolved; no later operation may run");
   }
   bundle() {
-    const h = this.head(this.options.dataBranch), t = this.git.tree(h), ref = dataRef("editor-data-bundle"), old = this.git.head(ref);
-    const prior = old ? this.read(this.git.tree(old), "bundle.json") : void 0;
+    const h = this.head(this.options.dataBranch), t = this.git.tree(h), ref = dataRef("editor-data-bundle"), old = this.git.head(ref), oldTree = old ? this.git.tree(old) : {};
+    const prior = old ? this.read(oldTree, "bundle.json") : void 0;
     if (prior?.sourceCommit === h) return;
     if (prior && !this.git.ancestor(prior.sourceCommit, h))
       throw new Error("Bundle source would move backwards");
@@ -23929,7 +23929,7 @@ var Publisher = class {
     };
     const c = this.git.commit(
       old,
-      { "bundle.json": this.git.writeBlob(json2(bundle)) },
+      { ...oldTree, "bundle.json": this.git.writeBlob(json2(bundle)) },
       `Bundle ${h}`
     );
     this.git.cas(ref, old, c);
