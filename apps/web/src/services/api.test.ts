@@ -80,7 +80,7 @@ describe('worker client', () => {
       conflicts,
     });
   });
-  it.each([undefined, null, 'bad', -1, 9e15, 1234.5, 1793491200000])(
+  it.each([undefined, null, 'bad', 0, -1, 9e15, 1234.5, 1793491200000])(
     'reads a valid server save time and tolerates missing or malformed time: %s',
     async (savedAt) => {
       vi.stubGlobal(

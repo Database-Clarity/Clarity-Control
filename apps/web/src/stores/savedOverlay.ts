@@ -10,8 +10,10 @@ import type { Bundle } from '../services/bundle';
 export const overlayTtlMs = 15 * 60 * 1000;
 // With no server time, preserve the legacy browser-clock fallback and its five-minute margin.
 export const overlayClockSkewMs = 5 * 60 * 1000;
-// Server and CI clocks still differ slightly; five seconds covers small synchronization jitter.
-export const overlayServerSkewMs = 5 * 1000;
+// Builds currently stamp completion rather than the source snapshot time. Keep the existing
+// five-minute allowance for delayed pre-save builds, even with server time; shrinking it
+// needs source-time stamping first. Server time still removes browser skew from retirement.
+export const overlayServerSkewMs = overlayClockSkewMs;
 type Entry = { at: number; serverAt?: number; tooltip: Tooltip | null }; // null = deleted
 const entries = new Map<number, Entry>();
 
@@ -21,7 +23,15 @@ export function rememberSaved(
   now = Date.now(),
   serverAt?: number,
 ): void {
-  serverAt = Number.isFinite(serverAt) ? serverAt : undefined;
+  // Broken epoch/ancient timestamps must not retire a fresh save immediately. A day allows
+  // substantial browser skew; unusable server times retain the legacy browser-clock fallback.
+  serverAt =
+    serverAt !== undefined &&
+    Number.isFinite(serverAt) &&
+    serverAt > 0 &&
+    serverAt >= now - 24 * 60 * 60 * 1000
+      ? serverAt
+      : undefined;
   for (const tooltip of tooltips) entries.set(tooltip.hash, { at: now, serverAt, tooltip });
   for (const hash of deleted) entries.set(hash, { at: now, serverAt, tooltip: null });
 }

@@ -117,11 +117,29 @@ it('bounds even a far-future server time by the browser TTL', () => {
   expect(applySavedOverlay(stale, at + overlayTtlMs).tooltips[10]).toEqual(tooltip('mine'));
   expect(applySavedOverlay(stale, at + overlayTtlMs + 1)).toBe(stale);
 });
-it.each([NaN, Infinity])('falls back for an unusable server time %s', (serverAt) => {
-  rememberSaved([tooltip('mine')], [], at, serverAt);
-  expect(applySavedOverlay(bundle('old', at + overlayClockSkewMs), at).tooltips[10]).toEqual(
-    tooltip('mine'),
-  );
-  const newer = bundle('other', at + overlayClockSkewMs + 1);
-  expect(applySavedOverlay(newer, at)).toBe(newer);
+it.each([NaN, Infinity, 0, at - 24 * 60 * 60 * 1000 - 1])(
+  'falls back for an unusable server time %s',
+  (serverAt) => {
+    rememberSaved([tooltip('mine')], [], at, serverAt);
+    expect(applySavedOverlay(bundle('old', at + overlayClockSkewMs), at).tooltips[10]).toEqual(
+      tooltip('mine'),
+    );
+    const newer = bundle('other', at + overlayClockSkewMs + 1);
+    expect(applySavedOverlay(newer, at)).toBe(newer);
+  },
+);
+
+it.each([0, -10, 10])('keeps delayed pre-save builds with a %i minute browser skew', (minutes) => {
+  vi.useFakeTimers();
+  vi.setSystemTime(at + minutes * 60 * 1000);
+  rememberSaved([tooltip('mine')], [11], Date.now(), at);
+  for (const delaySeconds of [6, 30, 90, 300]) {
+    const delayed = {
+      ...bundle('old', at + delaySeconds * 1000),
+      tooltips: { 10: tooltip('old'), 11: { ...tooltip('deleted old'), hash: 11 } },
+    };
+    const result = applySavedOverlay(delayed);
+    expect(result.tooltips[10]).toEqual(tooltip('mine'));
+    expect(result.tooltips[11]).toBeUndefined();
+  }
 });

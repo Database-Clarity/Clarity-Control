@@ -120,7 +120,7 @@ export async function save(changes: Change[], message: string): Promise<SaveResu
       commit: z.string(),
       tooltips: z.array(tooltipSchema),
       // Older Workers omit this field; malformed times use the same browser-clock fallback.
-      savedAt: z.number().int().nonnegative().max(8.64e15).optional().catch(undefined),
+      savedAt: z.number().int().positive().max(8.64e15).optional().catch(undefined),
     })
     .parse(await response.json());
   return { kind: 'saved', ...data };
