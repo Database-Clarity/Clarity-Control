@@ -1,0 +1,135 @@
+@font-face {
+  font-family: ReportSymbols;
+  src: url('./symbols/0340.woff2?no-inline') format('woff2');
+  font-display: swap;
+  unicode-range: U+36C;
+}
+@font-face {
+  font-family: ReportSymbols;
+  src: url('./symbols/1d40.woff2?no-inline') format('woff2');
+  font-display: swap;
+  unicode-range: U+1D49;
+}
+@font-face {
+  font-family: ReportSymbols;
+  src: url('./symbols/2000.woff2?no-inline') format('woff2');
+  font-display: swap;
+  unicode-range: U+202F;
+}
+@font-face {
+  font-family: ReportSymbols;
+  src: url('./symbols/e000.woff2?no-inline') format('woff2');
+  font-display: swap;
+  unicode-range:
+    U+E000, U+E001, U+E002, U+E003, U+E004, U+E005, U+E006, U+E007, U+E008, U+E009, U+E010, U+E011,
+    U+E012, U+E013, U+E014, U+E015, U+E016, U+E017, U+E018, U+E019, U+E020, U+E021, U+E022, U+E023,
+    U+E024, U+E025, U+E026, U+E027, U+E028, U+E029, U+E030, U+E031, U+E032, U+E033, U+E034, U+E035,
+    U+E036, U+E037, U+E038, U+E039;
+}
+@font-face {
+  font-family: ReportSymbols;
+  src: url('./symbols/e040.woff2?no-inline') format('woff2');
+  font-display: swap;
+  unicode-range:
+    U+E040, U+E041, U+E042, U+E044, U+E045, U+E046, U+E047, U+E048, U+E049, U+E050, U+E051, U+E052,
+    U+E053, U+E054, U+E055, U+E056, U+E057, U+E058, U+E059, U+E060, U+E061, U+E062, U+E063, U+E064,
+    U+E065, U+E066, U+E067, U+E068, U+E069, U+E070, U+E071, U+E072, U+E075, U+E076, U+E077, U+E078,
+    U+E079;
+}
+@font-face {
+  font-family: ReportSymbols;
+  src: url('./symbols/e080.woff2?no-inline') format('woff2');
+  font-display: swap;
+  unicode-range:
+    U+E080, U+E081, U+E082, U+E083, U+E084, U+E085, U+E086, U+E087, U+E088, U+E089, U+E090, U+E091,
+    U+E092, U+E093, U+E094, U+E095, U+E096, U+E097, U+E099;
+}
+@font-face {
+  font-family: ReportSymbols;
+  src: url('./symbols/e100.woff2?no-inline') format('woff2');
+  font-display: swap;
+  unicode-range:
+    U+E100, U+E101, U+E102, U+E103, U+E104, U+E105, U+E106, U+E107, U+E108, U+E109, U+E110, U+E111,
+    U+E112, U+E113, U+E114, U+E115, U+E116, U+E118, U+E119, U+E120, U+E121, U+E122, U+E123, U+E124,
+    U+E125, U+E126, U+E127, U+E128, U+E130, U+E131, U+E132, U+E133, U+E134, U+E135, U+E136, U+E137,
+    U+E138, U+E139;
+}
+@font-face {
+  font-family: ReportSymbols;
+  src: url('./symbols/e140.woff2?no-inline') format('woff2');
+  font-display: swap;
+  unicode-range:
+    U+E140, U+E141, U+E142, U+E143, U+E144, U+E145, U+E146, U+E147, U+E148, U+E150, U+E151, U+E152,
+    U+E153, U+E154, U+E155, U+E156, U+E157, U+E158, U+E159, U+E160, U+E161, U+E162, U+E163, U+E164,
+    U+E165, U+E166, U+E167, U+E168, U+E169, U+E170, U+E171, U+E172, U+E173, U+E174, U+E175, U+E176,
+    U+E177, U+E178, U+E179;
+}
+@font-face {
+  font-family: ReportSymbols;
+  src: url('./symbols/e180.woff2?no-inline') format('woff2');
+  font-display: swap;
+  unicode-range: U+E180, U+E181, U+E182, U+E183, U+E184, U+E185, U+E186, U+E187, U+E188, U+E189;
+}
+@font-face {
+  font-family: ReportSymbols;
+  src: url('./symbols/e200.woff2?no-inline') format('woff2');
+  font-display: swap;
+  unicode-range:
+    U+E202, U+E203, U+E204, U+E205, U+E206, U+E207, U+E208, U+E209, U+E211, U+E212, U+E213, U+E214,
+    U+E215, U+E216, U+E217, U+E218, U+E219, U+E220, U+E221, U+E230, U+E231, U+E232, U+E233, U+E234,
+    U+E235, U+E236, U+E237, U+E238, U+E239;
+}
+@font-face {
+  font-family: ReportSymbols;
+  src: url('./symbols/e240.woff2?no-inline') format('woff2');
+  font-display: swap;
+  unicode-range:
+    U+E240, U+E241, U+E242, U+E243, U+E244, U+E245, U+E246, U+E247, U+E248, U+E249, U+E250, U+E251,
+    U+E252, U+E253, U+E254;
+}
+@font-face {
+  font-family: ReportSymbols;
+  src: url('./symbols/ee00.woff2?no-inline') format('woff2');
+  font-display: swap;
+  unicode-range:
+    U+EE21, U+EE22, U+EE23, U+EE24, U+EE25, U+EE26, U+EE27, U+EE28, U+EE29, U+EE2A, U+EE2B, U+EE2C,
+    U+EE2D, U+EE2E, U+EE2F, U+EE30, U+EE31, U+EE32, U+EE33, U+EE34, U+EE35, U+EE36, U+EE37, U+EE38,
+    U+EE39, U+EE3A, U+EE3B, U+EE3C, U+EE3D, U+EE3E, U+EE3F;
+}
+@font-face {
+  font-family: ReportSymbols;
+  src: url('./symbols/ee40.woff2?no-inline') format('woff2');
+  font-display: swap;
+  unicode-range:
+    U+EE40, U+EE41, U+EE42, U+EE43, U+EE44, U+EE45, U+EE46, U+EE47, U+EE48, U+EE49, U+EE4A, U+EE4B,
+    U+EE4C, U+EE4D, U+EE4E, U+EE4F, U+EE50, U+EE51, U+EE52, U+EE53, U+EE54, U+EE55, U+EE56, U+EE57,
+    U+EE58, U+EE59, U+EE5A, U+EE5B, U+EE5C, U+EE5D, U+EE5E, U+EE5F, U+EE60, U+EE61, U+EE62, U+EE63,
+    U+EE64, U+EE65, U+EE66, U+EE67, U+EE68, U+EE69, U+EE6A, U+EE6B, U+EE6C, U+EE6D, U+EE6E, U+EE6F,
+    U+EE70, U+EE71, U+EE72, U+EE73, U+EE74, U+EE75, U+EE76, U+EE77, U+EE78, U+EE79, U+EE7A, U+EE7B,
+    U+EE7C, U+EE7D, U+EE7E;
+}
+@font-face {
+  font-family: ReportSymbols;
+  src: url('./symbols/ee80.woff2?no-inline') format('woff2');
+  font-display: swap;
+  unicode-range:
+    U+EEA0, U+EEA1, U+EEA2, U+EEA3, U+EEA4, U+EEA5, U+EEA6, U+EEA7, U+EEA8, U+EEA9, U+EEAA, U+EEAB,
+    U+EEAC, U+EEAD, U+EEAE, U+EEAF, U+EEB0, U+EEB1, U+EEB2, U+EEB3, U+EEB4, U+EEB5, U+EEB6, U+EEB7,
+    U+EEB8, U+EEB9, U+EEBA, U+EEBB, U+EEBC, U+EEBD, U+EEBE, U+EEBF;
+}
+@font-face {
+  font-family: ReportSymbols;
+  src: url('./symbols/eec0.woff2?no-inline') format('woff2');
+  font-display: swap;
+  unicode-range:
+    U+EEC0, U+EEC1, U+EEC2, U+EEC3, U+EEC4, U+EEC5, U+EEC6, U+EEC7, U+EEC8, U+EEC9, U+EECA, U+EECB,
+    U+EECC, U+EECD, U+EECE, U+EECF, U+EED0, U+EED1, U+EED2, U+EED3, U+EED4, U+EED5, U+EED6, U+EED7,
+    U+EED8, U+EED9, U+EEDA, U+EEDC, U+EEDF, U+EEE0, U+EEE1, U+EEE2, U+EEE3, U+EEE4, U+EEE5, U+EEE6,
+    U+EEF0, U+EEF1, U+EEF3, U+EEF4, U+EEF5, U+EEF6, U+EEF7, U+EEF8, U+EEF9, U+EEFA;
+}
+@font-face {
+  font-family: ReportSymbols;
+  src: url('./symbols/ffc0.woff2?no-inline') format('woff2');
+  font-display: swap;
+  unicode-range: U+FFFD;
+}

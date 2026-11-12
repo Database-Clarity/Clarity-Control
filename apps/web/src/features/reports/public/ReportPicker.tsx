@@ -1,4 +1,4 @@
-import { languages } from '@clarity/core';
+import { languages } from '../../../../../../packages/core/src/languages';
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { languageLabel } from '../../../languageLabels';

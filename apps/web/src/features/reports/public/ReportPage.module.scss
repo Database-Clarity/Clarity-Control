@@ -1,10 +1,12 @@
 @use '../../../data/variables' as theme;
 @use '../../../ui/controls';
+@use './symbols';
 
 // The public report pages: minimal header, then one centred page. Dense like the editor: 28px
 // controls on desktop, var(--tap) on touch; 12px phone gutters.
 
 .shell {
+  font-family: Arial, Helvetica, ReportSymbols, sans-serif;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -343,11 +345,13 @@
 // The tooltip at consumer width. The preview sets its text in pixels while its width and symbols
 // follow rem; here the text follows rem too, so at any interface scale the lines break as in the app.
 .tooltip {
+  font-family: Arial, Helvetica, ReportSymbols, 'Segoe UI Symbol', sans-serif !important;
   max-width: 22.5rem !important;
   font-size: 0.875rem !important;
 }
 
 .annotatable {
+  font-family: inherit !important;
   cursor: text;
   user-select: text;
   -webkit-tap-highlight-color: transparent;
@@ -614,6 +618,10 @@
   margin-top: 0.5rem;
 
   @include theme.mobile {
+    // The refresh notice asks the reporter to revisit notes; keep its controls unobscured.
+    &[data-refreshed] {
+      position: static;
+    }
     position: sticky;
     bottom: 0;
     z-index: 5;

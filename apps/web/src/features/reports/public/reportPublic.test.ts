@@ -203,6 +203,21 @@ describe('loadReportRender', () => {
     expect(enhanced.rev).toMatch(/^[a-f0-9]{16}$/);
     expect(enhanced.dataCommit).toBe(commit);
   });
+  it('resolves alias imports using the same live catalog as the rendered identity', async () => {
+    stubFetch();
+    const aliased = {
+      ...catalog,
+      items: {
+        ...catalog.items,
+        201: { ...catalog.items[200], variant: 'override:500' },
+        400: { ...catalog.items[300], owner: 300 },
+      },
+    };
+    files[500] = { en: 'import main from 400' };
+    const slim = await loadReportRender(201, 'en', aliased);
+    expect(slim?.display).toBe('Shared source text.');
+    delete files[500];
+  });
   it('follows imports for overrides and falls back to English', async () => {
     stubFetch();
     const override = (await loadReportRender(200, 'de', catalog))!;

@@ -17,6 +17,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit -p scripts/publisher/tsconfig.json && tsc --noEmit -p scripts/mult-write/tsconfig.json",
     "lint": "eslint .",
     "test": "vitest run --passWithNoTests",
+    "test:reports-browser": "node apps/web/test/report-public-browser.mjs",
     "test:picker-browser": "node apps/web/test/picker-browser.mjs",
     "test:publisher-browser": "node apps/web/test/publisher-browser.mjs",
     "format": "prettier --write ."
