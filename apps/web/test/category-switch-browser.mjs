@@ -65,7 +65,7 @@ try {
         [390, 844, true, false],
         [1280, 800, false, true],
       ])
-        for (const hash of [5699512, 3721627275]) {
+        for (const hash of [5699512, 3721627275, 13792278]) {
           const label = `${theme}-ui${scale * 100}-${width}${editorMin ? '-min' : ''}-${hash}`;
           const context = await browser.newContext({
             viewport: { width, height },

@@ -55,10 +55,14 @@ export function AttachmentCategoryControl({ base, item }: { base: Tooltip; item:
   )
     return null;
   const isEffect = classification.categoryId === effectCategory;
-  // Native = without a category override; saved text alone can make a part need a tooltip.
-  const native =
-    classifyItem(item, { ...next, custom: undefined })?.categoryId ?? classification.categoryId;
+  // Native ignores tooltip text, so typing or deleting text never changes what the switch owns.
+  const native = classifyItem(item)?.categoryId ?? classification.categoryId;
   const hasOwnIdentity = !canSwitchCategory(next, item, native);
+  // A stat-only part with tooltip text needs a tooltip (owner 2026-11-11): the switch cannot mark
+  // it stat-only while the text exists, so it never writes an override it could not undo.
+  const textNeedsTooltip =
+    native === attachmentCategory &&
+    classifyItem(item, { ...next, custom: undefined })?.categoryId === effectCategory;
   const allowed =
     !hasOwnIdentity &&
     !!apiUrl &&
@@ -69,6 +73,7 @@ export function AttachmentCategoryControl({ base, item }: { base: Tooltip; item:
     updateDraft(base, (tooltip) => setTooltipCategory(tooltip, item, target, native));
   const choose = (target: string) => {
     if (!allowed || target === classification.categoryId) return;
+    if (target === attachmentCategory && textNeedsTooltip) return;
     if (target === attachmentCategory && hasAuthoredText(next)) setConfirming(true);
     else {
       setConfirming(false);
@@ -86,7 +91,9 @@ export function AttachmentCategoryControl({ base, item }: { base: Tooltip; item:
   ];
   const hint = hasOwnIdentity
     ? 'This item has its own custom identity; change its category in the identity editor.'
-    : 'This creates a category draft; use the normal save flow. Editor role or higher required.';
+    : textNeedsTooltip
+      ? 'This part has tooltip text, so it needs a tooltip; remove the text to mark it stat-only.'
+      : 'This creates a category draft; use the normal save flow. Editor role or higher required.';
   return (
     <div className={styles.categoryRow}>
       <div role="group" aria-label="Attachment category" className={styles.categorySwitch}>
@@ -98,7 +105,7 @@ export function AttachmentCategoryControl({ base, item }: { base: Tooltip; item:
               type="button"
               aria-pressed={selected}
               title={`${label}: ${listedIn(id)}`}
-              disabled={!allowed}
+              disabled={!allowed || (id === attachmentCategory && textNeedsTooltip)}
               onClick={() => choose(id)}
             >
               {label}

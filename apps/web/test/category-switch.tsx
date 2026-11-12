@@ -1,5 +1,6 @@
 // The real shell (shell.tsx) plus two weapon parts the editor classifies from the bundled manifest
-// facts: Tempered Truss Rod (Stat-only Parts) and Swap Mag (Parts with Effects), each with text.
+// facts: Tempered Truss Rod (Stat-only Parts), Swap Mag (Parts with Effects, with text), and
+// Hitmark IS (a stat-only part with text: needs a tooltip, No tooltip disabled with its hint).
 import type { Tooltip } from '@clarity/core';
 import { useDataStore } from '../src/stores/data';
 import './shell.tsx';
@@ -18,6 +19,14 @@ const parts = {
     categoryId: 'weapon-perk',
     inGameDescription:
       'High stiffness for quick handling.\n  •  Greatly increases handling speed\n  •  Slightly decreases reload speed\n  •  Slightly decreases range',
+  },
+  13792278: {
+    hash: 13792278,
+    name: 'Hitmark IS',
+    icon: '',
+    categoryId: 'weapon-perk',
+    inGameDescription:
+      'Agile sight. Short zoom. \n  •  Greatly increases handling speed\n  •  Slightly increases range',
   },
   3721627275: {
     hash: 3721627275,
@@ -41,6 +50,7 @@ useDataStore.setState({
       tooltips: {
         ...current.bundle.tooltips,
         3721627275: own(3721627275, 'Increases ready and stow speed.'),
+        13792278: own(13792278, 'Greatly increases handling speed.'),
       },
     },
   },
