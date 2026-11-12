@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   stableStringify,
   baseEnhancedPublishMessage,
+  setBonusHoldMessage,
   publishIntentDigest,
   publishableHash,
   classifyPublishIntent,
@@ -639,46 +640,76 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       expect(f.git.git(['show-ref'])).toBe(before);
     }
   });
-  it('plain-node dry-run CLI emits artifacts and never changes its input refs', async () => {
-    const f = await setup();
-    f.change(D, {
-      'tooltips/123.json': {
-        ...f.tooltip,
-        custom: { name: 'Set bonus', categoryId: 'armor-set-bonus' },
-        compendium: {
-          gid: '1287885342',
-          rowKey: 'set-bonus',
-          snapshot: { plain: 'Set bonus', runs: [{ text: 'Set bonus' }] },
-          snapshotAt: '2026-11-03T00:00:00Z',
-          setBonusPieces: 2,
+  it.each(['set-bonus', 'link-only'] as const)(
+    'plain-node dry-run CLI emits artifacts and never changes its input refs (%s)',
+    async (kind) => {
+      const f = await setup();
+      if (kind === 'set-bonus') f.options.facts[123].type = 'armor-set-bonus';
+      f.change(D, {
+        'tooltips/123.json': {
+          ...f.tooltip,
+          custom: { name: 'Set bonus', categoryId: 'armor-set-bonus' },
+          compendium: {
+            gid: '1287885342',
+            rowKey: 'set-bonus',
+            snapshot: { plain: 'Set bonus', runs: [{ text: 'Set bonus' }] },
+            snapshotAt: '2026-11-03T00:00:00Z',
+            setBonusPieces: 2,
+          },
         },
-      },
-    });
-    const currentTooltip = f.pub.read<Tooltip>(f.git.tree(f.git.head(D)!), 'tooltips/123.json')!;
-    await f.request(A, [123], { 123: await publishableHash(currentTooltip, f.options.aliases) });
-    const before = f.git.git(['show-ref']);
-    const root = mkdtempSync(join(tmpdir(), 'publisher-cli-'));
-    roots.push(root);
-    writeFileSync(join(root, 'config.json'), JSON.stringify(f.options));
-    execFileSync(process.execPath, ['scripts/publisher/build.mjs'], { stdio: 'pipe' });
-    for (const runtime of [
-      'scripts/publisher/dist/publisher.mjs',
-      'scripts/publisher/template/.publisher/publisher.mjs',
-    ]) {
-      execFileSync(
-        process.execPath,
-        [runtime, '--dry-run', f.upstream, join(root, 'config.json'), join(root, 'out')],
-        { stdio: 'pipe' },
-      );
-      expect(f.git.git(['show-ref'])).toBe(before);
-      expect(JSON.parse(readFileSync(join(root, 'out', 'result.json'), 'utf8'))).toMatchObject({
-        dryRun: true,
-        writesEnabled: false,
-        error: null,
       });
-      expect(readFileSync(join(root, 'out', 'would-be-commits.bundle')).length).toBeGreaterThan(0);
-    }
-  });
+      if (kind === 'link-only') f.change(D, { 'tooltips/123.json': { ...f.tooltip, text: {} } });
+      const currentTooltip = f.pub.read<Tooltip>(f.git.tree(f.git.head(D)!), 'tooltips/123.json')!;
+      await f.request(A, [123], { 123: await publishableHash(currentTooltip, f.options.aliases) });
+      const before = f.git.git(['show-ref']);
+      const root = mkdtempSync(join(tmpdir(), 'publisher-cli-'));
+      roots.push(root);
+      writeFileSync(join(root, 'config.json'), JSON.stringify(f.options));
+      execFileSync(process.execPath, ['scripts/publisher/build.mjs'], { stdio: 'pipe' });
+      for (const runtime of [
+        'scripts/publisher/dist/publisher.mjs',
+        'scripts/publisher/template/.publisher/publisher.mjs',
+      ]) {
+        execFileSync(
+          process.execPath,
+          [runtime, '--dry-run', f.upstream, join(root, 'config.json'), join(root, 'out')],
+          { stdio: 'pipe' },
+        );
+        expect(f.git.git(['show-ref'])).toBe(before);
+        expect(JSON.parse(readFileSync(join(root, 'out', 'result.json'), 'utf8'))).toMatchObject({
+          dryRun: true,
+          writesEnabled: false,
+          error: null,
+        });
+        expect(readFileSync(join(root, 'out', 'would-be-commits.bundle')).length).toBeGreaterThan(
+          0,
+        );
+        const result = JSON.parse(readFileSync(join(root, 'out', 'result.json'), 'utf8'));
+        expect(result.liveHead).toBe(f.git.head(L));
+        const replay = join(root, runtime.includes('/dist/') ? 'dist.git' : 'template.git');
+        execFileSync(
+          'git',
+          ['clone', '--mirror', join(root, 'out', 'would-be-commits.bundle'), replay],
+          {
+            stdio: 'pipe',
+          },
+        );
+        const readResult = (path: string) =>
+          JSON.parse(
+            execFileSync('git', ['--git-dir', replay, 'show', `${result.dataHead}:${path}`], {
+              encoding: 'utf8',
+            }),
+          );
+        expect(readResult(paths(A).log)).toMatchObject({
+          result: {
+            status: 'rejected',
+            error: kind === 'set-bonus' ? setBonusHoldMessage : 'Tooltip has no text to publish',
+          },
+        });
+        expect(readResult('live/pushed.json')).toEqual({});
+      }
+    },
+  );
   it('exhausted unresolved publication blocks later work and resumes the exact candidate', async () => {
     const f = await setup();
     await f.request();

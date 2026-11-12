@@ -12,12 +12,13 @@ dry-run workflows continue to simulate publication; changing the shared switch a
 
 ## Install dry-run pipeline (root operator in E2)
 
-Template source PIN: `97331797d833a86033ebb73dcd28578e94bb13f1`.
-Expected publisher.mjs SHA-256: `31abdf39fe3839ff00acd94fb48f0757452179f872d7ea541b7112720264c1a8`.
+Template source PIN: `e4e91566b2fea1715a0c448cd3f3384968b570ac`.
+Expected publisher.mjs SHA-256: `1355ce47ad664d153a1bbae744a4ec2718d9888155431f8845fa8d8ef7f56cc9`.
 Verify both against `.publisher/PIN` before installation; this v2 runtime includes the current
 set-bonus, name-relink, category, alias-group, and optional export-partner schemas. Rebuild from
 the pinned source in a clean checkout to reproduce the digest. A future source change requires
 rebuilding and re-pinning.
+The runtime also includes the current Link only guards and the set-bonus publication hold.
 
 1. Record current editor-data, editor-data-bundle and converter-v2-test SHAs. Verify Actions
    contents:write permission; forward-only/no-delete data/live rules; candidate ref permissions.
