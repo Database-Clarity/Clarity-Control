@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Tooltip } from '@clarity/core';
+import { parseMarkup, type Tooltip } from '@clarity/core';
 import { Fixture, makePrivateKey, tooltip } from './fixture.js';
 
 // The real save route against the local GitHub adapter: element-tagged text is held until both
@@ -84,5 +84,21 @@ describe('save hold for element-tagged text', () => {
     expect(response.status).toBe(200);
     expect((await response.json()).tooltips[0].text.en.text).toBe(text);
     expect(fixture.commits).toHaveLength(1);
+  });
+
+  // Output review repros: preparation assembles '<solar Scorch />' from pieces. No document holds
+  // a tagged span, so the hold has nothing to refuse, and the editor draws exactly what consumers
+  // draw today (the bare icon): what is saved never renders tagged.
+  it.each([
+    'var open = <solar\n#open Scorch />',
+    '<so\rlar Scorch />',
+    '<so/* comment */lar Scorch />',
+    '<so<pve/>lar Scorch />',
+  ])('saves %j, which renders as today and never tagged', async (text) => {
+    const response = await save(tooltip(), tooltip(text));
+    expect(response.status).toBe(200);
+    const saved: string = (await response.json()).tooltips[0].text.en.text;
+    expect(saved).toBe(text);
+    expect(JSON.stringify(parseMarkup(saved).lines)).not.toContain('elementText');
   });
 });

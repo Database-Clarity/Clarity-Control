@@ -13,7 +13,7 @@ import {
   parseMarkup,
 } from '../markup/index.js';
 import { prepareMarkup } from '../markup/prepare.js';
-import type { MarkupGlobals, MarkupLine } from '../markup/types.js';
+import type { MarkupGlobals } from '../markup/types.js';
 import type { Tooltip } from '../schemas.js';
 import { glyphWarnings } from './glyphs.js';
 import { retiredWarnings } from './retired.js';
@@ -40,22 +40,6 @@ export const emptyEnglishMessage = 'English text must not be empty.';
  */
 export function elementTagMessage(tag: string, lowered: string): string {
   return `Element-tagged text "${tag}" can't be saved yet: apps would show only the icon. Write "${lowered}" for now.`;
-}
-export const derivedElementTagMessage =
-  "This text renders element-tagged text once variables, imports, or line tags are applied, and that can't be saved yet: apps would show only the icon.";
-
-function hasElementText(lines: readonly MarkupLine[]): boolean {
-  return lines.some((line) =>
-    [
-      ...(line.linesContent ?? []),
-      ...(line.table ?? [])
-        .flatMap((row) => row.rowContent ?? [])
-        .flatMap((cell) => cell.cellContent),
-    ].some(
-      (span) =>
-        span.classNames?.includes('elementText') || (span.title && hasElementText(span.title)),
-    ),
-  );
 }
 
 export interface ValidationReads {
@@ -116,9 +100,7 @@ export function validateText(
   if (requireEnglish && lang === 'en' && !text.trim()) {
     add('error', emptyEnglishMessage);
   }
-  const parsed = parseMarkup(text, globals);
-  const tags = findElementTags(text);
-  for (const tag of tags) {
+  for (const tag of findElementTags(text)) {
     issues.push({
       severity: 'error',
       message: elementTagMessage(text.slice(tag.from, tag.to), `<${tag.element}/>${tag.text}`),
@@ -126,8 +108,7 @@ export function validateText(
       to: tag.to,
     });
   }
-  if (!tags.length && hasElementText(parsed.lines)) add('error', derivedElementTagMessage);
-  for (const diagnostic of parsed.diagnostics) {
+  for (const diagnostic of parseMarkup(text, globals).diagnostics) {
     if (diagnostic.message === baseEnhancedMessage && text.includes('{{')) {
       if (issues.some((issue) => issue.message === baseEnhancedMessage)) continue;
       const context = markupCommentContext(text);

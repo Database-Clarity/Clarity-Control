@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  derivedElementTagMessage,
   elementTagMessage,
   validateText,
   validateTextWithReads,
@@ -210,10 +209,16 @@ describe('element-tagged text save hold', () => {
     ]);
     expect(validateText('Gain <solar/>Scorch and <solar /> stacks.', 'en', globals)).toEqual([]);
   });
-  it('blocks tagged text that only appears once variables are applied', () => {
-    expect(validateText('var open = <solar\n#open Scorch />', 'en', globals)).toContainEqual(
-      expect.objectContaining({ severity: 'error', message: derivedElementTagMessage }),
-    );
+  it('does not block a wrapper that only preparation assembles (it renders as today)', () => {
+    for (const text of [
+      'var open = <solar\n#open Scorch />',
+      '<so\rlar Scorch />',
+      '<so/* comment */lar Scorch />',
+      '<so<pve/>lar Scorch />',
+    ])
+      expect(
+        validateText(text, 'en', globals).filter(({ severity }) => severity === 'error'),
+      ).toEqual([]);
   });
   it('stays blocking in an edited language through validateTooltip', () => {
     const revision = { updatedAt: '2026-01-01T00:00:00.000Z', updatedBy: 'a' };

@@ -58,7 +58,14 @@ export function markupStrayTags(text: string): string[] {
   return stray;
 }
 
-function spans(line: string, titles: Record<string, MarkupLine[]>): MarkupSpan[] {
+/** Whether a tagged token was written in a source document (see parseMarkup). */
+export type LiteralElementTag = (token: string) => boolean;
+
+function spans(
+  line: string,
+  titles: Record<string, MarkupLine[]>,
+  literalTag: LiteralElementTag,
+): MarkupSpan[] {
   return line
     .split(new RegExp(`(${inlineToken.source}|🡅)`, 'g'))
     .filter(Boolean)
@@ -73,9 +80,11 @@ function spans(line: string, titles: Record<string, MarkupLine[]>): MarkupSpan[]
       }
       if ([...markupIcons, ...markupEmpty].includes(wrapper)) {
         // `<solar Scorch />`: the icon, then its text in the element tint (an icon span first, so
-        // the layout matches the lowered `<solar/>Scorch`).
+        // the layout matches the lowered `<solar/>Scorch`). Only a token written as such in a
+        // source document counts: one assembled by preparation (variables, comments, line tags)
+        // is never lowered, so it keeps today's meaning, as consumers read it.
         const tag = elementTagToken(text);
-        if (tag)
+        if (tag && literalTag(text))
           return [
             { classNames: [tag.element] },
             { text: tag.text, classNames: ['elementText', tag.element] },
@@ -96,7 +105,11 @@ function spans(line: string, titles: Record<string, MarkupLine[]>): MarkupSpan[]
     });
 }
 
-function tableRow(line: string, titles: Record<string, MarkupLine[]>) {
+function tableRow(
+  line: string,
+  titles: Record<string, MarkupLine[]>,
+  literalTag: LiteralElementTag,
+) {
   const { classNames, cleanLine } = lineClasses(line, markupEmpty);
   return {
     classNames,
@@ -118,18 +131,24 @@ function tableRow(line: string, titles: Record<string, MarkupLine[]>) {
           .split('')
           .filter((char) => classes[char])
           .map((char) => classes[char]),
-        cellContent: spans(cell.replace(/\|[bchr\d-]+|\|/, '').trim(), titles).flatMap((part) => {
-          if (!part.text?.trim() && !part.classNames?.some((name) => typeof name === 'string'))
-            return [];
-          // Legacy tables omit link targets; preserve their output.
-          return [{ text: part.text, classNames: part.classNames, title: part.title }];
-        }),
+        cellContent: spans(cell.replace(/\|[bchr\d-]+|\|/, '').trim(), titles, literalTag).flatMap(
+          (part) => {
+            if (!part.text?.trim() && !part.classNames?.some((name) => typeof name === 'string'))
+              return [];
+            // Legacy tables omit link targets; preserve their output.
+            return [{ text: part.text, classNames: part.classNames, title: part.title }];
+          },
+        ),
       };
     }),
   };
 }
 
-export function parseLines(text: string, titles: Record<string, MarkupLine[]>): MarkupLine[] {
+export function parseLines(
+  text: string,
+  titles: Record<string, MarkupLine[]>,
+  literalTag: LiteralElementTag = () => true,
+): MarkupLine[] {
   const blocks = weaponSectionHeadings(text).match(/(< table [^]+?\n<\$>\n?)|(.+\n?|\n)/g) ?? [];
   return blocks.flatMap((block): MarkupLine[] => {
     block = block.trimEnd();
@@ -142,7 +161,7 @@ export function parseLines(text: string, titles: Record<string, MarkupLine[]>): 
         ?.filter((name) => markupTableClasses.includes(name));
       return [
         {
-          table: rows.slice(1, -1).map((row) => tableRow(row, titles)),
+          table: rows.slice(1, -1).map((row) => tableRow(row, titles, literalTag)),
           classNames: [...(names ?? []), 'table'],
           isFormula: names?.includes('formula'),
         },
@@ -156,6 +175,7 @@ export function parseLines(text: string, titles: Record<string, MarkupLine[]>): 
         linesContent: spans(
           block.includes('<breakSpaces/>') ? cleanLine.trimEnd() : cleanLine.trim(),
           titles,
+          literalTag,
         ),
       },
     ];

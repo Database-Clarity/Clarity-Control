@@ -1,4 +1,5 @@
-import { markupStrayTags, parseLines } from './lines.js';
+import { findElementTags } from './elementTags.js';
+import { markupStrayTags, parseLines, type LiteralElementTag } from './lines.js';
 import { prepareMarkup, prepareNativeTitle, markupVariableReferences } from './prepare.js';
 import type { MarkupDiagnostic, MarkupGlobals, MarkupLine, ParsedMarkup } from './types.js';
 
@@ -9,6 +10,37 @@ export function parseMarkup(
   globals: MarkupGlobals = { variables: '', titles: '' },
 ): ParsedMarkup {
   const diagnostics: MarkupDiagnostic[] = [];
+  // Element-tagged spans are lowered per source document, so only a token written as such in a
+  // document this parse reads (the text, the global variables and titles, imported documents)
+  // renders tagged; one assembled by preparation keeps today's meaning, as consumers read it.
+  const sources = [text, globals.variables, globals.titles];
+  if (globals.imports) {
+    const catalog = globals.imports;
+    globals = {
+      ...globals,
+      imports: new Proxy(catalog, {
+        get(target, key, receiver) {
+          const value: unknown = Reflect.get(target, key, receiver);
+          if (typeof value === 'string') sources.push(value);
+          return value;
+        },
+      }),
+    };
+  }
+  let literal: { read: number; tokens: Set<string> } | undefined;
+  const literalTag: LiteralElementTag = (token) => {
+    if (literal?.read !== sources.length) {
+      literal = {
+        read: sources.length,
+        tokens: new Set(
+          sources.flatMap((source) =>
+            findElementTags(source).map(({ from, to }) => source.slice(from, to)),
+          ),
+        ),
+      };
+    }
+    return literal.tokens.has(token);
+  };
   const prepared = prepareMarkup(text, globals, diagnostics);
   const titleBodies = prepared.nativeTitles
     ? Object.entries(prepared.titles).map(([name, content]) =>
@@ -35,7 +67,7 @@ export function parseMarkup(
         diagnostics.push({ severity: 'warning', message: `Unknown variable ${variable}.` });
       }
     }
-    titles[name] = parseLines(body, {});
+    titles[name] = parseLines(body, {}, literalTag);
   }
-  return { lines: parseLines(prepared.text, titles), diagnostics };
+  return { lines: parseLines(prepared.text, titles, literalTag), diagnostics };
 }

@@ -187,3 +187,64 @@ describe('element-tagged spans in the parser', () => {
     ]);
   });
 });
+
+describe('only tagged spans written in a source document render tagged', () => {
+  const hasTint = (parsed: ReturnType<typeof parseMarkup>) =>
+    JSON.stringify(parsed.lines).includes('elementText');
+  // Output review repros: preparation assembles `<solar Scorch />`, which lowering (per source
+  // document) never sees, so it must keep today's meaning: the bare icon, as consumers draw it.
+  it.each([
+    ['local variable', 'var open = <solar\n#open Scorch />'],
+    ['carriage return', '<so\rlar Scorch />'],
+    ['comment', '<so/* comment */lar Scorch />'],
+    ['line tag', '<so<pve/>lar Scorch />'],
+    // Code review repros.
+    ['line tag inside the wrapper', 'Gain <solar Scorch<pve/> />'],
+    ['comment inside the text', 'Gain <solar Sco/*<*/rch />'],
+    ['carriage return inside the text', 'Gain <solar Sco\rrch />'],
+  ])('%s assembling a wrapper parses as today', (_, text) => {
+    const parsed = parseMarkup(text);
+    expect(hasTint(parsed)).toBe(false);
+    expect(hasElementTags(text)).toBe(false);
+    expect(JSON.stringify(parsed.lines)).toContain('"classNames":["solar"]');
+  });
+
+  it('a global variable or an import that assembles a wrapper parses as today', () => {
+    expect(
+      hasTint(parseMarkup('#open Scorch />', { variables: 'var open = <solar', titles: '' })),
+    ).toBe(false);
+    expect(
+      hasTint(
+        parseMarkup('import Main from 123 Scorch />', {
+          variables: '',
+          titles: '',
+          imports: { '123': 'export Main (\n<solar\n)' },
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it('a tagged span written in a variable, a global, a title, or an import renders tagged', () => {
+    expect(hasTint(parseMarkup('var hit = <arc Jolt />\nApplies #hit.'))).toBe(true);
+    expect(
+      hasTint(parseMarkup('Applies #hit.', { variables: 'var hit = <arc Jolt />', titles: '' })),
+    ).toBe(true);
+    expect(
+      hasTint(
+        parseMarkup('See <title more [Info] />.', {
+          variables: '',
+          titles: 'title Info (\n<void Volatile />\n)',
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      hasTint(
+        parseMarkup('import Main from 123', {
+          variables: '',
+          titles: '',
+          imports: { '123': 'export Main (\n<strand Sever />\n)' },
+        }),
+      ),
+    ).toBe(true);
+  });
+});
