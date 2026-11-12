@@ -1,5 +1,6 @@
 import {
   hasTooltipText,
+  isTextlessDescription,
   permissionsSchema,
   stableStringify,
   type Permissions,
@@ -44,7 +45,7 @@ export function roleOf(config: Permissions, user: Identity): Access['role'] | 'p
 }
 
 export function checkEdit(access: Access, base: Tooltip | null, next: Tooltip): void {
-  if (!hasTooltipText(next) && (base === null || hasTooltipText(base))) {
+  if (isTextlessDescription(next) && (base === null || hasTooltipText(base))) {
     if (!['maintainer', 'editor'].includes(access.role))
       throw new HttpError(403, 'Only editors and maintainers can create link-only tooltips');
     if (base === null && !next.compendium)

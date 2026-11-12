@@ -126,3 +126,55 @@ it('blocks translation-only promotion of an empty saved record in the web save p
   );
   await expect(prepareChanges(changes, user, data)).rejects.toThrow('Validation');
 });
+
+it.each([1, 2, 3].flatMap((hash) => [3, 4].map((id) => ({ hash, id }))))(
+  'allows role $id to clear an assigned reserved library $hash through web preparation and Worker save',
+  async ({ hash, id }) => {
+    const fixture = new Fixture(await makePrivateKey());
+    const language = id === 3 ? 'en' : 'de';
+    const base = {
+      ...tooltip(),
+      hash,
+      text: { [language]: { ...tooltip().text.en!, text: 'var unused = 1' } },
+    };
+    const next = { ...base, text: {} };
+    fixture.moveData({ [`tooltips/${hash}.json`]: base });
+    const data = editorData();
+    data.bundle.tooltips[hash] = base;
+    const user = {
+      id,
+      login: id === 3 ? 'carol' : 'dan',
+      role: id === 3 ? ('trial' as const) : ('translator' as const),
+      ...(id === 4 ? { languages: ['de' as const] } : {}),
+    };
+    const changes = [{ hash, base, next }];
+    expect(permissionError(changes, user)).toBeNull();
+    const prepared = await prepareChanges(changes, user, data);
+    const response = await fixture.request(
+      '/save',
+      'POST',
+      { changes: prepared, message: 'Clear unused library' },
+      id,
+    );
+    expect(response.status).toBe(200);
+    expect(fixture.current()[`tooltips/${hash}.json`]).toMatchObject({ hash, text: {} });
+  },
+);
+it('still refuses clearing an unassigned reserved-library language', async () => {
+  const fixture = new Fixture(await makePrivateKey());
+  const base = {
+    ...tooltip(),
+    hash: 2,
+    text: { en: { ...tooltip().text.en!, text: 'var unused = 1' } },
+  };
+  fixture.moveData({ 'tooltips/2.json': base });
+  const changes = [{ hash: 2, base, next: { ...base, text: {} } }];
+  expect(
+    permissionError(changes, { id: 4, login: 'dan', role: 'translator', languages: ['de'] }),
+  ).toBeTruthy();
+  expect(
+    (await fixture.request('/save', 'POST', { changes, message: 'Clear unassigned library' }, 4))
+      .status,
+  ).toBe(403);
+  expect(fixture.commits).toHaveLength(0);
+});

@@ -223,6 +223,44 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     },
   );
 
+  it.each(['native', 'transitive'] as const)(
+    'checks only direct associations, ignoring an unselected target draft (%s)',
+    async (mode) => {
+      const f = await setup();
+      const published = {
+        hash: 125,
+        editor: { en: { main: 'Published', secondary: 'Published' } },
+      };
+      f.change(L, { 'liveDescriptions.json': { perks: { 125: published }, databaseSettings: {} } });
+      const root = { ...f.tooltip, associated: [125] };
+      f.change(D, {
+        'tooltips/123.json': root,
+        'tooltips/125.json': {
+          ...f.tooltip,
+          hash: 125,
+          associated: mode === 'transitive' ? [126] : [],
+          text: {
+            en: {
+              ...f.tooltip.text.en!,
+              text: mode === 'native' ? '{{base|enhanced}}' : 'Written draft',
+            },
+          },
+        },
+        'tooltips/126.json': { ...f.tooltip, hash: 126, text: {} },
+      });
+      await f.request(A, [123], { 123: await publishableHash(root) });
+      await f.pub.run();
+      const live = f.pub.read<{ perks: Record<string, unknown> }>(
+        f.git.tree(f.git.head(L)!),
+        'liveDescriptions.json',
+      )!;
+      expect(live.perks[125]).toEqual(published);
+      expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
+        result: { status: 'done' },
+      });
+    },
+  );
+
   const A = '01K95H00000000000000000001',
     B = '01K95H00000000000000000002';
   const D = 'refs/heads/editor-data',

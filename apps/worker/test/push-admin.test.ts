@@ -587,3 +587,31 @@ it('allows an intentionally emptied reserved global library to be pushed', async
   expect(response.status).toBe(200);
   expect(fixture.live).toMatchObject({ perks: { 2: { hash: 2, editor: {} } } });
 });
+
+it.each(['native', 'transitive'] as const)(
+  'publishes a reference without walking the target draft (%s)',
+  async (mode) => {
+    const published = { hash: 125, editor: { en: { main: 'Published', secondary: 'Published' } } };
+    fixture.live = { perks: { 125: published }, databaseSettings: {} };
+    fixture.moveData({
+      'tooltips/123.json': { ...tooltip(), associated: [125] },
+      'tooltips/125.json': {
+        ...tooltip(mode === 'native' ? '{{base|enhanced}}' : 'Written draft'),
+        hash: 125,
+        custom: { name: 'Target', categoryId: 'perk' },
+        associated: mode === 'transitive' ? [126] : [],
+      },
+      'tooltips/126.json': { ...tooltip(), hash: 126, text: {} },
+    });
+    const response = await fixture.request('/push-live', 'POST', { hashes: [123] });
+    expect(response.status).toBe(200);
+    expect((fixture.live as { perks: Record<string, unknown> }).perks[125]).toEqual(published);
+    if (mode === 'transitive') {
+      const live = structuredClone(fixture.live);
+      expect((await fixture.request('/push-live', 'POST', { hashes: [123, 125] })).status).toBe(
+        422,
+      );
+      expect(fixture.live).toEqual(live);
+    }
+  },
+);
