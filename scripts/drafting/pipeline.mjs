@@ -192,7 +192,8 @@ export function validateDraft(item, english, editor, app) {
   );
   if (app.retiredWarnings(english).length) errors.push('Retired markup');
   // Class-item wording may come from the base, but its values must come from the cell (guide A1).
-  const allowed = numbers(item.source.text);
+  const ownerNote = item.ownerFeedback?.verdict === 'change' ? item.ownerFeedback.note ?? '' : '';
+  const allowed = new Set([...numbers(item.source.text), ...numbers(ownerNote)]);
   const conversions = convertedNumbers(item.source.text);
   // A conversion is allowed only in its correct phrase. Remove those phrases
   // before checking the remaining literal numbers, so the same number elsewhere
@@ -218,7 +219,7 @@ export function validateDraft(item, english, editor, app) {
       .map(normal),
   );
   const evidence = normal(
-    `${item.source.text} ${item.baseExotic?.english ?? ''} ${item.baseExotic?.name ?? ''}`,
+    `${item.source.text} ${ownerNote} ${item.baseExotic?.english ?? ''} ${item.baseExotic?.name ?? ''}`,
   );
   for (const match of english.matchAll(/<yellow\s+(.+?)\s*\/>/g)) {
     const name = normal(match[1]);

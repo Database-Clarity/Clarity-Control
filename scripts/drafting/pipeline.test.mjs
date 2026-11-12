@@ -87,6 +87,11 @@ it('accepts only the guide-derived metric, value, and uncertainty together', () 
     ).toBe(true);
   }
 });
+it('accepts explicit numeric owner corrections without borrowing timestamp numbers', () => {
+  const corrected = { ...item, ownerFeedback: { verdict: 'change', note: 'with 1|2|3 mods equipped', at: '2099-01-01T00:00:00Z' } };
+  expect(validateDraft(corrected, 'Grants 12% damage with 1|2|3 mods equipped.', editor, app)).toEqual([]);
+  expect(validateDraft(corrected, 'Grants 2099% damage.', editor, app)).toContain('Unsupported number: 2099');
+});
 it('finds base exotic wording through item names and declines ambiguous base identities', () => {
   const e = {
     items: {
