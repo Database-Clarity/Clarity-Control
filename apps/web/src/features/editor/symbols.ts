@@ -27,6 +27,7 @@ import {
   type RetiredOccurrence,
 } from '@clarity/core';
 import { elementLabel } from './elementTags';
+import { dockedBarHeight } from './markupRow/dock';
 import { hasDiagnosticWorker, requestDiagnostics } from './diagnosticWorker';
 import previewStyles from '../preview/TooltipPreview.module.scss';
 import type { SymbolReveal } from '../../stores/settings';
@@ -572,6 +573,11 @@ const symbolPopover = StateField.define<{ key: string; tooltip: Tooltip } | null
         pos: anchor,
         end: popover.at === undefined ? popover.to : anchor,
         above: true,
+        // A phone (docked markup bar): the bar's scroll margins are measured from the viewport,
+        // while tooltips apply them from the editor's top, so near the top of the text every popover
+        // counted as covered and was hidden. The page scrolls there, so the popover is never left
+        // floating outside the editor.
+        clip: dockedBarHeight() === 0,
         create: (view: EditorView) => ({ dom: popoverDom(view, popover) }),
       },
     };
