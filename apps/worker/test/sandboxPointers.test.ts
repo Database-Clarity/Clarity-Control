@@ -112,16 +112,27 @@ describe('sandbox picks route', () => {
 
   it('validates picks: shared perk, canonical non-empty target, no own tooltip', async () => {
     fixture.aliases = { 900: { to: 123, kind: 'frame' } };
-    fixture.sandboxConflicts = { ...fixture.sandboxConflicts, 703: [123, 900], 704: [1, 2] };
+    fixture.sandboxConflicts = { ...fixture.sandboxConflicts, 703: [123, 900], 704: [123, 2] };
     const cases: [Picks, string][] = [
       [{ 999: { to: 123 } }, '999 is not a shared sandbox perk'],
       [{ 703: { to: 900 } }, 'which is an alias'],
       [{ 700: { to: 700 } }, 'cannot point at itself'],
       [{ 700: { to: 701 }, 701: { to: 123 } }, 'another shared sandbox perk'],
-      [{ 700: { to: 555 } }, 'Tooltip 555 does not exist or has no text'],
-      [{ 700: { to: 126 } }, 'Tooltip 126 does not exist or has no text'],
+      // Canonical and with text, but not one of the tooltips sharing 700 (123 and 124).
+      [{ 700: { to: 126 } }, 'which is not one of the tooltips sharing it'],
     ];
     for (const [picks, message] of cases) {
+      const response = await put(picks);
+      expect(response.status, message).toBe(422);
+      expect(JSON.stringify((await response.json()).details)).toContain(message);
+    }
+    // Candidates resolve through generator aliases; a candidate without text is refused.
+    fixture.sandboxConflicts = { ...fixture.sandboxConflicts, 705: [555, 126], 706: [901] };
+    fixture.aliases = { ...fixture.aliases, 901: { to: 124, kind: 'frame' } };
+    for (const [picks, message] of [
+      [{ 705: { to: 555 } }, 'Tooltip 555 does not exist or has no text'],
+      [{ 705: { to: 126 } }, 'Tooltip 126 does not exist or has no text'],
+    ] as [Picks, string][]) {
       const response = await put(picks);
       expect(response.status, message).toBe(422);
       expect(JSON.stringify((await response.json()).details)).toContain(message);
@@ -134,6 +145,8 @@ describe('sandbox picks route', () => {
     for (const pick of [{ to: 123, none: true }, {}, { to: 123, by: 7 }])
       expect((await put({ 700: pick } as unknown as Picks)).status).toBe(400);
     expect(fixture.commits).toHaveLength(0);
+    // A candidate behind a generator alias (901 -> 124) is a valid target.
+    expect((await put({ 706: { to: 124 } })).status).toBe(200);
   });
 
   it('publisher on: refuses saves until the installed build declares the capability', async () => {

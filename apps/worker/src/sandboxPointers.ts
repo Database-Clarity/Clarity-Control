@@ -79,6 +79,20 @@ async function generatorRecord(github: GitHub, file: string): Promise<Record<str
   return value as Record<string, unknown>;
 }
 
+const aliasEntrySchema = z.object({ to: hashSchema }).passthrough();
+/** A candidate's canonical tooltip, validating only the generator alias entries it follows. */
+function canonical(hash: number, aliases: Record<string, unknown>): number {
+  const seen = new Set<number>();
+  while (Object.hasOwn(aliases, String(hash))) {
+    if (seen.has(hash)) throw new HttpError(502, 'Invalid upstream data');
+    seen.add(hash);
+    const entry = aliasEntrySchema.safeParse(aliases[String(hash)]);
+    if (!entry.success) throw new HttpError(502, 'Invalid upstream data');
+    hash = entry.data.to;
+  }
+  return hash;
+}
+
 /**
  * Whether a stored tooltip file is tooltip `hash` with text in some language. Files on the data
  * branch are schema-checked when saved; this reads only the fields the pick depends on.
@@ -182,6 +196,12 @@ export async function sandboxPointersRoute(
           input.picks,
         );
         if (problem) problems.push(`${hash} ${problem}`);
+        // A new or changed pick names one of the tooltips that share the effect now. (A kept pick
+        // keeps working after its set changes; the worklist flags it.)
+        else if (!listed.data.some((candidate) => canonical(candidate, aliases) === pick.to))
+          problems.push(
+            `${hash} points at ${pick.to}, which is not one of the tooltips sharing it`,
+          );
       }
     }
     if (problems.length) throw new HttpError(422, 'Invalid sandbox picks', problems);
