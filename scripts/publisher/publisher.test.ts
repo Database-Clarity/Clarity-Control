@@ -1038,6 +1038,13 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
         paths(A).log,
       )!.result,
     ).toMatchObject({ status: 'rejected', error: expect.stringContaining('sandbox-pointers') });
+    // The bundle still updates; it leaves the malformed picks out.
+    const bundle = f.pub.read<Record<string, unknown>>(
+      f.git.tree(f.git.head('refs/heads/editor-data-bundle')!),
+      'bundle.json',
+    )!;
+    expect(bundle.sourceCommit).toBe(f.git.head(D));
+    expect(bundle).not.toHaveProperty('sandboxPointers');
   });
   it.each([false, true])(
     'guard closes a stray request (conflict=%s) without changing original log',
@@ -1124,6 +1131,34 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     f.git.cas(D, f.git.head(D), unrelated);
     expect(() => f.pub.bundle()).toThrow('backwards');
     expect(f.git.head('refs/heads/editor-data-bundle')).toBe(newer);
+  });
+  it('a bundle push carries both report catalogs forward and adds the sandbox picks', async () => {
+    const f = await setup();
+    const ref = 'refs/heads/editor-data-bundle',
+      source = f.git.head(D)!;
+    const catalogs = {
+      'report-items.json': `{"v":1,"sourceCommit":"${source}","items":{"123":{"name":"Thing"}}}
+`,
+      'report-items.worker.json': `{"v":1,"sourceCommit":"${source}","items":{"123":{}}}
+`,
+    };
+    const seeded: Tree = { 'bundle.json': f.git.writeBlob(encode({ sourceCommit: source })) };
+    for (const [p, bytes] of Object.entries(catalogs)) seeded[p] = f.git.writeBlob(bytes);
+    f.git.cas(ref, undefined, f.git.commit(undefined, seeded, 'Bundle editor data'));
+    const picks = {
+      version: 1,
+      pointers: { 700: { to: 123, candidates: [123, 124], by: 1, at: '2026-11-12T20:00:00Z' } },
+    };
+    f.change(D, { 'config/sandbox-pointers.json': picks });
+    f.pub.bundle();
+    const tree = f.git.tree(f.git.head(ref)!);
+    expect(Object.keys(tree).sort()).toEqual(
+      ['bundle.json', 'report-items.json', 'report-items.worker.json'].sort(),
+    );
+    for (const [p, bytes] of Object.entries(catalogs)) expect(f.git.blob(tree[p]!)).toBe(bytes);
+    expect(f.pub.read<{ sandboxPointers: unknown }>(tree, 'bundle.json')!.sandboxPointers).toEqual(
+      picks,
+    );
   });
   it('bundle pushes, dry-run included, carry the report catalogs forward byte-identical', async () => {
     const f = await setup();

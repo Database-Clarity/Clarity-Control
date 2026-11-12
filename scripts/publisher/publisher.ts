@@ -608,10 +608,12 @@ export class Publisher {
         return { opId: id, invalid: true };
       }
     });
-    // Maintainer sandbox picks ride along for the editor's alias view; omitted while there are none.
-    const rawPicks = this.read<unknown>(t, sandboxPointersPath);
-    const sandboxPointers =
-      rawPicks === undefined ? undefined : sandboxPointersSchema.parse(rawPicks);
+    // Maintainer sandbox picks ride along for the editor's alias view; omitted while there are
+    // none. A malformed file is left out rather than stopping the bundle (and with it the queue):
+    // publish requests are refused terminally on it (aliasesAt), and the Worker fails closed.
+    const sandboxPointers = sandboxPointersSchema.safeParse(
+      this.read<unknown>(t, sandboxPointersPath),
+    ).data;
     const bundle = {
       sourceCommit: h,
       generatedAt: new Date(this.options.now()).toISOString(),

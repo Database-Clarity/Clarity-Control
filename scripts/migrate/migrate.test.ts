@@ -341,8 +341,11 @@ describe('dependency-free bundle', () => {
       ...plain,
       sandboxPointers: picks,
     });
-    await writeFile(path, '{"version":2,"pointers":{}}');
-    await expect(buildBundle(root, sourceCommit)).rejects.toThrow('Invalid sandbox pointers');
+    // A malformed file is left out, never a failed bundle.
+    for (const bad of ['{"version":2,"pointers":{"1":{}}}', '{"version":1,"pointers":[1]}', '{'])
+      expect(
+        await (await writeFile(path, bad), buildBundle(root, sourceCommit, generatedAt)),
+      ).toEqual(plain);
   });
 
   it('fails on invalid commit, mismatched hash, missing data or bad pushed digest', async () => {

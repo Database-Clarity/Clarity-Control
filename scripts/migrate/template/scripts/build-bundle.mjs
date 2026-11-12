@@ -40,25 +40,23 @@ export async function buildBundle(root, sourceCommit, generatedAt = new Date().t
     }
   }
   // Maintainer sandbox picks (config/sandbox-pointers.json) ride along for the editor's alias
-  // view; omitted while the file is absent or holds no picks, so such bundles are unchanged.
+  // view; omitted while the file is absent or holds no picks, so such bundles are unchanged. A
+  // malformed file is left out rather than failing the bundle (the Worker fails closed on it).
   let sandboxPointers;
   try {
     sandboxPointers = await readJson(join(root, 'config', 'sandbox-pointers.json'));
-  } catch (error) {
-    if (error?.code !== 'ENOENT') throw error;
+  } catch {
+    sandboxPointers = undefined; // absent or not JSON
   }
-  if (sandboxPointers !== undefined) {
-    if (
-      !sandboxPointers ||
-      sandboxPointers.version !== 1 ||
-      typeof sandboxPointers.pointers !== 'object' ||
-      sandboxPointers.pointers === null ||
-      Array.isArray(sandboxPointers.pointers)
-    ) {
-      throw new Error('Invalid sandbox pointers');
-    }
-    if (!Object.keys(sandboxPointers.pointers).length) sandboxPointers = undefined;
-  }
+  const picks = sandboxPointers?.pointers;
+  if (
+    sandboxPointers?.version !== 1 ||
+    !picks ||
+    typeof picks !== 'object' ||
+    Array.isArray(picks) ||
+    !Object.keys(picks).length
+  )
+    sandboxPointers = undefined;
   return {
     sourceCommit,
     generatedAt,
