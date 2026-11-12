@@ -134,7 +134,7 @@ export function DraftsContent({ onClose }: { onClose(): void }) {
                   disabled={stale.has(String(hash))}
                   onClick={() => open(hash)}
                 >
-                  {name(hash)} <small>{hash}</small>
+                  <span className={styles.name}>{name(hash)}</span> <small>{hash}</small>
                 </button>
                 <small className={styles.meta}>
                   {languages.length ? languages.map(languageLabel).join(', ') : 'Other fields'}

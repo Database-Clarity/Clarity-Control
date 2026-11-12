@@ -204,10 +204,18 @@
   }
 }
 
+// In a narrow column the date moves under the name as a whole: neither is squeezed into a word
+// per line ("Stardust ·" over "01.11.2026," over "13:00").
 .author {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0 0.4rem;
+  min-width: 0;
+
+  time {
+    white-space: nowrap;
+  }
 
   img {
     width: 1.5rem;

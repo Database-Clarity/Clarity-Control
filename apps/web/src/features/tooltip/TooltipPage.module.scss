@@ -242,6 +242,33 @@
     }
   }
 }
+// Any narrow editor (a preview column open at 768px, a large interface scale): the line drops the
+// shortcut hint first, then shows "Grouped N" as its icon and N, so the right-hand buttons never
+// slide over one another or out of the header.
+@container pane-header (max-width: 40rem) {
+  .paneHeader .key {
+    display: none;
+  }
+}
+@container pane-header (max-width: 34rem) {
+  .paneHeader {
+    .groupedIcon {
+      display: inline-block;
+    }
+    .groupedWord {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+    .langSelect {
+      max-width: 7rem;
+      text-overflow: ellipsis;
+    }
+  }
+}
 // Toggle mode adds the English and Compendium buttons to the same line. Below this width the
 // line cannot hold them and the control (48.5rem with a draft and an override), so the control
 // takes a row of its own, as on a phone.
@@ -508,11 +535,20 @@
   padding-inline: 0;
   background: transparent;
 }
+// "Owner: …" and "Shared perk — used on: …": a narrow column wraps the line, never cuts it.
 .noteRow {
   color: var(--text2);
+  > div {
+    white-space: normal;
+    padding-block: 0.25rem;
+  }
+  > div > span {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
   span {
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 }
 
