@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "hash": 3000,
+  "english": "Final blows with this weapon grant <green [Bolt Charge] />.\n\nAt <yellow 6 stacks />, precision hits <bold unravel /> targets for <pve 4s /> <pvp [2s] />.",
+  "sourceCommit": "0123456789abcdef0123456789abcdef01234567",
+  "source": {
+    "tab": "Weapon Perks",
+    "gid": "1047",
+    "range": "C14:E14",
+    "text": "Final blows grant Bolt Charge. At 6 stacks, precision hits unravel targets for 4s (2s in PvP)."
+  },
+  "styleGuide": "v1",
+  "createdAt": "2026-11-11T20:00:00Z",
+  "model": "claude-opus-5-5"
+}
