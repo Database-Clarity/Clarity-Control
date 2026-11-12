@@ -229,13 +229,15 @@ it('keeps resolved children behind the shown skeleton until its minimum elapses'
 
 it('hands a shown parent clock to nested boundaries instead of stacking minimums', async () => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
-  const draw = (outer: boolean, inner: boolean) =>
+  const draw = (outer: boolean, inner: boolean, mounted = true) =>
     act(async () =>
       root.render(
         <SkeletonBoundary pending={outer} label="Outer">
-          <SkeletonBoundary pending={inner} label="Inner">
-            <p>Ready</p>
-          </SkeletonBoundary>
+          {mounted && (
+            <SkeletonBoundary pending={inner} label="Inner">
+              <p>Ready</p>
+            </SkeletonBoundary>
+          )}
         </SkeletonBoundary>,
       ),
     );
@@ -250,14 +252,16 @@ it('hands a shown parent clock to nested boundaries instead of stacking minimums
     await paint();
     await paint();
     await act(async () => vi.advanceTimersByTime(100));
-    await draw(false, true);
+    await draw(false, true, false);
     await act(async () => vi.advanceTimersByTime(skeletonMinimumMs - 100));
-    expect(host.textContent).toBe('Inner');
+    expect(host.textContent).toBe('');
     // A slow lazy import can take more than two frames after its parent finishes.
     // The navigation's clock must still reach boundaries mounted by that import.
     await paint();
     await paint();
     await act(async () => vi.advanceTimersByTime(100));
+    await draw(false, true);
+    expect(host.textContent).toBe('Inner');
     await paint();
     await paint();
     await draw(false, false);
