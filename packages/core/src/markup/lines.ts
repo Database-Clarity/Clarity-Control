@@ -99,37 +99,63 @@ function markersPair(parts: readonly string[]): boolean {
 /**
  * The spans of one line. Element-tagged text arrives lowered (parseMarkup): the icon, then its
  * text between preview markers, which tint that text and are dropped, so the result is exactly
- * the lowered form's spans with the tagged text as its own tinted span.
+ * the lowered form's spans with the tagged text as its own tinted span. Spaces the markers split
+ * off (between the icon and its text, or right after the text) join the tinted span, as they
+ * stay in the text span of the lowered form; table cells drop whitespace-only spans.
  */
 function spans(line: string, titles: Record<string, MarkupLine[]>): MarkupSpan[] {
   const parts = line.split(markedPart);
   const tinting = parts.length > 1 && markersPair(parts);
   let tint: string | undefined;
+  /** Where the spaces after the icon start, until the tinted text takes them. */
+  let lead = -1;
+  /** The tinted span just closed, which takes the spaces right after it. */
+  let closed: MarkupSpan | undefined;
   const out: MarkupSpan[] = [];
+  const space = (span: MarkupSpan) =>
+    span.text !== undefined && !span.classNames && !span.text.trim();
   for (const part of parts) {
     if (!part) continue;
     if (part === elementTextOpen) {
       if (!tinting) continue;
+      closed = undefined;
       // The lowered icon before the text (past its leading spaces) names the element.
       let at = out.length - 1;
-      while (at >= 0 && !out[at].classNames && !out[at].text?.trim()) at--;
+      while (at >= 0 && space(out[at])) at--;
       const icon = out[at];
       const element = icon && icon.text === undefined ? icon.classNames?.[0] : undefined;
       tint = element && elements.has(element) ? element : undefined;
+      lead = tint ? at + 1 : -1;
       continue;
     }
     if (part === elementTextClose) {
+      const last = out.at(-1);
+      closed = tint && last?.classNames?.[0] === 'elementText' ? last : undefined;
       tint = undefined;
+      lead = -1;
       continue;
     }
     const text = part.replace(elementTextMarkers, '');
     if (!text) continue;
-    for (const span of lineSpans(text, titles))
-      out.push(
-        tint && span.text !== undefined && !span.classNames
-          ? { text: span.text, classNames: ['elementText', tint] }
-          : span,
-      );
+    for (const span of lineSpans(text, titles)) {
+      if (tint && span.text !== undefined && !span.classNames) {
+        const spaces =
+          lead >= 0
+            ? out
+                .splice(lead)
+                .map((s) => s.text)
+                .join('')
+            : '';
+        lead = -1;
+        out.push({ text: spaces + span.text, classNames: ['elementText', tint] });
+      } else if (closed && space(span)) {
+        closed.text += span.text!;
+      } else {
+        lead = -1;
+        out.push(span);
+      }
+      closed = undefined;
+    }
   }
   return out;
 }

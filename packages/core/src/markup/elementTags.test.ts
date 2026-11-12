@@ -538,4 +538,51 @@ describe('plain keywords in tables keep the tint', () => {
       ['"elementText","solar"', '"elementText","arc"', '"elementText","strand"'],
     );
   });
+  // Code review round 4b: spaces the markers split off became whitespace-only cell spans, which
+  // tables drop, so the comparison fell back to the untinted render for the whole document.
+  const cells: [name: string, cell: string][] = [
+    ['leading spaces', 'before <EL  Word /> stacks'],
+    ['leading spaces at the cell start', '<EL   Word /> stacks'],
+    ['a tab before the text', 'before <EL \tWord /> stacks'],
+    ['spaces before the next icon', 'before <EL Word  /><pve/> stacks'],
+    ['two tags, spaces between', '<EL  Word  /> <EL  Other /> end'],
+    ['spaces both sides, cell end', 'x <EL   Word   />'],
+  ];
+  it.each(elementTagNames.flatMap((element) => cells.map(([name, cell]) => [element, name, cell])))(
+    'spaces around the text in a cell (%s, %s)',
+    (element, _, cell) => {
+      const text = `< table wide >\n| ${cell.replaceAll('EL', element)} | 10%\n<$>`;
+      const count = cell.split('<EL').length - 1;
+      for (const type of [undefined, enhancedMarkupType])
+        check(text, { ...plain, type }, Array(count).fill(`"elementText","${element}"`));
+    },
+  );
+  it('leading spaces in tables of titles, imports, and mixed documents keep every tint', () => {
+    const table = (element: string) => `< table wide >\n| a <${element}  Word /> b | 1\n<$>`;
+    check('See <title more [T] />.', { ...plain, titles: `title T (\n${table('arc')}\n)` }, [
+      '"elementText","arc"',
+    ]);
+    check(
+      'import Main from 126',
+      { ...plain, imports: { '126': `export Main (\n${table('void')}\n)` } },
+      ['"elementText","void"'],
+    );
+    check(`Gain <solar Scorch /> stacks.\n${table('arc')}\r\nThen <void Volatile />.`, plain, [
+      '"elementText","solar"',
+      '"elementText","arc"',
+      '"elementText","void"',
+    ]);
+  });
+  it('ordinary lines keep spaces around tinted text exactly', () => {
+    for (const text of [
+      'Gain <arc  Word /> stacks.',
+      'Gain <arc Word  /><pve/> stacks.',
+      'Gain <arc  Word  /> <solar  Other /> end',
+    ])
+      check(
+        text,
+        plain,
+        (text.match(/<(arc|solar) /g) ?? []).map((tag) => `"elementText","${tag.slice(1, -1)}"`),
+      );
+  });
 });
