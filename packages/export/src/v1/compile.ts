@@ -3,6 +3,12 @@
 // (buildLegacy) byte for byte. Everything else resolves each row exactly as the editor preview
 // does (core parseMarkup with the same globals), so base/enhanced pairs, imports, titles, and
 // math match the preview, then selects, transforms, and encodes.
+import {
+  showcaseGlobals,
+  showcaseId,
+  showcaseName,
+  showcaseText,
+} from '@clarity/core/markup/showcase';
 import { parseMarkup, type MarkupGlobals, type MarkupLine } from '@clarity/core/markup/parse';
 import {
   expandAliases,
@@ -238,6 +244,19 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
       if (lines) descriptions[language] = transform(lines, format, shape, notes);
     }
     expanded[hash] = { hash: Number(hash), ...picked.get(hash), descriptions };
+  }
+  if (data.includeShowcase) {
+    const descriptions: Descriptions = {};
+    const { lines, diagnostics } = parseMarkup(showcaseText, showcaseGlobals);
+    if (diagnostics.length) throw new Error('Invalid built-in showcase markup');
+    // English example in each selected language: self-contained, never translated by data.
+    for (const language of languages)
+      descriptions[language] = transform(lines, format, shape, notes);
+    expanded[showcaseId] = {
+      hash: Number(showcaseId),
+      ...(keys.includes('name') ? { name: showcaseName } : {}),
+      descriptions,
+    };
   }
   if (notes.unchosen.size)
     notices.push({ kind: 'unchosen-symbol', symbols: [...notes.unchosen].sort() });

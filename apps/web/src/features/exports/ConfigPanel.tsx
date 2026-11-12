@@ -433,6 +433,14 @@ function DataSection({
                 update((current) => setData(current, key, 'bungieIdentical', value))
               }
             />
+            <Flag
+              label="Feature showcase"
+              title="Add the built-in formatting example under reserved id -1"
+              checked={file.data.includeShowcase ?? false}
+              onChange={(value) =>
+                update((current) => setData(current, key, 'includeShowcase', value))
+              }
+            />
           </div>
         </div>
       </div>

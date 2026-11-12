@@ -10,3 +10,5 @@ export * from './snippets.js';
 export * from './transforms.js';
 export * from './conflicts.js';
 export * from './baseEnhanced.js';
+
+export * from './showcase.js';
