@@ -102,7 +102,19 @@ export function MarkupOnlyEnglish({
 
   const elements = useMemo(() => new Set(added.map((tag) => tag.element)), [added]);
 
+  // The frames a step waits for. A new step, another tooltip or language, or leaving the pane
+  // cancels them; each also checks that the text it measured is still the text it acts on.
+  const frames = useRef<number[]>([]);
+  const cancelFrames = () => {
+    for (const id of frames.current.splice(0)) cancelAnimationFrame(id);
+  };
+  useEffect(() => cancelFrames, [hash, before, current]);
+  const frame = (run: () => void) => {
+    frames.current.push(requestAnimationFrame(run));
+  };
+
   function step() {
+    cancelFrames();
     const view = translationEditor(hash);
     if (!view || view.state.readOnly) {
       setNote('Open the translation in the editor to tag it.');
@@ -116,33 +128,43 @@ export function MarkupOnlyEnglish({
       return;
     }
     // The next pair after the caret (around to the first); the translator decides each one.
-    const head = view.state.selection.main.to;
+    const caret = view.state.selection.main.to;
     const index = Math.max(
       0,
-      pairs.findIndex((pair) => pair.iconFrom >= head),
+      pairs.findIndex((pair) => pair.iconFrom >= caret),
     );
     const pair = pairs[index]!;
     setNote(`${index + 1} of ${pairs.length}: “${pair.text}”`);
     showEditor();
     const aside = `${index + 1} of ${pairs.length} in the translation`;
+    const doc = view.state.doc;
+    const anchor = pair.from;
+    const head = pair.spaced ? pair.from : pair.to;
+    // Still the same editor, for this tooltip, on exactly the text the pair was found in.
+    const current = () =>
+      view.dom.isConnected &&
+      view.dom.dataset.tooltipHash === String(hash) &&
+      !view.state.readOnly &&
+      view.state.doc === doc;
     // A hidden panel (the phone's Editor tab, toggle mode's slot) lays out first, then takes the
     // caret and the menu, so the menu is placed against the shown text.
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
+    frame(() =>
+      frame(() => {
+        if (!current()) return;
         // Joined: the words selected, with Ctrl+Space on the element's wrap. Spaced: the caret at
         // the words, with "Group with icon" (which asks before it drops the space).
-        view.dispatch({
-          selection: pair.spaced ? { anchor: pair.from } : { anchor: pair.from, head: pair.to },
-          scrollIntoView: true,
-        });
+        view.dispatch({ selection: { anchor, head }, scrollIntoView: true });
         view.focus();
         openSuggest(view);
         // Moved once the menu has drawn, so its list scrolls to the option.
-        requestAnimationFrame(() => {
-          const option = suggestState(view.state)?.items.findIndex((item) =>
+        frame(() => {
+          const { main } = view.state.selection;
+          const menu = suggestState(view.state);
+          if (!current() || !menu || main.anchor !== anchor || main.head !== head) return;
+          const option = menu.items.findIndex((item) =>
             pair.spaced ? item.group === 'spaced' : item.wrap && item.id === `icon:${pair.element}`,
           );
-          if (option !== undefined && option >= 0) guideSuggest(view, option, aside);
+          if (option >= 0) guideSuggest(view, option, aside);
         });
       }),
     );

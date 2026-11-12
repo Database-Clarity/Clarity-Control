@@ -124,6 +124,68 @@ it('"Tag the same words here" steps through the matching pairs in the translatio
   }
 });
 
+it('a step waiting for its frames is dropped when the text, the pane, or a new step moves on (code review F1)', async () => {
+  const view = new EditorView({
+    state: EditorState.create({
+      doc: 'Gewinne <solar/>Glut und <solar/>Brand.',
+      extensions: [
+        suggestExtension(),
+        suggestConfiguration({ globals: { variables: '', titles: '' } }),
+      ],
+    }),
+    parent: document.body,
+  });
+  view.dom.dataset.tooltipHash = '1';
+  // Real frames, run only when the test says so.
+  let queued: FrameRequestCallback[] = [];
+  const request = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((run) => {
+    queued.push(run);
+    return queued.length;
+  });
+  const cancel = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
+    queued[id - 1] = () => {};
+  });
+  const flush = () => {
+    for (let round = 0; round < 5 && queued.some(Boolean); round++) {
+      const now = queued;
+      queued = [];
+      for (const run of now) run(0);
+    }
+  };
+  const step = () => act(() => host.querySelector<HTMLButtonElement>('[data-tag-here]')!.click());
+  try {
+    await show('Gain <solar/>Scorch.', 'Gain <solar Scorch />.');
+    // The document is replaced (another tooltip, a shorter text) before the frames run.
+    step();
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: '' } });
+    expect(() => flush()).not.toThrow();
+    expect(view.state.selection.main.empty).toBe(true);
+    expect(suggestState(view.state)).toBeNull();
+    // A second press supersedes the first: only one step acts.
+    view.dispatch({ changes: { from: 0, insert: 'A <solar/>Glut und <solar/>Hitze.' } });
+    step();
+    step();
+    flush();
+    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe(
+      'Glut',
+    );
+    expect(suggestState(view.state)?.aside).toBe('1 of 2 in the translation');
+    // Leaving the pane cancels a step still waiting.
+    act(() => view.dispatch({ selection: { anchor: 0 } }));
+    act(() => void view.dispatch({ effects: [] }));
+    step();
+    act(() => root.unmount());
+    root = createRoot(host);
+    view.dispatch({ selection: { anchor: 0 } });
+    flush();
+    expect(view.state.selection.main.head).toBe(0);
+  } finally {
+    request.mockRestore();
+    cancel.mockRestore();
+    view.destroy();
+  }
+});
+
 it('says so when the translation has no matching pair', async () => {
   const view = new EditorView({
     state: EditorState.create({ doc: 'Gewinne <arc/>Blitz.' }),
