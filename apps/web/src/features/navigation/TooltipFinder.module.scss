@@ -150,9 +150,12 @@
 
 .option {
   display: grid;
-  // The name wins the width; the right-hand text yields (a long perk truncates, never the piece).
-  // Icon (a fixed 1.25rem box, the draft mark on its corner), name, then the right-hand text.
-  grid-template-columns: 1.25rem minmax(0, 1fr) fit-content(55%);
+  // Icon (a fixed 1.25rem box, the draft mark on its corner), name, a spacer, then the right-hand
+  // text against the right edge. Name and right-hand text each take what they need; only when
+  // both are too long do they share the row equally (the spacer collapses), so text never
+  // truncates while the row has room (owner DESIGN QUALITY; a short piece name used to cap a
+  // long perk at 55%).
+  grid-template-columns: 1.25rem minmax(0, max-content) minmax(0, 1fr) minmax(0, max-content);
   align-items: center;
   gap: 0.375rem;
   min-height: 1.75rem;
@@ -189,6 +192,10 @@
   &[data-grouped] {
     grid-template-columns: 1.25rem minmax(0, 1fr) fit-content(75%);
 
+    > small {
+      grid-column: auto;
+    }
+
     .tail {
       flex: none;
     }
@@ -219,6 +226,10 @@
     .tail {
       flex: 0 1 auto;
     }
+  }
+
+  > small {
+    grid-column: 4;
   }
 
   small {
