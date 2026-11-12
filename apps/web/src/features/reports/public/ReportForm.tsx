@@ -600,10 +600,15 @@ export function ReportForm() {
     }
   };
 
-  // Send's code arrives once there is something to send, before the reporter presses Send.
+  // Send's code arrives once there is something to send, before the reporter presses Send. One
+  // attempt per form: if it fails (offline), Send loads it again rather than every keystroke.
+  const prefetched = useRef(false);
+  const hasDraft = !isEmptyDraft(draft);
   useEffect(() => {
-    if (render && !isEmptyDraft(draft)) loadSendClient().catch(() => undefined);
-  }, [render, draft]);
+    if (!render || !hasDraft || prefetched.current) return;
+    prefetched.current = true;
+    loadSendClient().catch(() => undefined);
+  }, [render, hasDraft]);
   const waitingForClient = useRef(false);
 
   const send = async () => {
