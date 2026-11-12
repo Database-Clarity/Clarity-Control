@@ -521,29 +521,28 @@
   padding: 2px 0.25rem 0.25rem;
   border-top: 1px solid var(--hair);
   font-size: 0.8125rem;
+  // The help line wraps in a narrow column instead of being cut off.
   small {
     display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    margin-top: 2px;
     color: var(--text2);
     font-size: 0.75rem;
+    overflow-wrap: anywhere;
   }
 }
+// Two short labels on one row; in the narrowest column they wrap as whole buttons, never clipped.
 .categorySwitch {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.375rem;
   align-items: center;
   min-width: 0;
   button {
     @include controls.button;
-    flex: 0 1 auto;
-    min-width: 0;
+    flex: 0 0 auto;
     min-height: 1.5rem;
     padding: 0 0.5rem;
     font-size: 0.75rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
     &[aria-pressed='true'] {
       border-color: var(--accent-ink);
