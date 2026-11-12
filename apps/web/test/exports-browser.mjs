@@ -1,4 +1,4 @@
-/* global document, window, getComputedStyle, requestAnimationFrame, location */
+/* global document, window, getComputedStyle, requestAnimationFrame, location, MutationObserver */
 // Export site E2E and render QA (EXPORT-P4): the real app (Vite) against the local Worker (P3's
 // in-memory GitHub, exports-worker-child.mjs) and a local fixture data site (snapshot built from
 // the repo's fixtures with the engine bundle exactly as build.mjs makes it). Nothing leaves the
@@ -353,6 +353,43 @@ const sampleHash = Object.keys(input.perks).find(
 
 const results = { buildId, sampleHash };
 
+/**
+ * Per change window (performance marks change-start .. change-end): GC time and the longest
+ * top-level task on each thread, from the trace. Threads: the renderer main thread and workers.
+ */
+function attributeChanges(events) {
+  const names = new Map();
+  for (const event of events)
+    if (event.ph === 'M' && event.name === 'thread_name')
+      names.set(`${event.pid}:${event.tid}`, event.args.name);
+  const marks = (name) =>
+    events
+      .filter((event) => event.name === name && event.cat.includes('blink.user_timing'))
+      .map((event) => event.ts)
+      .sort((a, b) => a - b);
+  const starts = marks('change-start');
+  const ends = marks('change-end');
+  return starts.map((start, index) => {
+    const end = ends.find((ts) => ts > start) ?? start;
+    const threads = {};
+    for (const event of events) {
+      if (event.ph !== 'X' || event.ts + (event.dur ?? 0) < start || event.ts > end) continue;
+      const thread = names.get(`${event.pid}:${event.tid}`) ?? '';
+      if (!/CrRendererMain|DedicatedWorker/.test(thread)) continue;
+      const row = (threads[`${thread} ${event.tid}`] ??= { gcMs: 0, longestTaskMs: 0 });
+      const ms = (event.dur ?? 0) / 1000;
+      if (event.name === 'MajorGC' || event.name === 'MinorGC') row.gcMs += ms;
+      if (event.name === 'RunTask' || event.name === 'ThreadControllerImpl::RunTask')
+        row.longestTaskMs = Math.max(row.longestTaskMs, ms);
+    }
+    for (const row of Object.values(threads)) {
+      row.gcMs = Math.round(row.gcMs * 10) / 10;
+      row.longestTaskMs = Math.round(row.longestTaskMs * 10) / 10;
+    }
+    return { change: index, windowMs: Math.round((end - start) / 100) / 10, threads };
+  });
+}
+
 if (perfOnly) {
   // AC3: sample repaint after an option change, and long tasks on the main thread (1x).
   const { page, context } = await open({
@@ -364,13 +401,38 @@ if (perfOnly) {
   await page.evaluate(() => {
     // Input-to-paint: from the pointer event's own timestamp, so Playwright's actionability
     // waits before it dispatches (two stable frames) are not counted as app time.
-    document.addEventListener('pointerdown', (event) => (window.__inputAt = event.timeStamp), true);
+    document.addEventListener(
+      'pointerdown',
+      (event) => {
+        window.__inputAt = event.timeStamp;
+        performance.mark('change-start');
+      },
+      true,
+    );
+    // Split: the click's own commit (config version bumps) vs the sample's reply and render.
+    new MutationObserver((records) => {
+      for (const record of records)
+        if (record.attributeName === 'data-config-version') window.__commitAt ??= performance.now();
+    }).observe(document.body, { subtree: true, attributes: true });
     window.longTasks = [];
     new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) window.longTasks.push(entry.duration);
     }).observe({ type: 'longtask' });
   });
   const repaint = [];
+  const commit = [];
+  // A trace of every thread (main and the preview workers), so each change's time can be
+  // attributed: GC and the longest task per thread inside the change's window.
+  await browser.startTracing(page, {
+    categories: [
+      'toplevel',
+      'devtools.timeline',
+      'disabled-by-default-devtools.timeline',
+      'v8',
+      'disabled-by-default-v8.gc',
+      'blink.user_timing',
+    ],
+  });
   const rows = ['Bold', 'Arc', 'Solar', 'Void', 'Titles', 'Links', 'Spacer lines', 'PvE'];
   for (let round = 0; round < 3; round++)
     for (const row of rows) {
@@ -378,6 +440,7 @@ if (perfOnly) {
       const buttons = group.locator('button:not([disabled]):not([aria-pressed="true"])');
       const ms = await page.evaluate(() => {
         window.__inputAt = null;
+        window.__commitAt = null;
         const entry = document.querySelector('[data-config-version]');
         return Number(entry.getAttribute('data-config-version'));
       });
@@ -391,21 +454,31 @@ if (perfOnly) {
               const asked = Number(entry.getAttribute('data-config-version'));
               const shown = Number(entry.getAttribute('data-rendered-version'));
               if (asked > before && shown === asked)
-                requestAnimationFrame(() => done(performance.now() - window.__inputAt));
+                requestAnimationFrame(() => {
+                  const at = performance.now();
+                  performance.mark('change-end');
+                  done([at - window.__inputAt, window.__commitAt - window.__inputAt]);
+                });
               else requestAnimationFrame(check);
             };
             check();
           }),
         ms,
       );
-      repaint.push(Math.round(elapsed * 10) / 10);
+      repaint.push(Math.round(elapsed[0] * 10) / 10);
+      commit.push(Math.round(elapsed[1] * 10) / 10);
     }
   const longTasks = await page.evaluate(() => window.longTasks);
+  const trace = await browser.stopTracing();
+  writeFileSync(join(out, 'perf-trace.json'), trace);
+  const windows = attributeChanges(JSON.parse(trace.toString('utf8')).traceEvents);
   await context.close();
   const sorted = [...repaint].sort((a, b) => a - b);
   console.log(
     JSON.stringify({
       repaintMs: repaint,
+      commitMs: commit,
+      windows,
       median: sorted[Math.floor(sorted.length / 2)],
       p90: sorted[Math.floor(sorted.length * 0.9)],
       max: sorted.at(-1),
