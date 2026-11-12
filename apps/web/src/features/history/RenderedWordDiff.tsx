@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import { markupLanguage, type Lang, type MarkupLine, type MarkupSpan } from '@clarity/core';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
@@ -19,7 +19,15 @@ function Parts({ parts }: { parts: MarkupSpan[] }) {
     else groups.push({ kind, parts: [part] });
   }
   return groups.map((group, i) => {
-    const content = group.parts.map((part, p) => <PreviewSpan key={p} part={part} />);
+    // Plain text already inherits the preview font and colour. Only semantic
+    // spans need PreviewSpan's classes, link policy, and interactive title tree.
+    const content = group.parts.map((part, p) =>
+      !part.classNames?.length && !part.link && !part.title ? (
+        part.text
+      ) : (
+        <PreviewSpan key={p} part={part} />
+      ),
+    );
     return group.kind === 'delete' ? (
       <del key={i}>{content}</del>
     ) : group.kind === 'insert' ? (
@@ -29,7 +37,7 @@ function Parts({ parts }: { parts: MarkupSpan[] }) {
     );
   });
 }
-function Body({ lines, lang }: { lines: MarkupLine[]; lang: Lang }) {
+const Body = memo(function Body({ lines, lang }: { lines: MarkupLine[]; lang: Lang }) {
   return (
     <div className={`${preview.snippet} ${styles.body}`} lang={markupLanguage(lang)}>
       {lines.map((line, i) =>
@@ -60,7 +68,7 @@ function Body({ lines, lang }: { lines: MarkupLine[]; lang: Lang }) {
       )}
     </div>
   );
-}
+});
 
 export function RenderedWordDiff({
   before,
@@ -79,7 +87,9 @@ export function RenderedWordDiff({
   const drafts = useDraftStore.getState().drafts;
   const globals = useMemo(() => {
     const imports = data
-      ? tooltipImports(data.bundle.tooltips, previewDrafts(drafts), lang, data.aliases)
+      ? tooltipImports(data.bundle.tooltips, previewDrafts(drafts), lang, data.aliases, {
+          lookupOnly: true,
+        })
       : {};
     const type = data?.categories.find(
       (category) => category.id === data.items[hash]?.categoryId,

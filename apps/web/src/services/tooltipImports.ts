@@ -27,7 +27,30 @@ export function tooltipImports(
   drafts: Drafts,
   lang: Lang,
   aliases: Aliases,
+  options?: { lookupOnly?: boolean },
 ): Record<string, string> {
+  // Render-only consumers resolve individual documents, never a suggestion
+  // catalogue. Keep their first lookup independent of catalogue size.
+  if (options?.lookupOnly) {
+    const read = (key: string) => {
+      const hash = Number(key);
+      if (!Number.isInteger(hash) || String(hash) !== key) return undefined;
+      const canonical = resolveAlias(hash, aliases);
+      const tooltip = drafts[canonical]?.next ?? tooltips[canonical];
+      return tooltip ? (tooltip.text[lang]?.text ?? '') : undefined;
+    };
+    return new Proxy<Record<string, string>>(
+      {},
+      {
+        get: (_target, key) => (typeof key === 'string' ? read(key) : undefined),
+        has: (_target, key) => typeof key === 'string' && read(key) !== undefined,
+        getOwnPropertyDescriptor(_target, key) {
+          const value = typeof key === 'string' ? read(key) : undefined;
+          return value === undefined ? undefined : { configurable: true, enumerable: true, value };
+        },
+      },
+    );
+  }
   let byAliases = savedImports.get(tooltips);
   if (!byAliases) savedImports.set(tooltips, (byAliases = new WeakMap()));
   let byLanguage = byAliases.get(aliases);
