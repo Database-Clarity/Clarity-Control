@@ -220,10 +220,11 @@
     min-width: 1.25rem;
     min-height: 1.25rem;
     padding: 0;
-    // Touch: a compact 28px target (the popover wraps on a phone), not a full tap size.
+    // Touch: a compact 32px target, the height of the popover's other buttons there (the popover
+    // wraps on a phone), not a full tap size.
     @include theme.mobile-or-coarse {
-      min-width: 1.75rem;
-      min-height: 1.75rem;
+      min-width: 2rem;
+      min-height: 2rem;
     }
     &[aria-pressed='true'] {
       background: var(--active-line);
@@ -259,6 +260,10 @@
     min-height: 1.25rem;
     padding: 0 0.375rem;
     font: inherit;
+    @include theme.mobile-or-coarse {
+      min-height: 2rem;
+      padding: 0 0.625rem;
+    }
   }
   :global(.cm-symbol-input) {
     min-width: 10rem;

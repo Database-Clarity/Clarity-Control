@@ -1,6 +1,7 @@
 import { isolateHistory } from '@codemirror/commands';
 import {
   EditorState,
+  Prec,
   StateEffect,
   StateField,
   type Extension,
@@ -311,10 +312,6 @@ function symbolRanges(state: EditorState, from = 0, to = state.doc.length): Rang
   return ranges;
 }
 
-function build(state: EditorState): DecorationSet {
-  return state.field(rawMode) ? Decoration.none : Decoration.set(symbolRanges(state), true);
-}
-
 /** Icons and colour tags are line-local. Rebuild only the lines an edit can change. */
 function changedLines(transaction: Transaction) {
   const lines: { from: number; to: number }[] = [];
@@ -341,36 +338,62 @@ function changedLines(transaction: Transaction) {
   return merged;
 }
 
-const symbolDecorations = StateField.define<DecorationSet>({
-  create: build,
-  update(value, transaction) {
-    const modeChanged =
-      transaction.startState.field(rawMode) !== transaction.state.field(rawMode) ||
-      transaction.startState.field(reveal) !== transaction.state.field(reveal);
-    if (modeChanged) return build(transaction.state);
-    if (
-      !transaction.docChanged &&
-      !(transaction.state.field(reveal) === 'caret' && transaction.selection)
-    )
-      return value;
-    if (transaction.state.field(rawMode)) return Decoration.none;
-    const lines = changedLines(transaction);
-    return value.map(transaction.changes).update({
-      filterFrom: lines[0].from,
-      filterTo: lines.at(-1)!.to,
-      filter: (from, to) => !lines.some((line) => from <= line.to && to >= line.from),
-      add: lines.flatMap((line) => symbolRanges(transaction.state, line.from, line.to)),
-      sort: true,
-    });
-  },
-  provide: (field) => [
+/**
+ * A line-local decoration field: built whole on a mode change, else rebuilt only on the lines an
+ * edit (or a caret reveal) can change.
+ */
+function lineDecorations(
+  ranges: (state: EditorState, from?: number, to?: number) => Range<Decoration>[],
+  provide: (field: StateField<DecorationSet>) => Extension,
+) {
+  const build = (state: EditorState) =>
+    state.field(rawMode) ? Decoration.none : Decoration.set(ranges(state), true);
+  return StateField.define<DecorationSet>({
+    create: build,
+    update(value, transaction) {
+      const modeChanged =
+        transaction.startState.field(rawMode) !== transaction.state.field(rawMode) ||
+        transaction.startState.field(reveal) !== transaction.state.field(reveal);
+      if (modeChanged) return build(transaction.state);
+      if (
+        !transaction.docChanged &&
+        !(transaction.state.field(reveal) === 'caret' && transaction.selection)
+      )
+        return value;
+      if (transaction.state.field(rawMode)) return Decoration.none;
+      const lines = changedLines(transaction);
+      return value.map(transaction.changes).update({
+        filterFrom: lines[0].from,
+        filterTo: lines.at(-1)!.to,
+        filter: (from, to) => !lines.some((line) => from <= line.to && to >= line.from),
+        add: lines.flatMap((line) => ranges(transaction.state, line.from, line.to)),
+        sort: true,
+      });
+    },
+    provide,
+  });
+}
+
+const symbolDecorations = lineDecorations(
+  (state, from, to) => symbolRanges(state, from, to).filter((range) => range.value !== glueMark),
+  (field) => [
     EditorView.decorations.from(field),
     // The icons and the hidden markup are atomic; the tinted text itself is ordinary text.
     EditorView.atomicRanges.of((view) =>
       view.state.field(field).update({ filter: (_from, _to, value) => !value.spec.class }),
     ),
   ],
-});
+);
+
+/**
+ * The icon-and-first-word runs, at the lowest precedence: CodeMirror draws lower-precedence marks
+ * outside higher ones, so a longer tint or syntax mark (`<void Void Breaches />`) never splits the
+ * run around the icon.
+ */
+const glueDecorations = lineDecorations(
+  (state, from, to) => symbolRanges(state, from, to).filter((range) => range.value === glueMark),
+  (field) => Prec.lowest(EditorView.decorations.from(field)),
+);
 
 /**
  * Whether a drawn symbol (an icon or the `#e` arrow) covers the position. The symbol's own popover
@@ -836,6 +859,7 @@ export function symbolExtensions(initial: { mode(): SymbolReveal; raw(): boolean
     editing,
     tagPinned,
     symbolDecorations,
+    glueDecorations,
     symbolPopover,
     symbolEvents,
     symbolKeys,

@@ -81,15 +81,20 @@ describe('legacy files from tagged input', () => {
     );
   });
 
+  // The small fixture keeps this fast (the full data set runs per preset above); it holds tags in
+  // perks, enhanced text, titles, and tables.
   test('the legacy job path (buildAllLegacy) with clarityV2', () => {
     const versions = { descriptions: 2.0625 };
-    const options = { identical: editorData.identical, presets: legacyPresets };
-    const a = buildAllLegacy(tagged.input, versions, options);
-    const b = buildAllLegacy(editorData.input, versions, options);
+    const identical = bungieIdentical(fixture.input, fixture.inventoryItem as never);
+    const options = { identical, presets: legacyPresets };
+    const a = buildAllLegacy(taggedFixture.input, versions, options);
+    const b = buildAllLegacy(fixture.input, versions, options);
     expect(a.files.map((file) => file.ok && sha256(file.bytes))).toEqual(
       b.files.map((file) => file.ok && sha256(file.bytes)),
     );
-  }, 120_000);
+    for (const file of a.files)
+      if (file.ok) expect(decoder.decode(file.bytes)).not.toMatch(unlowered);
+  });
 });
 
 describe('configured files (custom-export compiler) from tagged input', () => {

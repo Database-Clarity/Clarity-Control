@@ -118,6 +118,13 @@ describe('options', () => {
     expect(found.items.find((item) => item.id === 'transform:element-icon')!.insert).toBe(
       '<solar/>Solar',
     );
+    // The element wraps come before the tags (shown without scrolling), and lead the symbols;
+    // Enter still takes what it took before (the first transform or snippet).
+    const ids = found.items.map((item) => item.id);
+    const firstWrap = found.items.findIndex((item) => item.wrap);
+    expect(firstWrap).toBeLessThan(ids.findIndex((id) => id.startsWith('tag:')));
+    expect(firstWrap).toBeLessThan(ids.indexOf('icon:primary'));
+    expect(found.items[0].wrap).toBeFalsy();
   });
 
   test('each option previews the line as it will read, with its insert applied', () => {

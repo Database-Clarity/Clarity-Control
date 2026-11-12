@@ -421,18 +421,21 @@
 }
 
 // "Tag selection:" (an element symbol wraps the selection) or, desktop only, why it cannot: a
-// small label cell at the row's start, shown only while text is selected.
+// small label cell at the row's end, beside Raw, shown only while text is selected. It never
+// moves the buttons (the strip keeps its start); a long reason is cut, its title has all of it.
 .tagLabel {
   flex: none;
-  display: inline-flex;
-  align-items: center;
+  max-width: 14rem;
+  overflow: hidden;
+  display: inline-block;
+  align-self: center;
   box-sizing: border-box;
-  padding: 0 0.375rem 0 0.5rem;
+  padding: 0 0.5rem 0 0.375rem;
   font-size: 0.6875rem;
-  line-height: 1;
+  line-height: 1.5;
   white-space: nowrap;
+  text-overflow: ellipsis;
   color: var(--editor-text2);
-  border-right: 1px solid var(--editor-edge);
 
   &[data-tag-mode='wrap'] {
     color: var(--accent-ink);
@@ -440,7 +443,7 @@
   }
 
   @include theme.mobile-or-coarse {
-    padding: 0 0.5rem 0 var(--page-x);
+    padding: 0 0.5rem 0 0.375rem;
     font-size: var(--ctl-text);
   }
 }

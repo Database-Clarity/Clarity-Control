@@ -218,6 +218,13 @@ describe('in the editor', () => {
     expect(host.querySelector('.cm-el-solar')?.textContent).toBe('Scorch');
   });
 
+  it('a multi-word tag: the icon and only its first word share one unbreakable run', () => {
+    mount('Gain <void Void Breaches /> now and <solar/>Scorch stacks.');
+    const [tagIcon, symbolIcon] = host.querySelectorAll<HTMLElement>('.cm-symbol');
+    expect(tagIcon.closest('.cm-glue')?.textContent).toBe('Void');
+    expect(symbolIcon.closest('.cm-glue')?.textContent).toBe('Scorch');
+  });
+
   it('text the preview draws untinted (a variable in it) keeps the icon and no tint', () => {
     mount('var X = 1\nGain <solar #X Scorch />.');
     expect(host.querySelector('.cm-symbol-tag')).not.toBeNull();

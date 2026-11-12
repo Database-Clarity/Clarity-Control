@@ -68,9 +68,11 @@ export function EnglishDiffContent({
         <>
           <p data-markup-only>
             <strong>Markup only:</strong> the English words did not change; only element tags (an
-            icon grouped with its words) were added, changed, or removed.
+            icon grouped with its words) were added, changed, or removed. The translation needs no
+            change for it.
           </p>
-          <WordDiff before={source.text} after={current} />
+          {/* A word diff of the raw markup would strike words that did not change. */}
+          <p className={styles.text}>{current}</p>
         </>
       ) : source?.kind === 'found' ? (
         <>

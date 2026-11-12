@@ -643,6 +643,8 @@ const defaultOrder: Record<ContextKind, SuggestCategory[]> = {
   word: ['Snippets', 'Tags', 'Symbols', 'Variables', 'Globals'],
 };
 
+const wrapOrder: SuggestCategory[] = ['Transforms', 'Snippets', 'Symbols', 'Tags'];
+
 const perCategory = 24;
 
 function rank(
@@ -650,7 +652,10 @@ function rank(
   context: SuggestContext,
   recent: readonly string[],
 ): SuggestItem[] {
-  const order = defaultOrder[context.kind];
+  // A wrappable selection: its element wraps (`<solar Scorch />`) come right after the snippets,
+  // above the tags, so they show without scrolling; Enter still takes the first snippet.
+  const wraps = context.kind === 'selection' && items.some((item) => item.wrap);
+  const order = wraps ? wrapOrder : defaultOrder[context.kind];
   const scored = items.flatMap((item, index) => {
     const score = context.query ? matchScore(item, context.query) : 0;
     if (context.query && score <= 0) return [];
@@ -663,7 +668,10 @@ function rank(
       .filter((entry) => entry.item.category === category)
       .sort(
         (a, b) =>
-          b.score - a.score || (context.query ? 0 : a.recency - b.recency) || a.index - b.index,
+          b.score - a.score ||
+          Number(!!b.item.wrap) - Number(!!a.item.wrap) ||
+          (context.query ? 0 : a.recency - b.recency) ||
+          a.index - b.index,
       )
       .slice(0, perCategory),
   }));

@@ -159,6 +159,27 @@ export const MarkupRow = memo(function MarkupRow({
     };
   }, []);
 
+  // Entering "Tag selection" mode brings the element symbols into view when the strip hides any
+  // of them (once per entry; the label sits at the row's end, so nothing else moves).
+  const wrapping = tagMode.kind === 'wrap';
+  useEffect(() => {
+    const element = scroller.current;
+    if (!wrapping || !element) return;
+    const group = element.querySelectorAll<HTMLElement>('[data-wrap]');
+    if (!group.length) return;
+    const first = group[0].offsetLeft - element.offsetLeft;
+    const last = group[group.length - 1];
+    const end = last.offsetLeft - element.offsetLeft + last.offsetWidth;
+    // Clear of the edge fades (scrollWrap ::before/::after), which cover a button's edge.
+    const fade = parseFloat(getComputedStyle(element.parentElement!, '::after').width) || 0;
+    const { scrollLeft, clientWidth } = element;
+    if (first - fade >= scrollLeft && end + fade <= scrollLeft + clientWidth) return;
+    element.scrollLeft =
+      end - first + 2 * fade <= clientWidth
+        ? Math.max(0, end + fade - clientWidth)
+        : Math.max(0, first - fade);
+  }, [wrapping]);
+
   function focusButton(index: number) {
     const all = scroller.current?.querySelectorAll<HTMLButtonElement>('[data-row-button]');
     const target = all?.[Math.max(0, Math.min(index, (all?.length ?? 1) - 1))];
@@ -184,19 +205,6 @@ export const MarkupRow = memo(function MarkupRow({
   let index = -1;
   return (
     <div ref={bar} className={styles.row} data-markup-row data-docked={docked || undefined}>
-      {tagMode.kind === 'wrap' ? (
-        <span className={styles.tagLabel} data-tag-mode="wrap">
-          {docked ? 'Tag:' : 'Tag selection:'}
-        </span>
-      ) : tagMode.kind === 'refused' && !docked ? (
-        <span
-          className={styles.tagLabel}
-          data-tag-mode="refused"
-          title={`The element symbols insert at the caret: the selection ${tagMode.reason === tagRefusals.declaration ? 'is on a declaration line' : tagMode.reason}.`}
-        >
-          Can't tag: {tagMode.reason}
-        </span>
-      ) : null}
       <div
         className={styles.scrollWrap}
         data-more-start={edges.start || undefined}
@@ -250,6 +258,19 @@ export const MarkupRow = memo(function MarkupRow({
           })}
         </div>
       </div>
+      {tagMode.kind === 'wrap' ? (
+        <span className={styles.tagLabel} data-tag-mode="wrap">
+          {docked ? 'Tag:' : 'Tag selection:'}
+        </span>
+      ) : tagMode.kind === 'refused' && !docked ? (
+        <span
+          className={styles.tagLabel}
+          data-tag-mode="refused"
+          title={`The element symbols insert at the caret: the selection ${tagMode.reason === tagRefusals.declaration ? 'is on a declaration line' : tagMode.reason}.`}
+        >
+          Can't tag: {tagMode.reason}
+        </span>
+      ) : null}
       {rawView !== undefined && onRawView && (
         <button
           type="button"

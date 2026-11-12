@@ -44,6 +44,9 @@ async function show(before: string, current: string) {
 it('says "Markup only" when only element tags changed', async () => {
   await show('Gain <solar/>Scorch.', 'Gain <solar Scorch />.');
   expect(host.querySelector('[data-markup-only]')?.textContent).toContain('Markup only:');
+  // No word diff: it would strike the unchanged words around the markup.
+  expect(host.querySelector('del, ins, s, u')).toBeNull();
+  expect(host.textContent).toContain('Gain <solar Scorch />.');
 });
 
 it('keeps the word diff for a real wording change', async () => {

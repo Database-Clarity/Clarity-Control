@@ -142,8 +142,9 @@
   --el-arc: #7fd0ec;
   --el-solar: #f0702c;
   --el-void: #b78bd0;
-  // Stasis leans periwinkle so it stays apart from the PvE line colour it often sits in
-  --el-stasis: #6b7bff;
+  // Stasis is indigo (hue 246), its hue apart from the PvE line blue (220) it often sits in and
+  // from Void (278); 5.7:1 on the preview, 4.8:1 in the editor
+  --el-stasis: #8577ff;
   --el-strand: #35e366;
   // Compendium review, picker and diff pages (dark = their former raw colours); --sheet-* sit on the always-dark sheet
   --mr-edge: #596478;
@@ -310,13 +311,14 @@
   --sym-overload: #2f62d9;
   --sym-unstoppable: #d63b37;
   // Element tints darkened to 4.5:1 or better on the light preview surface (#fdfeff); Arc stays
-  // cyan and Stasis a deeper blue so the two never read alike
+  // cyan and Stasis indigo so the two never read alike
   --el-kinetic: #4f5b68;
   --el-arc: #00708c;
   --el-solar: #b54300;
   --el-void: #8a4aab;
-  // Stasis lighter than the deep PvE line blue (#1f4fd1) so a keyword in a PvE line still reads
-  --el-stasis: #2f6fd0;
+  // Stasis is indigo (hue 244), its hue apart from the PvE line blue (#1f4fd1, 224) and from Void
+  // (280); 5.4:1 on the preview and in the editor
+  --el-stasis: #5b4ff0;
   --el-strand: #147a33;
   // Compendium review, picker and diff pages; --sheet-* sit on the always-dark sheet, so they keep their dark values
   --mr-edge: var(--ctl-edge);
