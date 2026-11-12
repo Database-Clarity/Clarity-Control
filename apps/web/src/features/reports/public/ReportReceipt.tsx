@@ -4,12 +4,12 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'reac
 import { languageLabel } from '../../../languageLabels';
 import {
   reportReceipt,
-  ReportApiError,
   viewOwnReport,
   withdrawReport,
   type ReporterDetail,
   type ReportReceipt as Receipt,
-} from '../../../services/reports';
+} from '../../../services/reportAccount';
+import { ReportApiError } from '../../../services/reports';
 import { useAuthStore } from '../../../stores/auth';
 import { Dialog } from '../../../ui/Dialog';
 import { rememberSecret, storedSecret } from './draft';
