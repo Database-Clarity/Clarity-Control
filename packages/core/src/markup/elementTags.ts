@@ -50,6 +50,13 @@ export function lowerElementTags(text: string): string {
   return lower(text, '', '');
 }
 
+/**
+ * Tagged text the preview draws without the tint (icon kept): text holding arithmetic or a native
+ * pair (`$`, braces), a variable or a nested tag through one (`#`), or a comment delimiter, also
+ * one the text after the tag would complete. Element tags wrap keywords; these are edge cases.
+ */
+const unsafeTint = /[#${}]|\/\*|\*\/|\/\/|[/*]$/;
+
 function lower(text: string, open: string, close: string): string {
   const tags = findElementTags(text);
   if (!tags.length) return text;
@@ -57,7 +64,8 @@ function lower(text: string, open: string, close: string): string {
   let at = 0;
   for (const tag of tags) {
     const [, lead, body, trail] = /^(\s*)([^]*?)(\s*)$/.exec(tag.text)!;
-    lowered += `${text.slice(at, tag.from)}<${tag.element}/>${lead}${open}${body}${close}${trail}`;
+    const [o, c] = unsafeTint.test(body) ? ['', ''] : [open, close];
+    lowered += `${text.slice(at, tag.from)}<${tag.element}/>${lead}${o}${body}${c}${trail}`;
     at = tag.to;
   }
   return lowered + text.slice(at);

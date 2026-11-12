@@ -78,16 +78,38 @@ function trimMarked(text: string, start = true): string {
 }
 
 /**
+ * Whether the line's preview markers alternate open, close. Only tagged text free of arithmetic,
+ * braces, comments, and variables is marked (elementTags.ts), so preparation can only drop whole
+ * pairs; should a marker still arrive unpaired, the line is drawn without any tint.
+ */
+function markersPair(parts: readonly string[]): boolean {
+  let open = false;
+  for (const part of parts) {
+    if (part === elementTextOpen) {
+      if (open) return false;
+      open = true;
+    } else if (part === elementTextClose) {
+      if (!open) return false;
+      open = false;
+    }
+  }
+  return !open;
+}
+
+/**
  * The spans of one line. Element-tagged text arrives lowered (parseMarkup): the icon, then its
  * text between preview markers, which tint that text and are dropped, so the result is exactly
  * the lowered form's spans with the tagged text as its own tinted span.
  */
 function spans(line: string, titles: Record<string, MarkupLine[]>): MarkupSpan[] {
+  const parts = line.split(markedPart);
+  const tinting = parts.length > 1 && markersPair(parts);
   let tint: string | undefined;
   const out: MarkupSpan[] = [];
-  for (const part of line.split(markedPart)) {
+  for (const part of parts) {
     if (!part) continue;
     if (part === elementTextOpen) {
+      if (!tinting) continue;
       // The lowered icon before the text (past its leading spaces) names the element.
       let at = out.length - 1;
       while (at >= 0 && !out[at].classNames && !out[at].text?.trim()) at--;

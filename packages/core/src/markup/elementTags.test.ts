@@ -252,9 +252,10 @@ describe('assembled wrappers keep their old meaning; written spans render tagged
   });
 });
 
-describe('preview equals the lowered form plus the tint, through preparation', () => {
+describe('preview equals the lowered form, tinted only for plain tagged text', () => {
   const enhanced = { variables: '', titles: '', type: enhancedMarkupType };
-  // Code and output review round 2: authored spans whose text changes in preparation.
+  // Code and output review round 2: authored spans whose text changes in preparation. Text with
+  // a variable, arithmetic, a native pair, or a comment draws the icon without the tint.
   const cases: [name: string, text: string, globals?: MarkupGlobals][] = [
     ['local variable in the text', 'var hit = Scorch\nGain <solar #hit />.'],
     [
@@ -282,7 +283,7 @@ describe('preview equals the lowered form plus the tint, through preparation', (
     ['trailing space at the line end', 'Gain <solar Scorch  />\nNext'],
     ['table cell', '< table wide >\n| <arc Amplified  /> | 10%\n<$>'],
   ];
-  it.each(cases)('%s', (_, text, globals) => {
+  it.each(cases)('%s', (name, text, globals) => {
     const lowered: MarkupGlobals | undefined = globals && {
       ...globals,
       variables: lowerElementTags(globals.variables),
@@ -295,7 +296,9 @@ describe('preview equals the lowered form plus the tint, through preparation', (
     };
     const tagged = parseMarkup(text, globals);
     const legacy = parseMarkup(lowerElementTags(text), lowered);
-    expect(JSON.stringify(tagged.lines)).toContain('elementText');
+    const plain = name.startsWith('trailing') || name.startsWith('table');
+    expect(JSON.stringify(tagged.lines).includes('elementText')).toBe(plain);
+    if (!plain) expect(tagged.lines).toEqual(legacy.lines);
     expect(rendered(tagged.lines)).toEqual(rendered(legacy.lines));
     expect(tagged.diagnostics).toEqual(legacy.diagnostics);
     expect(JSON.stringify(tagged)).not.toMatch(/[\uE000\uE001]/);
@@ -421,5 +424,60 @@ describe('markers never change how preparation reads the lowered text', () => {
   it('keeps the tint whenever preparation reads the text the same way', () => {
     const preview = same('var X = <solar Word  />\nGain #X after.', plain);
     expect(JSON.stringify(preview.lines)).toContain('elementText');
+  });
+});
+
+describe('tagged text through a variable, arithmetic, a nested tag, or a comment: icon, no tint', () => {
+  // Code review round 3 and output review round 3 counterexamples. Root ruling 13:4x: such text
+  // draws the icon without the tint; the text is exactly the lowered form's.
+  const lowerAll = (globals: MarkupGlobals): MarkupGlobals => ({
+    ...globals,
+    variables: lowerElementTags(globals.variables),
+    titles: lowerElementTags(globals.titles),
+  });
+  const plain = { variables: '', titles: '' };
+  const tints = (lines: MarkupLine[]) => JSON.stringify(lines).match(/"elementText","\w+"/g) ?? [];
+  it.each([
+    ['variable boundary', 'var xs = Scorches\nGain <solar #x />s.', plain, []],
+    ['variable continued after the tag', 'var hit = Scorch\nGain <solar #hit />tail.', plain, []],
+    ['global variable', 'Gain <arc #hit />.', { variables: 'var hit = Jolt', titles: '' }, []],
+    ['block comment the next text completes', 'Gain <solar / />* hidden */next.', plain, []],
+    ['line comment the next text completes', 'Gain <solar a / />/ hidden', plain, []],
+    ['comment inside', 'Gain <solar Sco/* hi */rch />.', plain, []],
+    ['arithmetic crossing the end', 'Gain <solar ${2+2 />} stacks.', plain, []],
+    ['arithmetic inside', 'Gain <solar ${2+2} /> stacks.', plain, []],
+    ['native pair', 'Gain <solar {{Scorch}{Radiant}} />.', plain, []],
+    // The nested tag keeps its own tint; the tag around it draws only its icon.
+    ['nested tag', 'var x = <arc Jolt />\nGain <solar a #x b />.', plain, ['"elementText","arc"']],
+  ] as [string, string, MarkupGlobals, string[]][])('%s', (_, text, globals, tinted) => {
+    const preview = parseMarkup(text, globals);
+    const legacy = parseMarkup(lowerElementTags(text), lowerAll(globals));
+    expect(tints(preview.lines)).toEqual(tinted);
+    expect(rendered(preview.lines)).toEqual(rendered(legacy.lines));
+    expect(preview.diagnostics).toEqual(legacy.diagnostics);
+    const element = /<(\w+) /.exec(text.slice(text.indexOf('Gain')))![1];
+    expect(JSON.stringify(preview.lines)).toContain(`{"classNames":["${element}"]}`);
+    expect(JSON.stringify(preview)).not.toMatch(/[\uE000\uE001]/);
+  });
+  it('the reviewed texts render exactly as the lowered form', () => {
+    const text = (lines: MarkupLine[]) =>
+      lines.map((line) => line.linesContent?.map((span) => span.text ?? '').join('')).join('\n');
+    expect(text(parseMarkup('var xs = Scorches\nGain <solar #x />s.').lines)).toBe(
+      'Gain Scorches.',
+    );
+    expect(text(parseMarkup('Gain <solar / />* hidden */next.').lines)).toBe('Gain next.');
+    expect(text(parseMarkup('Gain <solar ${2+2 />} stacks.').lines)).toBe('Gain 4 stacks.');
+    expect(text(parseMarkup('var x = <arc Jolt />\nGain <solar a #x b />.').lines)).toBe(
+      'Gain a Jolt b.',
+    );
+  });
+  it('plain keywords keep the tint, also through a variable that holds the tag', () => {
+    expect(tints(parseMarkup('Gain <solar Scorch /> and <arc Jolt />.').lines)).toEqual([
+      '"elementText","solar"',
+      '"elementText","arc"',
+    ]);
+    expect(tints(parseMarkup('var x = <solar Scorch  />\nGain #x stacks.').lines)).toEqual([
+      '"elementText","solar"',
+    ]);
   });
 });
