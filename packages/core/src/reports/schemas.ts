@@ -65,6 +65,13 @@ export const reportSubmissionSchema = z
     request_id: z.string().uuid(),
     withdraw_secret: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/),
     viewed_hash: z.number().int().min(0).max(0xffffffff),
+    // Optional only so already-stored requests from older clients can still retry.
+    // The Worker requires both fields for every new report.
+    owner_hash: z.number().int().min(0).max(0xffffffff).optional(),
+    variant: z
+      .string()
+      .regex(/^(base|enhanced|override:\d+)$/)
+      .optional(),
     lang: langSchema,
     seen_lang: langSchema.optional(),
     rev: z.string().regex(/^[a-f0-9]{16}$/),

@@ -15,7 +15,6 @@ import {
 } from './draft';
 import { pickerEntries, searchEntries } from './ReportPicker';
 import { loadReportRender, renderLines } from './tooltipRender';
-import { reportShards } from '../../../../reportCatalogPlugin';
 import type { ReportCatalog } from '../../../services/reports';
 
 const facet =
@@ -204,14 +203,8 @@ describe('loadReportRender', () => {
     expect(enhanced.rev).toMatch(/^[a-f0-9]{16}$/);
     expect(enhanced.dataCommit).toBe(commit);
   });
-  it('preserves real renderer results with sharded identities and alias-only mapping', async () => {
+  it('resolves alias imports using the same live catalog as the rendered identity', async () => {
     stubFetch();
-    const shards = reportShards(catalog);
-    for (const viewed of [100, 101, 102, 200, 300]) {
-      const full = await loadReportRender(viewed, 'en', catalog);
-      const slim = await loadReportRender(viewed, 'en', shards[viewed % 64]);
-      expect(slim).toEqual(full);
-    }
     const aliased = {
       ...catalog,
       items: {
@@ -221,7 +214,7 @@ describe('loadReportRender', () => {
       },
     };
     files[500] = { en: 'import main from 400' };
-    const slim = await loadReportRender(201, 'en', reportShards(aliased)[201 % 64]);
+    const slim = await loadReportRender(201, 'en', aliased);
     expect(slim?.display).toBe('Shared source text.');
     delete files[500];
   });

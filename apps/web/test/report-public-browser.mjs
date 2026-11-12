@@ -86,58 +86,14 @@ try {
     })();
     bodyReads.push(read);
   });
-  const cat = JSON.parse(
-    readFileSync(
-      root +
-        '/assets/' +
-        (await import('node:fs'))
-          .readdirSync(root + '/assets')
-          .find((f) => f.startsWith('report-catalog-0-')),
-      'utf8',
-    ),
-  );
   const full = await (
     await fetch(
       'https://raw.githubusercontent.com/Database-Clarity/Live-Clarity-Database/editor-data-bundle/report-items.json',
     )
   ).json();
-  const listing = (await import('node:fs')).readdirSync(root + '/assets');
-  const owners = JSON.parse(
-    readFileSync(
-      root + '/assets/' + listing.find((f) => f.startsWith('report-catalog-64-')),
-      'utf8',
-    ),
-  );
-  const combined = {};
-  for (let i = 0; i < 64; i++) {
-    const shard = JSON.parse(
-      readFileSync(
-        root + '/assets/' + listing.find((f) => f.startsWith(`report-catalog-${i}-`)),
-        'utf8',
-      ),
-    );
-    if (shard.sourceCommit !== full.sourceCommit) throw new Error('Census source drift');
-    Object.assign(combined, shard.items);
-  }
+  const cat = full;
   const assert = (await import('node:assert/strict')).default;
-  assert.deepEqual(combined, full.items);
-  for (const [hash, item] of Object.entries(full.items))
-    assert.equal(owners[hash] ?? Number(hash), item.owner);
-  writeFileSync(
-    '.agents/reports-slim-census.json',
-    JSON.stringify(
-      {
-        sourceCommit: full.sourceCommit,
-        items: Object.keys(combined).length,
-        aliases: Object.keys(owners).length,
-        identities: 'exact equality for every producer item',
-        ownerMappings: 'all equal',
-      },
-      null,
-      2,
-    ),
-  );
-  const hash = Object.keys(cat.items).find((h) => Number(h) > 3);
+  const hash = '218281600';
   await page.goto(`http://127.0.0.1:5261/#/report/${hash}?lang=en`);
   await page.locator('[data-line]').first().waitFor({ timeout: 30000 });
   await page.evaluate(() => document.fonts.ready);
@@ -229,6 +185,25 @@ try {
       await page.getByRole('textbox', { name: 'Note 1', exact: true }).inputValue(),
       'Whole tooltip renderer note.',
     );
+    const pendingBeforeReload = await page.evaluate((hash) => {
+      const draft = JSON.parse(sessionStorage.getItem(`clarity-report-draft:${hash}`));
+      return draft.pending;
+    }, hash);
+    assert.ok(pendingBeforeReload);
+    await page.reload();
+    await page.locator('[data-line]').first().waitFor();
+    await page.getByRole('button', { name: 'Send report', exact: true }).click();
+    await page
+      .getByText(/unavailable/)
+      .first()
+      .waitFor();
+    assert.deepEqual(
+      await page.evaluate(
+        (hash) => JSON.parse(sessionStorage.getItem(`clarity-report-draft:${hash}`)).pending,
+        hash,
+      ),
+      pendingBeforeReload,
+    );
     await page.getByRole('button', { name: 'Remove note', exact: true }).click();
     await page
       .getByRole('textbox', { name: /Video link/ })
@@ -261,7 +236,7 @@ try {
     await page.reload();
     assert.equal(await page.getByRole('combobox').first().inputValue(), '');
 
-    // A build-time identity must not be submitted after the live catalog remaps it.
+    // A rendered identity must not be submitted after the live catalog remaps it.
     await page.goto(`http://127.0.0.1:5261/#/report/${hash}?lang=en`);
     await page.locator('[data-line]').first().waitFor();
     const updatedCommit = 'b'.repeat(40);
@@ -312,7 +287,7 @@ try {
       await page.getByRole('textbox', { name: 'Note 1', exact: true }).inputValue(),
       'Keep this during refresh.',
     );
-    await page.getByText('Updated runtime tooltip.', { exact: true }).waitFor();
+    await page.getByText('Updated runtime tooltip.', { exact: true }).first().waitFor();
     await page.getByRole('button', { name: 'Mark again', exact: true }).waitFor();
     for (const width of [390, 1280])
       for (const theme of ['light', 'dark'])
@@ -331,7 +306,7 @@ try {
           await page.locator('[data-line]').filter({ hasText: /\S/ }).first().focus();
           await page.keyboard.press('Enter');
           await page.getByRole('button', { name: 'Send report', exact: true }).click();
-          await page.getByText(/The tooltip changed\./).waitFor();
+          await page.getByText('Updated runtime tooltip.', { exact: true }).first().waitFor();
           assert.equal(
             await page.evaluate(() => Number(document.documentElement.dataset.uiScale)),
             scale,

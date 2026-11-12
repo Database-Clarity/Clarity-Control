@@ -318,12 +318,13 @@ async function submit(
   });
   if (!selected.success) throw new HttpError(422, 'Unknown tooltip');
   const item = selected.data;
-  const lang = item.langs.includes(input.lang)
-    ? input.lang
-    : item.langs.includes('en')
-      ? 'en'
-      : null;
-  if (!lang) throw new HttpError(422, 'Tooltip has no reportable text');
+  // sourceCommit alone cannot fence generator-only owner/variant remappings.
+  // Never substitute a catalog identity for the one the reporter saw rendered.
+  if (item.owner !== input.owner_hash || item.variant !== input.variant)
+    throw new HttpError(409, 'Tooltip data changed; reload before sending');
+  const lang = input.lang;
+  if (!item.langs.includes(lang))
+    throw new HttpError(422, 'Tooltip has no reportable text in this language');
   if (!access) {
     // Reserve a human-check attempt before the external call. Failed checks
     // and races cannot repeatedly consume siteverify without spending a limit.

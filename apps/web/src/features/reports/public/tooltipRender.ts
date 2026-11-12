@@ -27,19 +27,11 @@ export function reportCatalog(fresh = false): Promise<ReportCatalog> {
   return catalogPromise;
 }
 
-/** Direct links fetch one build-derived shard; the search catalog remains lazy. */
+/** Direct links resolve their identity from the live catalog before first paint. */
 export async function reportItemCatalog(viewed: number): Promise<ReportCatalog> {
   if (!Number.isInteger(viewed) || viewed <= 3 || viewed > 0xffffffff)
     return { v: 1, sourceCommit: '0'.repeat(40), items: {} };
-  if (catalogPromise) return reportCatalog();
-  const { default: urls } = await import('../../../reportCatalogUrls');
-  const response = await fetch(urls[viewed % 64]);
-  if (!response.ok) throw new Error(`Report catalog: HTTP ${response.status}`);
-  const { reportCatalogSchema } = await import('../../../services/reportCatalog');
-  const catalog = reportCatalogSchema.parse(await response.json());
-  // Newly published hashes remain reachable before the next web build.
-  if (!catalog.items[String(viewed)]) return reportCatalog();
-  return { ...catalog, ownersUrl: urls[64] };
+  return reportCatalog(true);
 }
 
 /** The global documents every tooltip may read: exports (1), variables (2), titles (3). */
@@ -93,7 +85,7 @@ const textOf = (file: ReportTooltipFile | undefined, lang: Lang) => file?.text[l
 /** The hash an `import … from <hash>` names, resolved to the file that holds it. */
 function importSource(from: string, catalog: ReportCatalog): number {
   const hash = from === 'global' ? 1 : Number(from);
-  return catalog.items[String(hash)]?.owner ?? catalog.owners?.[String(hash)] ?? hash;
+  return catalog.items[String(hash)]?.owner ?? hash;
 }
 
 /**
@@ -122,16 +114,6 @@ export async function loadReportRender(
   const imports: Record<string, string> = {};
   globalHashes.forEach((hash, index) => (imports[hash] = textOf(globals[index], lang)));
   // Imports may import again: follow them breadth-first, as the converter's passes do.
-  // Alias imports are uncommon. Fetch their compact mapping only when resolution needs it.
-  if (catalog.ownersUrl && !catalog.owners && markupImports(text).length) {
-    const response = await fetch(catalog.ownersUrl);
-    if (!response.ok) throw new Error(`Report import mapping: HTTP ${response.status}`);
-    const { z } = await import('zod');
-    catalog = {
-      ...catalog,
-      owners: z.record(z.string(), z.number().int().nonnegative()).parse(await response.json()),
-    };
-  }
   let pending = importedHashes(text, catalog);
   for (let pass = 0; pass < 5 && pending.length; pass++) {
     const files = await Promise.all(pending.map((hash) => tooltipFile(commit, hash)));

@@ -15,7 +15,4 @@ export const reportCatalogSchema = z.object({
   sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
   items: z.record(z.string(), catalogItemSchema),
 });
-export type ReportCatalog = z.infer<typeof reportCatalogSchema> & {
-  ownersUrl?: string;
-  owners?: Record<string, number>;
-};
+export type ReportCatalog = z.infer<typeof reportCatalogSchema>;

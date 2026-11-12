@@ -522,7 +522,7 @@ export function ReportForm() {
     });
   };
 
-  // Shards optimize first paint only. A new submission must use the live catalog.
+  // Refresh the live catalog before each new submission as well as first paint.
   // Keep idempotent retries on their original payload; the Worker checks them first.
   const refreshForSend = async (): Promise<boolean> => {
     if (!render) return false;
@@ -596,6 +596,8 @@ export function ReportForm() {
     );
     const body = {
       viewed_hash: viewed,
+      owner_hash: render.item.owner,
+      variant: render.item.variant,
       lang: render.lang,
       ...(render.fallback ? { seen_lang: render.seenLang } : {}),
       rev: render.rev,
@@ -612,13 +614,21 @@ export function ReportForm() {
       links: draft.links.map((link) => link.trim()).filter(Boolean),
     } as const;
     // Same payload as an unanswered attempt → same request id (a retry); otherwise a new report.
-    const signature = JSON.stringify(body);
+    // Older tabs may retain an unanswered request from before mapping fields existed.
+    // Retry that exact payload so a stored row can return its original receipt/secret;
+    // the Worker refuses missing mapping fields if the request was never stored.
+    const legacySignature = JSON.stringify({ ...body, owner_hash: undefined, variant: undefined });
+    const legacyRetry = draft.pending?.payload === legacySignature;
+    const submissionBody = legacyRetry
+      ? { ...body, owner_hash: undefined, variant: undefined }
+      : body;
+    const signature = JSON.stringify(submissionBody);
     const capability =
       draft.pending?.payload === signature
         ? draft.pending
         : { ...newCapability(), payload: signature };
     const payload = {
-      ...body,
+      ...submissionBody,
       request_id: capability.requestId,
       withdraw_secret: capability.secret,
     };

@@ -29,6 +29,8 @@ const payload = () => ({
   request_id: crypto.randomUUID(),
   withdraw_secret: 'a'.repeat(43),
   viewed_hash: 123,
+  owner_hash: 123,
+  variant: 'base',
   lang: 'en',
   rev: 'a'.repeat(16),
   data_commit: '1'.repeat(40),
@@ -165,6 +167,27 @@ beforeEach(async () => {
   );
 });
 describe('reports local D1', () => {
+  it.each([
+    { owner_hash: 456, variant: 'base' },
+    { owner_hash: 123, variant: 'enhanced' },
+    { owner_hash: undefined, variant: undefined },
+  ])(
+    'refuses a different or missing rendered mapping at the same source commit: %j',
+    async (mapping) => {
+      const response = await call('/reports', 'POST', { ...payload(), ...mapping });
+      expect(response.status).toBe(409);
+      expect(await db.prepare('SELECT COUNT(*) AS n FROM reports').first()).toEqual({ n: 0 });
+      expect(
+        vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes('siteverify')),
+      ).toHaveLength(0);
+    },
+  );
+
+  it('refuses an unavailable rendered language instead of substituting English', async () => {
+    expect((await call('/reports', 'POST', { ...payload(), lang: 'fr' })).status).toBe(422);
+    expect(await db.prepare('SELECT COUNT(*) AS n FROM reports').first()).toEqual({ n: 0 });
+  });
+
   it('refuses stale data commits before consuming a human check or storing another owner’s report', async () => {
     const response = await call('/reports', 'POST', { ...payload(), data_commit: '2'.repeat(40) });
     expect(response.status).toBe(409);

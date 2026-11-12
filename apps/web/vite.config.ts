@@ -1,4 +1,3 @@
-import { reportCatalogPlugin } from './reportCatalogPlugin';
 import publisherConfig from '../../config/publisher.json';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'node:url';
@@ -56,7 +55,6 @@ export default defineConfig({
         return resolved;
       },
     },
-    reportCatalogPlugin(),
     {
       name: 'preload-startup-stages',
       transformIndexHtml: {
