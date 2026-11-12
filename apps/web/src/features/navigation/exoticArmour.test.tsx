@@ -9,6 +9,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { TooltipPreview } from '../preview/TooltipPreview';
 import { editorName, exoticPiece, listName, navigationGroups } from './catalog';
 import { TooltipNavigation } from './TooltipNavigation';
+import { exoticArmourRowIcon } from './groupIcons';
+import armourIcons from './exotic-armor-icons.json';
 
 // Shapes follow the generator's items.json: the perk carries its owning pieces, not the pieces.
 const perk = (hash: number, name: string, extra = {}) => ({
@@ -30,11 +32,12 @@ const aeonOwners = {
 };
 const data = {
   categories: [
-    { id: 'armor-trait-exotic', label: 'Exotic Armor Perks', group: 'Armor', order: 10 },
+    { id: 'armor-trait-exotic', label: 'Exotic Armor', group: 'Armor', order: 10 },
     { id: 'weapon-perk', label: 'Weapon Parts', group: 'Weapons', order: 20 },
   ],
   items: {
     101: perk(101, 'Chaotic Exchanger', {
+      icon: '/common/destiny2_content/icons/perk-101.png',
       itemHash: 1906093346,
       itemName: 'Contraverse Hold',
       owners: [1906093346, 3261527845],
@@ -42,7 +45,12 @@ const data = {
     }),
     // Owner-less in the data: only itemHash/itemName name the piece.
     102: perk(102, 'Praxic Lift', { itemHash: 77, itemName: 'Praxic Vestment' }),
-    103: perk(103, 'Sect of Force', { itemHash: 796577360, itemName: 'Aeon Safe', ...aeonOwners }),
+    103: perk(103, 'Sect of Force', {
+      icon: '/common/destiny2_content/icons/perk-103.png',
+      itemHash: 796577360,
+      itemName: 'Aeon Safe',
+      ...aeonOwners,
+    }),
     4: perk(4, 'Sect of Insight', { itemHash: 796577360, itemName: 'Aeon Safe', ...aeonOwners }),
     // Not a piece-linked perk: stays as it is.
     5: perk(5, 'Orphan Perk'),
@@ -66,7 +74,7 @@ const exotic = (source = data, query = '') =>
 describe('exotic armour in the list', () => {
   it('lists the armour piece, labelled as exotic armour, and opens the same perk hash', () => {
     const section = exotic()!;
-    expect(section.label).toBe('Exotic Armor Perks');
+    expect(section.label).toBe('Exotic Armor');
     expect(section.items.map((entry) => [entry.hash, entry.name, entry.perkName])).toEqual([
       [103, 'Aeon Safe/Soul/Swift · Sect of Force', 'Sect of Force'],
       [4, 'Aeon Safe/Soul/Swift · Sect of Insight', 'Sect of Insight'],
@@ -96,6 +104,33 @@ describe('exotic armour in the list', () => {
     expect(exotic(data, 'aeon soul')!.items.map((entry) => entry.hash)).toEqual([103, 4]);
     expect(exotic(data, 'sect of insight')!.items.map((entry) => entry.hash)).toEqual([4]);
     expect(exotic(data, 'nothing here')).toBeUndefined();
+  });
+});
+
+describe('exotic armour row icons', () => {
+  const contraverse = `${armourIcons.source.prefix}${(armourIcons.icons as Record<string, string>)['1906093346']}`;
+  it('shows the piece icon for one piece, the perk icon for several or none', () => {
+    expect(contraverse).toMatch(/^\/common\/destiny2_content\/icons\/\w+\.jpg$/);
+    expect(exoticArmourRowIcon(data.items[101])).toBe(contraverse);
+    expect(exoticArmourRowIcon(data.items[103])).toBe(
+      '/common/destiny2_content/icons/perk-103.png',
+    );
+    // Owner-less in the data (itemHash only): the perk keeps its own icon.
+    expect(exoticArmourRowIcon(data.items[102])).toBe('');
+    expect(
+      exoticArmourRowIcon(perk(7, 'Lone', { icon: '/p.png', itemHash: 1906093346 }) as never),
+    ).toBe('/p.png');
+    // Other categories keep the row's own icon.
+    expect(exoticArmourRowIcon(data.items[20])).toBeUndefined();
+  });
+
+  it('leaves the box empty for a piece missing from the icon file, never another icon', () => {
+    const missing = perk(8, 'Unknown Perk', {
+      icon: '/common/destiny2_content/icons/perk-8.png',
+      owners: [11, 12],
+      ownerNames: { 11: 'Unlisted Piece', 12: 'Unlisted Piece' },
+    });
+    expect(exoticArmourRowIcon(missing as never)).toBe('');
   });
 });
 
@@ -180,10 +215,27 @@ describe('exotic armour in the finder', () => {
   it('deep links to a perk hash still open it, shown under its piece name', async () => {
     await mount('/t/101');
     expect(field().value).toBe('Contraverse Hold');
-    expect(picker(host, 'Category')!.title).toBe('Exotic Armor Perks');
+    expect(picker(host, 'Category')!.title).toBe('Exotic Armor');
     await act(async () => root.render(null));
     await mount('/t/4');
     expect(field().value).toBe('Aeon Safe/Soul/Swift · Sect of Insight');
+  });
+
+  it('shows the piece icon on a one-piece row and the perk icon on an Aeon row', async () => {
+    await mount('/t/101');
+    await act(async () => field().click());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    const icon = (text: string) =>
+      options()
+        .find((option) => option.textContent?.includes(text))!
+        .querySelector('img')
+        ?.getAttribute('src');
+    expect(icon('Contraverse Hold')).toBe(
+      `https://www.bungie.net${armourIcons.source.prefix}${(armourIcons.icons as Record<string, string>)['1906093346']}`,
+    );
+    expect(icon('Sect of Force')).toBe(
+      'https://www.bungie.net/common/destiny2_content/icons/perk-103.png',
+    );
   });
 
   it('shows the perk beside the hash, and a search by perk selects the piece row', async () => {
@@ -210,9 +262,9 @@ describe('exotic armour in the finder', () => {
       );
       field().dispatchEvent(new Event('input', { bubbles: true }));
     });
-    expect(
-      options().map((option) => option.querySelector('[class*=name]')!.textContent),
-    ).toEqual(['Praxic Vestment']);
+    expect(options().map((option) => option.querySelector('[class*=name]')!.textContent)).toEqual([
+      'Praxic Vestment',
+    ]);
     await act(async () =>
       field().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
     );
