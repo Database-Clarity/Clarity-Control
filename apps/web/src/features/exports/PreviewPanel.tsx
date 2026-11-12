@@ -1,3 +1,5 @@
+import { showcaseGlobals, showcaseId, showcaseName, showcaseText } from '@clarity/core';
+import { TooltipPreview } from '../preview';
 import { SkeletonBoundary } from '../../ui/Skeleton';
 // The preview column (spec section 8): tooltip search and recent picks; the picked entry exactly
 // as the file has it, labelled "Live file" (an unchanged deployed legacy preset: the deployed
@@ -62,7 +64,8 @@ export function PreviewPanel({
   const live = useMemo(() => JSON.parse(liveKey) as LiveRef | null, [liveKey]);
   const liveLabel = showsLive(file);
   const fileJson = useMemo(() => JSON.stringify(file), [file]);
-  const hash = pick ?? recent[0]?.hash ?? null;
+  const hash = pick ?? showcaseId;
+  const showcase = hash === showcaseId;
 
   // Every change of the file's config is a new version; the rendered entry names the version it
   // shows, so a measurement can wait for the repaint of exactly that change.
@@ -79,7 +82,7 @@ export function PreviewPanel({
   } | null>(null);
   const client = preview.state.kind === 'ready' ? preview.state.client : null;
   useEffect(() => {
-    if (!client || !hash) return;
+    if (!client || !hash || (showcase && isLegacyFile(JSON.parse(fileJson)))) return;
     const asked = version.current;
     let current = true;
     client.sample(JSON.parse(fileJson) as ExportFile, hash, live, diff && !!live).then(
@@ -97,22 +100,31 @@ export function PreviewPanel({
     return () => {
       current = false;
     };
-  }, [client, fileJson, hash, live, diff]);
+  }, [client, fileJson, hash, live, diff, showcase]);
 
   const choose = (next: Pick) => {
     setRecent(rememberPick(projectId, next));
     onPick(next.hash);
   };
-  const name = hash
-    ? (recent.find((entry) => entry.hash === hash)?.name ??
-      data?.items[hash]?.name ??
-      `Hash ${hash}`)
-    : null;
+  const name = showcase
+    ? showcaseName
+    : hash
+      ? (recent.find((entry) => entry.hash === hash)?.name ??
+        data?.items[hash]?.name ??
+        `Hash ${hash}`)
+      : null;
   const shown = sample && sample.hash === hash ? sample : null;
 
   return (
     <div className={styles.preview}>
       <TooltipSearch onPick={choose} recent={recent} />
+      <button
+        type="button"
+        className={`${styles.linkButton} ${styles.showcasePick}`}
+        onClick={() => onPick(showcaseId)}
+      >
+        Feature showcase
+      </button>
       {preview.newer && (
         <p className={styles.banner} data-tone="warn" role="status">
           A newer build is out (<When value={preview.newer.builtAt} nowrap />
@@ -124,23 +136,25 @@ export function PreviewPanel({
       )}
       <div className={styles.previewBar}>
         <span className={styles.badge} data-kind={liveLabel ? 'live' : 'build'}>
-          {liveLabel ? 'Live file' : 'Preview build'}
+          {showcase ? 'Built-in example' : liveLabel ? 'Live file' : 'Preview build'}
         </span>
         <span className={styles.previewName} title={name ?? undefined}>
           {name ?? 'No tooltip picked'}
-          {hash && <span className={styles.meta}> {hash}</span>}
+          {hash && !showcase && <span className={styles.meta}> {hash}</span>}
         </span>
         <button
           type="button"
           className={styles.toggle}
-          aria-pressed={diff && !!live && !liveLabel}
-          disabled={!live || liveLabel}
+          aria-pressed={!showcase && diff && !!live && !liveLabel}
+          disabled={showcase || !live || liveLabel}
           title={
-            liveLabel
-              ? 'This file is the live file'
-              : live
-                ? 'Word diff of this entry against the published file'
-                : 'Not published yet: no live file to compare with'
+            showcase
+              ? 'The built-in example has no live file to compare with'
+              : liveLabel
+                ? 'This file is the live file'
+                : live
+                  ? 'Word diff of this entry against the published file'
+                  : 'Not published yet: no live file to compare with'
           }
           onClick={() => setDiff(!diff)}
         >
@@ -167,7 +181,7 @@ export function PreviewPanel({
           </p>
         )}
         <SkeletonBoundary
-          pending={preview.state.kind === 'loading' || !!(client && hash && !shown)}
+          pending={!showcase && (preview.state.kind === 'loading' || !!(client && hash && !shown))}
           error={!!siteError || preview.state.kind === 'error'}
           identity={hash}
           label="Loading the published data…"
@@ -178,10 +192,18 @@ export function PreviewPanel({
             </p>
           )}
 
-          {shown && (
+          {showcase && (
+            <TooltipPreview
+              text={showcaseText}
+              globals={showcaseGlobals}
+              lang="en"
+              name={showcaseName}
+            />
+          )}
+          {shown && (!showcase || !isLegacyFile(file)) && (
             <EntryView
               pair={shown.pair}
-              diff={diff && !!live && !liveLabel}
+              diff={!showcase && diff && !!live && !liveLabel}
               stale={shown.version !== version.current}
             />
           )}
