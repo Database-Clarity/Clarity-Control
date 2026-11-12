@@ -49,18 +49,21 @@ replacement. Import uses browser backup/local guidance persistence only. It neve
 Worker. High acceptance and medium review retain the existing LOCAL link-only draft semantics;
 Review & save drafts and Send to agents remain separate explicit actions.
 
-## Manifest facts and exotic weapon icons
+## Manifest facts and exotic weapon and armour icons
 
 Both files describe one Bungie manifest. Rerun from the repository root, in this order:
 
 ```sh
 node scripts/compendium-guidance/manifest-facts.mjs
 node scripts/compendium-guidance/exotic-weapon-icons.mjs
+node scripts/compendium-guidance/exotic-armor-icons.mjs
 ```
 
 The first writes `apps/web/src/features/compendium/manifest-facts.json` and pins each
 manifest component's URL and sha256. The second fetches that pinned
 DestinyInventoryItemDefinition URL, refuses it unless its sha256 matches, and writes
 `apps/web/src/features/navigation/exotic-weapon-icons.json` (exotic weapon hash -> icon), which
-the finder's weapon list shows. Drop the icon file and its script once the description-data
-generator emits owner icons.
+the finder's weapon list shows. The third does the same for exotic armour and writes
+`apps/web/src/features/navigation/exotic-armor-icons.json` (exotic armour hash -> icon), which
+the Exotic Armor list shows for perks owned by one piece. Drop the icon files and their scripts
+once the description-data generator emits owner icons.

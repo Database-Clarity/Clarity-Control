@@ -49,6 +49,17 @@
   overflow: hidden;
   border-radius: 2px;
 
+  // Bungie icons are drawn for a dark ground (pale, transparent perk glyphs vanish on the light
+  // list): the light theme gives the box the dark tile the game shows them on.
+  :global(:root[data-theme='light']) & {
+    background: #2b3036;
+  }
+  @media (prefers-color-scheme: light) {
+    :global(:root:not([data-theme])) & {
+      background: #2b3036;
+    }
+  }
+
   img {
     display: block;
     width: 100%;

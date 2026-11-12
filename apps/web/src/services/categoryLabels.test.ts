@@ -10,9 +10,10 @@ import {
   unknownCategoryLabel,
 } from './categoryLabels';
 
-// Every category id in Description-data-generator templates/v2/categories.json (2026-11-06).
+// Every category id in Description-data-generator templates/v2/categories.json (2026-11-12).
 const generatorIds = [
   'armor-trait-exotic',
+  'armor-trait-exotic-class-item',
   'armor-mod-general',
   'armor-set-bonus',
   'armor-mod-combat',
@@ -64,6 +65,17 @@ describe('category registry', () => {
     expect(categorySpecs['ghost-mod'].group).toBe('Ghost');
     expect(categorySpecs['weapon-trait-origin-enhanced'].label).toBe('Enhanced Origin Traits');
     expect(categorySpecs['armor-mod-seasonal'].label).toBe('Artifact Perks');
+    expect(categorySpecs['armor-trait-exotic'].label).toBe('Exotic Armor');
+    expect(categorySpecs['armor-trait-exotic-class-item']).toMatchObject({
+      label: 'Exotic Class Items',
+      group: 'Armor',
+    });
+    // Directly after Exotic Armor in the Armor area.
+    const armour = Object.entries(categorySpecs)
+      .filter(([, entry]) => entry.group === 'Armor')
+      .sort(([, a], [, b]) => a.order - b.order)
+      .map(([id]) => id);
+    expect(armour.slice(0, 2)).toEqual(['armor-trait-exotic', 'armor-trait-exotic-class-item']);
     const rank = (id: string) => categoryGroups.indexOf(categorySpecs[id].group);
     const byOrder = Object.keys(categorySpecs).sort(
       (a, b) => categorySpecs[a].order - categorySpecs[b].order,

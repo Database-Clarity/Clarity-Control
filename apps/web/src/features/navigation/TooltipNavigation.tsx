@@ -37,6 +37,7 @@ import {
   listName,
   navigationGroups,
   sharedPerkLabel,
+  sharesAllOwners,
   variantHashes,
   type CategorySection,
   type GroupedSection,
@@ -76,7 +77,7 @@ import { useScaleFactor } from '../../ui/usePaneDivider';
 import styles from './TooltipFinder.module.scss';
 import { FinderPicker, type PickerSection } from './FinderPicker';
 import { FinderIcon } from './FinderIcon';
-import { groupIcon } from './groupIcons';
+import { exoticArmourRowIcon, groupIcon } from './groupIcons';
 
 // Stepping asks the preview leave guard before it moves anything; see createStepping.
 const pathname = (route: string) => route.split('?')[0];
@@ -104,8 +105,13 @@ interface Row {
   entry?: string;
   /** The row sits in an All-scope list: committing it keeps the All scope. */
   all?: boolean;
-  /** The name already lists several pieces, so the row needs no shared-perk mark. */
+  /**
+   * The row needs no shared-perk mark: its name already lists several pieces, or every entry of
+   * its category shares the same owners (sharesAllOwners).
+   */
   listsPieces?: boolean;
+  /** An Exotic Armor row's piece icon ('' = empty box); undefined = the item's own icon. */
+  icon?: string;
   category: string;
 }
 
@@ -222,7 +228,7 @@ const FinderOption = memo(function FinderOption({
       <span className={styles.mark} aria-hidden="true">
         {isDirty ? '*' : ''}
       </span>
-      <FinderIcon icon={item?.icon} />
+      <FinderIcon icon={row.icon ?? item?.icon} />
       <span className={styles.name}>
         {isDirty && <span className="sr-only">Unsaved draft: </span>}
         {stacked ? row.entry : row.name}
@@ -362,7 +368,8 @@ const plainRow = (item: CategorySection['items'][number], section: CategorySecti
   // tellable apart even where the name column truncates.
   name: item.piece ?? item.name,
   perk: item.perkName && item.perkName !== (item.piece ?? item.name) ? item.perkName : undefined,
-  listsPieces: (item.pieces ?? 1) > 1,
+  listsPieces: (item.pieces ?? 1) > 1 || sharesAllOwners(section.items),
+  icon: exoticArmourRowIcon(item),
   category: section.label,
 });
 
