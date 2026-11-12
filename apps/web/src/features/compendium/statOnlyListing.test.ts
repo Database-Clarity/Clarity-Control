@@ -30,13 +30,19 @@ const saved = (hash: number): Tooltip => ({
 const listed = (hash: number, tooltip = saved(hash)) =>
   listingCategoryId(items[hash], classifyItem(items[hash], tooltip));
 
-it('lists every census item where the census says, with unchanged tooltip scope', () => {
+it('keeps census listings while superseding exotic part tooltip scope', () => {
   for (const [hash, want] of Object.entries(expected)) {
     const c = classifyItem(items[hash], saved(Number(hash)));
     expect(listed(Number(hash)), items[hash].name).toBe(want.listed);
     expect({ ruleId: c?.ruleId, excluded: c?.excluded }, items[hash].name).toEqual({
-      ruleId: want.ruleId,
-      excluded: want.excluded,
+      ruleId:
+        want.ruleId === 'manifest-weapon-stat' && fixture.savedText.includes(Number(hash))
+          ? 'exotic-part-no-weapon-row'
+          : want.ruleId,
+      excluded:
+        want.ruleId === 'manifest-weapon-stat' && fixture.savedText.includes(Number(hash))
+          ? false
+          : want.excluded,
     });
   }
   const groups = Object.values(expected).reduce<Record<string, number>>((n, e) => {
@@ -50,11 +56,11 @@ it('keeps exotic weapon parts under their weapon, also with an editor category o
   for (const hash of [3514694513, 1408087974]) {
     const item = items[hash];
     expect(item.categoryId).toBe('weapon-perk-exotic');
-    // The owner-approved exotic stat exception still decides scope (no tooltip, parent link)...
+    // Saved text supersedes the historic stat-only exception and needs source review.
     expect(classifyItem(item, saved(hash))).toMatchObject({
-      categoryId: attachmentCategory,
-      ruleId: 'manifest-weapon-stat',
-      excluded: true,
+      categoryId: effectCategory,
+      ruleId: 'exotic-part-no-weapon-row',
+      excluded: false,
     });
     // ...but the finder lists it with its weapon, never in Stat-only Parts or Parts with Effects.
     expect(listed(hash)).toBe('weapon-perk-exotic');

@@ -225,18 +225,25 @@ export function classifyItem(item: Item, tooltip?: Tooltip): ItemClassification 
           ['effect', 'effect-tentative'].includes(candidate.disposition),
       );
   let result = inferItemClassification(item, facts.items[item.hash]);
-  const plug = facts.items[item.hash]?.inventory?.plug?.plugCategoryIdentifier ?? '';
-  if (
-    approvedExoticStat(item, `catalog:${item.categoryId}`) &&
-    (attachments.has(plug) || attachments.has(plug.split('.').at(-1) ?? ''))
-  )
-    result = classification(
-      attachmentCategory,
-      'manifest-weapon-stat',
-      'Exact owner-approved exotic stat attachment: parent link retained; no tooltip needed unless promoted by an editor.',
-      true,
-      'owner',
-    );
+  if (approvedExoticStat(item, `catalog:${item.categoryId}`))
+    result =
+      (tooltip && hasAuthoredText(tooltip)) ||
+      describesEffect(facts.items[item.hash]?.inventory?.description ?? '')
+        ? classification(
+            effectCategory,
+            'exotic-part-no-weapon-row',
+            'Exotic part with tooltip or effect text: weapon row is not its text; review its own source.',
+            false,
+            'owner',
+            'required',
+          )
+        : classification(
+            attachmentCategory,
+            'manifest-weapon-stat',
+            'Exotic part: weapon row is not its text; no tooltip needed unless promoted by an editor.',
+            true,
+            'owner',
+          );
 
   if (record) {
     const d = record.disposition;
