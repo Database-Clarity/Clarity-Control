@@ -9,6 +9,22 @@ const parts = (lines: MarkupLine[]): DiffSpan[] =>
     ...(line.table?.flatMap((row) => row.rowContent?.flatMap((cell) => cell.cellContent) ?? []) ??
       []),
   ]);
+it.each([false, true])(
+  'renders one-sided changes without word alignment (removed=%s)',
+  (removed) => {
+    const text = '<pve Damage /> <primary/>\n< table wide >\n| Cell\n<$>';
+    const result = renderedDiff(removed ? text : '', removed ? '' : text, globals);
+    const shown = removed ? result.before : result.after;
+    const expected = parseMarkup(text, globals).lines;
+    expect(JSON.stringify(shown, (key, value) => (key === 'diffKind' ? undefined : value))).toBe(
+      JSON.stringify(expected),
+    );
+    expect(parts(shown).every((part) => part.diffKind === (removed ? 'delete' : 'insert'))).toBe(
+      true,
+    );
+    expect(removed ? result.after : result.before).toEqual(parseMarkup('', globals).lines);
+  },
+);
 it('marks changed words on both sides, preserves unchanged words, and never parses broken source fragments', () => {
   const result = renderedDiff('<pve Deals 20 damage />', '<pve Deals 30 damage />', globals);
   expect(

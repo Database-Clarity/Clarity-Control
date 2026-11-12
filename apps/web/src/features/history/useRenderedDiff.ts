@@ -11,7 +11,7 @@ const cache = new Map<string, Result>();
 
 /** Keep the bounded word alignment off the opening/input path for long descriptions. */
 export function useRenderedDiff(before: string, after: string, globals: MarkupGlobals) {
-  const large = before.length + after.length > 4000;
+  const large = !!before && !!after && before.length + after.length > 4000;
   const snapshot = useMemo(
     () => diagnosticGlobals(`${before}\n${after}`, globals),
     [before, after, globals],

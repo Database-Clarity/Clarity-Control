@@ -34,9 +34,11 @@ export function renderedDiff(
   globals: MarkupGlobals,
   precise = true,
 ) {
-  if (!precise) {
+  // With only one side there is nothing to align. Preserve the preview's spans
+  // directly instead of splitting, encoding, aligning, and recombining words.
+  if (!precise || !before || !after) {
     const coarse = (text: string, diffKind: DiffSpan['diffKind']) => {
-      const lines = parseMarkup(text, globals).lines;
+      const lines = text ? parseMarkup(text, globals).lines : [];
       for (const line of lines) {
         for (const span of line.linesContent ?? []) (span as DiffSpan).diffKind = diffKind;
         for (const row of line.table ?? [])

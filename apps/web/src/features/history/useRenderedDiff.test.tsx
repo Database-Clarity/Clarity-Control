@@ -52,6 +52,14 @@ it('renders long content immediately, ignores obsolete worker replies, and retai
     await act(async () => instances[0].onerror?.());
     expect(host.querySelector('[aria-busy="true"]')).toBeNull();
     expect(host.querySelector('ins')?.textContent).toBe(after.trimEnd());
+    const requested = requests.length;
+    await act(async () => root.render(show('', after)));
+    expect(requests).toHaveLength(requested);
+    expect(host.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(host.querySelector('ins')?.textContent).toBe(after.trimEnd());
+    await act(async () => root.render(show(before, '')));
+    expect(requests).toHaveLength(requested);
+    expect(host.querySelector('del')?.textContent).toBe(before.trimEnd());
   } finally {
     await act(async () => root.unmount());
     vi.unstubAllGlobals();
