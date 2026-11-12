@@ -1,6 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
+import {
+  applySavedOverlay,
+  clearSavedOverlay,
+  overlayServerSkewMs,
+} from '../../stores/savedOverlay';
 import { acceptSaved, replaceDraft } from './drafts';
 import { editorData, english, tooltip } from './fixtures.testSupport';
 
@@ -8,12 +13,30 @@ const initial = useDraftStore.getState();
 const retry = vi.fn();
 const next = { ...tooltip, text: { en: { ...english, text: 'Mine' } } };
 beforeEach(() => {
+  clearSavedOverlay();
   retry.mockClear();
   useDraftStore.setState({ ...initial, hydrated: true, retry });
   useDataStore.setState({ data: editorData() });
 });
 
+afterEach(() => vi.useRealTimers());
 describe('save draft reconciliation', () => {
+  it.each([-10, 10])(
+    'carries server time for a saved deletion with %i minute browser skew',
+    (minutes) => {
+      const savedAt = Date.parse('2026-11-01T00:00:00Z');
+      vi.useFakeTimers();
+      vi.setSystemTime(savedAt + minutes * 60 * 1000);
+      acceptSaved({}, [], 'deleted', [123], savedAt);
+      const stale = { ...editorData().bundle, generatedAt: new Date(savedAt - 1).toISOString() };
+      expect(applySavedOverlay(stale).tooltips[123]).toBeUndefined();
+      const newer = {
+        ...stale,
+        generatedAt: new Date(savedAt + overlayServerSkewMs + 1).toISOString(),
+      };
+      expect(applySavedOverlay(newer)).toBe(newer);
+    },
+  );
   it('preserves the original dirty base and persists full-tooltip restores', () => {
     replaceDraft(tooltip, next);
     replaceDraft(next, { ...next, associated: [20] });

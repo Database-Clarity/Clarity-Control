@@ -88,6 +88,8 @@ export class Fixture {
   weaponTypeStatus?: number;
   /** Extra generator fields on the canonical item 123. */
   canonicalFacts: Record<string, unknown> = {};
+  /** Extra generator categories after `perk`. */
+  extraCategories: unknown[] = [];
   history = [
     {
       sha: sha(1),
@@ -297,7 +299,7 @@ export class Fixture {
           },
         });
       if (url.pathname.endsWith('/categories.json'))
-        return this.response([{ id: 'perk', legacyType: 'Weapon Perk' }]);
+        return this.response([{ id: 'perk', legacyType: 'Weapon Perk' }, ...this.extraCategories]);
       if (url.pathname.endsWith('/aliases.json')) return this.response(this.aliases);
       if (url.pathname.endsWith('/weaponTypes.json')) {
         if (this.weaponTypeStatus) return this.response({}, this.weaponTypeStatus);

@@ -1,3 +1,4 @@
+import { ReadingTooltip } from '../preview/ReadingTooltip';
 import { memo, useMemo, useState, type ReactNode } from 'react';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { Link } from 'react-router-dom';
@@ -274,7 +275,11 @@ export function CompendiumDetail({
           )}
           {owners.length > 0 && <p className={styles.muted}>Owner: {owners.join(', ')}</p>}
           <h3>Current tooltip</h3>
-          <p className={styles.current}>{currentText?.trim() ? currentText : 'No text yet'}</p>
+          {currentText?.trim() ? (
+            <ReadingTooltip text={currentText} hash={row.hash} />
+          ) : (
+            <p className={styles.current}>No text yet</p>
+          )}
         </Tooltip>
         <div className={styles.candidates}>
           {row.kind === 'not-needed' ? (

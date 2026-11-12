@@ -10,9 +10,6 @@ import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { useSettingsStore } from '../../stores/settings';
 
-vi.mock('../preview/TooltipPreview', () => ({
-  TooltipPreview: ({ text }: { text: string }) => <div>{text}</div>,
-}));
 let root: Root;
 let container: HTMLDivElement;
 const hash = 1885400500;
@@ -89,7 +86,7 @@ it('opens detail, renders old/current text and recovers only into a local draft'
   const fetch = vi.spyOn(globalThis, 'fetch');
   render();
   click('Ricochet Rounds');
-  expect(container.textContent).toContain('Current saved text: (blank)');
+  expect(container.textContent).toContain('Current saved text(blank)');
   expect(container.querySelector('a[href*="/commit/"]')).toBeTruthy();
   const page = container.querySelector('article')!;
   page.scrollTop = 200;

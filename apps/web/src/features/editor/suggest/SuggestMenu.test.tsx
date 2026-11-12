@@ -201,7 +201,7 @@ describe('the suggestion menu', () => {
   });
 
   it('shows both variant results for the inline base/enhanced snippet without editing', () => {
-    const view = mount('Gains ');
+    const view = mount('Gains ', { globals: { ...globals, allowBaseEnhanced: true } });
     press(view, ' ', { ctrlKey: true, keyCode: 32 });
     const index = options().findIndex((option) => option.textContent === 'Base and enhanced text');
     expect(index).toBeGreaterThanOrEqual(0);
@@ -212,7 +212,7 @@ describe('the suggestion menu', () => {
   });
 
   it('inserts native pairs with Enter and walks their two editable arms with Tab', () => {
-    const view = mount('Gains ');
+    const view = mount('Gains ', { globals: { ...globals, allowBaseEnhanced: true } });
     press(view, ' ', { ctrlKey: true, keyCode: 32 });
     const index = options().findIndex((option) => option.textContent === 'Base and enhanced text');
     for (let i = 0; i < index; i++) press(view, 'ArrowDown');
@@ -243,12 +243,12 @@ describe('the suggestion menu', () => {
   });
 
   it('refuses to insert inside a protected line, says why, and leaves the text alone', () => {
-    const view = mount('Gains #damage ');
+    const view = mount('Gains ${2+ ');
     type(view, '<');
     type(view, 'pve');
     expect(menu()).not.toBeNull();
     press(view, 'Enter');
-    expect(view.state.doc.toString()).toBe('Gains #damage <pve');
+    expect(view.state.doc.toString()).toBe('Gains ${2+ <pve');
     expect(menu()!.querySelector('[role=alert]')!.textContent).toMatch(/Cannot insert|variable/);
   });
 

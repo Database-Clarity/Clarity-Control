@@ -1,3 +1,4 @@
+import type { ScopedMarkupGlobals } from '../editor/markupScope';
 import { useGlobalDefinition } from '../globals/useGlobals';
 import { GlobalUsages, GlobalUsageCount } from '../globals/GlobalsPage';
 import { archiveCategoryLabel, archivedItemFor } from '../archive/archive';
@@ -71,7 +72,12 @@ import { categoryDisplay } from '../../services/categoryLabels';
 import { TranslationSource } from './TranslationSource';
 import { VariantWorkspace } from './VariantWorkspace';
 import { CompendiumPanel } from '../compendium/CompendiumPanel';
-import { editableOverrides, enhancedRender, previewedVariants } from './variants';
+import {
+  categoriesWithEnhanced,
+  editableOverrides,
+  enhancedRender,
+  previewedVariants,
+} from './variants';
 import { groupedPerks } from './grouping';
 import styles from './TooltipPage.module.scss';
 import {
@@ -254,10 +260,11 @@ function TooltipWorkspace({
   }, [data, shown, lang]);
   // One globals object per type, so renders that share a type share the object (and its parse).
   const typedGlobals = useMemo(() => {
-    const cache = new Map<string | undefined, MarkupGlobals>();
-    return (type: string | undefined) => {
-      let globals = cache.get(type);
-      if (!globals) cache.set(type, (globals = { ...sharedGlobals, type }));
+    const cache = new Map<string, ScopedMarkupGlobals>();
+    return (type: string | undefined, allowBaseEnhanced: boolean) => {
+      const key = `${type}:${allowBaseEnhanced}`;
+      let globals = cache.get(key);
+      if (!globals) cache.set(key, (globals = { ...sharedGlobals, type, allowBaseEnhanced }));
       return globals;
     };
   }, [sharedGlobals]);
@@ -276,13 +283,6 @@ function TooltipWorkspace({
   // shown there; without one (a phone, or the page on its own) they stay inline in the page.
   const column = useShellColumn();
   const showPreview = column?.show;
-  const reviewCanonical = data ? canonicalHash(hashOverride ?? Number(parameter), data) : undefined;
-  const unpreviewed = usePreviewReviewStore(
-    (state) =>
-      Object.values(state.entries).filter(
-        (entry) => entry.canonical === reviewCanonical && entry.dirty > entry.reviewed,
-      ).length,
-  );
   // "Show preview" from the leave guard opens the column. A view that already shows the unseen
   // edits (Base, Enhanced, or Compare, which shows both) is left as it is; otherwise it moves to
   // Base, or to Enhanced for an override with unseen edits.
@@ -338,7 +338,13 @@ function TooltipWorkspace({
   const legacyOf = (variant: number) =>
     data.categories.find((category) => category.id === archivedItemFor(variant, data)?.categoryId)
       ?.legacyType;
-  const globalsFor = (variant: number): MarkupGlobals => typedGlobals(legacyOf(variant));
+  const globalsFor = (variant: number): ScopedMarkupGlobals =>
+    typedGlobals(
+      legacyOf(variant),
+      categoriesWithEnhanced(data).has(
+        data.items[variant]?.categoryId ?? archivedItemFor(variant, data)?.categoryId ?? '',
+      ),
+    );
   const textOf = (variant: number) =>
     (drafts[variant]?.next ?? tooltipFor(variant, data)).text[lang]?.text ?? '';
   // The base is the one the draft started from (as in save validation), not the live catalogue.
@@ -490,7 +496,11 @@ function TooltipWorkspace({
   // The editor's status bar tells how many edits the preview has not shown yet, and offers it.
   const previewStatus = column
     ? {
-        unpreviewed,
+        review: {
+          canonical,
+          scheduled: previewedHashes(mode, hash, selectedView),
+          visible: !column.collapsed && !suspended,
+        },
         collapsed: column.collapsed,
         onShow: () => {
           const host = usePreviewReviewStore.getState().host;
@@ -626,6 +636,7 @@ function TooltipWorkspace({
         source={
           lang === 'en' ? undefined : (
             <TranslationSource
+              hash={activeHash}
               key={`${activeHash}:${lang}`}
               text={activeTooltip.text.en?.text}
               diff={

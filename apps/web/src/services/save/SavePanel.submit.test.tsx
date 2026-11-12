@@ -11,6 +11,11 @@ import { useAuthStore } from '../../stores/auth';
 import { conflictSessionKey, useConflictStore } from '../../stores/conflicts';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
+import {
+  applySavedOverlay,
+  clearSavedOverlay,
+  overlayServerSkewMs,
+} from '../../stores/savedOverlay';
 import { editorData, english, tooltip } from './fixtures.testSupport';
 
 const mocks = vi.hoisted(() => ({
@@ -56,6 +61,7 @@ async function openAndSave() {
 
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  clearSavedOverlay();
   mocks.save.mockReset();
   mocks.save.mockResolvedValue({ kind: 'retry', error: 'try later' });
   mocks.token = 'token-a';
@@ -85,6 +91,24 @@ afterEach(async () => {
 describe('SaveController save submission', () => {
   const render = () => act(async () => root.render(createElement(SaveController)));
 
+  it('carries the response server time through reconciliation into the reload overlay', async () => {
+    const savedAt = Date.now() - 10 * 60 * 1000;
+    mocks.save.mockResolvedValue({
+      kind: 'saved',
+      commit: 'c'.repeat(40),
+      tooltips: [edited],
+      savedAt,
+    });
+    await render();
+    await openAndSave();
+    const stale = { ...editorData().bundle, generatedAt: new Date(savedAt - 1).toISOString() };
+    expect(applySavedOverlay(stale).tooltips[123]).toEqual(edited);
+    const newer = {
+      ...stale,
+      generatedAt: new Date(savedAt + overlayServerSkewMs + 1).toISOString(),
+    };
+    expect(applySavedOverlay(newer)).toBe(newer);
+  });
   it('sends the save when the login is settled and still the loaded one', async () => {
     await render();
     await openAndSave();

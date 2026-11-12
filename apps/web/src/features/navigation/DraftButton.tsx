@@ -1,3 +1,4 @@
+import { ReadingTooltip } from '../preview/ReadingTooltip';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -55,7 +56,11 @@ export function RecoveredDrafts({
             {Object.entries(draft.next.text).map(([language, value]) => (
               <div key={language}>
                 <strong>{languageLabel(language)}</strong>
-                <pre className={styles.recoveredText}>{value.text}</pre>
+                <ReadingTooltip text={value.text} lang={language as Lang} hash={Number(hash)} />
+                <details>
+                  <summary>Source markup for copying</summary>
+                  <pre className={styles.recoveredText}>{value.text}</pre>
+                </details>
               </div>
             ))}
             <button type="button" onClick={() => discard(Number(hash))}>

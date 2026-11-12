@@ -1,5 +1,11 @@
 import { languageLabel } from '../../languageLabels';
-import { type CompendiumData, languages, stableStringify } from '@clarity/core';
+import {
+  type CompendiumData,
+  hasTooltipText,
+  isTextlessDescription,
+  languages,
+  stableStringify,
+} from '@clarity/core';
 import { canEditLanguage, canEditTooltipFields } from '../../features/auth/permissions';
 import type { EditorData } from '../../stores/data';
 import type { Change, Me } from '../api';
@@ -9,6 +15,11 @@ import { enrichTooltip } from './enrichers';
 
 export function permissionError(changes: Change[], user: Me | null): string | null {
   if (!user?.role) return 'Sign in with an editing role before saving.';
+  if (
+    user.role === 'trial' &&
+    changes.some(({ base, next }) => isTextlessDescription(next) && (!base || hasTooltipText(base)))
+  )
+    return 'Only editors and maintainers can create link-only tooltips.';
   if (canEditTooltipFields(user)) return null;
   for (const change of changes) {
     if (!change.base) return 'Translators cannot create tooltips.';

@@ -20,6 +20,7 @@ export function acceptSaved(
   tooltips: Tooltip[],
   commit?: string,
   deleted: number[] = [],
+  savedAt?: number,
 ): void {
   const state = useDraftStore.getState();
   const drafts = { ...state.drafts };
@@ -36,7 +37,7 @@ export function acceptSaved(
       if (merged.ok) drafts[hash] = { base: head, next: merged.merged };
     }
   }
-  rememberSaved([...saved.values()], deleted);
+  rememberSaved([...saved.values()], deleted, Date.now(), savedAt);
   useDataStore.setState(({ data }) => {
     if (!data) throw new Error('Editor data disappeared during save.');
     const tooltips = { ...data.bundle.tooltips, ...Object.fromEntries(saved) };

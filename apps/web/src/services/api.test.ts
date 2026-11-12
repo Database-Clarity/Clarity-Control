@@ -80,6 +80,23 @@ describe('worker client', () => {
       conflicts,
     });
   });
+  it.each([undefined, null, 'bad', 0, -1, 9e15, 1234.5, 1793491200000])(
+    'reads a valid server save time and tolerates missing or malformed time: %s',
+    async (savedAt) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(Response.json({ commit: 'abc', tooltips: [], savedAt })),
+      );
+      const { save } = await import('./api');
+      const result = await save([], 'test');
+      expect(result).toEqual({
+        kind: 'saved',
+        commit: 'abc',
+        tooltips: [],
+        ...(savedAt === 1793491200000 ? { savedAt } : {}),
+      });
+    },
+  );
   it('reports API errors and rejects malformed successes', async () => {
     const fetch = vi
       .fn()

@@ -1,3 +1,4 @@
+import { offersBaseEnhanced } from '../markupScope';
 import {
   memo,
   useEffect,
@@ -78,15 +79,17 @@ function Render({ text, enhanced = false }: { text: string; enhanced?: boolean }
 function Keys({ keys }: { keys: string }) {
   return (
     <span className={styles.keys}>
-      {keys.split(/( \/ |, then )/).map((part, index) =>
-        part === ' / ' ? (
-          <span key={index}> </span>
-        ) : part === ', then ' ? (
-          <span key={index}> then </span>
-        ) : (
-          <kbd key={index}>{part}</kbd>
-        ),
-      )}
+      {keys
+        .split(/( \/ |, then )/)
+        .map((part, index) =>
+          part === ' / ' ? (
+            <span key={index}> </span>
+          ) : part === ', then ' ? (
+            <span key={index}> then </span>
+          ) : (
+            <kbd key={index}>{part}</kbd>
+          ),
+        )}
     </span>
   );
 }
@@ -143,15 +146,18 @@ export const MarkupHelp = memo(function MarkupHelp({
   const matching = useMemo(() => {
     const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
     return listed.filter(
-      (row) =>
-        row.id === retired?.instead || terms.every((term) => row.words.includes(term)),
+      (row) => row.id === retired?.instead || terms.every((term) => row.words.includes(term)),
     );
   }, [query, listed, retired]);
   const match = useMemo(() => new Set(matching.map((row) => row.id)), [matching]);
   // On a desktop every row keeps its place and the others dim; a phone's one column drops them.
   const drawn = phone ? matching : listed;
   const current = matching.find((row) => row.id === active) ?? matching[0];
-  const entry = readOnly ? undefined : current?.entry;
+  const entry =
+    readOnly ||
+    (current?.entry?.id === 'base-enhanced-pair' && !offersBaseEnhanced(globals.current))
+      ? undefined
+      : current?.entry;
   const filtering = query.trim() !== '';
   const filterLabel = phone ? 'Filter markup' : 'Filter markup and keys';
   const status = message

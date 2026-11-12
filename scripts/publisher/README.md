@@ -71,9 +71,12 @@ The plain Node 24 runtime includes packages/core and has no runtime npm dependen
 source HEAD. Commit source first, then build/commit the generated files so the source pin
 identifies the exact implementation. Do not edit generated publisher.mjs by hand.
 
-Current template source: `eacb1d73c97b7d14a3b0c0bedea9dc01c457381e` (v2).
-Runtime SHA-256: `74c136fc998c9850c326c650c1a36467bf6000b9f53122c8a67af29933b3e16a`.
+Current template source: `e4e91566b2fea1715a0c448cd3f3384968b570ac` (v2).
+Runtime SHA-256: `1355ce47ad664d153a1bbae744a4ec2718d9888155431f8845fa8d8ef7f56cc9`.
 This includes set-bonus pieces, name relinks, armor-set-bonus categories and alias-group schemas.
+Permissions accept the optional export `partners` map while retaining strict validation.
+This rebuild also includes the current Link only guards and the set-bonus publication hold.
+The current core barrel also includes unused report-schema initialization in this runtime.
 Two consecutive builds and a clean checkout build must reproduce that digest.
 
 At enable step E, first wait for or cancel every in-flight bundle.yml run: its old concurrency

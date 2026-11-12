@@ -8,10 +8,16 @@ import {
   markupIcons,
   markupLineClasses,
   markupRetired,
+  enhancedMarkupType,
   parseMarkup,
   type MarkupGlobals,
 } from '@clarity/core';
-import { markupOptions, markupTransaction, type MarkupOption } from './markupInsertion';
+import {
+  insertionRejection,
+  markupOptions,
+  markupTransaction,
+  type MarkupOption,
+} from './markupInsertion';
 import { TooltipPreview } from '../preview/TooltipPreview';
 
 const globals = { variables: '', titles: 'title Name (\nDescription\n)' };
@@ -426,11 +432,109 @@ describe('markup insertion', () => {
     }
   });
 
-  test('protects renderer context on lines containing expanded variable or math references', () => {
+  describe('markup beside math blocks and references', () => {
+    const owner =
+      'enhanced (\nvar d = 0.5\n)\nTaking any damage while Guarding increases Lunge Distance by 80% for the next swing within ↑${1+#d} ';
+    const ids = ['inline:bold', 'inline:blue', 'link', 'title', 'icon:solar', 'line:blue'];
+    const enhanced = { variables: '', titles: '', type: enhancedMarkupType };
+    const text = (doc: string) =>
+      parseMarkup(doc, enhanced)
+        .lines.flatMap((line) => line.linesContent ?? [])
+        .map((part) => part.text)
+        .join('');
+
+    test("inserts at the owner's caret after a math block and a space", () => {
+      const state = EditorState.create({ doc: owner, selection: { anchor: owner.length } });
+      for (const id of ids) {
+        expect(
+          insertionRejection(state, { from: owner.length, to: owner.length }, enhanced),
+          id,
+        ).toBeNull();
+        const next = markupTransaction(state, option(id), enhanced);
+        expect(next, id).not.toBeNull();
+        expect(text(next!.state.doc.toString()), id).toContain('within ↑1.5');
+      }
+      const bold = insert(state, option('inline:bold')).doc.toString();
+      expect(bold.endsWith('↑${1+#d} <bold Text />')).toBe(true);
+      expect(parseMarkup(bold, enhanced).lines.at(-1)?.linesContent?.at(-1)).toEqual(
+        expect.objectContaining({ text: 'Text', classNames: ['bold'] }),
+      );
+      // A typed trigger at the same caret (Ctrl+Space, `<` and `#` menus, snippets).
+      const typed = EditorState.create({ doc: `${owner}<bo` });
+      expect(
+        insertionRejection(typed, { from: owner.length, to: owner.length + 3 }, enhanced, {
+          typed: true,
+        }),
+      ).toBeNull();
+    });
+
+    test("inserts in Valiant Charge's stored text between the math block and #plural", () => {
+      const doc =
+        'Taking any damage while Guarding increases Lunge Distance by 80% for the next swing within #e${1+#d} #plural.\n\nvar plural = second\nenhanced (\nvar plural = seconds\nvar d = 0.5\n#e Buff Duration is increased by 0.5 seconds.\n)';
+      const host = { ...enhanced, variables: 'var e = 🡅' };
+      const point = doc.indexOf('#plural');
+      for (const caret of [point - 1, point]) {
+        const state = EditorState.create({ doc, selection: { anchor: caret } });
+        for (const id of ids)
+          expect(markupTransaction(state, option(id), host), `${id}@${caret}`).not.toBeNull();
+      }
+    });
+
+    test.each([
+      ['right after the closing brace', 'Lunge ↑${1+#d}', '↑${1+#d}'.length],
+      ['right before the math block', 'Lunge ↑${1+#d}', '↑'.length],
+      ['right after a reference', 'Lunge #d more', '#d'.length],
+      ['right before a reference', 'Lunge #d more', 0],
+      [
+        'at a line end after a closing tag',
+        'Lunge ${1+#d} <bold big />',
+        '${1+#d} <bold big />'.length,
+      ],
+    ])('allows a caret %s', (_, line, offset) => {
+      const doc = `var d = 0.5\n${line}`;
+      const point = doc.indexOf(line) + 'Lunge '.length + offset;
+      const state = EditorState.create({ doc, selection: { anchor: point } });
+      for (const id of ids)
+        expect(markupTransaction(state, option(id), enhanced), `${id}: ${point}`).not.toBeNull();
+    });
+
+    test('refuses inside math blocks, references, and after an unclosed or empty block', () => {
+      for (const [doc, points] of [
+        ['var d = 0.5\nx ${1+#d} y', [15, 16, 18, 19]],
+        ['var dmg = 2\nx #dmg y', [15, 16]],
+        ['x ${1+2 y z', [4, 7, 9, 11]],
+        ['x ${} y {{a}{b}} z', [3, 4, 5, 7, 18]],
+      ] as const) {
+        for (const point of points) {
+          const state = EditorState.create({ doc, selection: { anchor: point } });
+          for (const id of ids)
+            expect(
+              markupTransaction(state, option(id), enhanced),
+              `${id}: ${doc}@${point}`,
+            ).toBeNull();
+        }
+      }
+      // Selections that cross a math block or reference still refuse.
+      const doc = 'French ${2+2} text #d';
+      for (const [from, to] of [
+        [0, doc.length],
+        [0, 9],
+        [10, 15],
+        [17, 20],
+      ]) {
+        const state = EditorState.create({ doc, selection: { anchor: from, head: to } });
+        expect(
+          markupTransaction(state, option('inline:bold'), { ...enhanced, variables: 'var d = 1' }),
+          `${from}-${to}`,
+        ).toBeNull();
+      }
+    });
+  });
+
+  test('protects renderer context on lines with variables that expand to markup', () => {
     for (const doc of [
       'var style = <blue/>\n#style French text',
       'var opener = <bold \n#opener 10 />',
-      'French ${2+2} text',
     ]) {
       const start = doc.lastIndexOf('\n') + 1;
       const state = EditorState.create({ doc, selection: { anchor: doc.length } });
