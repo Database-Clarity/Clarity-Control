@@ -242,16 +242,16 @@
     }
   }
 }
-// Any narrow editor (a preview column open at 768px, a large interface scale): the line drops the
-// shortcut hint first, then shows "Grouped N" as its icon and N, so the right-hand buttons never
-// slide over one another or out of the header.
+// A narrow editor that also carries the Compendium/Reports toggles (a preview column open at 768px,
+// a large interface scale): the line drops the shortcut hint first, then shows "Grouped N" as its
+// icon and N, so the right-hand buttons never slide over one another or out of the header.
 @container pane-header (max-width: 40rem) {
-  .paneHeader .key {
+  .workspace[data-mode='toggle'] .paneHeader .key {
     display: none;
   }
 }
 @container pane-header (max-width: 34rem) {
-  .paneHeader {
+  .workspace[data-mode='toggle'] .paneHeader {
     .groupedIcon {
       display: inline-block;
     }
