@@ -99,6 +99,41 @@ Editor keys (the markup help and the status bar hints read them from
 Changing to an externally supplied document clears undo history, preventing
 undo from restoring a different tooltip or language.
 
+## Draft loader
+
+Agents write first drafts for empty tooltips from their Compendium matches, in the owner's
+style. When an empty English tooltip has one, editors and maintainers (not trial editors or
+translators) see **Load draft…** in the editor's pane header. Its popover renders the draft
+like the preview, links its Compendium source, and says "Source changed since this draft"
+when the source text now reads differently. **Load draft** puts the text in the editor as one
+undoable edit: an ordinary unsaved draft (Discard, the leave guard, and Save as usual; nothing
+is saved for you). The control hides once the tooltip has text.
+
+Drafts live on the `editor-drafts` branch of `Database-Clarity/Live-Clarity-Database` (no
+workflow runs there), read from raw.githubusercontent.com:
+
+- `index.json`: `{ "schemaVersion": 1, "hashes": [<tooltip hash>, ...] }`, the tooltips that
+  have a draft. Read once per session, 1.5 s after an empty draftable tooltip opens.
+- `drafts/<hash>.json`, one per tooltip, read only when that tooltip stays open 250 ms:
+
+  | Field | Meaning |
+  | --- | --- |
+  | `schemaVersion` | `1` |
+  | `hash` | The tooltip hash (canonical, as in the bundle); must match the file name. |
+  | `english` | The draft's English Clarity markup. |
+  | `sourceCommit` | The Compendium-data commit the source was read from (provenance). |
+  | `source` | `{ tab, gid, range, text }`: tab name, sheet gid, A1 range (`C12`, `C12:E14`, or several joined by `, `), and the source's text when drafted. |
+  | `styleGuide` | The owner style guide's version. |
+  | `createdAt` | ISO date-time with offset. |
+  | `model` | The model that wrote it. |
+
+`source.text` is the fingerprint: the plain text of the non-blank `compendium.json` grid cells
+inside `range` on tab `gid`, row by row and left to right (a merged cell once, at its
+top-left), joined by newlines. The popover compares it with the same text of the current
+Compendium, ignoring whitespace differences. A missing or invalid file, a hash mismatch, or a
+failed request shows nothing. `test/fixtures/editor-drafts` is a local example;
+`test/draft-loader-browser.mjs` runs the render matrix and flows against it.
+
 ## Compendium tracking
 
 `#/compendium` lists linked tooltips whose source text or styling changed, newest
