@@ -190,7 +190,7 @@ function ProjectListRow({
           {build.at ? <When value={build.at} nowrap /> : <span>{build.label}</span>}
         </span>
       </td>
-      <td data-col="notices">
+      <td data-col="notices" data-empty={build.failures || build.notices ? undefined : ''}>
         {build.failures ? (
           <span className={styles.badText}>{build.failures} failed</span>
         ) : build.notices ? (

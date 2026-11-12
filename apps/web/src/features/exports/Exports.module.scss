@@ -189,6 +189,9 @@ $row: 1.75rem;
 // Projects list ---------------------------------------------------------------------------------
 
 .listPage {
+  // The projects table turns into one block per project when it does not fit (rem based, so
+  // it follows the UI scale as well as the window).
+  container: list / inline-size;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 0.75rem;
@@ -440,6 +443,9 @@ $row: 1.75rem;
 // Config column ---------------------------------------------------------------------------------
 
 .config {
+  // Symbol rows put their before/after fields on a second line when the column is too narrow
+  // for them beside the mode (rem based, so it follows the UI scale).
+  container: config / inline-size;
   display: grid;
   gap: 0;
   min-width: 0;
@@ -500,6 +506,15 @@ $row: 1.75rem;
   .select {
     width: 12rem;
   }
+
+  // Beside the style select: the same height.
+  .segmented {
+    height: $row;
+
+    @include theme.mobile-or-coarse {
+      height: var(--tap);
+    }
+  }
 }
 
 .fileFoot {
@@ -532,6 +547,7 @@ $row: 1.75rem;
     font-size: 0.75rem;
     font-weight: 600;
     color: var(--text2);
+    white-space: nowrap;
   }
 
   input[type='checkbox'] {
@@ -540,9 +556,39 @@ $row: 1.75rem;
   }
 }
 
+// Native checkboxes ignore the root font size: size them in rem so they follow the UI scale.
+.tree input[type='checkbox'],
+.check input[type='checkbox'] {
+  width: 0.875rem;
+  height: 0.875rem;
+  accent-color: var(--accent-ink);
+}
+
 .checkCol {
+  // Positioned, so a visually hidden label is clipped with the cell, not the page.
+  position: relative;
   width: 6.5rem;
   text-align: center !important;
+}
+
+// Column headings with a phone form: the long one stays for screen readers.
+.shortLabel {
+  display: none;
+}
+
+@include theme.mobile {
+  .longLabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .shortLabel {
+    display: inline;
+  }
 }
 
 .groupRow th,
@@ -625,6 +671,11 @@ $row: 1.75rem;
     font-weight: 700;
     background: var(--sel);
     border-color: var(--accent-ink);
+  }
+
+  // The last chosen language cannot be removed: it stays visibly on.
+  &[aria-pressed='true']:disabled {
+    opacity: 1;
   }
 }
 
@@ -731,6 +782,19 @@ $row: 1.75rem;
   justify-content: flex-end;
 }
 
+@container config (max-width: 38rem) {
+  .formatRow {
+    grid-template-columns: 1.25rem 6.75rem 11.25rem minmax(0, 1fr) 1.5rem;
+    grid-template-areas:
+      'glyph name mode . state'
+      '. fields fields fields .';
+  }
+
+  .rowFields {
+    padding-top: 0;
+  }
+}
+
 .smallField {
   @include controls.field;
   box-sizing: border-box;
@@ -750,6 +814,7 @@ $row: 1.75rem;
 
 .segmented {
   display: inline-flex;
+  box-sizing: border-box;
   height: 1.375rem;
   overflow: hidden;
   border: 1px solid var(--ctl-edge);
@@ -809,6 +874,7 @@ $row: 1.75rem;
 
 .reset {
   display: inline-flex;
+  box-sizing: border-box;
   align-items: center;
   justify-content: center;
   width: 1.375rem;
@@ -1094,14 +1160,28 @@ $row: 1.75rem;
     gap: 0.25rem 0.5rem;
   }
 
-  // The status shares the row with Copy URL and Save while it fits, else takes its own line.
+  // The actions join the header's own rows (nothing in the status breaks).
   .headerActions {
-    width: 100%;
-    margin-left: 0;
+    display: contents;
+  }
+
+  .fileTabs {
+    margin-right: auto;
+  }
+
+  // Save stays beside the file tabs; the status and Copy URL share the next line.
+  .headerActions > .primary {
+    order: 1;
   }
 
   .headerActions > .buildCell {
-    flex: 1 1 14rem;
+    order: 10;
+    flex: 1 1 auto;
+  }
+
+  .headerActions > :not(.primary, .buildCell) {
+    order: 11;
+    margin-left: auto;
   }
 
   .projectTitle {
@@ -1140,10 +1220,71 @@ $row: 1.75rem;
   }
 
   .checkCol {
-    width: 4.5rem;
+    width: 1%;
   }
 
-  // The projects list as one compact block per project: no sideways scrolling on a phone.
+  .tooltipsBody {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tooltipsPreview {
+    max-width: none;
+  }
+
+  .newProject .field,
+  .partnersForm .field {
+    flex: 1 1 10rem;
+    width: auto;
+  }
+}
+
+@include theme.mobile-or-coarse {
+  .tree {
+    th,
+    td {
+      height: var(--tap);
+    }
+
+    input[type='checkbox'] {
+      width: 1.125rem;
+      height: 1.125rem;
+    }
+  }
+
+  .check {
+    min-height: var(--tap);
+
+    input[type='checkbox'] {
+      width: 1.125rem;
+      height: 1.125rem;
+    }
+  }
+
+  .formatRow {
+    min-height: var(--tap);
+  }
+
+  .groupHeading,
+  .sectionHeader {
+    min-height: var(--tap);
+  }
+
+  .projects {
+    th,
+    td {
+      height: var(--tap);
+    }
+  }
+
+  .fileTabs {
+    height: var(--tap);
+  }
+}
+
+// The projects list as one compact block per project when the table does not fit: every column
+// shows, no sideways scrolling. After the touch sizes above, so the blocks size to their content
+// (buttons keep --tap).
+@container list (max-width: 56rem) {
   .projects {
     min-width: 0;
 
@@ -1156,7 +1297,8 @@ $row: 1.75rem;
       grid-template-columns: minmax(0, 1fr) auto;
       grid-template-areas:
         'project build'
-        'files files'
+        'files format'
+        'notices notices'
         'partners actions';
       align-items: center;
       gap: 0 0.5rem;
@@ -1194,8 +1336,14 @@ $row: 1.75rem;
     [data-col='build'] {
       justify-self: end;
     }
-    [data-col='format'],
+    [data-col='format'] {
+      grid-area: format;
+      justify-self: end;
+    }
     [data-col='notices'] {
+      grid-area: notices;
+    }
+    [data-col='notices'][data-empty] {
       display: none;
     }
 
@@ -1204,63 +1352,7 @@ $row: 1.75rem;
     }
   }
 
-  .tooltipsBody {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .tooltipsPreview {
-    max-width: none;
-  }
-
-  .newProject .field,
-  .partnersForm .field {
-    flex: 1 1 10rem;
-    width: auto;
-  }
-}
-
-@include theme.mobile-or-coarse {
-  .tree {
-    th,
-    td {
-      height: var(--tap);
-    }
-
-    input[type='checkbox'] {
-      width: 1.125rem;
-      height: 1.125rem;
-    }
-  }
-
-  .check {
-    min-height: var(--tap);
-  }
-
-  .formatRow {
-    min-height: var(--tap);
-  }
-
-  .groupHeading,
-  .sectionHeader {
-    min-height: var(--tap);
-  }
-
-  .projects {
-    th,
-    td {
-      height: var(--tap);
-    }
-  }
-
-  .fileTabs {
-    height: var(--tap);
-  }
-}
-
-// After the touch sizes above: list blocks on phones size to their content (buttons keep --tap).
-@include theme.mobile {
-  .projects th,
-  .projects td {
-    height: auto;
+  .tableScroll {
+    overflow-x: visible;
   }
 }

@@ -228,6 +228,8 @@ function EntryView({ pair, diff, stale }: { pair: SamplePair; diff: boolean; sta
   );
 }
 
+const count = new Intl.NumberFormat('en');
+
 function NumbersStrip({
   file,
   fileJson,
@@ -271,7 +273,7 @@ function NumbersStrip({
       {result && !error && (
         <span className={styles.numberList} data-stale={stale || undefined}>
           <span>
-            <b>{result.numbers.entries.toLocaleString()}</b> entries
+            <b>{count.format(result.numbers.entries)}</b> entries
           </span>
           <span>
             <b>{formatBytes(result.numbers.raw)}</b> raw
@@ -290,7 +292,7 @@ function NumbersStrip({
               )
             ) : (
               <>
-                <b>{result.numbers.changed.toLocaleString()}</b> changed vs live
+                <b>{count.format(result.numbers.changed)}</b> changed vs live
               </>
             )}
           </span>

@@ -324,7 +324,10 @@ function DataSection({
               Tooltips
             </th>
             <th scope="col" className={styles.checkCol}>
-              Sandbox perks
+              <span className={styles.longLabel}>Sandbox perks</span>
+              <span className={styles.shortLabel} aria-hidden="true">
+                Sandbox
+              </span>
             </th>
           </tr>
         </thead>
@@ -593,14 +596,14 @@ function FormatSection({
     (row: FormatRow) => update((current) => resetRow(current, key, row)),
     [update, key],
   );
-  const reset = (rows: FormatRow[]) =>
+  const reset = (rows: FormatRow[], label = `Reset ${rows.length}`) =>
     rows.length ? (
       <button
         type="button"
         className={styles.quiet}
         onClick={() => update((current) => resetRows(current, key, rows))}
       >
-        Reset {rows.length}
+        {label}
       </button>
     ) : null;
   return (
@@ -613,7 +616,10 @@ function FormatSection({
               ? `${symbolsChanged.length + rulesChanged.length} changed from ${styleLabel(file.preset)}`
               : `As ${styleLabel(file.preset)}`}
           </span>
-          {reset([...symbolsChanged, ...rulesChanged])}
+          {/* Only when both groups changed: otherwise the group's own Reset is the one. */}
+          {symbolsChanged.length > 0 &&
+            rulesChanged.length > 0 &&
+            reset([...symbolsChanged, ...rulesChanged], 'Reset all')}
         </span>
       }
     >

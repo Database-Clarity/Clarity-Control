@@ -824,6 +824,53 @@ const overflow = (page) =>
     ]
       .filter((el) => el.getBoundingClientRect().height > 60)
       .map((el) => el.textContent.trim()),
+    // Text fields whose value is cut while it is shown (DESIGN QUALITY).
+    cutValues: [...document.querySelectorAll('input:not([type="checkbox"]), select')]
+      .filter((el) => {
+        const r = el.getBoundingClientRect();
+        return r.width && el.value && el.scrollWidth > el.clientWidth + 1;
+      })
+      .map((el) => `${el.getAttribute('aria-label') ?? el.tagName} "${el.value.slice(0, 20)}"`),
+    // Controls side by side in one row share one height.
+    rowHeights: [
+      ...document.querySelectorAll(
+        '[class*="formatRow"], [class*="formControl"], [class*="headerActions"], [class*="previewBar"]',
+      ),
+    ].flatMap((row) => {
+      const controls = [
+        ...row.querySelectorAll(
+          'select, input:not([type="checkbox"]), [class*="segmented"], button:not([class*="segmented"] button):not([class*="linkButton"])',
+        ),
+      ]
+        .map((el) => el.getBoundingClientRect())
+        .filter((r) => r.width && r.height);
+      const bad = [];
+      for (const a of controls)
+        for (const b of controls)
+          if (
+            Math.abs(a.top + a.height / 2 - (b.top + b.height / 2)) < 4 &&
+            Math.abs(a.height - b.height) > 1
+          )
+            bad.push(`${String(row.className).slice(0, 24)} ${a.height}/${b.height}`);
+      return bad.slice(0, 1);
+    }),
+    // A table scroller that hides columns (the projects list must show every column).
+    hiddenColumns: [...document.querySelectorAll('[class*="tableScroll"]')]
+      .filter((el) => el.scrollWidth > el.clientWidth + 1)
+      .map((el) => `${el.scrollWidth}/${el.clientWidth}`),
+    // Checkboxes follow the UI scale (native ones ignore the root font size).
+    smallChecks: [...document.querySelectorAll('input[type="checkbox"]')]
+      .filter((el) => {
+        const r = el.getBoundingClientRect();
+        const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+        return r.height && r.height < rem * 0.8;
+      })
+      .map((el) => el.getAttribute('aria-label') ?? 'checkbox')
+      .slice(0, 3),
+    // A selected control never reads as off (the last language chip is disabled but on).
+    dimSelected: [...document.querySelectorAll('[aria-pressed="true"]')]
+      .filter((el) => el.getBoundingClientRect().width && getComputedStyle(el).opacity < 1)
+      .map((el) => el.textContent.trim()),
   }));
 const matrix = [];
 for (const width of [390, 768, 1280])
@@ -865,6 +912,13 @@ for (const width of [390, 768, 1280])
         const found = await overflow(page);
         const shot = `${view.name}-${width}-${theme}-${scale}.png`;
         await page.screenshot({ path: join(shots, shot) });
+        // The config column starts at its default width, not its minimum (desktop, UI 100).
+        if (view.name === 'project' && width === 1280 && scale === 100) {
+          const configWidth = await page
+            .locator('[class*="configColumn"]')
+            .evaluate((el) => el.getBoundingClientRect().width);
+          if (configWidth < 600) found.wide.push(`config column ${Math.round(configWidth)}px`);
+        }
         matrix.push({ shot, ...found, errors });
         if (view.name === 'project') {
           // The symbol table, scrolled into view in its own column (or the page on narrow screens).
@@ -887,6 +941,11 @@ const failures = matrix.filter(
     row.clipped.length ||
     row.overlap.length ||
     row.tall.length ||
+    row.cutValues.length ||
+    row.rowHeights.length ||
+    row.hiddenColumns.length ||
+    row.smallChecks.length ||
+    row.dimSelected.length ||
     row.errors.length,
 );
 writeFileSync(join(out, 'exports-browser.json'), JSON.stringify(results, null, 2));

@@ -150,8 +150,11 @@ export function ProjectPage() {
     min: 360,
     max: 760,
     reserve: 360,
-    defaultWidth: (width) => Math.round(Math.min(600, Math.max(480, width * 0.45))),
+    defaultWidth: (width) => Math.round(Math.min(680, Math.max(520, width * 0.5))),
     persist: !narrow,
+    // The columns mount once the project has loaded (and only on wide screens): measuring
+    // resumes then, so the default width follows the real container instead of its minimum.
+    paused: narrow || !state,
   });
 
   const dirty = state ? isDirty(state) : false;
