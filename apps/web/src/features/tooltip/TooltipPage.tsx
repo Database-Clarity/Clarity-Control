@@ -86,6 +86,14 @@ import {
   useSteppingActivity,
 } from '../navigation/steppingActivity';
 import { LivePreviewIdentity, previewIdentityFor } from '../preview/LivePreviewIdentity';
+import { ReportsPane } from '../reports/pane/ReportsPane';
+import {
+  openCount,
+  reportLanguages,
+  seesReports,
+  useReportsIndex,
+  useReportsIndexLoader,
+} from '../reports/pane/indexStore';
 
 interface WorkspaceRoute {
   parameter?: string;
@@ -274,6 +282,10 @@ function TooltipWorkspace({
   );
   // Saved text only, so the suggestion menu's usage counts do not change as you type.
   const usage = useMemo(() => corpusUsage(data?.bundle.tooltips ?? {}), [data?.bundle.tooltips]);
+  // Reports: the tab label is a lookup in the session's marker index (no request per tooltip).
+  useReportsIndexLoader();
+  const reportIndex = useReportsIndex((state) => state.open);
+  const previewHost = useRef<HTMLDivElement>(null);
   function openDefinition(target: TooltipTarget) {
     // Ordinary navigation (a pushed history entry), the same route a Globals page link takes.
     const canonical = data ? canonicalHash(target.hash, data) : target.hash;
@@ -510,6 +522,39 @@ function TooltipWorkspace({
       }
     : undefined;
   const translation = translationQueue([activeBase], [lang], data.aliases)[0];
+  const compendiumPane = selectedGlobal ? (
+    <GlobalUsages hash={selectedGlobal.hash} name={selectedGlobal.name} />
+  ) : !readOnly && user?.role !== 'translator' ? (
+    <SteppingCompendium base={activeBase} active={suspended} ready={previewPainted === hash} />
+  ) : null;
+  // Roles that may see reports, in a language they may read, beside another side pane (the tab
+  // shares the right pane; it never takes a pane of its own).
+  const reportsShown =
+    !readOnly &&
+    !selectedGlobal &&
+    hash > 3 &&
+    seesReports(user) &&
+    (reportLanguages(user)?.includes(lang) ?? true) &&
+    (lang !== 'en' || compendiumPane !== null);
+  const reports =
+    reportsShown && user
+      ? {
+          count: openCount(reportIndex, hash, lang),
+          pane: (
+            <ReportsPane
+              hash={hash}
+              lang={lang}
+              user={user}
+              text={value}
+              globals={globalsFor(hash)}
+              variants={enhancedViews}
+              previewHost={previewHost}
+              suspended={suspended}
+              ready={previewPainted === hash}
+            />
+          ),
+        }
+      : undefined;
   const overrideTargets = overrides.map((variant) => ({ hash: variant, name: nameOf(variant) }));
   const editing = (variant: number, base: Tooltip) => (
     <ClarityEditor
@@ -669,7 +714,7 @@ function TooltipWorkspace({
         }
         preview={
           hosted ? null : (
-            <div className={styles.inlinePreview}>
+            <div className={styles.inlinePreview} ref={previewHost}>
               {previews}
               {selectedGlobal && (
                 <GlobalUsageCount hash={selectedGlobal.hash} name={selectedGlobal.name} />
@@ -678,22 +723,14 @@ function TooltipWorkspace({
             </div>
           )
         }
-        compendium={
-          selectedGlobal ? (
-            <GlobalUsages hash={selectedGlobal.hash} name={selectedGlobal.name} />
-          ) : !readOnly && user?.role !== 'translator' ? (
-            <SteppingCompendium
-              base={activeBase}
-              active={suspended}
-              ready={previewPainted === hash}
-            />
-          ) : null
-        }
+        compendium={compendiumPane}
+        reports={reports}
       />
       {hosted && (
         <ShellSlot name="left">
           <div className={styles.leftStack}>
             <div
+              ref={previewHost}
               className={styles.previewBody}
               data-global-preview={selectedGlobal ? true : undefined}
             >

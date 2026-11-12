@@ -41,6 +41,7 @@ export function Popover({
   open: controlledOpen,
   onOpenChange,
   anchorElement,
+  width = 560,
 }: {
   /** Names both the trigger's popup and the surface. */
   label: string;
@@ -71,6 +72,8 @@ export function Popover({
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   anchorElement?: HTMLElement;
+  /** Desktop surface width (a short menu of actions is narrower than a sheet). */
+  width?: number;
 }) {
   const [internalOpen, setOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
@@ -111,7 +114,7 @@ export function Popover({
       const input = {
         trigger: rect,
         area,
-        width: anchorElement ? rect.width : phone ? Infinity : 560,
+        width: anchorElement ? rect.width : phone ? Infinity : width,
         gap,
       };
       // Below first, at the final width, so the content's height is measured as it will wrap.
@@ -122,7 +125,7 @@ export function Popover({
     };
     place();
     return followPlacement(() => surface.current, place);
-  }, [open, gap, anchorElement]);
+  }, [open, gap, anchorElement, width]);
   useEffect(() => {
     if (!open || contain || anchorElement) return;
     // Preserve the trigger's place in sequential keyboard navigation across the portal.

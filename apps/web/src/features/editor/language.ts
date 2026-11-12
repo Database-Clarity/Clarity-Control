@@ -17,15 +17,16 @@ export const clarityLanguage = StreamLanguage.define({
   startState: (): {
     comment: boolean;
     declaration: boolean;
-    formula: boolean;
+    /** Inside ${…}: the base number next, the enhanced rest of a formula, or the closing brace. */
+    math: 'base' | 'rest' | 'close' | null;
     table: boolean;
     /** Inside a {{base}{enhanced}} pair: where the base arm and the enhanced arm end. */
     pair: { baseEnd: number; enhancedEnd: number } | null;
-  } => ({ comment: false, declaration: false, formula: false, table: false, pair: null }),
+  } => ({ comment: false, declaration: false, math: null, table: false, pair: null }),
   token(stream, state) {
     if (stream.sol()) {
       state.declaration = false;
-      state.formula = false;
+      state.math = null;
       state.pair = null;
     }
     if (state.pair) {
@@ -48,11 +49,25 @@ export const clarityLanguage = StreamLanguage.define({
       state.pair = null;
       return 'pairMark';
     }
-    if (state.formula) {
-      // After the base number of ${base+#d}, the rest is the enhanced part: the enhanced colour,
-      // like the enhanced arm of a {{base}{enhanced}} pair.
-      state.formula = false;
-      if (stream.match(/[^}]*\}?/)) return 'enhancedArm';
+    if (state.math) {
+      // ${…} is coloured like a {{base}{enhanced}} pair: its braces are pair marks; a lone number
+      // keeps the number colour; an operator after the first number makes that number the base
+      // arm and the rest, up to the closing brace, the enhanced arm.
+      if (state.math === 'base') {
+        state.math = 'close';
+        if (stream.match(/-?[^}+*/-]+|-/)) {
+          if (stream.eol() || stream.peek() === '}') return 'number';
+          state.math = 'rest';
+          return 'baseArm';
+        }
+        if (!stream.eol() && stream.peek() !== '}') state.math = 'rest';
+      }
+      if (state.math === 'rest') {
+        state.math = 'close';
+        if (stream.match(/[^}]+/)) return 'enhancedArm';
+      }
+      state.math = null;
+      if (stream.eat('}')) return 'pairMark';
     }
     if (state.comment) {
       if (stream.skipTo('*/')) {
@@ -89,14 +104,9 @@ export const clarityLanguage = StreamLanguage.define({
     }
     if (stream.sol() && stream.match(/^\)/)) return 'keyword';
     if (stream.match(/#[a-zA-Z0-9]+/)) return 'variableName';
-    if (stream.match(/\$\{-?[^}+*/-]*\}?/)) {
-      // A lone number (and its braces) keeps the number colour. An operator after it makes it the
-      // base number of ${base+#d}: the base colour, like a pair's base arm; the rest is enhanced.
-      if (!stream.eol() && !stream.current().endsWith('}')) {
-        state.formula = true;
-        return 'baseArm';
-      }
-      return 'number';
+    if (stream.match('${')) {
+      state.math = 'base';
+      return 'pairMark';
     }
     if (stream.match(/< table .*?>/)) {
       state.table = true;
