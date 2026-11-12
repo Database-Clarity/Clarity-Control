@@ -1,0 +1,880 @@
+@use '../../../data/variables' as theme;
+@use '../../../ui/controls';
+
+// The public report pages: minimal header, then one centred page. Dense like the editor: 28px
+// controls on desktop, var(--tap) on touch; 12px phone gutters.
+
+.shell {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--page);
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  height: 2.25rem;
+  padding: 0 0.5rem;
+  background: var(--chrome);
+  border-bottom: 1px solid var(--line);
+  @include theme.mobile {
+    height: var(--bar);
+    gap: 0.5rem;
+    padding: 0 var(--page-x);
+  }
+}
+
+.brandLink {
+  display: flex;
+  align-items: center;
+  flex: none;
+  border-radius: 0.25rem;
+  &:focus-visible {
+    @include controls.focus-ring;
+  }
+}
+
+.title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.875rem;
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+
+.headerEnd {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+
+.main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.page {
+  width: 100%;
+  max-width: 68rem;
+  margin: 0 auto;
+  padding: 0.75rem 1rem 1.5rem;
+  font-size: 0.8125rem;
+  color: var(--text);
+  @include theme.mobile {
+    padding: 0.5rem 0.75rem 0;
+  }
+
+  p {
+    margin: 0;
+  }
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+// ---- Controls --------------------------------------------------------------------------------
+
+.button {
+  @include controls.button;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.primary {
+  @include controls.button;
+  flex: none;
+  font-weight: 700;
+  color: var(--pri-text);
+  background: var(--pri-hover);
+  border-color: var(--accent-ink);
+  white-space: nowrap;
+
+  &[aria-disabled] {
+    opacity: 0.6;
+    cursor: progress;
+  }
+}
+
+// Doubled so the danger look wins over generic `.dialog button` rules.
+.danger.danger {
+  @include controls.button;
+  color: var(--danger);
+  border-color: var(--alert-edge);
+  background: var(--alert-bg);
+}
+
+.linkButton,
+.textButton,
+.dangerText {
+  @include controls.button;
+  flex: none;
+  color: var(--text2);
+  background: none;
+  border-color: transparent;
+  text-decoration: none;
+  white-space: nowrap;
+
+  &:hover:not(:disabled) {
+    color: var(--text);
+    background: var(--hover);
+    border-color: transparent;
+  }
+}
+
+.textButton {
+  align-self: flex-start;
+  padding: 0 0.375rem;
+}
+
+// A text button that starts a column lines its text up with the labels and fields above it.
+.flush {
+  margin-left: -0.375rem;
+}
+
+.dangerText {
+  color: var(--danger);
+
+  &:hover:not(:disabled) {
+    color: var(--danger2);
+  }
+}
+
+.select {
+  @include controls.field;
+  padding-right: 0.25rem;
+}
+
+.input {
+  @include controls.field;
+  width: 100%;
+  min-width: 0;
+}
+
+.textarea {
+  @include controls.field;
+  display: block;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.3125rem 0.5rem;
+  line-height: 1.35;
+  resize: vertical;
+  // Grows with the note (capped) instead of scrolling inside two rows.
+  field-sizing: content;
+  max-height: 12rem;
+}
+
+.input[aria-invalid='true'],
+.textarea[aria-invalid='true'] {
+  border-color: var(--danger);
+
+  &:focus-visible {
+    outline-color: var(--danger);
+    border-color: var(--danger);
+  }
+}
+
+.label {
+  display: block;
+  margin: 0.5rem 0 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text2);
+}
+
+.labelNote {
+  color: var(--text3, var(--text2));
+}
+
+.muted {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--text2);
+}
+
+.error {
+  margin-top: 0.25rem !important;
+  font-size: 0.75rem;
+  color: var(--danger);
+}
+
+.notice {
+  padding: 0.375rem 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--alert-bg);
+  border: 1px solid var(--alert-edge);
+  border-radius: 0.25rem;
+
+  button {
+    margin-top: 0.375rem;
+  }
+}
+
+.heading {
+  margin: 0.75rem 0 0.375rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+
+  &:first-child {
+    margin-top: 0;
+  }
+}
+
+// ---- Form layout -----------------------------------------------------------------------------
+
+.form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 26rem);
+  gap: 0 2rem;
+  align-items: start;
+
+  @media (max-width: 900px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.left,
+.right {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.itemRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem 0.5rem;
+  min-width: 0;
+}
+
+// The name keeps at least 9rem; when the scale leaves less, Change and the language wrap below it.
+.item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1 1 9rem;
+  min-width: 0;
+}
+
+.icon {
+  flex: none;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.125rem;
+  background: var(--ctl);
+}
+
+.itemText {
+  min-width: 0;
+}
+
+.itemName {
+  margin: 0;
+  overflow: hidden;
+  font-size: 1rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemMeta {
+  overflow: hidden;
+  font-size: 0.75rem;
+  color: var(--text2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemHash {
+  @include theme.mobile {
+    display: none;
+  }
+}
+
+.itemControls {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.langField {
+  flex: none;
+  display: flex;
+
+  // A native select is as wide as its longest language; the item name needs that room.
+  .select {
+    max-width: 9rem;
+    @include theme.mobile {
+      max-width: 7.5rem;
+    }
+  }
+}
+
+.fallback {
+  font-size: 0.75rem;
+  color: var(--warn);
+}
+
+.hint {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--text2);
+}
+
+// The tooltip at consumer width. The preview sets its text in pixels while its width and symbols
+// follow rem; here the text follows rem too, so at any interface scale the lines break as in the app.
+.tooltip {
+  max-width: 22.5rem !important;
+  font-size: 0.875rem !important;
+}
+
+.annotatable {
+  cursor: text;
+  user-select: text;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.line {
+  position: relative;
+  border-radius: 1px;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--accent-ink);
+    outline-offset: 1px;
+  }
+
+  // A whole line marked: an outline that never changes the line box.
+  &[data-marked] {
+    outline: 1px solid var(--warn);
+    outline-offset: 1px;
+  }
+}
+
+.mark {
+  color: inherit;
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+  text-decoration: underline 2px var(--warn);
+  text-underline-offset: 2px;
+}
+
+.existing {
+  text-decoration: underline dashed 1px;
+  text-decoration-color: color-mix(in srgb, currentColor 70%, transparent);
+  text-underline-offset: 3px;
+}
+
+// The number sits on the mark's first character, above the line, with no layout of its own.
+.badgeAnchor {
+  position: relative;
+  display: inline;
+}
+
+.badge {
+  position: absolute;
+  bottom: 0.85em;
+  left: -0.1em;
+  font:
+    700 0.625rem/1 Arial,
+    sans-serif;
+  color: var(--warn);
+  pointer-events: none;
+  user-select: none;
+}
+
+.privacyWide {
+  margin-top: 0.25rem !important;
+  @media (max-width: 900px) {
+    display: none;
+  }
+}
+
+.privacyNarrow {
+  display: none;
+  @media (max-width: 900px) {
+    display: block;
+  }
+}
+
+// ---- Notes -----------------------------------------------------------------------------------
+
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  &:empty {
+    display: none;
+  }
+}
+
+.note {
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 1fr);
+  gap: 0.375rem;
+  align-items: start;
+}
+
+.noteBadge {
+  display: grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-top: 0.0625rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--warn);
+  border: 1px solid var(--warn);
+  border-radius: 50%;
+}
+
+.noteBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.quote {
+  display: -webkit-box;
+  overflow: hidden;
+  font-style: italic;
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  color: var(--text2);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.warnText {
+  font-style: normal;
+  color: var(--warn);
+}
+
+.noteActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+
+  .select {
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+
+// ---- Evidence and optional -------------------------------------------------------------------
+
+.evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.shots {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.thumb {
+  position: relative;
+  display: inline-flex;
+
+  img {
+    width: 3.5rem;
+    height: 2.25rem;
+    object-fit: cover;
+    border: 1px solid var(--line);
+    border-radius: 0.125rem;
+  }
+}
+
+.thumbRemove {
+  position: absolute;
+  top: -0.375rem;
+  right: -0.375rem;
+  display: grid;
+  place-items: center;
+  width: 1.125rem;
+  height: 1.125rem;
+  padding: 0;
+  font-size: 0.75rem;
+  line-height: 1;
+  color: var(--text);
+  background: var(--raised);
+  border: 1px solid var(--ctl-edge);
+  border-radius: 50%;
+
+  // A 36px touch target without a bigger glyph.
+  &::after {
+    content: '';
+    position: absolute;
+    inset: -0.5rem;
+  }
+}
+
+.fieldRow {
+  display: flex;
+  flex-direction: column;
+
+  .label {
+    margin-top: 0.25rem;
+  }
+}
+
+.optional {
+  margin-top: 0.5rem;
+
+  summary {
+    @include controls.control-size;
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.8125rem;
+    color: var(--text2);
+    cursor: pointer;
+    list-style: none;
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+
+    &::before {
+      content: '▸';
+      flex: none;
+      width: 0.75rem;
+      transition: transform 0.1s;
+    }
+
+    &:focus-visible {
+      @include controls.focus-ring;
+    }
+  }
+
+  &[open] summary {
+    color: var(--text);
+    font-weight: 700;
+
+    &::before {
+      transform: rotate(90deg);
+    }
+  }
+}
+
+.identity {
+  margin-top: 0.5rem !important;
+  font-size: 0.75rem;
+  color: var(--text2);
+
+  strong {
+    color: var(--text);
+  }
+}
+
+.burden {
+  padding: 0.375rem 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--warn-bg);
+  border-left: 2px solid var(--warn);
+}
+
+// ---- Footer: the send bar (sticky on phones) ---------------------------------------------------
+
+.footer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+
+  @include theme.mobile {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    margin: 0.5rem -0.75rem 0;
+    padding: 0.375rem 0.75rem calc(0.375rem + env(safe-area-inset-bottom));
+    background: var(--chrome);
+    border-top: 1px solid var(--line);
+  }
+}
+
+// The Turnstile widget only takes room while Cloudflare asks for an interaction.
+.checkRow {
+  display: none;
+
+  &[data-visible] {
+    display: flex;
+  }
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.barStatus {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.75rem;
+  color: var(--text2);
+}
+
+// ---- Picker ----------------------------------------------------------------------------------
+
+.picker {
+  max-width: 44rem;
+}
+
+.search {
+  font-size: 0.875rem;
+}
+
+.pickerMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem 0.75rem;
+  margin: 0.5rem 0;
+}
+
+.inline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+
+  .label {
+    margin: 0;
+  }
+}
+
+.results {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--hair);
+}
+
+.result {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.25rem;
+  padding: 0.125rem 0.375rem;
+  border-bottom: 1px solid var(--hair);
+  cursor: pointer;
+
+  &[aria-selected='true'] {
+    background: var(--sel);
+  }
+
+  @include theme.mobile-or-coarse {
+    min-height: calc(var(--tap) + 0.25rem);
+  }
+}
+
+.resultIcon {
+  flex: none;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.125rem;
+  background: var(--ctl);
+}
+
+.resultName {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resultCategory {
+  flex: none;
+  font-size: 0.75rem;
+  color: var(--text2);
+}
+
+.recent {
+  margin-top: 0.5rem !important;
+  font-size: 0.75rem;
+  color: var(--text2);
+}
+
+// ---- Receipt and My reports ------------------------------------------------------------------
+
+.receipt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  max-width: 40rem;
+}
+
+.receiptTitle {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.3;
+}
+
+.receiptMeta {
+  font-size: 0.8125rem;
+}
+
+.status {
+  font-weight: 700;
+  color: var(--text2);
+
+  &[data-status='open'],
+  &[data-status='triaged'] {
+    color: var(--warn);
+  }
+
+  &[data-status='fixed'] {
+    color: var(--accent-ink);
+  }
+}
+
+.closedNote {
+  padding: 0.375rem 0.5rem;
+  background: var(--raised);
+  border-left: 2px solid var(--line);
+
+  .label {
+    display: inline;
+    margin: 0 0.25rem 0 0;
+  }
+}
+
+.receiptLink {
+  @include controls.field;
+  width: 100%;
+  padding: 0.375rem 0.5rem;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  resize: none;
+  overflow-wrap: anywhere;
+  field-sizing: content;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.another {
+  margin-top: 0.5rem;
+}
+
+.mine {
+  max-width: 48rem;
+}
+
+.mineHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.mineList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--hair);
+}
+
+.mineRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.25rem 0.625rem;
+  min-height: 2.25rem;
+  padding: 0.25rem 0.375rem;
+  color: var(--text);
+  text-decoration: none;
+  border-bottom: 1px solid var(--hair);
+
+  &:hover {
+    background: var(--hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent-ink);
+    outline-offset: -2px;
+  }
+
+  @include theme.mobile {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+
+.mineDot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.375rem;
+  vertical-align: 0.0625rem;
+  border-radius: 50%;
+  background: var(--warn);
+}
+
+.mineName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mineMeta {
+  font-size: 0.75rem;
+  color: var(--text2);
+  white-space: nowrap;
+
+  @include theme.mobile {
+    grid-column: 1;
+    grid-row: 2;
+  }
+}
+
+.mineNote {
+  grid-column: 1 / -1;
+  font-size: 0.75rem;
+  color: var(--text2);
+}
+
+// The form's fieldset only carries `disabled`; the grid lays out its sections.
+.frozen {
+  display: contents;
+}

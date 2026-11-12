@@ -1,6 +1,6 @@
-import { useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
-import type { User } from '../../services/api';
+import type { MenuUser } from './links';
 import { BrandMark } from './Brand';
 import { DraftButton } from './DraftButton';
 import { AccountSheet, useIdentity } from './IdentityMenu';
@@ -32,7 +32,7 @@ export function PhoneHeader({
   hasFinder,
   overlay,
 }: {
-  user: Pick<User, 'role'> | null | undefined;
+  user: MenuUser | null | undefined;
   pathname: string;
   routeFor(to: string): string;
   title: string;
@@ -70,6 +70,14 @@ export function PhoneHeader({
   const menu = useRef<HTMLButtonElement>(null);
   const finderButton = useRef<HTMLButtonElement>(null);
   const close = () => setSheet(null);
+  // Back (or Forward) closes an open overlay, and the route still moves, as with every popover.
+  const anyOpen = sheet !== null;
+  useEffect(() => {
+    if (!anyOpen) return;
+    const back = () => setSheet(null);
+    window.addEventListener('popstate', back);
+    return () => window.removeEventListener('popstate', back);
+  }, [anyOpen]);
   return (
     <header className={styles.header}>
       <button

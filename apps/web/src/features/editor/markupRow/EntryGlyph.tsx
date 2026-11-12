@@ -25,11 +25,12 @@ export function EntryGlyph({ glyph }: { glyph: Glyph }) {
         </span>
       );
     case 'base-enhanced-pair':
+      // The base arm keeps the plain text colour; the enhanced arm takes the enhanced arrow's.
       return (
         <span className={styles.pair}>
-          <span style={{ color: 'var(--syn-number)' }}>B</span>
+          <span>B</span>
           <span aria-hidden="true">|</span>
-          <span style={{ color: 'var(--var)' }}>E</span>
+          <span style={{ color: 'var(--enhanced)' }}>E</span>
         </span>
       );
     case 'pve':

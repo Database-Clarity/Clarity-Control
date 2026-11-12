@@ -1,6 +1,7 @@
 import {
   countConflicts,
   emptyEnglishMessage,
+  hasTooltipText,
   languages,
   maskConflicts,
   resolveAlias,
@@ -46,7 +47,7 @@ export function conflictMarkerIssues(changes: Change[]): TooltipValidationIssue[
 }
 
 export const noTooltipYet =
-  'This item has no tooltip yet. A Compendium link or other change can be saved once English text is written.';
+  'This item has no tooltip yet. Add a Compendium link or write English text before saving.';
 
 export function validateChanges(changes: Change[], data: EditorData): TooltipValidationIssue[] {
   const tooltips = { ...data.bundle.tooltips };
@@ -72,6 +73,22 @@ export function validateChanges(changes: Change[], data: EditorData): TooltipVal
   const issues = changes.flatMap(({ base, next: unmasked }) => {
     const next = tooltips[unmasked.hash]!;
     return [
+      ...(next.hash > 3 &&
+      base &&
+      !hasTooltipText(base) &&
+      hasTooltipText(next) &&
+      !next.text.en?.text.trim()
+        ? [
+            {
+              hash: next.hash,
+              lang: 'en' as const,
+              severity: 'error' as const,
+              message: 'Write English text before adding translations to this tooltip',
+              from: 0,
+              to: 0,
+            },
+          ]
+        : []),
       ...conflictMarkerIssues([{ hash: unmasked.hash, base, next: unmasked }]),
       ...validateGlobalAdditions({ base, next }, tooltips),
       // An error blocks if the tooltip's text there is edited, or if the text uses something this
@@ -81,13 +98,21 @@ export function validateChanges(changes: Change[], data: EditorData): TooltipVal
       ...validateTooltip(next, (lang) => dependencies.globalsFor(next.hash, lang), base, {
         aliases: data.aliases,
         affectedBy: dependencies.affectedBy,
-      }).map((issue) =>
-        // Saving never creates a tooltip without English text. Say so where the user acts: a
-        // Compendium link on an item with no saved tooltip is refused for this reason alone.
-        !base && issue.lang === 'en' && issue.message === emptyEnglishMessage
-          ? { ...issue, message: noTooltipYet }
-          : issue,
-      ),
+      })
+        .map((issue) =>
+          !base && issue.lang === 'en' && issue.message === emptyEnglishMessage
+            ? { ...issue, message: noTooltipYet }
+            : issue,
+        )
+        .filter(
+          (issue) =>
+            !(
+              next.compendium &&
+              !hasTooltipText(next) &&
+              (!base || !hasTooltipText(base)) &&
+              issue.message === noTooltipYet
+            ),
+        ),
     ];
   });
   return [...issues, ...dependencies.outsideIssues()];

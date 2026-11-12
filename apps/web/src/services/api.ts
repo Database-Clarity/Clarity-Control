@@ -12,8 +12,15 @@ export const apiUrl = import.meta.env.VITE_API_URL?.trim().replace(/\/+$/, '') |
 const userSchema = z.object({
   id: z.union([z.number(), z.string()]),
   login: z.string(),
-  role: z.enum(['maintainer', 'editor', 'trial', 'translator']).nullable(),
+  // `partner` (export partners, spec section 4) has no editing role: until the partner pages
+  // exist it reads as no role, so every editing control stays off for it.
+  role: z
+    .enum(['maintainer', 'editor', 'trial', 'translator', 'partner'])
+    .nullable()
+    .transform((role) => (role === 'partner' ? null : role)),
   languages: z.array(langSchema).optional(),
+  /** Export projects this account is a partner of. */
+  projects: z.array(z.string()).optional(),
 });
 export type User = z.infer<typeof userSchema>;
 export type Me = User;
@@ -31,7 +38,7 @@ const conflictSchema = z.object({
 });
 export type SaveConflict = z.infer<typeof conflictSchema>;
 export type SaveResult =
-  | { kind: 'saved'; commit: string; tooltips: Tooltip[] }
+  | { kind: 'saved'; commit: string; tooltips: Tooltip[]; savedAt?: number }
   | { kind: 'conflicts'; conflicts: z.infer<typeof conflictSchema>[] }
   | { kind: 'retry'; error: string };
 
@@ -66,15 +73,17 @@ async function failure(response: Response): Promise<never> {
 const legacyOrigin = 'https://database-clarity.github.io';
 
 /**
- * The sign-in URL. The legacy site and local development send nothing extra (the Worker returns
- * them to its primary site, as before); any other site names itself so sign-in returns to it.
+ * The sign-in URL carries the prepared browser nonce. The legacy site and local development
+ * use the primary return target; other sites name their origin so sign-in returns to them.
  */
-export function loginUrl(): string {
-  const url = endpoint('/auth/login');
+export function loginUrl(client?: string): string {
+  const url = endpoint('/auth/login') + (client ? `?client=${encodeURIComponent(client)}` : '');
   if (typeof location === 'undefined') return url;
   const { origin, hostname } = location;
   if (origin === legacyOrigin || /^(localhost|127\.0\.0\.1|\[::1\])$/.test(hostname)) return url;
-  return origin.startsWith('http') ? `${url}?site=${encodeURIComponent(origin)}` : url;
+  return origin.startsWith('http')
+    ? `${url}${client ? '&' : '?'}site=${encodeURIComponent(origin)}`
+    : url;
 }
 
 export async function getMe(): Promise<User | null> {
@@ -110,6 +119,8 @@ export async function save(changes: Change[], message: string): Promise<SaveResu
     .object({
       commit: z.string(),
       tooltips: z.array(tooltipSchema),
+      // Older Workers omit this field; malformed times use the same browser-clock fallback.
+      savedAt: z.number().int().positive().max(8.64e15).optional().catch(undefined),
     })
     .parse(await response.json());
   return { kind: 'saved', ...data };

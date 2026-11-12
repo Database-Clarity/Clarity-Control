@@ -26,3 +26,14 @@ it('allows edits/removal once another maintainer remains without mutating the in
     }).users[1].languages,
   ).toEqual(['de', 'fr']);
 });
+
+it('keeps the export partners map on every change (spec section 4)', () => {
+  const partners = { 42: { login: 'partner', projects: ['dim'] } };
+  const withPartners: Permissions = { ...initial, partners };
+  const added = changeAccess(withPartners, '2', { login: 'second', role: 'editor' });
+  expect(added.partners).toEqual(partners);
+  expect(changeAccess(added, '2', undefined)).toEqual(withPartners);
+  expect(changeAccess(initial, '2', { login: 'second', role: 'editor' })).not.toHaveProperty(
+    'partners',
+  );
+});

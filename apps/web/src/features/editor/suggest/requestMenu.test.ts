@@ -29,7 +29,8 @@ import {
   suggestState,
 } from './state';
 
-const globals: MarkupGlobals = {
+const globals: MarkupGlobals & { allowBaseEnhanced: boolean } = {
+  allowBaseEnhanced: true,
   variables: 'var damage = 25',
   titles: 'title G_refill (\nRefills the magazine.\n)',
 };
@@ -128,8 +129,8 @@ describe('the menu opened on request', () => {
   });
 
   test('an option the insertion rules decline is listed with the reason, never offered as fine', () => {
-    // A line holding a variable reference is protected: nothing new may go on it.
-    const { state, items } = requested('Gains #damage ');
+    // After an unclosed math block the rest of the line is protected: nothing new may go there.
+    const { state, items } = requested('Gains ${2+ ');
     for (const item of items) {
       if (item.reference || item.unavailable) continue;
       expect(
@@ -223,7 +224,7 @@ describe('the menu in the editor', () => {
   });
 
   test('the menu shows before the insertion rules are asked; Enter is held to them either way', () => {
-    const view = editor('Gains #damage ');
+    const view = editor('Gains ${2+ ');
     openSuggest(view);
     const shown = suggestState(view.state)!;
     const tag = shown.items.findIndex((item) => item.id === 'tag:pve');
@@ -231,7 +232,7 @@ describe('the menu in the editor', () => {
     expect(shown.items[tag]!.unavailable).toBeUndefined();
     // Not judged yet, and Enter still inserts nothing the rules decline.
     expect(acceptSuggestion(view, tag)).toBe('context');
-    expect(view.state.doc.toString()).toBe('Gains #damage ');
+    expect(view.state.doc.toString()).toBe('Gains ${2+ ');
     expect(suggestState(view.state)!.message).toBe(unavailableReasons.context);
     judgeSuggestions(view);
     const judged = suggestState(view.state)!;
@@ -240,7 +241,7 @@ describe('the menu in the editor', () => {
     const judgedTag = judged.items.findIndex((item) => item.id === 'tag:pve');
     expect(judged.items[judgedTag]!.unavailable).toBe(unavailableReasons.context);
     expect(acceptSuggestion(view, judgedTag)).toBe('unavailable');
-    expect(view.state.doc.toString()).toBe('Gains #damage ');
+    expect(view.state.doc.toString()).toBe('Gains ${2+ ');
     view.destroy();
   });
 
@@ -284,8 +285,8 @@ describe('the menu in the editor', () => {
   });
 
   test('with one pinned option that fits, the pinned part stays as built, greyed pins included', () => {
-    // A line holding a variable reference: of the options matching "da" only the variable fits.
-    const doc = 'Gains #damage da';
+    // After an unclosed math block: of the options matching "da" only the variable fits.
+    const doc = 'Gains ${2+ da';
     const { view, shown, judged } = judgedAt(doc, doc.length);
     const pins = judged.items.filter((item) => item.pinned);
     expect(pins.filter((item) => !item.unavailable).map((item) => item.id)).toEqual(['var:damage']);

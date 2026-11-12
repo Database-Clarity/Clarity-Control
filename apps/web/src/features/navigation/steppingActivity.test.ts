@@ -2,6 +2,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   beginSteppingFrame,
+  disposeSteppingActivity,
+  publishSteppingTarget,
   holdSteppingKey,
   pulseStepping,
   recordSteppingWorkspaceWork,
@@ -9,8 +11,7 @@ import {
 } from './steppingActivity';
 
 afterEach(() => {
-  window.dispatchEvent(new Event('blur'));
-  vi.runAllTimers();
+  disposeSteppingActivity();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -171,4 +172,33 @@ describe('physical navigation key holds', () => {
     release(); // Cleanup after an external release must remain harmless.
     expect(useSteppingActivity.getState().active).toBe(false);
   });
+});
+
+it.each([false, true])('disposes pending activity and quiet work (held: %s)', (held) => {
+  vi.useFakeTimers();
+  const land = vi.fn();
+  const resume = vi.fn();
+  const release = held ? holdSteppingKey('ArrowDown') : undefined;
+  pulseStepping(land, resume);
+  publishSteppingTarget('/t/11', land, resume);
+  beginSteppingFrame()();
+  expect(vi.getTimerCount()).toBeGreaterThan(0);
+  disposeSteppingActivity();
+  expect(vi.getTimerCount()).toBe(0);
+  expect(useSteppingActivity.getState()).toEqual({
+    active: false,
+    deferWorkspace: false,
+    target: undefined,
+  });
+  window.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowDown' }));
+  window.dispatchEvent(new Event('blur'));
+  release?.();
+  vi.runAllTimers();
+  expect(vi.getTimerCount()).toBe(0);
+  expect(land).not.toHaveBeenCalled();
+  expect(resume).not.toHaveBeenCalled();
+  disposeSteppingActivity();
+  pulseStepping();
+  vi.advanceTimersByTime(40);
+  expect(useSteppingActivity.getState().active).toBe(false);
 });

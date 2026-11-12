@@ -114,6 +114,7 @@ it('a manual refresh against a stale bundle keeps saved text from this tab until
 });
 
 it('saved overlay expires after the TTL so newer edits by others show up, and handles deletes', () => {
+  const savedAt = Date.parse(at);
   const bundle: Bundle = {
     sourceCommit: 'c',
     generatedAt: at,
@@ -121,18 +122,25 @@ it('saved overlay expires after the TTL so newer edits by others show up, and ha
     pushed: {},
     permissions: { users: {} },
   };
-  rememberSaved([make('Mine')], [11], 1000);
-  const fresh = applySavedOverlay(bundle, 1000 + 1000);
+  rememberSaved([make('Mine')], [11], savedAt);
+  const fresh = applySavedOverlay(bundle, savedAt + 1000);
   expect(fresh.tooltips[10].text.en?.text).toBe('Mine');
   expect(fresh.tooltips[11]).toBeUndefined();
   expect(bundle.tooltips[10].text.en?.text).toBe('Fetched'); // input not mutated
-  const expired = applySavedOverlay(bundle, 1000 + overlayTtlMs + 1);
+  const expired = applySavedOverlay(bundle, savedAt + overlayTtlMs + 1);
   expect(expired).toBe(bundle);
 });
 
-it.each(['plain', 'wrapped', 'partial'])(
-  'shows the server converter refusal and preserves pending native text (%s)',
-  async (kind) => {
+// The Worker's pre-write refusals: native base/enhanced markup, and set bonuses held until cut-over.
+const refusals = [
+  'Base/enhanced markup needs the new converter; it can be pushed after cut-over',
+  'Set bonuses need the new converter; they can be pushed after cut-over',
+];
+it.each(
+  ['plain', 'wrapped', 'partial'].flatMap((kind) => refusals.map((reason) => ({ kind, reason }))),
+)(
+  'shows the server converter refusal and preserves pending native text ($kind: $reason)',
+  async ({ kind, reason }) => {
     const saved = make('{{10}{20}}');
     const data: EditorData = {
       items: {
@@ -149,7 +157,6 @@ it.each(['plain', 'wrapped', 'partial'])(
       },
     };
     useDataStore.setState({ status: 'ready', data, error: null });
-    const reason = 'Base/enhanced markup needs the new converter; it can be pushed after cut-over';
     const message =
       kind === 'plain'
         ? reason

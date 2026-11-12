@@ -16,10 +16,15 @@ export const links: readonly NavLink[] = [
   { to: '/archive', label: 'Archive' },
   { to: '/globals', label: 'Globals' },
   { to: '/management', label: 'Management' },
+  { to: '/exports', label: 'Exports' },
+  { to: '/tooltips', label: 'Tooltips' },
 ];
 
 const link = (to: string) => links.find((candidate) => candidate.to === to)!;
 const pick = (...paths: string[]) => paths.map(link);
+
+/** The account fields the menu reads; `projects` names an export partner's projects. */
+export type MenuUser = Pick<User, 'role'> & Partial<Pick<User, 'projects'>>;
 
 export interface WorkspaceMenu {
   /** Header tabs. */
@@ -35,12 +40,12 @@ export interface WorkspaceMenu {
  * moment before the login status is known.
  * Hiding a link is a convenience, not access control: routes and the Worker still enforce roles.
  */
-export function workspaceMenu(user: Pick<User, 'role'> | null | undefined): WorkspaceMenu {
+export function workspaceMenu(user: MenuUser | null | undefined): WorkspaceMenu {
   switch (user?.role) {
     case 'maintainer':
       return {
         primary: pick('/', '/review', '/compendium', '/translations'),
-        more: pick('/drift', '/lost-text', '/archive', '/management'),
+        more: pick('/drift', '/lost-text', '/archive', '/management', '/exports'),
       };
     case 'editor':
       return {
@@ -52,12 +57,14 @@ export function workspaceMenu(user: Pick<User, 'role'> | null | undefined): Work
     case 'translator':
       return { primary: pick('/', '/translations'), more: [] };
     default:
+      // Export partners (no editing role, spec section 8): their project and the published tooltips.
+      if (user?.projects?.length) return { primary: pick('/exports', '/tooltips'), more: [] };
       return { primary: pick('/'), more: [] };
   }
 }
 
 /** Every workspace offered to this user, tabs first. */
-export function visibleLinks(user: Pick<User, 'role'> | null | undefined): NavLink[] {
+export function visibleLinks(user: MenuUser | null | undefined): NavLink[] {
   const { primary, more } = workspaceMenu(user);
   return [...primary, ...more];
 }

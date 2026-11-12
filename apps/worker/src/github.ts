@@ -71,8 +71,67 @@ function encodeBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+/** The exact text every JSON file is committed as (pretty, trailing newline). */
+export const blobContent = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
+
+/** Git's blob SHA-1 of `text` (what GitHub reports as a file's sha), computed without a request. */
+export async function blobSha(text: string): Promise<string> {
+  const body = new TextEncoder().encode(text);
+  const header = new TextEncoder().encode(`blob ${body.byteLength}\0`);
+  const bytes = new Uint8Array(header.byteLength + body.byteLength);
+  bytes.set(header);
+  bytes.set(body, header.byteLength);
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-1', bytes));
+  return [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 function encodeContent(value: unknown): string {
-  return encodeBase64(new TextEncoder().encode(`${JSON.stringify(value, null, 2)}\n`));
+  return encodeBase64(new TextEncoder().encode(blobContent(value)));
+}
+
+// Schemas of the export routes' GraphQL read, built once per isolate (not per request).
+const exportBlob = z.object({ object: z.union([blobFields, z.object({}).strict()]) }).nullable();
+const exportsRepository = z.object({
+  ref: z
+    .object({
+      target: z
+        .object({ oid: shaSchema.shape.sha, tree: z.object({ oid: shaSchema.shape.sha }) })
+        .passthrough(),
+    })
+    .nullable(),
+});
+const exportsDir = z
+  .object({
+    object: z.union([
+      z.object({
+        entries: z.array(z.object({ name: z.string(), object: z.unknown().optional() })),
+      }),
+      z.object({}).strict(),
+    ]),
+  })
+  .nullable();
+const exportsHistory = z.object({
+  nodes: z.array(z.object({ committedDate: z.iso.datetime({ offset: true }) })),
+});
+// First parses build zod's internals: done once at isolate startup, not in a request's CPU.
+exportsRepository.safeParse({
+  ref: { target: { oid: '0'.repeat(40), tree: { oid: '0'.repeat(40) } } },
+});
+exportBlob.safeParse({ object: { oid: '0'.repeat(40), isTruncated: false, text: '{}' } });
+exportsDir.safeParse({ object: { entries: [{ name: 'warm.json', object: {} }] } });
+exportsHistory.safeParse({ nodes: [{ committedDate: '2026-01-01T00:00:00Z' }] });
+
+/** One read of the data branch for the export routes (see `GitHub.exportsRead`). */
+export interface ExportsSnapshot {
+  head: string;
+  tree: string;
+  permissions: RepoFile;
+  /** The project's config file, or null when it does not exist. */
+  config: RepoFile | null;
+  /** Committer date of the last commit that touched the config path, or null. */
+  lastCommit: string | null;
+  /** Every `exports/projects/*.json` file (name without `.json`) when asked for (`names`: null files). */
+  projects: { id: string; file: RepoFile | null }[] | null;
 }
 
 export class GitHub {
@@ -295,6 +354,111 @@ export class GitHub {
     return { head: target.oid, tree: target.tree.oid, files };
   }
 
+  /**
+   * The export routes' single read (spec section 4): branch head and root tree, permissions,
+   * one project's config blob (text and SHA) with the date of the last commit that touched it,
+   * and optionally every project file, all from one Commit in ONE GraphQL subrequest. Paths are
+   * fixed by the caller (validated ids only) and travel as variables.
+   */
+  async exportsRead(
+    projectPath: string | null,
+    list: false | 'names' | 'blobs',
+  ): Promise<ExportsSnapshot> {
+    const blob = '{object{... on Blob{oid isTruncated text}}}';
+    const variables: Record<string, string> = {
+      owner: this.env.GITHUB_OWNER,
+      name: this.env.GITHUB_REPO,
+      branch: `refs/heads/${this.env.DATA_BRANCH}`,
+      perm: 'config/permissions.json',
+    };
+    const declarations = ['$owner:String!', '$name:String!', '$branch:String!', '$perm:String!'];
+    let selections = `perm:file(path:$perm)${blob}`;
+    if (projectPath !== null) {
+      if (!/^exports\/projects\/[a-z][a-z0-9-]{1,31}\.json$/.test(projectPath))
+        throw new HttpError(400, 'Invalid project path');
+      variables.config = projectPath;
+      declarations.push('$config:String!');
+      selections +=
+        ` config:file(path:$config)${blob}` +
+        ' last:history(first:1,path:$config){nodes{committedDate}}';
+    }
+    if (list) {
+      variables.dir = 'exports/projects';
+      declarations.push('$dir:String!');
+      // `names` (a count and existence check) skips every blob's text.
+      const entry = list === 'blobs' ? 'name object{... on Blob{oid isTruncated text}}' : 'name';
+      selections += ` dir:file(path:$dir){object{... on Tree{entries{${entry}}}}}`;
+    }
+    const repository = exportsRepository.parse(
+      await this.graphql(
+        `query(${declarations.join(',')}){repository(owner:$owner,name:$name){ref(qualifiedName:$branch){target{... on Commit{oid tree{oid} ${selections}}}}}}`,
+        variables,
+      ),
+    );
+    if (!repository.ref) throw new HttpError(502, 'Data branch is missing');
+    const target = repository.ref.target;
+    const read = (raw: unknown, path: string): RepoFile | null => {
+      const entry = exportBlob.parse(raw);
+      if (!entry) return null;
+      if (!('oid' in entry.object) || entry.object.isTruncated || entry.object.text === null)
+        throw new HttpError(502, `Repository file is not a readable JSON blob: ${path}`);
+      return { sha: entry.object.oid, value: parseJsonFile(entry.object.text, path) };
+    };
+    const permissions = read(target.perm, 'config/permissions.json');
+    if (!permissions)
+      throw new HttpError(502, 'Required repository file is missing: config/permissions.json');
+    let projects: ExportsSnapshot['projects'] = null;
+    if (list) {
+      const dir = exportsDir.parse(target.dir);
+      projects = [];
+      for (const entry of dir && 'entries' in dir.object ? dir.object.entries : []) {
+        const match = /^([a-z][a-z0-9-]{1,31})\.json$/.exec(entry.name);
+        // Anything else in the folder is not a project file: never listed, never written.
+        if (!match) continue;
+        if (list === 'names') {
+          projects.push({ id: match[1]!, file: null });
+          continue;
+        }
+        const file = read({ object: entry.object ?? {} }, `exports/projects/${entry.name}`);
+        if (file) projects.push({ id: match[1]!, file });
+      }
+      projects.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    }
+    return {
+      head: target.oid,
+      tree: target.tree.oid,
+      permissions,
+      config: projectPath === null ? null : read(target.config, projectPath),
+      lastCommit:
+        projectPath === null
+          ? null
+          : (exportsHistory.parse(target.last).nodes[0]?.committedDate ?? null),
+      projects,
+    };
+  }
+
+  /**
+   * A GitHub account's numeric id and canonical login, looked up once when a maintainer adds a
+   * partner by login (spec section 4). Organisations and bots are refused: a partner is a person.
+   */
+  async account(login: string): Promise<{ id: number; login: string }> {
+    const headers = this.headers(await this.installationToken());
+    this.spend();
+    const response = await fetch(`https://api.github.com/users/${encodeURIComponent(login)}`, {
+      headers,
+    });
+    if (response.status === 404) throw new HttpError(404, `GitHub account not found: ${login}`);
+    if (response.status === 403 || response.status === 429)
+      throw new HttpError(503, 'GitHub refused the account lookup; try again later');
+    if (!response.ok) throw new HttpError(502, `GitHub account lookup failed (${response.status})`);
+    const account = z
+      .object({ id: z.number().int().positive(), login: z.string().min(1), type: z.string() })
+      .parse(await response.json());
+    if (account.type !== 'User')
+      throw new HttpError(400, `${account.login} is not a personal GitHub account`);
+    return { id: account.id, login: account.login };
+  }
+
   /** Three writes, sole parent H. No rebase: a concurrent head move must reject this commit. */
   async createPublishRequest(
     head: string,
@@ -393,18 +557,24 @@ export class GitHub {
     files: Record<string, unknown>,
     message: string,
     credits: object,
+    { baseTree, deletions = [] }: { baseTree?: string; deletions?: readonly string[] } = {},
   ): Promise<string> {
-    const parent = head ? commitSchema.parse(await this.result(`/git/commits/${head}`)) : null;
+    const base =
+      baseTree ??
+      (head ? commitSchema.parse(await this.result(`/git/commits/${head}`)).tree.sha : undefined);
     const tree = shaSchema.parse(
       await this.result('/git/trees', 'POST', {
-        ...(parent ? { base_tree: parent.tree.sha } : {}),
-        tree: Object.entries(files).map(([path, value]) => ({
-          path,
-          mode: '100644',
-          type: 'blob',
-          content: `${JSON.stringify(value, null, 2)}
-`,
-        })),
+        ...(base ? { base_tree: base } : {}),
+        tree: [
+          ...Object.entries(files).map(([path, value]) => ({
+            path,
+            mode: '100644',
+            type: 'blob',
+            content: blobContent(value),
+          })),
+          // `sha: null` removes the path from the base tree.
+          ...deletions.map((path) => ({ path, mode: '100644', type: 'blob', sha: null })),
+        ],
       }),
     );
     const commit = shaSchema.parse(
@@ -426,13 +596,19 @@ export class GitHub {
     return commit.sha;
   }
 
+  /**
+   * Data-branch commit authored by `user`, committed by the app, sole parent `head` (ref CAS,
+   * `force: false`; RefRace when the branch moved). `baseTree` skips reading `head`'s tree when
+   * the caller already has it; `deletions` removes paths.
+   */
   async commit(
     head: string,
     files: Record<string, unknown>,
     message: string,
     user: Identity,
+    options: { baseTree?: string; deletions?: readonly string[] } = {},
   ): Promise<string> {
-    return this.write(this.env.DATA_BRANCH, head, files, message, this.credits(user));
+    return this.write(this.env.DATA_BRANCH, head, files, message, this.credits(user), options);
   }
 
   /**

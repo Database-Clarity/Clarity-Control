@@ -83,6 +83,8 @@ function LayoutContent() {
   const isCompendium = location.pathname.startsWith('/compendium');
   const isReview = location.pathname === '/review';
   const isTranslations = location.pathname === '/translations';
+  // An export project page fills the window like the editor: its two columns scroll on their own.
+  const isExportProject = /^\/exports\/[^/]+/.test(location.pathname);
   const contextual = isCompendium || isReview;
   // The left column is the editor's preview, or the Compendium / Review queue list. A phone has
   // neither: the preview is a view of the page and the lists live in the Find sheet.
@@ -239,7 +241,7 @@ function LayoutContent() {
       <div
         id="shell-root"
         ref={layout}
-        data-fixed={!phone && isEditor ? '' : undefined}
+        data-fixed={!phone && (isEditor || isExportProject) ? '' : undefined}
         className={`${styles.layout} ${isCompendium ? styles.reviewMode : ''} ${isReview || isTranslations ? styles.reviewMode : ''} ${isEditor ? styles.editorMode : ''}`}
       >
         <a

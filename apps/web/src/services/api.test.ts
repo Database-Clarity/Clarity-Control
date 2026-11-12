@@ -45,6 +45,26 @@ describe('worker client', () => {
     api.clearSession();
     expect(sessionStorage.getItem('clarity-editor-session')).toBeNull();
   });
+  it('reads a partner /me as no editing role and keeps its projects', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          Response.json({ id: 42, login: 'p', role: 'partner', languages: [], projects: ['dim'] }),
+        )
+        .mockResolvedValueOnce(Response.json({ id: 1, login: 'a', role: 'editor', languages: [] })),
+    );
+    const api = await import('./api');
+    expect(await api.getMe()).toEqual({
+      id: 42,
+      login: 'p',
+      role: null,
+      languages: [],
+      projects: ['dim'],
+    });
+    expect((await api.getMe())?.role).toBe('editor');
+  });
   it('returns 409 conflicts as typed data without losing base/head/next', async () => {
     const tooltip = { hash: 10, text: {}, associated: [] };
     const conflicts = [
@@ -60,6 +80,23 @@ describe('worker client', () => {
       conflicts,
     });
   });
+  it.each([undefined, null, 'bad', 0, -1, 9e15, 1234.5, 1793491200000])(
+    'reads a valid server save time and tolerates missing or malformed time: %s',
+    async (savedAt) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(Response.json({ commit: 'abc', tooltips: [], savedAt })),
+      );
+      const { save } = await import('./api');
+      const result = await save([], 'test');
+      expect(result).toEqual({
+        kind: 'saved',
+        commit: 'abc',
+        tooltips: [],
+        ...(savedAt === 1793491200000 ? { savedAt } : {}),
+      });
+    },
+  );
   it('reports API errors and rejects malformed successes', async () => {
     const fetch = vi
       .fn()

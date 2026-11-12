@@ -4,6 +4,7 @@ import { identitySummary, IdentityStatus, useAuthSession } from '../auth/AuthSta
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { ShellOverlay } from './ShellOverlay';
+import { MyReportsEntry } from '../reports/public/MyReportsEntry';
 import styles from './IdentityMenu.module.scss';
 
 /** The GitHub picture for an account id: needs nothing but the id `/me` already carries. */
@@ -79,6 +80,7 @@ export function AccountSheet({
       <div className={styles.menu}>
         <IdentityStatus
           onAction={onClose}
+          accountRows={open && user ? <MyReportsEntry onNavigate={onClose} /> : undefined}
           picture={
             summary.tone === 'ok' && user ? (
               <AccountPicture id={user.id} login={user.login} size="large" />

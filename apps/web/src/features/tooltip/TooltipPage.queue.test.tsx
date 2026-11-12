@@ -8,6 +8,7 @@ import { TooltipPage } from './TooltipPage';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
+import { disposeSteppingActivity } from '../navigation/steppingActivity';
 import { queueState } from '../translations/worklist';
 
 vi.mock('../editor', () => ({
@@ -77,6 +78,7 @@ it('queue navigation overrides a local variant pick on the same base', async () 
     await act(async () => root.unmount());
     router.dispose();
     host.remove();
+    disposeSteppingActivity();
     vi.unstubAllGlobals();
   }
 });

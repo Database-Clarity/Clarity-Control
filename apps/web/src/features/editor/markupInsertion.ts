@@ -182,12 +182,16 @@ function protectedRanges(state: EditorState, comments: { from: number; to: numbe
         tokens.push({ from: line.from + match.index, to: line.to, incomplete: true });
       }
     }
-    if (/#[a-zA-Z0-9]+|\$\{[^}\n]*(?:}|$)/.test(line.text)) {
+    // A reference or a closed math block is one token: markup may sit right before or after it
+    // (expandedContext already refuses variables whose values could change the markup around
+    // them). The renderer evaluates math up to the next `}` on the line (`\${.+?}`), so an
+    // unclosed or empty block protects everything after it on its line.
+    for (const match of line.text.matchAll(/#[a-zA-Z0-9]+|\$\{(?:[^}\n]+\}|[^\n]*$)/g)) {
+      const open = match[0].startsWith('${') && !/^\$\{[^}]+\}$/.test(match[0]);
       tokens.push({
-        from: line.from,
-        to: line.to,
-        protectStart: true,
-        incomplete: true,
+        from: line.from + match.index,
+        to: open ? line.to : line.from + match.index + match[0].length,
+        incomplete: open,
       });
     }
     if (line.text.startsWith('< table ') && tableStart === undefined) tableStart = line.from;

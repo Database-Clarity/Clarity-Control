@@ -1,0 +1,7 @@
+// The row itself is styled by the account sheet's menu rows; only the change dot is ours.
+.dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--warn);
+}

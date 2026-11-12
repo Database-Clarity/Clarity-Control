@@ -122,19 +122,41 @@
     vertical-align: baseline;
     cursor: default;
   }
+  // The enhanced arrow (`#e`): the preview's arrow drawing (ENHANCED_ARROW_PATH) as a 12px symbol with
+  // 2px margins, exactly the icons' box, in the enhanced colour; a tint around it never recolours it.
+  :global(.cm-symbol-arrow::before) {
+    content: '';
+    display: inline-block;
+    width: 0.75rem;
+    height: 0.75rem;
+    margin: 0 0.125rem;
+    vertical-align: -1px;
+    background-color: var(--enhanced);
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M6 .75 9.5 5.25H7v6H5v-6H2.5Z'/%3E%3C/svg%3E")
+      center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M6 .75 9.5 5.25H7v6H5v-6H2.5Z'/%3E%3C/svg%3E")
+      center / contain no-repeat;
+  }
   // The tint wins over the syntax colours inside it (numbers, [values], #variables); an inner tag wins
   // over an outer one because every non-tint piece inherits from its nearest tint.
   :global(.cm-tint :not(.cm-tint):not(.cm-base-arm, .cm-enhanced-arm)) {
     color: inherit;
   }
+  // A base/enhanced pair: the base arm in the plain text colour, the enhanced arm in the enhanced
+  // arrow's colour; its braces, and the `${` `}` of a math block, are markup punctuation (--var,
+  // like `<` and `/>`).
   :global(.cm-base-arm) {
-    color: var(--syn-number);
+    color: var(--editor-text);
   }
   :global(.cm-enhanced-arm) {
+    color: var(--enhanced);
+  }
+  :global(.cm-pair-mark) {
     color: var(--var);
   }
   :global(.cm-base-arm),
-  :global(.cm-enhanced-arm) {
+  :global(.cm-enhanced-arm),
+  :global(.cm-pair-mark) {
     text-decoration-line: var(--pair-scope-decoration, none);
     text-decoration-color: var(--pair-scope-color, currentColor);
     text-decoration-thickness: 0.08em;

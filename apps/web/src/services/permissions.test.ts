@@ -36,6 +36,22 @@ it('loads validated permissions with their revision and submits it with the whol
   });
 });
 
+it('loads and saves a permissions file with the export partners map unchanged', async () => {
+  const withPartners = { ...config, partners: { 42: { login: 'partner', projects: ['dim'] } } };
+  vi.mocked(apiRequest)
+    .mockResolvedValueOnce(Response.json({ revision, permissions: withPartners }))
+    .mockResolvedValueOnce(
+      Response.json({ commit: 'abc', revision: nextRevision, permissions: withPartners }),
+    );
+  expect(await getPermissions()).toEqual({ revision, permissions: withPartners });
+  await putPermissions(withPartners, revision);
+  expect(apiRequest).toHaveBeenLastCalledWith('/permissions', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ revision, permissions: withPartners }),
+  });
+});
+
 it('turns a 409 into the permissions-changed reload message', async () => {
   vi.mocked(apiRequest).mockResolvedValue(new Response('{"error":"x"}', { status: 409 }));
   await expect(putPermissions(config, revision)).rejects.toThrow(permissionsChangedMessage);

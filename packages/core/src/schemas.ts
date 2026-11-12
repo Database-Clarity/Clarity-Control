@@ -59,6 +59,26 @@ export const permissionsSchema = z
         })
         .strict(),
     ),
+    /**
+     * Export partners (spec section 4): numeric GitHub id -> the export projects that account may
+     * edit. Optional and additive, so files without it parse as before. A user listed only here
+     * has the `partner` role: read-only, published data only, and nothing in `users` grants it.
+     */
+    partners: z
+      .record(
+        z.string().regex(/^[1-9]\d*$/),
+        z
+          .object({
+            login: z.string().min(1).max(39),
+            projects: z
+              .array(z.string().regex(/^[a-z][a-z0-9-]{1,31}$/))
+              .min(1)
+              .max(40)
+              .refine((list) => new Set(list).size === list.length, 'Duplicate project'),
+          })
+          .strict(),
+      )
+      .optional(),
   })
   .strict();
 export const pushedSchema = z.record(
@@ -70,5 +90,13 @@ export const pushedSchema = z.record(
 );
 export type LangText = z.infer<typeof langTextSchema>;
 export type Tooltip = z.infer<typeof tooltipSchema>;
+/** Metadata-only records stay in editor-data, never in consumer inputs or push queues. */
+export function hasTooltipText(tooltip: Tooltip): boolean {
+  return Object.values(tooltip.text).some((entry) => entry?.text.trim());
+}
+/** Reserved declaration libraries remain consumer inputs even when intentionally cleared. */
+export function isTextlessDescription(tooltip: Tooltip): boolean {
+  return tooltip.hash > 3 && !hasTooltipText(tooltip);
+}
 export type Permissions = z.infer<typeof permissionsSchema>;
 export type Pushed = z.infer<typeof pushedSchema>;

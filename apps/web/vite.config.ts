@@ -6,6 +6,9 @@ import { defineConfig } from 'vite';
 import { reviewGuidancePlugin } from './reviewGuidanceMiddleware';
 import { manifestFactsSchema } from './src/features/compendium/manifestFactsSchema';
 
+const exportsZod = '?exports-zod';
+const exportsCode = /\/apps\/web\/src\/features\/exports\/|\/packages\/export\//;
+
 export default defineConfig({
   plugins: [
     {
@@ -44,6 +47,26 @@ export default defineConfig({
               injectTo: 'head' as const,
             }));
         },
+      },
+    },
+    {
+      // The export config schema uses zod parts the editor does not (discriminated unions,
+      // tuples). Rollup tree-shakes per export, so sharing one zod would move those parts into
+      // the editor's startup chunk. The Exports routes get their own zod copy instead: schemas
+      // never cross between the two (exports code only exchanges plain data with the editor).
+      name: 'isolate-exports-zod',
+      apply: 'build',
+      enforce: 'pre',
+      async resolveId(source, importer, options) {
+        if (!importer) return null;
+        const from = importer.replaceAll('\\', '/');
+        const tagged = from.endsWith(exportsZod);
+        const zodImport = source === 'zod' || source.startsWith('zod/');
+        if (!tagged && !(zodImport && exportsCode.test(from))) return null;
+        const base = tagged ? importer.slice(0, -exportsZod.length) : importer;
+        const resolved = await this.resolve(source, base, { ...options, skipSelf: true });
+        if (!resolved || resolved.external || resolved.id.includes('?')) return resolved;
+        return { ...resolved, id: resolved.id + exportsZod };
       },
     },
     {

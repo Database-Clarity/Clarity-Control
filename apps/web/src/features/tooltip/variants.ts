@@ -197,3 +197,23 @@ export function previewedVariants(base: number, data: EditorData): number[] {
     (variant) => overrides.has(variant) || isEnhancedPair(base, variant, data),
   );
 }
+
+const enhancedCategories = new WeakMap<EditorData, ReadonlySet<string>>();
+
+/** Category scope comes from real catalogue pairs, including both ends of each pair. */
+export function categoriesWithEnhanced(data: EditorData): ReadonlySet<string> {
+  let categories = enhancedCategories.get(data);
+  if (!categories) {
+    const found = new Set<string>();
+    for (const item of Object.values(data.items)) {
+      const base = canonicalHash(item.hash, data);
+      if (base === item.hash || !isEnhancedPair(base, item.hash, data)) continue;
+      const baseCategory = data.items[base]?.categoryId;
+      if (baseCategory) found.add(baseCategory);
+      found.add(item.categoryId);
+    }
+    categories = found;
+    enhancedCategories.set(data, categories);
+  }
+  return categories;
+}

@@ -1,3 +1,4 @@
+import { ReadingTooltip } from '../preview/ReadingTooltip';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { languages, removedFromManifest, type Lang } from '@clarity/core';
@@ -394,11 +395,23 @@ export function ArchivePage() {
                             <div className={styles.comparison}>
                               <div>
                                 <h4>Archived text</h4>
-                                <pre>{current.text[lang]?.text}</pre>
+                                <ReadingTooltip
+                                  text={current.text[lang]?.text ?? ''}
+                                  lang={lang}
+                                  hash={current.hash}
+                                />
                               </div>
                               <div>
                                 <h4>Destination current text</h4>
-                                <pre>{target.text[lang]?.text ?? '(empty)'}</pre>
+                                {target.text[lang]?.text ? (
+                                  <ReadingTooltip
+                                    text={target.text[lang]!.text}
+                                    lang={lang}
+                                    hash={target.hash}
+                                  />
+                                ) : (
+                                  <p>(empty)</p>
+                                )}
                               </div>
                             </div>
                             <p className={styles.consequence}>

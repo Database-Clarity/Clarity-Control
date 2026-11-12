@@ -1,4 +1,11 @@
-import { permissionsSchema, stableStringify, type Permissions, type Tooltip } from '@clarity/core';
+import {
+  hasTooltipText,
+  isTextlessDescription,
+  permissionsSchema,
+  stableStringify,
+  type Permissions,
+  type Tooltip,
+} from '@clarity/core';
 import { HttpError } from './http.js';
 import type { GitHub } from './github.js';
 import type { Identity } from './types.js';
@@ -21,9 +28,41 @@ export function requireAccess(
   return access;
 }
 
+/** Export projects the user is a partner of (spec section 4); empty for everyone else. */
+export function partnerProjects(config: Permissions, user: Identity): readonly string[] {
+  return config.partners?.[String(user.id)]?.projects ?? [];
+}
+
+/**
+ * The role `/me` reports. `users` decides; an account listed only in `partners` is a `partner`.
+ * `partner` is never accepted by `requireAccess`, so every route that checks `users` denies it
+ * by default; only the export routes read `partners`.
+ */
+export function roleOf(config: Permissions, user: Identity): Access['role'] | 'partner' | null {
+  return (
+    config.users[String(user.id)]?.role ?? (partnerProjects(config, user).length ? 'partner' : null)
+  );
+}
+
 export function checkEdit(access: Access, base: Tooltip | null, next: Tooltip): void {
+  if (isTextlessDescription(next) && (base === null || hasTooltipText(base))) {
+    if (!['maintainer', 'editor'].includes(access.role))
+      throw new HttpError(403, 'Only editors and maintainers can create link-only tooltips');
+    if (base === null && !next.compendium)
+      throw new HttpError(422, 'A text-less tooltip requires a Compendium link');
+  }
   if (access.role === 'translator' && base === null)
     throw new HttpError(403, 'Translators may not create tooltips');
+  // A link-only record is not an English source for translations. Check both the
+  // submitted base and the real head (save calls checkEdit again after merging).
+  if (
+    next.hash > 3 &&
+    base &&
+    !hasTooltipText(base) &&
+    hasTooltipText(next) &&
+    !next.text.en?.text.trim()
+  )
+    throw new HttpError(422, 'Write English text before adding translations to this tooltip');
   if (
     JSON.stringify(base?.archive) !== JSON.stringify(next.archive) &&
     access.role !== 'maintainer' &&

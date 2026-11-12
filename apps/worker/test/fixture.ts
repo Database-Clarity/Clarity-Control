@@ -21,10 +21,23 @@ export const config: Permissions = {
   },
 };
 
+/** Git's blob SHA-1 of a JSON file as the Worker commits it (pretty, trailing newline). */
+export const blobOid = (value: unknown) => {
+  const text = Buffer.from(`${JSON.stringify(value, null, 2)}\n`, 'utf8');
+  return createHash('sha1')
+    .update(Buffer.concat([Buffer.from(`blob ${text.length}\0`), text]))
+    .digest('hex');
+};
+
 const objectSchema = z.record(z.string(), z.unknown());
 const treeSchema = z.object({
   base_tree: z.string().optional(),
-  tree: z.array(z.object({ path: z.string(), content: z.string() })),
+  tree: z.array(
+    z.union([
+      z.object({ path: z.string(), content: z.string() }),
+      z.object({ path: z.string(), sha: z.null() }),
+    ]),
+  ),
 });
 const commitSchema = z.object({
   tree: z.string(),
@@ -75,6 +88,8 @@ export class Fixture {
   weaponTypeStatus?: number;
   /** Extra generator fields on the canonical item 123. */
   canonicalFacts: Record<string, unknown> = {};
+  /** Extra generator categories after `perk`. */
+  extraCategories: unknown[] = [];
   history = [
     {
       sha: sha(1),
@@ -83,6 +98,11 @@ export class Fixture {
     },
   ];
   pending: Promise<unknown>[] = [];
+  /** Committer date of the last data-branch commit that touched each path. */
+  touched = new Map<string, string>();
+  /** Public GitHub accounts served by GET /users/:login. */
+  accounts: Record<string, { id: number; login: string; type: string }> = {};
+  accountLookups = 0;
 
   constructor(privateKey: string) {
     this.env = {
@@ -129,9 +149,20 @@ export class Fixture {
   }
 
   moveData(changes: Record<string, unknown> = {}): void {
-    const files = { ...this.current(), ...changes };
+    const before = this.current();
+    const files = { ...before, ...changes };
+    for (const [path, value] of Object.entries(changes))
+      if (value === undefined) delete files[path];
     this.dataHead = sha(this.sequence++);
     this.snapshots.set(this.dataHead, files);
+    this.touch(before, files);
+  }
+
+  private touch(before: Record<string, unknown>, after: Record<string, unknown>): void {
+    const date = new Date().toISOString().replace('.000Z', 'Z');
+    for (const path of new Set([...Object.keys(before), ...Object.keys(after)]))
+      if (JSON.stringify(before[path]) !== JSON.stringify(after[path]))
+        this.touched.set(path, date);
   }
 
   async request(path: string, method = 'GET', value?: unknown, id = 1): Promise<Response> {
@@ -169,6 +200,35 @@ export class Fixture {
       .object({ query: z.string(), variables: z.record(z.string(), z.string()) })
       .parse(raw);
     const repository: Record<string, unknown> = {};
+    if (input.query.includes('perm:file(path:$perm)')) {
+      const files = this.current();
+      const blob = (value: unknown) =>
+        value === undefined
+          ? null
+          : { object: { oid: blobOid(value), isTruncated: false, text: JSON.stringify(value) } };
+      const target: Record<string, unknown> = {
+        oid: this.dataHead,
+        tree: { oid: this.dataHead },
+        perm: blob(files[input.variables.perm!]),
+      };
+      if (input.variables.config) {
+        const path = input.variables.config;
+        target.config = blob(files[path]);
+        const date = this.touched.get(path) ?? (path in files ? '2026-10-01T00:00:00Z' : null);
+        target.last = { nodes: date ? [{ committedDate: date }] : [] };
+      }
+      if (input.variables.dir) {
+        const prefix = `${input.variables.dir}/`;
+        const entries = Object.entries(files)
+          .filter(([path]) => path.startsWith(prefix) && !path.slice(prefix.length).includes('/'))
+          .map(([path, value]) => ({
+            name: path.slice(prefix.length),
+            object: blob(value)!.object,
+          }));
+        target.dir = entries.length ? { object: { entries } } : null;
+      }
+      return this.response({ data: { repository: { ref: { target } } } });
+    }
     if (input.variables.branch) {
       const files = this.current();
       const target: Record<string, unknown> = { oid: this.dataHead, tree: { oid: this.dataHead } };
@@ -183,7 +243,7 @@ export class Fixture {
             ? null
             : {
                 object: {
-                  oid: createHash('sha1').update(JSON.stringify(value)).digest('hex'),
+                  oid: blobOid(value),
                   ...(oidOnly
                     ? {}
                     : {
@@ -204,7 +264,7 @@ export class Fixture {
         value === undefined
           ? null
           : {
-              oid: createHash('sha1').update(JSON.stringify(value)).digest('hex'),
+              oid: blobOid(value),
               isTruncated: this.truncateGraphql,
               text: this.truncateGraphql ? null : JSON.stringify(value),
             };
@@ -239,7 +299,7 @@ export class Fixture {
           },
         });
       if (url.pathname.endsWith('/categories.json'))
-        return this.response([{ id: 'perk', legacyType: 'Weapon Perk' }]);
+        return this.response([{ id: 'perk', legacyType: 'Weapon Perk' }, ...this.extraCategories]);
       if (url.pathname.endsWith('/aliases.json')) return this.response(this.aliases);
       if (url.pathname.endsWith('/weaponTypes.json')) {
         if (this.weaponTypeStatus) return this.response({}, this.weaponTypeStatus);
@@ -252,6 +312,13 @@ export class Fixture {
       return this.response({ access_token: 'oauth-user-token' });
     }
     if (url.pathname === '/user') return this.response({ id: 1, login: 'alice' });
+    if (url.hostname === 'api.github.com' && url.pathname.startsWith('/users/')) {
+      if (new Headers(init?.headers).get('Authorization') !== 'Bearer installation-token')
+        throw new Error('Account lookup did not use the installation token');
+      this.accountLookups++;
+      const account = this.accounts[decodeURIComponent(url.pathname.slice(7)).toLowerCase()];
+      return account ? this.response(account) : this.response({ message: 'Not Found' }, 404);
+    }
     if (url.pathname === '/app/installations/100/access_tokens')
       return this.response({ token: 'installation-token' });
     if (new Headers(init?.headers).get('Authorization') !== 'Bearer installation-token') {
@@ -280,10 +347,7 @@ export class Fixture {
       const value = name === 'liveDescriptions.json' ? this.live : this.snapshots.get(ref)?.[name];
       if (value === undefined) return this.response({ message: 'Not Found' }, 404);
       return this.response({
-        sha:
-          name === 'liveDescriptions.json'
-            ? this.liveFileSha
-            : createHash('sha1').update(JSON.stringify(value)).digest('hex'),
+        sha: name === 'liveDescriptions.json' ? this.liveFileSha : blobOid(value),
         encoding: this.largeFile && name === 'liveDescriptions.json' ? 'none' : 'base64',
         content:
           this.largeFile && name === 'liveDescriptions.json'
@@ -305,10 +369,14 @@ export class Fixture {
     if (path === '/git/trees' && method === 'POST') {
       const input = treeSchema.parse(raw);
       const id = sha(this.sequence++);
-      this.snapshots.set(id, {
+      const files: Record<string, unknown> = {
         ...(input.base_tree ? this.snapshots.get(input.base_tree) : {}),
-        ...Object.fromEntries(input.tree.map((entry) => [entry.path, JSON.parse(entry.content)])),
-      });
+      };
+      for (const entry of input.tree) {
+        if ('content' in entry) files[entry.path] = JSON.parse(entry.content);
+        else delete files[entry.path];
+      }
+      this.snapshots.set(id, files);
       return this.response({ sha: id });
     }
     if (path === '/git/commits' && method === 'POST') {
@@ -341,6 +409,7 @@ export class Fixture {
       // GitHub refuses this sole-parent commit once H has moved. Never fake a race rejection.
       if (next !== this.dataHead && this.commitParents.get(next)?.[0] !== this.dataHead)
         return this.response({}, 422);
+      this.touch(this.current(), this.snapshots.get(next)!);
       this.dataHead = next;
       return this.response({ object: { sha: this.dataHead } });
     }

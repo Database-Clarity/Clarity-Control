@@ -1,5 +1,5 @@
 import { languageLabel } from '../../languageLabels';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
 import { apiUrl, loginUrl, rememberSignIn, subscribeSession } from '../../services/api';
 import { rememberReturnPath } from '../../services/returnPath';
@@ -46,14 +46,25 @@ export function identitySummary(state: {
 export function IdentityStatus({
   onAction,
   picture,
+  accountRows,
 }: {
   onAction?: () => void;
   /** The signed-in account's picture, beside its name and role. */
   picture?: ReactNode;
+  /** Rows for the signed-in account, between who and Sign out (My reports). */
+  accountRows?: ReactNode;
 }) {
   const { user, loading, error, load, logout } = useAuthStore();
   const location = useLocation();
   const [remember, setRemember] = useState(false);
+  const signInUrl = useMemo(() => {
+    if (!apiUrl || user || loading || error) return '';
+    try {
+      return loginUrl(rememberSignIn(remember));
+    } catch {
+      return '';
+    }
+  }, [remember, user, loading, error]);
   if (!apiUrl)
     return (
       <>
@@ -97,6 +108,7 @@ export function IdentityStatus({
             </p>
           )}
         </div>
+        {accountRows}
         <button
           type="button"
           onClick={() => {
@@ -113,16 +125,27 @@ export function IdentityStatus({
       <p role="status" data-note>
         Read-only: sign in to edit.
       </p>
-      <a
-        href={loginUrl()}
-        data-primary
-        onClick={() => {
-          rememberSignIn(remember);
-          rememberReturnPath(location);
-        }}
-      >
-        Sign in with GitHub
-      </a>
+      {signInUrl ? (
+        <a
+          href={signInUrl}
+          data-primary
+          onClick={(event) => {
+            try {
+              event.currentTarget.href = loginUrl(rememberSignIn(remember));
+            } catch {
+              event.preventDefault();
+              return;
+            }
+            rememberReturnPath(location);
+          }}
+        >
+          Sign in with GitHub
+        </a>
+      ) : (
+        <p role="alert">
+          Cannot retain sign-in request. Enable browser storage, and sign in again.
+        </p>
+      )}
       <label>
         <input
           type="checkbox"

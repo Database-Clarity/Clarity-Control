@@ -57,6 +57,27 @@ const attachments = new Set([
   'bolts',
 ]);
 const playerStats = new Set([2996146975, 392767087, 1735777505, 144602215, 1943323491, 4244567218]);
+/**
+ * Behaviour beyond stats in a part's manifest description (bullet stat lines ignored): damage,
+ * a firing mode, detonation, chaining, blinding, bouncing, Overcharge, ability energy, or damage
+ * resistance. Flavour lead-ins ("Agile sight. Short zoom.") and stat wording never match.
+ */
+const effectWording =
+  /\b(?:damage|fires? (?:a|an|one|two|three|single)\b|burst|detonat\w*|chains? to|blinds?|bounces?|overcharge|ability energy)\b/i;
+export function describesEffect(description: string): boolean {
+  return effectWording.test(
+    description
+      .split('\n')
+      .filter((line) => !/^\s*•/.test(line))
+      .join(' '),
+  );
+}
+/** Whether a tooltip has saved or drafted text in any language. */
+export function hasAuthoredText(tooltip: Pick<Tooltip, 'text'>): boolean {
+  return Object.values(tooltip.text).some((entry) => !!entry?.text.trim());
+}
+/** Exotic weapon entries (frames, perks, catalysts, parts): listed under their weapon. */
+const exoticWeaponEntry = /^weapon-(?:frame|trait|catalyst|perk)-exotic$/;
 export function triageMember(item: Pick<Item, 'hash' | 'name' | 'categoryId'>) {
   const record = members.get(item.hash);
   return record?.name === item.name && record.categoryId === `catalog:${item.categoryId}`
@@ -165,7 +186,8 @@ export function inferItemClassification(
     const pureStats =
       inv.perks?.length === 0 &&
       stats.some((s) => s.value !== 0) &&
-      stats.every((s) => !s.isConditionallyActive);
+      stats.every((s) => !s.isConditionallyActive) &&
+      !describesEffect(description);
     return pureStats
       ? classification(
           attachmentCategory,
@@ -175,7 +197,7 @@ export function inferItemClassification(
       : classification(
           effectCategory,
           'attachment-evidence-needed',
-          `Manifest ${plug} has effect perks, conditional or insufficient stat evidence; do not infer stat-only exclusion.`,
+          `Manifest ${plug} has effect perks, effect wording, conditional or insufficient stat evidence; do not infer stat-only exclusion.`,
           false,
           'manifest',
           'required',
@@ -203,18 +225,25 @@ export function classifyItem(item: Item, tooltip?: Tooltip): ItemClassification 
           ['effect', 'effect-tentative'].includes(candidate.disposition),
       );
   let result = inferItemClassification(item, facts.items[item.hash]);
-  const plug = facts.items[item.hash]?.inventory?.plug?.plugCategoryIdentifier ?? '';
-  if (
-    approvedExoticStat(item, `catalog:${item.categoryId}`) &&
-    (attachments.has(plug) || attachments.has(plug.split('.').at(-1) ?? ''))
-  )
-    result = classification(
-      attachmentCategory,
-      'manifest-weapon-stat',
-      'Exact owner-approved exotic stat attachment: parent link retained; no tooltip needed unless promoted by an editor.',
-      true,
-      'owner',
-    );
+  if (approvedExoticStat(item, `catalog:${item.categoryId}`))
+    result =
+      (tooltip && hasAuthoredText(tooltip)) ||
+      describesEffect(facts.items[item.hash]?.inventory?.description ?? '')
+        ? classification(
+            effectCategory,
+            'exotic-part-no-weapon-row',
+            'Exotic part with tooltip or effect text: weapon row is not its text; review its own source.',
+            false,
+            'owner',
+            'required',
+          )
+        : classification(
+            attachmentCategory,
+            'manifest-weapon-stat',
+            'Exotic part: weapon row is not its text; no tooltip needed unless promoted by an editor.',
+            true,
+            'owner',
+          );
 
   if (record) {
     const d = record.disposition;
@@ -311,6 +340,21 @@ export function classifyItem(item: Item, tooltip?: Tooltip): ItemClassification 
         'required',
       );
   }
+  // A manifest rule never lists an item with tooltip text as stat-only (owner 2026-11-11).
+  if (
+    result?.ruleId === attachmentCategory &&
+    result.origin === 'manifest' &&
+    tooltip &&
+    hasAuthoredText(tooltip)
+  )
+    result = classification(
+      effectCategory,
+      'attachment-saved-text',
+      'Tooltip text already exists; a manifest rule never lists it as stat-only.',
+      false,
+      'manifest',
+      'required',
+    );
   if (
     tooltip?.custom?.categoryId === attachmentCategory &&
     result &&
@@ -340,6 +384,21 @@ export function classifyItem(item: Item, tooltip?: Tooltip): ItemClassification 
     // An editor move back to Armor Mods changes the listing only; the matching scope stays.
     return { ...result, categoryId: armorModCategory };
   return result;
+}
+/**
+ * The finder category of a classified item. Exotic weapon entries always list under their weapon
+ * in Exotic Weapons, never in Stat-only Parts or Parts with Effects: their classification still
+ * decides tooltip scope (no tooltip / needs tooltip), only the listing stays with the weapon.
+ */
+export function listingCategoryId(
+  item: Pick<Item, 'categoryId'>,
+  classified: Pick<ItemClassification, 'categoryId'> | undefined,
+): string {
+  if (!classified) return item.categoryId;
+  return exoticWeaponEntry.test(item.categoryId) &&
+    (classified.categoryId === attachmentCategory || classified.categoryId === effectCategory)
+    ? item.categoryId
+    : classified.categoryId;
 }
 export function categoryLabel(id: string) {
   return derivedCategories.find((category) => category.id === id)?.label;

@@ -367,7 +367,11 @@ describe('compiler stages and reference policy (AC2, G-REFS)', () => {
     for (const preset of legacyPresets) {
       const plan = compile(input, { id: 'old', formatVersion: 1, preset }, { catalog, identical });
       expect(plan.legacy).toBe(true);
-      expect(sha256(plan.bytes)).toBe(expected.fixture.files[preset]);
+      // The set-bonus type name is the decided cut-over exception (set-bonus.test.ts).
+      const text = new TextDecoder().decode(plan.bytes);
+      expect(sha256(text.replaceAll('"Armor Set Bonus"', '"armor-set-bonus"'))).toBe(
+        expected.fixture.files[preset],
+      );
     }
   });
 

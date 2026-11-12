@@ -3,6 +3,7 @@ import { parseMarkup, type Tooltip } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import type { Drafts } from '../../services/draftStorage';
 import {
+  categoriesWithEnhanced,
   editableOverrides,
   enhancedPairs,
   enhancedRender,
@@ -349,4 +350,28 @@ describe('enhanced origin traits', () => {
     expect(previewedVariants(70, value)).toEqual([71]);
     expect(enhancedPairs(80, value)).toEqual([]);
   });
+});
+
+it('derives category scope from actual enhanced pairs, not isolated enhanced types or copies', () => {
+  const data = build(
+    [],
+    {},
+    {
+      20: item(20, 'trait'),
+      21: item(21, 'origin', { baseHash: 20 }),
+      30: item(30, 'frame'),
+      31: item(31, 'frame', { baseHash: 30 }),
+    },
+  );
+  expect([...categoriesWithEnhanced(data)].sort()).toEqual(['enhanced', 'trait']);
+  expect(categoriesWithEnhanced(data)).toBe(categoriesWithEnhanced(data));
+  expect(
+    categoriesWithEnhanced(
+      build(
+        [],
+        {},
+        { 11: item(11, 'enhanced'), 12: item(12, 'enhanced'), 13: item(13, 'enhanced') },
+      ),
+    ).size,
+  ).toBe(0);
 });

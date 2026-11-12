@@ -19,6 +19,18 @@ const change = (base = tooltip(), next = tooltip('mine')) => ({
 });
 
 describe('save permission matrix', () => {
+  it('returns server time after the commit on a non-cacheable cross-origin response', async () => {
+    const before = Date.now();
+    const response = await fixture.request('/save', 'POST', change());
+    const after = Date.now();
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result.savedAt).toBeGreaterThanOrEqual(before);
+    expect(result.savedAt).toBeLessThanOrEqual(after);
+    expect(result.commit).toBe(fixture.dataHead);
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+  });
+
   it('rejects stale alias drafts and creates with a clear canonical target and no writes', async () => {
     fixture.aliases[123] = { to: 456, kind: 'frame' };
     const response = await fixture.request('/save', 'POST', change());
@@ -37,7 +49,11 @@ describe('save permission matrix', () => {
     const response = await fixture.request('/save', 'POST', change(), id);
     expect(response.status).toBe(200);
     const result = await response.json();
-    expect(result).toEqual({ commit: fixture.dataHead, tooltips: [tooltip('mine')] });
+    expect(result).toEqual({
+      commit: fixture.dataHead,
+      tooltips: [tooltip('mine')],
+      savedAt: expect.any(Number),
+    });
     expect(fixture.commits[0]).toMatchObject({
       author: {
         name: config.users[String(id)].login,
@@ -306,4 +322,90 @@ it('includes shown non-language fields and language removal in the save trailer'
   expect(fixture.commits[0].message).toBe(
     'Edit tooltip\n\nClarity-Changed: 123=de,custom,archive,compendium',
   );
+});
+
+it.each([1, 2, 3, 4])(
+  'limits text-less Compendium creation to editors and maintainers (role %s)',
+  async (id) => {
+    const next = {
+      hash: 125,
+      text: {},
+      associated: [],
+      compendium: {
+        gid: '1662574278',
+        rowKey: 'Demo',
+        snapshot: { plain: '', runs: [] },
+        snapshotAt: '2026-10-02T00:00:00Z',
+      },
+    };
+    const response = await fixture.request(
+      '/save',
+      'POST',
+      {
+        changes: [{ hash: 125, base: null, next }],
+        message: 'Confirm link',
+      },
+      id,
+    );
+    expect(response.status).toBe(id < 3 ? 200 : 403);
+    expect(fixture.commits).toHaveLength(id < 3 ? 1 : 0);
+  },
+);
+
+it('a saved link-only record becomes publishable when text is added', async () => {
+  const base: Tooltip = {
+    hash: 123,
+    text: {},
+    associated: [],
+    compendium: {
+      gid: '1662574278',
+      rowKey: 'Demo',
+      snapshot: { plain: '', runs: [] },
+      snapshotAt: '2026-10-02T00:00:00Z',
+    },
+  };
+  fixture.moveData({ 'tooltips/123.json': base });
+  const next = { ...base, text: tooltip('Now written').text };
+  const response = await fixture.request(
+    '/save',
+    'POST',
+    { changes: [{ hash: 123, base, next }], message: 'Write tooltip' },
+    2,
+  );
+  expect(response.status).toBe(200);
+  expect((await fixture.request('/push-live', 'POST', { hashes: [123] }, 2)).status).toBe(200);
+  expect(fixture.live).toMatchObject({
+    perks: { 123: { editor: { en: { main: 'Now written' } } } },
+  });
+});
+
+it.each([2, 3, 4])(
+  'requires English when a link-only record gains a translation (role %s)',
+  async (id) => {
+    const base: Tooltip = { ...tooltip(), text: {} };
+    fixture.moveData({ 'tooltips/123.json': base });
+    const next: Tooltip = { ...base, text: { de: { ...tooltip().text.en!, text: 'Nur Deutsch' } } };
+    const response = await fixture.request(
+      '/save',
+      'POST',
+      { changes: [{ hash: 123, base, next }], message: 'Translate link-only' },
+      id,
+    );
+    expect(response.status).toBe(422);
+    expect(fixture.commits).toHaveLength(0);
+    expect(fixture.current()['tooltips/123.json']).toEqual(base);
+  },
+);
+it('checks the real head even if a translator forges a written base for a link-only record', async () => {
+  fixture.moveData({ 'tooltips/123.json': { ...tooltip(), text: {} } });
+  const base = tooltip();
+  const next = { ...base, text: { ...base.text, de: { ...base.text.en!, text: 'Nur Deutsch' } } };
+  const response = await fixture.request(
+    '/save',
+    'POST',
+    { changes: [{ hash: 123, base, next }], message: 'Forged source' },
+    4,
+  );
+  expect(response.status).toBe(422);
+  expect(fixture.commits).toHaveLength(0);
 });
