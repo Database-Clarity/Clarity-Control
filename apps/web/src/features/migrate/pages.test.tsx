@@ -83,7 +83,7 @@ it('moves and exports readable drafts while naming unreadable buckets', async ()
   });
   await act(async () => root.render(<MovedPage />));
   expect(host.textContent).toContain('1 unreadable draft bucket');
-  expect(host.textContent).toContain('tooltips:user:7');
+  expect(host.textContent).toContain('Tooltip drafts, account 7');
   await click('Export to file');
   expect(downloadSnapshot).toHaveBeenCalledWith(snapshot, 'drafts.json');
   await click('Move my drafts');
@@ -109,8 +109,9 @@ it('keeps an empty browser with unreadable buckets on the moved page', async () 
     unreadable: ['tooltips'],
   });
   await act(async () => root.render(<MovedPage />));
-  expect(host.textContent).toContain('tooltips');
-  expect(host.querySelector('[role="alert"]')).not.toBeNull();
+  expect(host.textContent).toContain('Tooltip drafts, signed out');
+  expect(host.textContent).toContain('There are no readable drafts');
+  expect(host.querySelector('button')).toBeNull();
 });
 it.each(['preview', 'merge'])('replies refused when %s fails', async (phase) => {
   const outcome = { added: 1, identical: 0, keptSeparate: 0, writes: {}, stored: {}, unplaced: {} };
@@ -123,9 +124,9 @@ it.each(['preview', 'merge'])('replies refused when %s fails', async (phase) => 
   expect(wire.reply).toHaveBeenCalledWith({
     ...stamp,
     type: 'refused',
-    reason: expect.stringContaining('blocked'),
+    reason: expect.stringContaining('Nothing was removed'),
   });
-  expect(host.querySelector('[role="alert"]')?.textContent).toContain('blocked');
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('Nothing was removed');
 });
 it('replies with the cancellation message without applying drafts', async () => {
   vi.mocked(storage.previewMerge).mockResolvedValue({

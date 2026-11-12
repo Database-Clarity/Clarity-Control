@@ -35,8 +35,9 @@ export function MigratePage() {
         preview: await previewMerge(snapshot, browserIO()),
         fromWindow,
       });
-    } catch (error) {
-      const message = `Cannot read this browser's drafts: ${errorMessage(error)}`;
+    } catch {
+      const message =
+        "Cannot read this browser's drafts. Nothing was removed. Restore this browser's drafts from a backup, and try again.";
       // Tell the old site too, or its page would wait on "Sent" for ever.
       if (fromWindow) receiver.current?.reply({ ...stamp, type: 'refused', reason: message });
       setView({ kind: 'error', message });
@@ -76,8 +77,9 @@ export function MigratePage() {
             0,
           ),
         });
-    } catch (error) {
-      const message = `The merge stopped: ${errorMessage(error)}. Nothing was removed anywhere; run it again to continue.`;
+    } catch {
+      const message =
+        'The merge stopped because this browser could not store the drafts. Nothing was removed. Check your browser storage, and start over to try again.';
       if (fromWindow) receiver.current?.reply({ ...stamp, type: 'refused', reason: message });
       setView({ kind: 'error', message });
     }

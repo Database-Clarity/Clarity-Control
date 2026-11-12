@@ -9,6 +9,7 @@ import styles from './Migrate.module.scss';
 
 type View =
   | { kind: 'checking' }
+  | { kind: 'unreadable' }
   | { kind: 'idle'; drafts: number }
   | { kind: 'waiting' }
   | { kind: 'sent' }
@@ -39,13 +40,7 @@ export function MovedPage() {
         const start = movedStart(collected);
         if (start.kind === 'redirect') window.location.replace(target);
         else if (start.kind === 'idle') setView({ kind: 'idle', drafts: start.drafts });
-        else
-          setView({
-            kind: 'error',
-            message:
-              'Some draft buckets cannot be read. You can move or export the readable drafts; unreadable buckets will stay here.',
-            drafts: -1,
-          });
+        else setView({ kind: 'unreadable' });
       },
       // A browser that cannot read its drafts must not be redirected away from them.
       (error: unknown) =>
@@ -138,29 +133,40 @@ export function MovedPage() {
     }
   };
 
+  const confirmedCount =
+    view.kind === 'moved'
+      ? Object.entries(view.stored).reduce(
+          (sum, [bucket, hashes]) =>
+            sum +
+            [...new Set(hashes)].filter((hash) =>
+              Object.hasOwn(sent.current?.buckets[bucket] ?? {}, hash),
+            ).length,
+          0,
+        )
+      : 0;
+
   return (
     <section className={styles.page} aria-labelledby="moved-title">
       <h1 id="moved-title">The editor has moved</h1>
-      {unreadable.length > 0 && (
-        <aside aria-label="Unreadable draft buckets">
-          <p>
-            {unreadable.length} unreadable draft bucket{unreadable.length === 1 ? '' : 's'} will
-            stay untouched:
-          </p>
-          <ul>
-            {unreadable.map((bucket) => (
-              <li key={bucket}>{bucket}</li>
-            ))}
-          </ul>
-        </aside>
-      )}
       {view.kind === 'checking' && <p role="status">Checking for drafts in this browser…</p>}
+      {view.kind === 'unreadable' && (
+        <>
+          <p role="status">
+            There are no readable drafts in this browser. Nothing has been moved or removed.
+          </p>
+          <div className={styles.actions}>
+            <a className={styles.primary} href={target}>
+              Open new editor
+            </a>
+          </div>
+        </>
+      )}
       {view.kind === 'idle' && (
         <>
           <p>
             It now lives at <a href={target}>{newOrigin.replace('https://', '')}</a>. This browser
-            holds {view.drafts} unsaved draft{view.drafts === 1 ? '' : 's'}, which do not move on
-            their own.
+            holds {view.drafts} unsaved draft{view.drafts === 1 ? '' : 's'}, which{' '}
+            {view.drafts === 1 ? 'does not move on its own.' : 'do not move on their own.'}
           </p>
           <p className={styles.muted}>
             Moving copies them. Drafts already in the new editor are never replaced, and nothing is
@@ -190,14 +196,24 @@ export function MovedPage() {
           <p className={styles.muted}>
             Your drafts here are still in place. Remove them only once you have checked.
           </p>
+          {view.confirming && (
+            <p role="status">
+              Remove up to {confirmedCount} moved draft{confirmedCount === 1 ? '' : 's'} from this
+              browser? Drafts edited since moving and unreadable buckets stay here.
+            </p>
+          )}
           <div className={styles.actions}>
             {view.confirming ? (
               <>
+                <button
+                  type="button"
+                  className={styles.primary}
+                  onClick={() => setView({ ...view, confirming: false })}
+                >
+                  Keep them
+                </button>
                 <button type="button" className={styles.danger} onClick={() => void clear()}>
                   Yes, remove moved drafts
-                </button>
-                <button type="button" onClick={() => setView({ ...view, confirming: false })}>
-                  Keep them
                 </button>
               </>
             ) : (
@@ -236,6 +252,23 @@ export function MovedPage() {
             <a href={target}>Open new editor</a>
           </div>
         </>
+      )}
+      {unreadable.length > 0 && (
+        <aside className={styles.buckets} aria-label="Unreadable draft buckets">
+          <p>
+            {unreadable.length} unreadable draft bucket{unreadable.length === 1 ? '' : 's'} will
+            stay untouched:
+          </p>
+          <ul>
+            {unreadable.map((bucket) => (
+              <li key={bucket}>
+                {bucket === 'tooltips'
+                  ? 'Tooltip drafts, signed out'
+                  : `Tooltip drafts, account ${bucket.slice('tooltips:user:'.length)}`}
+              </li>
+            ))}
+          </ul>
+        </aside>
       )}
     </section>
   );
