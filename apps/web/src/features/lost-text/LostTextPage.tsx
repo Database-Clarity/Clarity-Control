@@ -1,3 +1,4 @@
+import { ReadingTooltip } from '../preview/ReadingTooltip';
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import artifact from './lost-text.json';
@@ -15,8 +16,6 @@ import { useDraftStore } from '../../stores/drafts';
 import { useSaveState } from '../../services/save/state';
 import { replaceDraft } from '../../services/save/drafts';
 import { errorMessage } from '../../services/http';
-import { TooltipPreview } from '../preview/TooltipPreview';
-import { tooltipImports } from '../../services/tooltipImports';
 import { When } from '../../ui/When';
 import styles from './LostText.module.scss';
 
@@ -109,9 +108,6 @@ export function LostTextPage() {
   const base = selected && data.bundle.tooltips[selected.hash];
   const current = base && (drafts[base.hash]?.next ?? base);
   const editable = canRecover(user);
-  const imports = selected
-    ? tooltipImports(data.bundle.tooltips, drafts, selected.lang, data.aliases)
-    : {};
   function dismiss() {
     if (!selected || !editable) return;
     try {
@@ -258,14 +254,18 @@ export function LostTextPage() {
                 {selected.lastNonemptyCommit.slice(0, 12)}
               </a>
             </p>
+            <h3>Current saved text</h3>
+            {base?.text[selected.lang]?.text ? (
+              <ReadingTooltip
+                text={base.text[selected.lang]!.text}
+                lang={selected.lang}
+                hash={selected.hash}
+              />
+            ) : (
+              <p>(blank)</p>
+            )}
             <h3>Historical text (last non-empty)</h3>
-            <p>Current saved text: {base?.text[selected.lang]?.text || '(blank)'}</p>
-            <TooltipPreview
-              text={selected.text}
-              lang={selected.lang}
-              name={selected.name}
-              globals={{ variables: imports[2] ?? '', titles: imports[3] ?? '', imports }}
-            />
+            <ReadingTooltip text={selected.text} lang={selected.lang} hash={selected.hash} />
             <details>
               <summary>Historical source text</summary>
               <pre>{selected.text}</pre>

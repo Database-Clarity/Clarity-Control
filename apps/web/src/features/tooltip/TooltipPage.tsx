@@ -636,6 +636,7 @@ function TooltipWorkspace({
         source={
           lang === 'en' ? undefined : (
             <TranslationSource
+              hash={activeHash}
               key={`${activeHash}:${lang}`}
               text={activeTooltip.text.en?.text}
               diff={
