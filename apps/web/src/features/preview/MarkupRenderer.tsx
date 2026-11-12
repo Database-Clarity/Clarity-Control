@@ -7,7 +7,7 @@ export function classNames(names?: (string | undefined)[]) {
   return names?.flatMap((name) => (name && styles[name] ? [styles[name]] : [])).join(' ');
 }
 
-function linkUrl(url: string): string | undefined {
+export function linkUrl(url: string): string | undefined {
   return /^(https?:\/\/|mailto:)/i.test(url.trim()) ? url.trim() : undefined;
 }
 
@@ -86,6 +86,17 @@ export function PreviewSpan({ part }: { part: MarkupSpan }) {
 
 // A keystroke usually changes one line. Parsed lines are plain render data, so retain
 // the unchanged React subtrees even when a fresh parse creates new line objects.
+// Memoized props keep their immutable line objects; do not serialize those same
+// objects again on every key. Weak keys also release obsolete parse results.
+const lineKeys = new WeakMap<MarkupLine, string>();
+function lineKey(line: MarkupLine) {
+  let key = lineKeys.get(line);
+  if (key === undefined) {
+    key = JSON.stringify(line);
+    lineKeys.set(line, key);
+  }
+  return key;
+}
 const PreviewLine = memo(
   function PreviewLine({ line }: { line: MarkupLine }) {
     return line.table ? (
@@ -117,8 +128,7 @@ const PreviewLine = memo(
       </div>
     );
   },
-  (previous, next) =>
-    previous.line === next.line || JSON.stringify(previous.line) === JSON.stringify(next.line),
+  (previous, next) => previous.line === next.line || lineKey(previous.line) === lineKey(next.line),
 );
 
 export function Lines({ lines }: { lines: MarkupLine[] }) {

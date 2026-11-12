@@ -20,7 +20,7 @@ import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { canonicalHash, classifiedCategory, itemFor, tooltipFor } from '../navigation/catalog';
 import styles from './TooltipPreview.module.scss';
-import { Lines } from './MarkupRenderer';
+import { Lines, linkUrl } from './MarkupRenderer';
 export { classNames, Lines, PreviewSpan } from './MarkupRenderer';
 
 export interface TooltipPreviewProps {

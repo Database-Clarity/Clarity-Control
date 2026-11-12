@@ -13,10 +13,15 @@ const cache = new Map<string, Result>();
 export function useRenderedDiff(before: string, after: string, globals: MarkupGlobals) {
   const large = !!before && !!after && before.length + after.length > 4000;
   const snapshot = useMemo(
-    () => diagnosticGlobals(`${before}\n${after}`, globals),
-    [before, after, globals],
+    () => (large ? diagnosticGlobals(`${before}\n${after}`, globals) : globals),
+    [before, after, globals, large],
   );
-  const key = useMemo(() => JSON.stringify([before, after, snapshot]), [before, after, snapshot]);
+  // Serialization is for worker transport/cache identity only. Synchronous
+  // comparisons already have stable React dependencies and can read lazy imports.
+  const key = useMemo(
+    () => (large ? JSON.stringify([before, after, snapshot]) : ''),
+    [before, after, snapshot, large],
+  );
   const [computed, setComputed] = useState<{ key: string; result?: Result }>();
   const initial = useMemo(
     () => cache.get(key) ?? renderedDiff(before, after, snapshot, !large),
