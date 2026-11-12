@@ -103,13 +103,18 @@ export interface ReportsPaneProps {
  * reports costs no request.
  */
 export function ReportsPane(props: ReportsPaneProps) {
-  // Typing changes the text on every key; the pane takes it once typing pauses, so a key costs
-  // these hooks and one memo comparison, and the highlights pause meanwhile.
+  // Typing changes the text (and the page's globals object) on every key; the pane takes them
+  // once typing pauses, so a key costs these hooks and one memo comparison, and the highlights
+  // pause meanwhile.
   const latest = props.variants ?? noVariants;
-  const text = useSettled(props.text, sameText);
+  const text = useSettled(props.text, Object.is);
+  const globals = useSettled(props.globals, Object.is);
   const variants = useSettled(latest, sameVariants);
-  const typing = text !== props.text || !sameVariants(variants, latest);
-  return <ReportsPaneMemo {...props} text={text} variants={variants} typing={typing} />;
+  const typing =
+    text !== props.text || globals !== props.globals || !sameVariants(variants, latest);
+  return (
+    <ReportsPaneMemo {...props} text={text} globals={globals} variants={variants} typing={typing} />
+  );
 }
 
 /** One enhanced version as the preview renders it. */
@@ -119,7 +124,6 @@ export interface PaneVariant {
   globals: MarkupGlobals;
 }
 const noVariants: readonly PaneVariant[] = [];
-const sameText = (a: string, b: string) => a === b;
 const sameVariants = (a: readonly PaneVariant[], b: readonly PaneVariant[]) =>
   a === b ||
   (a.length === b.length &&
@@ -822,16 +826,23 @@ function useNoteState(report: PaneReport, note: PaneReport['notes'][number]) {
 
 /** Each version's display text, once per text change (core displayText, the selectors' basis). */
 function useDisplays(contexts: readonly PaneVariant[], enabled: boolean) {
-  const displays = useMemo(
-    () =>
-      enabled
-        ? contexts.map((context) => ({
-            hash: context.hash,
-            text: displayText(context.text, context.globals),
-          }))
-        : null,
-    [contexts, enabled],
-  );
+  const previous = useRef<{ hash: number; text: string }[] | null>(null);
+  const displays = useMemo(() => {
+    if (!enabled) return null;
+    const next = contexts.map((context) => ({
+      hash: context.hash,
+      text: displayText(context.text, context.globals),
+    }));
+    // The same display texts (new globals or variant objects with the same result): keep the
+    // computed map, so the notes and numbers do not blank while it is recomputed.
+    const last = previous.current;
+    if (
+      last?.length === next.length &&
+      last.every((entry, i) => entry.hash === next[i]!.hash && entry.text === next[i]!.text)
+    )
+      return last;
+    return (previous.current = next);
+  }, [contexts, enabled]);
   const [value, setValue] = useState<{
     source: typeof displays;
     map: Map<number, Display>;
