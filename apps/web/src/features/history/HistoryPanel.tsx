@@ -125,6 +125,8 @@ function HistoryContent({
   const sentinel = useRef<HTMLLIElement>(null);
   const prefetchedWindow = useRef<number>();
   const [page, setPage] = useState(1);
+  const pageStart = useRef({ page: 1, count: 0 });
+  if (pageStart.current.page !== page) pageStart.current = { page, count: commits.length };
   const [loadedPage, setLoadedPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -299,40 +301,49 @@ function HistoryContent({
         </p>
       )}
       {classifying && <p role="status">Checking revision scope...</p>}
-      {!error && (loading || loadingSkeleton) && (
-        <LoadingSkeleton label="Loading commits..." shape="rows" visible={loadingSkeleton} />
-      )}
       <ol
-        hidden={!error && (loading || loadingSkeleton)}
-        style={!error && (loading || loadingSkeleton) ? { display: 'none' } : undefined}
+        hidden={page === 1 && !error && (loading || loadingSkeleton)}
+        style={
+          page === 1 && !error && (loading || loadingSkeleton) ? { display: 'none' } : undefined
+        }
         className={styles.commits}
         aria-busy={
           loading ||
           commits.slice(0, visibleCount).some((entry) => relevance[entry.commit] === undefined)
         }
       >
-        {commits.slice(0, visibleCount).map((entry, index) => (
-          <ScopedHistoryEntry
-            key={entry.commit}
-            relevant={relevance[entry.commit]}
-            scope={scope}
-            entry={entry}
-            index={index}
-            commits={commits}
-            page={loadedPage}
-            hasMore={hasMore}
-            cache={cache}
-            current={current}
-            item={item}
-            translator={user?.role === 'translator'}
-            canRestore={canRestore}
-            onRestore={restore}
-          />
-        ))}
+        {commits
+          .slice(
+            0,
+            page > 1 && (loading || loadingSkeleton)
+              ? Math.min(visibleCount, pageStart.current.count)
+              : visibleCount,
+          )
+          .map((entry, index) => (
+            <ScopedHistoryEntry
+              key={entry.commit}
+              relevant={relevance[entry.commit]}
+              scope={scope}
+              entry={entry}
+              index={index}
+              commits={commits}
+              page={loadedPage}
+              hasMore={hasMore}
+              cache={cache}
+              current={current}
+              item={item}
+              translator={user?.role === 'translator'}
+              canRestore={canRestore}
+              onRestore={restore}
+            />
+          ))}
         {visibleCount < commits.length && (
           <li ref={sentinel} aria-hidden="true" data-history-more="true" />
         )}
       </ol>
+      {!error && (loading || loadingSkeleton) && (
+        <LoadingSkeleton label="Loading commits..." shape="rows" visible={loadingSkeleton} />
+      )}
 
       {!loading &&
         !classifying &&

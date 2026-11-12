@@ -80,6 +80,7 @@ function LayoutContent() {
       activate: state.activate,
     })),
   );
+  const workspacePending = status === 'loading' || (!hydrated && !draftError);
   const isEditor = location.pathname.startsWith('/t/');
   const isCompendium = location.pathname.startsWith('/compendium');
   const isReview = location.pathname === '/review';
@@ -226,7 +227,16 @@ function LayoutContent() {
   // The editor's finder is the tooltip combobox; Compendium and Review keep their queue lists.
   const finder = (
     <>
-      {data && isEditor && <TooltipNavigation data={data} variant={phone ? 'sheet' : 'bar'} />}
+      {isEditor && (
+        <SkeletonBoundary
+          pending={!data}
+          error={!!error}
+          label="Loading tooltip finder…"
+          shape="finder"
+        >
+          {data && <TooltipNavigation data={data} variant={phone ? 'sheet' : 'bar'} />}
+        </SkeletonBoundary>
+      )}
       {phone && isCompendium && <CompendiumQueue />}
       {phone && isReview && <ReviewSidebarNavigation />}
       <ShellSlotHost name="finder" className={styles.slotHost} />
@@ -294,7 +304,16 @@ function LayoutContent() {
                 aria-label={previewColumn ? 'Preview' : 'Context'}
                 hidden={columnCollapsed}
               >
-                {previewColumn && <ShellSlotHost name="left" className={styles.leftHost} />}
+                {previewColumn && (
+                  <SkeletonBoundary
+                    pending={workspacePending}
+                    error={!!error}
+                    label="Loading tooltip preview…"
+                    shape="preview"
+                  >
+                    <ShellSlotHost name="left" className={styles.leftHost} />
+                  </SkeletonBoundary>
+                )}
                 {isCompendium && <CompendiumQueue />}
                 {isReview && <ReviewSidebarNavigation />}
               </aside>
@@ -343,14 +362,22 @@ function LayoutContent() {
 
               {/* A failed draft recovery must not hide read-only browsing; edit actions stay gated on `hydrated`. */}
               <SkeletonBoundary
-                pending={status === 'loading' || (!hydrated && !draftError)}
+                pending={workspacePending}
                 error={!!error}
                 label={
                   status === 'loading'
                     ? 'Loading manifest and tooltip data...'
                     : 'Recovering local drafts...'
                 }
-                shape="page"
+                shape={
+                  isEditor
+                    ? 'editor'
+                    : isCompendium &&
+                        !new URLSearchParams(location.search).has('hash') &&
+                        new URLSearchParams(location.search).get('tab') !== 'linked'
+                      ? 'none'
+                      : 'page'
+                }
               >
                 {status === 'ready' && (hydrated || Boolean(draftError)) && <Outlet />}
               </SkeletonBoundary>

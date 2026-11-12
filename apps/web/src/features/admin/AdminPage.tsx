@@ -154,7 +154,14 @@ export function AdminPage() {
         pending={loading}
         error={!!error}
         label="Loading current permissions..."
-        shape="rows"
+        shape="permissions"
+        rowHeights={
+          config
+            ? Object.values(config.users)
+                .sort((a, b) => a.login.localeCompare(b.login))
+                .map((user) => (user.role === 'translator' ? '9rem' : '3.5rem'))
+            : undefined
+        }
         count={config ? Object.keys(config.users).length : 3}
       >
         {config && (

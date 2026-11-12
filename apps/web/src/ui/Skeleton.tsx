@@ -202,7 +202,8 @@ export function useSkeletonVisible(pending: boolean, identity: unknown, hasConte
   return visible || (pending && !hasContent);
 }
 
-export type LoadingShape = 'page' | 'rows' | 'text';
+export type LoadingShape =
+  'page' | 'rows' | 'text' | 'editor' | 'finder' | 'preview' | 'permissions' | 'none';
 
 /** Content-shaped placeholder; status copy remains available to assistive technology. */
 export function LoadingSkeleton({
@@ -211,12 +212,14 @@ export function LoadingSkeleton({
   count = 3,
   text,
   visible = true,
+  rowHeights,
 }: {
   label: string;
   shape?: LoadingShape;
   count?: number;
   text?: string;
   visible?: boolean;
+  rowHeights?: readonly string[];
 }) {
   const element = useRef<HTMLDivElement>(null);
   const width = useElementWidth(element);
@@ -226,10 +229,51 @@ export function LoadingSkeleton({
   return (
     <div ref={element} aria-busy="true">
       <SkeletonStatus>{label}</SkeletonStatus>
-      {visible && (
+      {visible && shape === 'editor' && (
+        <div className={styles.editorGrid}>
+          <SkeletonRegion>
+            <SkeletonRows count={2} columns={[25, 50, 25]} rowHeight="1.75rem" />
+            <SkeletonRows count={18} maxRows={18} columns={[88]} rowHeight="1.5rem" />
+          </SkeletonRegion>
+          <SkeletonRegion className={styles.editorPane}>
+            <SkeletonRows count={2} columns={[40, 35, 25]} rowHeight="1.75rem" />
+            <SkeletonBlock height="12rem" />
+            <SkeletonLine width={58} />
+          </SkeletonRegion>
+        </div>
+      )}
+      {visible && shape !== 'editor' && shape !== 'none' && (
         <SkeletonRegion
           style={shape === 'page' ? ({ '--gap-y': '0.375rem' } as CSSProperties) : undefined}
         >
+          {shape === 'finder' && <SkeletonRows count={1} columns={[25, 50, 25]} rowHeight="2rem" />}
+          {shape === 'preview' && (
+            <>
+              <SkeletonRows count={2} columns={[70, 30]} rowHeight="1.75rem" />
+              <SkeletonBlock height="14rem" />
+              <SkeletonLine width={58} />
+            </>
+          )}
+          {shape === 'permissions' && (
+            <>
+              <SkeletonLine width={20} />
+              <SkeletonRows
+                count={1}
+                columns={[24, 20, 42, 14]}
+                headers={['GitHub account', 'Role', 'Languages', 'Actions']}
+                rowHeight="3.5rem"
+              />
+              {Array.from({ length: Math.max(1, Math.min(8, count)) }, (_, index) => (
+                <SkeletonRows
+                  key={index}
+                  count={1}
+                  columns={[24, 20, 42, 14]}
+                  rowHeight={rowHeights?.[index] ?? '9rem'}
+                />
+              ))}
+              <SkeletonRows count={1} columns={[30, 20, 50]} rowHeight="4.5rem" />
+            </>
+          )}
           {shape === 'page' && (
             <>
               <SkeletonLine width={30} />
@@ -259,8 +303,10 @@ export function SkeletonBoundary({
   count,
   text,
   children,
+  rowHeights,
 }: {
   pending: boolean;
+  rowHeights?: readonly string[];
   identity?: unknown;
   error?: boolean;
   label: string;
@@ -272,7 +318,14 @@ export function SkeletonBoundary({
   const visible = useSkeletonVisible(pending && !error, identity, true);
   if (error) return children;
   return pending || visible ? (
-    <LoadingSkeleton label={label} shape={shape} count={count} text={text} visible={visible} />
+    <LoadingSkeleton
+      label={label}
+      shape={shape}
+      count={count}
+      text={text}
+      visible={visible}
+      rowHeights={rowHeights}
+    />
   ) : (
     children
   );
@@ -292,12 +345,20 @@ function PendingCommit({
 }
 
 /** Keep the resolved subtree mounted while the shared minimum finishes. */
-export function SkeletonSuspense({ label, children }: { label: string; children: ReactNode }) {
+export function SkeletonSuspense({
+  label,
+  children,
+  shape = 'page',
+}: {
+  label: string;
+  children: ReactNode;
+  shape?: LoadingShape;
+}) {
   const [pending, setPending] = useState(false);
   const visible = useSkeletonVisible(pending, label, true);
   return (
     <>
-      {(pending || visible) && <LoadingSkeleton label={label} shape="page" visible={visible} />}
+      {(pending || visible) && <LoadingSkeleton label={label} shape={shape} visible={visible} />}
       <div
         hidden={pending || visible}
         style={pending || visible ? undefined : { display: 'contents' }}

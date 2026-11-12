@@ -18,7 +18,7 @@ import { AppLazyPage } from './AppLazyPage';
 const loadTooltipPage = workspacePage(() =>
   import('./features/tooltip/TooltipPage').then((module) => ({ default: module.TooltipPage })),
 );
-const TooltipPage = () => <AppLazyPage load={loadTooltipPage} />;
+const TooltipPage = () => <AppLazyPage load={loadTooltipPage} shape="editor" />;
 const loadTranslationsPage = workspacePage(() =>
   import('./features/translations/TranslationsPage').then((module) => ({
     default: module.TranslationsPage,
@@ -114,7 +114,7 @@ export const routes: RouteObject[] = [
         handle: { preload: loadReviewPage },
       },
       { path: 'compendium/review', element: <RetiredCompendiumRoute /> },
-      { path: 'compendium', element: <LazyCompendiumTab /> },
+      { path: 'compendium', element: <CompendiumRoute /> },
       { path: 'archive', element: <ArchivePage />, handle: { preload: loadArchivePage } },
       { path: 'drift', element: <DriftPage />, handle: { preload: loadDriftPage } },
       { path: 'lost-text', element: <LostTextPage /> },
@@ -162,6 +162,16 @@ function RetiredCompendiumRoute() {
   if (group) next.set('group', decodeURIComponent(group));
   const search = next.toString();
   return <Navigate to={{ pathname: '/compendium', search: search ? `?${search}` : '' }} replace />;
+}
+
+function CompendiumRoute() {
+  const { search } = useLocation();
+  const params = new URLSearchParams(search);
+  return (
+    <LazyCompendiumTab
+      shape={params.has('hash') || params.get('tab') === 'linked' ? 'page' : 'none'}
+    />
+  );
 }
 
 function StartPage() {

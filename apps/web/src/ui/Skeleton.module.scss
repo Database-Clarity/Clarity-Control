@@ -80,3 +80,22 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+.editorGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  height: calc(100dvh - var(--header-h, 37px) - 2rem);
+  min-height: 16rem;
+}
+.editorPane {
+  display: none;
+}
+@media (min-width: 1200px) {
+  .editorGrid {
+    grid-template-columns: minmax(0, 1fr) minmax(20rem, 38%);
+  }
+  .editorPane {
+    display: block;
+  }
+}
