@@ -56,7 +56,8 @@ function lower(text: string, open: string, close: string): string {
   let lowered = '';
   let at = 0;
   for (const tag of tags) {
-    lowered += `${text.slice(at, tag.from)}<${tag.element}/>${open}${tag.text}${close}`;
+    const [, lead, body, trail] = /^(\s*)([^]*?)(\s*)$/.exec(tag.text)!;
+    lowered += `${text.slice(at, tag.from)}<${tag.element}/>${lead}${open}${body}${close}${trail}`;
     at = tag.to;
   }
   return lowered + text.slice(at);

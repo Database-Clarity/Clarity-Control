@@ -88,8 +88,10 @@ function spans(line: string, titles: Record<string, MarkupLine[]>): MarkupSpan[]
   for (const part of line.split(markedPart)) {
     if (!part) continue;
     if (part === elementTextOpen) {
-      // The lowered icon directly before the text names the element.
-      const icon = out.at(-1);
+      // The lowered icon before the text (past its leading spaces) names the element.
+      let at = out.length - 1;
+      while (at >= 0 && !out[at].classNames && !out[at].text?.trim()) at--;
+      const icon = out[at];
       const element = icon && icon.text === undefined ? icon.classNames?.[0] : undefined;
       tint = element && elements.has(element) ? element : undefined;
       continue;

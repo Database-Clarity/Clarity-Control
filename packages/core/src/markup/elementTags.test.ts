@@ -361,3 +361,65 @@ describe('preview markers never leave the parser', () => {
     expect(markers.test(exported)).toBe(false);
   });
 });
+
+describe('markers never change how preparation reads the lowered text', () => {
+  // Output review round 3: the close marker split a variable name (`#hit` + `tail` lowers to
+  // `#hittail`), and a marker before trailing spaces defeated declaration trimming.
+  const lowerAll = (globals: MarkupGlobals): MarkupGlobals => ({
+    ...globals,
+    variables: lowerElementTags(globals.variables),
+    titles: lowerElementTags(globals.titles),
+    imports:
+      globals.imports &&
+      Object.fromEntries(
+        Object.entries(globals.imports).map(([key, value]) => [key, lowerElementTags(value)]),
+      ),
+  });
+  const same = (text: string, globals: MarkupGlobals) => {
+    const preview = parseMarkup(text, globals);
+    const legacy = parseMarkup(lowerElementTags(text), lowerAll(globals));
+    expect(rendered(preview.lines)).toEqual(rendered(legacy.lines));
+    expect(preview.diagnostics).toEqual(legacy.diagnostics);
+    return preview;
+  };
+  const plain = { variables: '', titles: '' };
+  it.each(elementTagNames)('a variable name continued after the tag (%s)', (element) => {
+    for (const type of [undefined, enhancedMarkupType]) {
+      const g = { ...plain, type };
+      same(`var hit = Scorch\nvar hittail = Other\nGain <${element} #hit />tail.`, g);
+      same(`var hit = Scorch\nGain <${element} #hit />tail.`, g);
+      same(`Gain <${element} #hit />tail.`, { ...g, variables: 'var hit = A\nvar hittail = B' });
+    }
+  });
+  it.each([
+    ['local', 'var X = <solar Word  />\nGain #X after.', plain],
+    ['CRLF', 'var X = <solar Word  />\r\nGain #X after.', plain],
+    ['repeated', 'var X = <solar Word  />\nGain #X#X after.', plain],
+    ['global', 'Gain #X after.', { variables: 'var X = <solar Word  />', titles: '' }],
+    [
+      'title',
+      'See <title more [T] />.',
+      { variables: '', titles: 'title T (\nGain <arc Word  /> after.\n)' },
+    ],
+    [
+      'import',
+      'import Main from 124',
+      { ...plain, imports: { '124': 'export Main (\nvar X = <void Word  />\nGain #X after.\n)' } },
+    ],
+    ['native base arm', 'var X = {{<solar Word  />}{<solar Other  />}}\nGain #X after.', plain],
+    [
+      'native enhanced arm',
+      'var X = {{<solar Word  />}{<solar Other  />}}\nGain #X after.',
+      { ...plain, type: enhancedMarkupType },
+    ],
+  ] as [string, string, MarkupGlobals][])(
+    'declaration trimming keeps working: %s',
+    (_, text, globals) => {
+      same(text, globals);
+    },
+  );
+  it('keeps the tint whenever preparation reads the text the same way', () => {
+    const preview = same('var X = <solar Word  />\nGain #X after.', plain);
+    expect(JSON.stringify(preview.lines)).toContain('elementText');
+  });
+});
