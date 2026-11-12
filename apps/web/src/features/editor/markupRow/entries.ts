@@ -1,3 +1,4 @@
+import { offersBaseEnhanced, type ScopedMarkupGlobals } from '../markupScope';
 import { type EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import {
@@ -157,7 +158,8 @@ function viaTemplate(
   return {
     help: snippet.help,
     ...entry,
-    run(view) {
+    run(view, globals) {
+      if (entry.id === 'base-enhanced-pair' && !offersBaseEnhanced(globals)) return 'context';
       const blocked = guard(view);
       if (blocked) return blocked;
       const item = templateItem(view.state, {
@@ -201,7 +203,7 @@ const sentence = (text: string) => text[0]!.toUpperCase() + text.slice(1);
 const colours = ['yellow'] as const;
 
 /** Every markup option the editor offers, grouped as the "All" popover shows them. */
-export function markupEntries(globals: MarkupGlobals, documentText = ''): MarkupEntry[] {
+export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): MarkupEntry[] {
   const pair = snippetById('pair');
   const pve = snippetById('pve');
   const pvp = snippetById('pvp');
@@ -417,7 +419,9 @@ export function markupEntries(globals: MarkupGlobals, documentText = ''): Markup
       },
     });
   }
-  return entries;
+  return entries.filter(
+    (entry) => entry.id !== 'base-enhanced-pair' || offersBaseEnhanced(globals),
+  );
 }
 
 /** The popover's group order. */
