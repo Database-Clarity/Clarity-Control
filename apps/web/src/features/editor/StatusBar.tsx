@@ -1,3 +1,4 @@
+import { usePreviewWarnings, type PreviewWarningContext } from '../preview/usePreviewWarnings';
 import {
   memo,
   useEffect,
@@ -30,7 +31,9 @@ export interface ConflictStatus {
 /** What the page tells the bar about the preview column: how many edits it has not shown yet. */
 export interface PreviewStatus {
   /** Items with edits no Base or Enhanced render has shown. */
-  unpreviewed: number;
+  unpreviewed?: number;
+  /** Live review status stays local to the bar, so acknowledgements never rerender the workspace. */
+  review?: PreviewWarningContext;
   /** The column is hidden, so nothing is being shown. */
   collapsed: boolean;
   /** Opens the column on a render that counts as seen. */
@@ -90,6 +93,8 @@ export function StatusBar({
   rawView?: boolean;
   onRawView?(): void;
 }) {
+  const liveWarnings = usePreviewWarnings(preview?.review);
+  const unpreviewed = preview?.review ? liveWarnings : (preview?.unpreviewed ?? 0);
   const errors = issues.filter((issue) => issue.severity === 'error').length;
   const toggle = (next: StatusPanel) => onPanel(panel === next ? null : next);
   return (
@@ -269,25 +274,21 @@ export function StatusBar({
         <span
           className={styles.preview}
           data-status-preview
-          data-inactive={!(preview.unpreviewed > 0 || preview.collapsed) || undefined}
-          aria-hidden={!(preview.unpreviewed > 0 || preview.collapsed) || undefined}
-          data-attention={preview.unpreviewed > 0 || undefined}
+          data-inactive={!(unpreviewed > 0 || preview.collapsed) || undefined}
+          aria-hidden={!(unpreviewed > 0 || preview.collapsed) || undefined}
+          data-attention={unpreviewed > 0 || undefined}
         >
           <span
             className={styles.previewText}
-            title={
-              preview.unpreviewed > 0
-                ? `${plural(preview.unpreviewed, 'change')} not previewed`
-                : undefined
-            }
+            title={unpreviewed > 0 ? `${plural(unpreviewed, 'change')} not previewed` : undefined}
           >
-            {preview.unpreviewed > 0 ? `${preview.unpreviewed} not previewed` : 'Preview hidden'}
+            {unpreviewed > 0 ? `${unpreviewed} not previewed` : 'Preview hidden'}
           </span>
           <button
             type="button"
             className={styles.item}
             onClick={preview.onShow}
-            disabled={!(preview.unpreviewed > 0 || preview.collapsed)}
+            disabled={!(unpreviewed > 0 || preview.collapsed)}
           >
             Show preview
             <kbd>Alt+P</kbd>

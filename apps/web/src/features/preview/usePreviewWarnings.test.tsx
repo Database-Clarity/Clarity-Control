@@ -8,8 +8,10 @@ import { usePreviewWarnings } from './usePreviewWarnings';
 const host = document.createElement('div');
 let root: ReturnType<typeof createRoot>;
 let count = -1;
+let renders = 0;
 function Probe({ visible = true, scheduled = [10] }: { visible?: boolean; scheduled?: number[] }) {
-  count = usePreviewWarnings()(10, scheduled, visible);
+  renders++;
+  count = usePreviewWarnings({ canonical: 10, scheduled, visible });
   return null;
 }
 function mount() {
@@ -128,4 +130,19 @@ it('starts a fresh render opportunity when the account ledger changes', () => {
   expect(count).toBe(0);
   act(() => vi.advanceTimersByTime(250));
   expect(count).toBe(1);
+});
+
+it('does not rerender while visible revisions are pending or acknowledged with no warning', () => {
+  mount();
+  const before = renders;
+  for (let revision = 1; revision <= 50; revision++) {
+    edit(revision, revision - 1);
+    act(() => vi.advanceTimersByTime(60));
+    edit(revision, revision);
+  }
+  expect(renders).toBe(before);
+  edit(51, 50);
+  act(() => vi.advanceTimersByTime(250));
+  expect(count).toBe(1);
+  expect(renders).toBe(before + 1);
 });

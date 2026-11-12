@@ -1,5 +1,4 @@
 import type { ScopedMarkupGlobals } from '../editor/markupScope';
-import { usePreviewWarnings } from '../preview/usePreviewWarnings';
 import { useGlobalDefinition } from '../globals/useGlobals';
 import { GlobalUsages, GlobalUsageCount } from '../globals/GlobalsPage';
 import { archiveCategoryLabel, archivedItemFor } from '../archive/archive';
@@ -283,7 +282,6 @@ function TooltipWorkspace({
   // With a left column beside the page (desktop shell) the preview, associations and history are
   // shown there; without one (a phone, or the page on its own) they stay inline in the page.
   const column = useShellColumn();
-  const previewWarnings = usePreviewWarnings();
   const showPreview = column?.show;
   // "Show preview" from the leave guard opens the column. A view that already shows the unseen
   // edits (Base, Enhanced, or Compare, which shows both) is left as it is; otherwise it moves to
@@ -407,11 +405,6 @@ function TooltipWorkspace({
   const selectedView =
     enhancedViews.find((view) => view.hash === pickedVariant) ?? enhancedViews[0];
   const mode = effectiveMode(previewMode, phone, selectedView !== undefined);
-  const unpreviewed = previewWarnings(
-    canonical,
-    previewedHashes(mode, hash, selectedView),
-    Boolean(column && !column.collapsed && !suspended),
-  );
   reveal.current = () => {
     const unseen = usePreviewReviewStore.getState().unreviewed(canonical);
     const shownNow = previewedHashes(mode, hash, selectedView);
@@ -501,7 +494,11 @@ function TooltipWorkspace({
   // The editor's status bar tells how many edits the preview has not shown yet, and offers it.
   const previewStatus = column
     ? {
-        unpreviewed,
+        review: {
+          canonical,
+          scheduled: previewedHashes(mode, hash, selectedView),
+          visible: !column.collapsed && !suspended,
+        },
         collapsed: column.collapsed,
         onShow: () => {
           const host = usePreviewReviewStore.getState().host;
