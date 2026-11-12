@@ -14,7 +14,8 @@
   left: var(--menu-left);
   top: var(--menu-top);
   display: flex;
-  width: min(34rem, calc(100vw - 16px));
+  // Fixed: 100% is the viewport without its scrollbar (100vw would run under it).
+  width: min(34rem, calc(100% - 16px));
   max-height: var(--menu-max);
   box-sizing: border-box;
   overflow: hidden;

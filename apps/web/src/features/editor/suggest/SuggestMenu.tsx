@@ -57,8 +57,12 @@ function place(view: EditorView, context: SuggestContext, width: number): Placem
   const above = anchor.top - gap - Math.max(edge, dockedTopChrome() + gap);
   const useBelow = below >= 240 || below >= above;
   const space = Math.max(120, Math.min(useBelow ? below : above, tallest));
+  // The page's width without its scrollbar; the menu stays inside the editor's column where the
+  // column is wide enough for it, so it does not cover the pane beside the text.
+  const pageRight = document.documentElement.clientWidth - edge;
+  const right = Math.min(pageRight, Math.max(scroller.right, scroller.left + width));
   return {
-    left: Math.min(Math.max(edge, anchor.left), Math.max(edge, window.innerWidth - width - edge)),
+    left: Math.max(edge, Math.min(anchor.left, right - width)),
     // Above the line the menu hangs from this edge (translateY(-100%) in the stylesheet).
     top: useBelow ? anchor.bottom + gap : anchor.top - gap,
     maxHeight: space,
@@ -174,7 +178,12 @@ export function SuggestMenu({
 
   useLayoutEffect(() => {
     const measure = () => {
-      const width = surface.current?.offsetWidth ?? 544;
+      // Before the menu exists, its width as the stylesheet sets it (34rem, at most the page less
+      // its edges), so the first placement already fits at any UI scale.
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      const width =
+        surface.current?.offsetWidth ||
+        Math.min(34 * rem, document.documentElement.clientWidth - 2 * edge);
       setPlacement(place(view, context, width));
     };
     measure();
