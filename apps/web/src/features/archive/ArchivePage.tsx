@@ -9,7 +9,10 @@ import { useSaveState } from '../../services/save/state';
 import { apiUrl } from '../../services/api';
 import { TooltipPage } from '../tooltip/TooltipPage';
 import { canonicalHash, tooltipFor } from '../navigation/catalog';
-import { WordDiff } from '../../ui/diff';
+import { HistoryWordDiff } from '../history/HistoryWordDiff';
+import { RenderedWordDiff } from '../history/RenderedWordDiff';
+import { RawDiffToggle } from '../history/RawDiffToggle';
+import { useRawDiff } from '../history/diffPreference';
 import { languageLabel } from '../../languageLabels';
 import { tooltipPath } from '../navigation/stepping';
 import {
@@ -22,6 +25,7 @@ import { When } from '../../ui/When';
 import styles from './ArchivePage.module.scss';
 
 export function ArchivePage() {
+  const [rawDiff] = useRawDiff();
   const { data, status, error, load } = useDataStore();
   const user = useAuthStore((state) => state.user);
   const { drafts, hydrated, updateDraft, updateDrafts } = useDraftStore();
@@ -418,10 +422,20 @@ export function ArchivePage() {
                               Changes the draft would make to {data.items[target.hash].name} (
                               {target.hash}), {languageLabel(lang)}:
                             </p>
-                            <WordDiff
-                              before={target.text[lang]?.text ?? ''}
-                              after={current.text[lang]?.text ?? ''}
-                            />
+                            <RawDiffToggle />
+                            {rawDiff ? (
+                              <HistoryWordDiff
+                                before={target.text[lang]?.text ?? ''}
+                                after={current.text[lang]?.text ?? ''}
+                              />
+                            ) : (
+                              <RenderedWordDiff
+                                before={target.text[lang]?.text ?? ''}
+                                after={current.text[lang]?.text ?? ''}
+                                lang={lang}
+                                hash={target.hash}
+                              />
+                            )}
                           </section>
                         ))}
                       {targetDraft && (
