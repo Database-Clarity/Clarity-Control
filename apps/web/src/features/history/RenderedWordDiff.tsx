@@ -4,7 +4,7 @@ import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { tooltipImports } from '../../services/tooltipImports';
 import { previewDrafts } from '../conflicts/previewDrafts';
-import { classNames, PreviewSpan } from '../preview/TooltipPreview';
+import { classNames, PreviewSpan } from '../preview/MarkupRenderer';
 import preview from '../preview/TooltipPreview.module.scss';
 import styles from './RenderedWordDiff.module.scss';
 import { changedSourceLines, type DiffSpan } from './renderedDiff';
