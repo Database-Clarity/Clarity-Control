@@ -22,6 +22,8 @@ import { useSaveState } from '../../services/save/state';
 import { apiUrl } from '../../services/api';
 import { pickerRowDetail, pickerRows } from './pickerRows';
 
+const firstRows = 12;
+
 export function LinkPicker({
   base,
   name,
@@ -145,23 +147,25 @@ export function LinkPicker({
       ),
     [data, gid, category, query, section],
   );
-  // At most 100 rows; they render in chunks of 20, one task each, so neither the opening
-  // click nor a tab change carries every row's render, layout, and paint at once.
+  // At most 100 rows. The input task renders the first 12 (the list shows at most about 11:
+  // 24rem at 2.25rem or more per row), the rest follow 22 per task, so neither the opening
+  // click nor a tab change carries every row's render, layout, and paint at once. A pending
+  // sheet commits first: the rows below the first chunk wait for it.
   const shownTarget = Math.min(100, rows.length);
-  const [rowChunk, setRowChunk] = useState({ rows, count: 20 });
-  if (rowChunk.rows !== rows) setRowChunk({ rows, count: 20 });
-  const shownCount = rowChunk.rows === rows ? rowChunk.count : 20;
+  const [rowChunk, setRowChunk] = useState({ rows, count: firstRows });
+  if (rowChunk.rows !== rows) setRowChunk({ rows, count: firstRows });
+  const shownCount = rowChunk.rows === rows ? rowChunk.count : firstRows;
   const rowsPending = shownCount < shownTarget;
   useEffect(() => {
-    if (!rowsPending) return;
+    if (!rowsPending || pending) return;
     const channel = new MessageChannel();
-    channel.port1.onmessage = () => setRowChunk({ rows, count: shownCount + 20 });
+    channel.port1.onmessage = () => setRowChunk({ rows, count: shownCount + 22 });
     channel.port2.postMessage(null);
     return () => {
       channel.port1.close();
       channel.port2.close();
     };
-  }, [rows, shownCount, rowsPending]);
+  }, [rows, shownCount, rowsPending, pending]);
   function choose(match: CompendiumMatch) {
     if (!canEdit) return;
     const link = data && confirmCompendiumSelection(match, data);
@@ -190,7 +194,11 @@ export function LinkPicker({
   if (!data) return null;
   const tab = data.tabs.find((tab) => tab.gid === gid);
   return (
-    <section aria-label="Link a Compendium row" aria-busy={pending || rowsPending}>
+    <section
+      aria-label="Link a Compendium row"
+      aria-busy={pending || rowsPending}
+      data-sheet-pending={pending}
+    >
       <h3>Choose tab and row</h3>
       <label>
         Compendium tab{' '}

@@ -73,23 +73,26 @@ export const PickerGrid = memo(function PickerGrid({
     let cancelled = false,
       frame = 0,
       mounted = 1,
+      step = 1,
       filling = true;
     const channel = new MessageChannel();
     const schedule = () => {
       if (cancelled || mounted >= bands.length) return;
-      frame = requestAnimationFrame(() => {
-        frame = requestAnimationFrame(() => channel.port2.postMessage(null));
-      });
+      // The task right after the next frame: the reveal (or the last step) paints on its own.
+      frame = requestAnimationFrame(() => channel.port2.postMessage(null));
     };
     channel.port1.onmessage = () => {
       if (cancelled) return;
       if (filling) {
-        // One band per task until the visible region is full: each task lays out only the
-        // band it added, and neither the input task nor the frame's paint carries that work.
+        // Bands are added in tasks until the visible region is full, 1, then 2 per task (a
+        // sheet row is hundreds of layout objects): each task lays out only what it added (the
+        // first band carries the first-use font work), and neither the input task nor the
+        // frame's paint carries that work.
         const height = body.current?.getBoundingClientRect().height ?? 0;
         const available = viewport.current?.clientHeight ?? 0;
         if (mounted < bands.length && height <= available + 1) {
-          mounted++;
+          mounted = Math.min(bands.length, mounted + step);
+          step = 2;
           flushSync(() => setState({ bands, count: mounted, filled: false }));
           channel.port2.postMessage(null);
           return;
@@ -102,7 +105,7 @@ export const PickerGrid = memo(function PickerGrid({
         return;
       }
       if (mounted >= bands.length) return;
-      // Below the visible region: about three rows per step, as before one-row bands.
+      // Below the visible region: about three rows per step, one step per frame.
       const first = bands[mounted].first;
       do mounted++;
       while (mounted < bands.length && bands[mounted].last - first < 3);

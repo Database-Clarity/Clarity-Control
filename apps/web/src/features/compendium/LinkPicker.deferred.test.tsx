@@ -116,3 +116,63 @@ it('mounts each anchor sheet after the input task, keeping the shown sheet until
     vi.unstubAllGlobals();
   }
 });
+
+it('renders the first 12 rows with the input, commits the sheet, then the remaining rows', async () => {
+  vi.stubGlobal('requestAnimationFrame', () => 1);
+  vi.stubGlobal('cancelAnimationFrame', () => {});
+  const many: CompendiumData = {
+    ...source,
+    tabs: [
+      {
+        ...source.tabs[0],
+        rows: Array.from({ length: 40 }, (_, index) => ({
+          rowIndex: index + 1,
+          name: `Entry ${String(index + 1).padStart(2, '0')}`,
+          nameNorm: `entry ${index + 1}`,
+          anchor: { row: index + 1, col: 0 },
+          cell: text('x'),
+        })),
+      },
+    ],
+  };
+  useCompendiumStore.setState({ data: many });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const rows = () => host.querySelectorAll('section[aria-label="Link a Compendium row"] > ul > li');
+  const picker = () => host.querySelector('section[aria-label="Link a Compendium row"]')!;
+  let rowsAtSheet: number | undefined;
+  const observer = new MutationObserver(() => {
+    if (
+      rowsAtSheet === undefined &&
+      host.querySelector('section[aria-label="Pick description cells"]')
+    )
+      rowsAtSheet = rows().length;
+  });
+  observer.observe(host, { childList: true, subtree: true });
+  try {
+    act(() =>
+      root.render(
+        createElement(LinkPicker, {
+          base: { hash: 1, text: {}, associated: [] } as unknown as Tooltip,
+          name: 'Unlisted',
+          category: 'armor-mod-general',
+          onLinked: () => {},
+          onReference: () => {},
+        }),
+      ),
+    );
+    expect(rows()).toHaveLength(12);
+    expect(picker().getAttribute('data-sheet-pending')).toBe('true');
+    await drain();
+    expect(rowsAtSheet).toBe(12);
+    expect(rows()).toHaveLength(40);
+    expect(picker().getAttribute('data-sheet-pending')).toBe('false');
+    expect(picker().getAttribute('aria-busy')).toBe('false');
+  } finally {
+    observer.disconnect();
+    act(() => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+  }
+});

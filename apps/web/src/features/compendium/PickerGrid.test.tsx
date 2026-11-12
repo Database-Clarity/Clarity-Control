@@ -35,8 +35,9 @@ async function drainBands() {
   });
 }
 
-it('fills the region one band per task, hidden, then reveals and continues by frames', async () => {
-  const frames = vi.fn(() => 1);
+it('fills the region in small tasks, hidden, then reveals and continues one step per frame', async () => {
+  const callbacks: FrameRequestCallback[] = [];
+  const frames = vi.fn((callback: FrameRequestCallback) => callbacks.push(callback));
   vi.stubGlobal('requestAnimationFrame', frames);
   vi.stubGlobal('cancelAnimationFrame', vi.fn());
   const host = document.createElement('div');
@@ -57,14 +58,21 @@ it('fills the region one band per task, hidden, then reveals and continues by fr
       return { height: body.querySelectorAll('tr').length * 40 } as DOMRect;
     });
     await drainBands();
-    // One band was added per task (each measured alone) until the rows overflow the region.
-    expect(heights).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    // One band, then two per task (each task measures only what it added) until the rows
+    // overflow the region.
+    expect(heights).toEqual([1, 2, 4, 6, 8]);
     expect(viewport.dataset.gridFilling).toBe('false');
     expect(viewport.style.visibility).toBe('');
     expect(viewport.dataset.gridComplete).toBe('false');
-    expect(host.querySelectorAll('tr')).toHaveLength(7);
-    expect(host.querySelector('[data-cell="8:0"]')).toBeNull();
+    expect(host.querySelectorAll('tr')).toHaveLength(8);
+    expect(host.querySelector('[data-cell="9:0"]')).toBeNull();
     expect(frames).toHaveBeenCalledOnce();
+    // Below the region: about three rows in the task after the next frame.
+    act(() => callbacks[0](0));
+    await drainBands();
+    expect(host.querySelectorAll('tr')).toHaveLength(11);
+    expect(viewport.dataset.gridComplete).toBe('false');
+    expect(frames).toHaveBeenCalledTimes(2);
   } finally {
     act(() => root.unmount());
   }
