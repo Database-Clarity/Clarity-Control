@@ -602,7 +602,7 @@ describe('tooltip finder combobox', () => {
       'Next tooltip',
     ]);
     expect(buttons[0].disabled).toBe(true);
-    expect(row.textContent).toBe('‹1 of 3›');
+    expect(row.textContent).toBe('‹1/31 of 3›');
   });
 });
 

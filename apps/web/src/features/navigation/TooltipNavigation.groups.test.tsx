@@ -429,7 +429,9 @@ describe('phone sheet', () => {
     await rest();
     expect(route()).toBe('/t/103');
     expect(select('Weapon')!.dataset.value).toBe('1002');
-    expect(position().textContent).toBe('1 of 2');
+    // The phone stepper shows "1/2"; the status reads in words.
+    expect(position().querySelector('[aria-hidden]')!.textContent).toBe('1/2');
+    expect(position().querySelector('.sr-only')!.textContent).toBe('1 of 2');
   });
 
   it('has no weapon row in a category without groups', async () => {

@@ -1186,9 +1186,18 @@ export const TooltipNavigation = memo(function TooltipNavigation({
   };
   const entryKeys = grouped && swapWheel ? 'Alt+Shift' : 'Shift';
   const groupKeys = swapWheel ? 'Shift' : 'Alt+Shift';
+  const positionText = positionLabel(position, grouped ? selectedCategory?.label : undefined);
+  // The phone stepper shows "58/138" so it fits beside the category; the status reads in words.
   const positionNode = (
     <span className={styles.position} role="status">
-      {positionLabel(position, grouped ? selectedCategory?.label : undefined)}
+      {sheet && position.index ? (
+        <>
+          <span aria-hidden="true">{`${position.index}/${position.total}`}</span>
+          <span className="sr-only">{positionText}</span>
+        </>
+      ) : (
+        positionText
+      )}
     </span>
   );
   const comboNode = (

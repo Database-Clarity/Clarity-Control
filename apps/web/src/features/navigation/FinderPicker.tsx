@@ -95,12 +95,17 @@ export const FinderPicker = memo(function FinderPicker({
     const element = popup.current;
     const anchor = trigger.current;
     if (!element || !anchor) return;
-    const rect = anchor.getBoundingClientRect();
+    const own = anchor.getBoundingClientRect();
+    // On a phone the list spans the trigger's control row (the finder's inner width), from the
+    // row's left edge: a narrow trigger beside the stepper still gets a readable list. On a
+    // desktop it starts at the trigger and is at least 15rem wide.
+    const row = phone ? anchor.parentElement?.getBoundingClientRect() : undefined;
+    const rect = row ? { top: own.top, bottom: own.bottom, left: row.left, right: row.right } : own;
     const area = visibleArea(window);
     const input = {
       trigger: rect,
       area,
-      width: Math.max(rect.width, scaledPx(15 * 16)),
+      width: row ? row.width : Math.max(own.width, scaledPx(15 * 16)),
       align: 'start' as const,
       gap: 2,
     };
@@ -110,7 +115,7 @@ export const FinderPicker = memo(function FinderPicker({
     const below = placeAnchored(input);
     const placed = natural > below.maxHeight ? placeAnchored({ ...input, height: natural }) : below;
     applyPlacement(element, { ...placed, maxHeight: Math.min(placed.maxHeight, cap) });
-  }, []);
+  }, [phone]);
   useLayoutEffect(() => {
     if (!open) return;
     place();
