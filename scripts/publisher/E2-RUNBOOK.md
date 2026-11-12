@@ -9,16 +9,22 @@ ON returns 410 for every /push-live request, before authentication/upstream I/O.
 Status/key remain read-only. P1-F adds the remote publishing transport, gated OFF. Enablement
 still requires its independent safety/integration reviews and every gate below. Installed
 dry-run workflows continue to simulate publication; changing the shared switch alone cannot publish.
+The built runtime bakes config/publisher.json in at build time (publisher.mjs carries
+`enabled: false`). Enabling remote writes therefore needs a new template build and PIN from a
+commit whose config says `enabled: true`, reviewed and CI-gated on that exact tree, then a
+re-install of .publisher. Without that rebuild, `publishWritesEnabled: true` in the installed
+config throws "Remote publishing disabled by config", and a hand-edited publisher.mjs fails its PIN.
 
 ## Install dry-run pipeline (root operator in E2)
 
-Template source PIN: `a11aa9692419f565e02dde609e1f374d29b57343`.
-Expected publisher.mjs SHA-256: `45a203a0d307d4d87a3fcd7a5550830f9190030f1b9f549a0735c298ce829b8b`.
+Template source PIN: `72b85e52d8a8505b8cfa5b2176e72ea084a70d13`.
+Expected publisher.mjs SHA-256: `97b26bc88a9bc389e93c53a1885685ab7a1d7284cab2e257b85f93f4e98cefae`.
 Verify both against `.publisher/PIN` before installation; this v2 runtime includes the current
 set-bonus, name-relink, category, alias-group, and optional export-partner schemas. Rebuild from
 the pinned source in a clean checkout to reproduce the digest. A future source change requires
 rebuilding and re-pinning.
 The runtime also includes the current Link only guards and the set-bonus publication hold.
+Its bundle pushes carry the report catalogs forward; the pipeline's report-items jobs refresh them.
 
 1. Record current editor-data, editor-data-bundle and converter-v2-test SHAs. Verify Actions
    contents:write permission; forward-only/no-delete data/live rules; candidate ref permissions.
@@ -38,6 +44,9 @@ The runtime also includes the current Link only guards and the set-bonus publica
    The operator then commits and normally pushes ONLY editor-data after review. Neither script
    commits nor pushes. No workflow files are installed on production branches or this editor repo.
 5. Observe pipeline artifact result.json: dryRun:true, publishWritesEnabled:false, no errors.
+   Check the run's report-items and report-items-push jobs are green and editor-data-bundle
+   still holds report-items.json and report-items.worker.json, both with the bundle's
+   sourceCommit (a cold Worker /reports and the web Reports page load).
    Check real bundle sourceCommit is current data head and publishQueue contains only opId,
    requester numeric id/login, hash list and createdAt (invalid requests expose opId/invalid only).
    Confirm data/live/candidate refs have no simulated commits; requests remain pending by design.
