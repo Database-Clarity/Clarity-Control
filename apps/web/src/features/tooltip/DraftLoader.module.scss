@@ -1,0 +1,64 @@
+@use '../../ui/controls';
+
+// The draft popover: the rendered draft, and beside it (under it on a phone) its source, the
+// changed-source notice, and the one action.
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.75rem;
+
+  > :first-child {
+    flex: 1 1 16rem;
+  }
+}
+
+.side {
+  display: flex;
+  flex: 1 1 11rem;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.375rem;
+  max-width: 100%;
+  font-size: 0.75rem;
+}
+
+.from {
+  flex: none;
+  color: var(--text2);
+}
+
+.changed {
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  color: var(--warn);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-edge);
+  border-radius: 0.25rem;
+}
+
+.load {
+  @include controls.button;
+  font-weight: 700;
+  color: var(--pri-text);
+  border-color: var(--accent-ink);
+
+  &:hover:not(:disabled) {
+    background: var(--pri-hover);
+  }
+}
+
+.note {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text2);
+}
