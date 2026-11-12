@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { type Lang, type Tooltip } from '@clarity/core';
 import { draftStorage, type Drafts, type DraftStorage } from '../services/draftStorage';
 import { errorMessage } from '../services/http';
+import { reconcileDrafts } from '../features/conflicts/rebase';
 
 export interface AdoptionResult {
   adopted: number;
@@ -26,6 +27,8 @@ interface DraftState {
   stored: Drafts;
   /** Start of the latest successful storage read, for cross-tab conflict orphan checks. */
   readStartedAt: number;
+  /** Successful reads, including reads whose wall-clock timestamps are equal. */
+  readRevision: number;
   hydrate(): Promise<void>;
   /** Switches to the drafts of this account (null = signed out). Same account: no-op. */
   activate(userId: string | number | null): Promise<void>;
@@ -90,19 +93,26 @@ export function createDraftStore(storage: DraftStorage) {
   const storedListeners = new Set<(owner: string | null, drafts: Drafts) => void>();
   // Keep failed snapshots in this tab until their account can retry them. A switch must
   // not turn a failed write into a successful read of an older disk snapshot.
-  const unsaved = new Map<string | null, { drafts: Drafts; error: string | null }>();
+  const unsaved = new Map<
+    string | null,
+    { ancestor: Drafts; drafts: Drafts; error: string | null }
+  >();
   return create<DraftState>((set, get) => {
     function persist(drafts: Drafts) {
       // Bind the bucket now: a later account switch must never redirect this write.
       const destination = target;
       const writer = owner;
       const writerGeneration = generation;
-      const recovery = { drafts, error: null as string | null };
+      const recovery = { ancestor: get().stored, drafts, error: null as string | null };
       unsaved.set(writer, recovery);
       set((state) => ({ pending: state.pending + 1 }));
       queue = queue.then(async () => {
         try {
           await destination.write(drafts);
+          // A later queued snapshot must merge against the last successful write,
+          // even when that write belongs to an account we have already left.
+          const latest = unsaved.get(writer);
+          if (latest) latest.ancestor = drafts;
           for (const listener of storedListeners) listener(writer, drafts);
           if (unsaved.get(writer) === recovery) unsaved.delete(writer);
           if (writerGeneration === generation) set({ error: null, stored: drafts });
@@ -133,6 +143,7 @@ export function createDraftStore(storage: DraftStorage) {
       external: false,
       stored: {},
       readStartedAt: 0,
+      readRevision: 0,
       hydrate() {
         if (hydration) return hydration;
         const mine = generation;
@@ -148,6 +159,10 @@ export function createDraftStore(storage: DraftStorage) {
             async (drafts) => {
               if (mine !== generation) return;
               const recovery = unsaved.get(owner);
+              if (recovery) {
+                recovery.drafts = reconcileDrafts(recovery.ancestor, recovery.drafts, drafts);
+                recovery.ancestor = drafts;
+              }
               set({
                 drafts: recovery?.drafts ?? drafts,
                 hydrated: true,
@@ -155,6 +170,7 @@ export function createDraftStore(storage: DraftStorage) {
                 external: false,
                 stored: drafts,
                 readStartedAt,
+                readRevision: get().readRevision + 1,
               });
               unwatch?.();
               unwatch = source.subscribe?.(() => {
@@ -335,7 +351,13 @@ export function createDraftStore(storage: DraftStorage) {
             const theirs = await target.read();
             if (mine !== generation) return;
             const merged = merge(get().stored, get().drafts, theirs);
-            set({ drafts: merged, external: false, stored: theirs, readStartedAt });
+            set({
+              drafts: merged,
+              external: false,
+              stored: theirs,
+              readStartedAt,
+              readRevision: get().readRevision + 1,
+            });
             persist(merged);
           } catch (error) {
             if (mine === generation)
@@ -355,7 +377,12 @@ export function createDraftStore(storage: DraftStorage) {
             const readStartedAt = Date.now();
             const theirs = await target.read();
             if (mine !== generation) return;
-            set({ external: false, stored: theirs, readStartedAt });
+            set({
+              external: false,
+              stored: theirs,
+              readStartedAt,
+              readRevision: get().readRevision + 1,
+            });
             persist(get().drafts);
           } catch (error) {
             if (mine === generation)

@@ -11,6 +11,92 @@ import {
   type DraftStorage,
 } from '../services/draftStorage';
 
+it.each(['addition', 'deletion', 'same-tooltip'] as const)(
+  'review probe: failed account recovery preserves concurrent %s through real IndexedDB CAS',
+  async (mode) => {
+    const accountId = `review-recovery-${mode}`;
+    const rawA = createIndexedDbStorage('tooltips', `review-tab-a-${mode}`);
+    const accountA = rawA.forUser!(accountId);
+    let fail = false;
+    const a = createDraftStore({
+      ...rawA,
+      forUser: (id) =>
+        id === accountId
+          ? {
+              ...accountA,
+              write: async (drafts) => {
+                if (fail) throw new Error('Quota review probe');
+                await accountA.write(drafts);
+              },
+            }
+          : rawA.forUser!(id),
+    });
+    await a.getState().activate(accountId);
+    a.getState().edit(base, 'en', 'stored before switch', 'seed');
+    await a.getState().flush();
+    const b = createDraftStore(createIndexedDbStorage('tooltips', `review-tab-b-${mode}`));
+    await b.getState().activate(accountId);
+    fail = true;
+    a.getState().edit({ ...base, hash: 20 }, 'en', 'unsaved local edit', 'alice');
+    await a.getState().flush();
+    expect(a.getState().error).toContain('Quota');
+    await a.getState().activate(`review-other-${mode}`);
+    if (mode !== 'deletion')
+      b.getState().edit(
+        { ...base, hash: mode === 'addition' ? 30 : 20 },
+        'en',
+        'other tab edit',
+        'bob',
+      );
+    else b.getState().discard(10);
+    await b.getState().flush();
+    expect(b.getState().error).toBeNull();
+    await a.getState().activate(accountId);
+    expect(a.getState().drafts[20]?.next.text.en?.text).toContain('unsaved local edit');
+    fail = false;
+    a.getState().retry();
+    await a.getState().flush();
+    expect(a.getState().error).toBeNull();
+    const disk = await createIndexedDbStorage().forUser!(accountId).read();
+    if (mode === 'addition') expect(disk[30]?.next.text.en?.text).toBe('other tab edit');
+    else if (mode === 'deletion') expect(disk[10]).toBeUndefined();
+    else {
+      expect(disk[20]?.next.text.en?.text).toContain('unsaved local edit');
+      expect(disk[20]?.next.text.en?.text).toContain('other tab edit');
+    }
+  },
+);
+
+it('recovers against an earlier successful queued write before a later write failed', async () => {
+  const raw = createIndexedDbStorage('tooltips', 'queued-recovery-a');
+  const account = raw.forUser!('queued-recovery');
+  const a = createDraftStore({
+    ...raw,
+    forUser: (id) =>
+      id === 'queued-recovery'
+        ? {
+            ...account,
+            write: async (drafts) => {
+              if (drafts[20]) throw new Error('Quota');
+              await account.write(drafts);
+            },
+          }
+        : raw.forUser!(id),
+  });
+  await a.getState().activate('queued-recovery');
+  a.getState().edit(base, 'en', 'stored by first queued write', 'alice');
+  a.getState().edit({ ...base, hash: 20 }, 'en', 'unsaved second write', 'alice');
+  await a.getState().flush();
+  await a.getState().activate('elsewhere');
+  const b = createDraftStore(createIndexedDbStorage('tooltips', 'queued-recovery-b'));
+  await b.getState().activate('queued-recovery');
+  b.getState().discard(10);
+  await b.getState().flush();
+  await a.getState().activate('queued-recovery');
+  expect(a.getState().drafts[10]).toBeUndefined();
+  expect(a.getState().drafts[20]?.next.text.en?.text).toBe('unsaved second write');
+});
+
 const base: Tooltip = {
   hash: 10,
   text: { en: { text: 'Original', updatedAt: '2026-10-01T00:00:00Z', updatedBy: 'owner' } },

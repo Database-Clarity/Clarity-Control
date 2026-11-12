@@ -5,6 +5,21 @@ import type { Drafts } from '../services/draftStorage';
 import { conflictSessionKey, createConflictStore } from './conflicts';
 import { createDraftStore, useDraftStore } from './drafts';
 
+it('review probe: Keep mine reconciles deletion even when read timestamps tie', async () => {
+  vi.spyOn(Date, 'now').mockReturnValue(10);
+  memory.setItem(
+    conflictSessionKey('read-tie', 123),
+    JSON.stringify({ hash: 123, base: null, head, mine, rows: { $exists: null }, storedAt: 10 }),
+  );
+  const drafts = createDraftStore({ read: async () => ({}), write: async () => {} });
+  await drafts.getState().activate('read-tie');
+  const conflicts = conflictsFor(drafts);
+  expect(conflicts.getState().sessions[123]).toBeDefined();
+  memory.removeItem(conflictSessionKey('read-tie', 123));
+  await drafts.getState().keepMine();
+  expect(conflicts.getState().sessions).toEqual({});
+});
+
 const entry = (text: string) => ({ text, updatedAt: '2026-01-01T10:00:00.000Z', updatedBy: 'a' });
 const t = (en: string, extra: Partial<Tooltip> = {}): Tooltip => ({
   hash: 123,

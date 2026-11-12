@@ -369,6 +369,7 @@ export function createConflictStore(deps: ConflictDeps) {
             set({ scope: account, sessions });
           } else if (
             previous &&
+            state.readRevision === previous.readRevision &&
             state.readStartedAt === previous.readStartedAt &&
             state.stored === previous.stored
           ) {
@@ -377,7 +378,12 @@ export function createConflictStore(deps: ConflictDeps) {
             for (const hash of Object.keys(get().sessions))
               if (state.drafts[hash] !== previous.drafts[hash]) observedDrafts.add(Number(hash));
           }
-          if (previous && state.readStartedAt !== previous.readStartedAt) get().refresh();
+          if (
+            previous &&
+            (state.readRevision !== previous.readRevision ||
+              state.readStartedAt !== previous.readStartedAt)
+          )
+            get().refresh();
           prune();
           persist();
           if (failedPrevious)
