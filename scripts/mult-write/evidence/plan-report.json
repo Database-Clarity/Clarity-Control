@@ -1,0 +1,198 @@
+{
+ "head": "e760f3654e027b72c70bbc51c9c3fcbd8790228a",
+ "stamp": {
+  "at": "2026-11-11T22:42:23.000Z",
+  "by": "StardustD2"
+ },
+ "planSha256": "60f8644ddee9998981d2ccd8b613f6705ff84100abab264f147d32659e07b557",
+ "files": 36,
+ "rows": 40,
+ "dropped": [],
+ "fields": [
+  "text.en.text",
+  "text.en.updatedAt",
+  "text.en.updatedBy"
+ ],
+ "jsonLinesPerFile": {
+  "tooltips/1125523126.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/1168162263.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/1421772400.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/1431678320.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/1489048135.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/1583705720.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/1694242448.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/1727069361.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/1821614984.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/1878756191.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/2059068466.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/220689851.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/2437618208.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/247725512.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/2731901709.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/2859149211.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/2869569095.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/3186078099.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/3241194941.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/3268255645.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/3347978672.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/3404929162.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/4071163871.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/4091460919.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/4134353779.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/4154828211.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/4208512216.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/489583097.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/509074078.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/671806388.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/684456054.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/706527188.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/736000386.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/908147344.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/967052942.json": [
+   20,
+   21,
+   22
+  ],
+  "tooltips/972757866.json": [
+   20,
+   21,
+   22
+  ]
+ }
+}

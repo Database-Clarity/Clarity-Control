@@ -1,3 +1,4 @@
+import { offersBaseEnhanced } from '../markupScope';
 import { memo, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { EditorView } from '@codemirror/view';
 import type { MarkupGlobals } from '@clarity/core';
@@ -56,7 +57,11 @@ export const MarkupRow = memo(function MarkupRow({
   // The toolbar catalogue depends only on variable definitions. Its insertion actions
   // receive the live globals separately; import snapshot edits must not rebuild every entry.
   const variables = globals.variables;
-  const entries = useMemo(() => markupEntries({ variables, titles: '' }), [variables]);
+  const allowBaseEnhanced = offersBaseEnhanced(globals);
+  const entries = useMemo(
+    () => markupEntries({ variables, titles: '', allowBaseEnhanced }),
+    [variables, allowBaseEnhanced],
+  );
   const lead = docked ? sourceText : undefined;
   const items = useMemo(() => leadEntries(rowEntries(entries), lead), [entries, lead]);
   const buttons = items.filter((item): item is MarkupEntry => item !== rowSeparator);

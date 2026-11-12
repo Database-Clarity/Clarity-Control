@@ -21,9 +21,16 @@ import { create } from 'zustand';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import styles from './ShellOverlay.module.scss';
 import { useWorkspaceShortcutOwner } from '../../ui/interaction';
+import { overlayPartAttribute } from './FinderPicker';
 
 const focusable =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * The phone finder's most height (CSS px at UI 100; it scales): the controls, the field, and
+ * about 15 compact rows. A shorter screen or the keyboard shrinks it to the room there is.
+ */
+const FINDER_CAP = 560;
 
 /** Only one shell overlay is open at a time: opening another closes the one before it. */
 const useActiveOverlay = create<{ active: symbol | null }>(() => ({ active: null }));
@@ -31,8 +38,9 @@ const useActiveOverlay = create<{ active: symbol | null }>(() => ({ active: null
 /**
  * Header popovers share one primitive. On every screen size it is a popover anchored by its header
  * button (below it, or above when that fits better; on a phone up to the page width less the edge
- * inset, clear of the keyboard; see ui/anchorPlacement.ts). Only the tall finder is a sheet on a
- * phone: it starts on the header's lower edge, right under its trigger. Opening moves focus in; Tab stays inside;
+ * inset, clear of the keyboard; see ui/anchorPlacement.ts). The tall finder on a phone hangs from the
+ * header's lower edge, right under its trigger, at the page width, and reaches down to the keyboard
+ * or the screen edge (its list scrolls inside). Opening moves focus in; Tab stays inside;
  * Escape or an outside click closes it and focus returns to the stable header button (never the
  * menu item that opened something else). A modal overlay also makes the rest of the page inert
  * and stops body scrolling.
@@ -51,7 +59,6 @@ export function ShellOverlay({
   width = 320,
   align = 'start',
   modal = true,
-  sheetOnDesktop = false,
   tall = false,
   keepMounted = false,
   restoreFocus = true,
@@ -67,11 +74,10 @@ export function ShellOverlay({
   align?: 'start' | 'end';
   /** Inert background and scroll lock. Menus use false. */
   modal?: boolean;
-  /** Present as a sheet at any width (the compact finder band). */
-  sheetOnDesktop?: boolean;
   /**
-   * A sheet that fills most of the screen, for content that scrolls inside (the finder list). On a
-   * phone it is a sheet from the header's lower edge (its trigger is the header title).
+   * Content that scrolls inside and fills the room (the finder list). On a phone it hangs from the
+   * lower edge of the header that holds its trigger, at the page width, down to the keyboard or the
+   * screen edge.
    */
   tall?: boolean;
   keepMounted?: boolean;
@@ -80,7 +86,8 @@ export function ShellOverlay({
   className?: string;
 }) {
   const phone = useMedia(phoneQuery);
-  const sheet = sheetOnDesktop || (phone && tall);
+  /** The phone finder: anchored like the rest, but it fills its side and locks the page. */
+  const fill = phone && tall;
   const panel = useRef<HTMLDivElement>(null);
   useWorkspaceShortcutOwner(panel, open);
   const [id] = useState(() => Symbol(label));
@@ -107,17 +114,31 @@ export function ShellOverlay({
   const reposition = useCallback(() => {
     const element = panel.current;
     if (!element) return;
-    // A sheet is placed by its stylesheet (a rotation can turn a popover into one while open).
-    if (sheet) {
-      element.removeAttribute('style');
-      return;
-    }
     const anchor = anchorRef.current;
     const area = visibleArea(window);
     if (!anchor) {
       Object.assign(element.style, { top: '40px', left: `${area.edge}px`, width: `${width}px` });
       return;
     }
+    if (fill) {
+      // Hang from the header's lower edge (a row boundary), not the title button's, at the page
+      // width; the height is the whole room, so the controls stay on top and the list shrinks
+      // when the keyboard opens.
+      const header = anchor.closest('header') ?? anchor;
+      const placed = placeAnchored({
+        trigger: header.getBoundingClientRect(),
+        area,
+        width: area.width,
+        gap: 0,
+      });
+      // Capped on a tall phone so it reads as a popover from the header, not a full-screen page;
+      // the list scrolls inside it either way.
+      const height = Math.min(placed.maxHeight, scaledPx(FINDER_CAP));
+      applyPlacement(element, { ...placed, maxHeight: height });
+      element.style.height = `${height}px`;
+      return;
+    }
+    element.style.height = '';
     const input = {
       trigger: anchor.getBoundingClientRect(),
       area,
@@ -131,7 +152,7 @@ export function ShellOverlay({
     if (!phone) return;
     const height = naturalHeight(element, element.querySelector<HTMLElement>(`.${styles.content}`));
     if (height > below.maxHeight) applyPlacement(element, placeAnchored({ ...input, height }));
-  }, [anchorRef, sheet, phone, width, align]);
+  }, [anchorRef, fill, phone, width, align]);
   useLayoutEffect(() => {
     if (!open) return;
     reposition();
@@ -146,12 +167,14 @@ export function ShellOverlay({
     const previousInert = root?.getAttribute('inert') ?? null;
     if (modal) {
       root?.setAttribute('inert', '');
-      if (sheet) document.body.style.overflow = 'hidden';
+      if (fill) document.body.style.overflow = 'hidden';
     }
     const outside = (event: MouseEvent | TouchEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (panel.current?.contains(target) || anchorRef.current?.contains(target)) return;
+      // A list a control inside opened, portalled to the body (the finder's dropdowns).
+      if (target instanceof Element && target.closest(`[${overlayPartAttribute}]`)) return;
       if (document.querySelector('dialog[open]')) return;
       closeRef.current();
     };
@@ -165,7 +188,7 @@ export function ShellOverlay({
         document.body.style.overflow = previousOverflow;
       }
     };
-  }, [open, modal, sheet, anchorRef]);
+  }, [open, modal, fill, anchorRef]);
 
   // Focus moves in after the commit, not during it: React restores the previously focused
   // element at the end of a commit, which would pull focus back out to the header button.
@@ -176,7 +199,7 @@ export function ShellOverlay({
   }, [open]);
 
   // Focus goes back to the header button after the commit: a passive effect, so React's own
-  // restoration of the previously focused element (the hidden panel of a kept-mounted sheet)
+  // restoration of the previously focused element (the hidden panel of a kept-mounted overlay)
   // cannot undo it.
   useEffect(() => {
     if (!open) return;
@@ -237,12 +260,10 @@ export function ShellOverlay({
   return createPortal(
     <div
       className={styles.layer}
-      data-sheet={sheet || undefined}
       data-open={open}
       hidden={!open}
       data-shell-overlay={open ? label : undefined}
     >
-      {sheet && open && <div className={styles.scrim} aria-hidden="true" />}
       <div
         ref={panel}
         className={[styles.panel, tall && styles.tall, className].filter(Boolean).join(' ')}
@@ -252,14 +273,6 @@ export function ShellOverlay({
         tabIndex={-1}
         onKeyDown={keydown}
       >
-        {sheet && (
-          <header className={styles.sheetHeader}>
-            <strong>{label}</strong>
-            <button type="button" onClick={onClose} aria-label={`Close ${label}`}>
-              ×
-            </button>
-          </header>
-        )}
         <div className={styles.content}>{children}</div>
       </div>
     </div>,

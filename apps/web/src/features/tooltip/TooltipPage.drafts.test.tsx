@@ -17,8 +17,18 @@ vi.mock('../../services/api', async (original) => ({
   apiUrl: 'https://api.fixture.invalid',
 }));
 vi.mock('../editor', () => ({
-  ClarityEditor: ({ tooltipHash, value }: { tooltipHash: number; value: string }) => (
-    <div data-editor={tooltipHash}>{value}</div>
+  ClarityEditor: ({
+    tooltipHash,
+    value,
+    globals,
+  }: {
+    tooltipHash: number;
+    value: string;
+    globals: { allowBaseEnhanced?: boolean };
+  }) => (
+    <div data-editor={tooltipHash} data-enhanced-options={globals.allowBaseEnhanced}>
+      {value}
+    </div>
   ),
 }));
 vi.mock('../preview', () => ({
@@ -213,4 +223,43 @@ it('is for editors and maintainers only, in English', async () => {
     expect(Boolean(page.trigger()), `${user.role} ${path}`).toBe(shown);
     await page.unmount();
   }
+});
+
+it('scopes markup options by category for native and custom identities', async () => {
+  setData({
+    12: tooltip(12, 'Native without its own enhanced pair'),
+    20: { ...tooltip(20, 'Custom perk'), custom: { name: 'Custom perk', categoryId: 'perks' } },
+    30: { ...tooltip(30, 'Custom frame'), custom: { name: 'Custom frame', categoryId: 'frame' } },
+  });
+  const data = useDataStore.getState().data!;
+  useDataStore.setState({
+    data: {
+      ...data,
+      categories: [
+        { ...data.categories[0]!, legacyType: 'Weapon Trait' },
+        {
+          id: 'enhanced',
+          label: 'Enhanced',
+          group: 'Weapons',
+          order: 2,
+          legacyType: 'Weapon Trait Enhanced',
+        },
+        { id: 'frame', label: 'Frames', group: 'Weapons', order: 3, legacyType: 'Weapon Frame' },
+      ],
+      items: { ...data.items, 11: { ...data.items[11]!, categoryId: 'enhanced', baseHash: 10 } },
+    },
+  });
+  const page = await mount('/t/20');
+  expect(page.host.querySelector('[data-editor="20"]')?.getAttribute('data-enhanced-options')).toBe(
+    'true',
+  );
+  await act(async () => void (await page.router.navigate('/t/30')));
+  expect(page.host.querySelector('[data-editor="30"]')?.getAttribute('data-enhanced-options')).toBe(
+    'false',
+  );
+  await act(async () => void (await page.router.navigate('/t/12')));
+  expect(page.host.querySelector('[data-editor="12"]')?.getAttribute('data-enhanced-options')).toBe(
+    'true',
+  );
+  await page.unmount();
 });

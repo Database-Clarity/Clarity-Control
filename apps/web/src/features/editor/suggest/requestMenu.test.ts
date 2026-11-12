@@ -29,7 +29,8 @@ import {
   suggestState,
 } from './state';
 
-const globals: MarkupGlobals = {
+const globals: MarkupGlobals & { allowBaseEnhanced: boolean } = {
+  allowBaseEnhanced: true,
   variables: 'var damage = 25',
   titles: 'title G_refill (\nRefills the magazine.\n)',
 };

@@ -1,4 +1,3 @@
-@use '../../data/variables' as theme;
 @use '../../ui/controls';
 
 .layer {
@@ -10,13 +9,6 @@
   &[hidden] {
     display: none;
   }
-}
-
-.scrim {
-  position: absolute;
-  inset: 0;
-  background: var(--scrim);
-  pointer-events: auto;
 }
 
 .panel {
@@ -40,60 +32,9 @@
   font-size: 0.8125rem;
 }
 
-.sheetHeader {
-  flex: none;
+// A tall panel (the phone finder) is a flex column so its list can fill the room under the
+// controls.
+.panel.tall .content {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0 var(--page-x);
-  min-height: var(--bar);
-  font-size: var(--ctl-text);
-  border-bottom: 1px solid var(--line);
-
-  strong {
-    font-size: var(--ctl-text);
-  }
-
-  // The one sheet close: a var(--tap) square boxed ×, on the right edge.
-  button {
-    @include controls.button;
-    width: var(--tap);
-    min-width: var(--tap);
-    height: var(--tap);
-    padding: 0;
-    font-size: 1.125rem;
-    line-height: 1;
-  }
-}
-
-// A tall sheet fills most of the screen; its content is a flex column so a list can fill it.
-.layer[data-sheet] .panel.tall {
-  height: min(80dvh, 40rem);
-  max-height: min(80dvh, 40rem);
-
-  .content {
-    display: flex;
-    flex-direction: column;
-  }
-}
-
-// The sheet: a bottom sheet that never covers the whole screen, so the page stays in view.
-.layer[data-sheet] .panel {
-  inset: auto 0 0 0;
-  width: 100%;
-  max-height: min(80dvh, 36rem);
-  border-radius: 0.5rem 0.5rem 0 0;
-  border-width: 1px 0 0;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-
-// On a phone the tall sheet (the finder) starts on the header's lower edge, a row boundary, so it
-// never cuts the tab strip or the tool row below the header at a large interface scale.
-@include theme.mobile {
-  .layer[data-sheet] .panel.tall {
-    top: var(--bar);
-    height: auto;
-    max-height: none;
-  }
+  flex-direction: column;
 }

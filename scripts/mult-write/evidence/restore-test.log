@@ -1,0 +1,27 @@
+rehearsal clone <scratch>/rehearsal at e760f3654e027b72c70bbc51c9c3fcbd8790228a, status 0
+== refuse: wrong plan sha
+Error: Plan is not the approved plan
+status 0
+== refuse: other head
+Error: Backup HEAD differs
+status 0
+== refuse: dirty clone
+Error: Clone is not clean: stray.txt
+status 0
+== write
+2026-11-11T23:31:40.407Z frozen: HEAD = remote editor-data = e760f3654e027b72c70bbc51c9c3fcbd8790228a
+2026-11-11T23:31:41.852Z frozen: HEAD = remote editor-data = e760f3654e027b72c70bbc51c9c3fcbd8790228a
+2026-11-11T23:31:41.852Z wrote 36 files; status = plan
+== check
+2026-11-11T23:31:42.475Z check: 36/36 files equal their after-images; no other path changed
+ 36 files changed, 108 insertions(+), 108 deletions(-)
+changed JSON lines by key:
+     36 +text
+     36 +updatedAt
+     36 +updatedBy
+     36 -text
+     36 -updatedAt
+     36 -updatedBy
+== restore
+2026-11-11T23:31:43.536Z restored 36 files; clone clean
+after restore: status 0; HEAD e760f3654e027b72c70bbc51c9c3fcbd8790228a
