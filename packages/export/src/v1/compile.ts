@@ -11,6 +11,7 @@ import {
   type ExpandedPerks,
   type IntermediatePerk,
 } from '../converter/index.js';
+import { lowerInput } from '../elementTags.js';
 import { buildLegacy, type LegacyInput } from '../legacy.js';
 import type { ExportFile, StyleFile } from './config.js';
 import {
@@ -103,6 +104,8 @@ function hasRawPair(input: LegacyInput): boolean {
  * the cut-over output, as the Worker refuses the push).
  */
 export function compile(input: LegacyInput, file: ExportFile, options: CompileOptions): Plan {
+  // Element-tagged text compiles exactly as its lowered form (`<solar/>Scorch`) written by hand.
+  input = lowerInput(input);
   if (isLegacyFile(file)) {
     if (hasRawPair(input))
       throw new Error('Base/enhanced markup needs the new converter; legacy presets refuse it');

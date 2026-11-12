@@ -110,3 +110,82 @@ describe('save enrichers', () => {
     }
   });
 });
+
+// ELEMENT-TAGS-2 metadata policy: a tagging-only edit (the lowered text is unchanged) keeps the
+// content revision, so the translation queue, the 90-day fallback, the exported lastUpdate, and
+// Bungie drift stay neutral to tagging; a real wording change still stamps.
+describe('markup-only edits (element tags)', () => {
+  const tagged = { ...en, text: 'Gain <solar/>Scorch.' };
+  const original: Tooltip = {
+    hash: 10,
+    text: { en: tagged, fr: { ...fr, text: 'Gagne <solar/>Brûlure.' } },
+    associated: [],
+    bungieSnapshot: { description: 'Old manifest', snapshotAt: en.updatedAt },
+  };
+  const edit = (lang: 'en' | 'fr', text: string): Tooltip => ({
+    ...original,
+    text: { ...original.text, [lang]: { ...original.text[lang]!, text } },
+  });
+
+  it('tagging English keeps updatedAt, updatedBy, and the Bungie snapshot', async () => {
+    vi.useFakeTimers().setSystemTime(new Date(now));
+    const result = await enrichTooltip({
+      before: original,
+      next: edit('en', 'Gain <solar Scorch />.'),
+      user,
+      item,
+    });
+    expect(result.text.en).toEqual({ ...tagged, text: 'Gain <solar Scorch />.' });
+    expect(result.text.fr).toBe(original.text.fr);
+    expect(result.bungieSnapshot).toBe(original.bungieSnapshot);
+  });
+
+  it('untagging and changing the element are markup-only too', async () => {
+    const taggedBefore = edit('en', 'Gain <solar Scorch />.');
+    for (const text of ['Gain <solar/>Scorch.', 'Gain <solar Scorch />.']) {
+      const result = await enrichTooltip({ before: taggedBefore, next: edit('en', text), user });
+      expect(result.text.en?.updatedAt).toBe(en.updatedAt);
+    }
+  });
+
+  it('tagging a translation keeps its revision and its sourceUpdatedAt', async () => {
+    vi.useFakeTimers().setSystemTime(new Date(now));
+    const result = await enrichTooltip({
+      before: original,
+      next: edit('fr', 'Gagne <solar Brûlure />.'),
+      user,
+    });
+    expect(result.text.fr).toEqual({ ...original.text.fr, text: 'Gagne <solar Brûlure />.' });
+  });
+
+  it('a real wording change with tags still stamps (and re-snapshots Bungie)', async () => {
+    vi.useFakeTimers().setSystemTime(new Date(now));
+    const result = await enrichTooltip({
+      before: original,
+      next: edit('en', 'Gain <solar Scorch /> twice.'),
+      user,
+      item,
+    });
+    expect(result.text.en).toMatchObject({ updatedAt: now, updatedBy: 'current' });
+    expect(result.bungieSnapshot?.snapshotAt).toBe(now);
+  });
+
+  it('an outdated or near-fallback translation stays exactly as outdated after tagging', async () => {
+    // The French follows an older English revision (outdated); tagging English must not move
+    // the English revision, so the gap that drives the queue and the 90-day fallback is unchanged.
+    const outdated: Tooltip = {
+      ...original,
+      text: {
+        ...original.text,
+        fr: { ...original.text.fr!, sourceUpdatedAt: '2025-01-01T00:00:00.000Z' },
+      },
+    };
+    const next = {
+      ...outdated,
+      text: { ...outdated.text, en: { ...tagged, text: 'Gain <solar Scorch />.' } },
+    };
+    const result = await enrichTooltip({ before: outdated, next, user });
+    expect(result.text.en?.updatedAt).toBe(outdated.text.en?.updatedAt);
+    expect(result.text.fr?.sourceUpdatedAt).toBe('2025-01-01T00:00:00.000Z');
+  });
+});

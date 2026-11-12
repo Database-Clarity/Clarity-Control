@@ -23,7 +23,8 @@ import {
 } from '../src/index.js';
 import { configSchema, immutableChanges, migrateConfig, unknownCategories } from '../src/config.js';
 import { emptyNotes, transform } from '../src/v1/transform.js';
-import { editorDataInput, expected, fixtureInput, liveInput, sha256 } from './helpers.js';
+import { lowerInput } from '../src/elementTags.js';
+import { editorDataInput, fixtureInput, heldBytes, liveInput, sha256 } from './helpers.js';
 
 // Config edits for the rejection table; the shapes are checked by the schema under test.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -369,8 +370,9 @@ describe('compiler stages and reference policy (AC2, G-REFS)', () => {
       expect(plan.legacy).toBe(true);
       // The set-bonus type name is the decided cut-over exception (set-bonus.test.ts).
       const text = new TextDecoder().decode(plan.bytes);
-      expect(sha256(text.replaceAll('"Armor Set Bonus"', '"armor-set-bonus"'))).toBe(
-        expected.fixture.files[preset],
+      // The fixture's element-tagged text is lowered first (element-tags.test.ts).
+      expect(text.replaceAll('"Armor Set Bonus"', '"armor-set-bonus"')).toBe(
+        heldBytes(lowerInput(input), preset, identical),
       );
     }
   });

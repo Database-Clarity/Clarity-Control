@@ -114,13 +114,15 @@
   // preview (12px symbol + 2px margins). A colour tag is hidden and the text it encloses is drawn in
   // the preview's own tag colour (--tag-*, AA on the editor surface in both themes). Popovers float
   // over the text and move nothing.
+  // The symbol is inline: its drawing (::before, the 1rem box) is the only box, and the word joiner
+  // after it (::after, zero width) keeps it on the line of the word right after it, so an icon is
+  // never left alone at a line end.
   :global(.cm-symbol) {
-    display: inline-block;
-    box-sizing: border-box;
-    width: 1rem;
-    text-align: center;
-    vertical-align: baseline;
+    display: inline;
     cursor: default;
+  }
+  :global(.cm-symbol::after) {
+    content: '\2060';
   }
   // The enhanced arrow (`#e`): the preview's arrow drawing (ENHANCED_ARROW_PATH) as a 12px symbol with
   // 2px margins, exactly the icons' box, in the enhanced colour; a tint around it never recolours it.
@@ -186,6 +188,39 @@
   }
   :global(.cm-tint-bold) {
     font-weight: 700;
+  }
+  // Element-tagged text (`<solar Scorch />`): symbol view draws the element's icon, then the text in
+  // the element tint with a thin underline (no box, so nothing moves); raw view tints the same text
+  // between `<solar ` and ` />`. The tints are the preview's --el-* tokens.
+  :global(.cm-tint-el) {
+    text-decoration-line: underline;
+    text-decoration-thickness: 1px;
+    text-decoration-color: color-mix(in srgb, currentcolor 60%, transparent);
+    text-underline-offset: 0.2em;
+  }
+  @each $element in (kinetic, arc, solar, void, stasis, strand) {
+    :global(.cm-el-#{$element}) {
+      color: var(--el-#{$element});
+    }
+  }
+  // The six elements in the popover of element-tagged text (Change element): icon buttons, the
+  // current one pressed.
+  :global(.cm-symbol-elements) {
+    display: inline-flex;
+    gap: 0.125rem;
+  }
+  :global(.cm-symbol-element) {
+    @include controls.button;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    min-height: 1.25rem;
+    padding: 0;
+    &[aria-pressed='true'] {
+      background: var(--active-line);
+      box-shadow: inset 0 -2px 0 var(--accent);
+    }
   }
   :global(.cm-symbol-popover) {
     display: flex;

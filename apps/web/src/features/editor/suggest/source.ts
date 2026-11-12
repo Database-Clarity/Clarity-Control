@@ -15,6 +15,7 @@ import {
   type Snippet,
 } from '@clarity/core';
 import { insertionChecker, type Rejection } from '../markupInsertion';
+import { elementLabel, isElementName, tagSelection, wrapChange } from '../elementTags';
 import { locateBlocks, locateVariables } from '../references';
 import { englishSymbols, subclassSymbol } from './typedSymbols';
 
@@ -68,6 +69,8 @@ export interface SuggestItem {
   usage?: RegExp;
   /** A reference to something already defined: the markup-safety rules do not apply. */
   reference?: boolean;
+  /** An element-tag wrap of the selection, already judged by the wrap rules (elementTags.ts). */
+  wrap?: boolean;
   /** Link-like text must not land in a legacy table cell. */
   link?: boolean;
   /** A whole-line style marker: the line may only carry as many as it can show. */
@@ -437,8 +440,27 @@ function build(
 
   if (every || context.kind === 'selection' || context.kind === 'tag' || context.kind === 'word') {
     const insertAtStart = context.kind === 'selection';
+    // A wrappable selection: the element symbols tag it instead (`<solar Scorch />`).
+    const wrap = insertAtStart ? tagSelection(state, globals) : undefined;
     for (const symbol of markupSymbols) {
       if (skip?.has(symbol.id)) continue;
+      if (wrap?.kind === 'wrap' && isElementName(symbol.name)) {
+        const change = wrapChange(state, wrap.from, wrap.to, symbol.name);
+        push({
+          id: symbol.id,
+          category: 'Symbols',
+          label: `<${symbol.name} … />`,
+          hint: 'wrap',
+          about: `Tags the selection as ${elementLabel(symbol.name)}: the icon, then the text in the ${elementLabel(symbol.name)} tint.${change.absorbed ? ' The icon before it joins the tag.' : ''}`,
+          insert: change.insert,
+          from: change.from,
+          to: change.to,
+          wrap: true,
+          usage: symbol.usage,
+          keys: `${symbol.keywords} wrap tag`,
+        });
+        continue;
+      }
       const tag = `<${symbol.name}/>`;
       const keepWord =
         context.kind === 'word' &&
@@ -547,7 +569,7 @@ export function judgeItems(
   let changed = false;
   const judged = items.map((item) => {
     // A reference to something already defined is not held to the markup-safety rules.
-    if (item.unavailable || item.reference) return item;
+    if (item.unavailable || item.reference || item.wrap) return item;
     const rejection = check(
       { from: item.from, to: item.to },
       { typed: !selection || item.from === item.to, link: item.link, lineStyle: item.lineStyle },

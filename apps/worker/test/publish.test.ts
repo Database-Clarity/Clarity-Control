@@ -429,3 +429,25 @@ it.each(['native', 'transitive'] as const)(
     expect(f.current()[requestPath]).toBeDefined();
   },
 );
+
+it('refuses element-tagged text unless the publisher PIN at the data head declares elementTags', async () => {
+  const tagged = tooltip('Gain <solar Scorch />.');
+  f.moveData({ 'tooltips/123.json': tagged });
+  const body = { ...value, expected: { 123: await publishableHash(tagged, f.aliases) } };
+  const refused = await f.request('/publish', 'POST', body);
+  expect(refused.status).toBe(422);
+  expect((await refused.json()).error).toContain(`can't be published`);
+  expect(f.current()[requestPath]).toBeUndefined();
+  f.moveData({
+    '.publisher/PIN': {
+      sourceSha: 'a'.repeat(40),
+      sha256: 'b'.repeat(64),
+      capabilities: ['elementTags'],
+    },
+  });
+  const before = f.subrequests;
+  expect((await f.request('/publish', 'POST', body)).status).toBe(202);
+  // The PIN rides in the publish snapshot read: no extra subrequest (7, as above, minus the token).
+  expect(f.subrequests - before).toBeLessThanOrEqual(7);
+  expect(envelope()).toBeDefined();
+});

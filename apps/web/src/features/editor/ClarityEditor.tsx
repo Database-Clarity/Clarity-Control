@@ -56,6 +56,7 @@ import { hasImportDependencies, validationDiagnostics } from './diagnostics';
 import { useEditorDiagnostics } from './useEditorDiagnostics';
 import { RetiredPanel, retiredIn } from './RetiredPanel';
 import { createCursorPosition } from './cursorPosition';
+import { createTagSelectionStore, tagSelection } from './elementTags';
 import { MarkupRow } from './markupRow/MarkupRow';
 import { SuggestChip } from './markupRow/SuggestChip';
 import { chipHost, chipsExtension, type Chip } from './markupRow/chips';
@@ -130,29 +131,34 @@ function parkHelpWhenQuiet(ready: () => boolean, park: () => void): () => void {
   };
   const wait = () => {
     const left = quietMs - (performance.now() - lastInput);
-    timer = window.setTimeout(() => {
-      if (performance.now() - lastInput < quietMs) return wait();
-      const mine = generation;
-      step(mine, () =>
-        void loadHelp().then(
-          ({ warmHelp }) => {
-            if (stopped) return;
-            // The examples parse over as many idle periods as they need, then the sheet builds.
-            const warm = (deadline: IdleDeadline) => {
-              if (!warmHelp(deadline)) return step(mine, warm);
-              step(mine, () => {
-                if (helpParkClaimed) return stop();
-                helpParkClaimed = true;
-                stop();
-                park();
-              });
-            };
-            step(mine, warm);
-          },
-          () => stop(),
-        ),
-      );
-    }, Math.max(0, left));
+    timer = window.setTimeout(
+      () => {
+        if (performance.now() - lastInput < quietMs) return wait();
+        const mine = generation;
+        step(
+          mine,
+          () =>
+            void loadHelp().then(
+              ({ warmHelp }) => {
+                if (stopped) return;
+                // The examples parse over as many idle periods as they need, then the sheet builds.
+                const warm = (deadline: IdleDeadline) => {
+                  if (!warmHelp(deadline)) return step(mine, warm);
+                  step(mine, () => {
+                    if (helpParkClaimed) return stop();
+                    helpParkClaimed = true;
+                    stop();
+                    park();
+                  });
+                };
+                step(mine, warm);
+              },
+              () => stop(),
+            ),
+        );
+      },
+      Math.max(0, left),
+    );
   };
   addEventListener('keydown', onInput, true);
   addEventListener('pointerdown', onInput, true);
@@ -162,6 +168,7 @@ function parkHelpWhenQuiet(ready: () => boolean, park: () => void): () => void {
 
 // Loading another saved/draft document must never call the authoring callback.
 const documentLoad = Annotation.define<boolean>();
+const noTagSelection = { kind: 'none' } as const;
 
 export interface ClarityEditorProps {
   value: string;
@@ -387,6 +394,7 @@ export function ClarityEditor({
     onChange: (next: Chip | null) => setChip(next),
   });
   const [cursor] = useState(createCursorPosition);
+  const [tagMode] = useState(createTagSelectionStore);
   const referenceLive = useRef({ tooltipHash, referenceSources, onOpenTooltip });
   const references = useRef<Omit<ReferenceHost, 'lang' | 'globals'>>({
     sources: () => referenceLive.current.referenceSources,
@@ -659,6 +667,12 @@ export function ClarityEditor({
           const head = update.state.selection.main.head;
           const line = update.state.doc.lineAt(head);
           cursor.set(line.number, head - line.from + 1);
+          // The markup row's "Tag selection:" mode; nothing to judge while nothing is selected.
+          tagMode.set(
+            update.state.selection.ranges.every((range) => range.empty)
+              ? noTagSelection
+              : tagSelection(update.state, configured.current.globals),
+          );
         }
       }),
     ];
@@ -680,7 +694,7 @@ export function ClarityEditor({
     };
     // Find and replace carries over from the previous tooltip (or page) in this tab.
     if (remembersFind.current) restoreSearch(editor);
-  }, [cursor, suspended]);
+  }, [cursor, tagMode, suspended]);
   useEffect(
     () => () => {
       view.current?.destroy();
@@ -942,6 +956,7 @@ export function ClarityEditor({
           docked={docked}
           onSuggest={docked ? suggestHere : undefined}
           sourceText={lang === 'en' ? undefined : sourceText}
+          tagSelection={tagMode}
         />
       )}
       <div ref={textArea} className={styles.textArea}>

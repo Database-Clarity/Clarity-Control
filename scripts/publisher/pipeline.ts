@@ -193,5 +193,5 @@ export function verifyRuntime(root: string) {
       .digest('hex') !== pin.sha256
   )
     throw new Error('Publisher PIN mismatch');
-  return pin as { sourceSha: string; sha256: string };
+  return pin as { sourceSha: string; sha256: string; capabilities?: string[] };
 }

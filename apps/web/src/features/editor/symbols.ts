@@ -1,3 +1,4 @@
+import { isolateHistory } from '@codemirror/commands';
 import {
   EditorState,
   StateEffect,
@@ -16,7 +17,16 @@ import {
   type DecorationSet,
   type Tooltip,
 } from '@codemirror/view';
-import { findRetiredMarkup, markupIcons, markupRetiredColors, type RetiredOccurrence } from '@clarity/core';
+import {
+  elementTagNames,
+  elementTagToken,
+  elementTextTinted,
+  findRetiredMarkup,
+  markupIcons,
+  markupRetiredColors,
+  type RetiredOccurrence,
+} from '@clarity/core';
+import { elementLabel } from './elementTags';
 import { hasDiagnosticWorker, requestDiagnostics } from './diagnosticWorker';
 import previewStyles from '../preview/TooltipPreview.module.scss';
 import type { SymbolReveal } from '../../stores/settings';
@@ -50,8 +60,10 @@ export interface TagRange {
   openTo: number;
   closeFrom: number;
   to: number;
-  /** The colour name (`yellow`, `pve`, `bold`, …). */
+  /** The colour name (`yellow`, `pve`, `bold`, …), or the element of element-tagged text. */
   name: string;
+  /** Element-tagged text (`<solar Scorch />`): drawn as the icon, then the text in its tint. */
+  element?: boolean;
 }
 
 /**
@@ -99,25 +111,41 @@ export function findTags(text: string, offset = 0): TagRange[] {
   const found: TagRange[] = [];
   for (const token of lineTokens(text, offset)) {
     const open = /^<(\w+) /.exec(token.text);
-    if (!open || !colours.has(open[1]) || !token.text.endsWith(' />')) continue;
+    if (!open || !token.text.endsWith(' />')) continue;
+    const element = elementTagToken(token.text) !== undefined;
+    if (!element && !colours.has(open[1])) continue;
     const openTo = token.from + open[0].length;
     const to = token.from + token.text.length;
     const closeFrom = to - ' />'.length;
-    if (closeFrom > openTo) found.push({ from: token.from, openTo, closeFrom, to, name: open[1] });
+    if (closeFrom > openTo)
+      found.push({
+        from: token.from,
+        openTo,
+        closeFrom,
+        to,
+        name: open[1],
+        ...(element && { element }),
+      });
   }
   return found;
 }
 
 class SymbolWidget extends WidgetType {
-  constructor(readonly name: string) {
+  constructor(
+    readonly name: string,
+    /** The icon of element-tagged text: it stands for the tag's opening markup. */
+    readonly tag = false,
+  ) {
     super();
   }
   eq(other: SymbolWidget) {
-    return other.name === this.name;
+    return other.name === this.name && other.tag === this.tag;
   }
   toDOM() {
     const element = document.createElement('span');
-    element.className = 'cm-symbol cm-symbol-icon';
+    element.className = this.tag
+      ? 'cm-symbol cm-symbol-icon cm-symbol-tag'
+      : 'cm-symbol cm-symbol-icon';
     element.setAttribute('aria-hidden', 'true');
     element.dataset.symbol = this.name;
     // The icon classes are the preview's own, so the light theme's outlined copies come along. The
@@ -219,6 +247,12 @@ function selectedTag(state: EditorState): TagRange | null {
   return matching.pop() ?? null;
 }
 
+/** The colour tag (or element-tagged text) that starts at the position. */
+function tagStartingAt(state: EditorState, pos: number): TagRange | null {
+  const line = state.doc.lineAt(pos);
+  return findTags(line.text, line.from).find((t) => t.from === pos) ?? null;
+}
+
 /** The innermost colour tag whose enclosed text contains the position. */
 function tagAt(state: EditorState, pos: number): TagRange | null {
   const line = state.doc.lineAt(pos);
@@ -239,12 +273,25 @@ function symbolRanges(state: EditorState, from = 0, to = state.doc.length): Rang
       Decoration.replace({ widget: new SymbolWidget(symbol.name) }).range(symbol.from, symbol.to),
     );
   for (const tag of findTags(text, from)) {
-    ranges.push(
-      Decoration.mark({ class: `cm-tint cm-tint-${tag.name}` }).range(tag.openTo, tag.closeFrom),
-    );
-    // The markup is hidden (zero width, atomic) unless the caret is in the tag.
+    // Element-tagged text the preview draws untinted (a variable, formula, or comment in it) is
+    // drawn the same way here: the icon, then the text with its own syntax colours.
+    if (!tag.element || elementTextTinted(state.sliceDoc(tag.openTo, tag.closeFrom)))
+      ranges.push(
+        Decoration.mark({
+          class: tag.element
+            ? `cm-tint cm-tint-el cm-el-${tag.name}`
+            : `cm-tint cm-tint-${tag.name}`,
+        }).range(tag.openTo, tag.closeFrom),
+      );
+    // The markup is hidden (zero width, atomic) unless the caret is in the tag. Element-tagged
+    // text keeps its icon: the opening markup is drawn as the element's symbol.
     if (!touched(tag.from, tag.to)) {
-      ranges.push(Decoration.replace({}).range(tag.from, tag.openTo));
+      ranges.push(
+        (tag.element
+          ? Decoration.replace({ widget: new SymbolWidget(tag.name, true) })
+          : Decoration.replace({})
+        ).range(tag.from, tag.openTo),
+      );
       ranges.push(Decoration.replace({}).range(tag.closeFrom, tag.to));
     }
   }
@@ -427,8 +474,9 @@ function popoverDom(view: EditorView, popover: Popover) {
         const text = view.state.doc.toString();
         const populate = (occurrence: RetiredOccurrence | undefined) => {
           for (const node of actionNodes.splice(0)) node.remove();
-          const reasons = occurrence?.manualFixes?.map((fix) => `${fix.label}: ${fix.reason}`)
-            ?? [occurrence?.refusalReason ?? 'An exact source token could not be mapped.'];
+          const reasons = occurrence?.manualFixes?.map((fix) => `${fix.label}: ${fix.reason}`) ?? [
+            occurrence?.refusalReason ?? 'An exact source token could not be mapped.',
+          ];
           for (const fix of occurrence?.fixes ?? []) {
             const button = document.createElement('button');
             button.type = 'button';
@@ -454,23 +502,38 @@ function popoverDom(view: EditorView, popover: Popover) {
           }
         };
         if (hasDiagnosticWorker()) {
-          void requestDiagnostics({ text, lang: 'en', globals: { variables: '', titles: '' }, requireEnglish: false })
-            .then((result) => {
+          void requestDiagnostics({
+            text,
+            lang: 'en',
+            globals: { variables: '', titles: '' },
+            requireEnglish: false,
+          }).then(
+            (result) => {
               if (actions.isConnected && view.state.doc.toString() === text)
-                populate(result.retired.find((item) => item.from === tag.from && item.to === tag.to));
-            }, () => {
+                populate(
+                  result.retired.find((item) => item.from === tag.from && item.to === tag.to),
+                );
+            },
+            () => {
               if (actions.isConnected) populate(undefined);
-            });
-        } else populate(findRetiredMarkup(text).find((item) => item.from === tag.from && item.to === tag.to));
+            },
+          );
+        } else
+          populate(
+            findRetiredMarkup(text).find((item) => item.from === tag.from && item.to === tag.to),
+          );
       }
+      if (tag?.element) dom.append(...elementActions(view, tag));
       const hint = document.createElement('span');
       hint.className = 'cm-symbol-hint';
       // The two fixes are buttons, so a retired tag's hint stays short (the popover must fit).
       hint.textContent = retired
         ? 'Enter edit'
-        : tag
-          ? 'Enter edit · Backspace remove tag'
-          : 'Enter edit · Backspace remove';
+        : tag?.element
+          ? 'Enter edit'
+          : tag
+            ? 'Enter edit · Backspace remove tag'
+            : 'Enter edit · Backspace remove';
       dom.append(hint);
     } else if (retired) {
       const hint = document.createElement('span');
@@ -509,6 +572,14 @@ const closestIn = (event: Event, selector: string) =>
 
 const symbolEvents = EditorView.domEventHandlers({
   mouseover(event, view) {
+    const tagIcon = closestIn(event, '.cm-symbol-tag');
+    if (tagIcon) {
+      const tag = tagStartingAt(view.state, view.posAtDOM(tagIcon));
+      const current = view.state.field(hovered);
+      if (tag && (current?.from !== tag.from || current.to !== tag.to))
+        view.dispatch({ effects: setHover.of({ from: tag.from, to: tag.to, at: tag.openTo }) });
+      return false;
+    }
     const symbol = closestIn(event, '.cm-symbol');
     if (symbol) {
       const from = view.posAtDOM(symbol);
@@ -539,6 +610,19 @@ const symbolEvents = EditorView.domEventHandlers({
   },
   mousedown(event, view) {
     if (event.button !== 0) return false;
+    // The icon of element-tagged text is the tag's handle: a click pins the tag (its popover).
+    const tagIcon = closestIn(event, '.cm-symbol-tag');
+    if (tagIcon) {
+      const tag = tagStartingAt(view.state, view.posAtDOM(tagIcon));
+      if (!tag) return false;
+      event.preventDefault();
+      view.dispatch({
+        selection: { anchor: tag.openTo, head: tag.closeFrom },
+        effects: pinTag.of(true),
+      });
+      view.focus();
+      return true;
+    }
     const symbol = closestIn(event, '.cm-symbol');
     if (symbol) {
       const from = view.posAtDOM(symbol);
@@ -565,6 +649,92 @@ const symbolEvents = EditorView.domEventHandlers({
     return false;
   },
 });
+
+/**
+ * Element-tagged text's actions: Unwrap (today's `<solar/>Scorch`: the icon stays, the tint goes),
+ * Remove (the text alone), and the six elements (Change element; the current one is pressed).
+ * Buttons never take focus from the text, so the pinned selection stays put.
+ */
+function elementActions(view: EditorView, tag: TagRange): HTMLElement[] {
+  const button = (label: string, title: string, run: () => void) => {
+    const element = document.createElement('button');
+    element.type = 'button';
+    element.className = 'cm-symbol-fix';
+    element.textContent = label;
+    element.title = title;
+    element.addEventListener('mousedown', (event) => event.preventDefault());
+    element.addEventListener('click', () => {
+      run();
+      view.focus();
+    });
+    return element;
+  };
+  const text = view.state.sliceDoc(tag.openTo, tag.closeFrom);
+  const unwrap = button('Unwrap', `Keep the icon, drop the tint: <${tag.name}/>${text}`, () =>
+    unwrapTag(view, tag),
+  );
+  unwrap.setAttribute('aria-keyshortcuts', 'Alt+Backspace');
+  const remove = button('Remove', `Remove the icon and the tag, keep "${text}"`, () =>
+    removeTag(view, tag, [pinTag.of(false)]),
+  );
+  remove.setAttribute('aria-keyshortcuts', 'Backspace');
+  const group = document.createElement('span');
+  group.className = 'cm-symbol-elements';
+  group.setAttribute('role', 'group');
+  group.setAttribute('aria-label', 'Change element');
+  for (const name of elementTagNames) {
+    const choice = document.createElement('button');
+    choice.type = 'button';
+    choice.className = 'cm-symbol-element';
+    choice.title = name === tag.name ? elementLabel(name) : `Change to ${elementLabel(name)}`;
+    choice.setAttribute('aria-label', choice.title);
+    choice.setAttribute('aria-pressed', String(name === tag.name));
+    const icon = new SymbolWidget(name).toDOM();
+    choice.append(icon);
+    choice.addEventListener('mousedown', (event) => event.preventDefault());
+    choice.addEventListener('click', () => {
+      if (name !== tag.name) changeElement(view, tag, name);
+      view.focus();
+    });
+    group.append(choice);
+  }
+  return [unwrap, remove, group];
+}
+
+/** `<solar Scorch />` becomes `<solar/>Scorch` (its lowered form); the text stays selected. */
+function unwrapTag(view: EditorView, tag: TagRange) {
+  const icon = `<${tag.name}/>`;
+  const start = tag.from + icon.length;
+  view.dispatch({
+    changes: [
+      { from: tag.from, to: tag.openTo, insert: icon },
+      { from: tag.closeFrom, to: tag.to },
+    ],
+    selection: { anchor: start, head: start + (tag.closeFrom - tag.openTo) },
+    effects: pinTag.of(false),
+    annotations: isolateHistory.of('full'),
+  });
+}
+
+/** Another element for the same tagged text; the tag stays pinned. */
+function changeElement(view: EditorView, tag: TagRange, name: string) {
+  const shift = name.length - tag.name.length;
+  view.dispatch({
+    changes: { from: tag.from + 1, to: tag.from + 1 + tag.name.length, insert: name },
+    selection: { anchor: tag.openTo + shift, head: tag.closeFrom + shift },
+    effects: pinTag.of(true),
+    annotations: isolateHistory.of('full'),
+  });
+}
+
+/** Alt+Backspace on pinned element-tagged text: unwrap it. */
+function unwrapSelectedTag(view: EditorView): boolean {
+  if (view.state.readOnly || view.state.field(reveal) !== 'popover') return false;
+  const tag = selectedTag(view.state);
+  if (!tag?.element) return false;
+  unwrapTag(view, tag);
+  return true;
+}
 
 /** Removes a colour tag's markup and keeps the text it enclosed (selected afterwards). */
 function removeTag(view: EditorView, tag: TagRange, effects: readonly StateEffect<unknown>[] = []) {
@@ -629,6 +799,7 @@ const symbolKeys = keymap.of([
     },
   },
   { key: 'Backspace', run: removeSelectedTag },
+  { key: 'Alt-Backspace', run: unwrapSelectedTag },
   { key: 'Delete', run: removeSelectedTag },
   { key: 'Alt-Enter', run: pinTagAtCaret },
   { key: 'Mod-Shift-.', run: toggleRawView },

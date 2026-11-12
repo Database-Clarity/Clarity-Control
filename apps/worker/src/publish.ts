@@ -1,5 +1,6 @@
 import { refuseBaseEnhanced } from './baseEnhanced.js';
 import { refuseHeldSetBonuses } from './setBonusHold.js';
+import { pinLowersElementTags, publisherPinPath, refuseUnlowerableTags } from './elementTags.js';
 import { loadAliases } from './catalog.js';
 import { z } from 'zod';
 import {
@@ -108,7 +109,12 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
   // including token, aliases, and native-markup checks; dependency reads use the shared budget.
   // a final read is mandatory even when the last create timed out after landing.
   for (let attempt = 0; attempt < 3; attempt++) {
-    const snapshot = await github.publishSnapshot(['config/permissions.json', ...paths]);
+    // The publisher's PIN rides in the same read: its build must lower element-tagged text.
+    const snapshot = await github.publishSnapshot([
+      'config/permissions.json',
+      ...paths,
+      publisherPinPath,
+    ]);
     requireAccess(permissionsSchema.parse(snapshot.files[0]?.value), user, [
       'maintainer',
       'editor',
@@ -134,6 +140,10 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
     if (checkedHead !== snapshot.head) {
       aliases ??= await loadAliases(github.env, github);
       const checked = await refuseBaseEnhanced(github, snapshot.head, value.hashes, aliases);
+      // A tagged span in a published tooltip or a document it reads (imports, globals 2 and 3)
+      // needs a publisher build that lowers it; an older build would export it unlowered.
+      const lowers = pinLowersElementTags(snapshot.files[1 + paths.length]?.value);
+      for (const document of checked.values()) refuseUnlowerableTags(document, lowers, 'published');
       refuseHeldSetBonuses(
         value.hashes.flatMap((hash) => checked.get(resolveAlias(hash, aliases!)) ?? []),
       );

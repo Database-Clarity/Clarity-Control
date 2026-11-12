@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import type { LegacyInput, LegacyPreset } from '../src/index.js';
+import { customJsonStringify } from '../src/converter/helpers.js';
+import { databaseConverter } from '../src/converter/publisher.js';
 
 const fixture = (name: string) => new URL(`./fixtures/${name}`, import.meta.url);
 
@@ -41,4 +43,19 @@ export function liveInput(): { bytes: Buffer; input: LegacyInput; identical: num
 export function editorDataInput(): { bytes: Buffer; input: LegacyInput; identical: number[] } {
   const bytes = gunzipSync(readFileSync(fixture('editor-data-export-52007db.json.gz')));
   return { bytes, input: JSON.parse(bytes.toString('utf8')), identical: identical.editorData };
+}
+
+/**
+ * The held converter's own bytes (the vendored copy in src/converter, without the set-bonus
+ * rename) for an input. Fixture (iii) holds element-tagged text (`<solar Firesprite />`), which the
+ * engine lowers (src/elementTags.ts) before converting, so its files are the held converter's
+ * bytes for the LOWERED fixture, the form an author writes by hand (`<solar/>Firesprite`).
+ */
+export function heldBytes(input: LegacyInput, preset: LegacyPreset, identical: Iterable<string>) {
+  return customJsonStringify(databaseConverter(preset, input.perks, new Set(identical)), [
+    'stat',
+    'multiplier',
+    'weaponTypes',
+    'classNames',
+  ]);
 }

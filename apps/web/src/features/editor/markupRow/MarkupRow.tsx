@@ -1,5 +1,13 @@
 import { offersBaseEnhanced } from '../markupScope';
-import { memo, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type RefObject,
+} from 'react';
 import type { EditorView } from '@codemirror/view';
 import type { MarkupGlobals } from '@clarity/core';
 import { EntryGlyph } from './EntryGlyph';
@@ -13,9 +21,22 @@ import {
   type MarkupEntry,
 } from './entries';
 import { observeDock } from './dock';
+import {
+  elementLabel,
+  isElementName,
+  tagRefusals,
+  type TagSelection,
+  type TagSelectionStore,
+} from '../elementTags';
 import { useKeyboardFollow, useKeyboardInset } from '../../../ui/useKeyboardInset';
 import type { UsageCorpus } from '../suggest/usage';
 import styles from './MarkupRow.module.scss';
+
+const noSubscription = () => () => {};
+const untagged: TagSelection = { kind: 'none' };
+const noTagSelection = () => untagged;
+const isElementIcon = (entry: MarkupEntry) =>
+  entry.id.startsWith('icon:') && isElementName(entry.id.slice('icon:'.length));
 
 /** Buttons with a number key: the first nine on the row. */
 const numbered = 9;
@@ -40,6 +61,7 @@ export const MarkupRow = memo(function MarkupRow({
   docked = false,
   onSuggest,
   sourceText,
+  tagSelection,
 }: {
   view: RefObject<EditorView | null>;
   globals: MarkupGlobals;
@@ -53,7 +75,13 @@ export const MarkupRow = memo(function MarkupRow({
   onSuggest?(): void;
   /** The English text of this tooltip while translating: the docked bar leads with its entries. */
   sourceText?: string;
+  /** Whether the selection can be tagged with an element (the row's "Tag selection:" mode). */
+  tagSelection?: TagSelectionStore;
 }) {
+  const tagMode = useSyncExternalStore(
+    tagSelection?.subscribe ?? noSubscription,
+    tagSelection?.getSnapshot ?? noTagSelection,
+  );
   // The toolbar catalogue depends only on variable definitions. Its insertion actions
   // receive the live globals separately; import snapshot edits must not rebuild every entry.
   const variables = globals.variables;
@@ -82,8 +110,14 @@ export const MarkupRow = memo(function MarkupRow({
   function run(entry: MarkupEntry) {
     const editor = view.current;
     if (!editor) return;
+    const refusal = tagMode.kind === 'refused' && isElementIcon(entry) ? tagMode.reason : '';
     const result = entry.run(editor, globals);
-    setMessage(entryMessage(result));
+    // A selection that cannot be tagged: the icon went in at the caret as before; say why.
+    setMessage(
+      result === 'inserted' && refusal
+        ? `Icon inserted at the caret. Can't tag the selection: ${refusal}.`
+        : entryMessage(result),
+    );
     if (result !== 'inserted') editor.focus();
   }
 
@@ -150,6 +184,19 @@ export const MarkupRow = memo(function MarkupRow({
   let index = -1;
   return (
     <div ref={bar} className={styles.row} data-markup-row data-docked={docked || undefined}>
+      {tagMode.kind === 'wrap' ? (
+        <span className={styles.tagLabel} data-tag-mode="wrap">
+          {docked ? 'Tag:' : 'Tag selection:'}
+        </span>
+      ) : tagMode.kind === 'refused' && !docked ? (
+        <span
+          className={styles.tagLabel}
+          data-tag-mode="refused"
+          title={`The element symbols insert at the caret: the selection ${tagMode.reason === tagRefusals.declaration ? 'is on a declaration line' : tagMode.reason}.`}
+        >
+          Can't tag: {tagMode.reason}
+        </span>
+      ) : null}
       <div
         className={styles.scrollWrap}
         data-more-start={edges.start || undefined}
@@ -175,6 +222,7 @@ export const MarkupRow = memo(function MarkupRow({
             index++;
             const own = index;
             const key = own < numbered ? own + 1 : undefined;
+            const wraps = tagMode.kind === 'wrap' && isElementIcon(item);
             return (
               <button
                 key={item.id}
@@ -182,10 +230,15 @@ export const MarkupRow = memo(function MarkupRow({
                 className={styles.button}
                 data-row-button
                 data-entry={item.id}
+                data-wrap={wraps || undefined}
                 tabIndex={own === active ? 0 : -1}
-                aria-label={item.label}
+                aria-label={wraps ? `Tag selection as ${elementLabel(item.label)}` : item.label}
                 aria-keyshortcuts={key ? String(key) : undefined}
-                title={`${item.id === 'inline:yellow' ? `${item.label}: ` : ''}${item.markup}${key ? `  ·  key ${key} while here` : ''}`}
+                title={
+                  wraps
+                    ? `Tag selection as ${elementLabel(item.label)}: <${item.label} … />${key ? `  ·  key ${key} while here` : ''}`
+                    : `${item.id === 'inline:yellow' ? `${item.label}: ` : ''}${item.markup}${key ? `  ·  key ${key} while here` : ''}`
+                }
                 // Pressing never moves focus out of the text, so the selection stays put.
                 onMouseDown={(event) => event.preventDefault()}
                 onFocus={() => setActive(own)}

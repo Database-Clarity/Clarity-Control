@@ -105,10 +105,16 @@ describe('options', () => {
     );
   });
 
-  test('an icon goes in front of a selection without replacing it', () => {
+  test('an icon goes in front of a selection without replacing it; an element icon tags it', () => {
     const found = menu('Solar', true, 0, 5)!;
-    const icon = found.items.find((item) => item.id === 'icon:solar')!;
-    expect(icon).toMatchObject({ from: 0, to: 0, insert: '<solar/>' });
+    const icon = found.items.find((item) => item.id === 'icon:primary')!;
+    expect(icon).toMatchObject({ from: 0, to: 0, insert: '<primary/>' });
+    expect(found.items.find((item) => item.id === 'icon:solar')).toMatchObject({
+      from: 0,
+      to: 5,
+      insert: '<solar Solar />',
+      hint: 'wrap',
+    });
     expect(found.items.find((item) => item.id === 'transform:element-icon')!.insert).toBe(
       '<solar/>Solar',
     );
@@ -143,7 +149,9 @@ describe('ranking', () => {
     const state = at(doc, doc.length);
     const context = suggestContext(state, true)!;
     const items = suggestItems(context, state, globals);
-    const variables = items.filter((item) => item.category === 'Variables').map((item) => item.label);
+    const variables = items
+      .filter((item) => item.category === 'Variables')
+      .map((item) => item.label);
     const global = items.filter((item) => item.category === 'Globals').map((item) => item.label);
     expect(variables).toEqual(['#local']);
     expect(global).toContain('#damage');

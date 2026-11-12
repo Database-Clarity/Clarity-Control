@@ -1,6 +1,14 @@
 import { StreamLanguage, HighlightStyle, syntaxHighlighting } from '@codemirror/language';
-import { tags } from '@lezer/highlight';
-import { baseEnhancedPairs, markupColors, markupEmpty, markupIcons } from '@clarity/core';
+import { Tag, tags } from '@lezer/highlight';
+import {
+  baseEnhancedPairs,
+  elementTagNames,
+  elementTextTinted,
+  findElementTags,
+  markupColors,
+  markupEmpty,
+  markupIcons,
+} from '@clarity/core';
 
 const emptyTag = new RegExp(`<(${[...markupIcons, ...markupEmpty].join('|')})/>`);
 const textTag = new RegExp(`<(${markupColors.join('|')})\\b`);
@@ -8,11 +16,23 @@ const textTag = new RegExp(`<(${markupColors.join('|')})\\b`);
 const prose = /^[^<#$[/{]+/;
 const tableProse = /^[^<#$[/|{]+/;
 
+/** Element-tagged text (`<solar Scorch />`): its text in the element tint, one tag per element. */
+const elementTint = Object.fromEntries(elementTagNames.map((name) => [name, Tag.define()]));
+/** The tagged spans of the line being read (the stream reads one line at a time, in order). */
+let taggedLine: { text: string; tags: ReturnType<typeof findElementTags> } = { text: '', tags: [] };
+function taggedAt(line: string, position: number) {
+  if (!line.includes(' />')) return undefined;
+  if (taggedLine.text !== line) taggedLine = { text: line, tags: findElementTags(line) };
+  // Text the preview draws untinted (a variable, formula, or comment in it) keeps its own colours.
+  return taggedLine.tags.find((tag) => tag.from === position && elementTextTinted(tag.text));
+}
+
 export const clarityLanguage = StreamLanguage.define({
   tokenTable: {
     baseArm: tags.special(tags.number),
     enhancedArm: tags.special(tags.variableName),
     pairMark: tags.special(tags.tagName),
+    ...Object.fromEntries(elementTagNames.map((name) => [`el-${name}`, elementTint[name]!])),
   },
   startState: (): {
     comment: boolean;
@@ -22,12 +42,33 @@ export const clarityLanguage = StreamLanguage.define({
     table: boolean;
     /** Inside a {{base}{enhanced}} pair: where the base arm and the enhanced arm end. */
     pair: { baseEnd: number; enhancedEnd: number } | null;
-  } => ({ comment: false, declaration: false, math: null, table: false, pair: null }),
+    /** Inside element-tagged text: its element, where its text ends, and where the tag ends. */
+    tagged: { name: string; textEnd: number; end: number } | null;
+  } => ({
+    comment: false,
+    declaration: false,
+    math: null,
+    table: false,
+    pair: null,
+    tagged: null,
+  }),
   token(stream, state) {
     if (stream.sol()) {
       state.declaration = false;
       state.math = null;
       state.pair = null;
+      state.tagged = null;
+    }
+    if (state.tagged) {
+      // `<solar ` was read: the text in the element's tint, then ` />` as markup.
+      const { name, textEnd, end } = state.tagged;
+      if (stream.pos < textEnd) {
+        stream.pos = textEnd;
+        return `el-${name}`;
+      }
+      stream.pos = end;
+      state.tagged = null;
+      return 'tagName';
     }
     if (state.pair) {
       // A pair is {{ base }{ enhanced }}: the arms carry the base and enhanced colours, and the
@@ -118,6 +159,16 @@ export const clarityLanguage = StreamLanguage.define({
     }
     // Stack pipes (1|2|3, 5% | 10%) are plain prose; only the cell pipes of a table are markup.
     if (state.table && stream.match(/\|[bchr\d-]*/)) return 'typeName';
+    if (stream.peek() === '<' && !state.declaration) {
+      // The same tokens the converter reads (`<.+?/>` per line): only a whole tagged token counts.
+      const tag = taggedAt(stream.string, stream.pos);
+      if (tag) {
+        const open = `<${tag.element} `.length;
+        state.tagged = { name: tag.element, textEnd: tag.to - 3, end: tag.to };
+        stream.pos += open;
+        return 'tagName';
+      }
+    }
     if (stream.match(textTag)) return 'typeName';
     if (stream.match(emptyTag) || stream.match(/<(?:title|link) |<\/?|\/>|\[[^\]{}]*\]/))
       return 'tagName';
@@ -135,6 +186,7 @@ export const clarityHighlighting = syntaxHighlighting(
     { tag: tags.special(tags.number), class: 'cm-base-arm' },
     { tag: tags.special(tags.variableName), class: 'cm-enhanced-arm' },
     { tag: tags.special(tags.tagName), class: 'cm-pair-mark' },
+    ...elementTagNames.map((name) => ({ tag: elementTint[name]!, class: `cm-el-${name}` })),
     { tag: tags.comment, color: 'var(--syn-comment)' },
     { tag: tags.keyword, color: 'var(--syn-keyword)' },
     { tag: tags.variableName, color: 'var(--var)' },

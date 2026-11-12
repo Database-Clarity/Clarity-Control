@@ -1,4 +1,5 @@
 import { baseEnhancedPublishMessage } from './markup/baseEnhanced.js';
+import { lowerElementTags } from './markup/elementTags.js';
 import { languages } from './languages.js';
 import type { LegacyCatalog, LegacyFacts, LegacyMetadata, LegacyPerk } from './legacy.js';
 import { isTextlessDescription, tooltipSchema, type Tooltip } from './schemas.js';
@@ -82,7 +83,10 @@ export function exportLegacy(
       const translation = tooltip.text[language];
       if (!translation) continue;
       const exported = usesEnglishFallback(tooltip, language) && english ? english : translation;
-      editor[language] = { main: exported.text, secondary: exported.text };
+      // Element-tagged text (`<solar Scorch />`) leaves the editor in today's format
+      // (`<solar/>Scorch`): every consumer reads exactly what authors wrote before tags existed.
+      const text = lowerElementTags(exported.text);
+      editor[language] = { main: text, secondary: text };
       const old = tooltip.legacy?.updateTracker?.descriptions[language];
       descriptions[language] = {
         lastUpdate: Date.parse(exported.updatedAt),

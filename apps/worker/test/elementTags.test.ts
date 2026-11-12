@@ -1,9 +1,11 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseMarkup, type Tooltip } from '@clarity/core';
+import publisherConfig from '../../../config/publisher.json';
 import { Fixture, makePrivateKey, tooltip } from './fixture.js';
 
-// The real save route against the local GitHub adapter: element-tagged text is held until both
-// exporters lower it, and the decision is made on the merged tooltip.
+// The real save and push routes against the local GitHub adapter: element-tagged text saves while
+// the live exporter lowers it, push-live exports it lowered, and every decision is made on the
+// merged tooltip.
 let key: string;
 let fixture: Fixture;
 beforeAll(async () => {
@@ -13,6 +15,7 @@ beforeEach(() => {
   fixture = new Fixture(key);
 });
 afterEach(() => {
+  publisherConfig.enabled = false;
   vi.unstubAllGlobals();
 });
 
@@ -23,59 +26,83 @@ const withText = (lang: 'de' | 'fr', text: string, from = tooltip()): Tooltip =>
   ...from,
   text: { ...from.text, [lang]: { text, ...revision } },
 });
+const pin = { sourceSha: 'a'.repeat(40), sha256: 'b'.repeat(64) };
+const capable = { ...pin, capabilities: ['elementTags'] };
 
-describe('save hold for element-tagged text', () => {
-  it('refuses a tagged span in English with a clear 422 and writes nothing', async () => {
-    const response = await save(tooltip(), tooltip('Gain <solar Scorch /> stacks.'));
-    expect(response.status).toBe(422);
-    expect(await response.json()).toEqual({
-      error: `Tooltip 123 (en) contains element-tagged text "<solar Scorch />", which can't be saved yet: apps would show only the icon. Write "<solar/>Scorch" for now.`,
-    });
-    expect(fixture.commits).toHaveLength(0);
+describe('save guard for element-tagged text', () => {
+  // While the publisher switch is off, the live exporter is push-live, which lowers tagged text
+  // (core exportLegacy): tags save. Once the publisher exports, its build at the data head must
+  // declare the elementTags capability in .publisher/PIN.
+  it('saves a tagged span in English while push-live exports, exactly as written', async () => {
+    const text = 'Gain <solar Scorch /> stacks.';
+    const response = await save(tooltip(), tooltip(text));
+    expect(response.status).toBe(200);
+    expect((await response.json()).tooltips[0].text.en.text).toBe(text);
+    expect(fixture.commits).toHaveLength(1);
   });
 
-  it('refuses a tagged span in a translation, from a translator too', async () => {
-    const next = withText('de', 'Erhalte <solar Versengen />.');
-    const response = await save(tooltip(), next, 4);
-    expect(response.status).toBe(422);
-    expect((await response.json()).error).toContain('Tooltip 123 (de)');
-    expect(fixture.commits).toHaveLength(0);
+  it('saves a tagged span in a translation, from a translator too', async () => {
+    const response = await save(tooltip(), withText('de', 'Erhalte <solar Versengen />.'), 4);
+    expect(response.status).toBe(200);
+    expect(fixture.commits).toHaveLength(1);
   });
 
-  it('refuses a tag already at the head in a language the change does not edit', async () => {
-    const head = withText('fr', 'Gagne <arc Choc />.');
-    fixture.moveData({ 'tooltips/123.json': head });
-    const response = await save(tooltip(), tooltip('mine'));
+  it('still refuses authored preview markers (U+E000, U+E001) in any language', async () => {
+    const response = await save(tooltip(), withText('fr', 'Gagne \uE000Choc\uE001.'));
     expect(response.status).toBe(422);
     expect((await response.json()).error).toContain('Tooltip 123 (fr)');
     expect(fixture.commits).toHaveLength(0);
   });
 
-  it('saves when the merge drops the tag the client still had in an unchanged language', async () => {
-    // The head removed the French tag; the client's base and next still carry it untouched.
-    const base = withText('fr', 'Gagne <arc Choc />.');
-    fixture.moveData({ 'tooltips/123.json': withText('fr', 'Gagne <arc/>Choc.') });
-    const next = withText('fr', 'Gagne <arc Choc />.', tooltip('mine'));
-    const response = await save(base, next);
-    expect(response.status).toBe(200);
-    expect((await response.json()).tooltips[0].text).toMatchObject({
-      en: { text: 'mine' },
-      fr: { text: 'Gagne <arc/>Choc.' },
-    });
-    expect(fixture.commits).toHaveLength(1);
+  it('publisher on: refuses tags when the PIN at the data head lacks the capability', async () => {
+    publisherConfig.enabled = true;
+    fixture.moveData({ '.publisher/PIN': pin });
+    const response = await save(tooltip(), tooltip('Gain <solar Scorch /> stacks.'));
+    expect(response.status).toBe(422);
+    expect((await response.json()).error).toBe(
+      `Tooltip 123 (en) contains element-tagged text "<solar Scorch />", which can't be saved: the publisher installed in the data branch does not lower it yet (.publisher/PIN lacks the "elementTags" capability). Write "<solar/>Scorch" for now.`,
+    );
+    expect(fixture.commits).toHaveLength(0);
   });
 
-  it('refuses the whole batch when one tooltip carries a tag', async () => {
-    const response = await fixture.request('/save', 'POST', {
-      changes: [
-        { hash: 123, base: tooltip(), next: tooltip('mine') },
-        { hash: 124, base: null, next: { ...tooltip('<void Void Breach />'), hash: 124 } },
-      ],
-      message: 'Edit',
-    });
+  it('publisher on: refuses tags when there is no PIN at all', async () => {
+    publisherConfig.enabled = true;
+    const response = await save(tooltip(), withText('de', 'Erhalte <solar Versengen />.'));
     expect(response.status).toBe(422);
-    expect((await response.json()).error).toContain('Tooltip 124 (en)');
+    expect((await response.json()).error).toContain('Tooltip 123 (de)');
     expect(fixture.commits).toHaveLength(0);
+  });
+
+  it('publisher on: saves tags when the PIN declares elementTags, with no extra read', async () => {
+    publisherConfig.enabled = true;
+    fixture.moveData({ '.publisher/PIN': capable });
+    const plainStart = fixture.graphqlCalls;
+    expect((await save(tooltip(), tooltip('plain'))).status).toBe(200);
+    const plain = fixture.graphqlCalls - plainStart;
+    fixture.moveData({ 'tooltips/123.json': tooltip('plain') });
+    const taggedStart = fixture.graphqlCalls;
+    const response = await save(tooltip('plain'), tooltip('Gain <solar Scorch /> stacks.'));
+    expect(response.status).toBe(200);
+    // The PIN rides in the batched tooltip read: a tagged save costs what an untagged one does.
+    expect(fixture.graphqlCalls - taggedStart).toBe(plain);
+  });
+
+  it('publisher on: a tag already at the head in an unchanged language needs the capability', async () => {
+    publisherConfig.enabled = true;
+    fixture.moveData({
+      'tooltips/123.json': withText('fr', 'Gagne <arc Choc />.'),
+      '.publisher/PIN': pin,
+    });
+    const refused = await save(tooltip(), tooltip('mine'));
+    expect(refused.status).toBe(422);
+    expect((await refused.json()).error).toContain('Tooltip 123 (fr)');
+    fixture.moveData({ '.publisher/PIN': capable });
+    expect((await save(tooltip(), tooltip('mine'))).status).toBe(200);
+  });
+
+  it('publisher on: untagged saves never depend on the PIN', async () => {
+    publisherConfig.enabled = true;
+    expect((await save(tooltip(), tooltip('Gain <solar/>Scorch.'))).status).toBe(200);
   });
 
   it('saves untagged text, lowered pairs, standalone icons, and invalid forms as before', async () => {
@@ -86,9 +113,9 @@ describe('save hold for element-tagged text', () => {
     expect(fixture.commits).toHaveLength(1);
   });
 
-  // Output review repros: preparation assembles '<solar Scorch />' from pieces. No document holds
-  // a tagged span, so the hold has nothing to refuse, and the editor draws exactly what consumers
-  // draw today (the bare icon): what is saved never renders tagged.
+  // Output review repros (part 1): preparation assembles '<solar Scorch />' from pieces. No
+  // document holds a tagged span, and the editor draws exactly what consumers draw today (the bare
+  // icon): what is saved never renders tagged.
   it.each([
     'var open = <solar\n#open Scorch />',
     '<so\rlar Scorch />',
@@ -103,77 +130,64 @@ describe('save hold for element-tagged text', () => {
   });
 });
 
-describe('export hold for element-tagged text (push-live)', () => {
-  // Tags can only reach the data outside /save (which refuses them); push refuses to export them,
-  // from the pushed tooltip or any document its text reads, using documents it already loaded.
+describe('push-live lowers element-tagged text (hold lifted)', () => {
+  // exportLegacy lowers every tagged span to today's `<solar/>Scorch`: the live entry is exactly
+  // what the lowered form, written by hand, exports.
   const donor = (text: string, hash: number) => ({ ...tooltip(text), hash });
-  const cases: { name: string; text: string; files: Record<string, unknown> }[] = [
-    { name: 'pushed tooltip', text: 'Gain <solar Scorch />.', files: {} },
-    {
-      name: 'import',
-      text: 'import Main from 124',
-      files: { 'tooltips/124.json': donor('export Main (\n<solar Scorch />\n)', 124) },
-    },
-    {
-      name: 'nested import',
-      text: 'import main from 125',
-      files: {
-        'tooltips/125.json': donor('import main from 124', 125),
-        'tooltips/124.json': donor('<arc Jolt />', 124),
-      },
-    },
-    {
-      name: 'alias import',
-      text: 'import main from 456',
-      files: { 'tooltips/124.json': donor('<void Volatile />', 124) },
-    },
-    {
-      name: 'global import',
-      text: 'import main from global',
-      files: { 'tooltips/1.json': donor('<strand Sever />', 1) },
-    },
-    {
-      name: 'global variable',
-      text: '#X',
-      files: { 'tooltips/2.json': donor('var X = <stasis Slow />', 2) },
-    },
-    {
-      name: 'global title',
-      text: '<title See [T] />',
-      files: { 'tooltips/3.json': donor('title T (\n<kinetic Kinetic />\n)', 3) },
-    },
-    { name: 'preview marker', text: 'Gain \uE000Scorch\uE001.', files: {} },
-  ];
-  it.each(cases)('refuses before any write: $name', async ({ text, files }) => {
-    fixture.aliases[456] = { to: 124, kind: 'sandbox' };
-    fixture.moveData({ ...files, 'tooltips/123.json': tooltip(text) });
+  type Live = {
+    perks: Record<string, { editor: Record<string, { main: string; secondary: string }> }>;
+  };
+  const exported = (hash: number, lang = 'en') => (fixture.live as Live).perks[hash]!.editor[lang]!;
+  const unlowered = /<(?:kinetic|arc|solar|void|stasis|strand) [^<>]*\/>|[\uE000\uE001]/;
+
+  it.each([
+    ['Gain <solar Scorch />.', 'Gain <solar/>Scorch.'],
+    ['<arc Jolt /> and <void Volatile Rounds />', '<arc/>Jolt and <void/>Volatile Rounds'],
+    ['Gain <kinetic  Kinetic  />', 'Gain <kinetic/> Kinetic '],
+    ['<pve/>Applies <stasis Slow />.', '<pve/>Applies <stasis/>Slow.'],
+  ])('pushes %j as %j', async (text, lowered) => {
+    fixture.moveData({ 'tooltips/123.json': tooltip(text) });
+    const response = await fixture.request('/push-live', 'POST', { hashes: [123] });
+    expect(response.status).toBe(200);
+    expect(exported(123)).toEqual({ main: lowered, secondary: lowered });
+    expect(JSON.stringify(fixture.live)).not.toMatch(unlowered);
+  });
+
+  it('pushes a tagged import and the tooltip that imports it, both lowered', async () => {
+    fixture.moveData({
+      'tooltips/124.json': donor('export Main (\n<solar Scorch />\n)', 124),
+      'tooltips/123.json': tooltip('import Main from 124'),
+    });
+    fixture.extraItems = { 124: { hash: 124, name: 'Donor', categoryId: 'perk', itemHash: 222 } };
+    expect((await fixture.request('/push-live', 'POST', { hashes: [124, 123] })).status).toBe(200);
+    expect(exported(124).main).toBe('export Main (\n<solar/>Scorch\n)');
+    expect(JSON.stringify(fixture.live)).not.toMatch(unlowered);
+  });
+
+  it('a German-only tag is lowered in German and English stays as written', async () => {
+    const source = tooltip('Gain <solar/>Scorch.');
+    source.text.de = { text: 'Erhalte <solar Versengen />.', ...revision };
+    fixture.moveData({ 'tooltips/123.json': source });
+    expect((await fixture.request('/push-live', 'POST', { hashes: [123] })).status).toBe(200);
+    expect(exported(123, 'de').main).toBe('Erhalte <solar/>Versengen.');
+    expect(exported(123).main).toBe('Gain <solar/>Scorch.');
+  });
+
+  it('still refuses a preview marker in the pushed text before any write', async () => {
+    fixture.moveData({ 'tooltips/123.json': tooltip('Gain \uE000Scorch\uE001.') });
     const before = structuredClone(fixture.live);
     const response = await fixture.request('/push-live', 'POST', { hashes: [123] });
     expect(response.status).toBe(422);
-    expect((await response.json()).error).toMatch(/element-tagged text|U\+E000/);
     expect(fixture.live).toEqual(before);
     expect(fixture.writes).toHaveLength(0);
     expect(fixture.commits).toHaveLength(0);
   });
 
-  it('a German-only imported tag is refused too', async () => {
-    const source = donor('export Main (\nplain\n)', 124);
-    source.text.de = { text: 'export Main (\n<solar Versengen />\n)', ...revision };
+  it('pushes untagged text with imports and lowered pairs as before', async () => {
     fixture.moveData({
-      'tooltips/124.json': source,
-      'tooltips/123.json': tooltip('import Main from 124'),
-    });
-    const response = await fixture.request('/push-live', 'POST', { hashes: [123] });
-    expect(response.status).toBe(422);
-    expect((await response.json()).error).toContain('Tooltip 124 (de)');
-  });
-
-  it('pushes untagged text with imports and lowered pairs as before, with the same reads', async () => {
-    const files = {
       'tooltips/124.json': donor('export Main (\n<solar/>Scorch\n)', 124),
       'tooltips/123.json': tooltip('import Main from 124\nGain <arc/>Jolt and <solar />.'),
-    };
-    fixture.moveData(files);
+    });
     const response = await fixture.request('/push-live', 'POST', { hashes: [123] });
     expect(response.status).toBe(200);
     expect(fixture.commits).toHaveLength(1);

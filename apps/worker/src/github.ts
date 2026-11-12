@@ -19,7 +19,8 @@ export const subrequestLimit = 48;
 /** Blobs read per GraphQL call. Each call is one subrequest however many files it carries. */
 export const blobsPerQuery = 500;
 const refPattern = /^[0-9a-f]{40}$/;
-const pathPattern = /^[A-Za-z0-9_][A-Za-z0-9_./-]*$/;
+// Plain repository paths, plus the publisher's own `.publisher/` folder (its PIN, see elementTags.ts).
+const pathPattern = /^(?:\.publisher\/)?[A-Za-z0-9_][A-Za-z0-9_./-]*$/;
 const blobFields = z.object({
   oid: z.string().regex(refPattern),
   isTruncated: z.boolean(),

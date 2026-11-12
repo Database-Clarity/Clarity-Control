@@ -142,7 +142,8 @@
   --el-arc: #7fd0ec;
   --el-solar: #f0702c;
   --el-void: #b78bd0;
-  --el-stasis: #4d8bff;
+  // Stasis leans periwinkle so it stays apart from the PvE line colour it often sits in
+  --el-stasis: #6b7bff;
   --el-strand: #35e366;
   // Compendium review, picker and diff pages (dark = their former raw colours); --sheet-* sit on the always-dark sheet
   --mr-edge: #596478;
@@ -314,7 +315,8 @@
   --el-arc: #00708c;
   --el-solar: #b54300;
   --el-void: #8a4aab;
-  --el-stasis: #2f56c9;
+  // Stasis lighter than the deep PvE line blue (#1f4fd1) so a keyword in a PvE line still reads
+  --el-stasis: #2f6fd0;
   --el-strand: #147a33;
   // Compendium review, picker and diff pages; --sheet-* sit on the always-dark sheet, so they keep their dark values
   --mr-edge: var(--ctl-edge);

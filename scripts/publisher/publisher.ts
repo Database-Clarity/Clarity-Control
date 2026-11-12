@@ -9,6 +9,7 @@ import {
   publishMonth,
   publishOpIdSchema,
   exportLegacy,
+  findElementTags,
   isTextlessDescription,
   publishableHash,
   tooltipSchema,
@@ -28,6 +29,20 @@ import { setTimeout } from 'node:timers/promises';
 export const publishBackoff = () => setTimeout(30_000);
 
 const json = (v: unknown) => JSON.stringify(v, null, 2) + '\n';
+
+/** The first exported hash whose strings still hold an element-tagged span or a preview marker. */
+export function unloweredEntry(entries: Record<string, unknown>): string | undefined {
+  const strings = (value: unknown): string[] =>
+    typeof value === 'string'
+      ? [value]
+      : value && typeof value === 'object'
+        ? Object.values(value).flatMap(strings)
+        : [];
+  for (const [hash, entry] of Object.entries(entries))
+    if (strings(entry).some((text) => /[\uE000\uE001]/.test(text) || findElementTags(text).length))
+      return hash;
+  return undefined;
+}
 const dataRef = (branch: string) => `refs/heads/${branch}`;
 export const paths = (id: string) => {
   publishOpIdSchema.parse(id);
@@ -430,6 +445,23 @@ export class Publisher {
       }
       const now = this.options.now(),
         pushed = pushedSchema.parse(this.read(tree, 'live/pushed.json'));
+      const exported = exportLegacy(tooltips, now, this.options.facts, this.options.aliases);
+      // Fail closed: exportLegacy lowers element-tagged text to today's `<solar/>Scorch`. An
+      // export that still holds a tagged span (or a preview marker) would make apps drop text.
+      const unlowered = unloweredEntry(exported);
+      if (unlowered !== undefined) {
+        await this.record(
+          opId,
+          undefined,
+          undefined,
+          {
+            status: 'rejected',
+            error: `The export of tooltip ${unlowered} still holds element-tagged text`,
+          },
+          blob,
+        );
+        return;
+      }
       const r: Receipt = {
         opId,
         requestBlob: blob,
@@ -440,7 +472,7 @@ export class Publisher {
         generatorSha: this.options.generatorSha,
         outcome: 'published',
         entries,
-        exported: exportLegacy(tooltips, now, this.options.facts, this.options.aliases),
+        exported,
         changed: entries.filter((e) => pushed[e.hash] !== e.digest).map((e) => e.hash),
         requester: payload.requester,
         intentDigest: payload.intentDigest,

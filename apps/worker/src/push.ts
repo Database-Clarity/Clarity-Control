@@ -1,6 +1,6 @@
 import { refuseBaseEnhanced } from './baseEnhanced.js';
 import { refuseHeldSetBonuses } from './setBonusHold.js';
-import { refuseTaggedEntries, refuseTaggedExport } from './elementTags.js';
+import { refuseTaggedEntries } from './elementTags.js';
 import { z } from 'zod';
 import {
   publishableHash,
@@ -106,8 +106,9 @@ async function loadAtHead(
     }
   }
   refuseHeldSetBonuses(tooltips, facts);
-  const documents = await refuseBaseEnhanced(github, head, canonicalHashes, aliases, tooltips);
-  refuseTaggedExport(canonicalHashes, documents, aliases);
+  // Element-tagged text needs no hold here: exportLegacy lowers it to today's format, and the
+  // export itself is checked below (refuseTaggedEntries) before anything is written.
+  await refuseBaseEnhanced(github, head, canonicalHashes, aliases, tooltips);
   // A malformed marker is reported by the marker step below; here it just means "all changed".
   const pushed =
     pushedSchema.safeParse((await github.requiredFile('live/pushed.json', head)).value).data ?? {};

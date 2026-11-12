@@ -18,6 +18,9 @@ writeFileSync(
       sha256: createHash('sha256')
         .update(readFileSync('scripts/publisher/dist/publisher.mjs'))
         .digest('hex'),
+      // What this build can do; the Worker reads it at the data head (apps/worker/src/elementTags.ts):
+      // elementTags = exportLegacy lowers element-tagged text to today's `<solar/>Scorch`.
+      capabilities: ['elementTags'],
     },
     null,
     2,

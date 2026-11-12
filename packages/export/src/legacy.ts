@@ -1,6 +1,7 @@
 import { converterSettings, expandAliases, type IntermediatePerks } from './converter/index.js';
 import { customJsonStringify } from './converter/helpers.js';
 import { databaseConverter } from './converter/publisher.js';
+import { lowerInput } from './elementTags.js';
 import { isSetBonusPerk, withSetBonusType } from './setBonus.js';
 
 /** The eight held presets, in the order the held converter builds them. */
@@ -63,7 +64,7 @@ export function bungieIdentical(
   inventoryItem: InventoryItems,
   sandboxPerk?: SandboxPerks,
 ): string[] {
-  const lookup = expandAliases(input.perks);
+  const lookup = expandAliases(lowerInput(input).perks);
   const hashes: string[] = [];
   for (const hash of Object.keys(input.perks)) {
     const perk = lookup[hash];
@@ -91,7 +92,7 @@ export function buildLegacy(
 ): Uint8Array {
   if (!isLegacyPreset(preset)) throw new Error(`Unknown legacy preset: ${String(preset)}`);
   const identical = new Set([...(options.identical ?? [])].map(String));
-  const output = databaseConverter(preset, withSetBonusType(input.perks), identical);
+  const output = databaseConverter(preset, withSetBonusType(lowerInput(input).perks), identical);
   const text = customJsonStringify(output, ['stat', 'multiplier', 'weaponTypes', 'classNames']);
   return encoder.encode(text);
 }

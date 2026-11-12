@@ -14,6 +14,7 @@ import {
 } from '../src/index.js';
 import { customJsonStringify } from '../src/converter/helpers.js';
 import { databaseConverter } from '../src/converter/publisher.js';
+import { lowerInput } from '../src/elementTags.js';
 import { editorDataInput, expected, fixtureInput, sha256 } from './helpers.js';
 
 const decoder = new TextDecoder();
@@ -54,8 +55,9 @@ const expectedDiff = Object.fromEntries(
 test.each(legacyPresets)(
   '%s: the held output is unchanged; the only diff is the set-bonus type name',
   (preset) => {
-    const before = held(input, preset, identical);
-    expect(sha256(before)).toBe(expected.fixture.files[preset]);
+    expect(sha256(held(input, preset, identical))).toBe(expected.fixture.files[preset]);
+    // The engine lowers the fixture's element-tagged text first (element-tags.test.ts).
+    const before = held(lowerInput(input), preset, identical);
     const after = decoder.decode(buildLegacy(input, preset, { identical }));
     expect(before.split('"armor-set-bonus"').length - 1).toBe(expectedDiff[preset].length);
     expect(after).toBe(before.replaceAll('"armor-set-bonus"', '"Armor Set Bonus"'));

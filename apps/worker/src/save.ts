@@ -10,7 +10,13 @@ import {
   type Tooltip,
 } from '@clarity/core';
 import { loadAliases } from './catalog.js';
-import { refuseElementTags } from './elementTags.js';
+import {
+  exporter,
+  hasTaggedText,
+  pinLowersElementTags,
+  publisherPinPath,
+  refuseUnlowerableTags,
+} from './elementTags.js';
 import { RefRace, type GitHub } from './github.js';
 import { body, HttpError, json } from './http.js';
 import { checkEdit, permissions, requireAccess } from './permissions.js';
@@ -62,10 +68,29 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
     const changed: string[] = [];
     aliases ??= await loadAliases(github.env, github);
     // One batched read for all current copies: flat subrequests however many tooltips change.
+    // While the publisher is the live exporter, a change carrying element-tagged text also reads
+    // the publisher's PIN in the same call: only a build declaring the capability lowers tags.
+    const publisher = exporter.publisherEnabled();
+    const readsPin = publisher && input.changes.some(({ next }) => hasTaggedText(next));
     const current = await github.files(
-      input.changes.map(({ hash }) => `tooltips/${hash}.json`),
+      [
+        ...input.changes.map(({ hash }) => `tooltips/${hash}.json`),
+        ...(readsPin ? [publisherPinPath] : []),
+      ],
       headCommit,
     );
+    let pinLowers = readsPin
+      ? pinLowersElementTags(current[input.changes.length]?.value)
+      : undefined;
+    // Whether the active exporter lowers tagged text: always while push-live exports.
+    const lowers = async (tooltip: Tooltip) => {
+      if (!publisher || !hasTaggedText(tooltip)) return true;
+      // A tag only the merge brought in (another save at the head): read the PIN now.
+      pinLowers ??= pinLowersElementTags(
+        (await github.files([publisherPinPath], headCommit))[0]?.value,
+      );
+      return pinLowers;
+    };
     for (const [index, change] of input.changes.entries()) {
       const canonical = resolveAlias(change.hash, aliases);
       if (canonical !== change.hash) {
@@ -95,7 +120,7 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
         continue;
       }
       checkEdit(access, head, merged);
-      refuseElementTags(merged);
+      refuseUnlowerableTags(merged, await lowers(merged), 'saved');
       tooltips.push(merged);
       // Per-tooltip hints avoid attributing another item in a batch to this file.
       // Display only: permissions and the committed payload are unchanged.

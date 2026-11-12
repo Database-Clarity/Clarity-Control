@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { isMarkupOnly } from '@clarity/core';
 import { getHistory, getVersion } from '../../services/history';
 import { errorMessage } from '../../services/http';
 import { WordDiff } from '../../ui/diff';
@@ -63,7 +64,15 @@ export function EnglishDiffContent({
           </button>
         </p>
       )}
-      {source?.kind === 'found' ? (
+      {source?.kind === 'found' && isMarkupOnly(source.text, current) ? (
+        <>
+          <p data-markup-only>
+            <strong>Markup only:</strong> the English words did not change; only element tags (an
+            icon grouped with its words) were added, changed, or removed.
+          </p>
+          <WordDiff before={source.text} after={current} />
+        </>
+      ) : source?.kind === 'found' ? (
         <>
           <p>
             English when translated → current English. Removed words are struck through; additions

@@ -1,67 +1,69 @@
-import {
-  findElementTags,
-  markupImports,
-  resolveAlias,
-  type Aliases,
-  type Lang,
-  type Tooltip,
-} from '@clarity/core';
+import { findElementTags, type Lang, type Tooltip } from '@clarity/core';
+import publisherConfig from '../../../config/publisher.json';
 import { HttpError } from './http.js';
 
 const reservedMarker = /[\uE000\uE001]/;
 
-function refuse(tooltip: Tooltip, action: string): void {
+/** The data-head file that names the installed publisher build and what it can do. */
+export const publisherPinPath = '.publisher/PIN';
+/** The PIN capability of a publisher build whose exportLegacy lowers element-tagged text. */
+export const elementTagsCapability = 'elementTags';
+
+/**
+ * Which exporter is live. While the publisher switch is off, the live export is this Worker's own
+ * push-live, built from the same core as these guards, so it lowers element-tagged text. Once it is
+ * on, the publisher installed in the data branch exports, and only a build whose PIN declares the
+ * capability lowers. A getter, so the Worker tests can turn the switch on.
+ */
+export const exporter = {
+  publisherEnabled: (): boolean => publisherConfig.enabled,
+};
+
+/** Whether a data-head `.publisher/PIN` value declares that its build lowers element tags. */
+export function pinLowersElementTags(pin: unknown): boolean {
+  const capabilities = (pin as { capabilities?: unknown } | null)?.capabilities;
+  return Array.isArray(capabilities) && capabilities.includes(elementTagsCapability);
+}
+
+/** The first language of `tooltip` holding a tagged span, with that span. */
+function firstTag(tooltip: Tooltip) {
+  for (const [lang, entry] of Object.entries(tooltip.text) as [Lang, { text: string }][]) {
+    const [tag] = findElementTags(entry.text);
+    if (tag) return { lang, tag, text: entry.text.slice(tag.from, tag.to) };
+  }
+  return undefined;
+}
+
+export function hasTaggedText(tooltip: Tooltip): boolean {
+  return firstTag(tooltip) !== undefined;
+}
+
+/** Authored U+E000/U+E001 are always refused: the preview reserves them for tagged text. */
+export function refuseReservedMarkers(tooltip: Tooltip): void {
   for (const [lang, entry] of Object.entries(tooltip.text) as [Lang, { text: string }][]) {
     if (reservedMarker.test(entry.text))
       throw new HttpError(
         422,
         `Tooltip ${tooltip.hash} (${lang}) contains the private-use character U+E000 or U+E001, which the preview reserves for element-tagged text; remove it.`,
       );
-    const [tag] = findElementTags(entry.text);
-    if (!tag) continue;
-    throw new HttpError(
-      422,
-      `Tooltip ${tooltip.hash} (${lang}) contains element-tagged text "${entry.text.slice(tag.from, tag.to)}", which can't be ${action} yet: apps would show only the icon. Write "<${tag.element}/>${tag.text}" for now.`,
-    );
   }
 }
 
 /**
- * Save hold: element-tagged text (`<solar Scorch />`) is refused until both exporters lower it to
- * today's `<solar/>Scorch`; unlowered, today's apps show only the icon and drop the text. Checked
- * on the merged tooltip, so a tag in any language is refused, including one already at the head
- * in a language this change does not edit. The editor shows the same reason (core validation).
+ * Server guard (concept B): element-tagged text (`<solar Scorch />`) is refused only while the
+ * ACTIVE exporter cannot lower it to today's `<solar/>Scorch`; unlowered, today's apps would show
+ * only the icon and drop the text. `lowers` is that exporter's answer (see `exporter`). Checked on
+ * the merged tooltip, so a tag in any language counts, including one already at the head.
  */
-export function refuseElementTags(tooltip: Tooltip): void {
-  refuse(tooltip, 'saved');
-}
-
-/**
- * Export hold (push-live): a pushed tooltip, or a document its text reads (imports, nested and
- * aliased, `global`, the global variables 2 and titles 3), must not hold a tagged span, however
- * it got into the data. Uses the documents the base/enhanced check already loaded: no I/O.
- */
-export function refuseTaggedExport(
-  roots: readonly number[],
-  documents: ReadonlyMap<number, Tooltip>,
-  aliases: Aliases,
-): void {
-  const visited = new Set<number>();
-  const pending = [...roots, 2, 3];
-  while (pending.length) {
-    const hash = resolveAlias(pending.pop()!, aliases);
-    if (visited.has(hash)) continue;
-    visited.add(hash);
-    const tooltip = documents.get(hash);
-    if (!tooltip) continue;
-    refuse(tooltip, 'pushed');
-    for (const entry of Object.values(tooltip.text)) {
-      for (const line of markupImports(entry?.text ?? '')) {
-        const from = line.match(/ from (\d+|global) *$/)?.[1];
-        if (from) pending.push(from === 'global' ? 1 : Number(from));
-      }
-    }
-  }
+export function refuseUnlowerableTags(tooltip: Tooltip, lowers: boolean, action: string): void {
+  refuseReservedMarkers(tooltip);
+  if (lowers) return;
+  const found = firstTag(tooltip);
+  if (!found) return;
+  throw new HttpError(
+    422,
+    `Tooltip ${tooltip.hash} (${found.lang}) contains element-tagged text "${found.text}", which can't be ${action}: the publisher installed in the data branch does not lower it yet (${publisherPinPath} lacks the "${elementTagsCapability}" capability). Write "<${found.tag.element}/>${found.tag.text}" for now.`,
+  );
 }
 
 /** Fail closed on the export itself: no exported string may carry a tagged span or a marker. */

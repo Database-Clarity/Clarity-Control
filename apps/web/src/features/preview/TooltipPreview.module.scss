@@ -363,6 +363,12 @@ $symbol: 0.75rem;
     vertical-align: -1px;
     background: url($url) center / $size no-repeat;
   }
+  // A word joiner (U+2060, zero width) after the icon: the line never breaks between an icon and
+  // the word right after it (`<solar/>Scorch`, `<solar Scorch />`), so no icon is left orphaned at a
+  // line end. A space after the icon still breaks as before.
+  &::after {
+    content: '\2060';
+  }
   @if $sym {
     :global(:root[data-theme='light']) &::before {
       @include light-symbol($url, $sym, $mask);
@@ -491,7 +497,8 @@ $symbol: 0.75rem;
 // in the lowered `<solar/>Scorch`, so the text span draws no second icon and only the tint changes
 // (no box, no layout shift). Tints are the --el-* theme tokens (AA light variants in ui/tokens).
 .elementText {
-  &::before {
+  &::before,
+  &::after {
     content: none;
   }
   @each $element in (kinetic, arc, solar, void, stasis, strand) {

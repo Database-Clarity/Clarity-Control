@@ -15,6 +15,7 @@ import {
   markupVariableReferences,
   type MarkupGlobals,
 } from '@clarity/core';
+import { isElementName, wrapTransaction } from './elementTags';
 
 type MarkupKind = 'inline' | 'icon' | 'line' | 'link' | 'title';
 export interface MarkupOption {
@@ -370,6 +371,12 @@ function createMarkupTransaction(
   option: MarkupOption,
   globals: MarkupGlobals = { variables: '', titles: '' },
 ): { transaction: Transaction; rejection?: never } | { transaction?: never; rejection: Rejection } {
+  // An element icon with a wrappable selection tags it (`<solar Scorch />`); with any other
+  // selection, or none, the icon goes in at the caret as before (elementTags.ts).
+  if (option.kind === 'icon' && isElementName(option.name)) {
+    const wrap = wrapTransaction(state, option.name, globals);
+    if (wrap) return { transaction: wrap };
+  }
   const analysis = analyse(state, globals);
   if (!analysis) return { rejection: 'expansion' };
   const { tokens, preparedTables } = analysis;

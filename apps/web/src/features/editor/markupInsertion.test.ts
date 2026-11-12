@@ -101,11 +101,21 @@ describe('markup insertion', () => {
   });
 
   test.each([
-    ['icon:solar', '<solar/>'],
+    ['icon:primary', '<primary/>'],
     ['line:background', '<background/>'],
   ])('%s inserts at the active end without deleting selected text', (id, token) => {
     const state = EditorState.create({ doc: 'abcd', selection: { anchor: 1, head: 3 } });
     expect(insert(state, option(id)).doc.toString()).toBe(`abc${token}d`);
+  });
+
+  test('an element icon tags a wrappable selection, and inserts at the active end otherwise', () => {
+    const state = EditorState.create({ doc: 'abcd', selection: { anchor: 1, head: 3 } });
+    expect(insert(state, option('icon:solar')).doc.toString()).toBe('a<solar bc />d');
+    const across = EditorState.create({ doc: 'ab cd', selection: { anchor: 1, head: 4 } });
+    const twoLines = across.update({ changes: { from: 2, to: 3, insert: '\n' } }).state;
+    expect(insert(twoLines, option('icon:solar')).doc.toString()).toBe(
+      ['ab', 'c<solar/>d'].join(String.fromCharCode(10)),
+    );
   });
 
   test('handles multiple selections and leaves insertion separately undoable and redoable', () => {
