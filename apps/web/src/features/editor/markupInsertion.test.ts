@@ -822,7 +822,8 @@ describe('markup insertion', () => {
     expect(parsed.linesContent?.filter((part) => part.classNames?.includes('solar'))).toHaveLength(
       2,
     );
-    expect(preview(state.doc.toString())).toContain('French text');
+    // The second icon and "French" share one unbreakable run (two spans), so compare the text.
+    expect(preview(state.doc.toString()).replace(/<[^>]*>/g, '')).toContain('French text');
     expect(preview(state.doc.toString())).not.toContain('&lt;bold/&gt;');
   });
 

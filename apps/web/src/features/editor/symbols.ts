@@ -262,16 +262,27 @@ function tagAt(state: EditorState, pos: number): TagRange | null {
   return around.pop() ?? null;
 }
 
+const glueMark = Decoration.mark({ class: 'cm-glue', inclusiveStart: true });
+
 function symbolRanges(state: EditorState, from = 0, to = state.doc.length): Range<Decoration>[] {
   const text = state.doc.sliceString(from, to);
   const caret = state.field(reveal) === 'caret';
   const touched = (from: number, to: number) =>
     caret && state.selection.ranges.some((r) => r.from <= to && r.to >= from);
-  const ranges = findSymbols(text, from)
-    .filter((symbol) => !touched(symbol.from, symbol.to))
-    .map((symbol) =>
+  const ranges: Range<Decoration>[] = [];
+  // An icon keeps its first word on its line: CodeMirror's caret buffers beside a widget are
+  // break opportunities, so the icon and the word after it share one unbreakable mark.
+  const glue = (icon: number, word: number) => {
+    const length = /^[^\s<]{1,40}/.exec(state.sliceDoc(word, Math.min(word + 40, to)))?.[0].length;
+    if (length) ranges.push(glueMark.range(icon, word + length));
+  };
+  for (const symbol of findSymbols(text, from)) {
+    if (touched(symbol.from, symbol.to)) continue;
+    ranges.push(
       Decoration.replace({ widget: new SymbolWidget(symbol.name) }).range(symbol.from, symbol.to),
     );
+    glue(symbol.from, symbol.to);
+  }
   for (const tag of findTags(text, from)) {
     // Element-tagged text the preview draws untinted (a variable, formula, or comment in it) is
     // drawn the same way here: the icon, then the text with its own syntax colours.
@@ -292,6 +303,7 @@ function symbolRanges(state: EditorState, from = 0, to = state.doc.length): Rang
           : Decoration.replace({})
         ).range(tag.from, tag.openTo),
       );
+      if (tag.element) glue(tag.from, tag.openTo);
       ranges.push(Decoration.replace({}).range(tag.closeFrom, tag.to));
     }
   }

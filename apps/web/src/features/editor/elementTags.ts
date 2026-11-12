@@ -27,6 +27,7 @@ export const tagRefusals = {
   line: 'crosses a line',
   blank: 'only spaces',
   tag: 'crosses a tag',
+  inside: 'already in a tag',
   cell: 'crosses a table cell',
   reference: 'holds a variable, formula, or comment',
   declaration: 'declaration line',
@@ -67,6 +68,11 @@ export function tagSelection(state: EditorState, globals: MarkupGlobals): TagSel
   if (/[#${}]|\/\*|\*\/|\/\//.test(text)) return refused(tagRefusals.reference);
   const line = state.doc.lineAt(main.from);
   if (declaration.test(line.text)) return refused(tagRefusals.declaration);
+  // Text inside a tag (`<pve Slow />`, `<stasis Slow />`): tags never nest. An element tag's own
+  // popover changes its element.
+  for (const tag of line.text.matchAll(/<[a-z]+ [^<>]*?\/>/g))
+    if (line.from + tag.index < main.from && main.to < line.from + tag.index + tag[0].length)
+      return refused(tagRefusals.inside);
   const rejection = insertionChecker(state, globals)({ from: main.from, to: main.to });
   if (rejection === 'expansion') return refused(tagRefusals.expansion);
   if (rejection) return refused(tagRefusals.tag);

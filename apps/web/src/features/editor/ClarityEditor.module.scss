@@ -114,15 +114,18 @@
   // preview (12px symbol + 2px margins). A colour tag is hidden and the text it encloses is drawn in
   // the preview's own tag colour (--tag-*, AA on the editor surface in both themes). Popovers float
   // over the text and move nothing.
-  // The symbol is inline: its drawing (::before, the 1rem box) is the only box, and the word joiner
-  // after it (::after, zero width) keeps it on the line of the word right after it, so an icon is
-  // never left alone at a line end.
   :global(.cm-symbol) {
-    display: inline;
+    display: inline-block;
+    box-sizing: border-box;
+    width: 1rem;
+    text-align: center;
+    vertical-align: baseline;
     cursor: default;
   }
-  :global(.cm-symbol::after) {
-    content: '\2060';
+  // An icon and the word right after it (symbols.ts glue) share one unbreakable run, so an icon is
+  // never left alone at a line end; a space after the icon still breaks.
+  :global(.cm-glue) {
+    white-space: nowrap;
   }
   // The enhanced arrow (`#e`): the preview's arrow drawing (ENHANCED_ARROW_PATH) as a 12px symbol with
   // 2px margins, exactly the icons' box, in the enhanced colour; a tint around it never recolours it.

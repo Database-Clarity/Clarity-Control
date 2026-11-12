@@ -98,8 +98,41 @@ function lineKey(line: MarkupLine) {
   return key;
 }
 type RenderParts = (parts: MarkupSpan[]) => ReactNode;
-const normalParts: RenderParts = (parts) =>
-  parts.map((part, index) => <PreviewSpan key={index} part={part} />);
+const isIcon = (part: MarkupSpan) => !part.text && !part.title && !!part.classNames?.length;
+/** The first word of a plain text part (no title, no link), or nothing. */
+const firstWord = (part: MarkupSpan | undefined) =>
+  part && !part.title && !part.link && typeof part.text === 'string'
+    ? /^\S+/.exec(part.text)?.[0]
+    : undefined;
+/**
+ * An icon and the word right after it (`<solar/>Scorch`, `<solar Scorch />`) share one
+ * unbreakable run (iconGlue), so an icon is never left alone at a line end; a space after the icon
+ * still breaks. Lines without such an icon render exactly as before.
+ */
+const normalParts: RenderParts = (parts) => {
+  const out: ReactNode[] = [];
+  for (let index = 0; index < parts.length; index++) {
+    const part = parts[index];
+    const next = parts[index + 1];
+    const word = isIcon(part) ? firstWord(next) : undefined;
+    if (!word) {
+      out.push(<PreviewSpan key={index} part={part} />);
+      continue;
+    }
+    out.push(
+      <span key={index} className={styles.iconGlue}>
+        <PreviewSpan part={part} />
+        <PreviewSpan part={{ ...next, text: word }} />
+      </span>,
+    );
+    if (word.length < next.text!.length)
+      out.push(
+        <PreviewSpan key={`${index}+`} part={{ ...next, text: next.text!.slice(word.length) }} />,
+      );
+    index++;
+  }
+  return out;
+};
 const PreviewLine = memo(
   function PreviewLine({
     line,

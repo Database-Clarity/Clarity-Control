@@ -76,3 +76,25 @@ it('shares the same line and table tree for plain and decorated consumers', asyn
     await act(async () => root.unmount());
   }
 });
+it('keeps an icon with the word right after it, and only that word', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const host = document.createElement('div'),
+    root = createRoot(host);
+  const render = (text: string) => (
+    <Lines lines={parseMarkup(text, { variables: '', titles: '' }).lines} />
+  );
+  const glued = () =>
+    [...host.querySelectorAll('[class*=iconGlue]')].map((glue) => glue.textContent);
+  try {
+    await act(async () =>
+      root.render(render('Gain <solar/>Scorch stacks and <solar Void Breaches />.')),
+    );
+    expect(glued()).toEqual(['Scorch', 'Void']);
+    expect(host.textContent).toBe('Gain Scorch stacks and Void Breaches.');
+    // A space after the icon still breaks; a line without an icon-word pair is not wrapped.
+    await act(async () => root.render(render('Gain <solar/> Scorch and plain text.')));
+    expect(glued()).toEqual([]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

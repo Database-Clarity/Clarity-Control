@@ -68,9 +68,9 @@ describe('wrap rules', () => {
     ['two lines', state('Gain\nScorch', 2, 8), tagRefusals.line],
     ['only spaces', select('Gain   Scorch', '   '), tagRefusals.blank],
     ['crosses a tag', select('Gain <yellow Scorch /> now', 'Scorch /> now'), tagRefusals.tag],
-    ['inside a colour tag', select('Gain <yellow Scorch /> now', 'Scorch'), tagRefusals.tag],
-    ['inside a title', select('See <title details [Info] />', 'details'), tagRefusals.tag],
-    ['inside a tag already', select('Gain <solar Scorch /> now', 'Scorch'), tagRefusals.tag],
+    ['inside a colour tag', select('Gain <yellow Scorch /> now', 'Scorch'), tagRefusals.inside],
+    ['inside a title', select('See <title details [Info] />', 'details'), tagRefusals.inside],
+    ['inside a tag already', select('Gain <solar Scorch /> now', 'Scorch'), tagRefusals.inside],
     ['an icon in it', select('Gain <solar/>Scorch', '<solar/>Scorch'), tagRefusals.tag],
     ['a table pipe', select('< table wide >\n| a | b\n<$>', 'a | b'), tagRefusals.cell],
     ['a variable', select('var X = 1\nGain #X now', '#X now'), tagRefusals.reference],
@@ -182,7 +182,7 @@ describe('in the editor', () => {
   it('a selection that cannot be tagged shows why; the icon goes in at the caret as before', () => {
     const { view } = mount('Gain <yellow Scorch /> now');
     act(() => view.dispatch({ selection: { anchor: 13, head: 19 } }));
-    expect(label()?.textContent).toBe(`Can't tag: ${tagRefusals.tag}`);
+    expect(label()?.textContent).toBe(`Can't tag: ${tagRefusals.inside}`);
     act(() => view.dispatch({ selection: { anchor: 23, head: 26 } }));
     expect(label()?.getAttribute('data-tag-mode')).toBe('wrap');
     act(() => view.dispatch({ selection: { anchor: 0, head: 26 } }));
@@ -209,6 +209,9 @@ describe('in the editor', () => {
     const icon = host.querySelector<HTMLElement>('.cm-symbol-tag')!;
     expect(icon.dataset.symbol).toBe('solar');
     expect(host.querySelector('.cm-content')!.textContent).toBe('Gain Scorch stacks.');
+    // The icon and the first word share one unbreakable run (never split at a line end).
+    const glue = icon.closest('.cm-glue')!;
+    expect(glue.textContent).toBe('Scorch');
     // Raw view shows the markup with the same tint on the text.
     act(() => view.dispatch({ effects: toggleRaw.of(true) }));
     expect(host.querySelector('.cm-content')!.textContent).toBe('Gain <solar Scorch /> stacks.');
