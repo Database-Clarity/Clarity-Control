@@ -1283,8 +1283,10 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     // and budget checks, the link-only empty-description guard, and the set-bonus hold; the
     // element-tag export hold is lifted (exportLegacy lowers; untagged pushes write the same bytes).
     // The written, pair-free golden still matches byte for byte; empty refusals are tested above.
+    // Re-pinned for sandbox picks: push merges config/sandbox-pointers.json (core
+    // mergeSandboxPointers) like the publisher; with no picks file, as here, every byte is the same.
     for (const [path, expected] of [
-      ['apps/worker/src/push.ts', '197d9c0acc99bd78901b574d5e8299160fd42665'],
+      ['apps/worker/src/push.ts', 'e2753c413fb92f7b05154c9341797be9a442b3e2'],
       ['apps/worker/src/stamp.ts', 'debdbefc1657c970f27b1304e4c8ea509c54b4a1'],
     ]) {
       const content = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');

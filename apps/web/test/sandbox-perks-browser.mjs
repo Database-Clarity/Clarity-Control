@@ -1,4 +1,4 @@
-/* global document, window, performance, PerformanceObserver, localStorage */
+/* global document, window */
 // Render QA for the Sandbox perks worklist (/sandbox-perks) on real generator and bundle data,
 // with a stubbed maintainer API: no horizontal overflow, no clipped or wrapped controls, rows
 // that fit their fixed height, at 390/768/1280 in both themes and UI scale 100/120/150, plus the
