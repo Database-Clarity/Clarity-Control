@@ -74,7 +74,15 @@ export function ConfigPanel({
   const update: Update = onChange;
   return (
     <div className={styles.config}>
-      <FileSection state={state} file={file} fileKey={key} update={update} onRemoved={onRemoved} />
+      {/* Keyed by the file: a pending id never carries over to another file's tab. */}
+      <FileSection
+        key={key}
+        state={state}
+        file={file}
+        fileKey={key}
+        update={update}
+        onRemoved={onRemoved}
+      />
       {isLegacyFile(file) ? (
         <LegacyNote preset={file.preset} />
       ) : (
@@ -139,10 +147,12 @@ function FileSection({
     : taken
       ? 'Another file has this id'
       : null;
-  const commitId = () => {
+  // Enter keeps an invalid id on screen with its problem; leaving the field drops it, so the
+  // field always ends up showing the id the config holds.
+  const commitId = (leaving: boolean) => {
     if (draftId === null) return;
     if (!idProblem && draftId !== file.id) update((current) => renameFile(current, key, draftId));
-    if (!idProblem) setDraftId(null);
+    if (!idProblem || leaving) setDraftId(null);
   };
   const saved = state.saved.files.some((other) => other.uid && other.uid === file.uid);
   return (
@@ -161,9 +171,9 @@ function FileSection({
             aria-invalid={idProblem ? true : undefined}
             aria-describedby={idProblem ? `file-id-problem-${key}` : `file-id-help-${key}`}
             onChange={(event) => setDraftId(event.target.value.toLowerCase())}
-            onBlur={commitId}
+            onBlur={() => commitId(true)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') commitId();
+              if (event.key === 'Enter') commitId(false);
               if (event.key === 'Escape') setDraftId(null);
             }}
           />
@@ -845,7 +855,7 @@ function Segmented<T extends string>({
 
 // Retained URLs -------------------------------------------------------------------------------
 
-function RetainedSection({
+export function RetainedSection({
   state,
   maintainer,
   projectId,

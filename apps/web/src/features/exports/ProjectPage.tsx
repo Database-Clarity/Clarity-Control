@@ -12,7 +12,7 @@ import { usePaneDivider } from '../../ui/usePaneDivider';
 import { useMedia } from '../../ui/useMedia';
 import { ExportsError, loadProject, saveProject } from './api';
 import { FileBuildStatus } from './BuildStatus';
-import { ConfigPanel } from './ConfigPanel';
+import { ConfigPanel, RetainedSection } from './ConfigPanel';
 import { addFile, fileKey, fromConfig, isDirty, rebase, type ProjectState } from './configModel';
 import { PreviewPanel } from './PreviewPanel';
 import { fileUrl } from './site';
@@ -22,7 +22,10 @@ import styles from './Exports.module.scss';
 /** Phones and 768 get one column with tabs (spec section 8). */
 export const narrowQuery = '(max-width: 899px)';
 
-/** Unsaved edits per project for this session, so leaving the page and coming back keeps them. */
+/**
+ * Unsaved edits per account and project for this session, so leaving the page and coming back
+ * keeps them; another account never sees them.
+ */
 const sessionEdits = new Map<string, ProjectState>();
 const anyDirty = () => [...sessionEdits.values()].some(isDirty);
 
@@ -39,6 +42,14 @@ type SaveState =
 
 export function ProjectPage() {
   const { project: id = '' } = useParams();
+  const userId = useAuthStore((auth) => auth.user?.id ?? null);
+  // One page instance per account and project: a change of either starts afresh (and reloads),
+  // and nothing still pending from the old one can reach the new one.
+  const scope = `${userId ?? '-'}:${id}`;
+  return <ProjectView key={scope} id={id} scope={scope} />;
+}
+
+function ProjectView({ id, scope }: { id: string; scope: string }) {
   const [params, setParams] = useSearchParams();
   const user = useAuthStore((auth) => auth.user);
   const maintainer = user?.role === 'maintainer';
@@ -48,51 +59,65 @@ export function ProjectPage() {
   const notices = useSiteStore((site) => site.notices);
   const refreshSite = useSiteStore((site) => site.refresh);
 
-  const [loaded, setLoaded] = useState<Loaded>({ kind: 'loading' });
-  const [state, setStateRaw] = useState<ProjectState | null>(() => sessionEdits.get(id) ?? null);
+  const [loaded, setLoaded] = useState<Loaded>(() =>
+    sessionEdits.has(scope) ? { kind: 'ready' } : { kind: 'loading' },
+  );
+  const [state, setStateRaw] = useState<ProjectState | null>(() => sessionEdits.get(scope) ?? null);
   const setState = useCallback(
     (next: ProjectState | ((current: ProjectState) => ProjectState)) =>
       setStateRaw((current) => {
         if (!current) return current;
         const value = typeof next === 'function' ? next(current) : next;
-        sessionEdits.set(id, value);
+        sessionEdits.set(scope, value);
         return value;
       }),
-    [id],
+    [scope],
   );
   const [save, setSave] = useState<SaveState>({ kind: 'idle' });
 
+  // Completions land only on this page instance, and only from the latest load.
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  const loads = useRef(0);
+
   const load = useCallback(
     async (keepEdits: boolean) => {
+      const ticket = ++loads.current;
+      const latest = () => alive.current && ticket === loads.current;
       try {
         const project = await loadProject(id);
-        setStateRaw((current) => {
+        if (!latest()) return;
+        setStateRaw((held) => {
           const next =
-            keepEdits && current && isDirty(current)
-              ? rebase(current, project.config, project.revision)
+            keepEdits && held && isDirty(held)
+              ? rebase(held, project.config, project.revision)
               : fromConfig(project.config, project.revision);
-          sessionEdits.set(id, next);
+          sessionEdits.set(scope, next);
           return next;
         });
         setLoaded({ kind: 'ready' });
       } catch (error) {
-        setLoaded({
-          kind: 'error',
-          message: errorMessage(error),
-          status: error instanceof ExportsError ? error.status : undefined,
-        });
+        if (!latest()) return;
+        const status = error instanceof ExportsError ? error.status : undefined;
+        // Refused or gone: a cached draft must not stay editable.
+        if (status === 403 || status === 404) {
+          sessionEdits.delete(scope);
+          setStateRaw(null);
+        }
+        setLoaded({ kind: 'error', message: errorMessage(error), status });
       }
     },
-    [id],
+    [id, scope],
   );
   useEffect(() => {
-    const cached = sessionEdits.get(id);
-    setStateRaw(cached ?? null);
-    setSave({ kind: 'idle' });
-    setLoaded(cached ? { kind: 'ready' } : { kind: 'loading' });
     // A kept session edit is rebased on the stored config, so a stale base is found at once.
-    void load(Boolean(cached));
-  }, [id, load]);
+    void load(sessionEdits.has(scope));
+  }, [scope, load]);
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
@@ -117,8 +142,19 @@ export function ProjectPage() {
 
   const files = state?.config.files ?? [];
   const fileParam = params.get('file');
-  const file = files.find((candidate) => candidate.id === fileParam) ?? files[0];
+  // The URL names the file by id (none: the first file). When the named id is gone because the
+  // shown file was just renamed, the tab stays by the file's identity (fileKey).
+  const shownKey = useRef<string | null>(null);
+  const file =
+    fileParam === null
+      ? files[0]
+      : (files.find((candidate) => candidate.id === fileParam) ??
+        files.find((candidate) => fileKey(candidate) === shownKey.current) ??
+        files[0]);
   const key = file ? fileKey(file) : null;
+  useEffect(() => {
+    shownKey.current = key;
+  }, [key]);
   const view = narrow && params.get('view') === 'preview' ? 'preview' : 'config';
 
   const setParam = useCallback(
@@ -136,12 +172,8 @@ export function ProjectPage() {
   );
 
   // A renamed file keeps its tab: the URL follows the id.
-  const lastKey = useRef<string | null>(null);
   useEffect(() => {
-    if (!file) return;
-    if (lastKey.current === fileKey(file) && fileParam !== file.id && fileParam !== null)
-      setParam('file', file.id, true);
-    lastKey.current = fileKey(file);
+    if (file && fileParam !== null && fileParam !== file.id) setParam('file', file.id, true);
   }, [file, fileParam, setParam]);
 
   const pane = usePaneDivider({
@@ -166,15 +198,22 @@ export function ProjectPage() {
   const slots = files.length + (state?.config.retained?.length ?? 0);
   const canAdd = files.length < configLimits.files && slots < configLimits.urlSlots;
 
+  // The config is read-only while a save is on its way, so no edit can land between the request
+  // and its reply (the reply's config replaces the page's).
+  const saving = save.kind === 'saving';
   const onSave = async () => {
-    if (!state || !dirty || invalid) return;
+    if (!state || !dirty || invalid || saving) return;
     setSave({ kind: 'saving' });
     const outcome = await saveProject(id, state.revision, state.config).catch((error: unknown) => ({
       kind: 'refused' as const,
       message: errorMessage(error),
     }));
+    if (!alive.current) return;
     if (outcome.kind === 'saved') {
-      setState(fromConfig(outcome.config, outcome.revision));
+      setState((current) => ({
+        ...fromConfig(outcome.config, outcome.revision),
+        memory: current.memory,
+      }));
       setSave({ kind: 'saved' });
       void refreshSite();
       return;
@@ -182,6 +221,7 @@ export function ProjectPage() {
     if (outcome.kind === 'conflict') {
       // Reload the stored config and keep the edits on top; the person saves again.
       await load(true);
+      if (!alive.current) return;
       setSave({ kind: 'conflict', message: outcome.message });
       return;
     }
@@ -253,7 +293,7 @@ export function ProjectPage() {
         <button
           type="button"
           className={styles.addFile}
-          disabled={!canAdd}
+          disabled={!canAdd || saving}
           title={
             canAdd
               ? 'Add a file'
@@ -294,7 +334,14 @@ export function ProjectPage() {
   );
 
   const banner =
-    save.kind === 'conflict' ? (
+    loaded.kind === 'error' ? (
+      <p role="alert" className={styles.banner} data-tone="bad">
+        Cannot reload the project: {loaded.message}{' '}
+        <button type="button" className={styles.linkButton} onClick={() => void load(true)}>
+          Retry
+        </button>
+      </p>
+    ) : save.kind === 'conflict' ? (
       <p role="alert" className={styles.banner} data-tone="warn">
         Someone saved this project after you opened it. It is reloaded with your edits kept on top;
         check them and Save again.
@@ -334,7 +381,11 @@ export function ProjectPage() {
         onRemoved={() => setParam('file', null, true)}
       />
     ) : (
-      <EmptyProject canAdd={canAdd} onAdd={() => setState(addFile(state))} />
+      // Old URLs stay manageable with no file left (an expired one can free a slot).
+      <div className={styles.config}>
+        <EmptyProject canAdd={canAdd && !saving} onAdd={() => setState(addFile(state))} />
+        <RetainedSection state={state} maintainer={maintainer} projectId={id} update={setState} />
+      </div>
     );
   const preview =
     file && key ? (
@@ -375,6 +426,7 @@ export function ProjectPage() {
             role="tabpanel"
             aria-labelledby={file ? `file-tab-${key}` : undefined}
             className={styles.narrowBody}
+            {...inertWhile(saving && view === 'config')}
           >
             {view === 'config' ? config : preview}
           </div>
@@ -390,6 +442,7 @@ export function ProjectPage() {
             role="tabpanel"
             aria-labelledby={file ? `file-tab-${key}` : undefined}
             className={styles.configColumn}
+            {...inertWhile(saving)}
           >
             {config}
           </div>
@@ -405,6 +458,10 @@ export function ProjectPage() {
     </section>
   );
 }
+
+/** No input reaches the subtree (React 18 passes `inert` through as a plain attribute). */
+const inertWhile = (on: boolean) =>
+  (on ? { inert: '', 'aria-busy': true } : {}) as Record<string, unknown>;
 
 function EmptyProject({ canAdd, onAdd }: { canAdd: boolean; onAdd(): void }) {
   return (
