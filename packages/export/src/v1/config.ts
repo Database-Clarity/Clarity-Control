@@ -74,6 +74,8 @@ const linksRule = z.discriminatedUnion('mode', [
 ]);
 
 export const dataSchema = z.strictObject({
+  /** Add the built-in feature showcase under reserved id -1. Absent means off. */
+  includeShowcase: z.boolean().optional(),
   /** Item categories whose tooltips are included (generator category ids). */
   categories: uniqueList(categoryId, configLimits.categories),
   /** Item categories whose sandbox perks are included. */

@@ -2,6 +2,7 @@
 // Node: load the snapshot `/_build/status.json` names, verify every file's sha256, import the
 // snapshot's own engine (never the app's build), then build samples and whole files with it.
 // previewWorker.ts runs this in a Web Worker; full builds only ever run there.
+import { showcaseId } from '@clarity/core';
 import type * as EngineModule from '@clarity/export';
 import type { Catalog, ExportFile, LegacyInput } from '@clarity/export';
 import { snapshotNames, type BuildStatus } from './site';
@@ -255,6 +256,18 @@ export class Preview {
         return hash in entries
           ? { kind: 'entry', entry: entries[hash] }
           : { kind: 'absent', reason: absentReason(this.snapshot, file, hash) };
+      }
+      if (hash === showcaseId) {
+        if (!('data' in file) || !file.data.includeShowcase)
+          return { kind: 'absent', reason: 'Feature showcase is off' };
+        const plan = engine.compile(input, file, { catalog: { items: {}, categories: [] } });
+        const entry = plan.expanded?.[hash];
+        return entry
+          ? { kind: 'entry', entry }
+          : {
+              kind: 'absent',
+              reason: 'The pinned engine does not include the feature showcase yet',
+            };
       }
       if (!input.perks[hash]) return { kind: 'absent', reason: 'Not in the published data' };
       const items: Record<string, { categoryId: string } | undefined> = {};
