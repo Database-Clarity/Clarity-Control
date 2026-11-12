@@ -115,10 +115,13 @@ function tokenOccurrence(
       edits: [{ from, to, insert: inner }],
     },
   ];
-  if (retiredColours.includes(name)) fixes.push({
-    id: 'to-yellow', label: 'Change to yellow', structural: false,
-    edits: [{ from, to, insert: `<yellow ${inner} />` }],
-  });
+  if (retiredColours.includes(name))
+    fixes.push({
+      id: 'to-yellow',
+      label: 'Change to yellow',
+      structural: false,
+      edits: [{ from, to, insert: `<yellow ${inner} />` }],
+    });
   return {
     kind: 'wrapper',
     name,
@@ -194,13 +197,22 @@ function placementCandidates(source: string): RetiredOccurrence[] {
         if (item.kind === 'wrapper' || item.kind === 'marker') {
           // Delete only characters belonging to the token. Removed comments and supported
           // markers are absent from positions, so they cannot be consumed by an unwrap.
-          const compact = positions.slice(item.from, item.to).map((at) => source[at]).join('');
+          const compact = positions
+            .slice(item.from, item.to)
+            .map((at) => source[at])
+            .join('');
           const content = item.kind === 'wrapper' ? wrapper.exec(compact)?.[2] : undefined;
           if (item.kind === 'wrapper' && content === undefined) return [];
-          const contentAt = content === undefined ? -1
-            : compact.indexOf(content, compact.indexOf(item.name) + item.name.length);
-          const deleted = positions.slice(item.from, item.to).filter((_, index) =>
-            contentAt < 0 || index < contentAt || index >= contentAt + content!.length);
+          const contentAt =
+            content === undefined
+              ? -1
+              : compact.indexOf(content, compact.indexOf(item.name) + item.name.length);
+          const deleted = positions
+            .slice(item.from, item.to)
+            .filter(
+              (_, index) =>
+                contentAt < 0 || index < contentAt || index >= contentAt + content!.length,
+            );
           if (item.kind === 'marker') {
             const lineStart = from === 0 || source[from - 1] === '\n';
             const lineEnd = to === source.length || source[to] === '\n';
@@ -218,19 +230,28 @@ function placementCandidates(source: string): RetiredOccurrence[] {
         if (fix.id === 'rows-to-lines') {
           const block = source.slice(editFrom, editTo);
           const lines = block.split('\n');
-          const edits: RetiredEdit[] = [{ from: editFrom, to: editFrom + lines[0]!.length + 1, insert: '' }];
+          const edits: RetiredEdit[] = [
+            { from: editFrom, to: editFrom + lines[0]!.length + 1, insert: '' },
+          ];
           let at = editFrom + lines[0]!.length + 1;
           for (const row of lines.slice(1, -1)) {
             const next = tableRowToLine(row);
             let prefix = 0;
-            while (prefix < row.length && prefix < next.length && row[prefix] === next[prefix]) prefix++;
+            while (prefix < row.length && prefix < next.length && row[prefix] === next[prefix])
+              prefix++;
             let suffix = 0;
-            while (suffix < row.length - prefix && suffix < next.length - prefix
-              && row[row.length - 1 - suffix] === next[next.length - 1 - suffix]) suffix++;
-            if (row !== next) edits.push({
-              from: at + prefix, to: at + row.length - suffix,
-              insert: next.slice(prefix, next.length - suffix),
-            });
+            while (
+              suffix < row.length - prefix &&
+              suffix < next.length - prefix &&
+              row[row.length - 1 - suffix] === next[next.length - 1 - suffix]
+            )
+              suffix++;
+            if (row !== next)
+              edits.push({
+                from: at + prefix,
+                to: at + row.length - suffix,
+                insert: next.slice(prefix, next.length - suffix),
+              });
             at += row.length + 1;
           }
           edits.push({ from: at - 1, to: editTo, insert: '' });
@@ -241,8 +262,7 @@ function placementCandidates(source: string): RetiredOccurrence[] {
     }));
     found.push({ ...item, from, to, source: token });
   };
-  for (const item of tableOccurrences(text, text))
-    mapOccurrence(item);
+  for (const item of tableOccurrences(text, text)) mapOccurrence(item);
   let lineFrom = 0;
   for (const line of text.split('\n')) {
     let clean = line;
@@ -300,9 +320,16 @@ function stripRetired(value: unknown): unknown {
     const merged: unknown[] = [];
     for (const item of items) {
       const previous = merged.at(-1);
-      if (item && previous && typeof item === 'object' && typeof previous === 'object'
-          && 'text' in item && 'text' in previous
-          && typeof item.text === 'string' && typeof previous.text === 'string') {
+      if (
+        item &&
+        previous &&
+        typeof item === 'object' &&
+        typeof previous === 'object' &&
+        'text' in item &&
+        'text' in previous &&
+        typeof item.text === 'string' &&
+        typeof previous.text === 'string'
+      ) {
         const { text: currentText, ...attributes } = item;
         const { text: previousText, ...previousAttributes } = previous;
         if (JSON.stringify(attributes) === JSON.stringify(previousAttributes)) {
@@ -315,15 +342,19 @@ function stripRetired(value: unknown): unknown {
     return merged;
   }
   if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).flatMap(([key, item]) => {
-      if (key === 'classNames') {
-        const classes = ((item ?? []) as (string | undefined)[]).filter(
-          (name) => name && !retiredMarkers.includes(name),
-        );
-        return classes.length ? [[key, classes]] : [];
-      }
-      return item === undefined ? [] : [[key, stripRetired(item)]];
-    }));
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .flatMap(([key, item]) => {
+          if (key === 'classNames') {
+            const classes = ((item ?? []) as (string | undefined)[]).filter(
+              (name) => name && !retiredMarkers.includes(name),
+            );
+            return classes.length ? [[key, classes]] : [];
+          }
+          return item === undefined ? [] : [[key, stripRetired(item)]];
+        }),
+    );
   }
   return value;
 }
@@ -332,21 +363,28 @@ function stripRetired(value: unknown): unknown {
 function normalizedLines(lines: MarkupLine[]): unknown {
   return lines.flatMap((line) => {
     if (!line.table) return [stripRetired(line)];
-    return line.table.map((row) => ({
-      classNames: (line.classNames ?? []).filter((name) => name !== 'table'),
-      linesContent: (row.rowContent ?? []).flatMap((cell, index) => [
-        ...(index ? [{ text: ' | ' }] : []),
-        ...cell.cellContent.map((span) => ({
-          ...span,
-          classNames: [...(row.classNames ?? []), ...(cell.classNames ?? []), ...(span.classNames ?? [])],
-        })),
-      ]),
-    })).map(stripRetired);
+    return line.table
+      .map((row) => ({
+        classNames: (line.classNames ?? []).filter((name) => name !== 'table'),
+        linesContent: (row.rowContent ?? []).flatMap((cell, index) => [
+          ...(index ? [{ text: ' | ' }] : []),
+          ...cell.cellContent.map((span) => ({
+            ...span,
+            classNames: [
+              ...(row.classNames ?? []),
+              ...(cell.classNames ?? []),
+              ...(span.classNames ?? []),
+            ],
+          })),
+        ]),
+      }))
+      .map(stripRetired);
   });
 }
 
 function commentBytes(source: string): string[] {
-  return markupCommentContext(source).comments.sort((a, b) => a.from - b.from)
+  return markupCommentContext(source)
+    .comments.sort((a, b) => a.from - b.from)
     .map(({ from, to }) => source.slice(from, to));
 }
 
@@ -357,7 +395,11 @@ function supportedTokens(source: string): string[] {
     .map((match) => match[0]);
 }
 
-function verifyFix(source: string, occurrence: RetiredOccurrence, fix: RetiredFix): string | undefined {
+function verifyFix(
+  source: string,
+  occurrence: RetiredOccurrence,
+  fix: RetiredFix,
+): string | undefined {
   const next = applyRetiredEdits(source, fix.edits);
   if (JSON.stringify(commentBytes(source)) !== JSON.stringify(commentBytes(next)))
     return 'The edit would change a source comment.';
@@ -367,19 +409,30 @@ function verifyFix(source: string, occurrence: RetiredOccurrence, fix: RetiredFi
   const before = parseMarkup(source, { variables: '', titles: '', type }).lines;
   const after = parseMarkup(next, { variables: '', titles: '', type }).lines;
   const normalize = fix.structural ? normalizedLines : stripRetired;
-  if (JSON.stringify(stripRetired(normalize(before))) !== JSON.stringify(stripRetired(normalize(after))))
+  if (
+    JSON.stringify(stripRetired(normalize(before))) !==
+    JSON.stringify(stripRetired(normalize(after)))
+  )
     return 'The parser cannot confirm unchanged text and supported styles.';
-  if (next === source || parserNames(parseMarkup(next).lines).length >= parserNames(parseMarkup(source).lines).length
-      && occurrence.kind !== 'condition')
+  if (
+    next === source ||
+    (parserNames(parseMarkup(next).lines).length >= parserNames(parseMarkup(source).lines).length &&
+      occurrence.kind !== 'condition')
+  )
     return 'The edit does not remove a retired parser finding.';
   return undefined;
 }
 
 /** Locate a containing source block without using its syntax as the detection predicate. */
-function fallbackBlock(source: string, name: string, count: number): { from: number; to: number; source: string } {
+function fallbackBlock(
+  source: string,
+  name: string,
+  count: number,
+): { from: number; to: number; source: string } {
   const { text, offsets } = markupCommentContext(source);
   const tables = [...text.matchAll(/< table [\s\S]*?\n<\$>/g)].map((match) => ({
-    from: offsets[match.index!]!, to: offsets[match.index! + match[0].length - 1]! + 1,
+    from: offsets[match.index!]!,
+    to: offsets[match.index! + match[0].length - 1]! + 1,
   }));
   const blocks = [...tables];
   let at = 0;
@@ -390,11 +443,14 @@ function fallbackBlock(source: string, name: string, count: number): { from: num
   }
   // Removing the block must remove a real parser finding. This also locates local variable
   // declarations and title bodies without a second implementation of their expansion rules.
-  const block = blocks.find(({ from, to }) =>
-    parserNames(parseMarkup(source.slice(0, from) + source.slice(to)).lines)
-      .filter((value) => value === name).length < count,
-  ) ?? blocks.find(({ from, to }) => source.slice(from, to).includes(name)) ?? blocks[0]
-    ?? { from: 0, to: source.length };
+  const block = blocks.find(
+    ({ from, to }) =>
+      parserNames(parseMarkup(source.slice(0, from) + source.slice(to)).lines).filter(
+        (value) => value === name,
+      ).length < count,
+  ) ??
+    blocks.find(({ from, to }) => source.slice(from, to).includes(name)) ??
+    blocks[0] ?? { from: 0, to: source.length };
   return { ...block, source: source.slice(block.from, block.to) };
 }
 
@@ -405,16 +461,25 @@ export function findRetiredMarkup(source: string): RetiredOccurrence[] {
   const found: RetiredOccurrence[] = [];
   for (const name of names) {
     const count = names.filter((value) => value === name).length;
-    const index = candidates.findIndex((item) => item.name === name &&
-      parserNames(parseMarkup(source.slice(0, item.from) + source.slice(item.to)).lines)
-        .filter((value) => value === name).length < count);
+    const index = candidates.findIndex(
+      (item) =>
+        item.name === name &&
+        parserNames(parseMarkup(source.slice(0, item.from) + source.slice(item.to)).lines).filter(
+          (value) => value === name,
+        ).length < count,
+    );
     const candidate = index < 0 ? undefined : candidates.splice(index, 1)[0];
-    found.push(candidate ?? {
-      kind: name === 'table' ? 'table' : 'wrapper', name, token: noun(name),
-      ...fallbackBlock(source, name, count),
-      message: retired(noun(name), 'Fix by hand: an exact source token could not be mapped.'),
-      fixes: [], refusalReason: 'An exact source token could not be mapped.',
-    });
+    found.push(
+      candidate ?? {
+        kind: name === 'table' ? 'table' : 'wrapper',
+        name,
+        token: noun(name),
+        ...fallbackBlock(source, name, count),
+        message: retired(noun(name), 'Fix by hand: an exact source token could not be mapped.'),
+        fixes: [],
+        refusalReason: 'An exact source token could not be mapped.',
+      },
+    );
   }
   // Observe recognition in prepareMarkup itself: preceding condition removals can hide nested
   // blocks. Searching the raw source independently would incorrectly resurrect those blocks.
@@ -427,12 +492,26 @@ export function findRetiredMarkup(source: string): RetiredOccurrence[] {
     const openEnd = from + block.indexOf('\n');
     const closeFrom = from + block.lastIndexOf('\n');
     found.push({
-      kind: 'condition', name, token: `${name} ( … )`, source: source.slice(rangeFrom, end),
-      from: rangeFrom, to: end,
+      kind: 'condition',
+      name,
+      token: `${name} ( … )`,
+      source: source.slice(rangeFrom, end),
+      from: rangeFrom,
+      to: end,
       message: retired(`${name} ( … )`, 'Keep its contents, or fix by hand.'),
-      fixes: mapped ? [{ id: 'keep-contents', label: 'Keep contents', structural: true, edits: [
-        { from, to: openEnd + 1, insert: '' }, { from: closeFrom, to: end, insert: '' },
-      ] }] : [],
+      fixes: mapped
+        ? [
+            {
+              id: 'keep-contents',
+              label: 'Keep contents',
+              structural: true,
+              edits: [
+                { from, to: openEnd + 1, insert: '' },
+                { from: closeFrom, to: end, insert: '' },
+              ],
+            },
+          ]
+        : [],
     });
   });
   for (const occurrence of found) {
@@ -442,11 +521,13 @@ export function findRetiredMarkup(source: string): RetiredOccurrence[] {
       const blockEnd = Math.max(occurrence.to, ...fix.edits.map((edit) => edit.to));
       const newline = source.indexOf('\n', blockEnd);
       const blockTo = newline < 0 ? source.length : newline;
-      const refusal = fix.structural && markupCommentContext(source).comments.some(
-        (comment) => comment.from < blockTo && comment.to > blockFrom,
-      )
-        ? 'Blocks containing comments must be fixed by hand.'
-        : verifyFix(source, occurrence, fix);
+      const refusal =
+        fix.structural &&
+        markupCommentContext(source).comments.some(
+          (comment) => comment.from < blockTo && comment.to > blockFrom,
+        )
+          ? 'Blocks containing comments must be fixed by hand.'
+          : verifyFix(source, occurrence, fix);
       if (refusal) {
         reason = refusal;
         (occurrence.manualFixes ??= []).push({ label: fix.label, reason: refusal });

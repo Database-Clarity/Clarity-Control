@@ -5,7 +5,6 @@ import {
   unfinishedBaseEnhanced,
   markupCommentContext,
   describeGlobalClash,
-  findElementTags,
   findGlobalNameClashes,
   globalTitlesHash,
   globalVariablesHash,
@@ -33,14 +32,6 @@ export interface TooltipValidationIssue extends ValidationIssue {
 }
 
 export const emptyEnglishMessage = 'English text must not be empty.';
-
-/**
- * Save hold for element-tagged text until both exporters lower it: today's apps would show only
- * the icon and drop the text. The Worker refuses the same spans (apps/worker/src/elementTags.ts).
- */
-export function elementTagMessage(tag: string, lowered: string): string {
-  return `Element-tagged text "${tag}" can't be saved yet: apps would show only the icon. Write "${lowered}" for now.`;
-}
 
 export interface ValidationReads {
   lang: Lang;
@@ -99,14 +90,6 @@ export function validateText(
   }
   if (requireEnglish && lang === 'en' && !text.trim()) {
     add('error', emptyEnglishMessage);
-  }
-  for (const tag of findElementTags(text)) {
-    issues.push({
-      severity: 'error',
-      message: elementTagMessage(text.slice(tag.from, tag.to), `<${tag.element}/>${tag.text}`),
-      from: tag.from,
-      to: tag.to,
-    });
   }
   for (const diagnostic of parseMarkup(text, globals).diagnostics) {
     if (diagnostic.message === baseEnhancedMessage && text.includes('{{')) {

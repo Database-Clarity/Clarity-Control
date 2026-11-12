@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  elementTagMessage,
-  validateText,
-  validateTextWithReads,
-  validateTooltip,
-} from './index.js';
+import { validateText, validateTextWithReads, validateTooltip } from './index.js';
 import { reservedMarkerMessage } from '../markup/parse.js';
 
 const globals = {
@@ -180,57 +175,24 @@ describe('recorded validation reads', () => {
   });
 });
 
-describe('element-tagged text save hold', () => {
-  it('blocks each tagged span with its range and the text to write for now', () => {
-    const text = 'Gain <solar Scorch /> and <void Void Breach />.';
-    expect(validateText(text, 'en', globals)).toEqual([
-      {
-        severity: 'error',
-        message: elementTagMessage('<solar Scorch />', '<solar/>Scorch'),
-        from: 5,
-        to: 21,
-      },
-      {
-        severity: 'error',
-        message: elementTagMessage('<void Void Breach />', '<void/>Void Breach'),
-        from: 26,
-        to: 46,
-      },
-    ]);
-    expect(elementTagMessage('<solar Scorch />', '<solar/>Scorch')).toBe(
-      `Element-tagged text "<solar Scorch />" can't be saved yet: apps would show only the icon. Write "<solar/>Scorch" for now.`,
-    );
+describe('element-tagged text (hold lifted: every exporter lowers it)', () => {
+  it('tagged spans in any language, in titles and translations, validate clean', () => {
+    for (const [text, lang] of [
+      ['Gain <solar Scorch /> and <void Void Breach />.', 'en'],
+      [['title T (', '<arc Jolt />', ')'].join(String.fromCharCode(10)), 'en'],
+      ['<stasis Langsam />', 'de'],
+      ['Gain <solar/>Scorch and <solar /> stacks.', 'en'],
+    ] as const)
+      expect(validateText(text, lang, globals)).toEqual([]);
   });
-  it('blocks tagged spans in titles and translations, and leaves lowered text alone', () => {
-    expect(validateText('title T (\n<arc Jolt />\n)', 'en', globals)).toMatchObject([
-      { severity: 'error', from: 10, to: 22 },
-    ]);
-    expect(validateText('<stasis Langsam />', 'de', globals)).toMatchObject([
-      { severity: 'error' },
-    ]);
-    expect(validateText('Gain <solar/>Scorch and <solar /> stacks.', 'en', globals)).toEqual([]);
-  });
-  it('does not block a wrapper that only preparation assembles (it renders as today)', () => {
-    for (const text of [
-      'var open = <solar\n#open Scorch />',
-      '<so\rlar Scorch />',
-      '<so/* comment */lar Scorch />',
-      '<so<pve/>lar Scorch />',
-    ])
-      expect(
-        validateText(text, 'en', globals).filter(({ severity }) => severity === 'error'),
-      ).toEqual([]);
-  });
-  it('stays blocking in an edited language through validateTooltip', () => {
+  it('validateTooltip passes an edited language holding a tag', () => {
     const revision = { updatedAt: '2026-01-01T00:00:00.000Z', updatedBy: 'a' };
     const next = {
       hash: 10,
       text: { en: { ...revision, text: 'Gain <solar Scorch />.' } },
       associated: [],
     } as never;
-    expect(validateTooltip(next, () => globals, null)).toMatchObject([
-      { severity: 'error', lang: 'en', hash: 10 },
-    ]);
+    expect(validateTooltip(next, () => globals, null)).toEqual([]);
   });
 });
 
