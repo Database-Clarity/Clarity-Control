@@ -31,7 +31,8 @@ describe('report client', () => {
     ];
     const fetch = vi.fn(async () => answers.shift()!);
     vi.stubGlobal('fetch', fetch);
-    const { submitReport, uploadScreenshot, ReportApiError, waitText } = await import('./reports');
+    const { submitReport, uploadScreenshot } = await import('./reportAccount');
+    const { ReportApiError, waitText } = await import('./reports');
     const payload = {} as Parameters<typeof submitReport>[0];
     const limited = await submitReport(payload).catch((e: unknown) => e);
     expect(limited).toBeInstanceOf(ReportApiError);
@@ -63,7 +64,8 @@ describe('report client', () => {
       .mockResolvedValueOnce(json({ id: 'r-aaaaaaaa', status: 'withdrawn' }))
       .mockResolvedValueOnce(json([]));
     vi.stubGlobal('fetch', fetch);
-    const { submitReport, withdrawReport, publicAnchors } = await import('./reports');
+    const { submitReport, withdrawReport } = await import('./reportAccount');
+    const { publicAnchors } = await import('./reports');
     await expect(submitReport({} as Parameters<typeof submitReport>[0])).rejects.toMatchObject({
       status: 0,
     });
