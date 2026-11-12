@@ -11,6 +11,11 @@ test('the fixture is the one the hashes were taken from', () => {
   expect(identical).toEqual(['3001', '3002', '17188254']);
 });
 
+// The fixture's set bonuses carry the legacy type name, the decided cut-over exception (see
+// set-bonus.test.ts); with that one rename undone, every byte is the held converter's.
 test.each(legacyPresets)('%s matches the held converter byte for byte', (preset) => {
-  expect(sha256(buildLegacy(input, preset, { identical }))).toBe(expected.fixture.files[preset]);
+  const text = new TextDecoder().decode(buildLegacy(input, preset, { identical }));
+  expect(sha256(text.replaceAll('"Armor Set Bonus"', '"armor-set-bonus"'))).toBe(
+    expected.fixture.files[preset],
+  );
 });

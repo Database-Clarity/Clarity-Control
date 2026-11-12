@@ -305,6 +305,44 @@ describe('pins and the legacy job', () => {
     expect(readJson(harness.show('export-pins', `pins/${first.liveCommit}.json`))).toEqual(first);
   }, 180_000);
 
+  it('a set bonus with Bungie sandbox perk text is left out like other Bungie-identical text', async () => {
+    harness = new Harness();
+    await harness.seed({
+      input: fixtureText(),
+      projects: { alpha: project('alpha', [legacyFile('dim', 'alpha00002', 'dim')]) },
+    });
+    // Real set bonuses are no inventory items: their Bungie text is in the sandbox perk table.
+    const setBonus = '17188254';
+    const noItem = (manifest: Record<string, Record<string, unknown>>) => {
+      delete manifest.inventoryItem[setBonus];
+    };
+    const files = () => ({
+      dim: readJson(harness.show('live', 'descriptions/dim.json')),
+      crayon: readJson(harness.show('live', 'descriptions/crayon.json')),
+    });
+    expectOk(harness.legacyRun({ runId: '600', editManifest: noItem }));
+    expect(files().dim).toHaveProperty(setBonus);
+    expectOk(
+      harness.legacyRun({
+        runId: '600',
+        attempt: '2',
+        manifest: 'changed',
+        editManifest: (manifest) => {
+          noItem(manifest);
+          manifest.sandboxPerk = {
+            [setBonus]: { displayProperties: { description: 'Same as Bungie.' } },
+          };
+        },
+      }),
+    );
+    const { dim, crayon } = files();
+    expect(dim).not.toHaveProperty(setBonus);
+    expect(dim).toHaveProperty('17188252');
+    expect(dim).not.toHaveProperty('17188253');
+    // crayon keeps Bungie-identical entries; set bonuses carry the legacy type name.
+    expect(crayon[setBonus]).toMatchObject({ hash: 17188254, type: 'Armor Set Bonus' });
+  }, 180_000);
+
   it('reverse-order legacy runs never restore older files or versions.json', async () => {
     harness = new Harness();
     await harness.seed({ input: fixtureText() });

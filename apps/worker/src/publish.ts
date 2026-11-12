@@ -1,4 +1,5 @@
 import { refuseBaseEnhanced } from './baseEnhanced.js';
+import { refuseHeldSetBonuses } from './setBonusHold.js';
 import { loadAliases } from './catalog.js';
 import { z } from 'zod';
 import {
@@ -133,6 +134,9 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
     if (checkedHead !== snapshot.head) {
       aliases ??= await loadAliases(github.env, github);
       const checked = await refuseBaseEnhanced(github, snapshot.head, value.hashes, aliases);
+      refuseHeldSetBonuses(
+        value.hashes.flatMap((hash) => checked.get(resolveAlias(hash, aliases!)) ?? []),
+      );
       for (const hash of value.hashes) {
         const tooltip = checked.get(resolveAlias(hash, aliases));
         if (tooltip && isTextlessDescription(tooltip))

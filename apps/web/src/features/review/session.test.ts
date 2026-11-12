@@ -131,9 +131,16 @@ it('saved overlay expires after the TTL so newer edits by others show up, and ha
   expect(expired).toBe(bundle);
 });
 
-it.each(['plain', 'wrapped', 'partial'])(
-  'shows the server converter refusal and preserves pending native text (%s)',
-  async (kind) => {
+// The Worker's pre-write refusals: native base/enhanced markup, and set bonuses held until cut-over.
+const refusals = [
+  'Base/enhanced markup needs the new converter; it can be pushed after cut-over',
+  'Set bonuses need the new converter; they can be pushed after cut-over',
+];
+it.each(
+  ['plain', 'wrapped', 'partial'].flatMap((kind) => refusals.map((reason) => ({ kind, reason }))),
+)(
+  'shows the server converter refusal and preserves pending native text ($kind: $reason)',
+  async ({ kind, reason }) => {
     const saved = make('{{10}{20}}');
     const data: EditorData = {
       items: {
@@ -150,7 +157,6 @@ it.each(['plain', 'wrapped', 'partial'])(
       },
     };
     useDataStore.setState({ status: 'ready', data, error: null });
-    const reason = 'Base/enhanced markup needs the new converter; it can be pushed after cut-over';
     const message =
       kind === 'plain'
         ? reason

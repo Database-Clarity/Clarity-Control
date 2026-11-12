@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   stableStringify,
   baseEnhancedPublishMessage,
+  setBonusHoldMessage,
   publishIntentDigest,
   publishableHash,
   classifyPublishIntent,
@@ -582,46 +583,133 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       ).toMatchObject({ status: conflict ? 'conflict' : 'duplicate' });
     },
   );
-  it('plain-node dry-run CLI emits artifacts and never changes its input refs', async () => {
+  it('pinned runtime accepts additive partners and rejects invalid permissions without source writes', async () => {
     const f = await setup();
-    f.change(D, {
-      'tooltips/123.json': {
-        ...f.tooltip,
-        custom: { name: 'Set bonus', categoryId: 'armor-set-bonus' },
-        compendium: {
-          gid: '1287885342',
-          rowKey: 'set-bonus',
-          snapshot: { plain: 'Set bonus', runs: [{ text: 'Set bonus' }] },
-          snapshotAt: '2026-11-03T00:00:00Z',
-          setBonusPieces: 2,
-        },
+    const users = { '1': { login: 'alice', role: 'editor' } };
+    const partner = { login: 'bob', projects: ['dim', 'clarity'] };
+    const cases = [
+      { permissions: { users }, valid: true },
+      { permissions: { users, partners: {} }, valid: true },
+      { permissions: { users, partners: { '2': partner } }, valid: true },
+      { permissions: { users: {}, partners: { '2': partner } }, valid: true },
+      { permissions: { users, partners: { '02': partner } }, valid: false },
+      { permissions: { users, partners: { '2': { ...partner, projects: [] } } }, valid: false },
+      {
+        permissions: { users, partners: { '2': { ...partner, projects: ['dim', 'dim'] } } },
+        valid: false,
       },
-    });
-    const currentTooltip = f.pub.read<Tooltip>(f.git.tree(f.git.head(D)!), 'tooltips/123.json')!;
-    await f.request(A, [123], { 123: await publishableHash(currentTooltip, f.options.aliases) });
-    const before = f.git.git(['show-ref']);
-    const root = mkdtempSync(join(tmpdir(), 'publisher-cli-'));
+      {
+        permissions: { users, partners: { '2': { ...partner, projects: ['../dim'] } } },
+        valid: false,
+      },
+      { permissions: { users, partners: { '2': { ...partner, login: '' } } }, valid: false },
+      { permissions: { users, partners: { '2': { ...partner, role: 'editor' } } }, valid: false },
+      { permissions: { users, extra: true }, valid: false },
+      { permissions: { users: { '1': { login: 'alice', role: 'partner' } } }, valid: false },
+    ];
+    const root = mkdtempSync(join(tmpdir(), 'publisher-permissions-cli-'));
     roots.push(root);
-    writeFileSync(join(root, 'config.json'), JSON.stringify(f.options));
-    execFileSync(process.execPath, ['scripts/publisher/build.mjs'], { stdio: 'pipe' });
-    for (const runtime of [
-      'scripts/publisher/dist/publisher.mjs',
-      'scripts/publisher/template/.publisher/publisher.mjs',
-    ]) {
-      execFileSync(
-        process.execPath,
-        [runtime, '--dry-run', f.upstream, join(root, 'config.json'), join(root, 'out')],
-        { stdio: 'pipe' },
-      );
+    const config = join(root, 'config.json');
+    writeFileSync(config, JSON.stringify(f.options));
+    for (const [index, { permissions, valid }] of cases.entries()) {
+      f.change(D, { 'config/permissions.json': permissions });
+      const before = f.git.git(['show-ref']);
+      const out = join(root, `case-${index}`);
+      const run = () =>
+        execFileSync(
+          process.execPath,
+          [
+            'scripts/publisher/template/.publisher/publisher.mjs',
+            '--dry-run',
+            f.upstream,
+            config,
+            out,
+          ],
+          { stdio: 'pipe' },
+        );
+      if (valid) expect(run).not.toThrow();
+      else expect(run).toThrow();
+      const result = JSON.parse(readFileSync(join(out, 'result.json'), 'utf8'));
+      expect(result).toMatchObject({ dryRun: true, writesEnabled: false });
+      if (valid) expect(result.error).toBeNull();
+      else {
+        expect(JSON.parse(result.error)).toEqual(
+          expect.arrayContaining([expect.objectContaining({ code: expect.any(String) })]),
+        );
+      }
       expect(f.git.git(['show-ref'])).toBe(before);
-      expect(JSON.parse(readFileSync(join(root, 'out', 'result.json'), 'utf8'))).toMatchObject({
-        dryRun: true,
-        writesEnabled: false,
-        error: null,
-      });
-      expect(readFileSync(join(root, 'out', 'would-be-commits.bundle')).length).toBeGreaterThan(0);
     }
   });
+  it.each(['set-bonus', 'link-only'] as const)(
+    'plain-node dry-run CLI emits artifacts and never changes its input refs (%s)',
+    async (kind) => {
+      const f = await setup();
+      if (kind === 'set-bonus') f.options.facts[123].type = 'armor-set-bonus';
+      f.change(D, {
+        'tooltips/123.json': {
+          ...f.tooltip,
+          custom: { name: 'Set bonus', categoryId: 'armor-set-bonus' },
+          compendium: {
+            gid: '1287885342',
+            rowKey: 'set-bonus',
+            snapshot: { plain: 'Set bonus', runs: [{ text: 'Set bonus' }] },
+            snapshotAt: '2026-11-03T00:00:00Z',
+            setBonusPieces: 2,
+          },
+        },
+      });
+      if (kind === 'link-only') f.change(D, { 'tooltips/123.json': { ...f.tooltip, text: {} } });
+      const currentTooltip = f.pub.read<Tooltip>(f.git.tree(f.git.head(D)!), 'tooltips/123.json')!;
+      await f.request(A, [123], { 123: await publishableHash(currentTooltip, f.options.aliases) });
+      const before = f.git.git(['show-ref']);
+      const root = mkdtempSync(join(tmpdir(), 'publisher-cli-'));
+      roots.push(root);
+      writeFileSync(join(root, 'config.json'), JSON.stringify(f.options));
+      execFileSync(process.execPath, ['scripts/publisher/build.mjs'], { stdio: 'pipe' });
+      for (const runtime of [
+        'scripts/publisher/dist/publisher.mjs',
+        'scripts/publisher/template/.publisher/publisher.mjs',
+      ]) {
+        execFileSync(
+          process.execPath,
+          [runtime, '--dry-run', f.upstream, join(root, 'config.json'), join(root, 'out')],
+          { stdio: 'pipe' },
+        );
+        expect(f.git.git(['show-ref'])).toBe(before);
+        expect(JSON.parse(readFileSync(join(root, 'out', 'result.json'), 'utf8'))).toMatchObject({
+          dryRun: true,
+          writesEnabled: false,
+          error: null,
+        });
+        expect(readFileSync(join(root, 'out', 'would-be-commits.bundle')).length).toBeGreaterThan(
+          0,
+        );
+        const result = JSON.parse(readFileSync(join(root, 'out', 'result.json'), 'utf8'));
+        expect(result.liveHead).toBe(f.git.head(L));
+        const replay = join(root, runtime.includes('/dist/') ? 'dist.git' : 'template.git');
+        execFileSync(
+          'git',
+          ['clone', '--mirror', join(root, 'out', 'would-be-commits.bundle'), replay],
+          {
+            stdio: 'pipe',
+          },
+        );
+        const readResult = (path: string) =>
+          JSON.parse(
+            execFileSync('git', ['--git-dir', replay, 'show', `${result.dataHead}:${path}`], {
+              encoding: 'utf8',
+            }),
+          );
+        expect(readResult(paths(A).log)).toMatchObject({
+          result: {
+            status: 'rejected',
+            error: kind === 'set-bonus' ? setBonusHoldMessage : 'Tooltip has no text to publish',
+          },
+        });
+        expect(readResult('live/pushed.json')).toEqual({});
+      }
+    },
+  );
   it('exhausted unresolved publication blocks later work and resumes the exact candidate', async () => {
     const f = await setup();
     await f.request();
@@ -1021,10 +1109,10 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
   );
   it('fixed-now golden matches guarded pushLive byte for byte and pushed map', async () => {
     // Retain the afa1e8e stamp oracle; re-pin push.ts for its reviewed native refusal
-    // and budget checks, plus the link-only empty-description guard. The written,
-    // pair-free golden still matches byte for byte; empty refusals are tested above.
+    // and budget checks, the link-only empty-description guard, and the set-bonus hold.
+    // The written, pair-free golden still matches byte for byte; empty refusals are tested above.
     for (const [path, expected] of [
-      ['apps/worker/src/push.ts', 'f5502397f99a89f254f7bab1c14066d4eb66b4a9'],
+      ['apps/worker/src/push.ts', 'e180a24fadc74f8979d94dcab9ec2867b417569d'],
       ['apps/worker/src/stamp.ts', 'debdbefc1657c970f27b1304e4c8ea509c54b4a1'],
     ]) {
       const content = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');

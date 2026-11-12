@@ -4,7 +4,12 @@ import frozen from './fixtures/frozen-matcher.json';
 import { guidedFixture } from '../../../test/guided-fixture';
 import { guidedDecisions } from './guidedDecisions';
 import { proposalFor } from './rapidReview';
-import { classifyItem, attachmentCategory, effectCategory } from './itemClassification';
+import {
+  classifyItem,
+  attachmentCategory,
+  effectCategory,
+  describesEffect,
+} from './itemClassification';
 import { approvedExoticStat } from './ownerExceptions';
 import type { EditorData } from '../../stores/data';
 
@@ -54,7 +59,11 @@ it('links frozen armor disagreements while rejecting set-conversion selectors', 
       const catalogItem = f.editor.items[item.hash];
       const classification = classifyItem(catalogItem);
       if (classification) {
-        expect(classification).toMatchObject({ categoryId: attachmentCategory, excluded: true });
+        const effect = describesEffect(catalogItem.inGameDescription);
+        expect(classification).toMatchObject({
+          categoryId: effect ? effectCategory : attachmentCategory,
+          excluded: !effect,
+        });
         expect(
           classifyItem(catalogItem, {
             ...entry.base,
@@ -64,12 +73,12 @@ it('links frozen armor disagreements while rejecting set-conversion selectors', 
       }
 
       expect(decision, item.name).toMatchObject({
-        action: 'link',
+        action: 'out-of-scope',
         confidence: 'out-of-scope',
         ruleId: 'manifest-weapon-stat',
-        link: item.parentExpected,
       });
-      expect(decision.reason).toContain('no tooltip needed');
+      expect(decision.link, item.name).toBeUndefined();
+      expect(decision.reason).toContain('weapon row is not its text');
       // Same name/parent on another hash does not inherit this owner exception.
       entry.hash = 99;
       record.hashes = [99];

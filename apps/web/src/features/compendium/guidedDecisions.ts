@@ -97,7 +97,7 @@ function exoticParentLink(
   // Generic barrels/guards/ornaments can be catalogued as exotic perks.
   // Their parent alone does not establish a standalone perk identity.
   const eligible =
-    category === 'catalog:weapon-perk-exotic' && !approvedExoticStat(entry, category)
+    category === 'catalog:weapon-perk-exotic'
       ? parentCards.filter(({ row }) =>
           compendiumIdentifiers(row.name)
             .map(normaliseCompendiumName)
@@ -236,25 +236,29 @@ export function* guidedDecisionSteps(
         };
       const scopeRule = classifyScope(entry, record.id);
       if (scopeRule) {
-        const link =
-          compatible && approvedExoticStat(entry, record.id)
-            ? exoticParentLink(entry, record.id, proposals.get(hash), source)
-            : undefined;
+        const exoticPart = approvedExoticStat(entry, record.id);
         return {
           ...result,
-          action: link ? 'link' : 'out-of-scope',
+          action: 'out-of-scope',
           confidence: 'out-of-scope',
-          link: link || undefined,
           ruleId: scopeRule,
-          reason: ['artifact-sunset', 'artifact-source-absent'].includes(scopeRule)
-            ? 'not in a current artifact'
-            : entry.classification?.excluded
-              ? entry.classification.reason
-              : `Out of scope: ${scopeRule}; no tooltip needed.${link ? ' Owner-approved exotic parent link.' : ''}`,
+          reason: exoticPart
+            ? 'Exotic part: weapon row is not its text; no tooltip needed.'
+            : ['artifact-sunset', 'artifact-source-absent'].includes(scopeRule)
+              ? 'not in a current artifact'
+              : entry.classification?.excluded
+                ? entry.classification.reason
+                : `Out of scope: ${scopeRule}; no tooltip needed.`,
         };
       }
       if (!compatible)
         return { ...result, reason: 'Scope or baseline differs; proposal withheld.' };
+      if (approvedExoticStat(entry, record.id))
+        return {
+          ...result,
+          ruleId: 'exotic-part-no-weapon-row',
+          reason: 'Exotic part: weapon row is not its text; review its own tooltip source.',
+        };
       const classification = entry.classification;
       if (
         classification &&
