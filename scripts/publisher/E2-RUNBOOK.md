@@ -17,13 +17,14 @@ config throws "Remote publishing disabled by config", and a hand-edited publishe
 
 ## Install dry-run pipeline (root operator in E2)
 
-Template source PIN: `a11aa9692419f565e02dde609e1f374d29b57343`.
-Expected publisher.mjs SHA-256: `45a203a0d307d4d87a3fcd7a5550830f9190030f1b9f549a0735c298ce829b8b`.
+Template source PIN: `72b85e52d8a8505b8cfa5b2176e72ea084a70d13`.
+Expected publisher.mjs SHA-256: `97b26bc88a9bc389e93c53a1885685ab7a1d7284cab2e257b85f93f4e98cefae`.
 Verify both against `.publisher/PIN` before installation; this v2 runtime includes the current
 set-bonus, name-relink, category, alias-group, and optional export-partner schemas. Rebuild from
 the pinned source in a clean checkout to reproduce the digest. A future source change requires
 rebuilding and re-pinning.
 The runtime also includes the current Link only guards and the set-bonus publication hold.
+Its bundle pushes carry the report catalogs forward; the pipeline's report-items jobs refresh them.
 
 1. Record current editor-data, editor-data-bundle and converter-v2-test SHAs. Verify Actions
    contents:write permission; forward-only/no-delete data/live rules; candidate ref permissions.
