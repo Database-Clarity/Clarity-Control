@@ -144,7 +144,7 @@ export const numbers = (text) =>
   new Set(
     (
       text
-        .replace(/\[[#A-Za-z_][^\]]*\]/g, '')
+        .replace(/(<(?:title|link)\s+[^<>\n]*?)\s*\[[^\]]*\](\s*\/>)/g, '$1$2')
         .replace(/#[A-Za-z][A-Za-z0-9]*/g, '')
         .match(/\d+(?:\.\d+)?/g) ?? []
     ).map((n) => String(Number(n))),

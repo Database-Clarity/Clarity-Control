@@ -41,6 +41,7 @@ const item = {
 };
 it('compares complete number tokens and never borrows class-item values from the base exotic', () => {
   expect([...numbers('12% 1.25x <title refill [G_100] /> #Chunk2')]).toEqual(['12', '1.25']);
+  expect([...numbers('x10 [x5] Slow Stacks')]).toEqual(['10', '5']);
   expect(validateDraft(item, 'Grants 2% damage.', editor, app)).toContain('Unsupported number: 2');
   expect(validateDraft(item, 'Grants 99% damage.', editor, app)).toContain(
     'Unsupported number: 99',
