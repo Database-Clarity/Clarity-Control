@@ -58,3 +58,29 @@ it('equality, deletion catch-up, TTL, and later local saves retire or replace en
   const expired = bundle('other');
   expect(applySavedOverlay(expired, at + overlayClockSkewMs * 2 + overlayTtlMs + 1)).toBe(expired);
 });
+
+it('keeps edits and deletions when the browser is two minutes slow and the bundle predates the save', () => {
+  const browserSavedAt = at - 2 * 60 * 1000;
+  const beforeSave = {
+    ...bundle('old', at - 30 * 1000),
+    tooltips: { 10: tooltip('old'), 11: { ...tooltip('deleted old'), hash: 11 } },
+  };
+  rememberSaved([tooltip('mine')], [11], browserSavedAt);
+  const result = applySavedOverlay(beforeSave, browserSavedAt + 1000);
+  expect(result.tooltips[10]).toEqual(tooltip('mine'));
+  expect(result.tooltips[11]).toBeUndefined();
+  expect(beforeSave.tooltips[11]).toBeDefined();
+  const atBoundary = {
+    ...beforeSave,
+    generatedAt: new Date(browserSavedAt + overlayClockSkewMs).toISOString(),
+  };
+  expect(applySavedOverlay(atBoundary, browserSavedAt + 2000).tooltips[10]).toEqual(
+    tooltip('mine'),
+  );
+  expect(applySavedOverlay(atBoundary, browserSavedAt + 2000).tooltips[11]).toBeUndefined();
+  const beyondBoundary = {
+    ...beforeSave,
+    generatedAt: new Date(browserSavedAt + overlayClockSkewMs + 1).toISOString(),
+  };
+  expect(applySavedOverlay(beyondBoundary, browserSavedAt + 3000)).toBe(beyondBoundary);
+});

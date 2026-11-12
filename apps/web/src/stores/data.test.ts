@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDataStore } from './data';
-import { clearSavedOverlay, rememberSaved } from './savedOverlay';
+import { clearSavedOverlay, overlayClockSkewMs, rememberSaved } from './savedOverlay';
 import { loadBundle } from '../services/bundle';
 import { loadGenerator } from '../services/generator';
 
@@ -97,7 +97,7 @@ describe('editor data loading', () => {
     expect(useDataStore.getState().data?.bundle.tooltips[10]).toEqual(tooltip('mine'));
     vi.mocked(loadBundle).mockResolvedValue({
       ...stale,
-      generatedAt: new Date(Date.now() + 61000).toISOString(),
+      generatedAt: new Date(Date.now() + overlayClockSkewMs + 1).toISOString(),
       tooltips: { 10: tooltip('theirs') },
     });
     await useDataStore.getState().load();

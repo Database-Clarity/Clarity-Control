@@ -8,8 +8,10 @@ import type { Bundle } from '../services/bundle';
  * than the TTL, so newer edits by other people still show up. A full page reload clears it.
  */
 export const overlayTtlMs = 15 * 60 * 1000;
-// Allow one minute for browser/CI clock differences before trusting bundle chronology.
-export const overlayClockSkewMs = 60 * 1000;
+// Allow five minutes for browser/CI clock differences before trusting bundle chronology.
+// This remains a heuristic: larger clock skew or delayed builds of older commits can retire
+// entries too early. Server-provided save times are a follow-up once the save pipeline settles.
+export const overlayClockSkewMs = 5 * 60 * 1000;
 type Entry = { at: number; tooltip: Tooltip | null }; // null = deleted
 const entries = new Map<number, Entry>();
 
