@@ -100,17 +100,14 @@ export function ScaleControl({
  * select shows just its value, at a fixed width): building and styling them all made opening
  * Settings the slowest part of the popover. Pressing it fills the list before the picker opens.
  */
-function ZoneSelect({
-  value,
-  zones,
-  onChange,
-}: {
-  value: string;
-  zones: string[];
-  onChange: (zone: string) => void;
-}) {
+function ZoneSelect({ value, onChange }: { value: string; onChange: (zone: string) => void }) {
   const [listed, setListed] = useState(false);
-  const shown = listed ? zones : zones.filter((zone) => zone === value);
+  // The browser's list is read only once listed: its first read is itself a few milliseconds.
+  const shown = useMemo(() => {
+    if (!listed) return value === 'auto' || value === 'UTC' ? [] : [value];
+    const zones = timeZones();
+    return value === 'auto' || value === 'UTC' || zones.includes(value) ? zones : [value, ...zones];
+  }, [listed, value]);
   return (
     <select
       value={value}
@@ -134,7 +131,6 @@ function ZoneSelect({
 export function SettingsContent() {
   const state = useSettingsStore();
   const { settings, device, update, updateDevice, remember, retry, resetPaneWidths } = state;
-  const zones = useMemo(timeZones, []);
   const [panesReset, setPanesReset] = useState(false);
   // The size setting only does something where the touch sizes apply.
   const touch = useMedia(touchQuery);
@@ -182,10 +178,6 @@ export function SettingsContent() {
     observer.observe(page);
     return () => observer.disconnect();
   });
-  const zoneOptions =
-    settings.timeZone === 'auto' || settings.timeZone === 'UTC' || zones.includes(settings.timeZone)
-      ? zones
-      : [settings.timeZone, ...zones];
   const select = <K extends keyof SyncedSettings>(key: K, values: readonly SyncedSettings[K][]) => (
     <select
       value={settings[key]}
@@ -228,11 +220,7 @@ export function SettingsContent() {
         </label>
         <label>
           Time zone
-          <ZoneSelect
-            value={settings.timeZone}
-            zones={zoneOptions}
-            onChange={(timeZone) => update({ timeZone })}
-          />
+          <ZoneSelect value={settings.timeZone} onChange={(timeZone) => update({ timeZone })} />
         </label>
         <p className={styles.example}>
           Example: {formatDate(example, settings)}

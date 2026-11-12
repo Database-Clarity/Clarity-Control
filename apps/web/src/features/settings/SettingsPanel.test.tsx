@@ -260,6 +260,8 @@ describe('Settings popover', () => {
     const dialog = popover()!;
     expect(dialog.getAttribute('aria-modal')).toBe('true');
     expect(dialog.contains(document.activeElement)).toBe(true);
+    // The page behind goes inert once the popover has painted (a frame later).
+    await act(() => new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0))));
     expect(layoutInert()).toBe(true);
     const items = [...dialog.querySelectorAll<HTMLElement>('button, select')];
     items.at(-1)!.focus();
