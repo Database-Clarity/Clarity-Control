@@ -62,7 +62,7 @@ const QueueRow = memo(function QueueRow({
       <a
         href={`${href}?hash=${hash}`}
         data-review-hash={hash}
-        title={`${entry.name} · ${hash}${entry.unpublishable ? ' · unpublishable: no generator entry' : ''}`}
+        title={`${entry.name} · ${hash}${entry.unpublishable ? ` · ${entry.unpublishable}` : ''}`}
         aria-label={`${entry.name} ${hash}`}
         aria-current={current ? 'page' : undefined}
       >

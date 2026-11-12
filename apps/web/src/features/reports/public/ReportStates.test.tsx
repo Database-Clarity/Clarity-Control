@@ -35,6 +35,19 @@ vi.mock('./turnstile', () => ({ mountHumanCheck: (...args: unknown[]) => mount(.
 let root: Root;
 let host: HTMLElement;
 const flush = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+/**
+ * Waits until the form shows what the next step needs. Loading the tooltip ends with a SHA-256
+ * digest (`displayRevision`) that Node runs on its thread pool, so it is not done after any fixed
+ * number of timer turns: under load it can land after them. Wait for the DOM instead.
+ */
+async function until(ready: () => boolean, what: string) {
+  const deadline = Date.now() + 2000;
+  while (!ready()) {
+    if (Date.now() > deadline) throw new Error(`The form never showed ${what}`);
+    await flush();
+  }
+}
+const tooltipShown = () => host.querySelector('[data-line]') !== null;
 
 beforeEach(() => {
   vi.resetModules();
@@ -85,8 +98,7 @@ async function renderForm(entry: string) {
     { initialEntries: [entry] },
   );
   await act(async () => root.render(<RouterProvider router={router} />));
-  await flush();
-  await flush();
+  await until(tooltipShown, 'the tooltip');
   return router;
 }
 
@@ -132,9 +144,7 @@ describe('report form states', () => {
     });
     expect(draftOf().notes[0].mark).toEqual({ start: 0, end: 16 });
     await act(async () => router.navigate('/report/100?lang=de'));
-    await flush();
-    await flush();
-    expect(host.textContent).toContain('Deutsche Zeile');
+    await until(() => host.textContent!.includes('Deutsche Zeile'), 'the German tooltip');
     expect(draftOf()).toMatchObject({ lang: 'de' });
     expect(draftOf().notes[0]).toMatchObject({ mark: null, remark: 'English line one' });
   });
@@ -145,8 +155,7 @@ describe('report form states', () => {
     await markFirstLine();
     await typeInto(host.querySelector('textarea')!, 'Wrong number.');
     await act(async () => router.navigate('/report/100?lang=de'));
-    await flush();
-    await flush();
+    await until(() => host.textContent!.includes('Deutsche Zeile'), 'the German tooltip');
     await markFirstLine();
     expect(draftOf().notes).toHaveLength(1);
     expect(draftOf().notes[0]).toMatchObject({
@@ -176,8 +185,7 @@ describe('report form states', () => {
     await flush();
     await act(async () => router.navigate('/report'));
     await act(async () => router.navigate('/report/100?lang=en'));
-    await flush();
-    await flush();
+    await until(() => tooltipShown() && host.querySelector('textarea') !== null, 'the kept note');
     await typeInto(host.querySelector('textarea')!, 'A newer, unsent version.');
     await act(async () => answer(json({ id: 'r-abcdefgh', status: 'open' })));
     await flush();

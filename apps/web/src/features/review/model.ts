@@ -1,5 +1,6 @@
 import { isTextlessDescription, resolveAlias, type Tooltip } from '@clarity/core';
 import { fingerprintDigests, prepareFingerprintWorker } from './fingerprints';
+import { heldSetBonus } from './setBonusHold';
 import { useReviewQueue } from './queueStore';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useAuthStore } from '../../stores/auth';
@@ -138,6 +139,7 @@ async function computePending(
       ...(!item && !tooltip.custom
         ? { unpublishable: 'No generator entry for this tooltip, so it cannot be pushed.' }
         : {}),
+      ...heldSetBonus(categoryId),
     };
   });
   return entries

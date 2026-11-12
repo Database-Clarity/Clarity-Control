@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { publishableHash, type Tooltip } from '@clarity/core';
+import { publishableHash, setBonusHoldMessage, type Tooltip } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import {
   canPush,
@@ -89,6 +89,34 @@ describe('unpublishable rows', () => {
     const all = new Set([123, 777, 888]);
     expect(selectedPending(all, entries).sort()).toEqual([123, 888]);
     expect(publishableHashes(entries).sort()).toEqual([123, 888]);
+  });
+  it('holds set bonuses until cut-over: listed, with the reason, never selected', async () => {
+    const generator = { ...tooltip, hash: 900 };
+    const custom = {
+      ...tooltip,
+      hash: 901,
+      custom: { name: 'Example Set (2 pc): Bonus', categoryId: 'armor-set-bonus' },
+    } as Tooltip;
+    const state = data([tooltip, generator, custom]);
+    state.items[900] = {
+      hash: 900,
+      name: 'Example Set (4 pc): Bonus',
+      categoryId: 'armor-set-bonus',
+      icon: '',
+      inGameDescription: '',
+    };
+    const entries = await pendingTooltips(state);
+    const reasons = Object.fromEntries(
+      entries.map((entry) => [entry.tooltip.hash, entry.unpublishable]),
+    );
+    expect(reasons).toEqual({
+      123: undefined,
+      900: `${setBonusHoldMessage}.`,
+      901: `${setBonusHoldMessage}.`,
+    });
+    const all = new Set([123, 900, 901]);
+    expect(selectedPending(all, entries)).toEqual([123]);
+    expect(publishableHashes(entries)).toEqual([123]);
   });
 });
 

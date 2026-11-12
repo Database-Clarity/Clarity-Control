@@ -1,6 +1,7 @@
 import { converterSettings, expandAliases, type IntermediatePerks } from './converter/index.js';
 import { customJsonStringify } from './converter/helpers.js';
 import { databaseConverter } from './converter/publisher.js';
+import { isSetBonusPerk, withSetBonusType } from './setBonus.js';
 
 /** The eight held presets, in the order the held converter builds them. */
 export const legacyPresets = [
@@ -29,6 +30,12 @@ export type InventoryItems = Record<
   { displayProperties?: { description?: string } } | undefined
 >;
 
+/**
+ * Bungie's sandbox perks (`DestinySandboxPerkDefinition`), only the description is read. A set bonus
+ * is keyed by its sandbox perk hash, so its Bungie text is here, not in the inventory items.
+ */
+export type SandboxPerks = InventoryItems;
+
 export type LegacyOptions = {
   /**
    * Hashes whose English text equals Bungie's own description (see `bungieIdentical`). Presets that
@@ -48,22 +55,33 @@ const isLegacyPreset = (preset: string): preset is LegacyPreset =>
 /**
  * The hashes whose English text (after trimming) equals Bungie's description for that hash, the
  * same test the held publisher made against the manifest. An alias is tested with the text of the
- * tooltip it points at and its own hash's Bungie description.
+ * tooltip it points at and its own hash's Bungie description. A set bonus is also tested with its
+ * sandbox perk's description when `sandboxPerk` is given (set bonuses have no inventory item).
  */
-export function bungieIdentical(input: LegacyInput, inventoryItem: InventoryItems): string[] {
+export function bungieIdentical(
+  input: LegacyInput,
+  inventoryItem: InventoryItems,
+  sandboxPerk?: SandboxPerks,
+): string[] {
   const lookup = expandAliases(input.perks);
   const hashes: string[] = [];
   for (const hash of Object.keys(input.perks)) {
     const perk = lookup[hash];
     if (perk === undefined) continue;
     const english = perk.editor.en?.main.trim() || '';
-    if (english === inventoryItem[hash]?.displayProperties?.description) hashes.push(hash);
+    if (
+      english === inventoryItem[hash]?.displayProperties?.description ||
+      (isSetBonusPerk(perk) && english === sandboxPerk?.[hash]?.displayProperties?.description)
+    ) {
+      hashes.push(hash);
+    }
   }
   return hashes;
 }
 
 /**
- * Builds one legacy file and returns its bytes (UTF-8), exactly as the held converter wrote it.
+ * Builds one legacy file and returns its bytes (UTF-8), exactly as the held converter wrote it,
+ * except that set bonuses have the legacy type name `Armor Set Bonus` (see setBonus.ts).
  * Throws if the preset is unknown or the input is invalid for it (bad references, missing imports).
  */
 export function buildLegacy(
@@ -73,7 +91,7 @@ export function buildLegacy(
 ): Uint8Array {
   if (!isLegacyPreset(preset)) throw new Error(`Unknown legacy preset: ${String(preset)}`);
   const identical = new Set([...(options.identical ?? [])].map(String));
-  const output = databaseConverter(preset, input.perks, identical);
+  const output = databaseConverter(preset, withSetBonusType(input.perks), identical);
   const text = customJsonStringify(output, ['stat', 'multiplier', 'weaponTypes', 'classNames']);
   return encoder.encode(text);
 }

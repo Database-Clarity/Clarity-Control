@@ -8039,10 +8039,10 @@ var error20 = () => {
         if (_issue.format === "regex")
           return `\u05D4\u05DE\u05D7\u05E8\u05D5\u05D6\u05EA \u05D7\u05D9\u05D9\u05D1\u05EA \u05DC\u05D4\u05EA\u05D0\u05D9\u05DD \u05DC\u05EA\u05D1\u05E0\u05D9\u05EA ${_issue.pattern}`;
         const nounEntry = FormatDictionary[_issue.format];
-        const noun = nounEntry?.label ?? _issue.format;
+        const noun2 = nounEntry?.label ?? _issue.format;
         const gender = nounEntry?.gender ?? "m";
         const adjective = gender === "f" ? "\u05EA\u05E7\u05D9\u05E0\u05D4" : "\u05EA\u05E7\u05D9\u05DF";
-        return `${noun} \u05DC\u05D0 ${adjective}`;
+        return `${noun2} \u05DC\u05D0 ${adjective}`;
       }
       case "not_multiple_of":
         return `\u05DE\u05E1\u05E4\u05E8 \u05DC\u05D0 \u05EA\u05E7\u05D9\u05DF: \u05D7\u05D9\u05D9\u05D1 \u05DC\u05D4\u05D9\u05D5\u05EA \u05DE\u05DB\u05E4\u05DC\u05D4 \u05E9\u05DC ${issue2.divisor}`;
@@ -20117,12 +20117,30 @@ var permissionsSchema = external_exports.object({
       role: external_exports.enum(["maintainer", "editor", "trial", "translator"]),
       languages: external_exports.array(langSchema).optional()
     }).strict()
-  )
+  ),
+  /**
+   * Export partners (spec section 4): numeric GitHub id -> the export projects that account may
+   * edit. Optional and additive, so files without it parse as before. A user listed only here
+   * has the `partner` role: read-only, published data only, and nothing in `users` grants it.
+   */
+  partners: external_exports.record(
+    external_exports.string().regex(/^[1-9]\d*$/),
+    external_exports.object({
+      login: external_exports.string().min(1).max(39),
+      projects: external_exports.array(external_exports.string().regex(/^[a-z][a-z0-9-]{1,31}$/)).min(1).max(40).refine((list) => new Set(list).size === list.length, "Duplicate project")
+    }).strict()
+  ).optional()
 }).strict();
 var pushedSchema = external_exports.record(
   external_exports.string().regex(/^(0|[1-9]\d*)$/).refine((value2) => Number(value2) <= 4294967295),
   external_exports.string().regex(/^[0-9a-f]{64}$/)
 );
+function hasTooltipText(tooltip) {
+  return Object.values(tooltip.text).some((entry) => entry?.text.trim());
+}
+function isTextlessDescription(tooltip) {
+  return tooltip.hash > 3 && !hasTooltipText(tooltip);
+}
 
 // packages/core/src/contentHash.ts
 function stableStringify(value2) {
@@ -20170,173 +20188,48 @@ function incomingAliases(hash2, aliases) {
 }
 
 // packages/core/src/markup/baseEnhanced.ts
+var enhancedMarkupType = "Weapon Trait Enhanced";
+var baseEnhancedMessage = "Use {{base}{enhanced}} with two nonempty inline arms on one line; pairs cannot nest.";
 var baseEnhancedPublishMessage = "Base/enhanced markup needs the new converter; it can be pushed after cut-over";
-
-// packages/core/src/exportLegacy.ts
-function exportFacts(facts) {
-  if (!facts) return {};
-  return {
-    name: facts.name,
-    type: facts.type,
-    ...facts.itemHash === void 0 ? {} : { itemHash: facts.itemHash },
-    ...facts.itemName === void 0 ? {} : { itemName: facts.itemName }
-  };
-}
-var translationMaxAge = 90 * 24 * 60 * 60 * 1e3;
-function usesEnglishFallback(tooltip, language) {
-  const english = tooltip.text.en;
-  const translation = tooltip.text[language];
-  return Boolean(
-    language !== "en" && english && english.text.trim() !== "" && translation && translation.sourceUpdatedAt !== void 0 && Date.parse(english.updatedAt) - Date.parse(translation.sourceUpdatedAt) > translationMaxAge
-  );
-}
-function isLegacyAliasStub(entry) {
-  return "aliasOf" in entry;
-}
-function exportLegacy(tooltips, now, catalog, aliases = {}) {
-  if (!Number.isFinite(now) || now < 0 || !Number.isInteger(now)) {
-    throw new TypeError("now must be nonnegative integer epoch milliseconds");
-  }
-  const entries = {};
-  const canonical = {};
-  for (const input2 of tooltips) {
-    const tooltip = tooltipSchema.parse(input2);
-    if (Object.values(tooltip.text).some((translation) => translation?.text.includes("{{"))) {
-      throw new Error(baseEnhancedPublishMessage);
-    }
-    if (resolveAlias(tooltip.hash, aliases) !== tooltip.hash) {
-      throw new Error(`Alias ${tooltip.hash} cannot have its own tooltip`);
-    }
-    if (canonical[tooltip.hash]) throw new Error(`Duplicate tooltip hash: ${tooltip.hash}`);
-    const english = tooltip.text.en;
-    const editor = {};
-    const descriptions = {
-      ...tooltip.legacy?.updateTracker?.descriptions
+function scanBaseEnhanced(text, allowEmpty = false) {
+  const pairs = [];
+  const issues = [];
+  let cursor = 0;
+  while (cursor < text.length) {
+    const from = text.indexOf("{{", cursor);
+    if (from < 0) break;
+    let pos = from + 2;
+    const arm = () => {
+      const begin = pos;
+      while (pos < text.length && text[pos] !== "}" && !/[\r\n]/.test(text[pos])) {
+        if (text.startsWith("{{", pos)) return null;
+        if (text[pos] === "{") {
+          if (text[pos - 1] !== "$") return null;
+          const end2 = text.indexOf("}", pos);
+          if (end2 < 0 || /[{}\r\n]/.test(text.slice(pos + 1, end2))) return null;
+          pos = end2 + 1;
+        } else pos++;
+      }
+      const value2 = text.slice(begin, pos);
+      return allowEmpty || value2.trim() ? value2 : null;
     };
-    for (const language of languages) {
-      const translation = tooltip.text[language];
-      if (!translation) continue;
-      const exported = usesEnglishFallback(tooltip, language) && english ? english : translation;
-      editor[language] = { main: exported.text, secondary: exported.text };
-      const old = tooltip.legacy?.updateTracker?.descriptions[language];
-      descriptions[language] = {
-        lastUpdate: Date.parse(exported.updatedAt),
-        ...exported.updatedBy !== "" || old?.updatedBy !== void 0 ? { updatedBy: exported.updatedBy } : {}
-      };
+    const base = arm();
+    if (base !== null && text.slice(pos, pos + 2) === "}{") {
+      pos += 2;
+      const enhanced = arm();
+      if (enhanced !== null && text.slice(pos, pos + 2) === "}}") {
+        cursor = pos + 2;
+        pairs.push({ from, to: cursor, base, enhanced });
+        continue;
+      }
     }
-    const facts = catalog?.[tooltip.hash] ?? (tooltip.custom ? { name: tooltip.custom.name, type: tooltip.custom.categoryId } : void 0);
-    if (catalog && !facts) throw new Error(`Missing manifest facts for tooltip ${tooltip.hash}`);
-    const associated = [
-      ...new Set(tooltip.associated.map((hash2) => resolveAlias(hash2, aliases)))
-    ].filter((hash2) => hash2 !== tooltip.hash);
-    canonical[tooltip.hash] = entries[tooltip.hash] = {
-      ...tooltip.legacy,
-      ...exportFacts(facts),
-      hash: tooltip.hash,
-      ...associated.length ? { associated } : {},
-      editor,
-      uploadedBy: tooltip.legacy?.uploadedBy ?? "",
-      lastUpload: tooltip.legacy?.lastUpload ?? now,
-      inLiveDatabase: tooltip.legacy?.inLiveDatabase ?? false,
-      uploadToLive: tooltip.legacy?.uploadToLive ?? false,
-      updateTracker: { ...tooltip.legacy?.updateTracker, descriptions }
-    };
+    const end = text.indexOf("\n", from);
+    cursor = end < 0 ? text.length : end + 1;
+    issues.push({ from, to: end < 0 ? text.length : end });
   }
-  for (const [alias, { kind }] of Object.entries(aliases)) {
-    const target = resolveAlias(Number(alias), aliases);
-    if (!canonical[target]) continue;
-    const facts = catalog?.[alias];
-    if (catalog && kind === "frame" && !facts) {
-      throw new Error(`Missing manifest facts for frame alias ${alias}`);
-    }
-    entries[alias] = {
-      hash: Number(alias),
-      aliasOf: target,
-      aliasKind: kind,
-      ...exportFacts(facts)
-    };
-  }
-  return entries;
+  return { pairs, issues };
 }
-
-// packages/core/src/publishableHash.ts
-async function publishableHash(tooltip, aliases = {}) {
-  const parsed = tooltipSchema.parse(tooltip);
-  const english = parsed.text.en;
-  const incoming = incomingAliases(parsed.hash, aliases);
-  const fallback = Object.keys(parsed.text).filter(
-    (language) => usesEnglishFallback(parsed, language)
-  );
-  const bytes = new TextEncoder().encode(
-    stableStringify({
-      text: Object.fromEntries(
-        Object.entries(parsed.text).map(([language, value2]) => [
-          language,
-          fallback.includes(language) && english ? english.text : value2.text
-        ])
-      ),
-      associated: parsed.associated,
-      custom: parsed.custom,
-      ...fallback.length ? { fallback: fallback.sort() } : {},
-      ...incoming.length ? { aliases: incoming } : {}
-    })
-  );
-  const digest2 = await globalThis.crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest2), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-// packages/core/src/publishRequest.ts
-var publishOpIdSchema = external_exports.string().regex(/^[0-7][0-9A-HJKMNP-TV-Z]{25}$/);
-var digest = external_exports.string().regex(/^[0-9a-f]{64}$/);
-var hashKey = external_exports.string().regex(/^(0|[1-9]\d*)$/).refine((s) => Number(s) <= 4294967295);
-var publishBodySchema = external_exports.object({
-  opId: publishOpIdSchema,
-  hashes: external_exports.array(hashSchema).min(1).max(3e3).refine((a) => new Set(a).size === a.length),
-  expected: external_exports.record(hashKey, digest)
-}).strict().superRefine((v, ctx) => {
-  if (Object.keys(v.expected).length !== v.hashes.length || v.hashes.some((h) => !v.expected[h]))
-    ctx.addIssue({ code: "custom", message: "Exactly one expected digest per hash is required" });
-});
-var publishPayloadSchema = external_exports.object({
-  ...publishBodySchema.shape,
-  kind: external_exports.literal("push"),
-  repo: external_exports.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
-  dataBranch: external_exports.string().min(1),
-  liveBranch: external_exports.string().min(1),
-  requester: external_exports.object({
-    id: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-    login: external_exports.string().min(1)
-  }).strict(),
-  createdAt: external_exports.string().datetime(),
-  intentDigest: digest
-}).strict().superRefine((v, ctx) => {
-  if (!publishBodySchema.safeParse({ opId: v.opId, hashes: v.hashes, expected: v.expected }).success)
-    ctx.addIssue({ code: "custom", message: "Invalid publish intent" });
-});
-async function publishIntentDigest(value2) {
-  const bytes = new TextEncoder().encode(
-    stableStringify({
-      opId: value2.opId,
-      kind: value2.kind,
-      repo: value2.repo,
-      dataBranch: value2.dataBranch,
-      liveBranch: value2.liveBranch,
-      requester: { id: value2.requester.id },
-      hashes: [...value2.hashes].sort((a, b) => a - b),
-      expected: value2.expected
-    })
-  );
-  return Array.from(
-    new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
-    (b) => b.toString(16).padStart(2, "0")
-  ).join("");
-}
-function publishMonth(opId) {
-  publishOpIdSchema.parse(opId);
-  const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-  const time3 = [...opId.slice(0, 10)].reduce((n, c) => n * 32 + alphabet.indexOf(c), 0);
-  return new Date(time3).toISOString().slice(0, 7);
-}
+var unfinishedBaseEnhanced = (text) => scanBaseEnhanced(text).issues;
 
 // packages/core/src/markup/syntax.ts
 var markupColors = ["blue", "green", "purple", "yellow", "center", "bold", "pve", "pvp"];
@@ -20363,6 +20256,577 @@ var markupLineClasses = [...markupColors, ...markupEmpty];
 var markupRetiredColors = ["blue", "green", "purple"];
 var markupRetiredLineStyles = ["center", "breakSpaces", "background"];
 var markupRetired = [...markupRetiredColors, ...markupRetiredLineStyles];
+var markupTableClasses = [
+  "background_1",
+  "background_2",
+  "centerTable",
+  "formula",
+  "wide"
+];
+function extractVariables(text) {
+  return Object.fromEntries(
+    [...text.matchAll(/^var ([a-zA-Z0-9]+) = (.+)$/gm)].map((match) => [
+      match[1],
+      match[2].trim() === "empty" ? "" : match[2].trim()
+    ])
+  );
+}
+function extractBlocks(text, kind) {
+  const pattern = kind === "title" ? /^title [A-z0-9 ]+ \([^]*?\n\)$/gm : /^export [A-z0-9 ]+ \([\s\S]*?\n\)$/gm;
+  return Object.fromEntries(
+    [...text.matchAll(pattern)].map(([block]) => {
+      const lines = block.split("\n");
+      const name = lines[0].replace(kind === "title" ? /title|\(.*/gi : /export|hidden|\(.*/gi, "").trim();
+      return [name, lines.slice(1, -1).join("\n")];
+    })
+  );
+}
+
+// packages/core/src/markup/weaponHeadings.ts
+var legacyNames = {
+  ar: "Auto Rifle",
+  bow: "Combat Bow",
+  fusion: "Fusion Rifle",
+  gl: "Grenade Launcher",
+  hc: "Hand Cannon",
+  "heavy gl": "Heavy Grenade Launcher",
+  lfr: "Linear Fusion Rifle",
+  lmg: "Machine Gun",
+  pulse: "Pulse Rifle",
+  rocket: "Rocket Launcher",
+  scout: "Scout Rifle",
+  smg: "Submachine Gun",
+  sniper: "Sniper Rifle",
+  trace: "Trace Rifle"
+};
+function weaponSectionHeadings(text) {
+  return text.replace(/\r/g, "").split("\n").map((line) => {
+    const header = line.match(/^\s*<weapons(?:\s+(.*?))?\s*>\s*$/i) ?? line.match(/^\s*<\s*(?:weapon type\s*)?\((.*?)\)\s*>\s*$/);
+    if (header) {
+      const label = (header[1] || "Weapons").split(",").map((name) => {
+        const clean = name.trim();
+        return clean.toLowerCase() === "other" ? "Other weapons" : Object.hasOwn(legacyNames, clean.toLowerCase()) ? legacyNames[clean.toLowerCase()] : clean;
+      }).join(", ");
+      return `<bold ${label} />`;
+    }
+    if (/^\s*(<\/weapons\s*>|<\$\$>)\s*$/i.test(line)) return "";
+    return line;
+  }).join("\n");
+}
+
+// packages/core/src/markup/lines.ts
+var inlineToken = /<.+?\/>/;
+function lineClasses(line, allowed2, offsets) {
+  const classNames = allowed2.filter((name) => line.includes(`<${name}/>`));
+  let cleanLine = line;
+  for (const name of classNames) {
+    const marker2 = `<${name}/>`;
+    const index = cleanLine.indexOf(marker2);
+    if (index !== -1) {
+      cleanLine = cleanLine.slice(0, index) + cleanLine.slice(index + marker2.length);
+      offsets?.splice(index, marker2.length);
+    }
+  }
+  return {
+    classNames,
+    cleanLine
+  };
+}
+function markupStrayTags(text) {
+  const stray = [];
+  for (const line of weaponSectionHeadings(text).split("\n")) {
+    if (line.startsWith("< table ") || line.startsWith("<$>")) continue;
+    for (const segment of line.split(new RegExp(`(${inlineToken.source})`, "g"))) {
+      const tags = segment.match(/<\w+/g) ?? [];
+      const isToken = new RegExp(`^${inlineToken.source}$`).test(segment);
+      if (tags.length > (isToken ? 1 : 0)) stray.push(tags[0]);
+    }
+  }
+  return stray;
+}
+function spans(line, titles) {
+  return line.split(new RegExp(`(${inlineToken.source}|\u{1F845})`, "g")).filter(Boolean).flatMap((text) => {
+    if (text === "\u{1F845}") return [{ text, classNames: ["enhancedArrow"] }];
+    const wrapper2 = text.match(/<\w+/)?.[0].slice(1);
+    if (wrapper2 === void 0) return [{ text }];
+    if ([...markupColors, "background", "bold"].includes(wrapper2)) {
+      return [
+        { text: text.replace(new RegExp(`<${wrapper2} | />`, "g"), ""), classNames: [wrapper2] }
+      ];
+    }
+    if ([...markupIcons, ...markupEmpty].includes(wrapper2)) return [{ classNames: [wrapper2] }];
+    const target = text.match(/\[.+\]/)?.[0].replace(/\[|\]/g, "");
+    const label = text.replace(/ \[.+\] \/>/g, "");
+    if (!target || !label) return [];
+    if (wrapper2 === "link")
+      return [{ text: label.replace("<link ", ""), link: target, classNames: ["link"] }];
+    if (wrapper2 === "title")
+      return [
+        { text: label.replace("<title ", ""), title: titles[target], classNames: ["title"] }
+      ];
+    return [];
+  });
+}
+function tableRow(line, titles) {
+  const { classNames, cleanLine } = lineClasses(line, markupEmpty);
+  return {
+    classNames,
+    rowContent: (cleanLine.match(/\|.*?((?=\|)|$)/g) ?? []).map((cell) => {
+      const span = cell.match(/\|([bchr\d-]+)?/)?.[0].match(/-\d|\d/g);
+      const colSpan = span?.filter((value2) => Number(value2) > 0)[0];
+      const rowSpan = span?.filter((value2) => Number(value2) < 0)[0];
+      const classes = {
+        b: "bold",
+        c: "center",
+        h: "background",
+        r: "right"
+      };
+      return {
+        colSpan: colSpan ? Number(colSpan) : void 0,
+        rowSpan: rowSpan ? -Number(rowSpan) : void 0,
+        classNames: cell.match(/\|[bchr\d-]+/)?.[0].split("").filter((char) => classes[char]).map((char) => classes[char]),
+        cellContent: spans(cell.replace(/\|[bchr\d-]+|\|/, "").trim(), titles).flatMap((part) => {
+          if (!part.text?.trim() && !part.classNames?.some((name) => typeof name === "string"))
+            return [];
+          return [{ text: part.text, classNames: part.classNames, title: part.title }];
+        })
+      };
+    })
+  };
+}
+function parseLines(text, titles) {
+  const blocks = weaponSectionHeadings(text).match(/(< table [^]+?\n<\$>\n?)|(.+\n?|\n)/g) ?? [];
+  return blocks.flatMap((block) => {
+    block = block.trimEnd();
+    if (block.startsWith("< table ")) {
+      const rows = block.split("\n");
+      if (rows.length < 3) return [];
+      const names = rows[0].replace(/< table | >/g, "").match(/(\w+)/g)?.filter((name) => markupTableClasses.includes(name));
+      return [
+        {
+          table: rows.slice(1, -1).map((row) => tableRow(row, titles)),
+          classNames: [...names ?? [], "table"],
+          isFormula: names?.includes("formula")
+        }
+      ];
+    }
+    if (!block.trim()) return [{ classNames: ["spacer"] }];
+    const { classNames, cleanLine } = lineClasses(block, markupLineClasses);
+    return [
+      {
+        classNames,
+        linesContent: spans(
+          block.includes("<breakSpaces/>") ? cleanLine.trimEnd() : cleanLine.trim(),
+          titles
+        )
+      }
+    ];
+  });
+}
+
+// packages/core/src/markup/arithmetic.ts
+function evaluateMarkupMath(text) {
+  return text.replace(/\${.+?}/g, (expression) => {
+    const source = expression.match(
+      /(-?\d+(\.\d+)?)(\s{0,9}[+\-/*]\s{0,9}(-?\d+(\.\d+)?)){0,99}/
+    )?.[0];
+    if (!source) return expression;
+    const tokens = source.match(/-?\d+(?:\.\d+)?|[+*/-]/g) ?? [];
+    let index = 0;
+    function number4() {
+      return Number(tokens[index++]);
+    }
+    function product() {
+      let value3 = number4();
+      while (tokens[index] === "*" || tokens[index] === "/") {
+        const operator = tokens[index++];
+        const right = number4();
+        value3 = operator === "*" ? value3 * right : value3 / right;
+      }
+      return value3;
+    }
+    let value2 = product();
+    while (index < tokens.length) {
+      const operator = tokens[index];
+      if (operator.startsWith("-") && operator.length > 1) value2 += product();
+      else {
+        index++;
+        const right = product();
+        value2 = operator === "+" ? value2 + right : value2 - right;
+      }
+    }
+    if (!Number.isFinite(value2)) return String(value2);
+    const [coefficient, exponent = "0"] = String(value2).split("e");
+    const shifted = Math.round(Number(`${coefficient}e${Number(exponent) + 2}`));
+    const [rounded, roundedExponent = "0"] = String(shifted).split("e");
+    return String(Number(`${rounded}e${Number(roundedExponent) - 2}`));
+  });
+}
+
+// packages/core/src/markup/prepare.ts
+function markupVariableReferences(text) {
+  return text.match(/#[a-zA-Z0-9]+/g) ?? [];
+}
+function markupImports(text) {
+  return [
+    ...text.match(/^import [A-z0-9 ]+? from (\d+|global) *?$/gm) ?? [],
+    ...text.match(/^import self *?$/gm) ?? []
+  ];
+}
+var markupConditions = [
+  ["enhanced", enhancedMarkupType],
+  ["catalyst", "Weapon Catalyst Exotic"],
+  ["exotic perk", "Weapon Perk Exotic"]
+];
+function markupConditionMatches(text, keyword) {
+  return [...text.matchAll(new RegExp(`^${keyword} \\([\\s\\S]*?\\n\\)$`, "gm"))];
+}
+var markupCommentPatterns = [/\/\*[^]*\*\/\n?/g, /^ *?\/\/.*$\n?| +\/\/.*$/gm];
+function markupCommentContext(text) {
+  let offsets = Array.from({ length: text.length }, (_, index) => index);
+  const comments = [];
+  for (const [index, pattern] of [/\r/g, ...markupCommentPatterns].entries()) {
+    let remaining = "";
+    let remainingOffsets = [];
+    let last = 0;
+    for (const match of text.matchAll(pattern)) {
+      remaining += text.slice(last, match.index);
+      remainingOffsets = remainingOffsets.concat(offsets.slice(last, match.index));
+      if (index > 0) {
+        comments.push({
+          from: offsets[match.index],
+          to: offsets[match.index + match[0].length - 1] + 1
+        });
+      }
+      last = match.index + match[0].length;
+    }
+    remaining += text.slice(last);
+    remainingOffsets = remainingOffsets.concat(offsets.slice(last));
+    text = remaining;
+    offsets = remainingOffsets;
+  }
+  return { text, offsets, comments };
+}
+function removeMarkupComments(text) {
+  return text.replace(/\r/g, "").replace(markupCommentPatterns[0], "").replace(markupCommentPatterns[1], "");
+}
+var unusedMarkup = {
+  hidden: /^export hidden .* \([^]*?\n\)$/gm,
+  exportOpen: /^export .* \( *$\n/gm,
+  enhancedOpen: /^enhanced \($\n/gm,
+  titles: /\n?^title .+ \([^]*?\n\)$/gm,
+  close: /\n^\) *$/gm,
+  variables: /^var .* = .+$\n?/gm,
+  blanks: /\n\n\n+/gm
+};
+function normalizeMarkupWhitespace(text) {
+  return text.replace(unusedMarkup.blanks, "\n\n").trim();
+}
+function removeUnusedText(text, removeTitles = true) {
+  text = removeMarkupComments(text).replace(unusedMarkup.hidden, "").replace(unusedMarkup.exportOpen, "").replace(unusedMarkup.enhancedOpen, "");
+  if (removeTitles) {
+    text = text.replace(unusedMarkup.titles, "").replace(unusedMarkup.close, "");
+  }
+  return normalizeMarkupWhitespace(text.replace(unusedMarkup.variables, ""));
+}
+function resolveImports(text, globals, diagnostics) {
+  for (let pass = 0; pass < 5; pass++) {
+    const imports = markupImports(text);
+    if (!imports.length) return text;
+    for (const line of imports) {
+      const visible = removeUnusedText(text, false).includes(line.trim());
+      if (line.includes("import self")) {
+        if (visible)
+          diagnostics.push({
+            severity: "error",
+            message: "import self requires the removed secondary editor."
+          });
+        text = text.replace(line, "");
+        continue;
+      }
+      const name = line.match(/(?<=import) .+ (?=from)/)?.[0].trim() ?? "";
+      const from = line.match(/(?<=from) (\d+|global)/)?.[0].trim() ?? "";
+      const source = globals.imports?.[from] ?? (from === "global" ? globals.imports?.["1"] : void 0);
+      const imported = name === "main" || name === "secondary" ? source : extractBlocks(source ?? "", "export")[name];
+      if (imported === void 0 && visible) {
+        diagnostics.push({
+          severity: "error",
+          message: `Unresolved import "${name}" from ${from}.`
+        });
+      }
+      text = text.replace(line, () => imported ?? "");
+    }
+  }
+  if (/^import /m.test(text)) {
+    diagnostics.push({
+      severity: "error",
+      message: "Import expansion exceeded the converter limit of five passes (possible cycle)."
+    });
+  }
+  return text;
+}
+var pairSource = (piece) => `{{${piece.base}}{${piece.enhanced}}}`;
+var pieceLength = (piece) => typeof piece === "string" ? piece.length : pairSource(piece).length;
+var nativeSource = (pieces) => pieces.map((piece) => typeof piece === "string" ? piece : pairSource(piece)).join("");
+var nativeStructure = (pieces) => pieces.map((piece) => typeof piece === "string" ? piece : "\uFFFC".repeat(pieceLength(piece))).join("");
+var renderNative = (pieces) => pieces.map((piece) => typeof piece === "string" ? piece : piece.rendered).join("");
+function nativePieces(text) {
+  if (!text.includes("{{")) return [text];
+  const pieces = [];
+  const visible = markupCommentContext(text);
+  let at = 0;
+  for (const pair2 of scanBaseEnhanced(visible.text, true).pairs) {
+    const from = visible.offsets[pair2.from], to = visible.offsets[pair2.to - 1] + 1;
+    pieces.push(text.slice(at, from), { base: pair2.base, enhanced: pair2.enhanced });
+    at = to;
+  }
+  pieces.push(text.slice(at));
+  return pieces;
+}
+function nativeSlice(pieces, from, to) {
+  const output2 = [];
+  let at = 0;
+  for (const piece of pieces) {
+    const end = at + pieceLength(piece);
+    if (end > from && at < to) {
+      if (typeof piece === "string")
+        output2.push(piece.slice(Math.max(0, from - at), Math.min(piece.length, to - at)));
+      else {
+        if (from > at || to < end)
+          throw new Error("Structural cleanup crossed a native inline token");
+        output2.push(piece);
+      }
+    }
+    at = end;
+  }
+  return output2;
+}
+function nativeKeep(pieces, offsets) {
+  const output2 = [];
+  for (let index = 0; index < offsets.length; ) {
+    const from = offsets[index++];
+    let to = from + 1;
+    while (index < offsets.length && offsets[index] === to) {
+      index++;
+      to++;
+    }
+    output2.push(...nativeSlice(pieces, from, to));
+  }
+  return output2;
+}
+function nativeRemove(pieces, pattern, keepPrefix = 0) {
+  const output2 = [];
+  const source = nativeStructure(pieces);
+  let at = 0;
+  for (const match of source.matchAll(pattern)) {
+    output2.push(...nativeSlice(pieces, at, match.index + keepPrefix));
+    at = match.index + match[0].length;
+  }
+  output2.push(...nativeSlice(pieces, at, source.length));
+  return output2;
+}
+function cleanNative(pieces, removeTitles = true) {
+  pieces = nativeKeep(pieces, markupCommentContext(nativeStructure(pieces)).offsets);
+  for (const pattern of [unusedMarkup.hidden, unusedMarkup.exportOpen, unusedMarkup.enhancedOpen])
+    pieces = nativeRemove(pieces, pattern);
+  if (removeTitles)
+    for (const pattern of [unusedMarkup.titles, unusedMarkup.close])
+      pieces = nativeRemove(pieces, pattern);
+  pieces = nativeRemove(pieces, unusedMarkup.variables);
+  pieces = nativeRemove(pieces, unusedMarkup.blanks, 2);
+  const source = nativeStructure(pieces);
+  return nativeSlice(pieces, source.length - source.trimStart().length, source.trimEnd().length);
+}
+function replaceNativeVariable(pieces, variable, value2) {
+  const output2 = [];
+  const append = (piece) => {
+    const last = output2.length - 1;
+    if (typeof piece === "string" && typeof output2[last] === "string") output2[last] += piece;
+    else output2.push(piece);
+  };
+  for (const piece of pieces) {
+    if (typeof piece !== "string" || !piece.includes(variable)) {
+      append(piece);
+      continue;
+    }
+    if (!value2.includes("{{")) {
+      append(piece.replaceAll(variable, value2));
+      continue;
+    }
+    piece.split(variable).forEach((part, index) => {
+      if (index) nativePieces(value2).forEach(append);
+      append(part);
+    });
+  }
+  return output2;
+}
+function prepareNativePieces(pieces, globals) {
+  const references = pieces.flatMap(
+    (piece) => typeof piece === "string" ? markupVariableReferences(piece) : []
+  );
+  for (const variable of references) {
+    const variables2 = {
+      ...extractVariables(nativeSource(pieces)),
+      ...extractVariables(globals.variables)
+    };
+    globals.onVariable?.(variable.slice(1));
+    const value2 = Object.hasOwn(variables2, variable.slice(1)) ? variables2[variable.slice(1)] : void 0;
+    if (value2 !== void 0) pieces = replaceNativeVariable(pieces, variable, value2);
+  }
+  const variables = {
+    ...extractVariables(nativeSource(pieces)),
+    ...extractVariables(globals.variables)
+  };
+  return pieces.map((piece) => {
+    if (typeof piece === "string") return evaluateMarkupMath(piece);
+    if (piece.rendered !== void 0) return piece;
+    let arm = globals.type === enhancedMarkupType ? piece.enhanced : piece.base;
+    for (const variable of markupVariableReferences(arm)) {
+      globals.onVariable?.(variable.slice(1));
+      const value2 = Object.hasOwn(variables, variable.slice(1)) ? variables[variable.slice(1)] : void 0;
+      if (value2 !== void 0) arm = arm.replaceAll(variable, value2);
+    }
+    return { ...piece, rendered: evaluateMarkupMath(arm) };
+  });
+}
+function prepareNativeTitle(pieces, globals) {
+  return renderNative(cleanNative(prepareNativePieces(pieces, globals)));
+}
+function prepareNativeDocument(text, globals) {
+  const pieces = prepareNativePieces(nativePieces(text), globals);
+  const titlePieces = cleanNative(pieces, false);
+  const source = nativeStructure(titlePieces);
+  const titles = /* @__PURE__ */ Object.create(null);
+  const nativeTitles = /* @__PURE__ */ Object.create(null);
+  const globalTitles = extractBlocks(globals.titles, "title");
+  for (const match of source.matchAll(/^title [A-z0-9 ]+ \([^]*?\n\)$/gm)) {
+    const firstLine = match[0].indexOf("\n");
+    const name = match[0].slice(0, firstLine).replace(/title|\(.*/gi, "").trim();
+    const body = nativeSlice(
+      titlePieces,
+      match.index + firstLine + 1,
+      match.index + match[0].length - 2
+    );
+    titles[name] = renderNative(body);
+    if (!Object.hasOwn(globalTitles, name) && body.some((piece) => typeof piece !== "string"))
+      nativeTitles[name] = body;
+  }
+  return {
+    text: renderNative(cleanNative(pieces)),
+    titles: { ...titles, ...globalTitles },
+    nativeTitles
+  };
+}
+function prepareMarkup(text, globals, diagnostics, onCondition) {
+  text = resolveImports(text, globals, diagnostics);
+  const nativePairs = text.includes("{{") || globals.variables.includes("{{") || globals.titles.includes("{{");
+  if (nativePairs) {
+    for (const source of [text, globals.variables, globals.titles]) {
+      if (source.includes("{{") && scanBaseEnhanced(removeMarkupComments(source)).issues.length) {
+        diagnostics.push({ severity: "error", message: baseEnhancedMessage });
+      }
+    }
+  }
+  for (const [keyword, type] of markupConditions) {
+    const matches = markupConditionMatches(text, keyword);
+    for (const match of matches) onCondition?.(keyword, match[0]);
+    if (matches.length && globals.type !== type) {
+      for (const match of matches.reverse())
+        text = text.slice(0, match.index) + text.slice(match.index + match[0].length);
+      if (keyword === "enhanced") text = text.replaceAll("#e", "");
+    }
+  }
+  let native;
+  if (nativePairs) {
+    native = prepareNativeDocument(text, globals);
+    text = native.text;
+  } else {
+    for (const variable of markupVariableReferences(text)) {
+      const variables = { ...extractVariables(text), ...extractVariables(globals.variables) };
+      globals.onVariable?.(variable.slice(1));
+      const value2 = variables[variable.slice(1)];
+      if (value2 !== void 0) text = text.replaceAll(variable, value2);
+    }
+    text = evaluateMarkupMath(text);
+  }
+  const cleanText = native ? text : removeUnusedText(text.trim());
+  for (const variable of new Set(markupVariableReferences(cleanText))) {
+    diagnostics.push({ severity: "warning", message: `Unknown variable ${variable}.` });
+  }
+  return {
+    text: cleanText,
+    nativeTitles: native?.nativeTitles,
+    titles: native?.titles ?? {
+      ...extractBlocks(removeUnusedText(text, false), "title"),
+      ...extractBlocks(globals.titles, "title")
+    }
+  };
+}
+
+// packages/core/src/markup/parse.ts
+function parseMarkup(text, globals = { variables: "", titles: "" }) {
+  const diagnostics = [];
+  const prepared = prepareMarkup(text, globals, diagnostics);
+  const titleBodies = prepared.nativeTitles ? Object.entries(prepared.titles).map(
+    ([name, content]) => prepared.nativeTitles[name] ? prepareNativeTitle(prepared.nativeTitles[name], globals) : prepareMarkup(content, globals, []).text
+  ) : Object.values(prepared.titles).map((content) => prepareMarkup(content, globals, []).text);
+  for (const tag of new Set([prepared.text, ...titleBodies].flatMap(markupStrayTags))) {
+    diagnostics.push({
+      severity: "warning",
+      message: `Unclosed or unknown tag "${tag}": text after it is read as markup and may be dropped or recoloured. Write a complete "${tag} text />" tag, or remove the "<".`
+    });
+  }
+  const titles = {};
+  for (const [name, content] of Object.entries(prepared.titles)) {
+    const native = prepared.nativeTitles?.[name];
+    const body = native ? prepareNativeTitle(native, globals) : prepareMarkup(content, globals, diagnostics).text;
+    if (native) {
+      for (const variable of new Set(markupVariableReferences(body))) {
+        diagnostics.push({ severity: "warning", message: `Unknown variable ${variable}.` });
+      }
+    }
+    titles[name] = parseLines(body, {});
+  }
+  return { lines: parseLines(prepared.text, titles), diagnostics };
+}
+
+// packages/core/src/markup/clashes.ts
+var globalVariablesHash = 2;
+var globalTitlesHash = 3;
+function markupDefinitions(text) {
+  const found = [];
+  for (const match of text.matchAll(/^var ([a-zA-Z0-9]+) = (.+)$/gm)) {
+    const from = match.index + "var ".length;
+    found.push({ kind: "variable", name: match[1], from, to: from + match[1].length });
+  }
+  const clean = markupCommentContext(text);
+  for (const match of clean.text.matchAll(/^title [A-z0-9 ]+ \([^]*?\n\)$/gm)) {
+    const header = match[0].split("\n")[0];
+    const name = header.replace(/title|\(.*/gi, "").trim();
+    const prefix = header.match(/^title +/)?.[0].length ?? 0;
+    const spelled = header.slice(prefix).replace(/ *\(.*$/, "");
+    const start = match.index + prefix;
+    if (!name || !spelled) continue;
+    found.push({
+      kind: "title",
+      name,
+      from: clean.offsets[start],
+      to: clean.offsets[start + spelled.length - 1] + 1
+    });
+  }
+  return found;
+}
+function findGlobalNameClashes(text, globals) {
+  const variables = extractVariables(globals.variables);
+  const titles = extractBlocks(globals.titles, "title");
+  return markupDefinitions(text).filter((definition) => {
+    if (definition.kind === "variable") globals.onVariable?.(definition.name);
+    return Object.hasOwn(definition.kind === "variable" ? variables : titles, definition.name);
+  });
+}
+function describeGlobalClash(clash) {
+  return clash.kind === "variable" ? `#${clash.name} is already a global variable (Variables, tooltip ${globalVariablesHash}) \u2014 rename it.` : `Title "${clash.name}" is already a global title (Titles, tooltip ${globalTitlesHash}) \u2014 rename it.`;
+}
 
 // packages/core/src/markup/snippets.ts
 var wrap = (tag, about) => ({
@@ -20686,13 +21150,699 @@ var glyphPolicy = {
 var escape = (text) => text.replace(/[\\\][\-^]/g, "\\$&");
 var allowed = glyphPolicy.ranges.map(([a, b]) => `${escape(String.fromCodePoint(a))}-${escape(String.fromCodePoint(b))}`).join("") + escape(glyphPolicy.characters);
 var unverified = new RegExp(`[^${allowed}]`, "gu");
+function glyphWarnings(text) {
+  const warnings = [];
+  for (const match of text.matchAll(unverified)) {
+    const character = match[0];
+    const codePoint = `U+${character.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}`;
+    const known = glyphPolicy.knownRisk[character];
+    const reason = known?.reason ?? "Font coverage is unverified; this character may not display on some devices.";
+    const replacement = known?.replacement;
+    const label = new RegExp("\\p{C}|\\p{Z}", "u").test(character) ? "(invisible)" : `\u201C${character}\u201D`;
+    warnings.push({
+      character,
+      codePoint,
+      from: match.index,
+      to: match.index + character.length,
+      reason,
+      replacement,
+      message: `${label} ${codePoint}: ${reason}${replacement ? ` Suggested replacement: ${replacement}.` : ""}`
+    });
+  }
+  return warnings;
+}
 
 // packages/core/src/validation/retired.ts
 var retiredColours = markupRetiredColors;
 var retiredWrappers = [...retiredColours, "center", "background", "breakSpaces"];
 var retiredMarkers = [...retiredColours, ...markupRetiredLineStyles];
+var quick = /(?:blue|green|purple|center|breakSpaces|background)\b|^(?:catalyst|exotic perk) \(|^< table /m;
+var converterToken = /<.+?\/>/g;
 var marker = new RegExp(`^<(${retiredMarkers.join("|")})\\s*/>$`);
 var wrapper = new RegExp(`^<(${retiredWrappers.join("|")})\\s+([\\s\\S]*?)\\s*/>$`);
+var noun = (name) => `<${name} \u2026 />`;
+var retired = (token, advice) => `Retired markup ${token}: no longer supported. ${advice}`;
+function markerEdit(line, lineFrom, from, to) {
+  const start = from - lineFrom;
+  const end = to - lineFrom;
+  if (line[end] === " " && start === 0) return { from, to: to + 1, insert: "" };
+  if (start > 0 && line[start - 1] === " " && end === line.length)
+    return { from: from - 1, to, insert: "" };
+  return { from, to, insert: "" };
+}
+function tokenOccurrence(token, line, lineFrom, from, sourceToken = token) {
+  const to = from + token.length;
+  const bare = marker.exec(token);
+  if (bare) {
+    const name2 = bare[1];
+    return {
+      kind: "marker",
+      name: name2,
+      token: `<${name2}/>`,
+      source: token,
+      from,
+      to,
+      message: retired(`<${name2}/>`, "Remove the marker."),
+      fixes: [
+        {
+          id: "remove-marker",
+          label: "Remove marker",
+          structural: false,
+          edits: [markerEdit(line, lineFrom, from, to)]
+        }
+      ]
+    };
+  }
+  const wrapped = wrapper.exec(token);
+  if (!wrapped) return null;
+  const name = wrapped[1];
+  const inner = wrapper.exec(sourceToken)?.[2] ?? wrapped[2];
+  const fixes = [
+    {
+      id: "remove-tag",
+      label: "Remove tag (keep the text)",
+      structural: false,
+      edits: [{ from, to, insert: inner }]
+    }
+  ];
+  if (retiredColours.includes(name)) fixes.push({
+    id: "to-yellow",
+    label: "Change to yellow",
+    structural: false,
+    edits: [{ from, to, insert: `<yellow ${inner} />` }]
+  });
+  return {
+    kind: "wrapper",
+    name,
+    token: noun(name),
+    source: token,
+    from,
+    to,
+    message: retired(
+      noun(name),
+      retiredColours.includes(name) ? "Remove the tag (the text stays) or change it to <yellow \u2026 />." : "Remove the tag (the text stays)."
+    ),
+    fixes
+  };
+}
+function tableRowToLine(row) {
+  const cells = row.match(/\|.*?((?=\|)|$)/g);
+  if (!cells) return row;
+  return cells.map((cell) => cell.replace(/^\|[bchr\d-]+|^\|/, "").trim()).filter(Boolean).join(" | ");
+}
+function tableOccurrences(text, source) {
+  const found = [];
+  for (const match of text.matchAll(/^< table [^\n]*\n[\s\S]*?\n<\$>$/gm)) {
+    const from = match.index;
+    const rows = source.slice(from, from + match[0].length).split("\n");
+    const lines = rows.slice(1, -1).map(tableRowToLine).join("\n");
+    found.push({
+      kind: "table",
+      name: "table",
+      token: "< table \u2026 >",
+      source: rows[0],
+      from,
+      to: from + rows[0].length,
+      message: retired("< table \u2026 >", "Convert the rows to lines."),
+      fixes: [
+        {
+          id: "rows-to-lines",
+          label: "Convert rows to lines",
+          structural: true,
+          edits: [{ from, to: from + match[0].length, insert: lines }]
+        }
+      ]
+    });
+  }
+  return found;
+}
+function placementCandidates(source) {
+  if (!quick.test(source) && !source.includes("/*")) return [];
+  const context = markupCommentContext(source);
+  const { text, offsets } = context;
+  if (!quick.test(text)) return [];
+  const found = [];
+  const mapOccurrence = (item, positions = offsets) => {
+    const from = positions[item.from];
+    const to = positions[item.to - 1] + 1;
+    const token = source.slice(from, to);
+    item.fixes = item.fixes.map((fix) => ({
+      ...fix,
+      edits: fix.edits.flatMap((edit) => {
+        const editFrom = positions[edit.from] ?? source.length;
+        const editTo = edit.to ? positions[edit.to - 1] + 1 : 0;
+        const insert = edit.insert;
+        if (fix.id === "to-yellow") return [{ from, to, insert }];
+        if (item.kind === "wrapper" || item.kind === "marker") {
+          const compact = positions.slice(item.from, item.to).map((at) => source[at]).join("");
+          const content = item.kind === "wrapper" ? wrapper.exec(compact)?.[2] : void 0;
+          if (item.kind === "wrapper" && content === void 0) return [];
+          const contentAt = content === void 0 ? -1 : compact.indexOf(content, compact.indexOf(item.name) + item.name.length);
+          const deleted = positions.slice(item.from, item.to).filter((_, index) => contentAt < 0 || index < contentAt || index >= contentAt + content.length);
+          if (item.kind === "marker") {
+            const lineStart = from === 0 || source[from - 1] === "\n";
+            const lineEnd = to === source.length || source[to] === "\n";
+            if (lineStart && source[to] === " ") deleted.push(to);
+            else if (lineEnd && source[from - 1] === " ") deleted.unshift(from - 1);
+          }
+          const edits = [];
+          for (const at of deleted) {
+            const previous = edits.at(-1);
+            if (previous?.to === at) previous.to++;
+            else edits.push({ from: at, to: at + 1, insert: "" });
+          }
+          return edits;
+        }
+        if (fix.id === "rows-to-lines") {
+          const block = source.slice(editFrom, editTo);
+          const lines = block.split("\n");
+          const edits = [{ from: editFrom, to: editFrom + lines[0].length + 1, insert: "" }];
+          let at = editFrom + lines[0].length + 1;
+          for (const row of lines.slice(1, -1)) {
+            const next = tableRowToLine(row);
+            let prefix = 0;
+            while (prefix < row.length && prefix < next.length && row[prefix] === next[prefix]) prefix++;
+            let suffix = 0;
+            while (suffix < row.length - prefix && suffix < next.length - prefix && row[row.length - 1 - suffix] === next[next.length - 1 - suffix]) suffix++;
+            if (row !== next) edits.push({
+              from: at + prefix,
+              to: at + row.length - suffix,
+              insert: next.slice(prefix, next.length - suffix)
+            });
+            at += row.length + 1;
+          }
+          edits.push({ from: at - 1, to: editTo, insert: "" });
+          return edits;
+        }
+        return [{ from: editFrom, to: editTo, insert }];
+      })
+    }));
+    found.push({ ...item, from, to, source: token });
+  };
+  for (const item of tableOccurrences(text, text))
+    mapOccurrence(item);
+  let lineFrom = 0;
+  for (const line of text.split("\n")) {
+    let clean = line;
+    const positions = offsets.slice(lineFrom, lineFrom + line.length);
+    for (const name of markupLineClasses) {
+      const token = `<${name}/>`;
+      const index = clean.indexOf(token);
+      if (index !== -1) {
+        if (retiredMarkers.includes(name))
+          mapOccurrence(tokenOccurrence(token, clean, 0, index), positions);
+        clean = clean.slice(0, index) + clean.slice(index + token.length);
+        positions.splice(index, token.length);
+      }
+    }
+    for (const match of clean.matchAll(converterToken)) {
+      const item = tokenOccurrence(match[0], clean, 0, match.index);
+      if (item) mapOccurrence(item, positions);
+    }
+    lineFrom += line.length + 1;
+  }
+  return found.sort((a, b) => a.from - b.from || a.to - b.to);
+}
+function parserNames(lines) {
+  const names = [];
+  const classes = (values) => {
+    for (const name of values ?? [])
+      if (name && (retiredMarkers.includes(name) || name === "table")) names.push(name);
+  };
+  const spans2 = (values) => {
+    for (const span of values) {
+      classes(span.classNames);
+      if (span.title) names.push(...parserNames(span.title));
+    }
+  };
+  for (const line of lines) {
+    classes(line.classNames);
+    spans2(line.linesContent ?? []);
+    for (const row of line.table ?? []) {
+      classes(row.classNames);
+      for (const cell of row.rowContent ?? []) {
+        classes(cell.classNames);
+        spans2(cell.cellContent);
+      }
+    }
+  }
+  return names;
+}
+function stripRetired(value2) {
+  if (Array.isArray(value2)) {
+    const items = value2.map(stripRetired);
+    const merged = [];
+    for (const item of items) {
+      const previous = merged.at(-1);
+      if (item && previous && typeof item === "object" && typeof previous === "object" && "text" in item && "text" in previous && typeof item.text === "string" && typeof previous.text === "string") {
+        const { text: currentText, ...attributes } = item;
+        const { text: previousText, ...previousAttributes } = previous;
+        if (JSON.stringify(attributes) === JSON.stringify(previousAttributes)) {
+          merged[merged.length - 1] = { text: previousText + currentText, ...attributes };
+          continue;
+        }
+      }
+      merged.push(item);
+    }
+    return merged;
+  }
+  if (value2 && typeof value2 === "object") {
+    return Object.fromEntries(Object.entries(value2).sort(([a], [b]) => a.localeCompare(b)).flatMap(([key, item]) => {
+      if (key === "classNames") {
+        const classes = (item ?? []).filter(
+          (name) => name && !retiredMarkers.includes(name)
+        );
+        return classes.length ? [[key, classes]] : [];
+      }
+      return item === void 0 ? [] : [[key, stripRetired(item)]];
+    }));
+  }
+  return value2;
+}
+function normalizedLines(lines) {
+  return lines.flatMap((line) => {
+    if (!line.table) return [stripRetired(line)];
+    return line.table.map((row) => ({
+      classNames: (line.classNames ?? []).filter((name) => name !== "table"),
+      linesContent: (row.rowContent ?? []).flatMap((cell, index) => [
+        ...index ? [{ text: " | " }] : [],
+        ...cell.cellContent.map((span) => ({
+          ...span,
+          classNames: [...row.classNames ?? [], ...cell.classNames ?? [], ...span.classNames ?? []]
+        }))
+      ])
+    })).map(stripRetired);
+  });
+}
+function commentBytes(source) {
+  return markupCommentContext(source).comments.sort((a, b) => a.from - b.from).map(({ from, to }) => source.slice(from, to));
+}
+function supportedTokens(source) {
+  return [...markupCommentContext(source).text.matchAll(/<([a-zA-Z]+)(\/?>|\s)?/g)].filter((match) => !retiredMarkers.includes(match[1])).map((match) => match[0]);
+}
+function verifyFix(source, occurrence, fix) {
+  const next = applyRetiredEdits(source, fix.edits);
+  if (JSON.stringify(commentBytes(source)) !== JSON.stringify(commentBytes(next)))
+    return "The edit would change a source comment.";
+  if (JSON.stringify(supportedTokens(source)) !== JSON.stringify(supportedTokens(next)))
+    return "The edit would change supported markup.";
+  const type = markupConditions.find(([name]) => name === occurrence.name)?.[1];
+  const before = parseMarkup(source, { variables: "", titles: "", type }).lines;
+  const after = parseMarkup(next, { variables: "", titles: "", type }).lines;
+  const normalize = fix.structural ? normalizedLines : stripRetired;
+  if (JSON.stringify(stripRetired(normalize(before))) !== JSON.stringify(stripRetired(normalize(after))))
+    return "The parser cannot confirm unchanged text and supported styles.";
+  if (next === source || parserNames(parseMarkup(next).lines).length >= parserNames(parseMarkup(source).lines).length && occurrence.kind !== "condition")
+    return "The edit does not remove a retired parser finding.";
+  return void 0;
+}
+function fallbackBlock(source, name, count) {
+  const { text, offsets } = markupCommentContext(source);
+  const tables = [...text.matchAll(/< table [\s\S]*?\n<\$>/g)].map((match) => ({
+    from: offsets[match.index],
+    to: offsets[match.index + match[0].length - 1] + 1
+  }));
+  const blocks = [...tables];
+  let at = 0;
+  for (const line of source.split("\n")) {
+    const to = at + line.length;
+    if (!tables.some((table) => at < table.to && to > table.from)) blocks.push({ from: at, to });
+    at = to + 1;
+  }
+  const block = blocks.find(
+    ({ from, to }) => parserNames(parseMarkup(source.slice(0, from) + source.slice(to)).lines).filter((value2) => value2 === name).length < count
+  ) ?? blocks.find(({ from, to }) => source.slice(from, to).includes(name)) ?? blocks[0] ?? { from: 0, to: source.length };
+  return { ...block, source: source.slice(block.from, block.to) };
+}
+function findRetiredMarkup(source) {
+  const names = parserNames(parseMarkup(source).lines);
+  const candidates = placementCandidates(source);
+  const found = [];
+  for (const name of names) {
+    const count = names.filter((value2) => value2 === name).length;
+    const index = candidates.findIndex((item) => item.name === name && parserNames(parseMarkup(source.slice(0, item.from) + source.slice(item.to)).lines).filter((value2) => value2 === name).length < count);
+    const candidate = index < 0 ? void 0 : candidates.splice(index, 1)[0];
+    found.push(candidate ?? {
+      kind: name === "table" ? "table" : "wrapper",
+      name,
+      token: noun(name),
+      ...fallbackBlock(source, name, count),
+      message: retired(noun(name), "Fix by hand: an exact source token could not be mapped."),
+      fixes: [],
+      refusalReason: "An exact source token could not be mapped."
+    });
+  }
+  prepareMarkup(source, { variables: "", titles: "" }, [], (name, block) => {
+    if (name === "enhanced") return;
+    const from = source.indexOf(block);
+    const mapped = from >= 0 && source.lastIndexOf(block) === from;
+    const rangeFrom = Math.max(0, from);
+    const end = from >= 0 ? from + block.length : Math.max(0, source.indexOf("\n"));
+    const openEnd = from + block.indexOf("\n");
+    const closeFrom = from + block.lastIndexOf("\n");
+    found.push({
+      kind: "condition",
+      name,
+      token: `${name} ( \u2026 )`,
+      source: source.slice(rangeFrom, end),
+      from: rangeFrom,
+      to: end,
+      message: retired(`${name} ( \u2026 )`, "Keep its contents, or fix by hand."),
+      fixes: mapped ? [{ id: "keep-contents", label: "Keep contents", structural: true, edits: [
+        { from, to: openEnd + 1, insert: "" },
+        { from: closeFrom, to: end, insert: "" }
+      ] }] : []
+    });
+  });
+  for (const occurrence of found) {
+    let reason = occurrence.refusalReason;
+    occurrence.fixes = occurrence.fixes.filter((fix) => {
+      const blockFrom = Math.min(occurrence.from, ...fix.edits.map((edit) => edit.from));
+      const blockEnd = Math.max(occurrence.to, ...fix.edits.map((edit) => edit.to));
+      const newline = source.indexOf("\n", blockEnd);
+      const blockTo = newline < 0 ? source.length : newline;
+      const refusal = fix.structural && markupCommentContext(source).comments.some(
+        (comment) => comment.from < blockTo && comment.to > blockFrom
+      ) ? "Blocks containing comments must be fixed by hand." : verifyFix(source, occurrence, fix);
+      if (refusal) {
+        reason = refusal;
+        (occurrence.manualFixes ??= []).push({ label: fix.label, reason: refusal });
+      }
+      return !refusal;
+    });
+    if (!occurrence.fixes.length) {
+      occurrence.refusalReason = reason ?? "A lossless source edit could not be verified.";
+      occurrence.message = retired(occurrence.token, `Fix by hand: ${occurrence.refusalReason}`);
+    }
+  }
+  return found.sort((a, b) => a.from - b.from || a.to - b.to);
+}
+function retiredWarnings(text) {
+  return findRetiredMarkup(text).map(({ from, to, message }) => ({ from, to, message }));
+}
+function applyRetiredEdits(text, edits) {
+  let result = text;
+  for (const edit of [...edits].sort((a, b) => b.from - a.from))
+    result = result.slice(0, edit.from) + edit.insert + result.slice(edit.to);
+  return result;
+}
+
+// packages/core/src/validation/index.ts
+var emptyEnglishMessage = "English text must not be empty.";
+function validateTextWithReads(text, lang, globals, requireEnglish, selfHash, aliases) {
+  const imports = /* @__PURE__ */ new Map();
+  const variables = /* @__PURE__ */ new Set();
+  const catalog = new Proxy(globals.imports ?? {}, {
+    get(target, key, receiver) {
+      const value2 = Reflect.get(target, key, receiver);
+      if (typeof key === "string") {
+        const hash2 = key === "global" ? 1 : Number(key);
+        if (Number.isInteger(hash2)) imports.set(key, resolveAlias(hash2, aliases));
+      }
+      return value2;
+    }
+  });
+  const issues = validateText(
+    text,
+    lang,
+    { ...globals, imports: catalog, onVariable: (name) => variables.add(name) },
+    requireEnglish,
+    selfHash
+  );
+  return { issues, reads: { lang, imports, variables } };
+}
+function validateText(text, lang, globals = { variables: "", titles: "" }, requireEnglish = true, selfHash) {
+  const issues = [];
+  function add(severity, message, token) {
+    const from = token ? Math.max(0, text.indexOf(token)) : 0;
+    const to = Math.min(text.length, from + (token?.length ?? text.length));
+    if (!issues.some((issue2) => issue2.message === message)) {
+      issues.push({ severity, message, from, to });
+    }
+  }
+  if (requireEnglish && lang === "en" && !text.trim()) {
+    add("error", emptyEnglishMessage);
+  }
+  for (const diagnostic of parseMarkup(text, globals).diagnostics) {
+    if (diagnostic.message === baseEnhancedMessage && text.includes("{{")) {
+      if (issues.some((issue2) => issue2.message === baseEnhancedMessage)) continue;
+      const context = markupCommentContext(text);
+      const unfinished = unfinishedBaseEnhanced(context.text);
+      if (unfinished.length) {
+        for (const issue2 of unfinished)
+          issues.push({
+            severity: "error",
+            message: baseEnhancedMessage,
+            from: context.offsets[issue2.from],
+            to: context.offsets[issue2.to - 1] + 1
+          });
+        continue;
+      }
+    }
+    const token = diagnostic.message.match(/Unknown variable (#[a-zA-Z0-9]+)/)?.[1];
+    add(diagnostic.severity, diagnostic.message, token);
+  }
+  if (selfHash !== globalVariablesHash && selfHash !== globalTitlesHash) {
+    for (const clash of findGlobalNameClashes(text, globals)) {
+      issues.push({
+        severity: "error",
+        message: describeGlobalClash(clash),
+        from: clash.from,
+        to: clash.to
+      });
+    }
+  }
+  const prepared = prepareMarkup(text, globals, []);
+  for (const match of prepared.text.matchAll(/<title [^>\n]*?\[([^\]\n]+)\] \/>/g)) {
+    if (!(match[1] in prepared.titles)) {
+      add("warning", `Unknown title "${match[1]}".`, match[0]);
+    }
+  }
+  return [
+    ...issues,
+    ...glyphWarnings(text).map(({ from, to, message }) => ({
+      severity: "warning",
+      from,
+      to,
+      message
+    })),
+    // Retired markup still renders; the warning asks the author to fix it (blocks saving later).
+    ...retiredWarnings(text).map(({ from, to, message }) => ({
+      severity: "warning",
+      from,
+      to,
+      message,
+      code: "retired"
+    }))
+  ];
+}
+
+// packages/core/src/exportLegacy.ts
+function exportFacts(facts) {
+  if (!facts) return {};
+  return {
+    name: facts.name,
+    type: facts.type,
+    ...facts.itemHash === void 0 ? {} : { itemHash: facts.itemHash },
+    ...facts.itemName === void 0 ? {} : { itemName: facts.itemName }
+  };
+}
+var translationMaxAge = 90 * 24 * 60 * 60 * 1e3;
+function usesEnglishFallback(tooltip, language) {
+  const english = tooltip.text.en;
+  const translation = tooltip.text[language];
+  return Boolean(
+    language !== "en" && english && english.text.trim() !== "" && translation && translation.sourceUpdatedAt !== void 0 && Date.parse(english.updatedAt) - Date.parse(translation.sourceUpdatedAt) > translationMaxAge
+  );
+}
+function isLegacyAliasStub(entry) {
+  return "aliasOf" in entry;
+}
+function exportLegacy(tooltips, now, catalog, aliases = {}) {
+  if (!Number.isFinite(now) || now < 0 || !Number.isInteger(now)) {
+    throw new TypeError("now must be nonnegative integer epoch milliseconds");
+  }
+  const entries = {};
+  const canonical = {};
+  const omitted = /* @__PURE__ */ new Set();
+  for (const input2 of tooltips) {
+    const tooltip = tooltipSchema.parse(input2);
+    if (isTextlessDescription(tooltip)) {
+      omitted.add(tooltip.hash);
+      continue;
+    }
+    if (Object.values(tooltip.text).some((translation) => translation?.text.includes("{{"))) {
+      throw new Error(baseEnhancedPublishMessage);
+    }
+    if (resolveAlias(tooltip.hash, aliases) !== tooltip.hash) {
+      throw new Error(`Alias ${tooltip.hash} cannot have its own tooltip`);
+    }
+    if (canonical[tooltip.hash]) throw new Error(`Duplicate tooltip hash: ${tooltip.hash}`);
+    const english = tooltip.text.en;
+    const editor = {};
+    const descriptions = {
+      ...tooltip.legacy?.updateTracker?.descriptions
+    };
+    for (const language of languages) {
+      const translation = tooltip.text[language];
+      if (!translation) continue;
+      const exported = usesEnglishFallback(tooltip, language) && english ? english : translation;
+      editor[language] = { main: exported.text, secondary: exported.text };
+      const old = tooltip.legacy?.updateTracker?.descriptions[language];
+      descriptions[language] = {
+        lastUpdate: Date.parse(exported.updatedAt),
+        ...exported.updatedBy !== "" || old?.updatedBy !== void 0 ? { updatedBy: exported.updatedBy } : {}
+      };
+    }
+    const facts = catalog?.[tooltip.hash] ?? (tooltip.custom ? { name: tooltip.custom.name, type: tooltip.custom.categoryId } : void 0);
+    if (catalog && !facts) throw new Error(`Missing manifest facts for tooltip ${tooltip.hash}`);
+    const associated = [
+      ...new Set(tooltip.associated.map((hash2) => resolveAlias(hash2, aliases)))
+    ].filter((hash2) => hash2 !== tooltip.hash);
+    canonical[tooltip.hash] = entries[tooltip.hash] = {
+      ...tooltip.legacy,
+      ...exportFacts(facts),
+      hash: tooltip.hash,
+      ...associated.length ? { associated } : {},
+      editor,
+      uploadedBy: tooltip.legacy?.uploadedBy ?? "",
+      lastUpload: tooltip.legacy?.lastUpload ?? now,
+      inLiveDatabase: tooltip.legacy?.inLiveDatabase ?? false,
+      uploadToLive: tooltip.legacy?.uploadToLive ?? false,
+      updateTracker: { ...tooltip.legacy?.updateTracker, descriptions }
+    };
+  }
+  if (omitted.size) {
+    for (const language of languages) {
+      const imports = Object.fromEntries(
+        Object.entries(canonical).map(([hash2, entry]) => [
+          hash2,
+          entry.editor[language]?.main ?? ""
+        ])
+      );
+      for (const alias of Object.keys(aliases)) {
+        const target = resolveAlias(Number(alias), aliases);
+        if (canonical[target]) imports[alias] = imports[target] ?? "";
+      }
+      for (const entry of Object.values(canonical)) {
+        if (entry.associated?.some((hash2) => omitted.has(hash2)))
+          throw new Error(`Tooltip ${entry.hash} associates an empty tooltip`);
+        const text = entry.editor[language]?.main;
+        if (text === void 0) continue;
+        const { reads } = validateTextWithReads(
+          text,
+          language,
+          {
+            imports,
+            variables: imports[2] ?? "",
+            titles: imports[3] ?? ""
+          },
+          false,
+          entry.hash,
+          aliases
+        );
+        for (const hash2 of reads.imports.values()) {
+          if (omitted.has(hash2))
+            throw new Error(`Tooltip ${entry.hash} imports empty tooltip ${hash2}`);
+        }
+      }
+    }
+  }
+  for (const [alias, { kind }] of Object.entries(aliases)) {
+    const target = resolveAlias(Number(alias), aliases);
+    if (!canonical[target]) continue;
+    const facts = catalog?.[alias];
+    if (catalog && kind === "frame" && !facts) {
+      throw new Error(`Missing manifest facts for frame alias ${alias}`);
+    }
+    entries[alias] = {
+      hash: Number(alias),
+      aliasOf: target,
+      aliasKind: kind,
+      ...exportFacts(facts)
+    };
+  }
+  return entries;
+}
+
+// packages/core/src/publishableHash.ts
+async function publishableHash(tooltip, aliases = {}) {
+  const parsed = tooltipSchema.parse(tooltip);
+  const english = parsed.text.en;
+  const incoming = incomingAliases(parsed.hash, aliases);
+  const fallback = Object.keys(parsed.text).filter(
+    (language) => usesEnglishFallback(parsed, language)
+  );
+  const bytes = new TextEncoder().encode(
+    stableStringify({
+      text: Object.fromEntries(
+        Object.entries(parsed.text).map(([language, value2]) => [
+          language,
+          fallback.includes(language) && english ? english.text : value2.text
+        ])
+      ),
+      associated: parsed.associated,
+      custom: parsed.custom,
+      ...fallback.length ? { fallback: fallback.sort() } : {},
+      ...incoming.length ? { aliases: incoming } : {}
+    })
+  );
+  const digest2 = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest2), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+// packages/core/src/publishRequest.ts
+var publishOpIdSchema = external_exports.string().regex(/^[0-7][0-9A-HJKMNP-TV-Z]{25}$/);
+var digest = external_exports.string().regex(/^[0-9a-f]{64}$/);
+var hashKey = external_exports.string().regex(/^(0|[1-9]\d*)$/).refine((s) => Number(s) <= 4294967295);
+var publishBodySchema = external_exports.object({
+  opId: publishOpIdSchema,
+  hashes: external_exports.array(hashSchema).min(1).max(3e3).refine((a) => new Set(a).size === a.length),
+  expected: external_exports.record(hashKey, digest)
+}).strict().superRefine((v, ctx) => {
+  if (Object.keys(v.expected).length !== v.hashes.length || v.hashes.some((h) => !v.expected[h]))
+    ctx.addIssue({ code: "custom", message: "Exactly one expected digest per hash is required" });
+});
+var publishPayloadSchema = external_exports.object({
+  ...publishBodySchema.shape,
+  kind: external_exports.literal("push"),
+  repo: external_exports.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
+  dataBranch: external_exports.string().min(1),
+  liveBranch: external_exports.string().min(1),
+  requester: external_exports.object({
+    id: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    login: external_exports.string().min(1)
+  }).strict(),
+  createdAt: external_exports.string().datetime(),
+  intentDigest: digest
+}).strict().superRefine((v, ctx) => {
+  if (!publishBodySchema.safeParse({ opId: v.opId, hashes: v.hashes, expected: v.expected }).success)
+    ctx.addIssue({ code: "custom", message: "Invalid publish intent" });
+});
+async function publishIntentDigest(value2) {
+  const bytes = new TextEncoder().encode(
+    stableStringify({
+      opId: value2.opId,
+      kind: value2.kind,
+      repo: value2.repo,
+      dataBranch: value2.dataBranch,
+      liveBranch: value2.liveBranch,
+      requester: { id: value2.requester.id },
+      hashes: [...value2.hashes].sort((a, b) => a - b),
+      expected: value2.expected
+    })
+  );
+  return Array.from(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+    (b) => b.toString(16).padStart(2, "0")
+  ).join("");
+}
+function publishMonth(opId) {
+  publishOpIdSchema.parse(opId);
+  const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+  const time3 = [...opId.slice(0, 10)].reduce((n, c) => n * 32 + alphabet.indexOf(c), 0);
+  return new Date(time3).toISOString().slice(0, 7);
+}
 
 // packages/core/src/compendium/config.ts
 var glossary = {
@@ -21997,6 +23147,114 @@ var aliasProposalsSchema = external_exports.object({
   ).default([])
 }).strict();
 
+// packages/core/src/setBonus.ts
+var setBonusCategoryId = "armor-set-bonus";
+var setBonusLegacyType = "Armor Set Bonus";
+var setBonusHoldMessage = "Set bonuses need the new converter; they can be pushed after cut-over";
+var isSetBonusType = (type) => type === setBonusCategoryId || type === setBonusLegacyType;
+var isHeldSetBonus = (tooltip, facts) => isSetBonusType(facts ? facts.type : tooltip.custom?.categoryId);
+
+// packages/core/src/reports/schemas.ts
+var forbidden = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u;
+var reportText = (max) => external_exports.string().max(max).refine((s) => !forbidden.test(s), "Control and bidi characters are not allowed");
+var reportCategorySchema = external_exports.enum([
+  "wrong-value",
+  "outdated",
+  "wording",
+  "translation",
+  "missing",
+  "other"
+]);
+var reportStatusSchema = external_exports.enum([
+  "open",
+  "triaged",
+  "fixed",
+  "closed",
+  "rejected",
+  "duplicate",
+  "spam",
+  "withdrawn"
+]);
+var reportIdSchema = external_exports.string().regex(/^r-[a-z2-7]{8}$/);
+var reportAnchorSchema = external_exports.object({
+  rev: external_exports.string().regex(/^[a-f0-9]{16}$/),
+  exact: reportText(4096).min(1),
+  prefix: reportText(32),
+  suffix: reportText(32),
+  start: external_exports.number().int().min(0).max(4095),
+  end: external_exports.number().int().min(1).max(4096),
+  line: external_exports.number().int().min(0).max(4096)
+}).strict().refine((a) => a.end > a.start && a.end - a.start === a.exact.length, "Invalid selector bounds");
+var httpsUrl = reportText(2048).url().refine((s) => {
+  const u = new URL(s);
+  return u.protocol === "https:" && !u.username && !u.password;
+}, "An https URL is required");
+var reportVideoHosts = [
+  "youtube.com",
+  "youtu.be",
+  "clips.twitch.tv",
+  "streamable.com",
+  "imgur.com",
+  "i.imgur.com"
+];
+var reportVideoSchema = httpsUrl.refine(
+  (s) => reportVideoHosts.includes(new URL(s).hostname),
+  "Use YouTube, Twitch clips, Streamable, or imgur; Discord links expire"
+);
+var reportSubmissionSchema = external_exports.object({
+  request_id: external_exports.string().uuid(),
+  withdraw_secret: external_exports.string().regex(/^[A-Za-z0-9_-]{32,128}$/),
+  viewed_hash: external_exports.number().int().min(0).max(4294967295),
+  lang: langSchema,
+  seen_lang: langSchema.optional(),
+  rev: external_exports.string().regex(/^[a-f0-9]{16}$/),
+  data_commit: external_exports.string().regex(/^[a-f0-9]{40}$/),
+  category: reportCategorySchema,
+  note: reportText(1e3).default(""),
+  notes: external_exports.array(
+    external_exports.object({
+      category: reportCategorySchema,
+      text: reportText(500),
+      anchor: reportAnchorSchema.nullable()
+    }).strict()
+  ).min(1).max(5),
+  source_url: httpsUrl.optional(),
+  src: reportText(64).optional(),
+  links: external_exports.array(reportVideoSchema).max(2).default([]),
+  turnstile: external_exports.string().max(2048).optional()
+}).strict().refine(
+  (r) => r.notes.every(
+    (n) => n.anchor ? n.text.trim().length > 0 : n.text.trim().length > 0 || r.note.trim().length > 0
+  ),
+  "Each mark needs a note"
+).refine(
+  (r) => r.notes.every((n) => !n.anchor || n.anchor.rev === r.rev),
+  "Selectors must use the report revision"
+);
+var reportActionSchema = external_exports.object({
+  expected_version: external_exports.number().int().positive(),
+  action: external_exports.enum([
+    "triage",
+    "claim",
+    "resolve",
+    "confirmPublished",
+    "reopen",
+    "close",
+    "reject",
+    "duplicate",
+    "spam",
+    "reanchor",
+    "closedNote"
+  ]),
+  commit: external_exports.string().regex(/^[a-f0-9]{40}$/).optional(),
+  publishable: external_exports.string().regex(/^[a-f0-9]{16,64}$/).optional(),
+  of: reportIdSchema.optional(),
+  reason: external_exports.enum(["not-an-issue", "works-as-described", "out-of-scope", "unclear"]).optional(),
+  n: external_exports.number().int().min(1).max(5).optional(),
+  anchor: reportAnchorSchema.optional(),
+  text: reportText(1e3).optional()
+}).strict();
+
 // apps/worker/src/stamp.ts
 function stampUploads(entries, changed, livePerks, now, uploader) {
   for (const [key, entry] of Object.entries(entries)) {
@@ -22043,6 +23301,25 @@ var Publisher = class {
   }
   read(tree, path) {
     return tree[path] ? JSON.parse(this.git.blob(tree[path])) : void 0;
+  }
+  /** Check direct association targets at the drain snapshot, without walking their drafts. */
+  checkAssociatedDescriptions(tree, tooltips) {
+    const known = new Map(tooltips.map((tooltip) => [tooltip.hash, tooltip]));
+    for (const tooltip of tooltips) {
+      for (const reference of tooltip.associated) {
+        const hash2 = resolveAlias(reference, this.options.aliases);
+        let target = known.get(hash2);
+        if (!target) {
+          const value2 = this.read(tree, `tooltips/${hash2}.json`);
+          if (value2 === void 0) continue;
+          target = tooltipSchema.parse(value2);
+          if (target.hash !== hash2) throw new Error("Stored association tooltip hash mismatch");
+          known.set(hash2, target);
+        }
+        if (isTextlessDescription(target))
+          throw new Error(`Association ${tooltip.hash} -> ${hash2} has no text to publish`);
+      }
+    }
   }
   queue(head) {
     const pending = new Set(
@@ -22264,6 +23541,28 @@ var Publisher = class {
         await this.record(opId, void 0, void 0, { status: "stale", outcomes }, blob);
         return;
       }
+      if (tooltips.some(isTextlessDescription)) {
+        await this.record(
+          opId,
+          void 0,
+          void 0,
+          { status: "rejected", error: "Tooltip has no text to publish" },
+          blob
+        );
+        return;
+      }
+      try {
+        this.checkAssociatedDescriptions(tree, tooltips);
+      } catch (error62) {
+        await this.record(
+          opId,
+          void 0,
+          void 0,
+          { status: "rejected", error: String(error62) },
+          blob
+        );
+        return;
+      }
       if (tooltips.some((t) => !t.custom && !this.options.facts[t.hash])) {
         await this.record(
           opId,
@@ -22282,6 +23581,16 @@ var Publisher = class {
           void 0,
           void 0,
           { status: "rejected", error: baseEnhancedPublishMessage },
+          blob
+        );
+        return;
+      }
+      if (tooltips.some((t) => isHeldSetBonus(t, this.options.facts[t.hash]))) {
+        await this.record(
+          opId,
+          void 0,
+          void 0,
+          { status: "rejected", error: setBonusHoldMessage },
           blob
         );
         return;
