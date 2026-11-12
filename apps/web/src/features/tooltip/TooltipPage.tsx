@@ -1,3 +1,5 @@
+import { SkeletonBoundary } from '../../ui/Skeleton';
+import { loadingWorkspace } from './TooltipLoadingWorkspace';
 import type { ScopedMarkupGlobals } from '../editor/markupScope';
 import { useGlobalDefinition } from '../globals/useGlobals';
 import { GlobalUsages, GlobalUsageCount } from '../globals/GlobalsPage';
@@ -126,6 +128,9 @@ export function TooltipPage({
   const navigate = useNavigate();
   const { state } = useLocation();
   const data = useDataStore((state) => state.data);
+  const hydrated = useDraftStore((state) => state.hydrated);
+  const draftError = useDraftStore((state) => state.error);
+  const dataError = useDataStore((state) => state.error);
   const stepping = active && hashOverride === undefined;
   const targetHash =
     hashOverride === undefined && urgentTarget
@@ -189,23 +194,36 @@ export function TooltipPage({
           active || urgentTarget ? (event) => catchUp(event.target) : undefined
         }
       >
-        <StableWorkspace
-          hashOverride={hashOverride}
-          readOnly={readOnly}
-          route={route}
-          suspended={stepping}
-        />
+        <SkeletonBoundary
+          pending={!data || (!hydrated && !draftError)}
+          error={!!dataError}
+          identity={hash}
+          label="Loading tooltip content…"
+          shape="none"
+        >
+          {(loading) => (
+            <StableWorkspace
+              loading={loading}
+              hashOverride={hashOverride}
+              readOnly={readOnly}
+              route={route}
+              suspended={stepping}
+            />
+          )}
+        </SkeletonBoundary>
       </article>
     </LivePreviewIdentity.Provider>
   );
 }
 
 function TooltipWorkspace({
+  loading,
   hashOverride,
   readOnly = false,
   route,
   suspended,
 }: {
+  loading: boolean;
   hashOverride?: number;
   readOnly?: boolean;
   route: WorkspaceRoute;
@@ -308,7 +326,25 @@ function TooltipWorkspace({
       },
     });
   }, [showPreview]);
-  if (!data) return null;
+  if (!data) {
+    if (!loading) return null;
+    const frame = loadingWorkspace({
+      hash: hashOverride ?? Number(parameter),
+      lang,
+      column,
+      user,
+      markup: markupRow,
+    });
+    // Keep the real VariantWorkspace at the same child position across readiness.
+    return (
+      <>
+        {false}
+        <h1 className={styles.srOnly}>Tooltip {hashOverride ?? Number(parameter)}</h1>
+        {frame.workspace}
+        {frame.left}
+      </>
+    );
+  }
   if (
     hashOverride === undefined &&
     (!parameter || !/^(0|[1-9]\d*)$/.test(parameter) || Number(parameter) > 0xffffffff)
@@ -468,6 +504,7 @@ function TooltipWorkspace({
       acknowledgement={seen}
       stepping={suspended}
       onDocumentPaint={setPreviewPainted}
+      loadingContent={loading}
     />
   );
 
@@ -525,7 +562,11 @@ function TooltipWorkspace({
   const compendiumPane = selectedGlobal ? (
     <GlobalUsages hash={selectedGlobal.hash} name={selectedGlobal.name} />
   ) : !readOnly && user?.role !== 'translator' ? (
-    <SteppingCompendium base={activeBase} active={suspended} ready={previewPainted === hash} />
+    <SteppingCompendium
+      base={activeBase}
+      active={suspended || loading}
+      ready={!loading && previewPainted === hash}
+    />
   ) : null;
   // Roles that may see reports, in a language they may read, beside another side pane (the tab
   // shares the right pane; it never takes a pane of its own).
@@ -558,13 +599,14 @@ function TooltipWorkspace({
   const overrideTargets = overrides.map((variant) => ({ hash: variant, name: nameOf(variant) }));
   const editing = (variant: number, base: Tooltip) => (
     <ClarityEditor
+      pending={loading}
       stepping={suspended && !selectedGlobal}
       focusHighlight={!selectedGlobal}
       value={textOf(variant)}
       lang={lang}
       globals={globalsFor(variant)}
       requireEnglish={requiresEnglish(variant)}
-      readOnly={access.reason !== null}
+      readOnly={loading || access.reason !== null}
       readOnlyReason={access.reason}
       preview={previewStatus}
       tooltipHash={variant}

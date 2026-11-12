@@ -81,33 +81,27 @@
   white-space: nowrap;
 }
 
-.editorGrid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 1rem;
-  height: calc(100dvh - var(--header-h, 37px) - 2rem);
-  min-height: 16rem;
-  > * {
-    align-self: start;
+.permissions .row {
+  position: relative;
+}
+.permissions .row::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: 1px;
+  background: var(--sk-bar, var(--skel));
+}
+@media (max-width: 700px) {
+  .permissions .rowColumn:last-child {
+    display: none;
   }
-}
-.editorPane {
-  display: none;
-}
-@media (min-width: 1200px) {
-  .editorGrid {
-    grid-template-columns: minmax(0, 1fr) minmax(20rem, 38%);
+  .permissions .rowColumn:nth-child(1) {
+    width: 28% !important;
   }
-  .editorPane {
-    display: block;
+  .permissions .rowColumn:nth-child(2) {
+    width: 24% !important;
   }
-}
-
-.finder {
-  flex: 1 1 auto;
-  min-width: 0;
-  width: 100%;
-}
-.editorLines {
-  line-height: 1.5rem;
+  .permissions .rowColumn:nth-child(3) {
+    width: 48% !important;
+  }
 }

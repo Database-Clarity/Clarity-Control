@@ -15,10 +15,7 @@ import { preloadWorkspaces, workspacePage } from './workspacePreload';
 import { reviewRoute } from './features/review/route';
 
 import { AppLazyPage } from './AppLazyPage';
-const loadTooltipPage = workspacePage(() =>
-  import('./features/tooltip/TooltipPage').then((module) => ({ default: module.TooltipPage })),
-);
-const TooltipPage = () => <AppLazyPage load={loadTooltipPage} shape="editor" />;
+import { TooltipPage } from './features/tooltip/TooltipPage';
 const loadTranslationsPage = workspacePage(() =>
   import('./features/translations/TranslationsPage').then((module) => ({
     default: module.TranslationsPage,
@@ -59,7 +56,7 @@ const ReportPage = () => (
   <AppLazyPage load={() => import('./features/reports/public/ReportPublicPage')} />
 );
 const workspaceLoaders: Record<string, () => Promise<unknown>> = {
-  '/': loadTooltipPage,
+  '/': () => Promise.resolve({ default: TooltipPage }),
   '/review': loadReviewPage,
   '/compendium': () => import('./features/compendium/CompendiumTab'),
   '/translations': loadTranslationsPage,
@@ -106,7 +103,11 @@ export const routes: RouteObject[] = [
     element: <WorkspaceRouteLayer />,
     children: [
       { index: true, element: <StartPage /> },
-      { path: 't/:hash', element: <TooltipPage />, handle: { preload: loadTooltipPage } },
+      {
+        path: 't/:hash',
+        element: <TooltipPage />,
+        handle: { preload: () => Promise.resolve({ default: TooltipPage }) },
+      },
       {
         path: 'review',
         element: <ReviewPage />,

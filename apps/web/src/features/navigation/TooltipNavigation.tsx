@@ -1,3 +1,4 @@
+import { SkeletonBoundary } from '../../ui/Skeleton';
 import { useGlobalCatalog, useGlobalHover } from '../globals/useGlobals';
 import { globalPath, type GlobalDefinition } from '../globals/model';
 import { useCompendiumStore } from '../compendium/store';
@@ -13,6 +14,7 @@ import {
   useState,
   useSyncExternalStore,
   type ComponentProps,
+  type ReactNode,
   type CSSProperties,
   type KeyboardEvent,
   type MutableRefObject,
@@ -411,7 +413,7 @@ function groupedRows(
  * the selected (current) one are drawn differently. `bar` is the header form; `sheet` the phone
  * form, which adds Previous/Next because touch screens have no Shift+wheel.
  */
-export const TooltipNavigation = memo(function TooltipNavigation({
+const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   data,
   variant = 'bar',
 }: {
@@ -1253,7 +1255,7 @@ export const TooltipNavigation = memo(function TooltipNavigation({
     </div>
   );
   return (
-    <section aria-label="Tooltip navigation" className={styles.finder} data-variant={variant}>
+    <FinderFrame variant={variant}>
       {sheet ? (
         <>
           {/* The controls sit at the top, next to the header title that opened the finder; the
@@ -1328,6 +1330,53 @@ export const TooltipNavigation = memo(function TooltipNavigation({
           ` ${groupKeys}+Scroll and Page Up/Down step ${grouped.groupLabel.toLowerCase()}s, stopping at the ends.`}{' '}
         * = unsaved draft.
       </small>
-    </section>
+    </FinderFrame>
   );
 });
+
+function FinderFrame({ variant, children }: { variant: 'bar' | 'sheet'; children: ReactNode }) {
+  return (
+    <section aria-label="Tooltip navigation" className={styles.finder} data-variant={variant}>
+      {children}
+    </section>
+  );
+}
+
+/** The real finder controls occupy the same slots before their catalogue arrives. */
+export function TooltipNavigation({
+  data,
+  variant = 'bar',
+}: {
+  data: EditorData | null;
+  variant?: 'bar' | 'sheet';
+}) {
+  if (data) return <LoadedTooltipNavigation data={data} variant={variant} />;
+  return (
+    <FinderFrame variant={variant}>
+      <FinderPicker
+        label="Category"
+        className={styles.category}
+        sections={[]}
+        value=""
+        empty="Loading…"
+        onChange={() => {}}
+      />
+      <div className={styles.combo}>
+        <div className={styles.field}>
+          <input
+            type="text"
+            role="combobox"
+            aria-label="Tooltip"
+            aria-expanded={false}
+            className={styles.input}
+            placeholder="Loading tooltips…"
+            disabled
+          />
+        </div>
+      </div>
+      <span className={styles.position}>
+        <SkeletonBoundary pending label="Loading tooltip position…" count={1} />
+      </span>
+    </FinderFrame>
+  );
+}

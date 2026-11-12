@@ -1,6 +1,9 @@
 import { useElementWidth } from './useElementWidth';
 import {
   Suspense,
+  createContext,
+  useContext,
+  type MutableRefObject,
   useLayoutEffect,
   useRef,
   useState,
@@ -138,6 +141,25 @@ export function skeletonLineWidths(
 
 /** Once shown, a skeleton stays at least this long (ms), so it never only flashes. */
 export const skeletonMinimumMs = 400;
+type SkeletonClock = MutableRefObject<number | undefined>;
+const SkeletonClockContext = createContext<SkeletonClock | undefined>(undefined);
+
+function useClockHandoff(clock: SkeletonClock, pending: boolean, visible: boolean) {
+  useLayoutEffect(() => {
+    if (pending || visible || clock.current === undefined) return;
+    // Newly mounted descendants get the completed parent's clock before it expires.
+    let second: number | undefined;
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(() => {
+        clock.current = undefined;
+      });
+    });
+    return () => {
+      cancelAnimationFrame(first);
+      if (second !== undefined) cancelAnimationFrame(second);
+    };
+  }, [clock, pending, visible]);
+}
 
 /**
  * The one timing rule for every skeleton. Hosts remove obsolete content immediately. After a
@@ -148,13 +170,20 @@ export const skeletonMinimumMs = 400;
  * screen, so nothing flashes) starts a fresh minimum. Waits never stack. While this returns true
  * the host shows the skeleton instead of content, even if `pending` already turned false.
  */
-export function useSkeletonVisible(pending: boolean, identity: unknown, hasContent: boolean) {
+export function useSkeletonVisible(
+  pending: boolean,
+  identity: unknown,
+  hasContent: boolean,
+  clock?: SkeletonClock,
+) {
+  const inherited = useContext(SkeletonClockContext);
   const [visible, setVisible] = useState(pending && !hasContent);
   const shownAt = useRef<number | undefined>(visible ? Date.now() : undefined);
   const shownFor = useRef(identity);
   useLayoutEffect(() => {
     const show = () => {
-      shownAt.current = Date.now();
+      shownAt.current = inherited?.current ?? Date.now();
+      if (clock) clock.current = shownAt.current;
       shownFor.current = identity;
       setVisible(true);
     };
@@ -182,7 +211,11 @@ export function useSkeletonVisible(pending: boolean, identity: unknown, hasConte
       }
       if (shownAt.current === undefined) {
         if (!pending) hide();
-        else afterTwoFrames(() => (shownAt.current = Date.now()));
+        else
+          afterTwoFrames(() => {
+            shownAt.current = inherited?.current ?? Date.now();
+            if (clock) clock.current = shownAt.current;
+          });
       } else if (!pending) {
         const left = shownAt.current + skeletonMinimumMs - Date.now();
         if (left <= 0) hide();
@@ -198,12 +231,11 @@ export function useSkeletonVisible(pending: boolean, identity: unknown, hasConte
       if (second !== undefined) cancelAnimationFrame(second);
       if (timer !== undefined) clearTimeout(timer);
     };
-  }, [pending, identity, hasContent, visible]);
+  }, [pending, identity, hasContent, visible, inherited, clock]);
   return visible || (pending && !hasContent);
 }
 
-export type LoadingShape =
-  'page' | 'rows' | 'text' | 'editor' | 'finder' | 'preview' | 'permissions' | 'none';
+export type LoadingShape = 'page' | 'rows' | 'text' | 'permissions' | 'none';
 
 /** Content-shaped placeholder; status copy remains available to assistive technology. */
 export function LoadingSkeleton({
@@ -225,39 +257,15 @@ export function LoadingSkeleton({
   const width = useElementWidth(element);
   const widths = text
     ? skeletonLineWidths(skeletonTextShape(text), width ?? 360, 16)
-    : [92, 78, 85, 60];
+    : Array.from({ length: count === 3 ? 4 : count }, (_, i) => [92, 78, 85, 60][i % 4]);
   return (
-    <div ref={element} aria-busy="true" className={shape === 'finder' ? styles.finder : undefined}>
+    <div ref={element} aria-busy="true">
       <SkeletonStatus>{label}</SkeletonStatus>
-      {visible && shape === 'editor' && (
-        <div className={styles.editorGrid}>
-          <SkeletonRegion>
-            <SkeletonRows count={2} columns={[25, 50, 25]} rowHeight="1.75rem" />
-            <div className={styles.editorLines}>
-              {Array.from({ length: 18 }, (_, index) => (
-                <SkeletonLine key={index} width={[92, 78, 85, 60][index % 4]} />
-              ))}
-            </div>
-          </SkeletonRegion>
-          <SkeletonRegion className={styles.editorPane}>
-            <SkeletonRows count={2} columns={[40, 35, 25]} rowHeight="1.75rem" />
-            <SkeletonBlock height="12rem" />
-            <SkeletonLine width={58} />
-          </SkeletonRegion>
-        </div>
-      )}
-      {visible && shape !== 'editor' && shape !== 'none' && (
+      {visible && shape !== 'none' && (
         <SkeletonRegion
+          className={shape === 'permissions' ? styles.permissions : undefined}
           style={shape === 'page' ? ({ '--gap-y': '0.375rem' } as CSSProperties) : undefined}
         >
-          {shape === 'finder' && <SkeletonRows count={1} columns={[25, 50, 25]} rowHeight="2rem" />}
-          {shape === 'preview' && (
-            <>
-              <SkeletonRows count={2} columns={[70, 30]} rowHeight="1.75rem" />
-              <SkeletonBlock height="14rem" />
-              <SkeletonLine width={58} />
-            </>
-          )}
           {shape === 'permissions' && (
             <>
               <SkeletonLine width={20} />
@@ -317,22 +325,34 @@ export function SkeletonBoundary({
   shape?: LoadingShape;
   count?: number;
   text?: string;
-  children?: ReactNode;
+  children?: ReactNode | ((pending: boolean) => ReactNode);
 }) {
-  const visible = useSkeletonVisible(pending && !error, identity, true);
-  if (error) return children;
-  return pending || visible ? (
-    <LoadingSkeleton
-      label={label}
-      shape={shape}
-      count={count}
-      text={text}
-      visible={visible}
-      rowHeights={rowHeights}
-    />
-  ) : (
-    children
-  );
+  const inherited = useContext(SkeletonClockContext);
+  const clock = useRef(inherited?.current);
+  const clockIdentity = useRef(identity);
+  if (clockIdentity.current !== identity) {
+    clock.current = undefined;
+    clockIdentity.current = identity;
+  }
+  const visible = useSkeletonVisible(pending && !error, identity, true, clock);
+  useClockHandoff(clock, pending && !error, visible);
+  const holding = !error && (pending || visible);
+  const content =
+    typeof children === 'function' ? (
+      children(holding)
+    ) : holding ? (
+      <LoadingSkeleton
+        label={label}
+        shape={shape}
+        count={count}
+        text={text}
+        visible={visible}
+        rowHeights={rowHeights}
+      />
+    ) : (
+      children
+    );
+  return <SkeletonClockContext.Provider value={clock}>{content}</SkeletonClockContext.Provider>;
 }
 
 function PendingCommit({
@@ -358,10 +378,13 @@ export function SkeletonSuspense({
   children: ReactNode;
   shape?: LoadingShape;
 }) {
+  const inherited = useContext(SkeletonClockContext);
+  const clock = useRef(inherited?.current);
   const [pending, setPending] = useState(false);
-  const visible = useSkeletonVisible(pending, label, true);
+  const visible = useSkeletonVisible(pending, label, true, clock);
+  useClockHandoff(clock, pending, visible);
   return (
-    <>
+    <SkeletonClockContext.Provider value={clock}>
       {(pending || visible) && <LoadingSkeleton label={label} shape={shape} visible={visible} />}
       <div
         hidden={pending || visible}
@@ -373,6 +396,6 @@ export function SkeletonSuspense({
           </PendingCommit>
         </Suspense>
       </div>
-    </>
+    </SkeletonClockContext.Provider>
   );
 }

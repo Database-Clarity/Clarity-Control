@@ -1,3 +1,4 @@
+import { SkeletonBoundary } from '../../../ui/Skeleton';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { languageLabel } from '../../../languageLabels';
@@ -148,17 +149,19 @@ export function ReportReceipt() {
           )}
         </p>
       )}
-      {!status && !problem && (
-        <p className={styles.muted} role="status">
-          Loading the report…
-        </p>
-      )}
-      {status && <p className={styles.muted}>{statusText[status]}</p>}
-      {receipt?.closed_note && (
-        <p className={styles.closedNote}>
-          <span className={styles.label}>Editors’ note</span> {receipt.closed_note}
-        </p>
-      )}
+      <SkeletonBoundary
+        pending={!status}
+        error={!!problem}
+        identity={id}
+        label="Loading the report…"
+      >
+        {status && <p className={styles.muted}>{statusText[status]}</p>}
+        {receipt?.closed_note && (
+          <p className={styles.closedNote}>
+            <span className={styles.label}>Editors’ note</span> {receipt.closed_note}
+          </p>
+        )}
+      </SkeletonBoundary>
       {problem && (
         <p role="alert" className={styles.notice}>
           {problem}

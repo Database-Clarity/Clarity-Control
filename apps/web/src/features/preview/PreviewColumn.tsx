@@ -1,3 +1,4 @@
+import { SkeletonBoundary } from '../../ui/Skeleton';
 import {
   memo,
   startTransition,
@@ -50,6 +51,7 @@ export interface PreviewColumnProps {
   /** The current document committed and had an opportunity to paint. */
   onDocumentPaint?(hash: number): void;
   pendingDocument?: boolean;
+  loadingContent?: boolean;
 }
 
 const labels: Record<PreviewMode, string> = {
@@ -135,6 +137,7 @@ const PreviewColumnBody = memo(function PreviewColumnBody({
   variant,
   onVariant,
   pendingDocument,
+  loadingContent,
 }: PreviewColumnProps) {
   const selected = enhanced.find((entry) => entry.hash === variant) ?? enhanced[0];
   const effective: PreviewMode = selected ? mode : 'base';
@@ -227,12 +230,21 @@ const PreviewColumnBody = memo(function PreviewColumnBody({
         bar={bar}
         fill
       >
-        {comparison && (
-          <div className={styles.compare} data-compare="">
-            {comparison.lines.map((entry, index) => (
-              <CompareRow key={index} entry={entry} />
-            ))}
-          </div>
+        {loadingContent ? (
+          <SkeletonBoundary
+            pending
+            label="Loading preview text…"
+            count={12}
+            text={baseText || undefined}
+          />
+        ) : (
+          comparison && (
+            <div className={styles.compare} data-compare="">
+              {comparison.lines.map((entry, index) => (
+                <CompareRow key={index} entry={entry} />
+              ))}
+            </div>
+          )
         )}
       </TooltipPreview>
     </section>

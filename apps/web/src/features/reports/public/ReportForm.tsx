@@ -1,3 +1,4 @@
+import { SkeletonBoundary } from '../../../ui/Skeleton';
 import { languages } from '../../../../../../packages/core/src/languages';
 import {
   reportSubmissionSchema,
@@ -752,347 +753,352 @@ export function ReportForm() {
     [],
   );
 
-  if (load.kind === 'loading')
-    return (
-      <div className={styles.page}>
-        <p role="status" className={styles.muted}>
-          Loading the tooltip…
-        </p>
-      </div>
-    );
-  if (load.kind === 'failed')
-    return (
-      <div className={styles.page}>
-        <div role="alert" className={styles.notice}>
-          <p>The tooltip could not load: {load.message}</p>
-          <button
-            type="button"
-            className={styles.button}
-            onClick={() => setAttempt((value) => value + 1)}
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  if (load.kind === 'unknown')
-    return (
-      <div className={styles.page}>
-        <p role="alert" className={styles.notice}>
-          Item {hash} has no Clarity tooltip to report.{' '}
-          <Link to="/report">Search for it by name</Link>.
-        </p>
-      </div>
-    );
-  const r = load.render;
-  const refreshed =
-    notice?.startsWith('The tooltip changed.') ||
-    notice?.startsWith('The tooltip data was refreshed.');
-  const sendNotice = refreshed ? errors.form : (notice ?? errors.form);
-  const category = categorySpecs[r.item.category]?.label ?? r.item.type;
-  const status =
-    phase === 'refreshing'
-      ? 'Checking the latest tooltip…'
-      : phase === 'checking'
-        ? 'Checking…'
-        : phase === 'check-failed'
-          ? 'Check failed, retry'
-          : phase === 'sending'
-            ? 'Sending…'
-            : phase === 'uploading'
-              ? 'Uploading screenshots…'
-              : needsCheck
-                ? 'Human check runs when you send'
-                : '';
-
-  return (
-    <form
-      className={`${styles.page} ${styles.form}`}
-      aria-label={`Report an issue with ${r.item.name}`}
-      noValidate
-      onSubmit={(event) => {
-        event.preventDefault();
-        void send();
-      }}
-    >
-      {/* Frozen while the check, the send, and the uploads run: what is sent is what is shown. */}
-      <fieldset className={styles.frozen} disabled={busy}>
-        <section className={styles.left} aria-label="Tooltip">
-          <div className={styles.itemRow}>
-            <ItemIdentity item={r.item} category={category} hash={viewed} />
-            <span className={styles.itemControls}>
-              <Link className={styles.linkButton} to={`/report?lang=${r.seenLang}`}>
-                Change
-              </Link>
-              <label className={styles.langField}>
-                <span className={styles.visuallyHidden}>Language</span>
-                <select
-                  className={styles.select}
-                  value={r.seenLang}
-                  onChange={(event) => changeLang(event.target.value)}
-                >
-                  {languages.map((lang) => (
-                    <option key={lang} value={lang}>
-                      {languageLabel(lang)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </span>
+  const renderContent = () => {
+    if (load.kind === 'loading') return null;
+    if (load.kind === 'failed')
+      return (
+        <div className={styles.page}>
+          <div role="alert" className={styles.notice}>
+            <p>The tooltip could not load: {load.message}</p>
+            <button
+              type="button"
+              className={styles.button}
+              onClick={() => setAttempt((value) => value + 1)}
+            >
+              Retry
+            </button>
           </div>
-          {refreshed && (
-            <p className={styles.notice} role="alert">
-              {notice}
-            </p>
-          )}
-          {r.fallback && (
-            <p className={styles.fallback}>
-              No {languageLabel(r.seenLang)} text yet; shown in English. Report a missing
-              translation with Whole tooltip.
-            </p>
-          )}
-          <p className={styles.hint}>{hint}</p>
-          <AnnotatedTooltip
-            render={r}
-            notes={draft.notes}
-            existing={existing}
-            onTap={onTap}
-            onSelect={onSelect}
-            onLineKey={onLineKey}
-          />
-          {errors.tooltip && (
-            <p className={styles.error} role="alert">
-              {errors.tooltip}
-            </p>
-          )}
-          <p className={styles.muted}>
-            Shown at consumer width, so the lines break as they did in your app.
+        </div>
+      );
+    if (load.kind === 'unknown')
+      return (
+        <div className={styles.page}>
+          <p role="alert" className={styles.notice}>
+            Item {hash} has no Clarity tooltip to report.{' '}
+            <Link to="/report">Search for it by name</Link>.
           </p>
-          <button
-            type="button"
-            className={`${styles.textButton} ${styles.flush}`}
-            onClick={addWhole}
-            disabled={hasWhole || draft.notes.length >= maxNotes}
-            title={
-              hasWhole
-                ? 'A Whole tooltip note is already there'
-                : draft.notes.length >= maxNotes
-                  ? 'Up to 5 notes'
-                  : 'For missing information or a problem with the whole tooltip'
-            }
-          >
-            + Whole tooltip
-          </button>
-          <p className={`${styles.muted} ${styles.privacyWide}`}>{privacyLine}</p>
-        </section>
+        </div>
+      );
+    const r = load.render;
+    const refreshed =
+      notice?.startsWith('The tooltip changed.') ||
+      notice?.startsWith('The tooltip data was refreshed.');
+    const sendNotice = refreshed ? errors.form : (notice ?? errors.form);
+    const category = categorySpecs[r.item.category]?.label ?? r.item.type;
+    const status =
+      phase === 'refreshing'
+        ? 'Checking the latest tooltip…'
+        : phase === 'checking'
+          ? 'Checking…'
+          : phase === 'check-failed'
+            ? 'Check failed, retry'
+            : phase === 'sending'
+              ? 'Sending…'
+              : phase === 'uploading'
+                ? 'Uploading screenshots…'
+                : needsCheck
+                  ? 'Human check runs when you send'
+                  : '';
 
-        <section className={styles.right} aria-label="Notes">
-          {draft.notes.length > 0 && <h2 className={styles.heading}>Notes</h2>}
-          <ol className={styles.notes}>
-            {draft.notes.map((note, index) => (
-              <NoteRow
-                key={note.id}
-                n={index + 1}
-                note={note}
-                quote={note.mark ? r.display.slice(note.mark.start, note.mark.end) : undefined}
-                error={errors[`note-${note.id}`]}
-                onChange={(next) => {
-                  clearError(`note-${note.id}`);
-                  updateNotes((notes) =>
-                    notes.map((n) => (n.id === note.id ? { ...n, ...next } : n)),
-                  );
-                }}
-                onRemove={() => removeNote(note.id)}
-                targeted={targeted === note.id}
-                onMarkAgain={() => markAgain(note.id)}
-              />
-            ))}
-          </ol>
+    return (
+      <form
+        className={`${styles.page} ${styles.form}`}
+        aria-label={`Report an issue with ${r.item.name}`}
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          void send();
+        }}
+      >
+        {/* Frozen while the check, the send, and the uploads run: what is sent is what is shown. */}
+        <fieldset className={styles.frozen} disabled={busy}>
+          <section className={styles.left} aria-label="Tooltip">
+            <div className={styles.itemRow}>
+              <ItemIdentity item={r.item} category={category} hash={viewed} />
+              <span className={styles.itemControls}>
+                <Link className={styles.linkButton} to={`/report?lang=${r.seenLang}`}>
+                  Change
+                </Link>
+                <label className={styles.langField}>
+                  <span className={styles.visuallyHidden}>Language</span>
+                  <select
+                    className={styles.select}
+                    value={r.seenLang}
+                    onChange={(event) => changeLang(event.target.value)}
+                  >
+                    {languages.map((lang) => (
+                      <option key={lang} value={lang}>
+                        {languageLabel(lang)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </span>
+            </div>
+            {refreshed && (
+              <p className={styles.notice} role="alert">
+                {notice}
+              </p>
+            )}
+            {r.fallback && (
+              <p className={styles.fallback}>
+                No {languageLabel(r.seenLang)} text yet; shown in English. Report a missing
+                translation with Whole tooltip.
+              </p>
+            )}
+            <p className={styles.hint}>{hint}</p>
+            <AnnotatedTooltip
+              render={r}
+              notes={draft.notes}
+              existing={existing}
+              onTap={onTap}
+              onSelect={onSelect}
+              onLineKey={onLineKey}
+            />
+            {errors.tooltip && (
+              <p className={styles.error} role="alert">
+                {errors.tooltip}
+              </p>
+            )}
+            <p className={styles.muted}>
+              Shown at consumer width, so the lines break as they did in your app.
+            </p>
+            <button
+              type="button"
+              className={`${styles.textButton} ${styles.flush}`}
+              onClick={addWhole}
+              disabled={hasWhole || draft.notes.length >= maxNotes}
+              title={
+                hasWhole
+                  ? 'A Whole tooltip note is already there'
+                  : draft.notes.length >= maxNotes
+                    ? 'Up to 5 notes'
+                    : 'For missing information or a problem with the whole tooltip'
+              }
+            >
+              + Whole tooltip
+            </button>
+            <p className={`${styles.muted} ${styles.privacyWide}`}>{privacyLine}</p>
+          </section>
 
-          <h2 className={styles.heading}>Evidence</h2>
-          <div className={styles.evidence}>
-            {user ? (
-              <div className={styles.shots}>
+          <section className={styles.right} aria-label="Notes">
+            {draft.notes.length > 0 && <h2 className={styles.heading}>Notes</h2>}
+            <ol className={styles.notes}>
+              {draft.notes.map((note, index) => (
+                <NoteRow
+                  key={note.id}
+                  n={index + 1}
+                  note={note}
+                  quote={note.mark ? r.display.slice(note.mark.start, note.mark.end) : undefined}
+                  error={errors[`note-${note.id}`]}
+                  onChange={(next) => {
+                    clearError(`note-${note.id}`);
+                    updateNotes((notes) =>
+                      notes.map((n) => (n.id === note.id ? { ...n, ...next } : n)),
+                    );
+                  }}
+                  onRemove={() => removeNote(note.id)}
+                  targeted={targeted === note.id}
+                  onMarkAgain={() => markAgain(note.id)}
+                />
+              ))}
+            </ol>
+
+            <h2 className={styles.heading}>Evidence</h2>
+            <div className={styles.evidence}>
+              {user ? (
+                <div className={styles.shots}>
+                  <button
+                    type="button"
+                    className={styles.button}
+                    id={`${formId}-screenshots`}
+                    onClick={() => files.current?.click()}
+                    disabled={screenshots.length >= maxScreenshots}
+                    title={screenshots.length >= maxScreenshots ? 'Up to 3 screenshots' : undefined}
+                  >
+                    Attach screenshots (up to 3)
+                  </button>
+                  <input
+                    ref={files}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    multiple
+                    hidden
+                    onChange={(event) => {
+                      void attach(event.target.files);
+                      event.target.value = '';
+                    }}
+                  />
+                  {screenshots.map((shot, index) => (
+                    <span key={shot.id} className={styles.thumb}>
+                      <img src={shot.url} alt={`Screenshot ${index + 1}`} />
+                      <button
+                        type="button"
+                        className={styles.thumbRemove}
+                        aria-label={`Remove screenshot ${index + 1}`}
+                        onClick={() => {
+                          URL.revokeObjectURL(shot.url);
+                          setScreenshots((current) => current.filter((s) => s.id !== shot.id));
+                        }}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className={styles.muted}>
+                  Sign in to attach screenshots; video links work for everyone.
+                </p>
+              )}
+              {errors.screenshots && (
+                <p className={styles.error} role="alert">
+                  {errors.screenshots}
+                </p>
+              )}
+              {draft.links.map((link, index) => (
+                <div key={index} className={styles.fieldRow}>
+                  <label htmlFor={`${formId}-link-${index}`} className={styles.label}>
+                    Video link{' '}
+                    <span className={styles.labelNote}>(YouTube, Twitch, Streamable, imgur)</span>
+                  </label>
+                  <input
+                    id={`${formId}-link-${index}`}
+                    className={styles.input}
+                    type="url"
+                    inputMode="url"
+                    value={link}
+                    aria-invalid={Boolean(errors[`link-${index}`]) || undefined}
+                    placeholder="https://"
+                    onChange={(event) => {
+                      clearError(`link-${index}`);
+                      setDraft((current) => ({
+                        ...current,
+                        links: current.links.map((l, i) => (i === index ? event.target.value : l)),
+                      }));
+                    }}
+                  />
+                  {errors[`link-${index}`] && (
+                    <p className={styles.error} role="alert">
+                      {errors[`link-${index}`]}
+                    </p>
+                  )}
+                </div>
+              ))}
+              {draft.links.length < 2 && draft.links[0]?.trim() && (
                 <button
                   type="button"
-                  className={styles.button}
-                  id={`${formId}-screenshots`}
-                  onClick={() => files.current?.click()}
-                  disabled={screenshots.length >= maxScreenshots}
-                  title={screenshots.length >= maxScreenshots ? 'Up to 3 screenshots' : undefined}
+                  className={`${styles.textButton} ${styles.flush}`}
+                  onClick={() =>
+                    setDraft((current) => ({ ...current, links: [...current.links, ''] }))
+                  }
                 >
-                  Attach screenshots (up to 3)
+                  + Another video link
                 </button>
-                <input
-                  ref={files}
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  multiple
-                  hidden
-                  onChange={(event) => {
-                    void attach(event.target.files);
-                    event.target.value = '';
-                  }}
-                />
-                {screenshots.map((shot, index) => (
-                  <span key={shot.id} className={styles.thumb}>
-                    <img src={shot.url} alt={`Screenshot ${index + 1}`} />
-                    <button
-                      type="button"
-                      className={styles.thumbRemove}
-                      aria-label={`Remove screenshot ${index + 1}`}
-                      onClick={() => {
-                        URL.revokeObjectURL(shot.url);
-                        setScreenshots((current) => current.filter((s) => s.id !== shot.id));
-                      }}
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <p className={styles.muted}>
-                Sign in to attach screenshots; video links work for everyone.
-              </p>
-            )}
-            {errors.screenshots && (
-              <p className={styles.error} role="alert">
-                {errors.screenshots}
-              </p>
-            )}
-            {draft.links.map((link, index) => (
-              <div key={index} className={styles.fieldRow}>
-                <label htmlFor={`${formId}-link-${index}`} className={styles.label}>
-                  Video link{' '}
-                  <span className={styles.labelNote}>(YouTube, Twitch, Streamable, imgur)</span>
-                </label>
-                <input
-                  id={`${formId}-link-${index}`}
-                  className={styles.input}
-                  type="url"
-                  inputMode="url"
-                  value={link}
-                  aria-invalid={Boolean(errors[`link-${index}`]) || undefined}
-                  placeholder="https://"
-                  onChange={(event) => {
-                    clearError(`link-${index}`);
-                    setDraft((current) => ({
-                      ...current,
-                      links: current.links.map((l, i) => (i === index ? event.target.value : l)),
-                    }));
-                  }}
-                />
-                {errors[`link-${index}`] && (
-                  <p className={styles.error} role="alert">
-                    {errors[`link-${index}`]}
-                  </p>
-                )}
-              </div>
-            ))}
-            {draft.links.length < 2 && draft.links[0]?.trim() && (
-              <button
-                type="button"
-                className={`${styles.textButton} ${styles.flush}`}
-                onClick={() =>
-                  setDraft((current) => ({ ...current, links: [...current.links, ''] }))
-                }
-              >
-                + Another video link
-              </button>
-            )}
-          </div>
-
-          <details
-            className={styles.optional}
-            open={optionalOpen}
-            onToggle={(event) => setOptionalOpen(event.currentTarget.open)}
-          >
-            <summary>Add an overall note or a source link</summary>
-            <label htmlFor={`${formId}-overall`} className={styles.label}>
-              Overall note
-            </label>
-            <textarea
-              id={`${formId}-overall`}
-              className={styles.textarea}
-              rows={2}
-              maxLength={maxOverallLength}
-              value={draft.overall}
-              aria-invalid={Boolean(errors.overall) || undefined}
-              placeholder="What should change, where you saw it"
-              onChange={(event) => {
-                clearError('overall');
-                setDraft((current) => ({ ...current, overall: event.target.value }));
-              }}
-            />
-            {errors.overall && <p className={styles.error}>{errors.overall}</p>}
-            <label htmlFor={`${formId}-source`} className={styles.label}>
-              Source link
-            </label>
-            <input
-              id={`${formId}-source`}
-              className={styles.input}
-              type="url"
-              inputMode="url"
-              value={draft.source}
-              aria-invalid={Boolean(errors.source) || undefined}
-              placeholder="https://"
-              onChange={(event) => {
-                clearError('source');
-                setDraft((current) => ({ ...current, source: event.target.value }));
-              }}
-            />
-            {errors.source && <p className={styles.error}>{errors.source}</p>}
-          </details>
-
-          <p className={styles.identity}>
-            {authLoading ? (
-              'Checking sign-in…'
-            ) : user ? (
-              <>
-                Reporting as <strong>{user.login}</strong>.
-              </>
-            ) : (
-              <>
-                Reporting as <strong>Anonymous</strong>. Sign in (top right) to use your name; your
-                notes are kept.
-              </>
-            )}
-          </p>
-          {!user?.role && (
-            <p className={styles.burden}>{user ? burden : `${anonymousWeight} ${burden}`}</p>
-          )}
-          <p className={`${styles.muted} ${styles.privacyNarrow}`}>{privacyLine}</p>
-
-          <div className={styles.footer} data-refreshed={refreshed || undefined}>
-            <div className={styles.checkRow} data-visible={interactive || undefined}>
-              <div ref={checkBox} />
+              )}
             </div>
-            {sendNotice && (
-              <p className={styles.notice} role="alert">
-                {sendNotice}
-              </p>
+
+            <details
+              className={styles.optional}
+              open={optionalOpen}
+              onToggle={(event) => setOptionalOpen(event.currentTarget.open)}
+            >
+              <summary>Add an overall note or a source link</summary>
+              <label htmlFor={`${formId}-overall`} className={styles.label}>
+                Overall note
+              </label>
+              <textarea
+                id={`${formId}-overall`}
+                className={styles.textarea}
+                rows={2}
+                maxLength={maxOverallLength}
+                value={draft.overall}
+                aria-invalid={Boolean(errors.overall) || undefined}
+                placeholder="What should change, where you saw it"
+                onChange={(event) => {
+                  clearError('overall');
+                  setDraft((current) => ({ ...current, overall: event.target.value }));
+                }}
+              />
+              {errors.overall && <p className={styles.error}>{errors.overall}</p>}
+              <label htmlFor={`${formId}-source`} className={styles.label}>
+                Source link
+              </label>
+              <input
+                id={`${formId}-source`}
+                className={styles.input}
+                type="url"
+                inputMode="url"
+                value={draft.source}
+                aria-invalid={Boolean(errors.source) || undefined}
+                placeholder="https://"
+                onChange={(event) => {
+                  clearError('source');
+                  setDraft((current) => ({ ...current, source: event.target.value }));
+                }}
+              />
+              {errors.source && <p className={styles.error}>{errors.source}</p>}
+            </details>
+
+            <p className={styles.identity}>
+              {authLoading ? (
+                'Checking sign-in…'
+              ) : user ? (
+                <>
+                  Reporting as <strong>{user.login}</strong>.
+                </>
+              ) : (
+                <>
+                  Reporting as <strong>Anonymous</strong>. Sign in (top right) to use your name;
+                  your notes are kept.
+                </>
+              )}
+            </p>
+            {!user?.role && (
+              <p className={styles.burden}>{user ? burden : `${anonymousWeight} ${burden}`}</p>
             )}
-            <div className={styles.bar}>
-              <span className={styles.barStatus} role="status">
-                {status}
-              </span>
-              <button
-                type="submit"
-                className={styles.primary}
-                aria-disabled={busy || undefined}
-                title={busy ? status : undefined}
-              >
-                {phase === 'check-failed' ? 'Retry send' : 'Send report'}
-              </button>
+            <p className={`${styles.muted} ${styles.privacyNarrow}`}>{privacyLine}</p>
+
+            <div className={styles.footer} data-refreshed={refreshed || undefined}>
+              <div className={styles.checkRow} data-visible={interactive || undefined}>
+                <div ref={checkBox} />
+              </div>
+              {sendNotice && (
+                <p className={styles.notice} role="alert">
+                  {sendNotice}
+                </p>
+              )}
+              <div className={styles.bar}>
+                <span className={styles.barStatus} role="status">
+                  {status}
+                </span>
+                <button
+                  type="submit"
+                  className={styles.primary}
+                  aria-disabled={busy || undefined}
+                  title={busy ? status : undefined}
+                >
+                  {phase === 'check-failed' ? 'Retry send' : 'Send report'}
+                </button>
+              </div>
             </div>
-          </div>
-        </section>
-      </fieldset>
-      <p className={styles.visuallyHidden} aria-live="polite">
-        {announce}
-      </p>
-    </form>
+          </section>
+        </fieldset>
+        <p className={styles.visuallyHidden} aria-live="polite">
+          {announce}
+        </p>
+      </form>
+    );
+  };
+  return (
+    <SkeletonBoundary
+      pending={load.kind === 'loading'}
+      error={load.kind === 'failed' || load.kind === 'unknown'}
+      identity={hash}
+      label="Loading the tooltip…"
+    >
+      {renderContent()}
+    </SkeletonBoundary>
   );
 }
 

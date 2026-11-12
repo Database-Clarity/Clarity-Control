@@ -227,16 +227,7 @@ function LayoutContent() {
   // The editor's finder is the tooltip combobox; Compendium and Review keep their queue lists.
   const finder = (
     <>
-      {isEditor && (
-        <SkeletonBoundary
-          pending={!data}
-          error={!!error}
-          label="Loading tooltip finder…"
-          shape="finder"
-        >
-          {data && <TooltipNavigation data={data} variant={phone ? 'sheet' : 'bar'} />}
-        </SkeletonBoundary>
-      )}
+      {isEditor && <TooltipNavigation data={data} variant={phone ? 'sheet' : 'bar'} />}
       {phone && isCompendium && <CompendiumQueue />}
       {phone && isReview && <ReviewSidebarNavigation />}
       <ShellSlotHost name="finder" className={styles.slotHost} />
@@ -304,16 +295,7 @@ function LayoutContent() {
                 aria-label={previewColumn ? 'Preview' : 'Context'}
                 hidden={columnCollapsed}
               >
-                {previewColumn && (
-                  <SkeletonBoundary
-                    pending={workspacePending}
-                    error={!!error}
-                    label="Loading tooltip preview…"
-                    shape="preview"
-                  >
-                    <ShellSlotHost name="left" className={styles.leftHost} />
-                  </SkeletonBoundary>
-                )}
+                {previewColumn && <ShellSlotHost name="left" className={styles.leftHost} />}
                 {isCompendium && <CompendiumQueue />}
                 {isReview && <ReviewSidebarNavigation />}
               </aside>
@@ -361,26 +343,28 @@ function LayoutContent() {
               )}
 
               {/* A failed draft recovery must not hide read-only browsing; edit actions stay gated on `hydrated`. */}
-              <SkeletonBoundary
-                pending={workspacePending}
-                error={!!error}
-                label={
-                  status === 'loading'
-                    ? 'Loading manifest and tooltip data...'
-                    : 'Recovering local drafts...'
-                }
-                shape={
-                  isEditor
-                    ? 'editor'
-                    : isCompendium &&
-                        !new URLSearchParams(location.search).has('hash') &&
-                        new URLSearchParams(location.search).get('tab') !== 'linked'
+              {isEditor ? (
+                <Outlet />
+              ) : (
+                <SkeletonBoundary
+                  pending={workspacePending}
+                  error={!!error}
+                  label={
+                    status === 'loading'
+                      ? 'Loading manifest and tooltip data...'
+                      : 'Recovering local drafts...'
+                  }
+                  shape={
+                    isCompendium &&
+                    !new URLSearchParams(location.search).has('hash') &&
+                    new URLSearchParams(location.search).get('tab') !== 'linked'
                       ? 'none'
                       : 'page'
-                }
-              >
-                {status === 'ready' && (hydrated || Boolean(draftError)) && <Outlet />}
-              </SkeletonBoundary>
+                  }
+                >
+                  {status === 'ready' && (hydrated || Boolean(draftError)) && <Outlet />}
+                </SkeletonBoundary>
+              )}
             </main>
           </div>
         </div>

@@ -210,7 +210,9 @@ it('keeps resolved children behind the shown skeleton until its minimum elapses'
         }),
     );
     await act(async () =>
-      root.render(createElement(SkeletonSuspense, { label: 'Loading page', children: createElement(Page) })),
+      root.render(
+        createElement(SkeletonSuspense, { label: 'Loading page', children: createElement(Page) }),
+      ),
     );
     await frame();
     await frame();
@@ -223,4 +225,60 @@ it('keeps resolved children behind the shown skeleton until its minimum elapses'
   } finally {
     vi.useRealTimers();
   }
+});
+
+it('hands a shown parent clock to nested boundaries instead of stacking minimums', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+  const draw = (outer: boolean, inner: boolean) =>
+    act(async () =>
+      root.render(
+        <SkeletonBoundary pending={outer} label="Outer">
+          <SkeletonBoundary pending={inner} label="Inner">
+            <p>Ready</p>
+          </SkeletonBoundary>
+        </SkeletonBoundary>,
+      ),
+    );
+  const paint = () =>
+    act(async () => {
+      const batch = [...frames.values()];
+      frames.clear();
+      batch.forEach((callback) => callback(0));
+    });
+  try {
+    await draw(true, true);
+    await paint();
+    await paint();
+    await act(async () => vi.advanceTimersByTime(100));
+    await draw(false, true);
+    await act(async () => vi.advanceTimersByTime(skeletonMinimumMs - 100));
+    expect(host.textContent).toBe('Inner');
+    await paint();
+    await paint();
+    await draw(false, false);
+    expect(host.textContent).toBe('Ready');
+    expect(host.querySelector('[aria-busy="true"]')).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('does not flash a boundary whose warm result commits before frame two', async () => {
+  await act(async () =>
+    root.render(
+      <SkeletonBoundary pending label="Warm">
+        <p>Ready</p>
+      </SkeletonBoundary>,
+    ),
+  );
+  await frame();
+  await act(async () =>
+    root.render(
+      <SkeletonBoundary pending={false} label="Warm">
+        <p>Ready</p>
+      </SkeletonBoundary>,
+    ),
+  );
+  expect(host.querySelector('[aria-hidden]')).toBeNull();
+  expect(host.textContent).toBe('Ready');
 });

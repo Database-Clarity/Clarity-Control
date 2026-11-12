@@ -573,3 +573,12 @@
     transform: translateY(-50%);
   }
 }
+
+.loadingContent {
+  position: absolute;
+  inset: 0;
+  padding: 0.5rem 0.75rem;
+  background: var(--editor);
+  --sk-bg: var(--editor);
+  pointer-events: none;
+}
