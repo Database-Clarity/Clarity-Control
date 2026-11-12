@@ -5,7 +5,9 @@
 }
 .table {
   width: 100%;
-  min-width: 42rem;
+  // No fixed minimum: at 768px and a large interface scale a 42rem table scrolled Remove out of
+  // view. The languages wrap instead (their cell keeps 13rem).
+  min-width: 0;
   border-collapse: collapse;
   overflow-wrap: normal;
   th,
