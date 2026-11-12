@@ -85,12 +85,16 @@ const invalid: [name: string, text: string][] = [
 function rendered(lines: MarkupLine[]): unknown {
   const flatten = (spans: MarkupSpan[]) => {
     const out: MarkupSpan[] = [];
+    // Table cells spell plain text with undefined classNames and title keys.
+    const plain = (span: MarkupSpan) =>
+      span.text !== undefined &&
+      Object.entries(span).every(([key, field]) => key === 'text' || field === undefined);
     for (const span of spans) {
       const untinted = span.classNames?.includes('elementText') ? { text: span.text } : span;
       const last = out.at(-1);
-      if (last && Object.keys(last).join() === 'text' && Object.keys(untinted).join() === 'text')
-        last.text += untinted.text!;
-      else out.push({ ...untinted });
+      if (last && plain(last) && plain(untinted))
+        out[out.length - 1] = { text: last.text! + untinted.text! };
+      else out.push(plain(untinted) ? { text: untinted.text } : { ...untinted });
     }
     return out.map((span) =>
       span.title ? { ...span, title: rendered(span.title) as MarkupLine[] } : span,
@@ -479,5 +483,59 @@ describe('tagged text through a variable, arithmetic, a nested tag, or a comment
     expect(tints(parseMarkup('var x = <solar Scorch  />\nGain #x stacks.').lines)).toEqual([
       '"elementText","solar"',
     ]);
+  });
+});
+
+describe('plain keywords in tables keep the tint', () => {
+  // Code review round 4: cell spans carry undefined classNames and title keys, which the
+  // untinted comparison did not treat as plain text, so every table dropped all tint.
+  const tints = (lines: MarkupLine[]) => JSON.stringify(lines).match(/"elementText","\w+"/g) ?? [];
+  const lowered = (globals: MarkupGlobals): MarkupGlobals => ({
+    ...globals,
+    variables: lowerElementTags(globals.variables),
+    titles: lowerElementTags(globals.titles),
+    imports:
+      globals.imports &&
+      Object.fromEntries(
+        Object.entries(globals.imports).map(([key, value]) => [key, lowerElementTags(value)]),
+      ),
+  });
+  const check = (text: string, globals: MarkupGlobals, expected: string[]) => {
+    const preview = parseMarkup(text, globals);
+    const legacy = parseMarkup(lowerElementTags(text), lowered(globals));
+    expect(tints(preview.lines)).toEqual(expected);
+    expect(rendered(preview.lines)).toEqual(rendered(legacy.lines));
+    expect(preview.diagnostics).toEqual(legacy.diagnostics);
+  };
+  const plain = { variables: '', titles: '' };
+  it.each(elementTagNames)('a keyword followed by text in a cell (%s)', (element) => {
+    check(`< table wide >\n| <${element} Word /> stacks | 10%\n<$>`, plain, [
+      `"elementText","${element}"`,
+    ]);
+  });
+  it('a table in a title and in an import', () => {
+    check(
+      'See <title more [T] />.',
+      {
+        variables: '',
+        titles: 'title T (\n< table wide >\n| <arc Amplified /> stacks | 10%\n<$>\n)',
+      },
+      ['"elementText","arc"'],
+    );
+    check(
+      'import Main from 125',
+      {
+        ...plain,
+        imports: { '125': 'export Main (\n< table wide >\n| <void Volatile /> rounds | 2\n<$>\n)' },
+      },
+      ['"elementText","void"'],
+    );
+  });
+  it('a document mixing ordinary lines and a table keeps every tint', () => {
+    check(
+      'Gain <solar Scorch /> stacks.\n< table wide >\n| <arc Amplified /> stacks | 10%\n<$>\nThen <strand Sever />.',
+      plain,
+      ['"elementText","solar"', '"elementText","arc"', '"elementText","strand"'],
+    );
   });
 });

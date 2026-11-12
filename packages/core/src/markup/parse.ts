@@ -66,8 +66,10 @@ function untinted(lines: readonly MarkupLine[]): unknown[] {
           ? { ...part, title: untinted(part.title) as MarkupLine[] }
           : part;
       const last = out.at(-1);
+      // Table cells spell plain text with undefined classNames and title keys.
       const plain = (value: MarkupSpan) =>
-        value.text !== undefined && Object.keys(value).every((key) => key === 'text');
+        value.text !== undefined &&
+        Object.entries(value).every(([key, field]) => key === 'text' || field === undefined);
       if (last && plain(last) && plain(span))
         out[out.length - 1] = { text: last.text! + span.text! };
       else out.push(span);
