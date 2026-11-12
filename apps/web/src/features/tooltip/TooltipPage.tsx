@@ -16,6 +16,9 @@ import {
   useState,
 } from 'react';
 import { flushSync } from 'react-dom';
+import { isolateHistory } from '@codemirror/commands';
+import { Transaction } from '@codemirror/state';
+import { EditorView } from '@codemirror/view';
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { translationQueue, type Lang, type MarkupGlobals, type Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
@@ -58,6 +61,8 @@ import { ManifestTextRow } from '../manifest/ManifestTextRow';
 import { PanelRow } from '../../ui/PanelRow';
 import { languageLabel } from '../../languageLabels';
 import { editorAccess } from './access';
+import { canPushLive } from '../auth/permissions';
+import { DraftLoader, WithEditorDraft } from './DraftLoader';
 import { defaultLanguage, withLanguage } from './language';
 import { requireEnglish } from './requireEnglish';
 import { LanguageSummary } from './LanguageSummary';
@@ -539,36 +544,81 @@ function TooltipWorkspace({
     />
   );
 
+  // An agent-written draft for an empty English tooltip: editors and maintainers only.
+  const draftable =
+    !readOnly &&
+    !selectedGlobal &&
+    !suspended &&
+    lang === 'en' &&
+    access.reason === null &&
+    canPushLive(user) &&
+    activeHash > 3 &&
+    !/\S/.test(activeBase.text.en?.text ?? '') &&
+    !/\S/.test(textOf(activeHash));
+  /** Loading is a typed-in edit: one undo step in the editor, then the normal draft and save flow. */
+  const loadDraft = (text: string) => {
+    const root = document.querySelector<HTMLElement>(
+      `.cm-editor[data-tooltip-hash="${activeHash}"]`,
+    );
+    const editor = root && EditorView.findFromDOM(root);
+    if (editor && !editor.state.readOnly) {
+      editor.dispatch({
+        changes: { from: 0, to: editor.state.doc.length, insert: text },
+        selection: { anchor: 0 },
+        annotations: [isolateHistory.of('full'), Transaction.userEvent.of('input.paste')],
+        scrollIntoView: true,
+      });
+      editor.focus();
+    } else edit(activeBase, 'en', text, user?.login ?? 'local draft');
+  };
+
   const header = (
-    <EditorPaneHeader
-      lang={lang}
-      onLanguage={changeLanguage}
-      draft={!readOnly && Boolean(drafts[activeHash])}
-      saving={saving}
-      onDiscard={() => discard(activeHash)}
-      reason={pausedOnPhone ? null : access.reason}
-      switchTo={access.switchTo}
-      onSwitch={changeLanguage}
-      overrides={overrideTargets}
-      activeOverride={
-        activeVariant === null ? undefined : { hash: activeVariant, name: nameOf(activeVariant) }
-      }
-      markup={
-        access.reason === null ? { open: markupRow.open, toggle: markupRow.toggle } : undefined
-      }
-      onEditOverride={(variant) => setPicked({ hash, at: pickedAt, variant })}
-      onBack={() => setPicked({ hash, at: pickedAt, variant: null })}
-      grouped={grouped}
-      queue={queue && <QueueControl hash={hash} context={queue} />}
-      queueBack={
-        queue
-          ? {
-              to: queuePath(queue, user),
-              label: queueSummary(queue, languageLabel, (id) => categoryDisplay(id).label),
-            }
-          : undefined
-      }
-    />
+    <WithEditorDraft hash={activeHash} enabled={draftable}>
+      {(draft) => (
+        <EditorPaneHeader
+          lang={lang}
+          onLanguage={changeLanguage}
+          draft={!readOnly && Boolean(drafts[activeHash])}
+          saving={saving}
+          onDiscard={() => discard(activeHash)}
+          reason={pausedOnPhone ? null : access.reason}
+          switchTo={access.switchTo}
+          onSwitch={changeLanguage}
+          overrides={overrideTargets}
+          activeOverride={
+            activeVariant === null
+              ? undefined
+              : { hash: activeVariant, name: nameOf(activeVariant) }
+          }
+          markup={
+            access.reason === null ? { open: markupRow.open, toggle: markupRow.toggle } : undefined
+          }
+          onEditOverride={(variant) => setPicked({ hash, at: pickedAt, variant })}
+          onBack={() => setPicked({ hash, at: pickedAt, variant: null })}
+          grouped={grouped}
+          draftLoader={
+            draft && (
+              <DraftLoader
+                draft={draft}
+                name={nameOf(activeHash)}
+                categoryLabel={baseCategory?.label}
+                globals={globalsFor(activeHash)}
+                onLoad={loadDraft}
+              />
+            )
+          }
+          queue={queue && <QueueControl hash={hash} context={queue} />}
+          queueBack={
+            queue
+              ? {
+                  to: queuePath(queue, user),
+                  label: queueSummary(queue, languageLabel, (id) => categoryDisplay(id).label),
+                }
+              : undefined
+          }
+        />
+      )}
+    </WithEditorDraft>
   );
 
   return (
