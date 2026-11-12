@@ -92,7 +92,7 @@
   background: var(--sk-bar, var(--skel));
 }
 @media (max-width: 700px) {
-  .permissions .rowColumn:last-child {
+  .permissions .rowColumn:nth-child(4) {
     display: none;
   }
   .permissions .rowColumn:nth-child(1) {
