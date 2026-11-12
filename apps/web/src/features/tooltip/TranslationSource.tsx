@@ -1,18 +1,21 @@
+import { ReadingTooltip } from '../preview/ReadingTooltip';
 import { EnglishDiffContent } from '../translations/EnglishDiff';
 import { useSettingsStore } from '../../stores/settings';
 import { RightPane, RightPaneHeader } from '../../ui/RightPane';
 import styles from './TooltipPage.module.scss';
 
 /**
- * The English the translation follows, in the right pane: read-only markup, or, when the English
+ * The English the translation follows, in the right pane: rendered text, or, when the English
  * has changed since the translation, what changed. "Shows" picks which; the last pick is kept on
  * this device and Settings gives the default until then.
  */
 export function TranslationSource({
   text,
   diff,
+  hash,
 }: {
   text: string | undefined;
+  hash?: number;
   diff?: { hash: number; sourceUpdatedAt: string; current: string };
 }) {
   const remembered = useSettingsStore((state) => state.device.remembered.englishSource);
@@ -48,9 +51,7 @@ export function TranslationSource({
       {diff && showChanges ? (
         <EnglishDiffContent {...diff} />
       ) : text ? (
-        <pre className={styles.sourceText} lang="en">
-          {text}
-        </pre>
+        <ReadingTooltip text={text} hash={hash} />
       ) : (
         <p>This tooltip has no English text yet.</p>
       )}
