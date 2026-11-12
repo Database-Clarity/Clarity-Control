@@ -1,1 +1,0 @@
-import"./languages-DFViRbEk.js";import"./schemas-B6jowbwy.js";import"./aliasGroups-B8W_4Hfx.js";import"./schemas-CxnzExbm.js";const o=2160*60*60*1e3;function c(a,n){const t=a.text.en,e=a.text[n];return!!(n!=="en"&&t&&t.text.trim()!==""&&e&&e.sourceUpdatedAt!==void 0&&Date.parse(t.updatedAt)-Date.parse(e.sourceUpdatedAt)>o)}export{c as u};
