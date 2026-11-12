@@ -120,7 +120,7 @@ describe('minimum visible time', () => {
     await act(async () => root.render(createElement(Pending, { pending: true })));
     await frame();
     await frame();
-    await act(async () => vi.advanceTimersByTime(300));
+    await act(async () => vi.advanceTimersByTime(skeletonMinimumMs - 100));
     await act(async () => root.render(createElement(Pending, { pending: true, entry: 2 })));
     await frame();
     await frame();
