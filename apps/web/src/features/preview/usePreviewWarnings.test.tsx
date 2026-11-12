@@ -98,3 +98,34 @@ it('cancels every pending deadline on unmount', () => {
   act(() => root.render(<Probe />));
   expect(count).toBe(0);
 });
+
+it('preserves deadlines for equivalent entry copies and resets batched clear/re-edit lifetimes', () => {
+  mount();
+  edit(1);
+  act(() => vi.advanceTimersByTime(100));
+  edit(1);
+  act(() => vi.advanceTimersByTime(150));
+  expect(count).toBe(1);
+  act(() => {
+    usePreviewReviewStore.setState({ entries: {} });
+    usePreviewReviewStore.setState({ entries: { 10: { canonical: 10, dirty: 1, reviewed: 0 } } });
+  });
+  expect(count).toBe(0);
+  act(() => vi.advanceTimersByTime(250));
+  expect(count).toBe(1);
+});
+it('starts a fresh render opportunity when the account ledger changes', () => {
+  mount();
+  edit(3);
+  act(() => vi.advanceTimersByTime(250));
+  expect(count).toBe(1);
+  act(() =>
+    usePreviewReviewStore.setState({
+      scope: 'another-account',
+      entries: { 10: { canonical: 10, dirty: 3, reviewed: 1 } },
+    }),
+  );
+  expect(count).toBe(0);
+  act(() => vi.advanceTimersByTime(250));
+  expect(count).toBe(1);
+});
