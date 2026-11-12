@@ -175,6 +175,8 @@ export function convertedNumbers(source) {
 export function validateDraft(item, english, editor, app) {
   if (typeof english !== 'string' || !english.trim()) return ['Missing English'];
   const errors = [];
+  if (/&(?:#x[\da-f]+|#\d+|[a-z][a-z\d]+);/i.test(english))
+    errors.push('HTML entities in draft text; use raw characters');
   if (english.length > 20000 || english.length > Math.max(240, item.source.text.length * 1.5))
     errors.push('Length sanity');
   const imports = app.tooltipImports(editor.bundle.tooltips, {}, 'en', editor.aliases);

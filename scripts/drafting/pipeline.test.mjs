@@ -92,6 +92,11 @@ it('accepts explicit numeric owner corrections without borrowing timestamp numbe
   expect(validateDraft(corrected, 'Grants 12% damage with 1|2|3 mods equipped.', editor, app)).toEqual([]);
   expect(validateDraft(corrected, 'Grants 2099% damage.', editor, app)).toContain('Unsupported number: 2099');
 });
+it('keeps stored drafts as plain text rather than HTML-escaped presentation strings', () => {
+  expect(validateDraft(item, "Your weapon's damage.", editor, app)).toEqual([]);
+  for (const escaped of ['&#x27;', '&#39;', '&apos;', '&amp;'])
+    expect(validateDraft(item, `Your weapon${escaped}s damage.`, editor, app)).toContain('HTML entities in draft text; use raw characters');
+});
 it('finds base exotic wording through item names and declines ambiguous base identities', () => {
   const e = {
     items: {
