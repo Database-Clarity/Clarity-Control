@@ -5,9 +5,12 @@ import {
   hasElementTags,
   lowerElementTags,
 } from './elementTags.js';
+import { database } from '../../test/helpers.js';
+import { exportLegacy } from '../exportLegacy.js';
+import { migrateLegacy } from '../migrateLegacy.js';
 import { enhancedMarkupType } from './baseEnhanced.js';
-import { parseMarkup } from './parse.js';
-import type { MarkupLine, MarkupSpan } from './types.js';
+import { parseMarkup, reservedMarkerMessage } from './parse.js';
+import type { MarkupGlobals, MarkupLine, MarkupSpan } from './types.js';
 
 // Hand-written: each tagged text and the legacy text an author writes for it today.
 const fixtures: [name: string, tagged: string, legacy: string][] = [
@@ -188,7 +191,7 @@ describe('element-tagged spans in the parser', () => {
   });
 });
 
-describe('only tagged spans written in a source document render tagged', () => {
+describe('assembled wrappers keep their old meaning; written spans render tagged', () => {
   const hasTint = (parsed: ReturnType<typeof parseMarkup>) =>
     JSON.stringify(parsed.lines).includes('elementText');
   // Output review repros: preparation assembles `<solar Scorch />`, which lowering (per source
@@ -246,5 +249,115 @@ describe('only tagged spans written in a source document render tagged', () => {
         }),
       ),
     ).toBe(true);
+  });
+});
+
+describe('preview equals the lowered form plus the tint, through preparation', () => {
+  const enhanced = { variables: '', titles: '', type: enhancedMarkupType };
+  // Code and output review round 2: authored spans whose text changes in preparation.
+  const cases: [name: string, text: string, globals?: MarkupGlobals][] = [
+    ['local variable in the text', 'var hit = Scorch\nGain <solar #hit />.'],
+    [
+      'global variable in the text',
+      'Gain <solar #hit />.',
+      { variables: 'var hit = Scorch', titles: '' },
+    ],
+    ['native base/enhanced pair', 'Gain <solar {{Scorch}{Radiant}} />.'],
+    ['native pair, enhanced arm', 'Gain <solar {{Scorch}{Radiant}} />.', enhanced],
+    ['arithmetic', 'Gain <solar ${2+2} /> stacks.'],
+    ['comment inside the text', 'Gain <solar Sco/* hi */rch />.'],
+    [
+      'title body with a variable',
+      'var hit = Jolt\nSee <title more [Info] />.\ntitle Info (\nApplies <arc #hit />.\n)',
+    ],
+    [
+      'numeric import',
+      'import Main from 123',
+      {
+        variables: '',
+        titles: '',
+        imports: { '123': 'export Main (\nApplies <void #hit />.\n)\nvar hit = Volatile' },
+      },
+    ],
+    ['trailing space at the line end', 'Gain <solar Scorch  />\nNext'],
+    ['table cell', '< table wide >\n| <arc Amplified  /> | 10%\n<$>'],
+  ];
+  it.each(cases)('%s', (_, text, globals) => {
+    const lowered: MarkupGlobals | undefined = globals && {
+      ...globals,
+      variables: lowerElementTags(globals.variables),
+      titles: lowerElementTags(globals.titles),
+      imports:
+        globals.imports &&
+        Object.fromEntries(
+          Object.entries(globals.imports).map(([key, value]) => [key, lowerElementTags(value)]),
+        ),
+    };
+    const tagged = parseMarkup(text, globals);
+    const legacy = parseMarkup(lowerElementTags(text), lowered);
+    expect(JSON.stringify(tagged.lines)).toContain('elementText');
+    expect(rendered(tagged.lines)).toEqual(rendered(legacy.lines));
+    expect(tagged.diagnostics).toEqual(legacy.diagnostics);
+    expect(JSON.stringify(tagged)).not.toMatch(/[\uE000\uE001]/);
+  });
+
+  it('an unrelated literal (here in a comment) never tints an assembled wrapper', () => {
+    const text = '// <solar Scorch />\nvar open = <solar\n#open Scorch />';
+    expect(JSON.stringify(parseMarkup(text).lines)).not.toContain('elementText');
+    expect(parseMarkup(text).lines).toEqual(
+      parseMarkup('var open = <solar\n#open Scorch />').lines,
+    );
+  });
+
+  it('refuses the preview markers in authored text, in the text or a document it reads', () => {
+    for (const [text, globals] of [
+      ['Gain \uE000Scorch\uE001.', undefined],
+      ['Gain #hit.', { variables: 'var hit = \uE000x', titles: '' }],
+    ] as const) {
+      const parsed = parseMarkup(text, globals);
+      expect(parsed.diagnostics).toContainEqual({
+        severity: 'error',
+        message: reservedMarkerMessage,
+      });
+      expect(JSON.stringify(parsed.lines)).not.toMatch(/[\uE000\uE001]/);
+    }
+    expect(parseMarkup('Gain Scorch.').diagnostics).toEqual([]);
+  });
+});
+
+describe('preview markers never leave the parser', () => {
+  // Nothing is stripped before these checks: the markers must simply never appear.
+  const markers = /[\uE000\uE001]/;
+  it('over every live description, parsed lines and the legacy export hold no marker', () => {
+    const tooltips = migrateLegacy(database('live'));
+    const imports: Record<string, string> = {};
+    for (const tooltip of tooltips) {
+      const text = tooltip.text.en?.text;
+      if (text !== undefined) imports[String(tooltip.hash)] = text;
+    }
+    const globals = { variables: imports['2'] ?? '', titles: imports['3'] ?? '', imports };
+    let parsed = 0;
+    for (const tooltip of tooltips) {
+      const text = tooltip.text.en?.text;
+      if (text === undefined) continue;
+      for (const type of [undefined, enhancedMarkupType]) {
+        expect(markers.test(JSON.stringify(parseMarkup(text, { ...globals, type })))).toBe(false);
+        parsed++;
+      }
+    }
+    expect(parsed).toBeGreaterThan(4000);
+    expect(markers.test(JSON.stringify(exportLegacy(tooltips, 0)))).toBe(false);
+  });
+
+  it('tagged fixtures: the parse and the export hold no marker; the export keeps the authored text', () => {
+    const tagged = fixtures.map(([, text], index) => ({
+      hash: 1000 + index,
+      associated: [],
+      text: { en: { text, updatedAt: '2026-01-01T00:00:00.000Z', updatedBy: 'a' } },
+    }));
+    for (const { text } of tagged)
+      expect(markers.test(JSON.stringify(parseMarkup(text.en.text)))).toBe(false);
+    const exported = JSON.stringify(exportLegacy(tagged, 0));
+    expect(markers.test(exported)).toBe(false);
   });
 });

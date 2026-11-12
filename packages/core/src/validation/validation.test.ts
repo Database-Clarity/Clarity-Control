@@ -5,6 +5,7 @@ import {
   validateTextWithReads,
   validateTooltip,
 } from './index.js';
+import { reservedMarkerMessage } from '../markup/parse.js';
 
 const globals = {
   variables: 'var damage = 10',
@@ -230,5 +231,13 @@ describe('element-tagged text save hold', () => {
     expect(validateTooltip(next, () => globals, null)).toMatchObject([
       { severity: 'error', lang: 'en', hash: 10 },
     ]);
+  });
+});
+
+describe('preview markers in authored text', () => {
+  it('blocks U+E000 and U+E001, which the preview reserves', () => {
+    expect(validateText('Gain \uE000Scorch.', 'en', globals)).toContainEqual(
+      expect.objectContaining({ severity: 'error', message: reservedMarkerMessage }),
+    );
   });
 });

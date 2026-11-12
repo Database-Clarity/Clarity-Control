@@ -1,4 +1,9 @@
-import { elementTagToken } from './elementTags.js';
+import {
+  elementTagNames,
+  elementTextClose,
+  elementTextMarkers,
+  elementTextOpen,
+} from './elementTags.js';
 import {
   markupColors,
   markupEmpty,
@@ -58,58 +63,74 @@ export function markupStrayTags(text: string): string[] {
   return stray;
 }
 
-/** Whether a tagged token was written in a source document (see parseMarkup). */
-export type LiteralElementTag = (token: string) => boolean;
+const elements: ReadonlySet<string> = new Set(elementTagNames);
+const markedPart = new RegExp(`(${inlineToken.source}|🡅|[\uE000\uE001])`, 'g');
 
-function spans(
-  line: string,
-  titles: Record<string, MarkupLine[]>,
-  literalTag: LiteralElementTag,
-): MarkupSpan[] {
-  return line
-    .split(new RegExp(`(${inlineToken.source}|🡅)`, 'g'))
-    .filter(Boolean)
-    .flatMap((text): MarkupSpan[] => {
-      if (text === '🡅') return [{ text, classNames: ['enhancedArrow'] }];
-      const wrapper = text.match(/<\w+/)?.[0].slice(1);
-      if (wrapper === undefined) return [{ text }];
-      if ([...markupColors, 'background', 'bold'].includes(wrapper)) {
-        return [
-          { text: text.replace(new RegExp(`<${wrapper} | />`, 'g'), ''), classNames: [wrapper] },
-        ];
-      }
-      if ([...markupIcons, ...markupEmpty].includes(wrapper)) {
-        // `<solar Scorch />`: the icon, then its text in the element tint (an icon span first, so
-        // the layout matches the lowered `<solar/>Scorch`). Only a token written as such in a
-        // source document counts: one assembled by preparation (variables, comments, line tags)
-        // is never lowered, so it keeps today's meaning, as consumers read it.
-        const tag = elementTagToken(text);
-        if (tag && literalTag(text))
-          return [
-            { classNames: [tag.element] },
-            { text: tag.text, classNames: ['elementText', tag.element] },
-          ];
-        return [{ classNames: [wrapper] }];
-      }
-      const target = text.match(/\[.+\]/)?.[0].replace(/\[|\]/g, '');
-      const label = text.replace(/ \[.+\] \/>/g, '');
-      if (!target || !label) return [];
-      if (wrapper === 'link')
-        return [{ text: label.replace('<link ', ''), link: target, classNames: ['link'] }];
-      if (wrapper === 'title')
-        return [
-          { text: label.replace('<title ', ''), title: titles[target], classNames: ['title'] },
-        ];
-      // Stat formulas were intentionally removed in v2.
-      return [];
-    });
+/** trim() / trimEnd() that also pass over the preview markers at the ends (they are not text). */
+function trimMarked(text: string, start = true): string {
+  if (!text.includes(elementTextOpen) && !text.includes(elementTextClose))
+    return start ? text.trim() : text.trimEnd();
+  const end = /[\s\uE000\uE001]*$/.exec(text)![0];
+  text = text.slice(0, text.length - end.length) + end.replace(/\s/g, '');
+  if (!start) return text;
+  const lead = /^[\s\uE000\uE001]*/.exec(text)![0];
+  return lead.replace(/\s/g, '') + text.slice(lead.length);
 }
 
-function tableRow(
-  line: string,
-  titles: Record<string, MarkupLine[]>,
-  literalTag: LiteralElementTag,
-) {
+/**
+ * The spans of one line. Element-tagged text arrives lowered (parseMarkup): the icon, then its
+ * text between preview markers, which tint that text and are dropped, so the result is exactly
+ * the lowered form's spans with the tagged text as its own tinted span.
+ */
+function spans(line: string, titles: Record<string, MarkupLine[]>): MarkupSpan[] {
+  let tint: string | undefined;
+  const out: MarkupSpan[] = [];
+  for (const part of line.split(markedPart)) {
+    if (!part) continue;
+    if (part === elementTextOpen) {
+      // The lowered icon directly before the text names the element.
+      const icon = out.at(-1);
+      const element = icon && icon.text === undefined ? icon.classNames?.[0] : undefined;
+      tint = element && elements.has(element) ? element : undefined;
+      continue;
+    }
+    if (part === elementTextClose) {
+      tint = undefined;
+      continue;
+    }
+    const text = part.replace(elementTextMarkers, '');
+    if (!text) continue;
+    for (const span of lineSpans(text, titles))
+      out.push(
+        tint && span.text !== undefined && !span.classNames
+          ? { text: span.text, classNames: ['elementText', tint] }
+          : span,
+      );
+  }
+  return out;
+}
+
+/** One token or plain-text part, as before element tags. */
+function lineSpans(text: string, titles: Record<string, MarkupLine[]>): MarkupSpan[] {
+  if (text === '🡅') return [{ text, classNames: ['enhancedArrow'] }];
+  const wrapper = text.match(/<\w+/)?.[0].slice(1);
+  if (wrapper === undefined) return [{ text }];
+  if ([...markupColors, 'background', 'bold'].includes(wrapper)) {
+    return [{ text: text.replace(new RegExp(`<${wrapper} | />`, 'g'), ''), classNames: [wrapper] }];
+  }
+  if ([...markupIcons, ...markupEmpty].includes(wrapper)) return [{ classNames: [wrapper] }];
+  const target = text.match(/\[.+\]/)?.[0].replace(/\[|\]/g, '');
+  const label = text.replace(/ \[.+\] \/>/g, '');
+  if (!target || !label) return [];
+  if (wrapper === 'link')
+    return [{ text: label.replace('<link ', ''), link: target, classNames: ['link'] }];
+  if (wrapper === 'title')
+    return [{ text: label.replace('<title ', ''), title: titles[target], classNames: ['title'] }];
+  // Stat formulas were intentionally removed in v2.
+  return [];
+}
+
+function tableRow(line: string, titles: Record<string, MarkupLine[]>) {
   const { classNames, cleanLine } = lineClasses(line, markupEmpty);
   return {
     classNames,
@@ -131,7 +152,7 @@ function tableRow(
           .split('')
           .filter((char) => classes[char])
           .map((char) => classes[char]),
-        cellContent: spans(cell.replace(/\|[bchr\d-]+|\|/, '').trim(), titles, literalTag).flatMap(
+        cellContent: spans(trimMarked(cell.replace(/\|[bchr\d-]+|\|/, '')), titles).flatMap(
           (part) => {
             if (!part.text?.trim() && !part.classNames?.some((name) => typeof name === 'string'))
               return [];
@@ -144,11 +165,7 @@ function tableRow(
   };
 }
 
-export function parseLines(
-  text: string,
-  titles: Record<string, MarkupLine[]>,
-  literalTag: LiteralElementTag = () => true,
-): MarkupLine[] {
+export function parseLines(text: string, titles: Record<string, MarkupLine[]>): MarkupLine[] {
   const blocks = weaponSectionHeadings(text).match(/(< table [^]+?\n<\$>\n?)|(.+\n?|\n)/g) ?? [];
   return blocks.flatMap((block): MarkupLine[] => {
     block = block.trimEnd();
@@ -161,7 +178,7 @@ export function parseLines(
         ?.filter((name) => markupTableClasses.includes(name));
       return [
         {
-          table: rows.slice(1, -1).map((row) => tableRow(row, titles, literalTag)),
+          table: rows.slice(1, -1).map((row) => tableRow(row, titles)),
           classNames: [...(names ?? []), 'table'],
           isFormula: names?.includes('formula'),
         },
@@ -172,11 +189,7 @@ export function parseLines(
     return [
       {
         classNames,
-        linesContent: spans(
-          block.includes('<breakSpaces/>') ? cleanLine.trimEnd() : cleanLine.trim(),
-          titles,
-          literalTag,
-        ),
+        linesContent: spans(trimMarked(cleanLine, !block.includes('<breakSpaces/>')), titles),
       },
     ];
   });

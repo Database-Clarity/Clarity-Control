@@ -47,13 +47,40 @@ export function hasElementTags(text: string): boolean {
  * tagged spans is returned unchanged (the same string).
  */
 export function lowerElementTags(text: string): string {
+  return lower(text, '', '');
+}
+
+function lower(text: string, open: string, close: string): string {
   const tags = findElementTags(text);
   if (!tags.length) return text;
   let lowered = '';
   let at = 0;
   for (const tag of tags) {
-    lowered += `${text.slice(at, tag.from)}<${tag.element}/>${tag.text}`;
+    lowered += `${text.slice(at, tag.from)}<${tag.element}/>${open}${tag.text}${close}`;
     at = tag.to;
   }
   return lowered + text.slice(at);
+}
+
+/**
+ * Preview markers around the text of a lowered tagged span (private-use characters that occur in
+ * no editor-data, generator, or Compendium text). The parser renders exactly the lowered form and
+ * tints what lies between them, then drops them: they never reach a span, the saved text, or an
+ * export. Authored text that contains them is refused (see parseMarkup).
+ */
+export const elementTextOpen = '\uE000';
+export const elementTextClose = '\uE001';
+export const elementTextMarkers = /[\uE000\uE001]/g;
+
+const marked = new Map<string, string>();
+/** `<solar Scorch />` becomes `<solar/>` + open + `Scorch` + close; preview parsing only. */
+export function markElementTags(text: string): string {
+  let result = marked.get(text);
+  if (result === undefined) {
+    result = lower(text, elementTextOpen, elementTextClose);
+    // Global variables and titles are re-read on every keystroke; keep recent documents.
+    if (marked.size >= 256) marked.delete(marked.keys().next().value!);
+    marked.set(text, result);
+  }
+  return result;
 }

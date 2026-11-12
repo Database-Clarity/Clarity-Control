@@ -102,3 +102,80 @@ describe('save hold for element-tagged text', () => {
     expect(JSON.stringify(parseMarkup(saved).lines)).not.toContain('elementText');
   });
 });
+
+describe('export hold for element-tagged text (push-live)', () => {
+  // Tags can only reach the data outside /save (which refuses them); push refuses to export them,
+  // from the pushed tooltip or any document its text reads, using documents it already loaded.
+  const donor = (text: string, hash: number) => ({ ...tooltip(text), hash });
+  const cases: { name: string; text: string; files: Record<string, unknown> }[] = [
+    { name: 'pushed tooltip', text: 'Gain <solar Scorch />.', files: {} },
+    {
+      name: 'import',
+      text: 'import Main from 124',
+      files: { 'tooltips/124.json': donor('export Main (\n<solar Scorch />\n)', 124) },
+    },
+    {
+      name: 'nested import',
+      text: 'import main from 125',
+      files: {
+        'tooltips/125.json': donor('import main from 124', 125),
+        'tooltips/124.json': donor('<arc Jolt />', 124),
+      },
+    },
+    {
+      name: 'alias import',
+      text: 'import main from 456',
+      files: { 'tooltips/124.json': donor('<void Volatile />', 124) },
+    },
+    {
+      name: 'global import',
+      text: 'import main from global',
+      files: { 'tooltips/1.json': donor('<strand Sever />', 1) },
+    },
+    {
+      name: 'global variable',
+      text: '#X',
+      files: { 'tooltips/2.json': donor('var X = <stasis Slow />', 2) },
+    },
+    {
+      name: 'global title',
+      text: '<title See [T] />',
+      files: { 'tooltips/3.json': donor('title T (\n<kinetic Kinetic />\n)', 3) },
+    },
+    { name: 'preview marker', text: 'Gain \uE000Scorch\uE001.', files: {} },
+  ];
+  it.each(cases)('refuses before any write: $name', async ({ text, files }) => {
+    fixture.aliases[456] = { to: 124, kind: 'sandbox' };
+    fixture.moveData({ ...files, 'tooltips/123.json': tooltip(text) });
+    const before = structuredClone(fixture.live);
+    const response = await fixture.request('/push-live', 'POST', { hashes: [123] });
+    expect(response.status).toBe(422);
+    expect((await response.json()).error).toMatch(/element-tagged text|U\+E000/);
+    expect(fixture.live).toEqual(before);
+    expect(fixture.writes).toHaveLength(0);
+    expect(fixture.commits).toHaveLength(0);
+  });
+
+  it('a German-only imported tag is refused too', async () => {
+    const source = donor('export Main (\nplain\n)', 124);
+    source.text.de = { text: 'export Main (\n<solar Versengen />\n)', ...revision };
+    fixture.moveData({
+      'tooltips/124.json': source,
+      'tooltips/123.json': tooltip('import Main from 124'),
+    });
+    const response = await fixture.request('/push-live', 'POST', { hashes: [123] });
+    expect(response.status).toBe(422);
+    expect((await response.json()).error).toContain('Tooltip 124 (de)');
+  });
+
+  it('pushes untagged text with imports and lowered pairs as before, with the same reads', async () => {
+    const files = {
+      'tooltips/124.json': donor('export Main (\n<solar/>Scorch\n)', 124),
+      'tooltips/123.json': tooltip('import Main from 124\nGain <arc/>Jolt and <solar />.'),
+    };
+    fixture.moveData(files);
+    const response = await fixture.request('/push-live', 'POST', { hashes: [123] });
+    expect(response.status).toBe(200);
+    expect(fixture.commits).toHaveLength(1);
+  });
+});
