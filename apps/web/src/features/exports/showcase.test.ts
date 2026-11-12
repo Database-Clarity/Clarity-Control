@@ -78,5 +78,11 @@ test('standalone showcase parses with no diagnostics in base and enhanced previe
     const result = parseMarkup(showcaseText, { ...showcaseGlobals, type });
     expect(result.diagnostics).toEqual([]);
     expect(result.lines.length).toBeGreaterThan(30);
+    const rendered = JSON.stringify(result.lines);
+    expect(rendered).toContain(
+      type === 'Weapon Trait Enhanced'
+        ? 'Enhanced perks replace the base text with this line.'
+        : 'Base perks use this text.',
+    );
   }
 });

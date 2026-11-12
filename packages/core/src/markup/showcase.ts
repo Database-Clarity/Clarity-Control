@@ -16,10 +16,10 @@ A title adds a definition on hover.
 <yellow Exotic names use yellow text. />
 <pve This text is PvE-only. />
 <pvp [This text is PvP-only.] />
-<pve PvE: 10 /> <pvp [PvP: 5] />
+PvE and PvP values can share a line: <pve 10 /> <pvp [5] />
 10 <pvp [5] /> is a value with a PvP override.
 Values per Stack: <pve 10|20|30 />. Pipes separate each Stack's value.
-{{This is the base text.}{This is the enhanced text.}}
+{{Base perks use this text.}{Enhanced perks replace the base text with this line.}}
 A variable supplies #amount; math doubles it to \${#amount * 2}.
 An empty variable writes nothing here: #optional
 <title Hover for a definition [Showcase] />
