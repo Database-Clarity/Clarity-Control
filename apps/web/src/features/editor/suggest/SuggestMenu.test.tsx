@@ -243,12 +243,12 @@ describe('the suggestion menu', () => {
   });
 
   it('refuses to insert inside a protected line, says why, and leaves the text alone', () => {
-    const view = mount('Gains #damage ');
+    const view = mount('Gains ${2+ ');
     type(view, '<');
     type(view, 'pve');
     expect(menu()).not.toBeNull();
     press(view, 'Enter');
-    expect(view.state.doc.toString()).toBe('Gains #damage <pve');
+    expect(view.state.doc.toString()).toBe('Gains ${2+ <pve');
     expect(menu()!.querySelector('[role=alert]')!.textContent).toMatch(/Cannot insert|variable/);
   });
 

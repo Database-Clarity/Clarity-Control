@@ -66,8 +66,10 @@ it('retains markup and comment boundaries inside long unstyled prose', () => {
   expect(ranges).toEqual(
     expect.arrayContaining([
       { text: '#damage', kind: 'variable' },
-      { text: '${20', kind: 'number' },
-      { text: '+#d}', kind: 'variable' },
+      { text: '${', kind: 'tag' },
+      { text: '20', kind: 'number' },
+      { text: '+#d', kind: 'variable' },
+      { text: '}', kind: 'tag' },
       { text: '<solar/>', kind: 'tag' },
       { text: '[Detail]', kind: 'tag' },
       { text: '#visible', kind: 'variable' },
@@ -79,7 +81,7 @@ it('retains markup and comment boundaries inside long unstyled prose', () => {
   expect(ranges.some((r) => r.kind === 'comment' && r.text.includes('#hidden'))).toBe(true);
   expect(ranges.filter((r) => r.kind === 'variable').map((r) => r.text)).toEqual([
     '#damage',
-    '+#d}',
+    '+#d',
     '#visible',
   ]);
   expect(ranges.some((r) => r.kind === 'comment' && r.text.includes('https:'))).toBe(false);
@@ -100,35 +102,49 @@ describe('enhanced numbers (#e${base+#d})', () => {
     const ranges = highlights('Lasts #e${4.5+#d} seconds and #e${12.5*#d}% more.');
     expect(ranges).toEqual([
       { text: '#e', kind: 'variable' },
-      { text: '${4.5', kind: 'number' },
-      { text: '+#d}', kind: 'variable' },
+      { text: '${', kind: 'tag' },
+      { text: '4.5', kind: 'number' },
+      { text: '+#d', kind: 'variable' },
+      { text: '}', kind: 'tag' },
       { text: '#e', kind: 'variable' },
-      { text: '${12.5', kind: 'number' },
-      { text: '*#d}', kind: 'variable' },
+      { text: '${', kind: 'tag' },
+      { text: '12.5', kind: 'number' },
+      { text: '*#d', kind: 'variable' },
+      { text: '}', kind: 'tag' },
     ]);
   });
 
-  it('keeps a lone number and its braces in the base colour', () => {
-    expect(highlights('A ${10} B ${x}')).toEqual([
-      { text: '${10}', kind: 'number' },
-      { text: '${x}', kind: 'number' },
+  it('keeps a lone number in the number colour, its braces in the pair-mark colour', () => {
+    expect(highlights('A ${10} B ${x} C ${}')).toEqual([
+      { text: '${', kind: 'tag' },
+      { text: '10', kind: 'number' },
+      { text: '}', kind: 'tag' },
+      { text: '${', kind: 'tag' },
+      { text: 'x', kind: 'number' },
+      { text: '}', kind: 'tag' },
+      // Adjacent ranges of one class merge: the empty block's two marks are one run.
+      { text: '${}', kind: 'tag' },
     ]);
   });
 
   it('never carries the enhanced part to the next line, and survives an unclosed brace', () => {
     const ranges = highlights(['${5+#d', 'plain ${6'].join('\n'));
     expect(ranges).toEqual([
-      { text: '${5', kind: 'number' },
+      { text: '${', kind: 'tag' },
+      { text: '5', kind: 'number' },
       { text: '+#d', kind: 'variable' },
-      { text: '${6', kind: 'number' },
+      { text: '${', kind: 'tag' },
+      { text: '6', kind: 'number' },
     ]);
   });
 
   it('keeps slash operators out of the comment scanner', () => {
     const ranges = highlights('${8/*#d} after');
     expect(ranges).toEqual([
-      { text: '${8', kind: 'number' },
-      { text: '/*#d}', kind: 'variable' },
+      { text: '${', kind: 'tag' },
+      { text: '8', kind: 'number' },
+      { text: '/*#d', kind: 'variable' },
+      { text: '}', kind: 'tag' },
     ]);
   });
 });
@@ -166,8 +182,19 @@ it('colours a formula like a pair: base number in the base colour, the rest enha
     ranges.push({ text: text.slice(from, to), kind }),
   );
   expect(ranges).toEqual([
-    { text: '${7', kind: 'base' },
-    { text: '+#d}', kind: 'enhanced' },
-    { text: '${10}', kind: 'number' },
+    { text: '7', kind: 'base' },
+    { text: '+#d', kind: 'enhanced' },
+    { text: '10', kind: 'number' },
   ]);
+});
+
+it('gives math delimiters the same class as base/enhanced pair braces', () => {
+  const marks = tagHighlighter([{ tag: tags.special(tags.tagName), class: 'pair-mark' }]);
+  const text = 'within {{1}{2}} ↑${1+#d} and ${5} ';
+  const ranges: { text: string; kind: string }[] = [];
+  highlightTree(clarityLanguage.parser.parse(text), marks, (from, to, kind) =>
+    ranges.push({ text: text.slice(from, to), kind }),
+  );
+  expect(ranges.map((range) => range.text)).toEqual(['{{', '}{', '}}', '${', '}', '${', '}']);
+  expect(new Set(ranges.map((range) => range.kind))).toEqual(new Set(['pair-mark']));
 });
