@@ -5,6 +5,7 @@ import {
   StateField,
   type EditorState,
   type Extension,
+  type Transaction,
 } from '@codemirror/state';
 import { EditorView, ViewPlugin, keymap } from '@codemirror/view';
 import { insertNewlineAndIndent } from '@codemirror/commands';
@@ -16,9 +17,16 @@ import {
   type MarkupGlobals,
 } from '@clarity/core';
 import { insertionRejection } from '../markupInsertion';
+import { elementLabel, isElementName } from '../elementTags';
+import { groupChange, linePairs } from '../iconPairs';
 import type { SuggestItem } from '../suggest/source';
 import { insertItem, suggestState } from '../suggest/state';
-import { englishSymbols, longestSymbolName, subclassSymbol } from '../suggest/typedSymbols';
+import {
+  englishSymbols,
+  longestSymbolName,
+  subclassNameAt,
+  subclassSymbol,
+} from '../suggest/typedSymbols';
 import type { EntryGlyph } from './entries';
 
 /**
@@ -27,7 +35,9 @@ import type { EntryGlyph } from './entries';
  * text, and does nothing until the accept key is pressed while it is showing.
  *
  * - an icon name (replace it), a subclass name (prefix it), or `pve` / `pvp` (the tag);
- * - a selection one of the selection transforms understands (`6.5 [5]` becomes the PvE/PvP pair).
+ * - a selection one of the selection transforms understands (`6.5 [5]` becomes the PvE/PvP pair);
+ * - an element icon just inserted right before a known keyword of that element (`<solar/>` before
+ *   "Firesprite"): tag them together as `<solar Firesprite />`. Existing pairs never get one.
  */
 
 export type ChipKey = 'enter' | 'tab';
@@ -209,6 +219,53 @@ function selectionChip(
   };
 }
 
+/** The element icon one change just inserted (the row, All, Ctrl+Space, a chip), if any. */
+function insertedIcon(transaction: Transaction): { element: string; to: number } | null {
+  if (transaction.isUserEvent('undo') || transaction.isUserEvent('redo')) return null;
+  let found: { element: string; to: number } | null = null;
+  let changes = 0;
+  transaction.changes.iterChanges((_fromA, _toA, _fromB, toB, inserted) => {
+    changes++;
+    const icon = /^<([a-z]+)\/>$/.exec(inserted.sliceString(0, 20));
+    if (icon && isElementName(icon[1]!)) found = { element: icon[1]!, to: toB };
+  });
+  return changes === 1 ? found : null;
+}
+
+/**
+ * Right after an element icon goes in before a known keyword of the same element, with the caret
+ * still beside it: the offer to tag them together. Only the catalogue's names count, so an icon
+ * before any other word gets no offer.
+ */
+function keywordChip(state: EditorState, icon: { element: string; to: number }): Chip | null {
+  const main = state.selection.main;
+  if (!main.empty || main.head !== icon.to || state.readOnly || suggestState(state)) return null;
+  const line = state.doc.lineAt(icon.to);
+  const known = subclassNameAt(state.sliceDoc(icon.to, Math.min(line.to, icon.to + 60)));
+  if (known?.icon !== icon.element) return null;
+  const pair = linePairs(state, icon.to).find((candidate) => candidate.iconTo === icon.to);
+  if (!pair || pair.spaced || pair.to !== icon.to + known.word.length) return null;
+  const change = groupChange(state, pair, state.facet(chipHost).globals);
+  if (!change || change.dropsSpace) return null;
+  return {
+    key: `group:${pair.iconFrom}:${pair.text}`,
+    item: itemFor({
+      id: 'transform:group-with-icon',
+      category: 'Transforms',
+      label: 'Group with icon',
+      from: change.from,
+      to: change.to,
+      insert: change.insert,
+      group: 'joined',
+    }),
+    typed: false,
+    glyph: { kind: 'icon', name: pair.element },
+    markup: change.insert,
+    text: `Tag “${pair.text}” as ${elementLabel(pair.element)}`,
+    covers: { from: pair.iconFrom, to: pair.to },
+  };
+}
+
 function evaluate(state: EditorState, typedKey: boolean): Chip | null {
   if (state.readOnly) return null;
   if (suggestState(state)) return null;
@@ -234,6 +291,12 @@ export const chipField = StateField.define<ChipState>({
       transaction.docChanged &&
       transaction.isUserEvent('input.type') &&
       !transaction.isUserEvent('input.type.compose');
+    // An element icon just inserted before its keyword: the offer to tag them together.
+    const icon = transaction.docChanged && !typedKey ? insertedIcon(transaction) : null;
+    if (icon) {
+      const chip = keywordChip(transaction.state, icon);
+      return { chip, dismissed: null };
+    }
     // Anything else that changes the text (paste, delete, undo, an accepted offer) clears it.
     if (transaction.docChanged && !typedKey) return { chip: null, dismissed: null };
     const chip = evaluate(transaction.state, typedKey);

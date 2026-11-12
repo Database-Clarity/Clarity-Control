@@ -13,6 +13,7 @@ import { EditorView, ViewPlugin, keymap } from '@codemirror/view';
 import type { MarkupGlobals } from '@clarity/core';
 import { insertionMessages, insertionRejection, type Rejection } from '../markupInsertion';
 import { checkedWrap, tagSelection } from '../elementTags';
+import { askGroup, groupChange, pairAt } from '../iconPairs';
 import { recentSuggestions, rememberSuggestion } from './recent';
 import {
   caretContext,
@@ -57,7 +58,7 @@ export const suggestHost = Facet.define<SuggestHost, SuggestHost>({
   combine: (hosts) => hosts[hosts.length - 1] ?? { globals: { variables: '', titles: '' } },
 });
 
-const openEffect = StateEffect.define<{ explicit: boolean }>();
+const openEffect = StateEffect.define<{ explicit: boolean; prefer?: string }>();
 const closeEffect = StateEffect.define<null>();
 const moveEffect = StateEffect.define<number>();
 const categoryEffect = StateEffect.define<null>();
@@ -139,11 +140,11 @@ export const suggestField = StateField.define<SuggestSnapshot | null>({
     const explicitOpen = transaction.effects.find((effect) => effect.is(openEffect));
     if (transaction.effects.some((effect) => effect.is(closeEffect))) return null;
     if (explicitOpen) {
-      next = derive(
-        transaction.state,
-        (explicitOpen.value as { explicit: boolean }).explicit,
-        null,
-      );
+      const { explicit, prefer } = explicitOpen.value as { explicit: boolean; prefer?: string };
+      next = derive(transaction.state, explicit, null);
+      // Opened for one option (the translator's "Tag the same words here"): start on it.
+      const preferred = prefer ? (next?.items.findIndex((item) => item.id === prefer) ?? -1) : -1;
+      if (next && preferred >= 0) next = { ...next, index: preferred };
     } else if (next && (transaction.docChanged || transaction.selection)) {
       // A selection the author types over has nothing left to transform.
       next =
@@ -202,8 +203,9 @@ export const suggestField = StateField.define<SuggestSnapshot | null>({
 export const suggestState = (state: EditorState): SuggestSnapshot | null =>
   state.field(suggestField, false) ?? null;
 
-export function openSuggest(view: EditorView): void {
-  view.dispatch({ effects: openEffect.of({ explicit: true }) });
+/** Ctrl+Space; `prefer` starts the menu on that option when it is listed. */
+export function openSuggest(view: EditorView, prefer?: string): void {
+  view.dispatch({ effects: openEffect.of({ explicit: true, prefer }) });
 }
 export function closeSuggest(view: EditorView): void {
   if (suggestState(view.state)) view.dispatch({ effects: closeEffect.of(null) });
@@ -263,6 +265,23 @@ export function insertItem(
         ? checkedWrap(view.state, selection.from, selection.to, element)
         : null;
     if (!change || change.from !== item.from || change.insert !== item.insert) return 'context';
+  } else if (item.group) {
+    // "Group with icon" is judged again on the live text, by its own rules.
+    const pair = pairAt(view.state);
+    const change = pair && groupChange(view.state, pair, view.state.facet(suggestHost).globals);
+    if (!pair || !change || change.from !== item.from || change.insert !== item.insert)
+      return 'context';
+    if (change.dropsSpace) {
+      // It drops the space: the icon's popover asks first (symbols.ts), with the icon selected.
+      view.dispatch({
+        selection: { anchor: pair.iconFrom, head: pair.iconTo },
+        effects: [closeEffect.of(null), askGroup.of(pair.iconFrom)],
+        scrollIntoView: true,
+      });
+      rememberSuggestion(item.id);
+      view.focus();
+      return null;
+    }
   } else if (!item.reference) {
     const rejection = insertionRejection(
       view.state,
