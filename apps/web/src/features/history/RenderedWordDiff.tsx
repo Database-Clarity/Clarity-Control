@@ -134,6 +134,11 @@ export function RenderedWordDiff({
       aria-busy={busy || undefined}
       data-one-sided={!before || !after || undefined}
     >
+      {sourceOnly && (
+        <p className={styles.sourceChange} data-source-change>
+          {sourceOnlyChangeLabel(before, after)}
+        </p>
+      )}
       <div className={styles.sides}>
         <div>
           <strong>{working ? 'Saved' : 'Previous / live'}</strong>
@@ -144,11 +149,6 @@ export function RenderedWordDiff({
           {side(after, result.after)}
         </div>
       </div>
-      {sourceOnly && (
-        <p className={styles.sourceChange} data-source-change>
-          {sourceOnlyChangeLabel(before, after)}
-        </p>
-      )}
     </div>
   );
 }
