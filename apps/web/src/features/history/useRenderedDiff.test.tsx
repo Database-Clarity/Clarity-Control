@@ -87,7 +87,7 @@ it.each([
   },
 );
 
-it('renders long content immediately, ignores obsolete worker replies, and retains content on failure', async () => {
+it('hides provisional long content, ignores obsolete worker replies, and retains content on failure', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   const requests: { id: number; before: string; after: string }[] = [];
   const instances: FakeWorker[] = [];
@@ -113,8 +113,8 @@ it('renders long content immediately, ignores obsolete worker replies, and retai
   try {
     await act(async () => root.render(show(before, after)));
     expect(requests).toHaveLength(1);
-    expect(host.querySelector('del')?.textContent).toBe(before.trimEnd());
-    expect(host.querySelector('ins')?.textContent).toBe(after.trimEnd());
+    expect(host.querySelector('del')).toBeNull();
+    expect(host.querySelector('ins')).toBeNull();
     expect(host.querySelector('[aria-busy="true"]')).not.toBeNull();
     const openingRequests = requests.length;
     await act(async () => root.render(show('Small old', 'Small new1')));

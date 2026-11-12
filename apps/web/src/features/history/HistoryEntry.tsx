@@ -1,3 +1,4 @@
+import { SkeletonBoundary } from '../../ui/Skeleton';
 import {
   memo,
   useCallback,
@@ -542,61 +543,68 @@ function RevisionPopover({
             </button>
           </p>
         )}
-        {!source && !error && <p role="status">Loading revision...</p>}
-        {shown &&
-          (legacy && mode === 'previous' ? (
-            shown.hasPredecessor ? (
-              <TooltipDiff
-                before={shown.revision}
-                current={
-                  shown.previous ?? { hash: shownCurrent?.hash ?? 0, text: {}, associated: [] }
-                }
-                raw={false}
-                eagerLanguages
-              />
-            ) : (
-              <p>
-                Last published state before migration. Compare with the current draft to see later
-                changes.
-              </p>
-            )
-          ) : mode === 'previous' ? (
-            <>
-              {!shown.revision ? (
-                <p>Deleted in this revision.</p>
+
+        <SkeletonBoundary
+          pending={!source}
+          error={!!error}
+          identity={entry.commit}
+          label="Loading revision..."
+        >
+          {shown &&
+            (legacy && mode === 'previous' ? (
+              shown.hasPredecessor ? (
+                <TooltipDiff
+                  before={shown.revision}
+                  current={
+                    shown.previous ?? { hash: shownCurrent?.hash ?? 0, text: {}, associated: [] }
+                  }
+                  raw={false}
+                  eagerLanguages
+                />
               ) : (
-                !shown.previous && (
-                  <p>
-                    {shown.hasPredecessor
-                      ? 'Restored in this revision.'
-                      : 'First revision: everything is new.'}
-                  </p>
-                )
-              )}
-              <TooltipDiff
-                before={shown.previous}
-                current={
-                  shown.revision ?? { hash: shown.previous?.hash ?? 0, text: {}, associated: [] }
-                }
-                item={item}
-                raw={false}
-              />
-            </>
-          ) : (
-            shownCurrent && (
-              <TooltipDiff
-                before={shown.revision}
-                current={
-                  legacy
-                    ? { hash: shownCurrent.hash, text: shownCurrent.text, associated: [] }
-                    : shownCurrent
-                }
-                item={item}
-                raw={false}
-                eagerLanguages={legacy}
-              />
-            )
-          ))}
+                <p>
+                  Last published state before migration. Compare with the current draft to see later
+                  changes.
+                </p>
+              )
+            ) : mode === 'previous' ? (
+              <>
+                {!shown.revision ? (
+                  <p>Deleted in this revision.</p>
+                ) : (
+                  !shown.previous && (
+                    <p>
+                      {shown.hasPredecessor
+                        ? 'Restored in this revision.'
+                        : 'First revision: everything is new.'}
+                    </p>
+                  )
+                )}
+                <TooltipDiff
+                  before={shown.previous}
+                  current={
+                    shown.revision ?? { hash: shown.previous?.hash ?? 0, text: {}, associated: [] }
+                  }
+                  item={item}
+                  raw={false}
+                />
+              </>
+            ) : (
+              shownCurrent && (
+                <TooltipDiff
+                  before={shown.revision}
+                  current={
+                    legacy
+                      ? { hash: shownCurrent.hash, text: shownCurrent.text, associated: [] }
+                      : shownCurrent
+                  }
+                  item={item}
+                  raw={false}
+                  eagerLanguages={legacy}
+                />
+              )
+            ))}
+        </SkeletonBoundary>
         {source?.revision && canRestore && (
           <div className={styles.revisionActions}>
             {legacy && <p>Only language text is restored. Other tooltip fields stay unchanged.</p>}

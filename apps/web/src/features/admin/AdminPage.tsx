@@ -1,3 +1,5 @@
+import { SkeletonBoundary } from '../../ui/Skeleton';
+import { LoadingSkeleton, useSkeletonVisible } from '../../ui/Skeleton';
 import { languageLabel } from '../../languageLabels';
 import { useEffect, useState, type FormEvent } from 'react';
 import { languages, type Permissions } from '@clarity/core';
@@ -50,7 +52,15 @@ export function AdminPage() {
     return () => controller.abort();
   }, [permitted, user?.id, reload]);
 
-  if (authLoading) return <p role="status">Checking maintainer access...</p>;
+  const loadingSkeleton = useSkeletonVisible(authLoading, 'Checking maintainer access...', true);
+  if (authLoading || loadingSkeleton)
+    return (
+      <LoadingSkeleton
+        label="Checking maintainer access..."
+        shape="page"
+        visible={loadingSkeleton}
+      />
+    );
   if (!permitted)
     return (
       <article>
@@ -120,7 +130,7 @@ export function AdminPage() {
     <article className={pageStyles.page}>
       <h1>Management</h1>
       <p>Manage editor access by GitHub account. Changes apply only after saving.</p>
-      {loading && <p role="status">Loading current permissions...</p>}
+
       {error && (
         <p role="alert">
           {error}{' '}
@@ -140,139 +150,159 @@ export function AdminPage() {
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
-      {config && (
-        <fieldset disabled={busy || loading} style={{ border: 0, padding: 0, minWidth: 0 }}>
-          <legend>Users and access</legend>
-          <div className={styles.tableWrapper}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th scope="col">GitHub account</th>
-                  <th scope="col">Role</th>
-                  <th scope="col">Languages</th>
-                  <th scope="col">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.entries(config.users)
-                  .sort((a, b) => a[1].login.localeCompare(b[1].login))
-                  .map(([id, access]) => {
-                    const last = access.role === 'maintainer' && maintainerCount(config) === 1;
-                    return (
-                      <tr key={id}>
-                        <th scope="row">
-                          <a
-                            href={`https://github.com/${encodeURIComponent(access.login)}`}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {access.login}
-                          </a>
-                          <small>ID {id}</small>
-                        </th>
-                        <td>
-                          <select
-                            aria-label={`Role for ${access.login}`}
-                            value={access.role}
-                            onChange={(event) => {
-                              const role = roles.find((value) => value === event.target.value);
-                              if (role)
-                                update(id, {
-                                  login: access.login,
-                                  role,
-                                  ...(role === 'translator'
-                                    ? { languages: access.languages ?? [] }
-                                    : {}),
-                                });
-                            }}
-                          >
-                            {roles.map((role) => (
-                              <option
-                                key={role}
-                                value={role}
-                                disabled={last && role !== 'maintainer'}
-                              >
-                                {role}
-                              </option>
-                            ))}
-                          </select>
-                          {last && <small>Last maintainer</small>}
-                        </td>
-                        <td>
-                          {access.role === 'translator' ? (
-                            <div className={styles.languages}>
-                              {languages.map((lang) => (
-                                <label key={lang}>
-                                  <input
-                                    type="checkbox"
-                                    aria-label={`${access.login}: ${languageLabel(lang)}`}
-                                    checked={access.languages?.includes(lang) ?? false}
-                                    onChange={(event) =>
-                                      update(id, {
-                                        ...access,
-                                        languages: event.target.checked
-                                          ? [...(access.languages ?? []), lang]
-                                          : (access.languages?.filter((value) => value !== lang) ??
-                                            []),
-                                      })
-                                    }
-                                  />{' '}
-                                  {languageLabel(lang)}
-                                </label>
+      <SkeletonBoundary
+        pending={loading}
+        error={!!error}
+        label="Loading current permissions..."
+        shape="permissions"
+        rowHeights={
+          config
+            ? Object.values(config.users)
+                .sort((a, b) => a.login.localeCompare(b.login))
+                .map((user) => (user.role === 'translator' ? '9rem' : '3.5rem'))
+            : undefined
+        }
+        count={config ? Object.keys(config.users).length : 3}
+      >
+        {config && (
+          <fieldset disabled={busy || loading} style={{ border: 0, padding: 0, minWidth: 0 }}>
+            <legend>Users and access</legend>
+            <div className={styles.tableWrapper}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th scope="col">GitHub account</th>
+                    <th scope="col">Role</th>
+                    <th scope="col">Languages</th>
+                    <th scope="col">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(config.users)
+                    .sort((a, b) => a[1].login.localeCompare(b[1].login))
+                    .map(([id, access]) => {
+                      const last = access.role === 'maintainer' && maintainerCount(config) === 1;
+                      return (
+                        <tr key={id}>
+                          <th scope="row">
+                            <a
+                              href={`https://github.com/${encodeURIComponent(access.login)}`}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {access.login}
+                            </a>
+                            <small>ID {id}</small>
+                          </th>
+                          <td>
+                            <select
+                              aria-label={`Role for ${access.login}`}
+                              value={access.role}
+                              onChange={(event) => {
+                                const role = roles.find((value) => value === event.target.value);
+                                if (role)
+                                  update(id, {
+                                    login: access.login,
+                                    role,
+                                    ...(role === 'translator'
+                                      ? { languages: access.languages ?? [] }
+                                      : {}),
+                                  });
+                              }}
+                            >
+                              {roles.map((role) => (
+                                <option
+                                  key={role}
+                                  value={role}
+                                  disabled={last && role !== 'maintainer'}
+                                >
+                                  {role}
+                                </option>
                               ))}
-                              {!access.languages?.length && (
-                                <small>No translation languages assigned</small>
-                              )}
-                            </div>
-                          ) : (
-                            'All languages'
-                          )}
-                        </td>
-                        <td>
-                          <button
-                            type="button"
-                            disabled={last}
-                            onClick={() => update(id, undefined)}
-                          >
-                            Remove
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </table>
-          </div>
-          <form className={styles.add} onSubmit={(event) => void add(event)}>
-            <label className={styles.login}>
-              GitHub login
-              <input
-                required
-                autoComplete="off"
-                value={login}
-                onChange={(event) => setLogin(event.target.value)}
-              />
-            </label>
-            <button type="submit">Add account</button>
-          </form>
-          <div className={pageStyles.actions}>
-            <button type="button" disabled={!dirty || stale} onClick={() => void savePermissions()}>
-              {busy ? 'Working...' : 'Save permissions'}
-            </button>
-            <button
-              type="button"
-              disabled={!dirty}
-              onClick={() => {
-                setConfig(original);
-                setError(null);
-                setNotice('Unsaved permission changes discarded.');
-              }}
-            >
-              Discard changes
-            </button>
-          </div>
-        </fieldset>
-      )}
+                            </select>
+                            {last && <small>Last maintainer</small>}
+                          </td>
+                          <td>
+                            {access.role === 'translator' ? (
+                              <div className={styles.languages}>
+                                {languages.map((lang) => (
+                                  <label key={lang}>
+                                    <input
+                                      type="checkbox"
+                                      aria-label={`${access.login}: ${languageLabel(lang)}`}
+                                      checked={access.languages?.includes(lang) ?? false}
+                                      onChange={(event) =>
+                                        update(id, {
+                                          ...access,
+                                          languages: event.target.checked
+                                            ? [...(access.languages ?? []), lang]
+                                            : (access.languages?.filter(
+                                                (value) => value !== lang,
+                                              ) ?? []),
+                                        })
+                                      }
+                                    />{' '}
+                                    {languageLabel(lang)}
+                                  </label>
+                                ))}
+                                {!access.languages?.length && (
+                                  <small>No translation languages assigned</small>
+                                )}
+                              </div>
+                            ) : (
+                              'All languages'
+                            )}
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              disabled={last}
+                              onClick={() => update(id, undefined)}
+                            >
+                              Remove
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+            <form className={styles.add} onSubmit={(event) => void add(event)}>
+              <label className={styles.login}>
+                GitHub login
+                <input
+                  required
+                  autoComplete="off"
+                  value={login}
+                  onChange={(event) => setLogin(event.target.value)}
+                />
+              </label>
+              <button type="submit">Add account</button>
+            </form>
+            <div className={pageStyles.actions}>
+              <button
+                type="button"
+                disabled={!dirty || stale}
+                onClick={() => void savePermissions()}
+              >
+                {busy ? 'Working...' : 'Save permissions'}
+              </button>
+              <button
+                type="button"
+                disabled={!dirty}
+                onClick={() => {
+                  setConfig(original);
+                  setError(null);
+                  setNotice('Unsaved permission changes discarded.');
+                }}
+              >
+                Discard changes
+              </button>
+            </div>
+          </fieldset>
+        )}
+      </SkeletonBoundary>
     </article>
   );
 }

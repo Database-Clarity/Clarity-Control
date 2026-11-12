@@ -1,3 +1,4 @@
+import { SkeletonBoundary } from '../../ui/Skeleton';
 import { memo, useMemo } from 'react';
 import { markupLanguage, type Lang, type MarkupLine, type MarkupSpan } from '@clarity/core';
 import { useDataStore } from '../../stores/data';
@@ -130,37 +131,45 @@ export function RenderedWordDiff({
       </div>
     );
   return (
-    <div
-      className={`${styles.diff} ${responsive ? styles.responsive : ''}`}
-      aria-busy={busy || undefined}
-      data-one-sided={!before || !after || undefined}
+    <SkeletonBoundary
+      pending={busy}
+      error={sourceUnavailable}
+      identity={`${hash}:${lang}:${before}:${after}`}
+      label="Preparing rendered comparison…"
+      text={after || before}
     >
-      {!!markers.length && (
-        <p className={styles.sourceChange}>
-          {markers.length} source {markers.length === 1 ? 'change' : 'changes'} flagged below · Raw
-          shows the markup
-        </p>
-      )}
-      {!!sourceAnalysis?.unchecked && (
-        <p className={styles.sourceChange} data-source-unchecked>
-          {sourceAnalysis.unchecked} changes not checked: see Raw
-        </p>
-      )}
-      {sourceUnavailable && before !== after && (
-        <p className={styles.sourceChange} data-source-unchecked>
-          Source changes not checked: see Raw
-        </p>
-      )}
-      <div className={styles.sides}>
-        <div>
-          <strong>{working ? 'Saved' : 'Previous / live'}</strong>
-          {side(before, result.before)}
-        </div>
-        <div>
-          <strong>{working ? 'Unsaved' : 'Current'}</strong>
-          {side(after, result.after, markers)}
+      <div
+        className={`${styles.diff} ${responsive ? styles.responsive : ''}`}
+        aria-busy={busy || undefined}
+        data-one-sided={!before || !after || undefined}
+      >
+        {!!markers.length && (
+          <p className={styles.sourceChange}>
+            {markers.length} source {markers.length === 1 ? 'change' : 'changes'} flagged below ·
+            Raw shows the markup
+          </p>
+        )}
+        {!!sourceAnalysis?.unchecked && (
+          <p className={styles.sourceChange} data-source-unchecked>
+            {sourceAnalysis.unchecked} changes not checked: see Raw
+          </p>
+        )}
+        {sourceUnavailable && before !== after && (
+          <p className={styles.sourceChange} data-source-unchecked>
+            Source changes not checked: see Raw
+          </p>
+        )}
+        <div className={styles.sides}>
+          <div>
+            <strong>{working ? 'Saved' : 'Previous / live'}</strong>
+            {side(before, result.before)}
+          </div>
+          <div>
+            <strong>{working ? 'Unsaved' : 'Current'}</strong>
+            {side(after, result.after, markers)}
+          </div>
         </div>
       </div>
-    </div>
+    </SkeletonBoundary>
   );
 }

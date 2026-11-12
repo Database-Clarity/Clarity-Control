@@ -1,3 +1,4 @@
+import { SkeletonBoundary } from '../../ui/Skeleton';
 import type { Item } from '../../services/generator';
 import { useEffect, useState } from 'react';
 import { languageLabel } from '../../languageLabels';
@@ -94,45 +95,47 @@ export function TooltipDiff({
     <div className={styles.diff} aria-busy={busy || undefined}>
       {!working && !changed.length && <RawDiffToggle />}
       {changed.map((lang, index) => (
-        <section
-          key={lang}
-          lang={lang}
-          aria-label={`${languageLabel(lang)} comparison`}
-          data-pending-render={(busy && index >= rendered) || undefined}
-        >
-          {!working && (
-            <div className={renderedStyles.languageHead}>
-              <h4>{languageLabel(lang)}</h4>
-              <RawDiffToggle />
-            </div>
-          )}
-          {sourceView && raw && (
-            <div className={styles.columns}>
-              <div>
-                <strong>{working ? 'Saved' : 'Previous / live'}</strong>
-                <pre>{before?.text[lang]?.text ?? '(not present)'}</pre>
+        <section key={lang} lang={lang} aria-label={`${languageLabel(lang)} comparison`}>
+          <SkeletonBoundary
+            pending={busy && index >= rendered}
+            identity={`${current.hash}:${lang}`}
+            label="Preparing language comparison…"
+            text={current.text[lang]?.text ?? ''}
+          >
+            {!working && (
+              <div className={renderedStyles.languageHead}>
+                <h4>{languageLabel(lang)}</h4>
+                <RawDiffToggle />
               </div>
-              <div>
-                <strong>{working ? 'Unsaved' : 'Current'}</strong>
-                <pre>{current.text[lang]?.text ?? '(not present)'}</pre>
+            )}
+            {sourceView && raw && (
+              <div className={styles.columns}>
+                <div>
+                  <strong>{working ? 'Saved' : 'Previous / live'}</strong>
+                  <pre>{before?.text[lang]?.text ?? '(not present)'}</pre>
+                </div>
+                <div>
+                  <strong>{working ? 'Unsaved' : 'Current'}</strong>
+                  <pre>{current.text[lang]?.text ?? '(not present)'}</pre>
+                </div>
               </div>
-            </div>
-          )}
-          {sourceView ? (
-            <HistoryWordDiff
-              before={before?.text[lang]?.text ?? ''}
-              after={current.text[lang]?.text ?? ''}
-            />
-          ) : (
-            <RenderedWordDiff
-              before={before?.text[lang]?.text ?? ''}
-              after={current.text[lang]?.text ?? ''}
-              lang={lang}
-              hash={current.hash}
-              working={working}
-              responsive={responsive}
-            />
-          )}
+            )}
+            {sourceView ? (
+              <HistoryWordDiff
+                before={before?.text[lang]?.text ?? ''}
+                after={current.text[lang]?.text ?? ''}
+              />
+            ) : (
+              <RenderedWordDiff
+                before={before?.text[lang]?.text ?? ''}
+                after={current.text[lang]?.text ?? ''}
+                lang={lang}
+                hash={current.hash}
+                working={working}
+                responsive={responsive}
+              />
+            )}
+          </SkeletonBoundary>
         </section>
       ))}
       {(before?.compendium || current.compendium) &&

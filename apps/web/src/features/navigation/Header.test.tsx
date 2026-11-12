@@ -105,6 +105,28 @@ const tabNames = () =>
   ].map((element) => element.firstChild?.textContent);
 
 beforeEach(() => {
+  // Supply browser storage explicitly; Node 26's native localStorage is unavailable without a file.
+  const storage = (): Storage => {
+    const values = new Map<string, string>();
+    return {
+      get length() {
+        return values.size;
+      },
+      key: (index) => [...values.keys()][index] ?? null,
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => {
+        values.set(key, String(value));
+      },
+      removeItem: (key) => {
+        values.delete(key);
+      },
+      clear: () => {
+        values.clear();
+      },
+    };
+  };
+  vi.stubGlobal('localStorage', storage());
+  vi.stubGlobal('sessionStorage', storage());
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   HTMLDialogElement.prototype.showModal = function () {
     this.setAttribute('open', '');

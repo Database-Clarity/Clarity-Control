@@ -1,4 +1,5 @@
-import { Component, Suspense, lazy, useState, type ComponentType, type ReactNode } from 'react';
+import { SkeletonSuspense, type LoadingShape } from '../../ui/Skeleton';
+import { Component, lazy, useState, type ComponentType, type ReactNode } from 'react';
 
 const loadPage = () =>
   import('./CompendiumTab').then((module) => ({ default: module.CompendiumTab }));
@@ -25,8 +26,10 @@ class LoadBoundary extends Component<{ children: ReactNode; retry(): void }, { f
 
 export function LazyCompendiumTab({
   load = loadPage,
+  shape = 'page',
 }: {
   load?: () => Promise<{ default: ComponentType }>;
+  shape?: LoadingShape;
 }) {
   const [attempt, setAttempt] = useState(0);
   const [Page, setPage] = useState(() => lazy(load));
@@ -38,9 +41,9 @@ export function LazyCompendiumTab({
         setAttempt((value) => value + 1);
       }}
     >
-      <Suspense fallback={<p role="status">Loading the Compendium tab…</p>}>
+      <SkeletonSuspense label="Loading the Compendium tab…" shape={shape}>
         <Page />
-      </Suspense>
+      </SkeletonSuspense>
     </LoadBoundary>
   );
 }

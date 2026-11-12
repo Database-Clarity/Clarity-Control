@@ -1,3 +1,4 @@
+import { LoadingSkeleton, useSkeletonVisible } from '../../ui/Skeleton';
 import { ReadingTooltip } from '../preview/ReadingTooltip';
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom';
@@ -86,8 +87,10 @@ export function LostTextPage() {
       };
     }
   }, [stored, storageKey]);
+  const loadingSkeleton = useSkeletonVisible(!data, 'Loading checker data…', true);
   if (user?.role === 'translator') return <Navigate to="/translations" replace />;
-  if (!data) return <p role="status">Loading checker data…</p>;
+  if (!data || loadingSkeleton)
+    return <LoadingSkeleton label="Loading checker data…" shape="rows" visible={loadingSkeleton} />;
   if (!parsed.success)
     return (
       <article>

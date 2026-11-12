@@ -503,3 +503,47 @@ it('renders trailer hints immediately when metadata arrives after opening', asyn
   expect(host.querySelector('[data-history-pending]')).toBeNull();
   expect(getVersion).not.toHaveBeenCalled();
 });
+
+it('keeps loaded commits mounted while a later API page is pending', async () => {
+  let resolvePage!: (value: { page: number; commits: ReturnType<typeof commit>[] }) => void;
+  const nextPage = new Promise<{ page: number; commits: ReturnType<typeof commit>[] }>(
+    (resolve) => {
+      resolvePage = resolve;
+    },
+  );
+  getHistory.mockImplementation((_hash: number, page: number) =>
+    page === 1
+      ? Promise.resolve({
+          page: 1,
+          commits: Array.from({ length: 30 }, (_, index) => ({
+            ...commit(100 - index),
+            message: `Loaded ${index}\n\nClarity-Changed: 10=en`,
+          })),
+        })
+      : nextPage,
+  );
+  await act(async () => root.render(<HistoryPanel hash={10} />));
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  await paintRows();
+  const first = host.querySelector('ol li > button');
+  for (let index = 0; index < 3; index++) {
+    await act(async () =>
+      [...host.querySelectorAll('button')]
+        .find((button) => button.textContent === 'Show older revisions')!
+        .click(),
+    );
+  }
+  expect(getHistory.mock.calls.some(([, page]) => page === 2)).toBe(true);
+  expect(host.querySelector('ol')!.hidden).toBe(false);
+  expect(host.querySelector('ol li > button')).toBe(first);
+  expect(host.querySelectorAll('ol li > button')).toHaveLength(30);
+  await act(async () =>
+    resolvePage({
+      page: 2,
+      commits: [{ ...commit(50), message: 'Next page\n\nClarity-Changed: 10=en' }],
+    }),
+  );
+  await paintRows();
+  expect(host.querySelector('ol li > button')).toBe(first);
+  expect(host.querySelectorAll('ol li > button')).toHaveLength(31);
+});

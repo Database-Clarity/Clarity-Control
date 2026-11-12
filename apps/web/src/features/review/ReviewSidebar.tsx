@@ -1,3 +1,4 @@
+import { SkeletonBoundary } from '../../ui/Skeleton';
 import { useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { publisherEnabled } from '../../services/publisher/flag';
@@ -66,57 +67,57 @@ export function ReviewSidebar() {
     });
   return (
     <div className={styles.queue}>
-      {entries === null ? (
-        <p>Loading saved changes…</p>
-      ) : !entries.length ? (
-        <p>No saved changes are waiting to go live.</p>
-      ) : (
-        <>
-          <div className={styles.filters}>
-            <input
-              type="search"
-              aria-label="Find saved changes"
-              placeholder="Find saved change"
-              value={query}
-              onChange={(event) => update(event.target.value, categoryFilter)}
-            />
-            <select
-              data-perf-navigation="true"
-              aria-label="Category"
-              value={categoryFilter}
-              onChange={(event) => update(query, event.target.value)}
-            >
-              <option value="">All categories</option>
-              {categories.map(([id, label]) => (
-                <option key={id} value={id}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
-          {view && view.items.length ? (
-            <ReviewQueue
-              view={view}
-              selectedHash={searchParams.get('hash')}
-              locked={pushing}
-              inFlight={inFlight}
-            />
-          ) : (
-            <p className={styles.empty}>
-              Nothing matches.
-              <button type="button" data-perf-navigation="true" onClick={() => update('', '')}>
-                Clear filters
-              </button>
-            </p>
-          )}
-          {view && view.markerCount > 0 && !markerOpen && (
-            <p className={styles.markerNote}>
-              Alias-marker migration leftovers: saved content equals live. A data task clears
-              these; group select never includes them.
-            </p>
-          )}
-        </>
-      )}
+      <SkeletonBoundary pending={entries === null} label="Loading saved changes…" shape="rows">
+        {!entries?.length ? (
+          <p>No saved changes are waiting to go live.</p>
+        ) : (
+          <>
+            <div className={styles.filters}>
+              <input
+                type="search"
+                aria-label="Find saved changes"
+                placeholder="Find saved change"
+                value={query}
+                onChange={(event) => update(event.target.value, categoryFilter)}
+              />
+              <select
+                data-perf-navigation="true"
+                aria-label="Category"
+                value={categoryFilter}
+                onChange={(event) => update(query, event.target.value)}
+              >
+                <option value="">All categories</option>
+                {categories.map(([id, label]) => (
+                  <option key={id} value={id}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {view && view.items.length ? (
+              <ReviewQueue
+                view={view}
+                selectedHash={searchParams.get('hash')}
+                locked={pushing}
+                inFlight={inFlight}
+              />
+            ) : (
+              <p className={styles.empty}>
+                Nothing matches.
+                <button type="button" data-perf-navigation="true" onClick={() => update('', '')}>
+                  Clear filters
+                </button>
+              </p>
+            )}
+            {view && view.markerCount > 0 && !markerOpen && (
+              <p className={styles.markerNote}>
+                Alias-marker migration leftovers: saved content equals live. A data task clears
+                these; group select never includes them.
+              </p>
+            )}
+          </>
+        )}
+      </SkeletonBoundary>
     </div>
   );
 }

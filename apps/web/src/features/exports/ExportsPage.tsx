@@ -1,3 +1,5 @@
+import { SkeletonBoundary } from '../../ui/Skeleton';
+import { LoadingSkeleton, useSkeletonVisible } from '../../ui/Skeleton';
 // Exports (spec section 8): maintainers get the projects list, one dense row per project; a
 // partner lands on their own project (or a list of their projects when they have several).
 import { configSchemaVersion, isValidId } from '@clarity/export/config';
@@ -26,7 +28,9 @@ export function ExportsPage() {
   const maintainer = user?.role === 'maintainer';
   const partnerProjects = user?.projects ?? [];
   useSiteRefresh();
-  if (authLoading) return <p role="status">Loading your account…</p>;
+  const loadingSkeleton = useSkeletonVisible(authLoading, 'Loading your account…', true);
+  if (authLoading || loadingSkeleton)
+    return <LoadingSkeleton label="Loading your account…" shape="page" visible={loadingSkeleton} />;
   if (!maintainer && partnerProjects.length === 1)
     return <Navigate to={`/exports/${partnerProjects[0]}`} replace />;
   if (!maintainer && !partnerProjects.length)
@@ -64,6 +68,7 @@ function ProjectsList({ maintainer }: { maintainer: boolean }) {
         <h1 id="exports-title" className={styles.pageTitle}>
           Exports
         </h1>
+
         {list && (
           <span className={styles.meta}>
             {list.projects.length} {list.projects.length === 1 ? 'project' : 'projects'}
@@ -81,53 +86,55 @@ function ProjectsList({ maintainer }: { maintainer: boolean }) {
           </button>
         </p>
       )}
-      {!list && !error && <p role="status">Loading projects…</p>}
-      {list && (
-        <div className={styles.tableScroll}>
-          <table className={styles.projects}>
-            <thead>
-              <tr>
-                <th scope="col">Project</th>
-                {maintainer && <th scope="col">Partners</th>}
-                <th scope="col">Files</th>
-                <th scope="col">Format</th>
-                <th scope="col">Last build</th>
-                <th scope="col">Notices</th>
-                {maintainer && (
-                  <th scope="col">
-                    <span className={styles.visuallyHidden}>Actions</span>
-                  </th>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {list.projects.map((row) => (
-                <ProjectListRow
-                  key={row.id}
-                  row={row}
-                  maintainer={maintainer}
-                  partnersRevision={list.partnersRevision}
-                  build={projectBuild(manifest, notices, row.id)}
-                  onPartners={reload}
-                  onDelete={() => setDeleting(row)}
-                />
-              ))}
-              {!list.projects.length && (
+
+      <SkeletonBoundary pending={!list} error={!!error} label="Loading projects…" shape="rows">
+        {list && (
+          <div className={styles.tableScroll}>
+            <table className={styles.projects}>
+              <thead>
                 <tr>
-                  <td colSpan={maintainer ? 7 : 5} className={styles.empty}>
-                    No export projects yet.
-                  </td>
+                  <th scope="col">Project</th>
+                  {maintainer && <th scope="col">Partners</th>}
+                  <th scope="col">Files</th>
+                  <th scope="col">Format</th>
+                  <th scope="col">Last build</th>
+                  <th scope="col">Notices</th>
+                  {maintainer && (
+                    <th scope="col">
+                      <span className={styles.visuallyHidden}>Actions</span>
+                    </th>
+                  )}
                 </tr>
+              </thead>
+              <tbody>
+                {list.projects.map((row) => (
+                  <ProjectListRow
+                    key={row.id}
+                    row={row}
+                    maintainer={maintainer}
+                    partnersRevision={list.partnersRevision}
+                    build={projectBuild(manifest, notices, row.id)}
+                    onPartners={reload}
+                    onDelete={() => setDeleting(row)}
+                  />
+                ))}
+                {!list.projects.length && (
+                  <tr>
+                    <td colSpan={maintainer ? 7 : 5} className={styles.empty}>
+                      No export projects yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+              {maintainer && (
+                <tfoot>
+                  <NewProjectRow taken={list.projects.map((row) => row.id)} />
+                </tfoot>
               )}
-            </tbody>
-            {maintainer && (
-              <tfoot>
-                <NewProjectRow taken={list.projects.map((row) => row.id)} />
-              </tfoot>
-            )}
-          </table>
-        </div>
-      )}
+            </table>
+          </div>
+        )}
+      </SkeletonBoundary>
       {deleting && (
         <DeleteProject
           row={deleting}

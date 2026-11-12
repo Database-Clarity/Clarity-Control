@@ -1,3 +1,4 @@
+import { SkeletonBoundary } from '../../ui/Skeleton';
 import { ReadingTooltip } from '../preview/ReadingTooltip';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -25,6 +26,20 @@ import { When } from '../../ui/When';
 import styles from './ArchivePage.module.scss';
 
 export function ArchivePage() {
+  const { data, status, error } = useDataStore();
+  return (
+    <SkeletonBoundary
+      pending={!data}
+      error={status === 'error' || !!error}
+      label="Loading Archive…"
+      shape="rows"
+    >
+      <ArchiveContents />
+    </SkeletonBoundary>
+  );
+}
+
+function ArchiveContents() {
   const [rawDiff] = useRawDiff();
   const { data, status, error, load } = useDataStore();
   const user = useAuthStore((state) => state.user);
@@ -72,7 +87,7 @@ export function ArchivePage() {
         </details>
       </article>
     );
-  if (!data) return <p role="status">Loading Archive…</p>;
+  if (!data) return null;
   const result = removedFromManifest(
     Object.values(data.bundle.tooltips),
     data.items,

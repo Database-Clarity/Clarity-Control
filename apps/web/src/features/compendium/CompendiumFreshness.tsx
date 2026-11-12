@@ -3,7 +3,6 @@ import { useAuthStore } from '../../stores/auth';
 import { apiUrl } from '../../services/api';
 import { useCompendiumStore } from './store';
 import { When } from '../../ui/When';
-import styles from './Compendium.module.scss';
 
 export function CompendiumFreshness({ staleOnly = false }: { staleOnly?: boolean }) {
   const { data, error, refreshing, refreshMessage, load, refresh } = useCompendiumStore();
@@ -27,7 +26,6 @@ export function CompendiumFreshness({ staleOnly = false }: { staleOnly?: boolean
       {error && <p role="alert">{error}</p>}
       {!!apiUrl && user?.role && ['editor', 'maintainer'].includes(user.role) && (
         <button type="button" disabled={refreshing} onClick={() => void refresh()}>
-          {refreshing && <span className={styles.spinner} aria-hidden="true" />}
           {refreshing ? 'Refreshing Compendium...' : 'Refresh Compendium'}
         </button>
       )}

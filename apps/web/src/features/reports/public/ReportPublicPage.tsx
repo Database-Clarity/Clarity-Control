@@ -1,4 +1,5 @@
-import { lazy, Suspense, useEffect } from 'react';
+import { SkeletonSuspense } from '../../../ui/Skeleton';
+import { lazy, useEffect } from 'react';
 import { Link, useLocation, useParams, useRoutes } from 'react-router-dom';
 import { useAuthStore } from '../../../stores/auth';
 import { phoneQuery, useMedia } from '../../../ui/useMedia';
@@ -27,18 +28,18 @@ export function ReceiptForReport() {
   const { id } = useParams();
   const account = useAccount();
   return (
-    <Suspense fallback={<p role="status">Loading…</p>}>
+    <SkeletonSuspense label="Loading report content…">
       <ReportReceipt key={`${id}:${account}`} />
-    </Suspense>
+    </SkeletonSuspense>
   );
 }
 
 export function MyReportsForAccount() {
   const account = useAccount();
   return (
-    <Suspense fallback={<p role="status">Loading…</p>}>
+    <SkeletonSuspense label="Loading report content…">
       <MyReports key={account} />
-    </Suspense>
+    </SkeletonSuspense>
   );
 }
 
@@ -80,7 +81,7 @@ export function ReportPublicPage() {
         </span>
       </header>
       <main className={styles.main}>
-        <Suspense fallback={<p role="status">Loading…</p>}>{element}</Suspense>
+        <SkeletonSuspense label="Loading report content…">{element}</SkeletonSuspense>
       </main>
     </div>
   );

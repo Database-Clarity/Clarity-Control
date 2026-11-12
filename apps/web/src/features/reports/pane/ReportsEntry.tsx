@@ -123,32 +123,33 @@ export function ReportsEntry({
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const openReport = useOpenReport();
-  if (!seesReports(user) || (!loaded && !failed)) return null;
+  if (!seesReports(user)) return null;
   return (
     <li>
       <button
         ref={button}
         type="button"
+        disabled={!loaded && !failed}
         className={className}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={
-          failed ? 'Reports (counts unavailable)' : `Reports, ${rows.length} with open reports`
+          !loaded && !failed
+            ? 'Reports (loading counts)'
+            : failed
+              ? 'Reports (counts unavailable)'
+              : `Reports, ${rows.length} with open reports`
         }
         onClick={() => setOpen((value) => !value)}
       >
         Reports
-        {failed ? (
-          <span className={badgeClassName} aria-hidden="true">
-            !
-          </span>
-        ) : (
-          rows.length > 0 && (
-            <span className={badgeClassName} aria-hidden="true">
-              {rows.length}
-            </span>
-          )
-        )}
+        <span
+          className={badgeClassName}
+          aria-hidden="true"
+          style={!failed && loaded && !rows.length ? { visibility: 'hidden' } : undefined}
+        >
+          {!loaded && !failed ? '…' : failed ? '!' : rows.length}
+        </span>
       </button>
       <ShellOverlay
         open={open}

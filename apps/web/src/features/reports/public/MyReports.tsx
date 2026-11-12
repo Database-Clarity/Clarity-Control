@@ -1,3 +1,4 @@
+import { SkeletonBoundary } from '../../../ui/Skeleton';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { languageLabel } from '../../../languageLabels';
@@ -86,37 +87,41 @@ export function MyReports() {
           {problem}
         </p>
       )}
-      {!rows && !problem && (
-        <p role="status" className={styles.muted}>
-          Loading your reports…
-        </p>
-      )}
-      {rows?.length === 0 && <p className={styles.muted}>You have not sent a report yet.</p>}
-      {rows && rows.length > 0 && (
-        <ul className={styles.mineList}>
-          {rows.map((row) => (
-            <li key={row.id}>
-              <Link className={styles.mineRow} to={`/report/r/${row.id}`}>
-                <span className={styles.mineName}>
-                  {changed.has(row.id) && (
-                    <span className={styles.mineDot}>
-                      <span className={styles.visuallyHidden}>Changed since your last visit: </span>
-                    </span>
-                  )}
-                  {names[row.owner_hash] ?? `Tooltip ${row.owner_hash}`}
-                </span>
-                <span className={styles.mineMeta}>
-                  {row.id} · {languageLabel(row.lang)} · <When value={row.created_at * 1000} />
-                </span>
-                <span className={styles.status} data-status={statusLabel(row.status)}>
-                  {statusLabel(row.status)}
-                </span>
-                {row.closed_note && <span className={styles.mineNote}>{row.closed_note}</span>}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+      <SkeletonBoundary
+        pending={!rows}
+        error={!!problem}
+        label="Loading your reports…"
+        shape="rows"
+      >
+        {rows?.length === 0 && <p className={styles.muted}>You have not sent a report yet.</p>}
+        {rows && rows.length > 0 && (
+          <ul className={styles.mineList}>
+            {rows.map((row) => (
+              <li key={row.id}>
+                <Link className={styles.mineRow} to={`/report/r/${row.id}`}>
+                  <span className={styles.mineName}>
+                    {changed.has(row.id) && (
+                      <span className={styles.mineDot}>
+                        <span className={styles.visuallyHidden}>
+                          Changed since your last visit:{' '}
+                        </span>
+                      </span>
+                    )}
+                    {names[row.owner_hash] ?? `Tooltip ${row.owner_hash}`}
+                  </span>
+                  <span className={styles.mineMeta}>
+                    {row.id} · {languageLabel(row.lang)} · <When value={row.created_at * 1000} />
+                  </span>
+                  <span className={styles.status} data-status={statusLabel(row.status)}>
+                    {statusLabel(row.status)}
+                  </span>
+                  {row.closed_note && <span className={styles.mineNote}>{row.closed_note}</span>}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </SkeletonBoundary>
     </div>
   );
 }

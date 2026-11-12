@@ -1,10 +1,25 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useElementWidth } from './useElementWidth';
+import {
+  Suspense,
+  createContext,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import { flushSync } from 'react-dom';
 import styles from './Skeleton.module.scss';
 
 export function SkeletonStatus({ children }: { children: ReactNode }) {
   return (
-    <span className={styles.status} role="status">
+    <span
+      className={styles.status}
+      role="status"
+      aria-label={typeof children === 'string' ? children.replace(/[.…]+$/, '') : undefined}
+    >
       {children}
     </span>
   );
@@ -126,62 +141,297 @@ export function skeletonLineWidths(
 
 /** Once shown, a skeleton stays at least this long (ms), so it never only flashes. */
 export const skeletonMinimumMs = 400;
+type SkeletonClock = { shownAt?: number; holders: Set<symbol>; endFrame?: number };
+const SkeletonClockContext = createContext<SkeletonClock | undefined>(undefined);
+
+function useOwnSkeletonClock(identity: unknown): SkeletonClock {
+  const own = useMemo(() => ({ identity, clock: { holders: new Set<symbol>() } }), [identity]);
+  return own.clock;
+}
+
+function joinSkeletonCycle(clock: SkeletonClock, holder: symbol) {
+  if (!clock.holders.size && clock.endFrame === undefined) clock.shownAt = undefined;
+  if (clock.endFrame !== undefined) {
+    cancelAnimationFrame(clock.endFrame);
+    clock.endFrame = undefined;
+  }
+  clock.holders.add(holder);
+  return () => {
+    clock.holders.delete(holder);
+    if (clock.holders.size || clock.endFrame !== undefined) return;
+    const frame = requestAnimationFrame(() => {
+      if (clock.endFrame !== frame) return;
+      clock.endFrame = undefined;
+      if (!clock.holders.size) clock.shownAt = undefined;
+    });
+    clock.endFrame = frame;
+  };
+}
 
 /**
- * The one timing rule for every skeleton. Previous content is kept for at most two frames after a
- * step; if the new content has not committed by the second frame the skeleton shows (first loads,
+ * The one timing rule for every skeleton. Hosts remove obsolete content immediately. After a
+ * step, if new content has not committed by the second frame the skeleton shows (first loads,
  * with nothing to keep, show it at once). Once shown it stays at least `skeletonMinimumMs` before
- * the content swaps in. A step to another entry (`identity`) during that time starts over for the
- * new entry: ready by its second frame, it shows directly; otherwise the skeleton (already on
- * screen, so nothing flashes) starts a fresh minimum. Waits never stack. While this returns true
+ * the content swaps in. A new root boundary identity starts a clock; consumers share its cycle
+ * while any are pending or visible, and through the next frame after the last one releases it.
+ * A later wait starts a fresh cycle and minimum. A superseded entry is
+ * discarded immediately, and a warm entry ready by its second frame shows directly. While this returns true
  * the host shows the skeleton instead of content, even if `pending` already turned false.
  */
-export function useSkeletonVisible(pending: boolean, identity: unknown, hasContent: boolean) {
+export function useSkeletonVisible(
+  pending: boolean,
+  identity: unknown,
+  hasContent: boolean,
+  clock?: SkeletonClock,
+) {
+  const inherited = useContext(SkeletonClockContext);
+  const ownClock = useOwnSkeletonClock(identity);
+  const activeClock = clock ?? inherited ?? ownClock;
   const [visible, setVisible] = useState(pending && !hasContent);
-  const shownAt = useRef<number | undefined>(visible ? Date.now() : undefined);
+  const shownAt = useRef<number | undefined>(
+    visible ? (activeClock.shownAt ?? Date.now()) : undefined,
+  );
   const shownFor = useRef(identity);
+  const shownClock = useRef(activeClock);
+  const holder = useRef(Symbol('skeleton consumer'));
+  const membership = useRef<{ clock: SkeletonClock; release(): void }>();
+  const holding = pending || visible;
+  useLayoutEffect(() => {
+    // Release after revealed descendants' layout effects, so their next-frame
+    // mounts can join before the scheduled end. Unmounts release below.
+    if (membership.current && (!holding || membership.current.clock !== activeClock)) {
+      membership.current.release();
+      membership.current = undefined;
+    }
+    if (holding && !membership.current)
+      membership.current = {
+        clock: activeClock,
+        release: joinSkeletonCycle(activeClock, holder.current),
+      };
+  }, [activeClock, holding]);
+  useLayoutEffect(
+    () => () => {
+      membership.current?.release();
+      membership.current = undefined;
+    },
+    [],
+  );
   useLayoutEffect(() => {
     const show = () => {
-      shownAt.current = Date.now();
+      activeClock.shownAt ??= Date.now();
+      shownAt.current = activeClock.shownAt;
       shownFor.current = identity;
+      shownClock.current = activeClock;
       setVisible(true);
     };
     const hide = () => {
       shownAt.current = undefined;
       setVisible(false);
     };
+    let active = true;
     let first: number | undefined;
     let second: number | undefined;
     // Two frames for this entry, then the skeleton (and its minimum) belong to it.
     const afterTwoFrames = (then: () => void) => {
       first = requestAnimationFrame(() => {
-        second = requestAnimationFrame(() => flushSync(then));
+        second = requestAnimationFrame(() => {
+          if (active) flushSync(then);
+        });
       });
     };
     let timer: ReturnType<typeof setTimeout> | undefined;
     if (visible) {
-      if (shownFor.current !== identity) {
+      if (shownFor.current !== identity || shownClock.current !== activeClock) {
         // A new entry during the minimum: start over for it.
         shownFor.current = identity;
+        shownClock.current = activeClock;
         shownAt.current = undefined;
       }
       if (shownAt.current === undefined) {
         if (!pending) hide();
-        else afterTwoFrames(() => (shownAt.current = Date.now()));
-      } else if (!pending) {
-        const left = shownAt.current + skeletonMinimumMs - Date.now();
-        if (left <= 0) hide();
-        else timer = setTimeout(hide, left);
+        else
+          afterTwoFrames(() => {
+            activeClock.shownAt ??= Date.now();
+            shownAt.current = activeClock.shownAt;
+          });
+      } else {
+        activeClock.shownAt ??= shownAt.current;
+        if (!pending) {
+          const left = shownAt.current + skeletonMinimumMs - Date.now();
+          if (left <= 0) hide();
+          else timer = setTimeout(hide, left);
+        }
       }
     } else if (pending) {
       if (!hasContent) show();
       else afterTwoFrames(show);
     }
     return () => {
+      active = false;
       if (first !== undefined) cancelAnimationFrame(first);
       if (second !== undefined) cancelAnimationFrame(second);
       if (timer !== undefined) clearTimeout(timer);
     };
-  }, [pending, identity, hasContent, visible]);
+  }, [pending, identity, hasContent, visible, activeClock]);
   return visible || (pending && !hasContent);
+}
+
+export type LoadingShape = 'page' | 'rows' | 'text' | 'permissions' | 'none';
+
+/** Content-shaped placeholder; status copy remains available to assistive technology. */
+export function LoadingSkeleton({
+  label,
+  shape = 'text',
+  count = 3,
+  text,
+  visible = true,
+  rowHeights,
+}: {
+  label: string;
+  shape?: LoadingShape;
+  count?: number;
+  text?: string;
+  visible?: boolean;
+  rowHeights?: readonly string[];
+}) {
+  const element = useRef<HTMLDivElement>(null);
+  const width = useElementWidth(element);
+  const widths = text
+    ? skeletonLineWidths(skeletonTextShape(text), width ?? 360, 16)
+    : Array.from({ length: count === 3 ? 4 : count }, (_, i) => [92, 78, 85, 60][i % 4]);
+  return (
+    <div ref={element} aria-busy="true">
+      <SkeletonStatus>{label}</SkeletonStatus>
+      {visible && shape !== 'none' && (
+        <SkeletonRegion
+          className={shape === 'permissions' ? styles.permissions : undefined}
+          style={shape === 'page' ? ({ '--gap-y': '0.375rem' } as CSSProperties) : undefined}
+        >
+          {shape === 'permissions' && (
+            <>
+              <SkeletonLine width={20} />
+              <SkeletonRows
+                count={1}
+                columns={[24, 20, 42, 14]}
+                headers={['GitHub account', 'Role', 'Languages', 'Actions']}
+                rowHeight="3.5rem"
+              />
+              {Array.from({ length: Math.max(1, Math.min(8, count)) }, (_, index) => (
+                <SkeletonRows
+                  key={index}
+                  count={1}
+                  columns={[24, 20, 42, 14]}
+                  rowHeight={rowHeights?.[index] ?? '9rem'}
+                />
+              ))}
+              <SkeletonRows count={1} columns={[30, 20, 50]} rowHeight="4.5rem" />
+            </>
+          )}
+          {shape === 'page' && (
+            <>
+              <SkeletonLine width={30} />
+              <SkeletonBlock height="8rem" />
+              <SkeletonBlock height="8rem" />
+              <SkeletonLine width={42} />
+            </>
+          )}
+          {shape === 'text' ? (
+            widths.map((width, index) => <SkeletonLine key={index} width={width} />)
+          ) : shape === 'rows' ? (
+            <SkeletonRows count={Math.max(1, count)} columns={[60, 25, 15]} />
+          ) : null}
+        </SkeletonRegion>
+      )}
+    </div>
+  );
+}
+
+/** Always mount this boundary, including after the request resolves, to honour the minimum. */
+export function SkeletonBoundary({
+  pending,
+  identity = 'content',
+  error = false,
+  label,
+  shape,
+  count,
+  text,
+  children,
+  rowHeights,
+}: {
+  pending: boolean;
+  rowHeights?: readonly string[];
+  identity?: unknown;
+  error?: boolean;
+  label: string;
+  shape?: LoadingShape;
+  count?: number;
+  text?: string;
+  children?: ReactNode | ((pending: boolean) => ReactNode);
+}) {
+  const inherited = useContext(SkeletonClockContext);
+  const ownClock = useOwnSkeletonClock(identity);
+  const clock = inherited ?? ownClock;
+  const visible = useSkeletonVisible(pending && !error, identity, true, clock);
+  const holding = !error && (pending || visible);
+  const content =
+    typeof children === 'function' ? (
+      children(holding)
+    ) : holding ? (
+      <LoadingSkeleton
+        label={label}
+        shape={shape}
+        count={count}
+        text={text}
+        visible={visible}
+        rowHeights={rowHeights}
+      />
+    ) : (
+      children
+    );
+  return <SkeletonClockContext.Provider value={clock}>{content}</SkeletonClockContext.Provider>;
+}
+
+function PendingCommit({
+  pending,
+  onChange,
+  children,
+}: {
+  pending: boolean;
+  onChange: (pending: boolean) => void;
+  children?: ReactNode;
+}) {
+  useLayoutEffect(() => onChange(pending), [pending, onChange]);
+  return children;
+}
+
+/** Keep the resolved subtree mounted while the shared minimum finishes. */
+export function SkeletonSuspense({
+  label,
+  children,
+  shape = 'page',
+}: {
+  label: string;
+  children: ReactNode;
+  shape?: LoadingShape;
+}) {
+  const inherited = useContext(SkeletonClockContext);
+  const ownClock = useOwnSkeletonClock(label);
+  const clock = inherited ?? ownClock;
+  const [pending, setPending] = useState(false);
+  const visible = useSkeletonVisible(pending, label, true, clock);
+  return (
+    <SkeletonClockContext.Provider value={clock}>
+      {(pending || visible) && <LoadingSkeleton label={label} shape={shape} visible={visible} />}
+      <div
+        hidden={pending || visible}
+        style={pending || visible ? undefined : { display: 'contents' }}
+      >
+        <Suspense fallback={<PendingCommit pending onChange={setPending} />}>
+          <PendingCommit pending={false} onChange={setPending}>
+            {children}
+          </PendingCommit>
+        </Suspense>
+      </div>
+    </SkeletonClockContext.Provider>
+  );
 }

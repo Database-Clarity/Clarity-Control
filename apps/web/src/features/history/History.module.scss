@@ -62,12 +62,6 @@
   contain-intrinsic-size: auto 12rem;
 }
 
-// Only during the initial, aria-busy render: activation advances every frame,
-// rather than permanently hiding offscreen languages from assistive technology.
-.revision .diff > section[data-pending-render] {
-  content-visibility: hidden;
-}
-
 // Large inserted paragraphs should paint a simple underline, rather than
 // computing a glyph-outline intersection for every descender.
 .revision .diff ins {

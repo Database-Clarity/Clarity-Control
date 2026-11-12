@@ -1,3 +1,4 @@
+import { LoadingSkeleton, useSkeletonVisible } from './ui/Skeleton';
 import { Navigate, useLocation, useRoutes, type RouteObject } from 'react-router-dom';
 import { LazyCompendiumTab } from './features/compendium/LazyCompendiumTab';
 import { useDataStore } from './stores/data';
@@ -14,10 +15,7 @@ import { preloadWorkspaces, workspacePage } from './workspacePreload';
 import { reviewRoute } from './features/review/route';
 
 import { AppLazyPage } from './AppLazyPage';
-const loadTooltipPage = workspacePage(() =>
-  import('./features/tooltip/TooltipPage').then((module) => ({ default: module.TooltipPage })),
-);
-const TooltipPage = () => <AppLazyPage load={loadTooltipPage} />;
+import { TooltipPage } from './features/tooltip/TooltipPage';
 const loadTranslationsPage = workspacePage(() =>
   import('./features/translations/TranslationsPage').then((module) => ({
     default: module.TranslationsPage,
@@ -58,7 +56,7 @@ const ReportPage = () => (
   <AppLazyPage load={() => import('./features/reports/public/ReportPublicPage')} />
 );
 const workspaceLoaders: Record<string, () => Promise<unknown>> = {
-  '/': loadTooltipPage,
+  '/': () => Promise.resolve({ default: TooltipPage }),
   '/review': loadReviewPage,
   '/compendium': () => import('./features/compendium/CompendiumTab'),
   '/translations': loadTranslationsPage,
@@ -105,7 +103,11 @@ export const routes: RouteObject[] = [
     element: <WorkspaceRouteLayer />,
     children: [
       { index: true, element: <StartPage /> },
-      { path: 't/:hash', element: <TooltipPage />, handle: { preload: loadTooltipPage } },
+      {
+        path: 't/:hash',
+        element: <TooltipPage />,
+        handle: { preload: () => Promise.resolve({ default: TooltipPage }) },
+      },
       {
         path: 'review',
         element: <ReviewPage />,
@@ -113,7 +115,7 @@ export const routes: RouteObject[] = [
         handle: { preload: loadReviewPage },
       },
       { path: 'compendium/review', element: <RetiredCompendiumRoute /> },
-      { path: 'compendium', element: <LazyCompendiumTab /> },
+      { path: 'compendium', element: <CompendiumRoute /> },
       { path: 'archive', element: <ArchivePage />, handle: { preload: loadArchivePage } },
       { path: 'drift', element: <DriftPage />, handle: { preload: loadDriftPage } },
       { path: 'lost-text', element: <LostTextPage /> },
@@ -163,10 +165,24 @@ function RetiredCompendiumRoute() {
   return <Navigate to={{ pathname: '/compendium', search: search ? `?${search}` : '' }} replace />;
 }
 
+function CompendiumRoute() {
+  const { search } = useLocation();
+  const params = new URLSearchParams(search);
+  return (
+    <LazyCompendiumTab
+      shape={params.has('hash') || params.get('tab') === 'linked' ? 'page' : 'none'}
+    />
+  );
+}
+
 function StartPage() {
   const data = useDataStore((state) => state.data);
   const { user, loading } = useAuthStore();
-  if (loading) return <p role="status">Loading your workspace...</p>;
+  const loadingSkeleton = useSkeletonVisible(loading, 'Loading your workspace...', true);
+  if (loading || loadingSkeleton)
+    return (
+      <LoadingSkeleton label="Loading your workspace..." shape="page" visible={loadingSkeleton} />
+    );
   if (user?.role === 'translator') return <Navigate to="/translations" replace />;
   // Export partners land on their project (spec section 8).
   if (!user?.role && user?.projects?.length) return <Navigate to="/exports" replace />;

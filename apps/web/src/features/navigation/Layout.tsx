@@ -1,3 +1,4 @@
+import { SkeletonBoundary } from '../../ui/Skeleton';
 import {
   useCallback,
   useEffect,
@@ -79,6 +80,7 @@ function LayoutContent() {
       activate: state.activate,
     })),
   );
+  const workspacePending = status === 'loading' || (!hydrated && !draftError);
   const isEditor = location.pathname.startsWith('/t/');
   const isCompendium = location.pathname.startsWith('/compendium');
   const isReview = location.pathname === '/review';
@@ -225,7 +227,7 @@ function LayoutContent() {
   // The editor's finder is the tooltip combobox; Compendium and Review keep their queue lists.
   const finder = (
     <>
-      {data && isEditor && <TooltipNavigation data={data} variant={phone ? 'sheet' : 'bar'} />}
+      {isEditor && <TooltipNavigation data={data} variant={phone ? 'sheet' : 'bar'} />}
       {phone && isCompendium && <CompendiumQueue />}
       {phone && isReview && <ReviewSidebarNavigation />}
       <ShellSlotHost name="finder" className={styles.slotHost} />
@@ -329,7 +331,7 @@ function LayoutContent() {
               <SettingsSync />
               <RememberRoute />
               {/* These replace the page while it cannot be shown, so they take space nothing else is using. */}
-              {status === 'loading' && <p role="status">Loading manifest and tooltip data...</p>}
+
               {error && location.pathname === '/archive' && <h1>Archive</h1>}
               {error && (
                 <p role="alert">
@@ -339,9 +341,31 @@ function LayoutContent() {
                   </button>
                 </p>
               )}
-              {!hydrated && !draftError && <p role="status">Recovering local drafts...</p>}
+
               {/* A failed draft recovery must not hide read-only browsing; edit actions stay gated on `hydrated`. */}
-              {status === 'ready' && (hydrated || Boolean(draftError)) && <Outlet />}
+              {isEditor ? (
+                <Outlet />
+              ) : (
+                <SkeletonBoundary
+                  identity={location.key}
+                  pending={workspacePending}
+                  error={!!error}
+                  label={
+                    status === 'loading'
+                      ? 'Loading manifest and tooltip data...'
+                      : 'Recovering local drafts...'
+                  }
+                  shape={
+                    isCompendium &&
+                    !new URLSearchParams(location.search).has('hash') &&
+                    new URLSearchParams(location.search).get('tab') !== 'linked'
+                      ? 'none'
+                      : 'page'
+                  }
+                >
+                  {status === 'ready' && (hydrated || Boolean(draftError)) && <Outlet />}
+                </SkeletonBoundary>
+              )}
             </main>
           </div>
         </div>

@@ -1,3 +1,4 @@
+import { SkeletonBoundary } from '../../ui/Skeleton';
 // The config column (spec section 8): the file (id, style, shape), Data (category tree with
 // Tooltips and Sandbox perks columns, languages, keys, aliases, Bungie-identical), and Format
 // (one 28px row per symbol and rule; changed-from-preset markers and Reset per row and section).
@@ -336,34 +337,36 @@ function DataSection({
         </span>
       }
     >
-      <table className={styles.tree}>
-        <thead>
-          <tr>
-            <th scope="col">Category</th>
-            <th scope="col" className={styles.checkCol}>
-              Tooltips
-            </th>
-            <th scope="col" className={styles.checkCol}>
-              <span className={styles.longLabel}>Sandbox perks</span>
-              <span className={styles.shortLabel} aria-hidden="true">
-                Sandbox
-              </span>
-            </th>
-          </tr>
-        </thead>
-        {tree.map((group) => (
-          <CategoryGroup
-            key={group.name}
-            name={group.name}
-            ids={group.items.map((item) => item.id)}
-            labels={group.items.map((item) => item.label)}
-            categories={file.data.categories}
-            sandbox={file.data.sandboxPerks}
-            onToggle={toggle}
-          />
-        ))}
-      </table>
-      {!categories && <p className={styles.meta}>Loading categories…</p>}
+      <SkeletonBoundary pending={!categories} label="Loading categories…" shape="rows">
+        <table className={styles.tree}>
+          <thead>
+            <tr>
+              <th scope="col">Category</th>
+              <th scope="col" className={styles.checkCol}>
+                Tooltips
+              </th>
+              <th scope="col" className={styles.checkCol}>
+                <span className={styles.longLabel}>Sandbox perks</span>
+                <span className={styles.shortLabel} aria-hidden="true">
+                  Sandbox
+                </span>
+              </th>
+            </tr>
+          </thead>
+          {tree.map((group) => (
+            <CategoryGroup
+              key={group.name}
+              name={group.name}
+              ids={group.items.map((item) => item.id)}
+              labels={group.items.map((item) => item.label)}
+              categories={file.data.categories}
+              sandbox={file.data.sandboxPerks}
+              onToggle={toggle}
+            />
+          ))}
+        </table>
+      </SkeletonBoundary>
+
       <div className={styles.dataRows}>
         <div className={styles.dataRow}>
           <span className={styles.formLabel} id={`languages-${key}`}>

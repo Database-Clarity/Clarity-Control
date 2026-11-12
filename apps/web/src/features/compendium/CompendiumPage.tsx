@@ -1,3 +1,4 @@
+import { SkeletonBoundary } from '../../ui/Skeleton';
 import { isSetSelector } from './itemClassification';
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -69,7 +70,6 @@ export function CompendiumPage() {
       <CompendiumFreshness />
       <p>Newest snapshots first.</p>
       {error && <p role="alert">{error}</p>}
-      {loading && <p role="status">Loading Compendium...</p>}
       <div className={styles.actions}>
         <button type="button" disabled={loading} onClick={() => void load(true)}>
           Reload published data
@@ -105,52 +105,60 @@ export function CompendiumPage() {
           ))}
         </select>
       </label>
-      <ul className={styles.rows}>
-        {unlinked
-          ? listedMissing.slice(0, limit).map((item) => (
-              <li key={item.hash}>
-                <Link to={`/t/${canonicalHash(item.hash, editor)}`}>{item.name}</Link>{' '}
-                <small>{item.hash}</small>
-              </li>
-            ))
-          : listedChanges.slice(0, limit).map(({ tooltip, resolution }) => (
-              <li key={tooltip.hash}>
-                <Link to={`/t/${canonicalHash(tooltip.hash, editor)}`}>
-                  {itemFor(tooltip.hash, editor)?.name ?? tooltip.hash}
-                </Link>{' '}
-                <span className={styles.badge}>
-                  {resolution.status === 'candidates' ||
-                  resolution.status === 'missing' ||
-                  resolution.status === 'relink-suggested'
-                    ? 'Needs relink'
-                    : resolution.status === 'moved'
-                      ? 'Moved'
-                      : 'Changed'}
-                </span>{' '}
-                {tooltip.compendium && (
-                  <small>
-                    <SourceRef
-                      location={
-                        'row' in resolution
-                          ? matchLocation(resolution, data)
-                          : linkLocation(tooltip.compendium, data, { stale: true })
-                      }
-                      show="tab"
-                    />
-                  </small>
-                )}
-              </li>
-            ))}
-      </ul>
-      {(unlinked ? listedMissing.length : listedChanges.length) > limit && (
-        <button type="button" onClick={() => setLimit(limit + 100)}>
-          Show 100 more
-        </button>
-      )}
-      {unlinked && !listedMissing.length && <p>No unlinked tooltips match these filters.</p>}
-      {!unlinked && data && !listedChanges.length && (
-        <p>No linked Compendium changes match these filters.</p>
-      )}
+      <SkeletonBoundary
+        pending={loading}
+        error={!!error}
+        label="Loading Compendium..."
+        shape="rows"
+        count={data ? Math.min(8, unlinked ? listedMissing.length : listedChanges.length) : 8}
+      >
+        <ul className={styles.rows}>
+          {unlinked
+            ? listedMissing.slice(0, limit).map((item) => (
+                <li key={item.hash}>
+                  <Link to={`/t/${canonicalHash(item.hash, editor)}`}>{item.name}</Link>{' '}
+                  <small>{item.hash}</small>
+                </li>
+              ))
+            : listedChanges.slice(0, limit).map(({ tooltip, resolution }) => (
+                <li key={tooltip.hash}>
+                  <Link to={`/t/${canonicalHash(tooltip.hash, editor)}`}>
+                    {itemFor(tooltip.hash, editor)?.name ?? tooltip.hash}
+                  </Link>{' '}
+                  <span className={styles.badge}>
+                    {resolution.status === 'candidates' ||
+                    resolution.status === 'missing' ||
+                    resolution.status === 'relink-suggested'
+                      ? 'Needs relink'
+                      : resolution.status === 'moved'
+                        ? 'Moved'
+                        : 'Changed'}
+                  </span>{' '}
+                  {tooltip.compendium && (
+                    <small>
+                      <SourceRef
+                        location={
+                          'row' in resolution
+                            ? matchLocation(resolution, data)
+                            : linkLocation(tooltip.compendium, data, { stale: true })
+                        }
+                        show="tab"
+                      />
+                    </small>
+                  )}
+                </li>
+              ))}
+        </ul>
+        {(unlinked ? listedMissing.length : listedChanges.length) > limit && (
+          <button type="button" onClick={() => setLimit(limit + 100)}>
+            Show 100 more
+          </button>
+        )}
+        {unlinked && !listedMissing.length && <p>No unlinked tooltips match these filters.</p>}
+        {!unlinked && data && !listedChanges.length && (
+          <p>No linked Compendium changes match these filters.</p>
+        )}
+      </SkeletonBoundary>
     </section>
   );
 }

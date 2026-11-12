@@ -1,3 +1,4 @@
+import { SkeletonBoundary } from '../../ui/Skeleton';
 // Partners' read-only "Tooltips" view (spec section 8): a finder and the preview pane on the
 // published data (the snapshot the data site was built from), with no editor, drafts, or
 // Compendium. The pick lives in the URL (`?hash=`), so Back returns to the previous tooltip.
@@ -126,28 +127,31 @@ export function TooltipsPage() {
               The published data cannot load: {preview.state.message}
             </p>
           )}
-          {!globals && !siteError && preview.state.kind !== 'error' && (
-            <p role="status" className={styles.meta}>
-              Loading the published data…
-            </p>
-          )}
-          {globals && !hash && (
-            <p className={styles.meta}>Find a tooltip to see it as it was published.</p>
-          )}
-          {globals && hash && text === null && (
-            <p className={styles.meta}>Hash {hash} is not in the published data.</p>
-          )}
-          {globals && hash && text !== null && (
-            <TooltipPreview
-              text={text}
-              lang={lang}
-              name={item ? editorName(item) : `Hash ${hash}`}
-              piece={item ? previewPiece(item) : undefined}
-              icon={item?.icon}
-              categoryLabel={item && data ? classifiedCategory(item, data)?.label : undefined}
-              globals={typed!}
-            />
-          )}
+
+          <SkeletonBoundary
+            pending={!globals}
+            error={!!siteError || preview.state.kind === 'error'}
+            identity={hash}
+            label="Loading the published data…"
+          >
+            {globals && !hash && (
+              <p className={styles.meta}>Find a tooltip to see it as it was published.</p>
+            )}
+            {globals && hash && text === null && (
+              <p className={styles.meta}>Hash {hash} is not in the published data.</p>
+            )}
+            {globals && hash && text !== null && (
+              <TooltipPreview
+                text={text}
+                lang={lang}
+                name={item ? editorName(item) : `Hash ${hash}`}
+                piece={item ? previewPiece(item) : undefined}
+                icon={item?.icon}
+                categoryLabel={item && data ? classifiedCategory(item, data)?.label : undefined}
+                globals={typed!}
+              />
+            )}
+          </SkeletonBoundary>
         </div>
       </div>
     </section>

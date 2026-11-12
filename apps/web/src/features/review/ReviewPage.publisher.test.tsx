@@ -64,9 +64,21 @@ async function flush() {
 
 // The group header's checkbox selects every publishable change in the group (no "Select page").
 async function selectAll() {
+  await waitFor(() => {
+    const groups = [...host.querySelectorAll<HTMLInputElement>('input[data-review-group-toggle]')];
+    expect(groups.length).toBeGreaterThan(0);
+    for (const box of groups) {
+      expect(box.disabled).toBe(false);
+      expect(box.closest('[hidden], [aria-hidden="true"], [inert]')).toBeNull();
+    }
+  });
   for (const box of host.querySelectorAll<HTMLInputElement>('input[data-review-group-toggle]'))
     await act(async () => box.click());
-  await flush();
+  await waitFor(() => {
+    const publish = buttons('Publish selected')[0] ?? buttons('Push selected')[0];
+    expect(publish).toBeDefined();
+    expect(publish?.disabled).toBe(false);
+  });
 }
 async function waitFor(check: () => void) {
   await vi.waitFor(async () => {
@@ -98,7 +110,14 @@ async function mount() {
   );
   await waitFor(() => {
     expect(useDataStore.getState().status).toBe('ready');
-    expect(host.textContent).not.toContain('Comparing publishable content...');
+    expect(
+      host.querySelector(
+        'section[aria-label="Selected change"] section[aria-label$=" comparison"]',
+      ),
+    ).not.toBeNull();
+    const sidebar = host.querySelector('nav[aria-label="Pending saved changes"]');
+    expect(sidebar).not.toBeNull();
+    expect(sidebar!.querySelector('[aria-busy="true"]')).toBeNull();
   });
 }
 

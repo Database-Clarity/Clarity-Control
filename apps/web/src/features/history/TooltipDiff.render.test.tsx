@@ -31,20 +31,16 @@ it('finishes every language without leaving offscreen text hidden', async () => 
         />,
       ),
     );
-    expect(host.textContent).toContain('한국어 비교');
-    expect(host.textContent).toContain('中文比较');
-    expect(host.querySelectorAll('[data-pending-render]')).toHaveLength(2);
-    expect(host.querySelector('[aria-busy="true"]')).not.toBeNull();
-    await act(async () => {
-      frames.shift()!(0);
-      vi.runOnlyPendingTimers();
-    });
-    expect(host.querySelectorAll('[data-pending-render]')).toHaveLength(1);
-    await act(async () => {
-      frames.shift()!(0);
-      vi.runOnlyPendingTimers();
-    });
-    expect(host.querySelector('[data-pending-render]')).toBeNull();
+    expect(host.textContent).not.toContain('한국어 비교');
+    expect(host.querySelectorAll('[aria-busy="true"]').length).toBeGreaterThanOrEqual(2);
+    // Advance staged language work and any shown skeletons' minimum duration.
+    for (let step = 0; step < 8; step++) {
+      const batch = frames.splice(0);
+      await act(async () => {
+        batch.forEach((callback) => callback(0));
+        vi.advanceTimersByTime(500);
+      });
+    }
     expect(host.querySelector('[aria-busy="true"]')).toBeNull();
     expect(host.textContent).toContain('한국어 비교');
     expect(host.textContent).toContain('中文比较');

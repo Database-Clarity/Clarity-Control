@@ -1,3 +1,4 @@
+import { SkeletonBoundary } from '../../ui/Skeleton';
 import { useEffect, useMemo, useState } from 'react';
 import { useDataStore } from '../../stores/data';
 import { itemFor } from '../navigation/catalog';
@@ -64,38 +65,43 @@ export function ManifestTextRow({ hash }: { hash: number }) {
           }
         }}
       >
-        {text.kind === 'own' && <p className={styles.text}>{text.description}</p>}
-        {text.kind === 'sandbox' && (
-          <>
+        <SkeletonBoundary
+          pending={text.kind === 'loading'}
+          identity={hash}
+          label="Loading sandbox perk text…"
+        >
+          {text.kind === 'own' && <p className={styles.text}>{text.description}</p>}
+          {text.kind === 'sandbox' && (
+            <>
+              <p className={styles.hint}>
+                No description of its own. From its sandbox{' '}
+                {text.perks.length === 1 ? 'perk' : 'perks'}:
+              </p>
+              <dl className={styles.perks}>
+                {text.perks.map((perk) => (
+                  <div key={perk.hash}>
+                    <dt>
+                      {perk.name || 'Unnamed perk'} <span>· {perk.hash}</span>
+                    </dt>
+                    {/* A stat line ("-10 Grenade") is its own name: say it once. */}
+                    <dd className={perk.description === perk.name ? 'sr-only' : styles.text}>
+                      {perk.description === perk.name ? 'Same as the perk name.' : perk.description}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </>
+          )}
+          {text.kind === 'none' && (
             <p className={styles.hint}>
-              No description of its own. From its sandbox{' '}
-              {text.perks.length === 1 ? 'perk' : 'perks'}:
+              {unavailable
+                ? 'No description of its own, and the sandbox perk text failed to load.'
+                : text.perkHashes.length
+                  ? `No manifest description, and none on its sandbox ${text.perkHashes.length === 1 ? 'perk' : 'perks'} (${text.perkHashes.join(', ')}).`
+                  : 'No manifest description.'}
             </p>
-            <dl className={styles.perks}>
-              {text.perks.map((perk) => (
-                <div key={perk.hash}>
-                  <dt>
-                    {perk.name || 'Unnamed perk'} <span>· {perk.hash}</span>
-                  </dt>
-                  {/* A stat line ("-10 Grenade") is its own name: say it once. */}
-                  <dd className={perk.description === perk.name ? 'sr-only' : styles.text}>
-                    {perk.description === perk.name ? 'Same as the perk name.' : perk.description}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </>
-        )}
-        {text.kind === 'loading' && <p className={styles.hint}>Loading sandbox perk text…</p>}
-        {text.kind === 'none' && (
-          <p className={styles.hint}>
-            {unavailable
-              ? 'No description of its own, and the sandbox perk text failed to load.'
-              : text.perkHashes.length
-                ? `No manifest description, and none on its sandbox ${text.perkHashes.length === 1 ? 'perk' : 'perks'} (${text.perkHashes.join(', ')}).`
-                : 'No manifest description.'}
-          </p>
-        )}
+          )}
+        </SkeletonBoundary>
       </PanelRow>
     </section>
   );

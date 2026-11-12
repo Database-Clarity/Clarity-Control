@@ -1,3 +1,4 @@
+import { SkeletonBoundary } from '../../ui/Skeleton';
 // The preview column (spec section 8): tooltip search and recent picks; the picked entry exactly
 // as the file has it, labelled "Live file" (an unchanged deployed legacy preset: the deployed
 // bytes the pin names) or "Preview build" (built from the pinned input in the Web Worker);
@@ -157,11 +158,7 @@ export function PreviewPanel({
             The data site cannot be read: {siteError}
           </p>
         )}
-        {preview.state.kind === 'loading' && !siteError && (
-          <p role="status" className={styles.meta}>
-            Loading the published data…
-          </p>
-        )}
+
         {preview.state.kind === 'error' && (
           <p role="alert" className={styles.badText}>
             {preview.state.mismatch
@@ -169,19 +166,26 @@ export function PreviewPanel({
               : `The preview cannot load: ${preview.state.message}`}
           </p>
         )}
-        {client && !hash && (
-          <p className={styles.meta}>
-            Find a tooltip to see its entry exactly as this file has it.
-          </p>
-        )}
-        {client && hash && !shown && <p className={styles.meta}>Building…</p>}
-        {shown && (
-          <EntryView
-            pair={shown.pair}
-            diff={diff && !!live && !liveLabel}
-            stale={shown.version !== version.current}
-          />
-        )}
+        <SkeletonBoundary
+          pending={preview.state.kind === 'loading' || !!(client && hash && !shown)}
+          error={!!siteError || preview.state.kind === 'error'}
+          identity={hash}
+          label="Loading the published data…"
+        >
+          {client && !hash && (
+            <p className={styles.meta}>
+              Find a tooltip to see its entry exactly as this file has it.
+            </p>
+          )}
+
+          {shown && (
+            <EntryView
+              pair={shown.pair}
+              diff={diff && !!live && !liveLabel}
+              stale={shown.version !== version.current}
+            />
+          )}
+        </SkeletonBoundary>
       </div>
       <NumbersStrip
         file={file}

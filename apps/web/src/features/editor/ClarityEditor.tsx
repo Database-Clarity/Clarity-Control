@@ -1,3 +1,4 @@
+import { SkeletonBoundary } from '../../ui/Skeleton';
 import { offersBaseEnhanced, type ScopedMarkupGlobals } from './markupScope';
 import { listDot } from './listDot';
 import {
@@ -176,6 +177,7 @@ export interface ClarityEditorProps {
   onChange: (value: string) => void;
   globals: ScopedMarkupGlobals;
   readOnly?: boolean;
+  pending?: boolean;
   requireEnglish?: boolean;
   highlightLine?: number;
   /** Declaration stepping keeps keyboard focus in the finder. */
@@ -253,6 +255,7 @@ export function ClarityEditor({
   onChange,
   globals,
   readOnly = false,
+  pending = false,
   requireEnglish = true,
   highlightLine,
   focusHighlight = true,
@@ -429,7 +432,7 @@ export function ClarityEditor({
   const compact = useMedia(`${phoneQuery}, (pointer: coarse)`);
   // The markup row shows when the page opens it and the text can be edited; on a phone it docks
   // on the keyboard as a bar (Suggest moves into it, Raw to the status bar).
-  const rowShown = markupRow && !readOnly;
+  const rowShown = markupRow && (!readOnly || pending);
   const phone = useMedia(phoneQuery);
   const docked = phone && rowShown;
   // Read by the document load, which must not run again when only the screen size changes.
@@ -941,6 +944,7 @@ export function ClarityEditor({
   return (
     <div
       className={styles.editor}
+      {...(pending ? { inert: '' } : {})}
       data-editor-root
       data-docked={docked || undefined}
       data-validation-pending={diagnostics.pending || undefined}
@@ -961,6 +965,11 @@ export function ClarityEditor({
       )}
       <div ref={textArea} className={styles.textArea}>
         <div ref={host} className={styles.host} />
+        {pending && (
+          <div className={styles.loadingContent}>
+            <SkeletonBoundary pending label="Loading editor text…" count={12} />
+          </div>
+        )}
         {open === 'glyphs' && (
           <GlyphPanel
             groups={glyphs}

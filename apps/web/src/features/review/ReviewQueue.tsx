@@ -3,7 +3,6 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -19,6 +18,12 @@ import { useReviewMarks } from './reviewMarks';
 import { markerGroup, type QueueGroup, type QueueItem, type QueueView } from './queueModel';
 import { useReviewQueue } from './queueStore';
 import type { PendingTooltip } from './model';
+import {
+  SkeletonRegion,
+  SkeletonRows,
+  SkeletonStatus,
+  useSkeletonVisible,
+} from '../../ui/Skeleton';
 
 const countFormat = new Intl.NumberFormat('en');
 
@@ -99,7 +104,8 @@ const GroupHeader = memo(function GroupHeader({
   const checkbox = useRef<HTMLInputElement>(null);
   const all = available > 0 && selectedCount === available;
   useLayoutEffect(() => {
-    if (checkbox.current) checkbox.current.indeterminate = selectedCount > 0 && selectedCount < available;
+    if (checkbox.current)
+      checkbox.current.indeterminate = selectedCount > 0 && selectedCount < available;
   }, [selectedCount, available]);
   return (
     <div className={styles.group} data-marker={marker || undefined}>
@@ -154,7 +160,6 @@ export function ReviewQueue({
   inFlight?: ReadonlySet<number>;
 }) {
   const items = view.items;
-  const placeholderPattern = useId();
   const host = useRef<HTMLDivElement>(null);
   const sizer = useRef<HTMLSpanElement>(null);
   const headerSizer = useRef<HTMLSpanElement>(null);
@@ -200,6 +205,8 @@ export function ReviewQueue({
   const warming = useReviewOpening((state) => state.warming);
   const openingLimit = useReviewOpening((state) => state.limit);
   const openingToken = useReviewOpening((state) => state.token);
+  const showSkeleton = useSkeletonVisible(warming, openingToken, true);
+  const holding = warming || showSkeleton;
   const pendingOpen = useRef<number>();
   const restoringOpen = useRef<number>();
   const pendingReveal = useRef<number>();
@@ -213,7 +220,10 @@ export function ReviewQueue({
   // sizes and viewport bounds before paint, without reads. Returning to the same selection
   // restores the list's last scroll position.
   const [viewport, setViewport] = useState(() => ({
-    top: rememberedHash !== null && rememberedHash === selectedHash ? useReviewQueue.getState().scrollTop : 0,
+    top:
+      rememberedHash !== null && rememberedHash === selectedHash
+        ? useReviewQueue.getState().scrollTop
+        : 0,
     height: Math.max(defaultRowHeight, window.innerHeight - 37 - 7 * (defaultRowHeight / 2)),
   }));
   const observedViewport = useRef(viewport);
@@ -333,7 +343,8 @@ export function ReviewQueue({
     const viewport = observedViewport.current;
     if (top < viewport.top || bottom > viewport.top + viewport.height) {
       // Show the group's header with the row when the row is its first, so it reads in context.
-      const context = items[selectedIndex - 1]?.kind === 'group' ? offsets[selectedIndex - 1]! : top;
+      const context =
+        items[selectedIndex - 1]?.kind === 'group' ? offsets[selectedIndex - 1]! : top;
       const destination = Math.max(
         0,
         Math.min(total - viewport.height, top < viewport.top ? context : bottom - viewport.height),
@@ -416,7 +427,7 @@ export function ReviewQueue({
       style={{ height: total }}
       tabIndex={0}
       aria-label="Scroll pending saved changes"
-      aria-busy={warming || undefined}
+      aria-busy={holding || undefined}
       onClick={(event) => {
         const target = event.target instanceof Element ? event.target : null;
         const checkbox = target?.closest<HTMLInputElement>('input[data-review-toggle]');
@@ -480,11 +491,13 @@ export function ReviewQueue({
         const row = (event.target as Element).closest<HTMLElement>('[data-index]');
         if (event.altKey || event.ctrlKey || event.metaKey) return;
         if (!row && (event.target !== event.currentTarget || event.key === 'Tab')) return;
-        const index = row
-          ? Number(row.dataset.index)
-          : (focusIndex ?? Math.max(0, selectedIndex));
+        const index = row ? Number(row.dataset.index) : (focusIndex ?? Math.max(0, selectedIndex));
         const item = items[index];
-        if (event.key === ' ' && item?.kind === 'row' && event.target instanceof HTMLAnchorElement) {
+        if (
+          event.key === ' ' &&
+          item?.kind === 'row' &&
+          event.target instanceof HTMLAnchorElement
+        ) {
           // Space on a row includes it in the publish, as on the page.
           event.preventDefault();
           if (!locked && !item.entry.unpublishable && !inFlight?.has(item.entry.tooltip.hash))
@@ -539,35 +552,31 @@ export function ReviewQueue({
       <span ref={sizer} className={styles.rowSizer} aria-hidden="true" data-review-row-size="" />
       <span ref={headerSizer} className={styles.headerSizer} aria-hidden="true" />
       <div style={{ height: total }} aria-hidden="true" />
-      {warming && (
+      {showSkeleton && (
         <div
           className={styles.openingRows}
-          aria-hidden="true"
           style={{ top: offsets[start], height: offsets[end]! - offsets[start]! }}
         >
-          <svg width="100%" height="100%" focusable="false">
-            <defs>
-              <pattern
-                id={placeholderPattern}
-                width="100%"
-                height={rowHeight}
-                patternUnits="userSpaceOnUse"
-              >
-                <rect x="1.75rem" y="0.65rem" width="60%" height="0.7rem" rx="0.15rem" />
-                <rect x="85%" y="0.7rem" width="12%" height="0.6rem" rx="0.15rem" />
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill={`url(#${placeholderPattern})`} />
-          </svg>
+          <SkeletonStatus>Loading saved changes</SkeletonStatus>
+          <SkeletonRegion>
+            {Array.from({ length: end - start }, (_, row) => (
+              <SkeletonRows
+                key={row}
+                count={1}
+                columns={[75, 25]}
+                rowHeight={`${offsets[start + row + 1]! - offsets[start + row]!}px`}
+              />
+            ))}
+          </SkeletonRegion>
         </div>
       )}
       <ul
         className={styles.list}
-        aria-hidden={warming || undefined}
+        aria-hidden={holding || undefined}
         style={{
           top: offsets[start],
           height: offsets[end]! - offsets[start]!,
-          visibility: warming ? 'hidden' : undefined,
+          visibility: holding ? 'hidden' : undefined,
         }}
       >
         {renderedIndices.map((index) => (
