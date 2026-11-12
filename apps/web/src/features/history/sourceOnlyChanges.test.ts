@@ -11,7 +11,9 @@ it.each([
   const before = `Old visible\n${old}`,
     after = `New visible\n${next}`;
   const result = analyzeSourceOnly(before, after, globals, options);
-  expect(result.markers.some((marker) => marker.label.includes(kind))).toBe(true);
+  expect(
+    result.markers.some((marker) => marker.label.toLowerCase().includes(kind.toLowerCase())),
+  ).toBe(true);
   expect(result.unchecked).toBe(0);
 });
 it('marks the intact hidden enhanced block on the never-pushed Adaptive Munitions side', () => {
@@ -77,7 +79,7 @@ it('retains source identity for malformed Unicode, and distinguishes a variable 
       'var n = 2\n#n damage',
       globals,
       options,
-    ).markers.some((marker) => marker.label.includes('variable')),
+    ).markers.some((marker) => marker.label.toLowerCase().includes('variable')),
   ).toBe(false);
 });
 it.each([
@@ -94,4 +96,30 @@ it.each([
 ])('keeps mixed compound source edits explicitly unchecked: %s', (before, after, context) => {
   const result = analyzeSourceOnly(before, after, context, options);
   expect(result.unchecked).toBeGreaterThan(0);
+});
+it.each([
+  ['var n = 1\n#n damage', 'var n = 2\nNew damage', 'Variable n changed'],
+  [
+    'title Detail (\nOld detail\n)\n<title Info [Detail] />',
+    'title Detail (\nNew detail\n)\nNew visible',
+    'Title Detail changed',
+  ],
+])('checks both dependency contexts forward and reverse: %s', (before, after, label) => {
+  for (const [left, right] of [
+    [before, after],
+    [after, before],
+  ]) {
+    const result = analyzeSourceOnly(left, right, globals, options);
+    expect(result.markers.some((marker) => marker.label.includes(label))).toBe(true);
+    expect(result.unchecked).toBe(0);
+  }
+});
+it('marks a still-referenced variable as visible only after both renders change', () => {
+  const result = analyzeSourceOnly(
+    'var n = 1\n#n damage',
+    'var n = 2\n#n damage',
+    globals,
+    options,
+  );
+  expect(result).toEqual({ markers: [], unchecked: 0 });
 });

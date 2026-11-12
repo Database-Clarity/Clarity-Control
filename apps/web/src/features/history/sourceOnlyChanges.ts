@@ -1,6 +1,7 @@
 import {
   markupCommentContext,
   markupDefinitions,
+  extractBlocks,
   parseMarkup,
   scanBaseEnhanced,
   type MarkupGlobals,
@@ -158,7 +159,33 @@ export function analyzeSourceOnly(
   const parts = sourceParts(before, after),
     markers: SourceMarker[] = [];
   const original = JSON.stringify(parseMarkup(before, globals).lines);
-  const renderedCount = parseMarkup(after, globals).lines.length;
+  const finalLines = parseMarkup(after, globals).lines;
+  const finalRender = JSON.stringify(finalLines);
+  const renderedCount = finalLines.length;
+  const definitions = (text: string) => {
+    const clean = markupCommentContext(text),
+      bodies = extractBlocks(clean.text, 'title');
+    return markupDefinitions(text).map((definition) => {
+      if (definition.kind === 'variable') {
+        const end = text.indexOf('\n', definition.to);
+        return {
+          from: text.lastIndexOf('\n', definition.from) + 1,
+          to: end < 0 ? text.length : end,
+          label: `Variable ${definition.name} changed`,
+        };
+      }
+      const nameEnd = clean.offsets.findIndex((offset) => offset >= definition.to);
+      const bodyStart = clean.text.indexOf('\n', nameEnd) + 1;
+      const bodyEnd = bodyStart + (bodies[definition.name]?.length ?? 0);
+      return {
+        from: definition.from,
+        to: clean.offsets[Math.max(bodyStart, bodyEnd - 1)] + 1,
+        label: `Title ${definition.name} changed`,
+      };
+    });
+  };
+  const previousDefinitions = definitions(before),
+    nextDefinitions = definitions(after);
   const line = (text: string, offset: number) => text.slice(0, offset).split('\n').length;
   const startLine = (text: string, offset: number) =>
     line(text, offset) + (text[offset] === '\n' ? 1 : 0);
@@ -174,14 +201,26 @@ export function analyzeSourceOnly(
     if (checked >= (options.maxParts ?? 40) || now() - start >= (options.budgetMs ?? 50)) break;
     const alone =
       before.slice(0, part.from) + after.slice(part.nextFrom, part.nextTo) + before.slice(part.to);
-    if (JSON.stringify(parseMarkup(alone, globals).lines) === original) {
+    const changesBefore = JSON.stringify(parseMarkup(alone, globals).lines) !== original;
+    // A part is not fully checked unless both context renders fit the budget.
+    if (now() - start >= (options.budgetMs ?? 50)) break;
+    const reverted =
+      after.slice(0, part.nextFrom) + before.slice(part.from, part.to) + after.slice(part.nextTo);
+    const changesAfter = JSON.stringify(parseMarkup(reverted, globals).lines) !== finalRender;
+    if (!changesBefore || !changesAfter) {
       const position = Math.min(
         renderedCount,
         Math.max(0, parseMarkup(after.slice(0, part.nextFrom), globals).lines.length),
       );
+      const definition =
+        part.kind === 'source' || part.kind === 'variable'
+          ? (nextDefinitions.find(
+              (range) => part.nextFrom < range.to && part.nextTo > range.from,
+            ) ?? previousDefinitions.find((range) => part.from < range.to && part.to > range.from))
+          : undefined;
       markers.push({
         position,
-        label: `Markup-only change · ${part.kind} · previous ${before ? range(before, part.from, part.to) : 'not present'}; current ${after ? range(after, part.nextFrom, part.nextTo) : 'not present'}. Not shown in this rendered view; inspect Raw.`,
+        label: `Markup-only change · ${definition?.label ?? part.kind} · previous ${before ? range(before, part.from, part.to) : 'not present'}; current ${after ? range(after, part.nextFrom, part.nextTo) : 'not present'}. Not fully represented in this rendered view; inspect Raw.`,
       });
     } else if (
       part.kind === 'base/enhanced' ||

@@ -54,9 +54,9 @@ it.each([
         root.render(<RenderedWordDiff before={before} after={after} lang="en" hash={10} />),
       );
       const marker = [...host.querySelectorAll('[data-source-change]')].find((marker) =>
-        marker.textContent?.includes(`· ${kind} ·`),
+        marker.textContent?.toLowerCase().includes(kind.toLowerCase()),
       );
-      expect(marker?.textContent).toContain(`Markup-only change · ${kind}`);
+      expect(marker?.textContent).toContain('Markup-only change');
       expect(marker?.textContent).toContain(kind === 'enhanced' ? 'lines 2–5' : 'line 2');
       expect(host.querySelector('ins, del')).toBeNull();
       await act(async () =>
