@@ -1,11 +1,15 @@
 /* global document, window, innerWidth */
 // Run after a production web build; all report API traffic is intercepted.
 import { createServer } from 'node:http';
-import { readFileSync, existsSync, writeFileSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, extname } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { chromium } from 'playwright-core';
 const root = resolve('apps/web/dist');
+// A free port and an evidence folder of the caller's choice (defaults: 5261, .agents).
+const port = Number(process.env.REPORT_BROWSER_PORT || 5261);
+const out = process.env.REPORT_BROWSER_OUT || '.agents';
+mkdirSync(out, { recursive: true });
 const server = createServer((req, res) => {
   const path = resolve(root, '.' + new URL(req.url, 'http://a').pathname);
   if (!path.startsWith(root)) return res.end();
@@ -26,7 +30,7 @@ const server = createServer((req, res) => {
   res.setHeader('Content-Encoding', 'gzip');
   res.end(gzipSync(b));
 });
-await new Promise((r) => server.listen(5261, '127.0.0.1', r));
+await new Promise((r) => server.listen(port, '127.0.0.1', r));
 const executablePath = [
   process.env.REPORT_BROWSER,
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
@@ -94,7 +98,7 @@ try {
   const cat = full;
   const assert = (await import('node:assert/strict')).default;
   const hash = '218281600';
-  await page.goto(`http://127.0.0.1:5261/#/report/${hash}?lang=en`);
+  await page.goto(`http://127.0.0.1:${port}/#/report/${hash}?lang=en`);
   await page.locator('[data-line]').first().waitFor({ timeout: 30000 });
   await page.evaluate(() => document.fonts.ready);
   await page
@@ -108,7 +112,7 @@ try {
     totalGzip: requests.reduce((n, r) => n + r.gzip, 0),
   };
   console.log(JSON.stringify(wire, null, 2));
-  writeFileSync('.agents/reports-slim-wire.json', JSON.stringify(wire, null, 2));
+  writeFileSync(`${out}/reports-slim-wire.json`, JSON.stringify(wire, null, 2));
   if (process.env.REPORT_BROWSER_WIRE_ONLY !== '1') {
     const matrix = [];
     if (process.env.REPORT_BROWSER_STATES_ONLY !== '1')
@@ -130,7 +134,7 @@ try {
             const overflow = await page.evaluate(
               () => document.documentElement.scrollWidth > innerWidth,
             );
-            const file = `.agents/slim-${width}-${theme}-${scale}.png`;
+            const file = `${out}/slim-${width}-${theme}-${scale}.png`;
             await page.screenshot({ path: file, fullPage: true });
             matrix.push({ width, theme, scale, overflow, file });
           }
@@ -237,7 +241,7 @@ try {
     assert.equal(await page.getByRole('combobox').first().inputValue(), '');
 
     // A rendered identity must not be submitted after the live catalog remaps it.
-    await page.goto(`http://127.0.0.1:5261/#/report/${hash}?lang=en`);
+    await page.goto(`http://127.0.0.1:${port}/#/report/${hash}?lang=en`);
     await page.locator('[data-line]').first().waitFor();
     const updatedCommit = 'b'.repeat(40);
     const updatedOwner = 50099999;
@@ -317,18 +321,18 @@ try {
           );
           await page.evaluate(() => window.scrollTo(0, 0));
           await page.screenshot({
-            path: `.agents/slim-refreshed-${width}-${theme}-${scale}.png`,
+            path: `${out}/slim-refreshed-${width}-${theme}-${scale}.png`,
             fullPage: true,
           });
         }
     await page.unroute('**/report-items.json');
-    await page.goto('http://127.0.0.1:5261/#/report/4294967295');
+    await page.goto(`http://127.0.0.1:${port}/#/report/4294967295`);
     await page
       .getByText(/has no Clarity tooltip to report/i)
       .first()
       .waitFor({ timeout: 10000 });
     writeFileSync(
-      matrix.length ? '.agents/reports-slim-matrix.json' : '.agents/reports-slim-states.json',
+      matrix.length ? `${out}/reports-slim-matrix.json` : `${out}/reports-slim-states.json`,
       JSON.stringify({ matrix, errors }, null, 2),
     );
     if (matrix.some((x) => x.overflow) || errors.length) throw new Error('Render QA failed');
