@@ -116,6 +116,35 @@ const siteBuild = (file: ExportFile) =>
   sha(nodeEngine.compile(input as never, file, { catalog, identical }).bytes);
 
 describe('G-PREVIEW', () => {
+  it('showcase samples match whole-file output, with explicit off and old-pin states', async () => {
+    const snapshot = await loadSnapshot(io(), site, status);
+    const preview = new Preview(io(), snapshot, { site, liveRaw });
+    for (const style of styles) {
+      const file = newStyleFile('showcase', style);
+      expect(await preview.sample(file, '-1', null)).toEqual({
+        kind: 'absent',
+        reason: 'Feature showcase is off',
+      });
+      file.data.includeShowcase = true;
+      const plan = nodeEngine.compile(snapshot.input, file, { catalog, identical });
+      expect(await preview.sample(file, '-1', null)).toEqual({
+        kind: 'entry',
+        entry: plan.expanded!['-1'],
+      });
+    }
+    const old = new Preview(
+      io(),
+      { ...snapshot, engine: { ...snapshot.engine, compile: () => ({ expanded: {} }) as never } },
+      { site, liveRaw },
+    );
+    const file = newStyleFile('showcase', 'structured');
+    file.data.includeShowcase = true;
+    expect(await old.sample(file, '-1', null)).toEqual({
+      kind: 'absent',
+      reason: 'The pinned engine does not include the feature showcase yet',
+    });
+  });
+
   it('worker builds equal build-site builds byte for byte: every style and 20 random configs', async () => {
     const preview = new Preview(io(), await loadSnapshot(io(), site, status), {
       site,
