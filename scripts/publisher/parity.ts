@@ -5,7 +5,11 @@ import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   exportLegacy,
+  mergeSandboxPointers,
   publishableHash,
+  sandboxPointersPath,
+  sandboxPointersSchema,
+  type SandboxConflicts,
   type Tooltip,
   type LegacyFacts,
   type Aliases,
@@ -28,6 +32,7 @@ if (!/^[a-f0-9]{40}$/.test(commit) || !receiptPath.startsWith('.publish/receipts
 const config = JSON.parse(readFileSync(configPath, 'utf8')) as {
   facts: Record<string, LegacyFacts>;
   aliases: Aliases;
+  sandboxConflicts?: SandboxConflicts;
   generatorSha: string;
 };
 if (config.generatorSha !== receipt.generatorSha)
@@ -40,7 +45,22 @@ const tooltips: Tooltip[] = receipt.entries.map((e: { tooltipBlob: string }) =>
 for (let i = 0; i < tooltips.length; i++)
   if ((await publishableHash(tooltips[i])) !== receipt.entries[i].digest)
     throw new Error('Receipt digest mismatch');
-const exported = exportLegacy(tooltips, receipt.now, config.facts, config.aliases);
+// The sandbox picks at the receipt's source commit join the aliases exactly as the publisher did.
+let picks: unknown;
+try {
+  picks = read(receipt.sourceCommit, sandboxPointersPath);
+} catch {
+  picks = undefined; // no picks file at that commit
+}
+const aliases =
+  picks === undefined
+    ? config.aliases
+    : mergeSandboxPointers(
+        config.aliases,
+        config.sandboxConflicts ?? {},
+        sandboxPointersSchema.parse(picks),
+      );
+const exported = exportLegacy(tooltips, receipt.now, config.facts, aliases);
 const request = read(receipt.sourceCommit, `publish/requests/${receipt.opId}.json`);
 const requester = JSON.parse(request.payload).requester;
 stampUploads(exported, new Set<number>(receipt.changed), base.perks, receipt.now, requester.login);

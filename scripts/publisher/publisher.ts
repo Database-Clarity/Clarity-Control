@@ -16,8 +16,12 @@ import {
   permissionsSchema,
   pushedSchema,
   resolveAlias,
+  mergeSandboxPointers,
+  sandboxPointersPath,
+  sandboxPointersSchema,
   type PublishPayload,
   type Aliases,
+  type SandboxConflicts,
   type LegacyCatalog,
   type Tooltip,
 } from '../../packages/core/src/index.js';
@@ -84,6 +88,12 @@ export interface Options {
   publisherSha: string;
   generatorSha: string;
   aliases: Aliases;
+  /**
+   * The generator's sandboxConflicts.json at `generatorSha`, like `aliases`. Maintainer picks in
+   * the data branch's config/sandbox-pointers.json join the aliases only through it (PIN capability
+   * `sandboxPointers`); without it no pick applies, so stale reviews are refused, never mis-exported.
+   */
+  sandboxConflicts?: SandboxConflicts;
   facts: LegacyCatalog;
   now: () => number;
   runUrl: string;
@@ -102,12 +112,26 @@ export class Publisher {
   read<T>(tree: Tree, path: string): T | undefined {
     return tree[path] ? (JSON.parse(this.git.blob(tree[path])) as T) : undefined;
   }
+  /**
+   * Generator aliases plus the maintainer sandbox picks at this snapshot (core mergeSandboxPointers,
+   * the same merge as the Worker and the editor). A malformed picks file throws: fail closed.
+   */
+  aliasesAt(tree: Tree): Aliases {
+    const raw = this.read<unknown>(tree, sandboxPointersPath);
+    if (raw === undefined) return this.options.aliases;
+    const pointers = sandboxPointersSchema.parse(raw);
+    return mergeSandboxPointers(this.options.aliases, this.options.sandboxConflicts ?? {}, pointers);
+  }
   /** Check direct association targets at the drain snapshot, without walking their drafts. */
-  checkAssociatedDescriptions(tree: Tree, tooltips: readonly Tooltip[]): void {
+  checkAssociatedDescriptions(
+    tree: Tree,
+    tooltips: readonly Tooltip[],
+    aliases: Aliases = this.options.aliases,
+  ): void {
     const known = new Map(tooltips.map((tooltip) => [tooltip.hash, tooltip]));
     for (const tooltip of tooltips) {
       for (const reference of tooltip.associated) {
-        const hash = resolveAlias(reference, this.options.aliases);
+        const hash = resolveAlias(reference, aliases);
         let target = known.get(hash);
         if (!target) {
           const value = this.read<unknown>(tree, `tooltips/${hash}.json`);
@@ -356,19 +380,32 @@ export class Publisher {
         );
         return;
       }
+      let aliases: Aliases;
+      try {
+        aliases = this.aliasesAt(tree);
+      } catch (e) {
+        await this.record(
+          opId,
+          undefined,
+          undefined,
+          { status: 'rejected', error: `Invalid ${sandboxPointersPath}: ${String(e)}` },
+          blob,
+        );
+        return;
+      }
       const entries: Entry[] = [],
         tooltips: Tooltip[] = [],
         outcomes: { hash: number; status: string }[] = [];
       const seen = new Set<number>();
       for (const hash of payload.hashes) {
-        const canonical = resolveAlias(hash, this.options.aliases),
+        const canonical = resolveAlias(hash, aliases),
           oid = tree[`tooltips/${canonical}.json`];
         const tooltip = tooltipSchema.safeParse(oid ? JSON.parse(this.git.blob(oid)) : undefined);
         if (!tooltip.success || tooltip.data.hash !== canonical) {
           outcomes.push({ hash: canonical, status: 'missing' });
           continue;
         }
-        const digest = await publishableHash(tooltip.data, this.options.aliases);
+        const digest = await publishableHash(tooltip.data, aliases);
         outcomes.push({
           hash: canonical,
           status: digest === payload.expected[hash] ? 'accepted' : 'stale',
@@ -394,7 +431,7 @@ export class Publisher {
         return;
       }
       try {
-        this.checkAssociatedDescriptions(tree, tooltips);
+        this.checkAssociatedDescriptions(tree, tooltips, aliases);
       } catch (error) {
         await this.record(
           opId,
@@ -445,7 +482,7 @@ export class Publisher {
       }
       const now = this.options.now(),
         pushed = pushedSchema.parse(this.read(tree, 'live/pushed.json'));
-      const exported = exportLegacy(tooltips, now, this.options.facts, this.options.aliases);
+      const exported = exportLegacy(tooltips, now, this.options.facts, aliases);
       // Fail closed: exportLegacy lowers element-tagged text to today's `<solar/>Scorch`. An
       // export that still holds a tagged span (or a preview marker) would make apps drop text.
       const unlowered = unloweredEntry(exported);
@@ -568,12 +605,19 @@ export class Publisher {
         return { opId: id, invalid: true };
       }
     });
+    // Maintainer sandbox picks ride along for the editor's alias view; omitted while there are none.
+    const rawPicks = this.read<unknown>(t, sandboxPointersPath);
+    const sandboxPointers =
+      rawPicks === undefined ? undefined : sandboxPointersSchema.parse(rawPicks);
     const bundle = {
       sourceCommit: h,
       generatedAt: new Date(this.options.now()).toISOString(),
       tooltips,
       permissions: permissionsSchema.parse(this.read(t, 'config/permissions.json')),
       pushed: pushedSchema.parse(this.read(t, 'live/pushed.json')),
+      ...(sandboxPointers && Object.keys(sandboxPointers.pointers).length
+        ? { sandboxPointers }
+        : {}),
       publishQueue,
     };
     const c = this.git.commit(

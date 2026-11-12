@@ -45,7 +45,8 @@ describe('push-live subrequests', () => {
       fixture.subrequests = 0;
       const response = await fixture.request('/push-live', 'POST', { hashes });
       expect(response.status).toBe(200);
-      const batches = Math.ceil(count / 500);
+      // The tooltip batch also carries config/sandbox-pointers.json (absent here: no extra cost).
+      const batches = Math.ceil((count + 1) / 500);
       expect(fixture.graphqlCalls).toBe(batches + 1);
       // token 1 + catalog 3 + (head, permissions, batches, globals, marker, live head, live file 2, PUT)
       // + (head, permissions, live head, marker, commit 4)

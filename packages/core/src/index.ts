@@ -19,3 +19,4 @@ export * from './settings.js';
 export * from './aliasGroups.js';
 export * from './setBonus.js';
 export * from './reports/index.js';
+export * from './sandboxPointers.js';

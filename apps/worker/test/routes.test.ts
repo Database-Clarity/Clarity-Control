@@ -70,6 +70,8 @@ const routes: (Route & { public?: true })[] = [
   { method: 'PUT', path: '/settings', body: { settings: defaultSyncedSettings, revision: null } },
   { method: 'GET', path: '/permissions' },
   { method: 'PUT', path: '/permissions', body: { revision: 'a'.repeat(40), permissions: config } },
+  { method: 'GET', path: '/sandbox-pointers' },
+  { method: 'PUT', path: '/sandbox-pointers', body: { revision: null, picks: {} } },
   { method: 'GET', path: '/history/123' },
   { method: 'GET', path: '/reports/public?hash=123&lang=en', public: true },
   { method: 'GET', path: `/reports/r/${R}`, public: true },

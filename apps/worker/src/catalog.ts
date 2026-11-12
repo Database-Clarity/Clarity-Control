@@ -20,7 +20,7 @@ const categoriesSchema = z.array(
     legacyType: z.string().optional(),
   }),
 );
-function source(env: Env): string {
+export function source(env: Env): string {
   return (
     `https://raw.githubusercontent.com/${encodeURIComponent(env.GENERATOR_OWNER)}/` +
     `${encodeURIComponent(env.GENERATOR_REPO)}/${encodeURIComponent(env.GENERATOR_BRANCH)}/templates/v2`

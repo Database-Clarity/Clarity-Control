@@ -970,6 +970,55 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       ],
     });
   });
+  it('merges maintainer sandbox picks: stub for a pick, none for "no tooltip", picked digest', async () => {
+    const f = await setup();
+    f.options.sandboxConflicts = { 700: [123, 124], 701: [123, 125], 702: [123, 126] };
+    const pointers = {
+      version: 1,
+      pointers: {
+        700: { to: 123, candidates: [123, 124], by: 1, at: '2026-11-12T20:00:00Z' },
+        701: { none: true, candidates: [123, 125], by: 1, at: '2026-11-12T20:00:00Z' },
+        // The generator's set changed since the pick: it keeps working (owner 2026-11-12).
+        702: { to: 123, candidates: [123], by: 1, at: '2026-11-12T20:00:00Z' },
+      },
+    };
+    f.change(D, { 'config/sandbox-pointers.json': pointers });
+    const merged = {
+      700: { to: 123, kind: 'sandbox' as const },
+      702: { to: 123, kind: 'sandbox' as const },
+    };
+    // A review made without the picks is stale against the picked aliases.
+    await f.request(A, [123], { 123: await publishableHash(f.tooltip, {}) });
+    await f.pub.run();
+    expect(
+      f.pub.read<{ result: { status: string } }>(f.git.tree(f.git.head(D)!), paths(A).log)!.result
+        .status,
+    ).toBe('stale');
+    await f.request(B, [123], { 123: await publishableHash(f.tooltip, merged) });
+    await f.pub.run();
+    f.assertDone(B);
+    const perks = f.pub.read<{ perks: Record<string, unknown> }>(
+      f.git.tree(f.git.head(L)!),
+      'liveDescriptions.json',
+    )!.perks;
+    expect(perks['700']).toEqual({ hash: 700, aliasOf: 123, aliasKind: 'sandbox' });
+    expect(perks['702']).toEqual({ hash: 702, aliasOf: 123, aliasKind: 'sandbox' });
+    expect(perks).not.toHaveProperty('701');
+  });
+  it('rejects a request terminally when the picks file is malformed', async () => {
+    const f = await setup();
+    f.change(D, { 'config/sandbox-pointers.json': { version: 1, pointers: { 700: { to: 1 } } } });
+    await f.request();
+    const before = f.git.head(L);
+    await f.pub.run();
+    expect(f.git.head(L)).toBe(before);
+    expect(
+      f.pub.read<{ result: { status: string; error: string } }>(
+        f.git.tree(f.git.head(D)!),
+        paths(A).log,
+      )!.result,
+    ).toMatchObject({ status: 'rejected', error: expect.stringContaining('sandbox-pointers') });
+  });
   it.each([false, true])(
     'guard closes a stray request (conflict=%s) without changing original log',
     async (conflict) => {
