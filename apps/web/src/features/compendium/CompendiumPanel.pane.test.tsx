@@ -281,9 +281,9 @@ describe('Compendium pane', () => {
     );
     expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
     const tick = async () => {
-      const [id, callback] = frames.entries().next().value!;
-      frames.delete(id);
-      await act(async () => callback(0));
+      const batch = [...frames.values()];
+      frames.clear();
+      await act(async () => batch.forEach((callback) => callback(0)));
     };
     await tick();
     expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
@@ -318,8 +318,8 @@ describe('Compendium pane', () => {
     expect(skeleton?.querySelector('time')?.getAttribute('datetime')).toBe(
       newest.compendium.snapshotAt,
     );
-    // The newer entry gets its own two frames before the minimum restarts for it.
-    expect(frames.size).toBe(1);
+    // One callback ends the old clock; the other starts the newer entry's two-frame grace.
+    expect(frames.size).toBe(2);
     await act(async () =>
       root.render(createElement(CompendiumPanel, { base: newest, stepping: false })),
     );
