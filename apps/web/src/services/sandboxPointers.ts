@@ -53,9 +53,17 @@ export async function putSandboxPointers(
   });
   if (response.status === 409) {
     const text = await response.text();
-    // A stale revision has its own message; the publisher gate explains itself.
-    if (/changed since they were loaded/.test(text)) throw new Error(sandboxPointersChangedMessage);
-    throw new Error(`Sandbox picks HTTP 409: ${JSON.parse(text).error ?? text}`);
+    // A stale revision, or a data branch that kept moving, both need a reload (the page offers
+    // one for this message); the publisher gate explains itself.
+    if (/changed since they were loaded|reload sandbox picks/.test(text))
+      throw new Error(sandboxPointersChangedMessage);
+    let detail = text;
+    try {
+      detail = (JSON.parse(text) as { error?: string }).error ?? text;
+    } catch {
+      /* plain text */
+    }
+    throw new Error(`Sandbox picks HTTP 409: ${detail}`);
   }
   return loadedSchema.parse(await checked(response));
 }
