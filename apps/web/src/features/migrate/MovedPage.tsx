@@ -10,6 +10,7 @@ import styles from './Migrate.module.scss';
 type View =
   | { kind: 'checking' }
   | { kind: 'unreadable' }
+  | { kind: 'cancelled' }
   | { kind: 'idle'; drafts: number }
   | { kind: 'waiting' }
   | { kind: 'sent' }
@@ -91,7 +92,12 @@ export function MovedPage() {
         setView({ kind: 'sent' });
       },
       onDone: (stored, unplaced) => setView({ kind: 'moved', stored, unplaced, confirming: false }),
-      onRefused: (message) => setView({ kind: 'error', message, drafts: -1 }),
+      onRefused: (message) =>
+        setView(
+          message === 'Cancelled on the new site.'
+            ? { kind: 'cancelled' }
+            : { kind: 'error', message, drafts: -1 },
+        ),
       onClosed: () =>
         setView({
           kind: 'error',
@@ -198,8 +204,9 @@ export function MovedPage() {
           </p>
           {view.confirming && (
             <p role="status">
-              Remove up to {confirmedCount} moved draft{confirmedCount === 1 ? '' : 's'} from this
-              browser? Drafts edited since moving and unreadable buckets stay here.
+              Remove {confirmedCount} moved draft{confirmedCount === 1 ? '' : 's'} from this
+              browser? Only drafts you haven't edited will be removed. Edited drafts and unreadable
+              buckets are kept.
             </p>
           )}
           <div className={styles.actions}>
@@ -218,10 +225,16 @@ export function MovedPage() {
               </>
             ) : (
               <>
-                <button type="button" onClick={() => setView({ ...view, confirming: true })}>
-                  Remove moved drafts from here…
+                <a className={styles.primary} href={target}>
+                  Open new editor
+                </a>
+                <button
+                  type="button"
+                  className={styles.danger}
+                  onClick={() => setView({ ...view, confirming: true })}
+                >
+                  Remove local copies…
                 </button>
-                <a href={target}>Open new editor</a>
               </>
             )}
           </div>
@@ -237,13 +250,18 @@ export function MovedPage() {
           </div>
         </>
       )}
-      {view.kind === 'error' && (
+      {(view.kind === 'error' || view.kind === 'cancelled') && (
         <>
-          <p role="alert" className={styles.error}>
-            {view.message}
+          <p
+            role={view.kind === 'cancelled' ? 'status' : 'alert'}
+            className={view.kind === 'error' ? styles.error : undefined}
+          >
+            {view.kind === 'cancelled'
+              ? 'Move cancelled. Nothing was changed; your drafts are still here.'
+              : view.message}
           </p>
           <div className={styles.actions}>
-            <button type="button" onClick={move}>
+            <button type="button" className={styles.primary} onClick={move}>
               Try again
             </button>
             <button type="button" onClick={() => void exportFile()}>

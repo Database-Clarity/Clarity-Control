@@ -30,6 +30,27 @@ async function capture(page, state) {
           () => document.documentElement.scrollWidth > window.innerWidth,
         );
         assert.equal(overflow, false, `${state} ${width} ${theme} ${scale}: horizontal overflow`);
+        const outOfBounds = await page.evaluate(() =>
+          [...document.querySelectorAll('section button, section a, section label')]
+            .filter((control) => {
+              const row = control.parentElement;
+              if (!row || window.getComputedStyle(row).display !== 'flex') return false;
+              const bounds = control.getBoundingClientRect(),
+                parent = row.getBoundingClientRect();
+              return (
+                bounds.left < parent.left - 1 ||
+                bounds.right > parent.right + 1 ||
+                bounds.top < parent.top - 1 ||
+                bounds.bottom > parent.bottom + 1
+              );
+            })
+            .map((control) => control.textContent),
+        );
+        assert.deepEqual(
+          outOfBounds,
+          [],
+          `${state} ${width} ${theme} ${scale}: controls outside their row`,
+        );
         await page.screenshot({
           path: join(evidence, `${state}-${width}-${theme}-${scale}.png`),
           fullPage: true,
@@ -86,11 +107,15 @@ try {
   await capture(page, 'partial');
   let popup = await move();
   await popup.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('alert').filter({ hasText: 'Cancelled on the new site.' }).waitFor();
+  await page.getByRole('status').filter({ hasText: 'Move cancelled.' }).waitFor();
   await capture(popup, 'cancelled');
   await popup.close();
   await page.waitForTimeout(1200);
-  assert.equal(await page.getByRole('alert').innerText(), 'Cancelled on the new site.');
+  assert.equal(
+    await page.getByRole('status').innerText(),
+    'Move cancelled. Nothing was changed; your drafts are still here.',
+  );
+  await capture(page, 'cancelled-old');
   popup = await move();
   await popup.evaluate(
     () =>
@@ -108,8 +133,9 @@ try {
       }),
   );
   await popup.getByRole('button', { name: 'Merge into this browser' }).click();
-  await popup.getByRole('alert').filter({ hasText: 'merge stopped' }).waitFor();
+  await popup.getByRole('alert').filter({ hasText: 'could not be merged' }).waitFor();
   await capture(popup, 'refused');
+  await capture(page, 'refused-old');
   const refusal = await page.getByRole('alert').innerText();
   await seed(popup, false);
   await popup.close();
@@ -120,10 +146,12 @@ try {
   await page.getByRole('alert').filter({ hasText: 'closed before the merge finished' }).waitFor();
   popup = await move();
   await popup.getByRole('button', { name: 'Merge into this browser' }).click();
-  await page.getByRole('button', { name: 'Remove moved drafts from here…' }).click();
+  await page.getByRole('button', { name: 'Remove local copies…' }).waitFor();
+  await capture(page, 'moved');
+  await page.getByRole('button', { name: 'Remove local copies…' }).click();
   await capture(page, 'confirm');
   await page.getByRole('button', { name: 'Keep them', exact: true }).click();
-  await page.getByRole('button', { name: 'Remove moved drafts from here…' }).click();
+  await page.getByRole('button', { name: 'Remove local copies…' }).click();
   await page.getByRole('button', { name: 'Yes, remove moved drafts', exact: true }).click();
   await page.getByRole('status').filter({ hasText: 'Removed 1 moved draft' }).waitFor();
   await capture(page, 'removed');

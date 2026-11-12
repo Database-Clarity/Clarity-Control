@@ -93,11 +93,11 @@ it('requires two explicit clicks before clearing confirmed drafts', async () => 
   await act(async () => root.render(<MovedPage />));
   await click('Move my drafts');
   await act(async () => wire.sender!.onDone({ tooltips: ['1'] }, 0));
-  await click('Remove moved drafts from here…');
+  await click('Remove local copies…');
   expect(storage.clearMoved).not.toHaveBeenCalled();
   await click('Keep them');
   expect(storage.clearMoved).not.toHaveBeenCalled();
-  await click('Remove moved drafts from here…');
+  await click('Remove local copies…');
   vi.mocked(storage.clearMoved).mockResolvedValue(1);
   await click('Yes, remove moved drafts');
   expect(storage.clearMoved).toHaveBeenCalledWith(snapshot, { tooltips: ['1'] }, undefined);
@@ -161,4 +161,17 @@ it('redirects an empty readable browser to the new origin and preserves the rout
   );
   await act(async () => root.render(<MovedPage />));
   expect(replace).toHaveBeenCalledWith('https://control.d2clarity.com/#/migrate');
+});
+
+it('shows cancellation as neutral status and leaves retry available', async () => {
+  await act(async () => root.render(<MovedPage />));
+  await click('Move my drafts');
+  await act(async () => wire.sender!.onRefused('Cancelled on the new site.'));
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  expect(host.querySelector('[role="status"]')?.textContent).toBe(
+    'Move cancelled. Nothing was changed; your drafts are still here.',
+  );
+  expect([...host.querySelectorAll('button')].some((b) => b.textContent === 'Try again')).toBe(
+    true,
+  );
 });
