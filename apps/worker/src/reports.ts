@@ -247,6 +247,11 @@ function limitStatements(db: ReportsDatabase, limits: Limit[]) {
     ),
   );
 }
+const turnstileResponseSchema = z.object({
+  success: z.boolean(),
+  hostname: z.string().optional(),
+  action: z.string().optional(),
+});
 async function turnstile(env: Env, token: string | undefined) {
   if (!env.TURNSTILE_SECRET || !token) throw new HttpError(400, 'Human check required');
   try {
@@ -255,13 +260,7 @@ async function turnstile(env: Env, token: string | undefined) {
       body: new URLSearchParams({ secret: env.TURNSTILE_SECRET, response: token }),
       signal: AbortSignal.timeout(5000),
     });
-    const data = z
-      .object({
-        success: z.boolean(),
-        hostname: z.string().optional(),
-        action: z.string().optional(),
-      })
-      .parse(await response.json());
+    const data = turnstileResponseSchema.parse(await response.json(), { jitless: true });
     const hosts = siteOrigins(env).map((s) => new URL(s).hostname);
     if (env.REPORTS_ALLOW_LOCALHOST === 'true') hosts.push('localhost');
     if (

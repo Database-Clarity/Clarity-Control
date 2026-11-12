@@ -155,28 +155,29 @@ try {
   writeFileSync('.agents/reports-slim-wire.json', JSON.stringify(wire, null, 2));
   if (process.env.REPORT_BROWSER_WIRE_ONLY !== '1') {
     const matrix = [];
-    for (const width of [390, 768, 1280])
-      for (const theme of ['light', 'dark'])
-        for (const scale of width === 390 ? [100, 120, 150] : [100, 150]) {
-          await page.setViewportSize({ width, height: 900 });
-          await page.evaluate(
-            ({ theme, scale }) =>
-              localStorage.setItem(
-                'clarity-settings:device:v1',
-                JSON.stringify({ theme, uiScale: scale }),
-              ),
-            { theme, scale },
-          );
-          await page.reload();
-          await page.locator('[data-line]').first().waitFor();
-          await page.evaluate(() => document.fonts.ready);
-          const overflow = await page.evaluate(
-            () => document.documentElement.scrollWidth > innerWidth,
-          );
-          const file = `.agents/slim-${width}-${theme}-${scale}.png`;
-          await page.screenshot({ path: file, fullPage: true });
-          matrix.push({ width, theme, scale, overflow, file });
-        }
+    if (process.env.REPORT_BROWSER_STATES_ONLY !== '1')
+      for (const width of [390, 768, 1280])
+        for (const theme of ['light', 'dark'])
+          for (const scale of width === 390 ? [100, 120, 150] : [100, 150]) {
+            await page.setViewportSize({ width, height: 900 });
+            await page.evaluate(
+              ({ theme, scale }) =>
+                localStorage.setItem(
+                  'clarity-settings:device:v1',
+                  JSON.stringify({ theme, uiScale: scale }),
+                ),
+              { theme, scale },
+            );
+            await page.reload();
+            await page.locator('[data-line]').first().waitFor();
+            await page.evaluate(() => document.fonts.ready);
+            const overflow = await page.evaluate(
+              () => document.documentElement.scrollWidth > innerWidth,
+            );
+            const file = `.agents/slim-${width}-${theme}-${scale}.png`;
+            await page.screenshot({ path: file, fullPage: true });
+            matrix.push({ width, theme, scale, overflow, file });
+          }
     // State transitions touched by entry/data loading: deep link, locale, account, picker, history, and unknown hash.
     await page.setViewportSize({ width: 1280, height: 900 });
     // Exercise compat's input, selection, restore, remark, and removal semantics on the compiled entry.
@@ -243,12 +244,32 @@ try {
     await page.locator('[data-line]').first().waitFor();
     await page.goForward();
     await page.getByRole('combobox').first().waitFor();
+    const search = page.getByRole('combobox').first();
+    await search.fill(cat.items[hash].name);
+    await page.getByRole('listbox', { name: 'Items' }).waitFor();
+    await search.press('ArrowDown');
+    await search.press('ArrowUp');
+    await search.press('Enter');
+    await page.locator('[data-line]').first().waitFor();
+    await page.goBack();
+    await page.getByRole('listbox', { name: 'Items' }).waitFor();
+    assert.equal(await page.getByRole('combobox').first().inputValue(), cat.items[hash].name);
+    await page.getByRole('listbox', { name: 'Items' }).getByRole('option').first().click();
+    await page.locator('[data-line]').first().waitFor();
+    await page.goBack();
+    await page.getByRole('combobox').first().fill('');
+    await page.reload();
+    assert.equal(await page.getByRole('combobox').first().inputValue(), '');
+
     await page.goto('http://127.0.0.1:5261/#/report/4294967295');
     await page
       .getByText(/has no Clarity tooltip to report/i)
       .first()
       .waitFor({ timeout: 10000 });
-    writeFileSync('.agents/reports-slim-matrix.json', JSON.stringify({ matrix, errors }, null, 2));
+    writeFileSync(
+      matrix.length ? '.agents/reports-slim-matrix.json' : '.agents/reports-slim-states.json',
+      JSON.stringify({ matrix, errors }, null, 2),
+    );
     if (matrix.some((x) => x.overflow) || errors.length) throw new Error('Render QA failed');
   }
   await context.close();
