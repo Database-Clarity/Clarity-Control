@@ -7,6 +7,7 @@ import {
 } from '@clarity/core';
 import {
   classifyItem,
+  listingCategoryId,
   derivedCategories,
   enhancedPartCategory,
   inactiveCategory,
@@ -88,7 +89,7 @@ function buildIndex(data: EditorData): TranslationIndex {
     let name = String(tooltip.hash);
     if (item) {
       if (isSetSelector(item)) continue;
-      const classified = classifyItem(item, tooltip)?.categoryId ?? item.categoryId;
+      const classified = listingCategoryId(item, classifyItem(item, tooltip));
       if (classified === inactiveCategory || classified === enhancedPartCategory) continue;
       categoryId = classified;
       name = listName(item, data) || name;
