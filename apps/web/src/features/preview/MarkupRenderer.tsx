@@ -1,4 +1,4 @@
-import { memo, useEffect, useId, useMemo, useRef } from 'react';
+import { Fragment, memo, useEffect, useId, useMemo, useRef, type ReactNode } from 'react';
 import type { MarkupLine, MarkupSpan } from '@clarity/core';
 import { closeTitlePopover, openTitlePopover } from './titlePopover';
 import styles from './TooltipPreview.module.scss';
@@ -97,8 +97,17 @@ function lineKey(line: MarkupLine) {
   }
   return key;
 }
+type RenderParts = (parts: MarkupSpan[]) => ReactNode;
+const normalParts: RenderParts = (parts) =>
+  parts.map((part, index) => <PreviewSpan key={index} part={part} />);
 const PreviewLine = memo(
-  function PreviewLine({ line }: { line: MarkupLine }) {
+  function PreviewLine({
+    line,
+    renderParts = normalParts,
+  }: {
+    line: MarkupLine;
+    renderParts?: RenderParts;
+  }) {
     return line.table ? (
       <table className={classNames(line.classNames)}>
         <tbody>
@@ -111,9 +120,7 @@ const PreviewLine = memo(
                   rowSpan={cell.rowSpan}
                   className={classNames(cell.classNames)}
                 >
-                  {cell.cellContent.map((part, partIndex) => (
-                    <PreviewSpan key={partIndex} part={part} />
-                  ))}
+                  {renderParts(cell.cellContent)}
                 </td>
               ))}
             </tr>
@@ -121,22 +128,39 @@ const PreviewLine = memo(
         </tbody>
       </table>
     ) : (
-      <div className={classNames(line.classNames)}>
-        {line.linesContent?.map((part, partIndex) => (
-          <PreviewSpan key={partIndex} part={part} />
-        ))}
-      </div>
+      <div className={classNames(line.classNames)}>{renderParts(line.linesContent ?? [])}</div>
     );
   },
-  (previous, next) => previous.line === next.line || lineKey(previous.line) === lineKey(next.line),
+  (previous, next) =>
+    previous.renderParts === next.renderParts &&
+    (previous.line === next.line || lineKey(previous.line) === lineKey(next.line)),
 );
 
 export function Lines({ lines }: { lines: MarkupLine[] }) {
+  return <MarkupLines lines={lines} />;
+}
+
+/** One markup tree renderer; comparison views may decorate spans and positions. */
+export function MarkupLines({
+  lines,
+  renderParts,
+  beforeLine,
+  afterLines,
+}: {
+  lines: MarkupLine[];
+  renderParts?: RenderParts;
+  beforeLine?: (index: number) => ReactNode;
+  afterLines?: ReactNode;
+}) {
   return (
     <>
       {lines.map((line, index) => (
-        <PreviewLine key={index} line={line} />
+        <Fragment key={index}>
+          {beforeLine?.(index)}
+          <PreviewLine line={line} renderParts={renderParts} />
+        </Fragment>
       ))}
+      {afterLines}
     </>
   );
 }

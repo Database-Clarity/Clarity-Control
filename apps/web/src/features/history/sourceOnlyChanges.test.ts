@@ -80,3 +80,18 @@ it('retains source identity for malformed Unicode, and distinguishes a variable 
     ).markers.some((marker) => marker.label.includes('variable')),
   ).toBe(false);
 });
+it.each([
+  ['{{Old}{Hidden old}}', '{{New}{Hidden new}}', globals],
+  [
+    'enhanced (\nOld\n// hidden old\n)',
+    'enhanced (\nNew\n// hidden new\n)',
+    { ...globals, type: 'Weapon Trait Enhanced' },
+  ],
+  ['', 'Visible\ntitle Unused (\nHidden\n)', globals],
+  ['', 'Visible\nexport hidden Detail (\nHidden\n)', globals],
+  ['Visible\ntitle Unused (\nHidden\n)', '', globals],
+  ['Visible\nexport hidden Detail (\nHidden\n)', '', globals],
+])('keeps mixed compound source edits explicitly unchecked: %s', (before, after, context) => {
+  const result = analyzeSourceOnly(before, after, context, options);
+  expect(result.unchecked).toBeGreaterThan(0);
+});

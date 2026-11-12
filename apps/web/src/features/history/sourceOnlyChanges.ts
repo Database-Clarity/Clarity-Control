@@ -8,6 +8,8 @@ import {
 import {
   markupConditionMatches,
   markupConditions,
+  normalizeMarkupWhitespace,
+  removeUnusedText,
 } from '../../../../../packages/core/src/markup/prepare';
 import { diffWords } from '../../ui/diff/diffWords';
 
@@ -167,6 +169,7 @@ export function analyzeSourceOnly(
         ? `line ${startLine(text, from)}`
         : `lines ${startLine(text, from)}–${line(text, to - 1)}`;
   let checked = 0;
+  let ambiguous = 0;
   for (const part of parts) {
     if (checked >= (options.maxParts ?? 40) || now() - start >= (options.budgetMs ?? 50)) break;
     const alone =
@@ -180,8 +183,19 @@ export function analyzeSourceOnly(
         position,
         label: `Markup-only change · ${part.kind} · previous ${before ? range(before, part.from, part.to) : 'not present'}; current ${after ? range(after, part.nextFrom, part.nextTo) : 'not present'}. Not shown in this rendered view; inspect Raw.`,
       });
+    } else if (
+      part.kind === 'base/enhanced' ||
+      markupConditions.some(([name]) => name === part.kind) ||
+      (part.kind === 'source' &&
+        [before.slice(part.from, part.to), after.slice(part.nextFrom, part.nextTo)].some(
+          (text) => normalizeMarkupWhitespace(text) !== removeUnusedText(text),
+        ))
+    ) {
+      // A visible change does not prove that every nested arm, declaration, or
+      // comment is represented. Keep this whole compound part explicitly open.
+      ambiguous++;
     }
     checked++;
   }
-  return { markers, unchecked: parts.length - checked };
+  return { markers, unchecked: parts.length - checked + ambiguous };
 }

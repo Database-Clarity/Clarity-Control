@@ -1,10 +1,10 @@
-import { Fragment, memo, useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import { markupLanguage, type Lang, type MarkupLine, type MarkupSpan } from '@clarity/core';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { tooltipImports } from '../../services/tooltipImports';
 import { previewDrafts } from '../conflicts/previewDrafts';
-import { classNames, PreviewSpan } from '../preview/MarkupRenderer';
+import { MarkupLines, PreviewSpan } from '../preview/MarkupRenderer';
 import preview from '../preview/TooltipPreview.module.scss';
 import styles from './RenderedWordDiff.module.scss';
 import type { DiffSpan } from './renderedDiff';
@@ -45,6 +45,7 @@ function Markers({ markers }: { markers: SourceMarker[] }) {
     </p>
   ));
 }
+const diffParts = (parts: MarkupSpan[]) => <Parts parts={parts} />;
 const Body = memo(function Body({
   lines,
   lang,
@@ -56,36 +57,16 @@ const Body = memo(function Body({
 }) {
   return (
     <div className={`${preview.snippet} ${styles.body}`} lang={markupLanguage(lang)}>
-      {lines.map((line, i) => (
-        <Fragment key={i}>
-          <Markers markers={markers.filter((marker) => marker.position === i)} />
-          {line.table ? (
-            <table key={i} className={classNames(line.classNames)}>
-              <tbody>
-                {line.table.map((row, r) => (
-                  <tr key={r} className={classNames(row.classNames)}>
-                    {row.rowContent?.map((cell, c) => (
-                      <td
-                        key={c}
-                        colSpan={cell.colSpan}
-                        rowSpan={cell.rowSpan}
-                        className={classNames(cell.classNames)}
-                      >
-                        <Parts parts={cell.cellContent} />
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <div key={i} className={classNames(line.classNames)}>
-              <Parts parts={line.linesContent ?? []} />
-            </div>
-          )}
-        </Fragment>
-      ))}
-      <Markers markers={markers.filter((marker) => marker.position >= lines.length)} />
+      <MarkupLines
+        lines={lines}
+        renderParts={diffParts}
+        beforeLine={(index) => (
+          <Markers markers={markers.filter((marker) => marker.position === index)} />
+        )}
+        afterLines={
+          <Markers markers={markers.filter((marker) => marker.position >= lines.length)} />
+        }
+      />
     </div>
   );
 });
