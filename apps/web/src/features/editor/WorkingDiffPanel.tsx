@@ -107,7 +107,10 @@ export function WorkingDiffPanel({
       heading={
         <span className={styles.heading}>
           <span className={styles.caption}>
-            Unsaved changes <span aria-hidden="true">·</span> {languageLabel(lang)}
+            <span className={styles.prefix}>
+              Unsaved <span aria-hidden="true">·</span>{' '}
+            </span>
+            {languageLabel(lang)}
           </span>
           <RawDiffToggle />
         </span>

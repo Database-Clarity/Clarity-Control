@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { Fragment, memo, useMemo } from 'react';
 import { markupLanguage, type Lang, type MarkupLine, type MarkupSpan } from '@clarity/core';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
@@ -7,7 +7,8 @@ import { previewDrafts } from '../conflicts/previewDrafts';
 import { classNames, PreviewSpan } from '../preview/MarkupRenderer';
 import preview from '../preview/TooltipPreview.module.scss';
 import styles from './RenderedWordDiff.module.scss';
-import { sourceOnlyChangeLabel, type DiffSpan } from './renderedDiff';
+import type { DiffSpan } from './renderedDiff';
+import type { SourceMarker } from './sourceOnlyChanges';
 import { useRenderedDiff } from './useRenderedDiff';
 
 function Parts({ parts }: { parts: MarkupSpan[] }) {
@@ -37,35 +38,54 @@ function Parts({ parts }: { parts: MarkupSpan[] }) {
     );
   });
 }
-const Body = memo(function Body({ lines, lang }: { lines: MarkupLine[]; lang: Lang }) {
+function Markers({ markers }: { markers: SourceMarker[] }) {
+  return markers.map((marker, index) => (
+    <p key={index} className={styles.sourceChange} data-source-change>
+      {marker.label}
+    </p>
+  ));
+}
+const Body = memo(function Body({
+  lines,
+  lang,
+  markers = [],
+}: {
+  lines: MarkupLine[];
+  lang: Lang;
+  markers?: SourceMarker[];
+}) {
   return (
     <div className={`${preview.snippet} ${styles.body}`} lang={markupLanguage(lang)}>
-      {lines.map((line, i) =>
-        line.table ? (
-          <table key={i} className={classNames(line.classNames)}>
-            <tbody>
-              {line.table.map((row, r) => (
-                <tr key={r} className={classNames(row.classNames)}>
-                  {row.rowContent?.map((cell, c) => (
-                    <td
-                      key={c}
-                      colSpan={cell.colSpan}
-                      rowSpan={cell.rowSpan}
-                      className={classNames(cell.classNames)}
-                    >
-                      <Parts parts={cell.cellContent} />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <div key={i} className={classNames(line.classNames)}>
-            <Parts parts={line.linesContent ?? []} />
-          </div>
-        ),
-      )}
+      {lines.map((line, i) => (
+        <Fragment key={i}>
+          <Markers markers={markers.filter((marker) => marker.position === i)} />
+          {line.table ? (
+            <table key={i} className={classNames(line.classNames)}>
+              <tbody>
+                {line.table.map((row, r) => (
+                  <tr key={r} className={classNames(row.classNames)}>
+                    {row.rowContent?.map((cell, c) => (
+                      <td
+                        key={c}
+                        colSpan={cell.colSpan}
+                        rowSpan={cell.rowSpan}
+                        className={classNames(cell.classNames)}
+                      >
+                        <Parts parts={cell.cellContent} />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div key={i} className={classNames(line.classNames)}>
+              <Parts parts={line.linesContent ?? []} />
+            </div>
+          )}
+        </Fragment>
+      ))}
+      <Markers markers={markers.filter((marker) => marker.position >= lines.length)} />
     </div>
   );
 });
@@ -105,26 +125,18 @@ export function RenderedWordDiff({
       type,
     };
   }, [lang, hash, data, drafts]);
-  const { result, busy } = useRenderedDiff(before, after, globals);
-  const sourceOnly = useMemo(
-    () =>
-      before !== after &&
-      !busy &&
-      ![...result.before, ...result.after].some((line) =>
-        [
-          ...(line.linesContent ?? []),
-          ...(line.table?.flatMap(
-            (row) => row.rowContent?.flatMap((cell) => cell.cellContent) ?? [],
-          ) ?? []),
-        ].some((part) => !!(part as DiffSpan).diffKind),
-      ),
-    [before, after, busy, result],
+  const { result, busy, sourceAnalysis, sourceUnavailable } = useRenderedDiff(
+    before,
+    after,
+    globals,
   );
-  const side = (text: string, lines: MarkupLine[]) =>
+  const markers = sourceAnalysis?.markers ?? [];
+  const side = (text: string, lines: MarkupLine[], located?: SourceMarker[]) =>
     text && lines.length ? (
-      <Body lines={lines} lang={lang} />
+      <Body lines={lines} lang={lang} markers={located} />
     ) : (
       <div className={`${preview.snippet} ${styles.body}`}>
+        {located && <Markers markers={located} />}
         <span className={styles.missing}>{text ? '(no rendered text)' : '(not present)'}</span>
       </div>
     );
@@ -134,9 +146,20 @@ export function RenderedWordDiff({
       aria-busy={busy || undefined}
       data-one-sided={!before || !after || undefined}
     >
-      {sourceOnly && (
-        <p className={styles.sourceChange} data-source-change>
-          {sourceOnlyChangeLabel(before, after)}
+      {!!markers.length && (
+        <p className={styles.sourceChange}>
+          {markers.length} markup-only {markers.length === 1 ? 'change' : 'changes'} · see the
+          located markers or Raw.
+        </p>
+      )}
+      {!!sourceAnalysis?.unchecked && (
+        <p className={styles.sourceChange} data-source-unchecked>
+          {sourceAnalysis.unchecked} changes not checked: see Raw
+        </p>
+      )}
+      {sourceUnavailable && before !== after && (
+        <p className={styles.sourceChange} data-source-unchecked>
+          Source changes not checked: see Raw
         </p>
       )}
       <div className={styles.sides}>
@@ -146,7 +169,7 @@ export function RenderedWordDiff({
         </div>
         <div>
           <strong>{working ? 'Unsaved' : 'Current'}</strong>
-          {side(after, result.after)}
+          {side(after, result.after, markers)}
         </div>
       </div>
     </div>

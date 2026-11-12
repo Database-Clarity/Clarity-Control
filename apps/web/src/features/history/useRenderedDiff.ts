@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MarkupGlobals } from '@clarity/core';
 import { diagnosticGlobals } from '../editor/diagnosticWorker';
 import { renderedDiff } from './renderedDiff';
+import type { SourceAnalysis } from './sourceOnlyChanges';
 
-type Result = ReturnType<typeof renderedDiff>;
+type Result = ReturnType<typeof renderedDiff> & { sourceAnalysis?: SourceAnalysis };
 let worker: Worker | undefined;
 let sequence = 0;
 const pending = new Map<number, (result?: Result) => void>();
@@ -13,23 +14,22 @@ const cache = new Map<string, Result>();
 export function useRenderedDiff(before: string, after: string, globals: MarkupGlobals) {
   const large = !!before && !!after && before.length + after.length > 4000;
   const snapshot = useMemo(
-    () => (large ? diagnosticGlobals(`${before}\n${after}`, globals) : globals),
-    [before, after, globals, large],
+    () => diagnosticGlobals(`${before}\n${after}`, globals),
+    [before, after, globals],
   );
-  // Serialization is for worker transport/cache identity only. Synchronous
-  // comparisons already have stable React dependencies and can read lazy imports.
-  const key = useMemo(
-    () => (large ? JSON.stringify([before, after, snapshot]) : ''),
-    [before, after, snapshot, large],
-  );
+  // Capture only reachable imports for the worker's bounded source checks.
+  const key = useMemo(() => JSON.stringify([before, after, snapshot]), [before, after, snapshot]);
   const [computed, setComputed] = useState<{ key: string; result?: Result }>();
   const initial = useMemo(
     () => cache.get(key) ?? renderedDiff(before, after, snapshot, !large),
     [key, before, after, snapshot, large],
   );
   const cached = cache.get(key);
+  const opening = useRef(true);
   useEffect(() => {
-    if (!large || cached || typeof Worker === 'undefined') return;
+    const initialOpening = opening.current;
+    opening.current = false;
+    if (before === after || cached || typeof Worker === 'undefined') return;
     const id = ++sequence;
     const finish = (result?: Result) => {
       if (result) {
@@ -38,34 +38,45 @@ export function useRenderedDiff(before: string, after: string, globals: MarkupGl
       }
       setComputed({ key, result });
     };
-    try {
-      if (!worker) {
-        worker = new Worker(new URL('./renderedDiff.worker.ts', import.meta.url), {
-          type: 'module',
-        });
-        worker.onmessage = (event: MessageEvent<{ id: number; result?: Result }>) => {
-          pending.get(event.data.id)?.(event.data.result);
-          pending.delete(event.data.id);
-        };
-        worker.onerror = () => {
-          for (const callback of pending.values()) callback();
-          pending.clear();
-          worker?.terminate();
-          worker = undefined;
-        };
+    const run = () => {
+      try {
+        if (!worker) {
+          worker = new Worker(new URL('./renderedDiff.worker.ts', import.meta.url), {
+            type: 'module',
+          });
+          worker.onmessage = (event: MessageEvent<{ id: number; result?: Result }>) => {
+            pending.get(event.data.id)?.(event.data.result);
+            pending.delete(event.data.id);
+          };
+          worker.onerror = () => {
+            for (const callback of pending.values()) callback();
+            pending.clear();
+            worker?.terminate();
+            worker = undefined;
+          };
+        }
+        pending.set(id, finish);
+        worker.postMessage({ id, before, after, globals: snapshot });
+      } catch {
+        pending.delete(id);
+        finish();
       }
-      pending.set(id, finish);
-      worker.postMessage({ id, before, after, globals: snapshot });
-    } catch {
-      pending.delete(id);
-      finish();
-    }
+    };
+    // A pinned comparison may receive editor snapshots while typing. Only its
+    // opening runs immediately; subsequent snapshots must settle first.
+    const timer = initialOpening ? undefined : window.setTimeout(run, 200);
+    if (initialOpening) run();
     return () => {
+      if (timer !== undefined) window.clearTimeout(timer);
       pending.delete(id);
     };
   }, [before, after, snapshot, key, large, cached]);
   return {
     result: cached ?? (computed?.key === key ? computed.result : undefined) ?? initial,
+    sourceAnalysis:
+      cached?.sourceAnalysis ??
+      (computed?.key === key ? computed.result?.sourceAnalysis : undefined),
+    sourceUnavailable: typeof Worker === 'undefined' || (computed?.key === key && !computed.result),
     busy: large && typeof Worker !== 'undefined' && !cached && computed?.key !== key,
   };
 }

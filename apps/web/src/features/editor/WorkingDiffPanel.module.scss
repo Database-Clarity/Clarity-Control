@@ -36,6 +36,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+@media (max-width: 480px) {
+  .prefix {
+    display: none;
+  }
+}
 
 .body .none {
   padding: 0.5rem 0.75rem;

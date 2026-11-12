@@ -1,3 +1,5 @@
+@use '../../ui/controls';
+
 .diff {
   min-width: 0;
 }
@@ -47,30 +49,20 @@
     text-decoration: underline;
   }
 }
-.toggle {
-  flex: none;
-  padding: 0.125rem 0.5rem;
-  min-height: 1.5rem;
-  border: 1px solid transparent;
-  border-radius: 2px;
-  color: var(--text2);
-  background: transparent;
-  font: inherit;
-  white-space: nowrap;
-  cursor: pointer;
-  &:hover {
-    background: var(--hover);
-    color: var(--text);
-  }
+.toggle[role='switch'] {
+  @include controls.button;
   &[aria-checked='true'] {
-    background: var(--hover);
-    color: var(--text);
-    border-color: var(--hair);
+    background: var(--sel);
+    border-color: var(--accent-ink);
   }
-  &:focus-visible {
-    outline: 2px solid var(--text2);
-    outline-offset: 1px;
-  }
+}
+// Keep the same compact control size even inside History's generic button rule.
+.toggle[role='switch'] {
+  flex: none;
+  padding: 0 0.5rem;
+  min-height: 1.5rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
 }
 .languageHead {
   display: flex;
