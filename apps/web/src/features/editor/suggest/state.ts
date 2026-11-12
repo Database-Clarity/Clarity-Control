@@ -46,6 +46,11 @@ export interface SuggestSnapshot {
   judged: boolean;
   /** The author moved the selection; until then the menu may move it to an option that fits. */
   picked: boolean;
+  /**
+   * Where this menu sits in a longer task, shown muted above the detail (the translator's "Tag
+   * the same words here": "2 of 4 in the translation"). Kept while browsing, gone with the menu.
+   */
+  aside?: string;
 }
 
 export interface SuggestHost {
@@ -64,6 +69,7 @@ const moveEffect = StateEffect.define<number>();
 const categoryEffect = StateEffect.define<null>();
 const messageEffect = StateEffect.define<string | null>();
 const judgeEffect = StateEffect.define<null>();
+const asideEffect = StateEffect.define<string>();
 
 const typedTriggers = new Set(['<', '#', '[']);
 
@@ -118,6 +124,7 @@ function derive(
     explicit,
     message: null,
     judged: !explicit,
+    aside: previous?.aside,
     picked: kept < 0 ? false : (previous?.picked ?? false),
   };
 }
@@ -171,6 +178,8 @@ export const suggestField = StateField.define<SuggestSnapshot | null>({
           message: null,
           picked: true,
         };
+      } else if (effect.is(asideEffect)) {
+        next = { ...next, aside: effect.value };
       } else if (effect.is(messageEffect)) {
         next = { ...next, message: effect.value };
       } else if (effect.is(judgeEffect) && !next.judged) {
@@ -205,6 +214,11 @@ export const suggestState = (state: EditorState): SuggestSnapshot | null =>
 
 export function openSuggest(view: EditorView): void {
   view.dispatch({ effects: openEffect.of({ explicit: true }) });
+}
+/** Moves the open menu to an option (absolute index) and says where it sits in a longer task. */
+export function guideSuggest(view: EditorView, index: number, aside: string): void {
+  if (!suggestState(view.state)) return;
+  view.dispatch({ effects: [moveEffect.of(index), asideEffect.of(aside)] });
 }
 export function closeSuggest(view: EditorView): void {
   if (suggestState(view.state)) view.dispatch({ effects: closeEffect.of(null) });

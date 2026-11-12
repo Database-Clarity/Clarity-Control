@@ -443,6 +443,11 @@ export function SuggestMenu({
             Close
           </button>
         </div>
+        {snapshot.aside && (
+          <p className={styles.aside} role="status" data-suggest-aside>
+            {snapshot.aside}
+          </p>
+        )}
         {note && (
           // First under the name, so a short phone sheet never scrolls the reason out of view. Announced
           // once Enter was refused; before that it is the reason the option is greyed.

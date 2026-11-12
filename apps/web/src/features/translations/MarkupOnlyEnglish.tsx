@@ -4,7 +4,7 @@ import { elementTagNames, findElementTags, type ElementTag } from '@clarity/core
 import { ReadingTooltip } from '../preview/ReadingTooltip';
 import { elementLabel } from '../editor/elementTags';
 import { linePairs, type IconPair } from '../editor/iconPairs';
-import { moveSuggest, openSuggest, suggestState } from '../editor/suggest/state';
+import { guideSuggest, openSuggest, suggestState } from '../editor/suggest/state';
 import { useShowEditor } from '../tooltip/VariantWorkspace';
 import previewStyles from '../preview/TooltipPreview.module.scss';
 import styles from './MarkupOnlyEnglish.module.scss';
@@ -124,31 +124,28 @@ export function MarkupOnlyEnglish({
     const pair = pairs[index]!;
     setNote(`${index + 1} of ${pairs.length}: “${pair.text}”`);
     showEditor();
-    // A hidden panel (the phone's Editor tab) lays out first, then takes the caret.
-    requestAnimationFrame(() => {
-      if (pair.spaced) {
-        // Grouping drops the space: the icon's popover offers it and asks.
+    const aside = `${index + 1} of ${pairs.length} in the translation`;
+    // A hidden panel (the phone's Editor tab, toggle mode's slot) lays out first, then takes the
+    // caret and the menu, so the menu is placed against the shown text.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        // Joined: the words selected, with Ctrl+Space on the element's wrap. Spaced: the caret at
+        // the words, with "Group with icon" (which asks before it drops the space).
         view.dispatch({
-          selection: { anchor: pair.iconFrom, head: pair.iconTo },
+          selection: pair.spaced ? { anchor: pair.from } : { anchor: pair.from, head: pair.to },
           scrollIntoView: true,
         });
         view.focus();
-        return;
-      }
-      view.dispatch({
-        selection: { anchor: pair.from, head: pair.to },
-        scrollIntoView: true,
-      });
-      view.focus();
-      openSuggest(view);
-      // Moved to the element's wrap once the menu has drawn, so its list scrolls to it.
-      requestAnimationFrame(() => {
-        const wrap = suggestState(view.state)?.items.findIndex(
-          (item) => item.wrap && item.id === `icon:${pair.element}`,
-        );
-        if (wrap !== undefined && wrap >= 0) moveSuggest(view, wrap, true);
-      });
-    });
+        openSuggest(view);
+        // Moved once the menu has drawn, so its list scrolls to the option.
+        requestAnimationFrame(() => {
+          const option = suggestState(view.state)?.items.findIndex((item) =>
+            pair.spaced ? item.group === 'spaced' : item.wrap && item.id === `icon:${pair.element}`,
+          );
+          if (option !== undefined && option >= 0) guideSuggest(view, option, aside);
+        });
+      }),
+    );
   }
 
   return (

@@ -105,11 +105,16 @@ it('"Tag the same words here" steps through the matching pairs in the translatio
     const menu = suggestState(view.state)!;
     expect(menu.items[menu.index]).toMatchObject({ id: 'icon:solar', wrap: true });
     expect(menu.items[menu.index]!.insert).toBe('<solar Glut />');
+    expect(menu.aside).toBe('1 of 2 in the translation');
     // Nothing changes until the translator decides.
     expect(view.state.doc.toString()).toContain('<solar/>Glut');
     step();
-    // The spaced pair: its icon is selected, where the popover offers "Group with icon".
-    expect(selected()).toBe('<solar/>');
+    // The spaced pair: the caret at its word, and the menu on "Group with icon" (it asks first).
+    expect(selected()).toBe('');
+    expect(view.state.selection.main.head).toBe(view.state.doc.toString().indexOf('Brand'));
+    const spaced = suggestState(view.state)!;
+    expect(spaced.items[spaced.index]).toMatchObject({ group: 'spaced' });
+    expect(spaced.aside).toBe('2 of 2 in the translation');
     expect(host.querySelector('[role="status"]')?.textContent).toContain('2 of 2');
     step();
     expect(selected()).toBe('Glut');

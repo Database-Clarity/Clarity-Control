@@ -222,6 +222,11 @@
   color: var(--warn);
 }
 
+// Progress in a longer task ("2 of 4 in the translation"): muted, above the detail.
+.aside {
+  color: var(--text2);
+}
+
 .keys {
   margin-top: auto;
   padding-top: 0.125rem;
