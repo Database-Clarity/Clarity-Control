@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { validateText, validateTextWithReads, validateTooltip } from './index.js';
+import {
+  derivedElementTagMessage,
+  elementTagMessage,
+  validateText,
+  validateTextWithReads,
+  validateTooltip,
+} from './index.js';
 
 const globals = {
   variables: 'var damage = 10',
@@ -171,5 +177,53 @@ describe('recorded validation reads', () => {
       {},
     );
     expect([...recorded.reads.variables]).toEqual(expect.arrayContaining(['missing', 'local']));
+  });
+});
+
+describe('element-tagged text save hold', () => {
+  it('blocks each tagged span with its range and the text to write for now', () => {
+    const text = 'Gain <solar Scorch /> and <void Void Breach />.';
+    expect(validateText(text, 'en', globals)).toEqual([
+      {
+        severity: 'error',
+        message: elementTagMessage('<solar Scorch />', '<solar/>Scorch'),
+        from: 5,
+        to: 21,
+      },
+      {
+        severity: 'error',
+        message: elementTagMessage('<void Void Breach />', '<void/>Void Breach'),
+        from: 26,
+        to: 46,
+      },
+    ]);
+    expect(elementTagMessage('<solar Scorch />', '<solar/>Scorch')).toBe(
+      `Element-tagged text "<solar Scorch />" can't be saved yet: apps would show only the icon. Write "<solar/>Scorch" for now.`,
+    );
+  });
+  it('blocks tagged spans in titles and translations, and leaves lowered text alone', () => {
+    expect(validateText('title T (\n<arc Jolt />\n)', 'en', globals)).toMatchObject([
+      { severity: 'error', from: 10, to: 22 },
+    ]);
+    expect(validateText('<stasis Langsam />', 'de', globals)).toMatchObject([
+      { severity: 'error' },
+    ]);
+    expect(validateText('Gain <solar/>Scorch and <solar /> stacks.', 'en', globals)).toEqual([]);
+  });
+  it('blocks tagged text that only appears once variables are applied', () => {
+    expect(validateText('var open = <solar\n#open Scorch />', 'en', globals)).toContainEqual(
+      expect.objectContaining({ severity: 'error', message: derivedElementTagMessage }),
+    );
+  });
+  it('stays blocking in an edited language through validateTooltip', () => {
+    const revision = { updatedAt: '2026-01-01T00:00:00.000Z', updatedBy: 'a' };
+    const next = {
+      hash: 10,
+      text: { en: { ...revision, text: 'Gain <solar Scorch />.' } },
+      associated: [],
+    } as never;
+    expect(validateTooltip(next, () => globals, null)).toMatchObject([
+      { severity: 'error', lang: 'en', hash: 10 },
+    ]);
   });
 });

@@ -479,6 +479,20 @@ $symbol: 0.75rem;
   @include icon('./assets/warlock.svg', contain);
 }
 
+// Element-tagged text (`<solar Scorch />`): the icon is its own span before the text, exactly as
+// in the lowered `<solar/>Scorch`, so the text span draws no second icon and only the tint changes
+// (no box, no layout shift). Tints are the --el-* theme tokens (AA light variants in ui/tokens).
+.elementText {
+  &::before {
+    content: none;
+  }
+  @each $element in (kinetic, arc, solar, void, stasis, strand) {
+    &.#{$element} {
+      color: var(--el-#{$element});
+    }
+  }
+}
+
 // Phones: the category line wraps at a large interface scale instead of being cut. The editor's
 // preview card runs full-bleed, its text on the page edge (owner 2026-11-10: nothing inset twice).
 @media (max-width: 700px) {

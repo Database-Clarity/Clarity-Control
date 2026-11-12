@@ -5,6 +5,7 @@ import {
   unfinishedBaseEnhanced,
   markupCommentContext,
   describeGlobalClash,
+  findElementTags,
   findGlobalNameClashes,
   globalTitlesHash,
   globalVariablesHash,
@@ -12,7 +13,7 @@ import {
   parseMarkup,
 } from '../markup/index.js';
 import { prepareMarkup } from '../markup/prepare.js';
-import type { MarkupGlobals } from '../markup/types.js';
+import type { MarkupGlobals, MarkupLine } from '../markup/types.js';
 import type { Tooltip } from '../schemas.js';
 import { glyphWarnings } from './glyphs.js';
 import { retiredWarnings } from './retired.js';
@@ -32,6 +33,30 @@ export interface TooltipValidationIssue extends ValidationIssue {
 }
 
 export const emptyEnglishMessage = 'English text must not be empty.';
+
+/**
+ * Save hold for element-tagged text until both exporters lower it: today's apps would show only
+ * the icon and drop the text. The Worker refuses the same spans (apps/worker/src/elementTags.ts).
+ */
+export function elementTagMessage(tag: string, lowered: string): string {
+  return `Element-tagged text "${tag}" can't be saved yet: apps would show only the icon. Write "${lowered}" for now.`;
+}
+export const derivedElementTagMessage =
+  "This text renders element-tagged text once variables, imports, or line tags are applied, and that can't be saved yet: apps would show only the icon.";
+
+function hasElementText(lines: readonly MarkupLine[]): boolean {
+  return lines.some((line) =>
+    [
+      ...(line.linesContent ?? []),
+      ...(line.table ?? [])
+        .flatMap((row) => row.rowContent ?? [])
+        .flatMap((cell) => cell.cellContent),
+    ].some(
+      (span) =>
+        span.classNames?.includes('elementText') || (span.title && hasElementText(span.title)),
+    ),
+  );
+}
 
 export interface ValidationReads {
   lang: Lang;
@@ -91,7 +116,18 @@ export function validateText(
   if (requireEnglish && lang === 'en' && !text.trim()) {
     add('error', emptyEnglishMessage);
   }
-  for (const diagnostic of parseMarkup(text, globals).diagnostics) {
+  const parsed = parseMarkup(text, globals);
+  const tags = findElementTags(text);
+  for (const tag of tags) {
+    issues.push({
+      severity: 'error',
+      message: elementTagMessage(text.slice(tag.from, tag.to), `<${tag.element}/>${tag.text}`),
+      from: tag.from,
+      to: tag.to,
+    });
+  }
+  if (!tags.length && hasElementText(parsed.lines)) add('error', derivedElementTagMessage);
+  for (const diagnostic of parsed.diagnostics) {
     if (diagnostic.message === baseEnhancedMessage && text.includes('{{')) {
       if (issues.some((issue) => issue.message === baseEnhancedMessage)) continue;
       const context = markupCommentContext(text);

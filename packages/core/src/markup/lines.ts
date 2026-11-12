@@ -1,3 +1,4 @@
+import { elementTagToken } from './elementTags.js';
 import {
   markupColors,
   markupEmpty,
@@ -70,7 +71,17 @@ function spans(line: string, titles: Record<string, MarkupLine[]>): MarkupSpan[]
           { text: text.replace(new RegExp(`<${wrapper} | />`, 'g'), ''), classNames: [wrapper] },
         ];
       }
-      if ([...markupIcons, ...markupEmpty].includes(wrapper)) return [{ classNames: [wrapper] }];
+      if ([...markupIcons, ...markupEmpty].includes(wrapper)) {
+        // `<solar Scorch />`: the icon, then its text in the element tint (an icon span first, so
+        // the layout matches the lowered `<solar/>Scorch`).
+        const tag = elementTagToken(text);
+        if (tag)
+          return [
+            { classNames: [tag.element] },
+            { text: tag.text, classNames: ['elementText', tag.element] },
+          ];
+        return [{ classNames: [wrapper] }];
+      }
       const target = text.match(/\[.+\]/)?.[0].replace(/\[|\]/g, '');
       const label = text.replace(/ \[.+\] \/>/g, '');
       if (!target || !label) return [];
