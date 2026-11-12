@@ -11,7 +11,7 @@ var optional = empty
 title Showcase (
 A title adds a definition on hover.
 )
-<bold Formatting options />
+<bold Bold text /> can cover part of a line.
 <bold/>This whole line is bold.
 <yellow Exotic names use yellow text. />
 <pve This text is PvE-only. />
@@ -25,8 +25,8 @@ An empty variable writes nothing here: #optional
 <title Hover for a definition [Showcase] />
 <link This text opens a web link [https://d2clarity.com] />
 
-• A bullet starts a list.
-• A blank line above adds a gap.
+• A bullet starts each list line.
+• The blank line above this list adds a gap.
 <kinetic/>Kinetic damage icon.
 <arc/>Arc damage icon.
 <solar/>Solar damage icon.
@@ -49,11 +49,11 @@ An empty variable writes nothing here: #optional
 <void Void-tagged text is tinted in the editor. />
 <stasis Stasis-tagged text is tinted in the editor. />
 <strand Strand-tagged text is tinted in the editor. />
-Exports apply the icon settings without the text tint.
+Exports apply the symbol settings without the text tint.
 enhanced (
 var d = 5
-Only enhanced perks show this section and its #e arrow.
-An enhanced formula adds 5 to the base 10: #e\${10+#d}.
+Only enhanced perks show this section.
+#e\${10+#d} is the enhanced value: base 10 plus 5.
 )
 export Showcase (
 An export shares this text with other tooltips.
