@@ -8,6 +8,7 @@ import {
   usesEnglishFallback,
   type Aliases,
   type Lang,
+  type MarkupSpan,
   type SandboxConflicts,
   type SandboxPick,
   type SandboxPointer,
@@ -23,9 +24,9 @@ export type Bucket = 'same-text' | 'name-match' | 'same-name' | 'suggest-none' |
 export type Kind = 'armour' | 'weapon' | 'catalyst' | 'frame' | 'subclass';
 
 export const bucketLabels: Record<Bucket, string> = {
-  'same-text': 'Same text after imports',
+  'same-text': 'Same text',
   'name-match': 'Name matches one',
-  'same-name': 'Same name, different text',
+  'same-name': 'Same name, other text',
   'suggest-none': 'Suggest no tooltip',
   judgement: 'Needs judgement',
 };
@@ -42,8 +43,6 @@ export interface Candidate {
   hash: number;
   name: string;
   categoryId: string;
-  /** First English line, for the Choose list. */
-  firstLine: string;
   hasText: boolean;
 }
 
@@ -160,7 +159,6 @@ export function buildRows(input: WorklistInput): SandboxRow[] {
         hash: canonical,
         name: own?.name ?? tooltip?.custom?.name ?? item?.name ?? String(canonical),
         categoryId: own?.categoryId ?? tooltip?.custom?.categoryId ?? item?.categoryId ?? '',
-        firstLine: firstLine(tooltip?.text.en?.text),
         hasText: Boolean(tooltip && hasTooltipText(tooltip)),
       });
     }
@@ -274,6 +272,50 @@ export function compiled(
         ...(form ? { type: form } : {}),
       }).lines,
     );
+  }
+  context.cache.set(key, result);
+  return result;
+}
+
+/**
+ * The first line a consumer sees for `hash` in English (base form), as plain text: imports and
+ * markup resolved, so the Choose list never shows raw tags. Computed only for an opened row.
+ */
+export function previewLine(hash: number, context: CompileContext): string {
+  const key = `${hash}:preview`;
+  const hit = context.cache.get(key);
+  if (hit !== undefined) return hit;
+  const text = context.tooltips[hash]?.text.en?.text ?? '';
+  let result = '';
+  if (text.trim()) {
+    const imports = tooltipImports(
+      context.tooltips as Record<string, Tooltip>,
+      {},
+      'en',
+      context.aliases,
+    );
+    const spans = (parts: readonly MarkupSpan[] = []) =>
+      parts.map((part) => part.text ?? '').join('');
+    for (const line of parseMarkup(text, {
+      imports,
+      variables: imports['2'] ?? '',
+      titles: imports['3'] ?? '',
+    }).lines) {
+      const plain = (
+        line.linesContent
+          ? spans(line.linesContent)
+          : (line.table ?? [])
+              .flatMap((row) => row.rowContent ?? [])
+              .map((cell) => spans(cell.cellContent))
+              .join(' ')
+      )
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (plain) {
+        result = plain;
+        break;
+      }
+    }
   }
   context.cache.set(key, result);
   return result;

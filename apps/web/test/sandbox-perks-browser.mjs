@@ -114,7 +114,44 @@ try {
           Math.round(b.getBoundingClientRect().height),
         ),
       );
+      // Text cut by an ellipsis, per row part (effect name/hash, candidates, decision, reason).
+      const cut = (element) => element.scrollWidth > element.clientWidth + 1;
+      const parts = ['name', 'bungie', 'candidates', 'count', 'decision', 'reason'];
+      const truncated = {};
+      for (const row of rows) {
+        const [effect, shared, decision] = row.children;
+        const lines = [...effect.children, ...shared.children, ...decision.children];
+        lines.forEach((line, index) => {
+          if (line.getClientRects().length && cut(line))
+            (truncated[parts[index]] ??= []).push(line.textContent);
+        });
+      }
+      // A select clips when its longest option is wider than its text box.
+      const canvas = document.createElement('canvas').getContext('2d');
+      const clippedSelects = [...article.querySelectorAll('select')].flatMap((select) => {
+        const style = window.getComputedStyle(select);
+        canvas.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+        const room =
+          select.clientWidth -
+          parseFloat(style.paddingLeft) -
+          parseFloat(style.paddingRight) -
+          (style.appearance === 'none' ? 0 : 20);
+        return [...select.options]
+          .filter((option) => canvas.measureText(option.textContent).width > room + 0.5)
+          .map((option) => option.textContent);
+      });
+      const rawPreviews = [...article.querySelectorAll('[data-state] label')]
+        .map((label) => label.textContent)
+        .filter((text) => /<[a-z/]|\[[A-Z]_/.test(text));
+      const hiddenPreviews = [...article.querySelectorAll('[data-state] label')].filter((label) => {
+        const last = label.querySelector('span > span:last-child');
+        return !last || last.getBoundingClientRect().height < 8;
+      }).length;
       return {
+        hiddenPreviews,
+        truncated,
+        clippedSelects,
+        rawPreviews,
         docOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
         articleOverflow: article.scrollWidth - article.clientWidth,
         wrappedControls: controls
@@ -207,6 +244,17 @@ try {
         `${result.name} ${state}: rows overflow their height`,
       );
       assert.equal(m.filterHeights.length, 1, `${result.name} ${state}: filter controls differ`);
+      assert.deepEqual(m.clippedSelects, [], `${result.name} ${state}: select text clipped`);
+      assert.deepEqual(m.rawPreviews, [], `${result.name} ${state}: raw markup in previews`);
+      assert.equal(m.hiddenPreviews, 0, `${result.name} ${state}: Choose previews not shown`);
+      // The hash and the reason are never cut; phones at 150 are judged for breakage only.
+      if (!(result.name.startsWith('390') && result.name.endsWith('150')))
+        for (const part of ['name', 'reason'])
+          assert.deepEqual(
+            m.truncated[part] ?? [],
+            [],
+            `${result.name} ${state}: ${part} truncated`,
+          );
       assert.ok(m.saveBarVisible, `${result.name} ${state}: save bar off screen`);
     }
   }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SandboxPointers } from '@clarity/core';
-import { buildRows, bulkCheck, effectivePick, matches, picksToSave } from './model';
+import { buildRows, bulkCheck, effectivePick, matches, picksToSave, previewLine } from './model';
 import { at, fixture } from './fixture.testSupport';
 
 describe('worklist rows', () => {
@@ -80,5 +80,16 @@ describe('compiled check for bulk accept', () => {
       { hash: '700', name: 'Haste', reason: 'compiled output differs (de, base)' },
       { hash: '702', name: 'Haste', reason: 'compiled output differs (de, enhanced)' },
     ]);
+  });
+});
+
+describe('Choose previews', () => {
+  it('show the rendered first line, imports resolved, never raw markup', () => {
+    const input = fixture();
+    const context = { tooltips: input.tooltips, aliases: input.aliases, cache: new Map() };
+    expect(previewLine(11, context)).toBe('Gain Haste.');
+    expect(previewLine(13, context)).toBe('Gain Haste.');
+    expect(previewLine(17, context)).toBe('Double dodge.');
+    expect(previewLine(404, context)).toBe('');
   });
 });

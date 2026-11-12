@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import type { SandboxConflicts, SandboxPick, SandboxPointers } from '@clarity/core';
 import { LoadingSkeleton, useSkeletonVisible } from '../../ui/Skeleton';
 import { VirtualList } from '../../ui/VirtualList';
-import { useMedia } from '../../ui/useMedia';
+import { compactQuery, phoneQuery, useMedia } from '../../ui/useMedia';
 import { apiUrl } from '../../services/api';
 import { errorMessage } from '../../services/http';
 import { categoryDisplay } from '../../services/categoryLabels';
@@ -24,6 +24,7 @@ import {
   kindLabels,
   matches,
   picksToSave,
+  previewLine,
   type BulkResult,
   type Bucket,
   type Kind,
@@ -61,7 +62,10 @@ export function SandboxPerksPage() {
   const data = useDataStore((state) => state.data);
   const perkText = useSandboxPerkText();
   const permitted = user?.role === 'maintainer';
-  const phone = useMedia('(max-width: 700px)');
+  const phone = useMedia(phoneQuery);
+  // Scale-aware: at UI 150 a 1280px window gets the compact (two-line) rows, like a 853px one.
+  const compact = useMedia(compactQuery);
+  const layout = phone ? 'phone' : compact ? 'compact' : 'wide';
   const [conflicts, setConflicts] = useState<SandboxConflicts | null>(null);
   const [saved, setSaved] = useState<LoadedSandboxPointers | null>(null);
   const [staged, setStaged] = useState<Staged>({});
@@ -127,6 +131,11 @@ export function SandboxPerksPage() {
     [rows, status, kind, query],
   );
   const stagedCount = Object.keys(staged).length;
+  // Bulk targets: shown rows not staged yet, minus the ones the last check skipped.
+  const bulkTargets = useMemo(() => {
+    const skipped = new Set(bulk?.skipped.map((row) => row.hash));
+    return shown.filter((row) => !Object.hasOwn(staged, row.hash) && !skipped.has(row.hash));
+  }, [shown, staged, bulk]);
 
   const stage = useCallback((hash: string, pick: SandboxPick | null) => {
     setStaged((current) => ({ ...current, [hash]: pick }));
@@ -188,7 +197,7 @@ export function SandboxPerksPage() {
 
   async function applyAllShown() {
     if (!data || !generatorAliases) return;
-    const candidates = shown.filter((row) => !Object.hasOwn(staged, row.hash));
+    const candidates = bulkTargets;
     setBusy(true);
     setBulk(null);
     setProgress({ done: 0, total: candidates.length });
@@ -211,17 +220,24 @@ export function SandboxPerksPage() {
     }
   }
 
+  // Fixed heights, matching the SCSS grid rows per layout (plus 0.875rem padding and border).
   const rowHeight = (row: SandboxRow) => {
-    const base = phone ? 6.375 : 3.625;
-    return row.hash === expanded ? base + 0.5 + (row.candidates.length + 1) * 2.5 : base;
+    const base = layout === 'phone' ? 7.75 : layout === 'compact' ? 5 : 3.625;
+    const choice = phone ? 2.75 : 2;
+    return row.hash === expanded ? base + 0.5 + (row.candidates.length + 1) * choice : base;
   };
+  const compileContext =
+    data && generatorAliases
+      ? { tooltips: data.bundle.tooltips, aliases: generatorAliases, cache: compileCache.current }
+      : null;
+  const preview = (hash: number) => (compileContext ? previewLine(hash, compileContext) : '');
 
   return (
-    <article className={styles.page}>
+    <article className={styles.page} data-layout={layout}>
       <h1>Sandbox perks</h1>
       <p className={styles.intro}>
-        Bungie effects shared by items with different tooltips. Point each one at a reviewed tooltip
-        or confirm “no tooltip”; changes apply only after saving.
+        Bungie effects shared by items with different tooltips: pick the tooltip each one shows, or
+        “no tooltip”. Nothing applies until you save.
       </p>
       {error && (
         <p role="alert" className={styles.alert}>
@@ -297,16 +313,17 @@ export function SandboxPerksPage() {
             <span className={styles.count} role="status">
               {shown.length} shown
             </span>
-            {status === 'same-text' && (
+            {status === 'same-text' && (progress || bulkTargets.length > 0) && (
               <button
                 type="button"
                 className={styles.bulk}
-                disabled={busy || !shown.some((row) => !Object.hasOwn(staged, row.hash))}
+                title="Stage the suggestion of every shown row not staged yet, after the compiled check"
+                disabled={busy}
                 onClick={() => void applyAllShown()}
               >
                 {progress
                   ? `Checking ${progress.done}/${progress.total}…`
-                  : `Apply all ${shown.filter((row) => !Object.hasOwn(staged, row.hash)).length} shown`}
+                  : `Apply all ${bulkTargets.length}`}
               </button>
             )}
           </div>
@@ -347,6 +364,7 @@ export function SandboxPerksPage() {
                   expanded={row.hash === expanded}
                   disabled={busy}
                   nameOf={nameOf}
+                  preview={preview}
                   onToggle={() =>
                     setExpanded((current) => (current === row.hash ? null : row.hash))
                   }
@@ -408,6 +426,7 @@ function Row({
   expanded,
   disabled,
   nameOf,
+  preview,
   onToggle,
   onStage,
   onUnstage,
@@ -417,6 +436,7 @@ function Row({
   expanded: boolean;
   disabled: boolean;
   nameOf(hash: number): string;
+  preview(hash: number): string;
   onToggle(): void;
   onStage(hash: string, pick: SandboxPick | null): void;
   onUnstage(hash: string): void;
@@ -434,11 +454,7 @@ function Row({
       : row.suggestion
         ? target(row.suggestion)
         : 'Choose a tooltip';
-  const source = isStaged
-    ? 'Staged'
-    : row.saved
-      ? 'Saved'
-      : `${row.suggestion ? 'Suggested · ' : ''}${bucketLabels[row.bucket]}`;
+  const source = isStaged ? 'Staged' : row.saved ? 'Saved' : bucketLabels[row.bucket];
   const more = row.candidates.length - shownCandidates;
   const name = row.name || '(no Bungie name)';
   const choiceName = `pick-${row.hash}`;
@@ -471,6 +487,10 @@ function Row({
           {decision}
         </span>
         <span className={`${styles.line} ${styles.meta}`}>
+          {!isStaged && !row.saved && row.suggestion && (
+            // Phones drop the prefix: an open row's target line is the suggestion.
+            <span className={styles.suggested}>Suggested · </span>
+          )}
           {source}
           {!isStaged && row.retired ? (
             <span className={styles.flag}> · No longer shared</span>
@@ -519,11 +539,15 @@ function Row({
                 checked={!!pick && 'to' in pick && pick.to === candidate.hash}
                 onChange={() => onStage(row.hash, { to: candidate.hash })}
               />
-              <span className={styles.line}>
-                <strong>{candidate.name}</strong>{' '}
-                <span className={styles.meta}>
-                  {categoryDisplay(candidate.categoryId).label} · {candidate.hash}
-                  {candidate.hasText ? ` · ${candidate.firstLine}` : ' · no text'}
+              <span className={styles.choiceText}>
+                <span className={styles.line}>
+                  <strong>{candidate.name}</strong>{' '}
+                  <span className={styles.meta}>
+                    {categoryDisplay(candidate.categoryId).label} · {candidate.hash}
+                  </span>
+                </span>
+                <span className={`${styles.line} ${styles.meta}`}>
+                  {candidate.hasText ? preview(candidate.hash) : 'No text'}
                 </span>
               </span>
             </label>
@@ -536,9 +560,11 @@ function Row({
               checked={!!pick && !('to' in pick)}
               onChange={() => onStage(row.hash, { none: true })}
             />
-            <span className={styles.line}>
-              <strong>No tooltip</strong>{' '}
-              <span className={styles.meta}>apps show Bungie’s text</span>
+            <span className={styles.choiceText}>
+              <span className={styles.line}>
+                <strong>No tooltip</strong>
+              </span>
+              <span className={`${styles.line} ${styles.meta}`}>Apps show Bungie’s text</span>
             </span>
           </label>
         </fieldset>

@@ -107,9 +107,9 @@ describe('Sandbox perks worklist', () => {
     await render();
     expect([...status().options].map((option) => option.textContent)).toEqual([
       'Open (7)',
-      'Same text after imports (3)',
+      'Same text (3)',
       'Name matches one (1)',
-      'Same name, different text (1)',
+      'Same name, other text (1)',
       'Suggest no tooltip (1)',
       'Needs judgement (1)',
       'Decided (0)',
@@ -183,7 +183,7 @@ describe('Sandbox perks worklist', () => {
   it('bulk-applies same-text rows after the compiled check and lists the skipped ones', async () => {
     await render();
     await choose(status(), 'same-text');
-    await click(button(container, 'Apply all 3 shown'));
+    await click(button(container, 'Apply all 3'));
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
@@ -192,6 +192,8 @@ describe('Sandbox perks worklist', () => {
     expect(container.textContent).toContain('702: compiled output differs (de, enhanced)');
     expect(row('701').dataset.state).toBe('staged');
     expect(row('700').dataset.state).toBe('open');
+    // Nothing left to apply: the skipped rows stay open, and the bulk button goes away.
+    expect(container.textContent).not.toContain('Apply all');
   });
 
   it('shows a stale revision with a reload, and blocks saving while the exporter lacks picks', async () => {
