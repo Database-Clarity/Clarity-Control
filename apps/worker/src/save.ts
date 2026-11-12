@@ -120,7 +120,8 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
         `${input.message}\n\nClarity-Changed: ${changed.join(';')}`,
         user,
       );
-      return json({ commit, tooltips });
+      // Explicit body time is readable cross-origin without exposing response headers.
+      return json({ commit, tooltips, savedAt: Date.now() });
     } catch (error) {
       if (!(error instanceof RefRace)) throw error;
     }
