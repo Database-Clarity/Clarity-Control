@@ -91,7 +91,11 @@ it('offers the English diff for an outdated translation, and for a current one o
     }) as Tooltip;
   const diff = { hash: 7, sourceUpdatedAt: source, current: 'Gain <solar Scorch />.' };
   expect(englishDiffFor(tooltip('Gain <solar Scorch />.'), 'de', 'current')).toEqual(diff);
-  expect(englishDiffFor(tooltip('Gain <solar/>Scorch.'), 'de', 'current')).toBeUndefined();
+  // Unwrapping the last tag leaves its icon: the comparison stays reachable (code review F3).
+  expect(englishDiffFor(tooltip('Gain <solar/>Scorch.'), 'de', 'current')).toMatchObject({
+    current: 'Gain <solar/>Scorch.',
+  });
+  expect(englishDiffFor(tooltip('Gain Scorch.'), 'de', 'current')).toBeUndefined();
   expect(englishDiffFor(tooltip('Gain <solar/>Scorch.'), 'de', 'outdated')).toMatchObject({
     current: 'Gain <solar/>Scorch.',
   });

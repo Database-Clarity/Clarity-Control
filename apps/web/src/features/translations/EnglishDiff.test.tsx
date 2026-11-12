@@ -60,3 +60,8 @@ it('says the English did not change when the source is the current text', async 
   expect(host.textContent).toContain('has not changed since this translation');
   expect(host.querySelector('[data-markup-only]')).toBeNull();
 });
+
+it('says "Markup only" after the last tag is unwrapped too', async () => {
+  await show('Gain <solar Scorch />.', 'Gain <solar/>Scorch.');
+  expect(host.querySelector('[data-markup-only]')?.textContent).toContain('Markup only:');
+});

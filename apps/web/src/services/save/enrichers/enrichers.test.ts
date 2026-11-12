@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Tooltip } from '@clarity/core';
+import { isMarkupOnly, translationStateOf, type Tooltip } from '@clarity/core';
+import { englishDiffFor } from '../../../features/translations/source';
 import type { Me } from '../../api';
 import type { Item } from '../../generator';
 import { enrichTooltip, saveEnrichers } from './index';
@@ -140,12 +141,39 @@ describe('markup-only edits (element tags)', () => {
     expect(result.bungieSnapshot).toBe(original.bungieSnapshot);
   });
 
-  it('untagging and changing the element are markup-only too', async () => {
+  it('untagging is markup-only; changing the element is a real change and stamps', async () => {
+    vi.useFakeTimers().setSystemTime(new Date(now));
     const taggedBefore = edit('en', 'Gain <solar Scorch />.');
-    for (const text of ['Gain <solar/>Scorch.', 'Gain <solar Scorch />.']) {
-      const result = await enrichTooltip({ before: taggedBefore, next: edit('en', text), user });
-      expect(result.text.en?.updatedAt).toBe(en.updatedAt);
-    }
+    const untagged = await enrichTooltip({
+      before: taggedBefore,
+      next: edit('en', 'Gain <solar/>Scorch.'),
+      user,
+    });
+    expect(untagged.text.en?.updatedAt).toBe(en.updatedAt);
+    // Another element lowers to another icon: the consumer text changes.
+    const changed = await enrichTooltip({
+      before: taggedBefore,
+      next: edit('en', 'Gain <arc Scorch />.'),
+      user,
+    });
+    expect(changed.text.en?.updatedAt).toBe(now);
+  });
+
+  it('unwrapping the last tag: the translation stays current and its pane offers the diff', async () => {
+    vi.useFakeTimers().setSystemTime(new Date(now));
+    const taggedBefore = edit('en', 'Gain <solar Scorch />.');
+    const saved = await enrichTooltip({
+      before: taggedBefore,
+      next: edit('en', 'Gain <solar/>Scorch.'),
+      user,
+    });
+    expect(translationStateOf(saved, 'fr').state).toBe('current');
+    expect(englishDiffFor(saved, 'fr', 'current')).toEqual({
+      hash: 10,
+      sourceUpdatedAt: en.updatedAt,
+      current: 'Gain <solar/>Scorch.',
+    });
+    expect(isMarkupOnly('Gain <solar Scorch />.', 'Gain <solar/>Scorch.')).toBe(true);
   });
 
   it('tagging a translation keeps its revision and its sourceUpdatedAt', async () => {

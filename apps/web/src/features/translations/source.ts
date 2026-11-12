@@ -50,10 +50,14 @@ export async function findTranslationSource(
   };
 }
 
+/** A standalone element icon (`<solar/>`): what unwrapping a tag leaves behind. */
+const elementIcon = /<(?:kinetic|arc|solar|void|stasis|strand) ?\/>/;
+
 /**
  * What the translation pane's English diff compares, or nothing: an outdated translation, and a
- * current one whose English holds element tags (tagging keeps the translation current, so only
- * the diff shows that the English markup changed since it was translated).
+ * current one whose English holds an element tag or an element icon. Tagging and untagging keep
+ * the translation current, and either side of such a markup-only change holds one of the two, so
+ * only the diff shows that the English markup changed since it was translated.
  */
 export function englishDiffFor(
   tooltip: Tooltip,
@@ -63,6 +67,7 @@ export function englishDiffFor(
   const english = tooltip.text.en?.text ?? '';
   const sourceUpdatedAt = tooltip.text[lang]?.sourceUpdatedAt;
   if (!sourceUpdatedAt || state === 'missing' || state === undefined) return undefined;
-  if (state === 'current' && !findElementTags(english).length) return undefined;
+  if (state === 'current' && !findElementTags(english).length && !elementIcon.test(english))
+    return undefined;
   return { hash: tooltip.hash, sourceUpdatedAt, current: english };
 }
