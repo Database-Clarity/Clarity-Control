@@ -140,7 +140,7 @@ export function skeletonLineWidths(
 }
 
 /** Once shown, a skeleton stays at least this long (ms), so it never only flashes. */
-export const skeletonMinimumMs = 400;
+export const skeletonMinimumMs = 200;
 type SkeletonClock = { shownAt?: number; holders: Set<symbol>; endFrame?: number };
 const SkeletonClockContext = createContext<SkeletonClock | undefined>(undefined);
 
