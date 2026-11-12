@@ -581,6 +581,25 @@ describe('tooltip finder combobox', () => {
     expect(field().value).toBe('Gamma helm');
   });
 
+  it('an open category list owns Shift+wheel: the item does not step under it', async () => {
+    await mount();
+    const shiftWheel = () =>
+      act(async () => {
+        window.dispatchEvent(
+          new WheelEvent('wheel', { shiftKey: true, deltaY: 100, bubbles: true, cancelable: true }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+    await act(async () => picker(host, 'Category')!.click());
+    expect(picker(host, 'Category')!.getAttribute('aria-expanded')).toBe('true');
+    await shiftWheel();
+    expect(route()).toBe('/t/10?lang=de');
+    // Closed again, Shift+wheel steps as before.
+    await act(async () => picker(host, 'Category')!.click());
+    await shiftWheel();
+    expect(route()).toBe('/t/11?lang=de');
+  });
+
   it('changing the category opens its first tooltip', async () => {
     await mount();
     await pickOption(picker(host, 'Category')!, 'weapons');

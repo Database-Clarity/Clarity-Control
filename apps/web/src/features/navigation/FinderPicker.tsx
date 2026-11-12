@@ -18,6 +18,7 @@ import {
 } from '../../ui/anchorPlacement';
 import { scaledPx } from '../../ui/scale';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
+import { useWorkspaceShortcutOwner } from '../../ui/interaction';
 import { FinderIcon } from './FinderIcon';
 import styles from './FinderPicker.module.scss';
 
@@ -71,6 +72,9 @@ export const FinderPicker = memo(function FinderPicker({
   const popup = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLUListElement>(null);
   const [open, setOpen] = useState(false);
+  // An open list owns the keyboard and the wheel: Shift+wheel stepping and the workspace
+  // shortcuts stand down until it closes.
+  useWorkspaceShortcutOwner(trigger, open);
   const options = sections.flatMap((section) => section.options);
   const selectedIndex = options.findIndex((option) => option.id === value);
   const selected = options[selectedIndex];

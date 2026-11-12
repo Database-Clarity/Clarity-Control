@@ -40,6 +40,8 @@ function afterPaint(show: () => void) {
 export const FinderIcon = memo(function FinderIcon({ icon }: { icon?: string }) {
   const url = finderIconUrl(icon);
   const [shown, setShown] = useState(false);
+  // A failure belongs to its URL: a recycled row that gets another icon shows it again.
+  const [failed, setFailed] = useState<string>();
   useEffect(() => {
     if (shown) return;
     let live = true;
@@ -50,16 +52,15 @@ export const FinderIcon = memo(function FinderIcon({ icon }: { icon?: string }) 
   }, [shown]);
   return (
     <span className={styles.icon} aria-hidden="true">
-      {shown && url && (
+      {shown && url && url !== failed && (
         <img
+          key={url}
           src={url}
           alt=""
           loading="lazy"
           decoding="async"
           draggable={false}
-          onError={(event) => {
-            event.currentTarget.style.visibility = 'hidden';
-          }}
+          onError={() => setFailed(url)}
         />
       )}
     </span>
