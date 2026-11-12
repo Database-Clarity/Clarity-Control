@@ -9,6 +9,8 @@ import styles from './Migrate.module.scss';
 
 type View =
   | { kind: 'checking' }
+  | { kind: 'unreadable' }
+  | { kind: 'cancelled' }
   | { kind: 'idle'; drafts: number }
   | { kind: 'waiting' }
   | { kind: 'sent' }
@@ -23,6 +25,7 @@ type View =
  */
 export function MovedPage() {
   const [view, setView] = useState<View>({ kind: 'checking' });
+  const [unreadable, setUnreadable] = useState<string[]>([]);
   const sent = useRef<Snapshot>();
   const sender = useRef<ReturnType<typeof startSender>>();
   const timer = useRef<number>();
@@ -34,16 +37,11 @@ export function MovedPage() {
     collectSnapshot(browserIO()).then(
       (collected) => {
         if (!live) return;
+        setUnreadable(collected.unreadable);
         const start = movedStart(collected);
         if (start.kind === 'redirect') window.location.replace(target);
         else if (start.kind === 'idle') setView({ kind: 'idle', drafts: start.drafts });
-        else
-          setView({
-            kind: 'error',
-            message:
-              'Some drafts in this browser cannot be read, so nothing was moved or removed. Open the new editor yourself if you want to continue.',
-            drafts: -1,
-          });
+        else setView({ kind: 'unreadable' });
       },
       // A browser that cannot read its drafts must not be redirected away from them.
       (error: unknown) =>
@@ -63,8 +61,7 @@ export function MovedPage() {
 
   const prepare = async (): Promise<string> => {
     const { snapshot, unreadable } = await collectSnapshot(browserIO());
-    if (unreadable.length)
-      throw new Error('Some local drafts cannot be read, so nothing was sent.');
+    setUnreadable(unreadable);
     sent.current = snapshot;
     const result = serializeSnapshot(snapshot, maxMessageChars);
     if (!result.ok || !result.text)
@@ -95,7 +92,12 @@ export function MovedPage() {
         setView({ kind: 'sent' });
       },
       onDone: (stored, unplaced) => setView({ kind: 'moved', stored, unplaced, confirming: false }),
-      onRefused: (message) => setView({ kind: 'error', message, drafts: -1 }),
+      onRefused: (message) =>
+        setView(
+          message === 'Cancelled on the new site.'
+            ? { kind: 'cancelled' }
+            : { kind: 'error', message, drafts: -1 },
+        ),
       onClosed: () =>
         setView({
           kind: 'error',
@@ -114,7 +116,7 @@ export function MovedPage() {
   const exportFile = async () => {
     try {
       const { snapshot, unreadable } = await collectSnapshot(browserIO());
-      if (unreadable.length) throw new Error('Some local drafts cannot be read.');
+      setUnreadable(unreadable);
       downloadSnapshot(snapshot, exportName());
     } catch (error) {
       setView({ kind: 'error', message: errorMessage(error), drafts: -1 });
@@ -137,16 +139,40 @@ export function MovedPage() {
     }
   };
 
+  const confirmedCount =
+    view.kind === 'moved'
+      ? Object.entries(view.stored).reduce(
+          (sum, [bucket, hashes]) =>
+            sum +
+            [...new Set(hashes)].filter((hash) =>
+              Object.hasOwn(sent.current?.buckets[bucket] ?? {}, hash),
+            ).length,
+          0,
+        )
+      : 0;
+
   return (
     <section className={styles.page} aria-labelledby="moved-title">
       <h1 id="moved-title">The editor has moved</h1>
       {view.kind === 'checking' && <p role="status">Checking for drafts in this browser…</p>}
+      {view.kind === 'unreadable' && (
+        <>
+          <p role="status">
+            There are no readable drafts in this browser. Nothing has been moved or removed.
+          </p>
+          <div className={styles.actions}>
+            <a className={styles.primary} href={target}>
+              Open new editor
+            </a>
+          </div>
+        </>
+      )}
       {view.kind === 'idle' && (
         <>
           <p>
             It now lives at <a href={target}>{newOrigin.replace('https://', '')}</a>. This browser
-            holds {view.drafts} unsaved draft{view.drafts === 1 ? '' : 's'}, which do not move on
-            their own.
+            holds {view.drafts} unsaved draft{view.drafts === 1 ? '' : 's'}, which{' '}
+            {view.drafts === 1 ? 'does not move on its own.' : 'do not move on their own.'}
           </p>
           <p className={styles.muted}>
             Moving copies them. Drafts already in the new editor are never replaced, and nothing is
@@ -176,22 +202,39 @@ export function MovedPage() {
           <p className={styles.muted}>
             Your drafts here are still in place. Remove them only once you have checked.
           </p>
+          {view.confirming && (
+            <p role="status">
+              Remove {confirmedCount} moved draft{confirmedCount === 1 ? '' : 's'} from this
+              browser? Only drafts you haven't edited will be removed. Edited drafts and unreadable
+              buckets are kept.
+            </p>
+          )}
           <div className={styles.actions}>
             {view.confirming ? (
               <>
-                <button type="button" className={styles.danger} onClick={() => void clear()}>
-                  Yes, remove the moved drafts here
-                </button>
-                <button type="button" onClick={() => setView({ ...view, confirming: false })}>
+                <button
+                  type="button"
+                  className={styles.primary}
+                  onClick={() => setView({ ...view, confirming: false })}
+                >
                   Keep them
+                </button>
+                <button type="button" className={styles.danger} onClick={() => void clear()}>
+                  Yes, remove moved drafts
                 </button>
               </>
             ) : (
               <>
-                <button type="button" onClick={() => setView({ ...view, confirming: true })}>
-                  Remove moved drafts from here…
+                <a className={styles.primary} href={target}>
+                  Open new editor
+                </a>
+                <button
+                  type="button"
+                  className={styles.danger}
+                  onClick={() => setView({ ...view, confirming: true })}
+                >
+                  Remove local copies…
                 </button>
-                <a href={target}>Open new editor</a>
               </>
             )}
           </div>
@@ -207,13 +250,18 @@ export function MovedPage() {
           </div>
         </>
       )}
-      {view.kind === 'error' && (
+      {(view.kind === 'error' || view.kind === 'cancelled') && (
         <>
-          <p role="alert" className={styles.error}>
-            {view.message}
+          <p
+            role={view.kind === 'cancelled' ? 'status' : 'alert'}
+            className={view.kind === 'error' ? styles.error : undefined}
+          >
+            {view.kind === 'cancelled'
+              ? 'Move cancelled. Nothing was changed; your drafts are still here.'
+              : view.message}
           </p>
           <div className={styles.actions}>
-            <button type="button" onClick={move}>
+            <button type="button" className={styles.primary} onClick={move}>
               Try again
             </button>
             <button type="button" onClick={() => void exportFile()}>
@@ -222,6 +270,23 @@ export function MovedPage() {
             <a href={target}>Open new editor</a>
           </div>
         </>
+      )}
+      {unreadable.length > 0 && (
+        <aside className={styles.buckets} aria-label="Unreadable draft buckets">
+          <p>
+            {unreadable.length} unreadable draft bucket{unreadable.length === 1 ? '' : 's'} will
+            stay untouched:
+          </p>
+          <ul>
+            {unreadable.map((bucket) => (
+              <li key={bucket}>
+                {bucket === 'tooltips'
+                  ? 'Tooltip drafts, signed out'
+                  : `Tooltip drafts, account ${bucket.slice('tooltips:user:'.length)}`}
+              </li>
+            ))}
+          </ul>
+        </aside>
       )}
     </section>
   );
