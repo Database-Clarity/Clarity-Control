@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 import {
   addFile,
   changedRows,
+  fileKey,
   fromConfig,
   isDirty,
   rebase,
@@ -257,6 +258,25 @@ describe('G-ROUNDTRIP', () => {
     expect((next.config.files[0] as StyleFile).format.symbols.arc).toEqual({ mode: 'drop' });
     expect((next.config.files[1] as StyleFile).data.languages).toEqual(['en', 'fr']);
     expect(isDirty(next)).toBe(true);
+  });
+
+  it('a page file without a uid is the stored file the server created with its id', () => {
+    const config = fixtures().find((candidate) => candidate.id === 'styles-lines')!;
+    let state = fromConfig({ ...config, files: config.files.slice(0, 1) }, 'a'.repeat(40));
+    state = addFile(state);
+    const added = state.config.files[1]!;
+    // The server stored the page's own save: the new file now has a uid.
+    const stored = { ...state.config, files: [state.config.files[0]!, { ...added, uid: uid(77) }] };
+    const unchanged = rebase(state, stored, 'b'.repeat(40));
+    expect(unchanged.config.files.map((file) => file.uid)).toEqual([uid(30), uid(77)]);
+    expect(isDirty(unchanged)).toBe(false);
+    // Edited since (same id): the edit stays, on the stored uid, with no second copy.
+    const edited = toggleData(state, fileKey(added), 'languages', ['de'], true);
+    const kept = rebase(edited, stored, 'b'.repeat(40));
+    expect(kept.config.files).toHaveLength(2);
+    expect(kept.config.files[1]).toMatchObject({ id: 'descriptions', uid: uid(77) });
+    expect((kept.config.files[1] as StyleFile).data.languages).toContain('de');
+    expect(isDirty(kept)).toBe(true);
   });
 
   it('migrates schema n -> n+1 on load and refuses unknown keys', () => {

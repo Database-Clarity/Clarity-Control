@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
+import { parseMarkup } from '@clarity/core';
 import { deployedLegacyPresets, legacyPresets, newStyleFile, styles } from '@clarity/export';
 import type { ExportFile } from '@clarity/export/config';
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -172,6 +173,46 @@ describe('G-PREVIEW', () => {
       expect(numbers.changed).toBe(0);
     }
     expect(legacyPresets).toContain('clarityV2');
+  }, 120_000);
+
+  it('published data carries each row’s type: enhanced parts render as the engine renders them', async () => {
+    const preview = new Preview(io(), await loadSnapshot(io(), site, status), { site, liveRaw });
+    const published = preview.published('en');
+    // Enhanced Box Breathing imports its base perk's text; the type picks the enhanced part.
+    expect(published.types['23371658']).toBe('Weapon Trait Enhanced');
+    const render = (hash: string, type?: string) =>
+      JSON.stringify(
+        parseMarkup(published.texts[hash]!, {
+          variables: published.variables,
+          titles: published.titles,
+          imports: published.texts,
+          type,
+        }).lines,
+      );
+    expect(render('23371658', published.types['23371658'])).toContain('1.4');
+    expect(render('23371658', published.types['23371658'])).not.toBe(render('23371658'));
+    // Alias stubs: their own type replaces the canonical's (expandAliases), else they inherit it.
+    const perks = (input as { perks: Record<string, unknown> }).perks;
+    const aliased = {
+      ...(input as object),
+      perks: {
+        ...perks,
+        '900000001': { hash: 900000001, aliasOf: 2551157718, type: 'Weapon Trait Enhanced' },
+        '900000002': { hash: 900000002, aliasOf: 2551157718 },
+      },
+    };
+    const snapshot = await loadSnapshot(io(), site, status);
+    const withAliases = new Preview(
+      io(),
+      { ...snapshot, input: aliased as never },
+      {
+        site,
+        liveRaw,
+      },
+    ).published('en');
+    expect(withAliases.types['900000001']).toBe('Weapon Trait Enhanced');
+    expect(withAliases.types['900000002']).toBe('Weapon Trait');
+    expect(withAliases.texts['900000001']).toBe(withAliases.texts['2551157718']);
   }, 120_000);
 
   it('refuses a snapshot file or live file that does not match', async () => {

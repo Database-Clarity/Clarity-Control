@@ -9,11 +9,10 @@ import { useDataStore } from '../../stores/data';
 import { When } from '../../ui/When';
 import { classifiedCategory, editorName, itemFor, previewPiece } from '../navigation/catalog';
 import { TooltipPreview } from '../preview';
+import type { Published } from './previewCore';
 import { recentPicks, rememberPick, TooltipSearch, type Pick } from './TooltipSearch';
 import { usePreview, useSiteRefresh, useSiteStore } from './useSite';
 import styles from './Exports.module.scss';
-
-type Published = { variables: string; titles: string; texts: Record<string, string> };
 
 export function TooltipsPage() {
   useSiteRefresh();
@@ -58,6 +57,11 @@ export function TooltipsPage() {
   };
   const item = data && hash ? itemFor(Number(hash), data) : undefined;
   const text = hash && globals ? (published?.value.texts[hash] ?? null) : null;
+  // The row's own semantic type, as the export engine renders it (enhanced parts and the like).
+  const typed = useMemo(
+    () => (globals && hash ? { ...globals, type: published?.value.types[hash] } : globals),
+    [globals, hash, published],
+  );
 
   return (
     <section className={styles.tooltipsPage} aria-labelledby="tooltips-title">
@@ -141,7 +145,7 @@ export function TooltipsPage() {
               piece={item ? previewPiece(item) : undefined}
               icon={item?.icon}
               categoryLabel={item && data ? classifiedCategory(item, data)?.label : undefined}
-              globals={globals}
+              globals={typed!}
             />
           )}
         </div>

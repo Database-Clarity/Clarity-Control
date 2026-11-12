@@ -102,6 +102,16 @@ export type SampleResult =
   | { kind: 'absent'; reason: string }
   | { kind: 'error'; message: string };
 
+/** One language of the published data (the partner Tooltips view). */
+export interface Published {
+  variables: string;
+  titles: string;
+  /** Main text per hash (aliases: their canonical's); also the renderer's imports map. */
+  texts: Record<string, string>;
+  /** Semantic type per hash, for type-conditioned markup. */
+  types: Record<string, string>;
+}
+
 export interface FileNumbers {
   entries: number;
   raw: number;
@@ -318,22 +328,23 @@ export class Preview {
 
   /**
    * The published markup of one language (the partner Tooltips view): every hash's main text,
-   * aliases resolved to their canonical's, which is also the imports map the renderer needs.
+   * aliases resolved to their canonical's, which is also the imports map the renderer needs; and
+   * every hash's semantic type (type-conditioned markup such as enhanced parts), an alias's own
+   * type replacing its canonical's, exactly as the engine's expandAliases does.
    */
-  published(language: string): {
-    variables: string;
-    titles: string;
-    texts: Record<string, string>;
-  } {
+  published(language: string): Published {
     const { perks } = this.snapshot.input;
     const texts: Record<string, string> = {};
+    const types: Record<string, string> = {};
     for (const [hash, perk] of Object.entries(perks)) {
       const source = 'aliasOf' in perk ? perks[String(perk.aliasOf)] : perk;
       if (!source || 'aliasOf' in source) continue;
       const editor = source.editor as Record<string, { main: string } | undefined>;
       texts[hash] = editor[language]?.main ?? '';
+      const type = (perk as { type?: string }).type ?? source.type;
+      if (type !== undefined) types[hash] = type;
     }
-    return { variables: texts[2] ?? '', titles: texts[3] ?? '', texts };
+    return { variables: texts[2] ?? '', titles: texts[3] ?? '', texts, types };
   }
 
   /** The bytes a full build makes (G-PREVIEW compares them with build-site's). */

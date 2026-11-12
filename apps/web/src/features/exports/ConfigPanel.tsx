@@ -62,6 +62,7 @@ export function ConfigPanel({
   projectId,
   onChange,
   onRemoved,
+  onRenamed,
 }: {
   state: ProjectState;
   file: ExportFile;
@@ -70,18 +71,22 @@ export function ConfigPanel({
   projectId: string;
   onChange(next: (state: ProjectState) => ProjectState): void;
   onRemoved(): void;
+  /** The file's new id, in the same update as the rename (the tab and URL follow it). */
+  onRenamed(id: string): void;
 }) {
   const update: Update = onChange;
   return (
     <div className={styles.config}>
-      {/* Keyed by the file: a pending id never carries over to another file's tab. */}
+      {/* Keyed by the tab: a pending id never carries over to another file, and a rename (which
+          changes an unsaved file's key) keeps the field mounted and focused. */}
       <FileSection
-        key={key}
+        key={state.config.files.indexOf(file)}
         state={state}
         file={file}
         fileKey={key}
         update={update}
         onRemoved={onRemoved}
+        onRenamed={onRenamed}
       />
       {isLegacyFile(file) ? (
         <LegacyNote preset={file.preset} />
@@ -132,12 +137,14 @@ function FileSection({
   fileKey: key,
   update,
   onRemoved,
+  onRenamed,
 }: {
   state: ProjectState;
   file: ExportFile;
   fileKey: string;
   update: Update;
   onRemoved(): void;
+  onRenamed(id: string): void;
 }) {
   const [draftId, setDraftId] = useState<string | null>(null);
   const idValue = draftId ?? file.id;
@@ -151,7 +158,10 @@ function FileSection({
   // field always ends up showing the id the config holds.
   const commitId = (leaving: boolean) => {
     if (draftId === null) return;
-    if (!idProblem && draftId !== file.id) update((current) => renameFile(current, key, draftId));
+    if (!idProblem && draftId !== file.id) {
+      update((current) => renameFile(current, key, draftId));
+      onRenamed(draftId);
+    }
     if (!idProblem || leaving) setDraftId(null);
   };
   const saved = state.saved.files.some((other) => other.uid && other.uid === file.uid);

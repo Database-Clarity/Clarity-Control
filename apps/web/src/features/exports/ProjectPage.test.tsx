@@ -220,6 +220,86 @@ describe('ProjectPage state', () => {
     expect(tab('a1')).toBeDefined();
   });
 
+  const addButton = () =>
+    [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (el) => el.textContent === '+ File',
+    )!;
+  /** The submitted config as the Worker stores it: new files get a uid. */
+  const stored = (index: number) => {
+    const config = structuredClone(calls.save[index]!.config) as ExportConfig;
+    config.files = config.files.map((file, n) => ({ ...file, uid: file.uid ?? uid(70 + n) }));
+    return config;
+  };
+
+  it('re-check F1: a save that lands after leaving reaches the project when it comes back', async () => {
+    await open('/exports/pe');
+    await resolveLoad(0, project('pe', 'Project E', 1));
+    await click(addButton());
+    expect(tab('descriptions')).toBeDefined();
+    await click(saveButton()!);
+    await act(async () => navigate('/exports/pf'));
+    await resolveLoad(
+      calls.load.findIndex((call) => call.id === 'pf'),
+      project('pf', 'Project F'),
+    );
+    const config = stored(0);
+    await act(async () =>
+      calls.save[0]!.resolve({
+        kind: 'saved',
+        revision: 's'.repeat(40),
+        config,
+        commit: null,
+      } satisfies SaveOutcome),
+    );
+    await act(async () => navigate('/exports/pe'));
+    const back = calls.load.map((call) => call.id).lastIndexOf('pe');
+    await resolveLoad(back, { ...project('pe', 'Project E'), revision: 's'.repeat(40), config });
+    const ids = [...host.querySelectorAll('[role="tab"]')].map((el) => el.textContent);
+    expect(ids).toEqual(['a1', 'descriptions']);
+    expect(saveButton()!.disabled).toBe(true);
+    expect(q('[role="alert"]')).toBeNull();
+  });
+
+  it('re-check F1: coming back while the save is on its way waits for its reply', async () => {
+    await open('/exports/pg');
+    await resolveLoad(0, project('pg', 'Project G', 1));
+    await click(addButton());
+    await click(saveButton()!);
+    await act(async () => navigate('/exports/ph'));
+    await act(async () => navigate('/exports/pg'));
+    expect(calls.load.filter((call) => call.id === 'pg')).toHaveLength(1);
+    expect(saveButton()!.textContent).toBe('Saving…');
+    expect(q('#export-file-panel')!.hasAttribute('inert')).toBe(true);
+    const config = stored(0);
+    await act(async () =>
+      calls.save[0]!.resolve({
+        kind: 'saved',
+        revision: 's'.repeat(40),
+        config,
+        commit: null,
+      } satisfies SaveOutcome),
+    );
+    expect([...host.querySelectorAll('[role="tab"]')].map((el) => el.textContent)).toEqual([
+      'a1',
+      'descriptions',
+    ]);
+    expect(saveButton()!.disabled).toBe(true);
+    expect(q('#export-file-panel')!.hasAttribute('inert')).toBe(false);
+  });
+
+  it('re-check F2: renaming an unsaved file keeps its tab and the URL follows', async () => {
+    await open('/exports/pi');
+    await resolveLoad(0, project('pi', 'Project I', 1));
+    await click(addButton());
+    expect(tab('descriptions')!.getAttribute('aria-selected')).toBe('true');
+    const field = idField();
+    await typeId('fresh');
+    await key(field, 'Enter');
+    expect(tab('fresh')!.getAttribute('aria-selected')).toBe('true');
+    expect(location).toBe('/exports/pi?file=fresh');
+    expect(idField()).toBe(field);
+  });
+
   it('F5: Old URLs stay manageable with no active file', async () => {
     await open('/exports/p5');
     const loaded = project('p5', 'Five', 0);

@@ -269,8 +269,19 @@ export function rebase(state: ProjectState, stored: ExportConfig, revision: stri
     return !before || JSON.stringify(before) !== JSON.stringify(file);
   };
   const files: ExportFile[] = [];
+  // Files the store has that the page's saved copy does not: created since (by this page's own
+  // save, or someone else's). A page file without a uid and the same id is that file.
+  const created = stored.files.filter(
+    (fresh) => fresh.uid && !state.saved.files.some((file) => file.uid === fresh.uid),
+  );
   for (const file of state.config.files) {
-    if (changed(file)) files.push(file);
+    const twin = !file.uid && created.find((fresh) => fresh.id === file.id);
+    if (twin) {
+      const bare = JSON.stringify(twin, (name, value: unknown) =>
+        name === 'uid' ? undefined : value,
+      );
+      files.push(bare === JSON.stringify(file) ? twin : { ...file, uid: twin.uid });
+    } else if (changed(file)) files.push(file);
     else {
       const fresh = stored.files.find((candidate) => file.uid && candidate.uid === file.uid);
       if (fresh) files.push(fresh);

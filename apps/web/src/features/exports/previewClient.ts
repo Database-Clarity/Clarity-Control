@@ -2,7 +2,7 @@
 // read): one answers samples, the other runs whole-file builds, so a sample never waits behind a
 // full build (spec section 8, snappiness).
 import type { ExportFile } from '@clarity/export';
-import type { FileNumbers, LiveRef, SampleResult } from './previewCore';
+import type { FileNumbers, LiveRef, Published, SampleResult } from './previewCore';
 import type { PreviewReply, PreviewRequest } from './previewWorker';
 import { dataSiteUrl, liveRawUrl, type BuildStatus } from './site';
 
@@ -112,9 +112,7 @@ export class PreviewClient {
 
   published(language: string) {
     return this.ready.then(() =>
-      this.samples.request<{ variables: string; titles: string; texts: Record<string, string> }>(
-        (id) => ({ type: 'published', id, language }),
-      ),
+      this.samples.request<Published>((id) => ({ type: 'published', id, language })),
     );
   }
 

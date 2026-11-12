@@ -10,7 +10,7 @@ import { useAuthStore } from '../../stores/auth';
 import { PaneDivider } from '../../ui/PaneDivider';
 import { usePaneDivider } from '../../ui/usePaneDivider';
 import { useMedia } from '../../ui/useMedia';
-import { ExportsError, loadProject, saveProject } from './api';
+import { ExportsError, loadProject, saveProject, type SaveOutcome } from './api';
 import { FileBuildStatus } from './BuildStatus';
 import { ConfigPanel, RetainedSection } from './ConfigPanel';
 import { addFile, fileKey, fromConfig, isDirty, rebase, type ProjectState } from './configModel';
@@ -28,6 +28,29 @@ export const narrowQuery = '(max-width: 899px)';
  */
 const sessionEdits = new Map<string, ProjectState>();
 const anyDirty = () => [...sessionEdits.values()].some(isDirty);
+
+/** Saves on their way, per scope: a page that comes back while one is pending waits for it. */
+const pendingSaves = new Map<string, Promise<SaveOutcome>>();
+
+/**
+ * Sends a save. Its reply always lands in the scope's cache (the page may have been left), so a
+ * stored config never meets a draft that predates it; the page itself applies it if still open.
+ */
+function startSave(scope: string, id: string, state: ProjectState): Promise<SaveOutcome> {
+  const pending = saveProject(id, state.revision, state.config)
+    .catch((error: unknown): SaveOutcome => ({ kind: 'refused', message: errorMessage(error) }))
+    .then((outcome) => {
+      pendingSaves.delete(scope);
+      if (outcome.kind === 'saved')
+        sessionEdits.set(scope, {
+          ...fromConfig(outcome.config, outcome.revision),
+          memory: sessionEdits.get(scope)?.memory ?? state.memory,
+        });
+      return outcome;
+    });
+  pendingSaves.set(scope, pending);
+  return pending;
+}
 
 type Loaded =
   { kind: 'loading' } | { kind: 'error'; message: string; status?: number } | { kind: 'ready' };
@@ -74,6 +97,7 @@ function ProjectView({ id, scope }: { id: string; scope: string }) {
     [scope],
   );
   const [save, setSave] = useState<SaveState>({ kind: 'idle' });
+  const [now, setNow] = useState(() => Date.now());
 
   // Completions land only on this page instance, and only from the latest load.
   const alive = useRef(true);
@@ -114,10 +138,47 @@ function ProjectView({ id, scope }: { id: string; scope: string }) {
     },
     [id, scope],
   );
+  // A save's reply (from this page instance or an earlier one of the same scope).
+  const finishSave = useCallback(
+    async (pending: Promise<SaveOutcome>) => {
+      setSave({ kind: 'saving' });
+      const outcome = await pending;
+      if (!alive.current) return;
+      if (outcome.kind === 'saved') {
+        // startSave already wrote the stored config into this scope's cache.
+        setStateRaw(sessionEdits.get(scope) ?? null);
+        setSave({ kind: 'saved' });
+        void refreshSite();
+        return;
+      }
+      if (outcome.kind === 'conflict') {
+        // Reload the stored config and keep the edits on top; the person saves again.
+        await load(true);
+        if (!alive.current) return;
+        setSave({ kind: 'conflict', message: outcome.message });
+        return;
+      }
+      if (outcome.kind === 'cooldown') {
+        setSave({
+          kind: 'cooldown',
+          until: Date.now() + outcome.retryAfter * 1000,
+          message: outcome.message,
+        });
+        setNow(Date.now());
+        return;
+      }
+      setSave(outcome);
+    },
+    [load, refreshSite, scope],
+  );
+
   useEffect(() => {
+    // Back on a project whose save is still on its way: its reply brings the stored config.
+    const pending = pendingSaves.get(scope);
+    if (pending) void finishSave(pending);
     // A kept session edit is rebased on the stored config, so a stale base is found at once.
-    void load(sessionEdits.has(scope));
-  }, [scope, load]);
+    else void load(sessionEdits.has(scope));
+  }, [scope, load, finishSave]);
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
@@ -130,7 +191,6 @@ function ProjectView({ id, scope }: { id: string; scope: string }) {
   }, []);
 
   // Cooldown countdown (429): Save comes back by itself when the wait is over.
-  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (save.kind !== 'cooldown') return;
     const timer = window.setInterval(() => {
@@ -143,18 +203,21 @@ function ProjectView({ id, scope }: { id: string; scope: string }) {
   const files = state?.config.files ?? [];
   const fileParam = params.get('file');
   // The URL names the file by id (none: the first file). When the named id is gone because the
-  // shown file was just renamed, the tab stays by the file's identity (fileKey).
-  const shownKey = useRef<string | null>(null);
+  // shown file was just renamed (the URL update arrives in a later render), the tab stays: by
+  // the file's identity (a saved file's uid), else by its place (an unsaved file's key is its id).
+  const shown = useRef<{ key: string | null; index: number }>({ key: null, index: -1 });
   const file =
     fileParam === null
       ? files[0]
       : (files.find((candidate) => candidate.id === fileParam) ??
-        files.find((candidate) => fileKey(candidate) === shownKey.current) ??
+        files.find((candidate) => fileKey(candidate) === shown.current.key) ??
+        (files[shown.current.index]?.uid ? undefined : files[shown.current.index]) ??
         files[0]);
   const key = file ? fileKey(file) : null;
+  const index = file ? files.indexOf(file) : -1;
   useEffect(() => {
-    shownKey.current = key;
-  }, [key]);
+    shown.current = { key, index };
+  }, [key, index]);
   const view = narrow && params.get('view') === 'preview' ? 'preview' : 'config';
 
   const setParam = useCallback(
@@ -201,40 +264,9 @@ function ProjectView({ id, scope }: { id: string; scope: string }) {
   // The config is read-only while a save is on its way, so no edit can land between the request
   // and its reply (the reply's config replaces the page's).
   const saving = save.kind === 'saving';
-  const onSave = async () => {
+  const onSave = () => {
     if (!state || !dirty || invalid || saving) return;
-    setSave({ kind: 'saving' });
-    const outcome = await saveProject(id, state.revision, state.config).catch((error: unknown) => ({
-      kind: 'refused' as const,
-      message: errorMessage(error),
-    }));
-    if (!alive.current) return;
-    if (outcome.kind === 'saved') {
-      setState((current) => ({
-        ...fromConfig(outcome.config, outcome.revision),
-        memory: current.memory,
-      }));
-      setSave({ kind: 'saved' });
-      void refreshSite();
-      return;
-    }
-    if (outcome.kind === 'conflict') {
-      // Reload the stored config and keep the edits on top; the person saves again.
-      await load(true);
-      if (!alive.current) return;
-      setSave({ kind: 'conflict', message: outcome.message });
-      return;
-    }
-    if (outcome.kind === 'cooldown') {
-      setSave({
-        kind: 'cooldown',
-        until: Date.now() + outcome.retryAfter * 1000,
-        message: outcome.message,
-      });
-      setNow(Date.now());
-      return;
-    }
-    setSave(outcome);
+    void finishSave(startSave(scope, id, state));
   };
 
   if (loaded.kind === 'error' && !state)
@@ -379,6 +411,7 @@ function ProjectView({ id, scope }: { id: string; scope: string }) {
         projectId={id}
         onChange={setState}
         onRemoved={() => setParam('file', null, true)}
+        onRenamed={(renamed) => setParam('file', renamed, true)}
       />
     ) : (
       // Old URLs stay manageable with no file left (an expired one can free a slot).
