@@ -4,10 +4,12 @@ import type { Bundle } from '../services/bundle';
 /**
  * Tab memory of tooltips this tab saved. bundle.json is rebuilt by CI and cached by the CDN, so a
  * reload shortly after a save/push can return pre-save text. load() applies this overlay on top
- * of the fetched bundle until the fetched copy has caught up (identical) or the entry is older
+ * of the fetched bundle until the fetched copy has caught up (identical or demonstrably newer) or the entry is older
  * than the TTL, so newer edits by other people still show up. A full page reload clears it.
  */
 export const overlayTtlMs = 15 * 60 * 1000;
+// Allow one minute for browser/CI clock differences before trusting bundle chronology.
+export const overlayClockSkewMs = 60 * 1000;
 type Entry = { at: number; tooltip: Tooltip | null }; // null = deleted
 const entries = new Map<number, Entry>();
 
@@ -21,13 +23,14 @@ export function clearSavedOverlay(): void {
 }
 
 export function applySavedOverlay(bundle: Bundle, now = Date.now()): Bundle {
+  const generatedAt = Date.parse(bundle.generatedAt);
   let tooltips = bundle.tooltips;
   for (const [hash, entry] of [...entries]) {
     const fetched = bundle.tooltips[hash];
     const caughtUp = entry.tooltip
       ? fetched !== undefined && stableStringify(fetched) === stableStringify(entry.tooltip)
       : fetched === undefined;
-    if (caughtUp || now - entry.at > overlayTtlMs) {
+    if (caughtUp || generatedAt > entry.at + overlayClockSkewMs || now - entry.at > overlayTtlMs) {
       entries.delete(hash);
       continue;
     }
