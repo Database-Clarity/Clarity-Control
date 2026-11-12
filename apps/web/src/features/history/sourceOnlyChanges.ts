@@ -5,7 +5,6 @@ import {
   markupLineClasses,
   markupDefinitions,
   extractBlocks,
-  extractVariables,
   parseMarkup,
   scanBaseEnhanced,
   type MarkupGlobals,
@@ -195,12 +194,13 @@ interface InlineToken {
 /**
  * Where production renders source as itself. `context` is 1 outside hidden or
  * transformed regions (comments, definitions, conditions, native pairs, tables,
- * construct lines, math, and lines whose references carry markup); `tokens`
+ * construct lines, math, lines with a variable reference, and lines with a
+ * stray tag); `tokens`
  * lists the inline tags, which render only as their own spans. Deliberately
  * conservative: a wrong 0 or null only costs a redundant marker, never a
  * vanished edit.
  */
-function sourceContext(text: string, globals: MarkupGlobals) {
+function sourceContext(text: string) {
   const context = new Uint8Array(text.length).fill(1);
   const tokens: InlineToken[] = [];
   const clear = (from: number, to: number) => context.fill(0, Math.max(0, from), to);
@@ -217,26 +217,25 @@ function sourceContext(text: string, globals: MarkupGlobals) {
   for (const pattern of blocks)
     for (const match of clean.text.matchAll(pattern)) cleanRange(match.index, match[0].length);
   for (const pair of scanBaseEnhanced(clean.text).pairs) cleanRange(pair.from, pair.to - pair.from);
-  // A reference whose value carries markup could wrap neighbouring text in a tag.
-  const values = { ...extractVariables(text), ...extractVariables(globals.variables) };
   let start = 0;
   for (const line of text.split('\n')) {
     const end = start + line.length;
-    const markupValue = (line.match(/#[a-zA-Z0-9]+/g) ?? []).some((reference) => {
-      const value = values[reference.slice(1)];
-      return value === undefined || markupCharacters.test(value);
-    });
-    if (markupValue || constructLines.some((pattern) => pattern.test(line))) clear(start, end + 1);
+    // A reference's value can change with another hunk (a declaration, global,
+    // or import) and cancel or supply words on its line, so a line holding one
+    // never proves an edit. Neither do construct lines.
+    if (/#[a-zA-Z0-9]/.test(line) || constructLines.some((pattern) => pattern.test(line)))
+      clear(start, end + 1);
     for (const match of line.matchAll(/\$\{.+?\}/g))
       clear(start + match.index, start + match.index + match[0].length);
-    // Production lifts the first marker of each line class off the line (a
-    // changed class marks the line's structure token), then reads inline tags.
+    // Production lifts the first marker of each line class off the line, then
+    // reads inline tags. A class change shares its line's structure token with
+    // any break change on that line, so it cannot own the mark: always flagged.
     let scan = line;
     for (const name of markupLineClasses) {
       const marker = `<${name}/>`,
         index = scan.indexOf(marker);
       if (index < 0) continue;
-      tokens.push({ from: start + index, to: start + index + marker.length, expect: ['¶'] });
+      tokens.push({ from: start + index, to: start + index + marker.length, expect: null });
       scan = scan.slice(0, index) + ' '.repeat(marker.length) + scan.slice(index + marker.length);
     }
     for (const match of scan.matchAll(/<.+?\/>/g)) {
@@ -268,10 +267,31 @@ function sourceContext(text: string, globals: MarkupGlobals) {
           ],
         });
       else tokens.push({ from, to, expect: null });
+      scan =
+        scan.slice(0, match.index) +
+        ' '.repeat(source.length) +
+        scan.slice(match.index + source.length);
     }
+    // Outside complete tags, production drops or recolours text after a stray
+    // '<word' (and reads a stray '/>' as tag syntax): never prove that line.
+    if (/[<>]/.test(scan)) clear(start, end + 1);
     start = end + 1;
   }
   tokens.sort((a, b) => a.from - b.from);
+  // Ownership: words rendered by a hidden or transformed region (a comment,
+  // reference, native pair, math, or unprovable tag) share their rendered line
+  // with literal text and could stand in for, or cancel, a literal edit there.
+  // A line is provable only when all of it is literal text or complete tags.
+  start = 0;
+  for (const line of text.split('\n')) {
+    const end = start + line.length;
+    if (
+      context.subarray(start, end).includes(0) ||
+      tokens.some((token) => !token.expect && token.from < end && token.to > start)
+    )
+      clear(start, end + 1);
+    start = end + 1;
+  }
   return { context, tokens };
 }
 
@@ -296,7 +316,7 @@ export function accountHunks(
     maxParts = options.maxParts ?? 40;
   const parts = sourceParts(before, after);
   const texts = { before, after };
-  const sources = { before: sourceContext(before, globals), after: sourceContext(after, globals) };
+  const sources = { before: sourceContext(before), after: sourceContext(after) };
   // Marked tokens of the final diff, per side and rendered line. Tables are
   // never provable, so only line structure and line content can be claimed.
   type Token = { line: number; word: string; used: boolean };
@@ -352,10 +372,10 @@ export function accountHunks(
     return true;
   };
   // Rendered line of a source offset; the 'x' keeps a trailing break counted
-  // (on its own line after hidden source, so it cannot join a construct).
+  // (on its own line after a block closer, so it cannot break that block).
   const lineAt = (side: Side, offset: number) => {
     const prefix = texts[side].slice(0, offset),
-      own = offset > 0 && prefix.at(-1) !== '\n' && !sources[side].context[offset - 1];
+      own = /(^|\n)(\) *|<\$>)$/.test(prefix);
     const lines = parseMarkup(prefix + (own ? '\nx' : 'x'), globals).lines.length;
     return Math.min(diff[side].length, Math.max(0, lines - 1));
   };
@@ -400,6 +420,7 @@ export function accountHunks(
           : `lines ${startLine(text, from)}–${sourceLine(text, to - 1)}`;
 
   const accounts: HunkAccount[] = [];
+  const flagged: { side: Side; low: number; high: number }[] = [];
   for (const part of parts) {
     if (accounts.length >= maxParts || now() - start >= budget) break;
     const old = before.slice(part.from, part.to),
@@ -451,12 +472,51 @@ export function accountHunks(
         shown = undefined;
       }
     }
+    // Where a flagged part renders: a shown claim on one of these lines could
+    // be that part's word, or be cancelled by it, so it is not proof.
+    if (!shown)
+      for (const [side, from, to] of [
+        ['before', part.from, part.to],
+        ['after', part.nextFrom, part.nextTo],
+      ] as const)
+        if (texts[side]) {
+          // Line-anchored constructs carry their separating break; locate their content.
+          const text = texts[side].slice(from, to),
+            lead = text.length - text.replace(/^\n+/, '').length,
+            trail = text.length - text.replace(/\n+$/, '').length;
+          const low = lead < text.length ? from + lead : from,
+            high = lead < text.length ? to - trail : to;
+          flagged.push({ side, low: lineAt(side, low), high: lineAt(side, high) });
+        }
     // A part whose renders overran the budget is not checked.
     if (now() - start >= budget) break;
     if (shown) {
       accounts.push({ account: 'shown', tokens: shown });
       continue;
     }
+    accounts.push(marker(part, provable));
+  }
+  // Demote shown parts that share a rendered line with a flagged part, or sit
+  // beside the first unchecked part (its lines are unknown).
+  const unchecked = parts[accounts.length];
+  accounts.forEach((entry, index) => {
+    if (entry.account !== 'shown') return;
+    const part = parts[index];
+    const shares = entry.tokens.some(([side, line]) =>
+      flagged.some((range) => range.side === side && line >= range.low && line <= range.high),
+    );
+    const beside =
+      !!unchecked &&
+      (sourceLine(before, part.to) >= sourceLine(before, unchecked.from) - 1 ||
+        sourceLine(after, part.nextTo) >= sourceLine(after, unchecked.nextFrom) - 1);
+    if (shares || beside) accounts[index] = marker(part, true);
+  });
+  while (accounts.length < parts.length) accounts.push({ account: 'unchecked' });
+  return accounts;
+
+  function marker(part: (typeof parts)[number], provable: boolean): HunkAccount {
+    const old = before.slice(part.from, part.to),
+      next = after.slice(part.nextFrom, part.nextTo);
     const definition =
       !provable && (part.kind === 'source' || part.kind === 'variable')
         ? (overlapping('after', part.nextFrom, part.nextTo) ??
@@ -472,16 +532,14 @@ export function accountHunks(
             : part.kind === 'base/enhanced'
               ? 'Base/enhanced pair'
               : part.kind[0].toUpperCase() + part.kind.slice(1)));
-    accounts.push({
+    return {
       account: 'marker',
       marker: {
         position: after ? lineAt('after', part.nextFrom) : 0,
         label: `Source changed · ${label} · previous ${range(before, part.from, part.to)}; current ${range(after, part.nextFrom, part.nextTo)} · see Raw`,
       },
-    });
+    };
   }
-  while (accounts.length < parts.length) accounts.push({ account: 'unchecked' });
-  return accounts;
 }
 
 /** Worker-only summary of accountHunks for the rendered view. */

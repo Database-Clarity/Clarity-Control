@@ -89,13 +89,15 @@ export function renderedDiff(
           ]),
         })),
       }));
-      // Each line ends with a structure token (break, spacer, line class, or table),
-      // so a structural edit is marked in the same stream as words, on the line
-      // it creates or removes.
+      // Each line ends with one structure token, so an added or removed line
+      // (break, spacer, or table) is marked in the same stream as words, on the
+      // line it creates or removes; the spacer flag keeps a new blank line's
+      // mark on that line. It carries no classes: a class change already marks
+      // every span on its line, and a break change must own its mark alone.
       tokens.push(line);
       keys.push(
         encodeURIComponent(
-          JSON.stringify(['¶', source.classNames, !!source.table, !!source.linesContent]),
+          JSON.stringify(['¶', !!source.table, source.classNames?.includes('spacer')]),
         ),
       );
       return line;

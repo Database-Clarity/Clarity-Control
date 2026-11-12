@@ -48,6 +48,26 @@ function account(before: string, after: string, context = globals) {
       }
   return { accounts, diff };
 }
+/** Marked occurrences of one claim vocabulary word on one side of a final diff. */
+function marks(diff: ReturnType<typeof renderedDiff>, side: 'before' | 'after', word: string) {
+  const kind = side === 'before' ? 'delete' : 'insert';
+  let total = 0;
+  for (const line of diff[side] as DiffLine[]) {
+    if (word === '¶' && line.diffKind === kind) total++;
+    for (const span of (line.linesContent ?? []) as DiffSpan[]) {
+      if (span.diffKind !== kind) continue;
+      const vocabulary = span.link
+        ? [`‹link›${span.text}›${span.link}`]
+        : span.title
+          ? [`‹title›${span.text}`]
+          : span.text
+            ? span.text.split(/\s+/).filter(Boolean)
+            : (span.classNames ?? []).map((name) => `<${name}/>`);
+      total += vocabulary.filter((entry) => entry === word).length;
+    }
+  }
+  return total;
+}
 const count = (accounts: HunkAccount[], kind: HunkAccount['account']) =>
   accounts.filter((entry) => entry.account === kind).length;
 const labels = (accounts: HunkAccount[]) =>
@@ -93,6 +113,30 @@ describe('named repros, forward and reverse', () => {
       );
       expect(cancelled).toBeGreaterThanOrEqual(0);
       expect(accounts[cancelled].account).toBe('marker');
+    },
+  );
+  it.each(both('var n = A B\nvar m = X\n#n and #m', 'var n = A\nvar m = B\n#n B and #m'))(
+    'a cancelled word cannot claim another reference’s word on its line: %j → %j',
+    (before, after) => {
+      const { accounts } = account(before, after);
+      expect(count(accounts, 'shown')).toBe(0);
+      expect(count(accounts, 'marker')).toBe(accounts.length);
+    },
+  );
+  it.each(both('var n = Old\n<unknown Old 🡅 #n', 'var n = New\n<unknown New 🡅 #n'))(
+    'text a stray tag drops is flagged, not proven by a visible word: %j → %j',
+    (before, after) => {
+      const { accounts } = account(before, after);
+      expect(count(accounts, 'shown')).toBe(0);
+      expect(count(accounts, 'marker')).toBe(accounts.length);
+    },
+  );
+  it.each(both('', '<pve/>'))(
+    'a one-sided structure-only line is shown by a visible bar: %j → %j',
+    (before, after) => {
+      const { accounts, diff } = account(before, after);
+      expect(count(accounts, 'unchecked')).toBe(0);
+      expect([...diff.before, ...diff.after].some((line: DiffLine) => line.diffKind)).toBe(true);
     },
   );
   it.each(both('A\nB', 'A\n\nB'))(
@@ -247,6 +291,9 @@ it('accounts for every hunk of seeded random edits, forward and reverse', () => 
       () => `< table wide >\n| ${text()} |b ${text()}\n<$>`,
       () => `${text()} <pve/> ${text()}`,
       () => `#e ${text()}`,
+      () => `#n ${text()} #m`,
+      () => `<unknown ${text()} 🡅 ${text()}`,
+      () => `${text()} <pve ${text()}`,
     ])();
   const mutate = (lines: string[]) => {
     const next = [...lines];
@@ -266,9 +313,10 @@ it('accounts for every hunk of seeded random edits, forward and reverse', () => 
   };
   let shownTotal = 0,
     markerTotal = 0;
-  for (let pair = 0; pair < 250; pair++) {
+  for (let pair = 0; pair < 500; pair++) {
     const first = Array.from({ length: 1 + Math.floor(random() * 5) }, line);
-    const pairText = [first.join('\n'), mutate(first).join('\n')];
+    // Every tenth pair is one-sided (a never-pushed or deleted text).
+    const pairText = [first.join('\n'), pair % 10 ? mutate(first).join('\n') : ''];
     for (const [before, after] of both(pairText[0], pairText[1])) {
       if (before === after) continue;
       const { accounts } = account(before, after);
@@ -291,10 +339,39 @@ it('accounts for every hunk of seeded random edits, forward and reverse', () => 
           after.slice(0, part.nextFrom) +
           before.slice(part.from, part.to) +
           after.slice(part.nextTo);
-        expect(
-          render(applied) !== rendered[0] || render(reverted) !== rendered[1],
-          `${JSON.stringify(before)} → ${JSON.stringify(after)} part ${index}`,
-        ).toBe(true);
+        const label = `${JSON.stringify(before)} → ${JSON.stringify(after)} part ${index}`;
+        expect(render(applied) !== rendered[0] || render(reverted) !== rendered[1], label).toBe(
+          true,
+        );
+        // Ownership: without this hunk, the final diff loses the marks it
+        // claimed (another hunk's identical word on that line cannot stand in
+        // for it). A word that also renders on another line is skipped: the
+        // diff may re-align it there, and claims are already line-located.
+        const final = renderedDiff(before, after, globals);
+        const without = {
+          before: renderedDiff(applied, after, globals),
+          after: renderedDiff(before, reverted, globals),
+        };
+        const claimed = new Map<string, number>();
+        for (const [side, line, word] of entry.tokens) {
+          const elsewhere = [final, without[side]].some((diff) =>
+            (diff[side] as DiffLine[]).some(
+              (other, at) =>
+                at !== line &&
+                (other.linesContent ?? []).some((span) =>
+                  (span.text ?? '').split(/\s+/).includes(word),
+                ),
+            ),
+          );
+          if (!elsewhere) claimed.set(`${side}|${word}`, (claimed.get(`${side}|${word}`) ?? 0) + 1);
+        }
+        for (const [key, needed] of claimed) {
+          const [side, word] = key.split('|') as ['before' | 'after', string];
+          expect(
+            marks(final, side, word) - marks(without[side], side, word),
+            `${label} claim ${key}`,
+          ).toBeGreaterThanOrEqual(Math.min(needed, 1));
+        }
       });
     }
   }

@@ -90,9 +90,4 @@
   del {
     text-decoration: none;
   }
-  // Every line of a one-sided diff is new or gone; the side heading already says so.
-  .lineInsert,
-  .lineDelete {
-    box-shadow: none;
-  }
 }
