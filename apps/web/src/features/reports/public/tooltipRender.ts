@@ -16,11 +16,14 @@ import {
 
 /** The catalog is fetched once per page load; the picker, the form, and My reports share it. */
 let catalogPromise: Promise<ReportCatalog> | undefined;
-export function reportCatalog(): Promise<ReportCatalog> {
-  catalogPromise ??= loadReportCatalog().catch((error: unknown) => {
-    catalogPromise = undefined;
-    throw error;
-  });
+export function reportCatalog(fresh = false): Promise<ReportCatalog> {
+  if (!catalogPromise || fresh) {
+    const current = loadReportCatalog().catch((error: unknown) => {
+      if (catalogPromise === current) catalogPromise = undefined;
+      throw error;
+    });
+    catalogPromise = current;
+  }
   return catalogPromise;
 }
 

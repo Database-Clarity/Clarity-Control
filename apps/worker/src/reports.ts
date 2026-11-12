@@ -99,21 +99,30 @@ const catalogItemSchema = z.object({
   langs: z.array(langSchema).max(13),
   variant: z.string().regex(/^(base|enhanced|override:\d+)$/),
 });
-const catalogSchema = z.object({
-  sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
-  // Validate the selected entry at use. Copying and validating every item on a
-  // cold public POST would put catalogue growth on the request's CPU budget.
-  items: z.custom<Record<string, unknown>>(
-    (value) => typeof value === 'object' && value !== null && !Array.isArray(value),
-  ),
-});
-type Catalog = { items: Record<string, unknown> } | { text: string };
+
+type Catalog = { sourceCommit: string } & ({ items: Record<string, unknown> } | { text: string });
 let catalogCache: { key: string; until: number; data: Catalog } | undefined;
 /** Exact-byte snapshot only; all other producer revisions retain full validation. */
 export async function parseReportCatalog(text: string): Promise<Catalog> {
   return (await reportDigest(text)) === catalogSnapshot.sha256
-    ? { text }
-    : catalogSchema.parse(JSON.parse(text), { jitless: true });
+    ? { text, sourceCommit: catalogSnapshot.sourceCommit }
+    : parseCatalogEnvelope(text);
+}
+/** The same envelope checks as before, without cold schema evaluation or item traversal. */
+function parseCatalogEnvelope(text: string): Catalog {
+  const value: unknown = JSON.parse(text);
+  if (typeof value !== 'object' || value === null || Array.isArray(value))
+    throw new Error('Invalid report catalog');
+  const data = value as Record<string, unknown>;
+  if (
+    typeof data.sourceCommit !== 'string' ||
+    !/^[a-f0-9]{40}$/.test(data.sourceCommit) ||
+    typeof data.items !== 'object' ||
+    data.items === null ||
+    Array.isArray(data.items)
+  )
+    throw new Error('Invalid report catalog');
+  return { sourceCommit: data.sourceCommit, items: data.items as Record<string, unknown> };
 }
 export function reportCatalogEntry(catalog: Catalog, hash: number): unknown {
   return 'text' in catalog
@@ -302,6 +311,8 @@ async function submit(
   const access = await resolveAccess();
   const { limits, attempt } = await admission(request, env, db, user, access);
   const items = await catalog(env);
+  if (items.sourceCommit !== input.data_commit)
+    throw new HttpError(409, 'Tooltip data changed; reload before sending');
   const selected = catalogItemSchema.safeParse(reportCatalogEntry(items, input.viewed_hash), {
     jitless: true,
   });

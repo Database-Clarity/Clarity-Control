@@ -5,7 +5,7 @@ import {
   reportVideoHosts,
   type ReportSubmission,
 } from '../../../../../../packages/core/src/reports/schemas';
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { languageLabel } from '../../../languageLabels';
 import { categorySpecs } from '../../../services/categoryLabels';
@@ -55,6 +55,7 @@ import {
   lineAt,
   loadReportRender,
   reportItemCatalog,
+  reportCatalog,
   type RenderLine,
   type ReportRender,
 } from './tooltipRender';
@@ -65,7 +66,7 @@ type Load =
   | { kind: 'failed'; message: string }
   | { kind: 'unknown' }
   | { kind: 'ready'; render: ReportRender };
-type Phase = 'idle' | 'checking' | 'check-failed' | 'sending' | 'uploading';
+type Phase = 'refreshing' | 'idle' | 'checking' | 'check-failed' | 'sending' | 'uploading';
 export interface ReceiptState {
   sent: true;
   name: string;
@@ -116,9 +117,14 @@ export function ReportForm() {
   );
   const formId = useId();
   const render = load.kind === 'ready' ? load.render : undefined;
-  const busy = phase === 'checking' || phase === 'sending' || phase === 'uploading';
+  const busy =
+    phase === 'refreshing' || phase === 'checking' || phase === 'sending' || phase === 'uploading';
   const busyRef = useRef(busy);
   busyRef.current = busy;
+  const renderRef = useRef(render);
+  renderRef.current = render;
+  const languageRef = useRef(requestedLang);
+  languageRef.current = requestedLang;
 
   // Marks belong to the text they were made on: any locale change (the select, the URL, Back or
   // Forward) turns them into Re-mark notes against the text that is still on screen.
@@ -197,8 +203,8 @@ export function ReportForm() {
   }, [render, quote]);
 
   // Keep the draft in this tab (with quote anchors) so sign-in and reloads never lose it.
-  useEffect(() => {
-    if (!render) return;
+  useLayoutEffect(() => {
+    if (!render || applied.current !== `${render.seenLang}:${render.rev}`) return;
     const anchors = Object.fromEntries(
       draft.notes
         .filter((note) => note.mark)
@@ -516,6 +522,72 @@ export function ReportForm() {
     });
   };
 
+  // Shards optimize first paint only. A new submission must use the live catalog.
+  // Keep idempotent retries on their original payload; the Worker checks them first.
+  const refreshForSend = async (): Promise<boolean> => {
+    if (!render) return false;
+    const current = () =>
+      alive.current && renderRef.current === render && languageRef.current === requestedLang;
+    try {
+      const latest = await reportCatalog(true);
+      const next = await loadReportRender(viewed, requestedLang, latest);
+      if (!current()) {
+        if (alive.current) {
+          setPhase('idle');
+          busyRef.current = false;
+        }
+        return false;
+      }
+      if (!next) {
+        setLoad({ kind: 'unknown' });
+        setPhase('idle');
+        busyRef.current = false;
+        return false;
+      }
+      const identityChanged =
+        next.item.owner !== render.item.owner ||
+        next.item.variant !== render.item.variant ||
+        next.item.type !== render.item.type ||
+        next.lang !== render.lang ||
+        next.rev !== render.rev ||
+        next.display !== render.display;
+      if (
+        identityChanged ||
+        next.dataCommit !== render.dataCommit ||
+        JSON.stringify(next.item) !== JSON.stringify(render.item)
+      ) {
+        // Quotes belong to the old display, never to offsets in replacement text.
+        setDraft((previous) =>
+          identityChanged
+            ? dropMarks(previous, render.display, next.seenLang)
+            : { ...previous, pending: undefined },
+        );
+        applied.current = `${next.seenLang}:${next.rev}`;
+        setExisting([]);
+        setLoad({ kind: 'ready', render: next });
+        setPhase('idle');
+        busyRef.current = false;
+        setNotice(
+          identityChanged
+            ? 'The tooltip changed. Re-mark notes, then send again.'
+            : 'The tooltip data was refreshed. Review it and send again; your notes are kept.',
+        );
+        return false;
+      }
+      return true;
+    } catch {
+      if (current()) {
+        setPhase('idle');
+        busyRef.current = false;
+        setNotice('Could not check the latest tooltip. Your notes are kept; try again.');
+      } else if (alive.current) {
+        setPhase('idle');
+        busyRef.current = false;
+      }
+      return false;
+    }
+  };
+
   const send = async () => {
     if (!render || busyRef.current) return;
     setNotice(null);
@@ -553,6 +625,11 @@ export function ReportForm() {
     const found = validate(payload as Omit<ReportSubmission, 'turnstile'>);
     setErrors(found);
     if (Object.keys(found).length) return focusError(found);
+    busyRef.current = true;
+    if (draft.pending?.payload !== signature) {
+      setPhase('refreshing');
+      if (!(await refreshForSend())) return;
+    }
     const kept = { ...draft, pending: capability };
     setDraft(kept);
     writeDraft(viewed, kept);
@@ -632,6 +709,20 @@ export function ReportForm() {
         return;
       }
       check.current?.reset();
+      if (
+        error instanceof ReportApiError &&
+        error.status === 409 &&
+        error.message === 'Tooltip data changed; reload before sending'
+      ) {
+        setDraft((previous) => ({ ...previous, pending: undefined }));
+        setPhase('refreshing');
+        if (await refreshForSend()) {
+          setPhase('idle');
+          busyRef.current = false;
+          setNotice('The report catalog is updating. Your notes are kept; try again shortly.');
+        }
+        return;
+      }
       setPhase(
         error instanceof ReportApiError && error.message.startsWith('Human check')
           ? 'check-failed'
@@ -684,19 +775,25 @@ export function ReportForm() {
       </div>
     );
   const r = load.render;
+  const refreshed =
+    notice?.startsWith('The tooltip changed.') ||
+    notice?.startsWith('The tooltip data was refreshed.');
+  const sendNotice = refreshed ? errors.form : (notice ?? errors.form);
   const category = categorySpecs[r.item.category]?.label ?? r.item.type;
   const status =
-    phase === 'checking'
-      ? 'Checking…'
-      : phase === 'check-failed'
-        ? 'Check failed, retry'
-        : phase === 'sending'
-          ? 'Sending…'
-          : phase === 'uploading'
-            ? 'Uploading screenshots…'
-            : needsCheck
-              ? 'Human check runs when you send'
-              : '';
+    phase === 'refreshing'
+      ? 'Checking the latest tooltip…'
+      : phase === 'checking'
+        ? 'Checking…'
+        : phase === 'check-failed'
+          ? 'Check failed, retry'
+          : phase === 'sending'
+            ? 'Sending…'
+            : phase === 'uploading'
+              ? 'Uploading screenshots…'
+              : needsCheck
+                ? 'Human check runs when you send'
+                : '';
 
   return (
     <form
@@ -733,6 +830,11 @@ export function ReportForm() {
               </label>
             </span>
           </div>
+          {refreshed && (
+            <p className={styles.notice} role="alert">
+              {notice}
+            </p>
+          )}
           {r.fallback && (
             <p className={styles.fallback}>
               No {languageLabel(r.seenLang)} text yet; shown in English. Report a missing
@@ -952,13 +1054,13 @@ export function ReportForm() {
           )}
           <p className={`${styles.muted} ${styles.privacyNarrow}`}>{privacyLine}</p>
 
-          <div className={styles.footer}>
+          <div className={styles.footer} data-refreshed={refreshed || undefined}>
             <div className={styles.checkRow} data-visible={interactive || undefined}>
               <div ref={checkBox} />
             </div>
-            {(notice || errors.form) && (
+            {sendNotice && (
               <p className={styles.notice} role="alert">
-                {notice ?? errors.form}
+                {sendNotice}
               </p>
             )}
             <div className={styles.bar}>

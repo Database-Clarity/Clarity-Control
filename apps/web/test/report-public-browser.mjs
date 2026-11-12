@@ -261,6 +261,92 @@ try {
     await page.reload();
     assert.equal(await page.getByRole('combobox').first().inputValue(), '');
 
+    // A build-time identity must not be submitted after the live catalog remaps it.
+    await page.goto(`http://127.0.0.1:5261/#/report/${hash}?lang=en`);
+    await page.locator('[data-line]').first().waitFor();
+    const updatedCommit = 'b'.repeat(40);
+    const updatedOwner = 50099999;
+    const liveCatalog = {
+      ...full,
+      sourceCommit: updatedCommit,
+      items: {
+        ...full.items,
+        [hash]: {
+          ...full.items[hash],
+          owner: updatedOwner,
+          variant: `override:${updatedOwner}`,
+          name: 'Updated owner',
+        },
+      },
+    };
+    await page.route('**/report-items.json', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(liveCatalog),
+      }),
+    );
+    await page.route(`**/${updatedCommit}/tooltips/*.json`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          text: {
+            en: {
+              text: route.request().url().endsWith(`/${updatedOwner}.json`)
+                ? 'Updated runtime tooltip.'
+                : '',
+            },
+          },
+        }),
+      }),
+    );
+    await page.locator('[data-line]').filter({ hasText: /\S/ }).first().focus();
+    await page.keyboard.press('Enter');
+    await page
+      .getByRole('textbox', { name: 'Note 1', exact: true })
+      .fill('Keep this during refresh.');
+    await page.getByRole('button', { name: 'Send report', exact: true }).click();
+    await page.getByText(/The tooltip changed\./).waitFor();
+    assert.equal(
+      await page.getByRole('textbox', { name: 'Note 1', exact: true }).inputValue(),
+      'Keep this during refresh.',
+    );
+    await page.getByText('Updated runtime tooltip.', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Mark again', exact: true }).waitFor();
+    for (const width of [390, 1280])
+      for (const theme of ['light', 'dark'])
+        for (const scale of width === 390 ? [100, 150] : [100]) {
+          await page.setViewportSize({ width, height: 900 });
+          await page.evaluate(
+            ({ theme, scale }) =>
+              localStorage.setItem(
+                'clarity-settings:device:v1',
+                JSON.stringify({ theme, uiScale: scale }),
+              ),
+            { theme, scale },
+          );
+          await page.reload();
+          await page.locator('[data-line]').filter({ hasText: /\S/ }).first().waitFor();
+          await page.locator('[data-line]').filter({ hasText: /\S/ }).first().focus();
+          await page.keyboard.press('Enter');
+          await page.getByRole('button', { name: 'Send report', exact: true }).click();
+          await page.getByText(/The tooltip changed\./).waitFor();
+          assert.equal(
+            await page.evaluate(() => Number(document.documentElement.dataset.uiScale)),
+            scale,
+          );
+          assert.equal(
+            await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+            false,
+          );
+          await page.evaluate(() => window.scrollTo(0, 0));
+          await page.screenshot({
+            path: `.agents/slim-refreshed-${width}-${theme}-${scale}.png`,
+            fullPage: true,
+          });
+        }
+    await page.unroute('**/report-items.json');
     await page.goto('http://127.0.0.1:5261/#/report/4294967295');
     await page
       .getByText(/has no Clarity tooltip to report/i)

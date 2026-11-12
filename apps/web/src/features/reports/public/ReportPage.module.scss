@@ -618,6 +618,10 @@
   margin-top: 0.5rem;
 
   @include theme.mobile {
+    // The refresh notice asks the reporter to revisit notes; keep its controls unobscured.
+    &[data-refreshed] {
+      position: static;
+    }
     position: sticky;
     bottom: 0;
     z-index: 5;

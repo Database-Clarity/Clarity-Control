@@ -165,6 +165,16 @@ beforeEach(async () => {
   );
 });
 describe('reports local D1', () => {
+  it('refuses stale data commits before consuming a human check or storing another owner’s report', async () => {
+    const response = await call('/reports', 'POST', { ...payload(), data_commit: '2'.repeat(40) });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'Tooltip data changed; reload before sending' });
+    expect(await db.prepare('SELECT COUNT(*) AS n FROM reports').first()).toEqual({ n: 0 });
+    expect(
+      vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes('siteverify')),
+    ).toHaveLength(0);
+  });
+
   it('keeps the public selector projection current through reanchor, close, reopen, and withdrawal', async () => {
     const input = payload();
     input.notes = [input.notes[0], { ...input.notes[0], category: 'wording' }];

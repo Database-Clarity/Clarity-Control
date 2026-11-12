@@ -19,7 +19,7 @@ beforeAll(async () => {
 describe('exact-snapshot report catalog', () => {
   it('slices only the selected complete key from the validated snapshot', async () => {
     const catalog = await parseReportCatalog(raw);
-    expect(catalog).toEqual({ text: raw });
+    expect(catalog).toEqual({ text: raw, sourceCommit: snapshot.sourceCommit });
     expect(reportCatalogEntry(catalog, 123)).toEqual(items[123]);
     expect(reportCatalogEntry(catalog, 1234)).toEqual(items[1234]);
     expect(reportCatalogEntry(catalog, 12)).toBeNull();
@@ -36,6 +36,12 @@ describe('exact-snapshot report catalog', () => {
   });
   it('rejects corrupt roots and invalid commits instead of treating them as snapshots', async () => {
     for (const text of [
+      'null',
+      '[]',
+      '1',
+      '"catalog"',
+      JSON.stringify({ sourceCommit: snapshot.sourceCommit, items: null }),
+      JSON.stringify({ sourceCommit: snapshot.sourceCommit, items: 'items' }),
       raw + 'x',
       JSON.stringify({ sourceCommit: 'invalid', items }),
       JSON.stringify({ sourceCommit: snapshot.sourceCommit, items: [] }),
