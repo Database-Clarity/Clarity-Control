@@ -1005,6 +1005,26 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     expect(perks['702']).toEqual({ hash: 702, aliasOf: 123, aliasKind: 'sandbox' });
     expect(perks).not.toHaveProperty('701');
   });
+  it('bundle.json carries maintainer sandbox picks only while the file holds some', async () => {
+    const f = await setup();
+    const bundle = () =>
+      f.pub.read<Record<string, unknown>>(
+        f.git.tree(f.git.head('refs/heads/editor-data-bundle')!),
+        'bundle.json',
+      )!;
+    f.pub.bundle();
+    expect(bundle()).not.toHaveProperty('sandboxPointers');
+    f.change(D, { 'config/sandbox-pointers.json': { version: 1, pointers: {} } });
+    f.pub.bundle();
+    expect(bundle()).not.toHaveProperty('sandboxPointers');
+    const picks = {
+      version: 1,
+      pointers: { 700: { to: 123, candidates: [123, 124], by: 1, at: '2026-11-12T20:00:00Z' } },
+    };
+    f.change(D, { 'config/sandbox-pointers.json': picks });
+    f.pub.bundle();
+    expect(bundle().sandboxPointers).toEqual(picks);
+  });
   it('rejects a request terminally when the picks file is malformed', async () => {
     const f = await setup();
     f.change(D, { 'config/sandbox-pointers.json': { version: 1, pointers: { 700: { to: 1 } } } });

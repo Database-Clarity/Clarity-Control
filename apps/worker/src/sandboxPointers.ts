@@ -3,7 +3,7 @@ import {
   applySandboxPicks,
   emptySandboxPointers,
   hasSandboxTargets,
-  hasTooltipText,
+  hashSchema,
   mergeSandboxPointers,
   permissionsSchema,
   sandboxConflictsFile,
@@ -13,12 +13,11 @@ import {
   sandboxPointersCapability,
   sandboxPointersPath,
   sandboxPointersSchema,
-  tooltipSchema,
   type Aliases,
   type SandboxConflicts,
   type SandboxPointers,
 } from '@clarity/core';
-import { loadAliases, source } from './catalog.js';
+import { source } from './catalog.js';
 import { exporter, publisherPinPath } from './elementTags.js';
 import { blobContent, blobSha, RefRace, type GitHub, type RepoFile } from './github.js';
 import { body, HttpError, json, upstreamJson } from './http.js';
@@ -69,6 +68,34 @@ export function pinMergesSandboxPointers(pin: unknown): boolean {
   return Array.isArray(capabilities) && capabilities.includes(sandboxPointersCapability);
 }
 
+const candidatesSchema = z.array(hashSchema);
+
+/** A generator file as a plain object; entries are validated where they are read. */
+async function generatorRecord(github: GitHub, file: string): Promise<Record<string, unknown>> {
+  github.spend();
+  const value = await fetch(`${source(github.env)}/${file}`).then(upstreamJson);
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new HttpError(502, 'Invalid upstream data');
+  return value as Record<string, unknown>;
+}
+
+/**
+ * Whether a stored tooltip file is tooltip `hash` with text in some language. Files on the data
+ * branch are schema-checked when saved; this reads only the fields the pick depends on.
+ */
+function savedWithText(value: unknown, hash: number): boolean {
+  const tooltip = value as { hash?: unknown; text?: Record<string, { text?: unknown }> } | null;
+  return (
+    !!tooltip &&
+    tooltip.hash === hash &&
+    !!tooltip.text &&
+    typeof tooltip.text === 'object' &&
+    Object.values(tooltip.text).some(
+      (entry) => typeof entry?.text === 'string' && entry.text.trim() !== '',
+    )
+  );
+}
+
 const revisionSchema = z
   .string()
   .regex(/^[0-9a-f]{40}$/)
@@ -101,7 +128,7 @@ export async function sandboxPointersRoute(
   user: Identity,
 ): Promise<Response> {
   const input = request.method === 'PUT' ? await body(request, updateSchema, 200_000) : null;
-  let generator: { aliases: Aliases; conflicts: SandboxConflicts } | undefined;
+  let generator: { aliases: Aliases; conflicts: Record<string, unknown> } | undefined;
   const checkedTargets = new Set<number>();
   for (let attempt = 0; attempt < 3; attempt++) {
     const head = await github.head();
@@ -122,28 +149,38 @@ export async function sandboxPointersRoute(
         409,
         `The publisher installed in the data branch does not apply sandbox picks yet (${publisherPinPath} lacks the "${sandboxPointersCapability}" capability); picks cannot be saved until it is updated.`,
       );
-    if (!generator) {
-      const [aliases, conflicts] = await Promise.all([
-        loadAliases(github.env, github),
-        loadSandboxConflicts(github.env, github),
-      ]);
-      generator = { aliases, conflicts };
-    }
-    const { aliases, conflicts } = generator;
+    // CPU (Workers FREE plan, 10 ms): the route reads only the entries it checks, so it validates
+    // those, not the whole generator files (the aliases alone are ~6,000 entries). Every lookup
+    // below is an own-key test, and a candidate list is schema-checked before it is stored.
+    generator ??= {
+      aliases: (await generatorRecord(github, 'aliases.json')) as Aliases,
+      conflicts: await generatorRecord(github, sandboxConflictsFile),
+    };
+    const { aliases } = generator;
     const current = stored ?? emptySandboxPointers();
     const problems: string[] = [];
+    const conflicts: SandboxConflicts = {};
     for (const [hash, pick] of Object.entries(input.picks)) {
       const kept = current.pointers[hash];
       const changed =
         !kept || ('to' in pick ? !('to' in kept) || kept.to !== pick.to : 'to' in kept);
       // An unchanged pick stays valid as stored (owner: a pick keeps working after its set changes).
       if (!changed) continue;
-      if (!Object.hasOwn(conflicts, hash)) {
+      if (!Object.hasOwn(generator.conflicts, hash)) {
         problems.push(`${hash} is not a shared sandbox perk`);
         continue;
       }
+      const listed = candidatesSchema.safeParse(generator.conflicts[hash]);
+      if (!listed.success) throw new HttpError(502, 'Invalid upstream data');
+      conflicts[hash] = listed.data;
       if ('to' in pick) {
-        const problem = sandboxPointerProblem(hash, pick.to, aliases, conflicts, input.picks);
+        const problem = sandboxPointerProblem(
+          hash,
+          pick.to,
+          aliases,
+          generator.conflicts as SandboxConflicts,
+          input.picks,
+        );
         if (problem) problems.push(`${hash} ${problem}`);
       }
     }
@@ -164,9 +201,7 @@ export async function sandboxPointersRoute(
         head,
       );
       for (const [index, hash] of targets.entries()) {
-        const value = files[index]?.value;
-        const tooltip = value === undefined ? undefined : tooltipSchema.safeParse(value).data;
-        if (!tooltip || tooltip.hash !== hash || !hasTooltipText(tooltip))
+        if (!savedWithText(files[index]?.value, hash))
           problems.push(`Tooltip ${hash} does not exist or has no text`);
         else checkedTargets.add(hash);
       }
