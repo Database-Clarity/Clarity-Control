@@ -200,6 +200,29 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     });
   });
 
+  it.each([125, 456])(
+    'rejects association-race after target %s becomes text-less',
+    async (target) => {
+      const f = await setup();
+      f.options.aliases = { 456: { to: 125, kind: 'frame' } };
+      const root = { ...f.tooltip, associated: [target] };
+      const associated: Tooltip = {
+        ...f.tooltip,
+        hash: 125,
+        custom: { name: 'Associated', categoryId: 'perk' },
+      };
+      f.change(D, { 'tooltips/123.json': root, 'tooltips/125.json': associated });
+      await f.request(A, [123], { 123: await publishableHash(root, f.options.aliases) });
+      f.change(D, { 'tooltips/125.json': { ...associated, text: {} } });
+      const live = f.git.head(L);
+      await f.pub.run();
+      expect(f.git.head(L)).toBe(live);
+      const tree = f.git.tree(f.git.head(D)!);
+      expect(f.pub.read(tree, paths(A).log)).toMatchObject({ result: { status: 'rejected' } });
+      expect(f.pub.read(tree, 'live/pushed.json')).toEqual({});
+    },
+  );
+
   const A = '01K95H00000000000000000001',
     B = '01K95H00000000000000000002';
   const D = 'refs/heads/editor-data',

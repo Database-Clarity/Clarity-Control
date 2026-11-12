@@ -85,6 +85,31 @@ export class Publisher {
   read<T>(tree: Tree, path: string): T | undefined {
     return tree[path] ? (JSON.parse(this.git.blob(tree[path])) as T) : undefined;
   }
+  /** The data head can move after signing; check associations at the drain snapshot too. */
+  checkAssociatedDescriptions(tree: Tree, tooltips: readonly Tooltip[]): void {
+    const known = new Map(tooltips.map((tooltip) => [tooltip.hash, tooltip]));
+    const visited = new Set<number>();
+    const pending = [...tooltips];
+    while (pending.length) {
+      const tooltip = pending.pop()!;
+      if (visited.has(tooltip.hash)) continue;
+      visited.add(tooltip.hash);
+      for (const reference of tooltip.associated) {
+        const hash = resolveAlias(reference, this.options.aliases);
+        let target = known.get(hash);
+        if (!target) {
+          const value = this.read<unknown>(tree, `tooltips/${hash}.json`);
+          if (value === undefined) continue;
+          target = tooltipSchema.parse(value);
+          if (target.hash !== hash) throw new Error('Stored association tooltip hash mismatch');
+          known.set(hash, target);
+        }
+        if (isTextlessDescription(target))
+          throw new Error(`Association ${tooltip.hash} -> ${hash} has no text to publish`);
+        if (!visited.has(hash)) pending.push(target);
+      }
+    }
+  }
   queue(head: string): string[] {
     const pending = new Set(
       Object.keys(this.git.tree(head)).filter((p) =>
@@ -353,6 +378,18 @@ export class Publisher {
           undefined,
           undefined,
           { status: 'rejected', error: 'Tooltip has no text to publish' },
+          blob,
+        );
+        return;
+      }
+      try {
+        this.checkAssociatedDescriptions(tree, tooltips);
+      } catch (error) {
+        await this.record(
+          opId,
+          undefined,
+          undefined,
+          { status: 'rejected', error: String(error) },
           blob,
         );
         return;
