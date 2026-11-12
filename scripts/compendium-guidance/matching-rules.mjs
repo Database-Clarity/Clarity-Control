@@ -102,7 +102,10 @@ export async function decisionDocumentation() {
   const pass3 = await read('packages/core/src/compendium/reviewed-rules.json');
   const nodes = await read('packages/core/src/compendium/reviewed-nodes.json');
   const config = await readFile(path.join(root, 'packages/core/src/compendium/config.ts'), 'utf8');
-  const manifest = await readFile(path.join(root, 'apps/web/src/features/compendium/manifestRule.ts'), 'utf8');
+  const manifest = await readFile(
+    path.join(root, 'apps/web/src/features/compendium/manifestRule.ts'),
+    'utf8',
+  );
   function declaredStrings(code, name) {
     const tree = ts.createSourceFile('registry.ts', code, ts.ScriptTarget.Latest, true);
     let result = [];
@@ -120,8 +123,11 @@ export async function decisionDocumentation() {
   }
   const aliases = ['exoticSourceNames', 'catalystWeapons'].flatMap((name) => {
     const values = declaredStrings(config, name);
-    return Array.from({ length: values.length / 2 }, (_, i) =>
-      `| ${clean(values[i * 2])} | ${clean(values[i * 2 + 1])} | ${name}; exotic-catalog-parent / exotic-name-line-or-catalyst | 2026-10-31, inherited config.ts convention (742b320); candidate hint, not owner approval |`);
+    return Array.from(
+      { length: values.length / 2 },
+      (_, i) =>
+        `| ${clean(values[i * 2])} | ${clean(values[i * 2 + 1])} | ${name}; exotic-catalog-parent / exotic-name-line-or-catalyst | 2026-10-31, inherited config.ts convention (742b320); candidate hint, not owner approval |`,
+    );
   });
   return [
     '<!-- BEGIN GENERATED OWNER DECISIONS -->',
@@ -139,6 +145,8 @@ export async function decisionDocumentation() {
     ),
     '',
     '### Earlier explicit parent/exclusion exceptions',
+    '',
+    `Exotic stat parts: ${exceptions.exoticListing.decision} (${exceptions.exoticListing.date}, ${exceptions.exoticListing.source}: “${exceptions.exoticListing.quote}”.)`,
     '',
     '| Hash | Item | Decision | Date/source |',
     '|---|---|---|---|',
