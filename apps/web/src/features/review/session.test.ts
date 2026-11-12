@@ -114,6 +114,7 @@ it('a manual refresh against a stale bundle keeps saved text from this tab until
 });
 
 it('saved overlay expires after the TTL so newer edits by others show up, and handles deletes', () => {
+  const savedAt = Date.parse(at);
   const bundle: Bundle = {
     sourceCommit: 'c',
     generatedAt: at,
@@ -121,12 +122,12 @@ it('saved overlay expires after the TTL so newer edits by others show up, and ha
     pushed: {},
     permissions: { users: {} },
   };
-  rememberSaved([make('Mine')], [11], 1000);
-  const fresh = applySavedOverlay(bundle, 1000 + 1000);
+  rememberSaved([make('Mine')], [11], savedAt);
+  const fresh = applySavedOverlay(bundle, savedAt + 1000);
   expect(fresh.tooltips[10].text.en?.text).toBe('Mine');
   expect(fresh.tooltips[11]).toBeUndefined();
   expect(bundle.tooltips[10].text.en?.text).toBe('Fetched'); // input not mutated
-  const expired = applySavedOverlay(bundle, 1000 + overlayTtlMs + 1);
+  const expired = applySavedOverlay(bundle, savedAt + overlayTtlMs + 1);
   expect(expired).toBe(bundle);
 });
 
