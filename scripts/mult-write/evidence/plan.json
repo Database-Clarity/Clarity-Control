@@ -1,0 +1,877 @@
+{
+ "changes": [
+  {
+   "path": "tooltips/1125523126.json",
+   "hash": 1125523126,
+   "rows": [
+    "1125523126:3"
+   ],
+   "lines": [
+    3
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 1125523126,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1755805193611,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Grants the following to #element ~0.5 seconds after readying them:\\n• 10|15|18 Reload Speed with 1|2|3 Mods equipped\\n• 0.85x Reload Duration Multiplier\\n\\nvar element = <arc/>Arc Weapons\",\n      \"updatedAt\": \"2025-08-21T19:39:53.611Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 1125523126,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1755805193611,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Grants the following to #element ~0.5 seconds after readying them:\\n• 10|15|18 Reload Speed with 1|2|3 Mods equipped\\n• 15% decreased Reload Animation Duration\\n\\nvar element = <arc/>Arc Weapons\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "52c0dec5fb3a8ff50b00b1cfdaadf551896ca8574307e7e1f839928006c0ea63",
+   "afterSha256": "03003dd85e28439dba9352a3038df97bbd2a13077c5a87cfdc0b23bd8dbdf236",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/1168162263.json",
+   "hash": 1168162263,
+   "rows": [
+    "1168162263:1"
+   ],
+   "lines": [
+    1
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 1168162263,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1782523280100,\n          \"updatedBy\": \"Hawkmoona\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Precision Kills grant 70 Reload Speed with a 0.9x decreased Reload Animation Duration for #e${6+#d} seconds.\\n\\nBuff is removed on stow.\\n\\nenhanced (\\nvar d = 1\\n#e Buff duration is increased by 1 second.\\n)\",\n      \"updatedAt\": \"2026-06-27T01:21:20.100Z\",\n      \"updatedBy\": \"Hawkmoona\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 1168162263,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1782523280100,\n          \"updatedBy\": \"Hawkmoona\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Precision Kills grant 70 Reload Speed with 10% decreased Reload Animation Duration for #e${6+#d} seconds.\\n\\nBuff is removed on stow.\\n\\nenhanced (\\nvar d = 1\\n#e Buff duration is increased by 1 second.\\n)\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "76a3f8c64f715a559a2e95c06fdf0f41d46ef68c6bbecf0907bf59b147bb1772",
+   "afterSha256": "f74e3ac5b2992b1f5ed8592176eb62ae082be0f68f20649927d3741301474e76",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/1421772400.json",
+   "hash": 1421772400,
+   "rows": [
+    "1421772400:5"
+   ],
+   "lines": [
+    5
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 1421772400,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1766247889006,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Passively grants #e${20+#d} Ammo Generation Stat. #g  \\n\\nBeing Airborne grants the following benefits:\\n• #e${30+#f} Reload Speed\\n• 0.8x Reload Duration Multiplier\\n• 15?% decreased Accuracy Cone Size\\n• 20?% decreased Auto Aim Cone Size\\n\\nvar g = (Equivalent of 1 Ammo Generation Armor Mod)\\nenhanced (\\nvar d = 10\\nvar f = 5\\nvar g = (Equivalent of 1 Ammo Generation Armor Mod + 1 Non-Enhanced Abundant Ammo Weapon Mod)\\n#e Ammo Generation bonus is increased by 10 and Reload Speed bonus is increased by 5?.\\n)\",\n      \"updatedAt\": \"2025-12-20T16:24:49.006Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 1421772400,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1766247889006,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Passively grants #e${20+#d} Ammo Generation Stat. #g  \\n\\nBeing Airborne grants the following benefits:\\n• #e${30+#f} Reload Speed\\n• 20% decreased Reload Animation Duration\\n• 15?% decreased Accuracy Cone Size\\n• 20?% decreased Auto Aim Cone Size\\n\\nvar g = (Equivalent of 1 Ammo Generation Armor Mod)\\nenhanced (\\nvar d = 10\\nvar f = 5\\nvar g = (Equivalent of 1 Ammo Generation Armor Mod + 1 Non-Enhanced Abundant Ammo Weapon Mod)\\n#e Ammo Generation bonus is increased by 10 and Reload Speed bonus is increased by 5?.\\n)\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "789b7146ad1cf33fbb6b7d72d6649ac10e88e22e5c321ac4efe98fbb5e58c3d0",
+   "afterSha256": "54f9d9228cc9dc656ae4f2bc94888b6e4ae751c8b40b040c504d465a09d13e33",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/1431678320.json",
+   "hash": 1431678320,
+   "rows": [
+    "1431678320:3"
+   ],
+   "lines": [
+    3
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 1431678320,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1729009524180,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Linearly grants a Reload Duration Multiplier as your magazine drops from 50% capacity to empty.\\n\\nReload Duration Multiplier scales from 0.9x at 50% capacity to 0.8x with an empty magazine.\",\n      \"updatedAt\": \"2024-10-15T16:25:24.180Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 1431678320,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1729009524180,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Linearly grants a Reload Duration Multiplier as your magazine drops from 50% capacity to empty.\\n\\nReload Animation Duration decreases linearly from 10% at 50% capacity to 20% with an empty magazine.\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "f2bead34b78b719908317bd8a76958e50827348bca0ba8364ccedbcf2b55dab2",
+   "afterSha256": "430b66d16746cf7143d14e394095a372a931bd530221764dcf96667349f21915",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/1489048135.json",
+   "hash": 1489048135,
+   "rows": [
+    "1489048135:10"
+   ],
+   "lines": [
+    10
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 1489048135,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1745161425600,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Grenade Ability usage or scoring a Grenade Kill grants 1 stack of Explosive Pact for 7.5 seconds. Maximum of 5 stacks.\\n\\n<solar/>Healing Grenade orb pickups (by anyone) and Grenade Kills grant 1 stack each.\\n\\nRunning over a <yellow Speaker's Sight /> Healing Turret does not grant any stacks.\\n\\nBenefits at 1|2|3|4|5 stacks of Explosive Pact:\\n• ? Stability\\n• 8|16|20|24|44 Reload Speed\\n• 0.98x|0.98x|0.975x|0.96x|0.945x Reload Duration Multiplier\",\n      \"updatedAt\": \"2025-04-20T15:03:45.600Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 1489048135,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1745161425600,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Grenade Ability usage or scoring a Grenade Kill grants 1 stack of Explosive Pact for 7.5 seconds. Maximum of 5 stacks.\\n\\n<solar/>Healing Grenade orb pickups (by anyone) and Grenade Kills grant 1 stack each.\\n\\nRunning over a <yellow Speaker's Sight /> Healing Turret does not grant any stacks.\\n\\nBenefits at 1|2|3|4|5 stacks of Explosive Pact:\\n• ? Stability\\n• 8|16|20|24|44 Reload Speed\\n• 2%|2%|2.5%|4%|5.5% decreased Reload Animation Duration\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "bd43246a799009e2e85b632da88b6eef6e3402f4d10b1d27bfadce091e04441e",
+   "afterSha256": "64014e46b9852fd3df87579e1ba6d929b85bebbb529559f530803fbb9e64acfe",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/1583705720.json",
+   "hash": 1583705720,
+   "rows": [
+    "1583705720:5"
+   ],
+   "lines": [
+    5
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 1583705720,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1722301568233,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Upon damaging 3 Separate Enemies within 3 seconds of each, for #e${10+#d} seconds:\\n• 35 Handling and Reload Speed\\n• 10 Stability and Range\\n• 5% increased Damage Falloff Distance\\n• 0.95x Reload Duration Multiplier\\n\\nBuff duration cannot be refreshed.\\n\\nenhanced (\\nvar d = 1\\n#e Buff duration is increased by 1 second.\\n)\",\n      \"updatedAt\": \"2024-07-30T01:06:08.233Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 1583705720,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1722301568233,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Upon damaging 3 Separate Enemies within 3 seconds of each, for #e${10+#d} seconds:\\n• 35 Handling and Reload Speed\\n• 10 Stability and Range\\n• 5% increased Damage Falloff Distance\\n• 5% decreased Reload Animation Duration\\n\\nBuff duration cannot be refreshed.\\n\\nenhanced (\\nvar d = 1\\n#e Buff duration is increased by 1 second.\\n)\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "bdb6bf6070315b8233857a13c1b74eae076eda65946a32872a616d8e804601bd",
+   "afterSha256": "7e8144b538b2ce0ec2b458ec4e6adb2a12d483558f4ecb346c6f8e8520eb6815",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/1694242448.json",
+   "hash": 1694242448,
+   "rows": [
+    "1694242448:10"
+   ],
+   "lines": [
+    10
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 1694242448,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1783844209773,\n          \"updatedBy\": \"Hawkmoona\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Passively grants the following benefits while a Hand Cannon is readied:\\n• 20 Airborne Effectiveness\\n• 6.25% increased Sprint Speed\\n• 33% increased Slide Distance\\n\\nReadying a Hand Cannon grants 'Illegally Modded Holster' for 6 seconds (for the PVE-only benefits of the perk, consider this the 0th Stack).\\n\\n'Illegally Modded Holster' grants the following benefits to Hand Cannons:\\n• 100 Ready Speed Handling\\n• 0.6x Ready Animation Duration Multiplier\\n• 30% decreased Accuracy Cone Size\\n• PVE ONLY: Direct Hits grant a Stack of 'Illegally Modded Holster'. Maximum of 10 Stacks.\\n\\n'Illegally Modded Holster' grants 45% increased Direct Impact damage per Stack, maxing out at 450%. Boss-Tier Enemies take 33% decreased damage from Lucky Pants shots.\\n\\n• <purple Uncivil Discourse /> only recieves 30% increased damage per stack.\\n• <yellow Sturm />'s Overcharged Rounds only receive 11% increased damage per Stack (110%). \\n• <yellow Hawkmoon />'s Paracausal Shot receives 5% increased damage per stack upon being fired (50%). \\n• <yellow Malfeasance />'s Explosive Shadow is unaffected by the buff.\\n\\n\\nWhile at 'Illegally Modded Holster x7' or higher:\\nSwapping to a non-Hand Cannon weapon or the buff expiring grants you the 'Out of Luck' debuff. 'Out of Luck' prevents you from reacquiring 'Illegally Modded Holster' for 10 seconds.\",\n      \"updatedAt\": \"2026-07-12T08:16:49.773Z\",\n      \"updatedBy\": \"Hawkmoona\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 1694242448,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1783844209773,\n          \"updatedBy\": \"Hawkmoona\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Passively grants the following benefits while a Hand Cannon is readied:\\n• 20 Airborne Effectiveness\\n• 6.25% increased Sprint Speed\\n• 33% increased Slide Distance\\n\\nReadying a Hand Cannon grants 'Illegally Modded Holster' for 6 seconds (for the PVE-only benefits of the perk, consider this the 0th Stack).\\n\\n'Illegally Modded Holster' grants the following benefits to Hand Cannons:\\n• 100 Ready Speed Handling\\n• 40% decreased Ready Animation Duration\\n• 30% decreased Accuracy Cone Size\\n• PVE ONLY: Direct Hits grant a Stack of 'Illegally Modded Holster'. Maximum of 10 Stacks.\\n\\n'Illegally Modded Holster' grants 45% increased Direct Impact damage per Stack, maxing out at 450%. Boss-Tier Enemies take 33% decreased damage from Lucky Pants shots.\\n\\n• <purple Uncivil Discourse /> only recieves 30% increased damage per stack.\\n• <yellow Sturm />'s Overcharged Rounds only receive 11% increased damage per Stack (110%). \\n• <yellow Hawkmoon />'s Paracausal Shot receives 5% increased damage per stack upon being fired (50%). \\n• <yellow Malfeasance />'s Explosive Shadow is unaffected by the buff.\\n\\n\\nWhile at 'Illegally Modded Holster x7' or higher:\\nSwapping to a non-Hand Cannon weapon or the buff expiring grants you the 'Out of Luck' debuff. 'Out of Luck' prevents you from reacquiring 'Illegally Modded Holster' for 10 seconds.\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "6c7d37b4a4f3cd905a8c5210d3d7fa096f18ad262e8bda86457d15c2638b0925",
+   "afterSha256": "b5285c6d4d4c4d0dd557954353e3d50eb7cd858aa7f1185f78025af8af741d26",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/1727069361.json",
+   "hash": 1727069361,
+   "rows": [
+    "1727069361:1"
+   ],
+   "lines": [
+    1
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 1727069361,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1783935110279,\n          \"updatedBy\": \"Hawkmoona\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Scoring a Melee Hit grants 15 Stability, 50 Reload Speed, and a 0.8x Reload Duration Multiplier for 5.25 seconds.\\n\\nWhile <arc/>Amplified:\\n• (Almost) all sources of <arc/>Bolt Charge now grant an additional stack\\n• Grants no additional benefit to reload speed (bug?)\",\n      \"updatedAt\": \"2026-07-13T09:31:50.279Z\",\n      \"updatedBy\": \"Hawkmoona\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 1727069361,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1783935110279,\n          \"updatedBy\": \"Hawkmoona\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Scoring a Melee Hit grants 15 Stability, 50 Reload Speed, and 20% decreased Reload Animation Duration for 5.25 seconds.\\n\\nWhile <arc/>Amplified:\\n• (Almost) all sources of <arc/>Bolt Charge now grant an additional stack\\n• Grants no additional benefit to reload speed (bug?)\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "ea9162e2dfc03ca5b69e37fc28ca47aefca75fecce8b6b4970fd5aaaf94be8e0",
+   "afterSha256": "08bc77f1b1861788e94c170c929f5405cd20db443eb065c5e447796390c7c43d",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/1821614984.json",
+   "hash": 1821614984,
+   "rows": [
+    "1821614984:3"
+   ],
+   "lines": [
+    3
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 1821614984,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1722274506767,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Passively grants:\\n• 100 Handling\\n• 0.95x Ready Animation Duration Multiplier\\n• #e${20*#d}% decreased Auto Aim Cone Size (No effect on Magnetism AKA Reticle Stickiness)\\n\\nenhanced (\\nvar d = 0.75\\n#e Auto Aim Penalty is decreased by 25?% (20%⁠🠚⁠15%). \\n)\",\n      \"updatedAt\": \"2024-07-29T17:35:06.767Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 1821614984,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1722274506767,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Passively grants:\\n• 100 Handling\\n• 5% decreased Ready Animation Duration\\n• #e${20*#d}% decreased Auto Aim Cone Size (No effect on Magnetism AKA Reticle Stickiness)\\n\\nenhanced (\\nvar d = 0.75\\n#e Auto Aim Penalty is decreased by 25?% (20%⁠🠚⁠15%). \\n)\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "fe6f007793ea950725b6c6b0d04673fc4b0ec18e23cf1aad1423dee7929895ee",
+   "afterSha256": "cb97bce416694c42d52a62254ee6346a307985844c8d21afef58ad887fc91dc9",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/1878756191.json",
+   "hash": 1878756191,
+   "rows": [
+    "1878756191:6"
+   ],
+   "lines": [
+    6
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 1878756191,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1753471432131,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Grants a stack of 'Collective Purpose' for each ally within 15 meters. Maximum of 5 stacks.\\n\\nCollective Purpose grants the following benefits while at 1|2|3|4|5 stacks:\\n• 5?|10?|15?|20?|25? Range\\n• 5?|10?|15?|20?|25? Handling\\n• 0.975x?|0.95x?|0.925x?|0.9x?|0.875x? Draw Time Multiplier\\n• 5|10|15|20?|25? Charge Time Stat (For reference, 10 Charge Time stat is the benefit of a Charge Time Masterwork)\",\n      \"updatedAt\": \"2025-07-25T19:23:52.131Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 1878756191,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1753471432131,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Grants a stack of 'Collective Purpose' for each ally within 15 meters. Maximum of 5 stacks.\\n\\nCollective Purpose grants the following benefits while at 1|2|3|4|5 stacks:\\n• 5?|10?|15?|20?|25? Range\\n• 5?|10?|15?|20?|25? Handling\\n• 2.5%?|5%?|7.5%?|10%?|12.5%? decreased Draw Time\\n• 5|10|15|20?|25? Charge Time Stat (For reference, 10 Charge Time stat is the benefit of a Charge Time Masterwork)\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "1aedae34dd9571454d268e6a4e54576941f116bd8143c7d07d30255d84cf223c",
+   "afterSha256": "ad4e1a8e58ec7df2ee0daa61b90378d20035847e852dd47b391d1a7a9ba0a758",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/2059068466.json",
+   "hash": 2059068466,
+   "rows": [
+    "2059068466:1"
+   ],
+   "lines": [
+    1
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 2059068466,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1755805022694,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Grants a 0.8x|0.75x|0.7x Ready/Stow Animation Duration Multiplier to #element with 1|2|3 Mods equipped.\\n\\nStow Animation Duration cannot be decreased below what it would be at 100 Handling.\\n\\nvar element = <arc/>Arc Weapons\",\n      \"updatedAt\": \"2025-08-21T19:37:02.694Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 2059068466,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1755805022694,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Grants 20%|25%|30% decreased Ready/Stow Animation Duration to #element with 1|2|3 Mods equipped.\\n\\nStow Animation Duration cannot be decreased below what it would be at 100 Handling.\\n\\nvar element = <arc/>Arc Weapons\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "9eaaafb5861cf3492cb44bfca5b0bb824dd1a27bea064a4f77d4916a6750f6a4",
+   "afterSha256": "5e7585eddc91754d4dc78f2a8a23bf48517b0ae0433d243734c490c4411407b6",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/220689851.json",
+   "hash": 220689851,
+   "rows": [
+    "220689851:3",
+    "220689851:4"
+   ],
+   "lines": [
+    3,
+    4
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 220689851,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1717527699281,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Grants the following for 7 seconds upon breaking an enemy's shield or destroying a <link Vehicle or Construct [#CombatantClassifications] />:\\n• 40 Reload Speed\\n• 0.95x Reload Duration Multiplier\\n• 0.9x Draw Time Multiplier\",\n      \"updatedAt\": \"2024-06-04T19:01:39.281Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 220689851,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1717527699281,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Grants the following for 7 seconds upon breaking an enemy's shield or destroying a <link Vehicle or Construct [#CombatantClassifications] />:\\n• 40 Reload Speed\\n• 5% decreased Reload Animation Duration\\n• 10% decreased Draw Time\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "0554ab2d27b0bd051e005ed61ccf9e65ea4697f77ad0d58c3141474b5fc0726b",
+   "afterSha256": "082bc934585894f8615e830f768757feb658b8f730c653452fbb9d441bd35780",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/2437618208.json",
+   "hash": 2437618208,
+   "rows": [
+    "2437618208:3"
+   ],
+   "lines": [
+    3
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 2437618208,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1738614242070,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Scoring 4 Hip-Fire Hits within 4? seconds of each grants the following benefits for 4 seconds:\\n• 20 Range, Handling, and Reload Speed\\n• 0.9x Reload Duration Multiplier\\n• 1.5° larger Precision Aim Cone\\n• 10% decreased ADS Movement Speed Penalty\\n\\nScoring additional Hip-Fire Hits refreshes the buff duration.\",\n      \"updatedAt\": \"2025-02-03T20:24:02.070Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 2437618208,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1738614242070,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Scoring 4 Hip-Fire Hits within 4? seconds of each grants the following benefits for 4 seconds:\\n• 20 Range, Handling, and Reload Speed\\n• 10% decreased Reload Animation Duration\\n• 1.5° larger Precision Aim Cone\\n• 10% decreased ADS Movement Speed Penalty\\n\\nScoring additional Hip-Fire Hits refreshes the buff duration.\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "9d339690ef85350adce58be05a2f325dd69d8ec919cccd1bfd56ad2676b28730",
+   "afterSha256": "7d17dd5e20a042876711ea288cf1e86a8c5d1fa98e08cbde6717dc07592c9b7f",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/247725512.json",
+   "hash": 247725512,
+   "rows": [
+    "247725512:8"
+   ],
+   "lines": [
+    8
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 247725512,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1722191529974,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"\\\"Buffed Hits\\\" grant 1 Stack of Rapid Hit for 2 seconds. Maximum of 5 Stacks.\\n\\n\\\"Buffed Hits\\\" refer to any \\\"Yellow Number\\\" Hits such as Precision Hits or Hits against debuffed targets.\\n\\nBenefits at 1|2|3|4|5 Stacks:\\n• 2|12|14|18|25 Stability\\n• 5|30|35|42|60 Reload Speed\\n• 0.99x|0.96x|0.95x|0.945x|0.92x Reload Duration Multiplier\\n\\nenhanced (\\n#e Stronger Effect.\\n)\",\n      \"updatedAt\": \"2024-07-28T18:32:09.974Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 247725512,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1722191529974,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"\\\"Buffed Hits\\\" grant 1 Stack of Rapid Hit for 2 seconds. Maximum of 5 Stacks.\\n\\n\\\"Buffed Hits\\\" refer to any \\\"Yellow Number\\\" Hits such as Precision Hits or Hits against debuffed targets.\\n\\nBenefits at 1|2|3|4|5 Stacks:\\n• 2|12|14|18|25 Stability\\n• 5|30|35|42|60 Reload Speed\\n• 1%|4%|5%|5.5%|8% decreased Reload Animation Duration\\n\\nenhanced (\\n#e Stronger Effect.\\n)\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "d3c84d917b32de10cf894729abcec1e2d470770c7de505a93f8d72e374992258",
+   "afterSha256": "a9d4a342e4820d0d2ccdf473fd7a05d17620486570531154a4db61fbd8fb3e73",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/2731901709.json",
+   "hash": 2731901709,
+   "rows": [
+    "2731901709:13"
+   ],
+   "lines": [
+    13
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 2731901709,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1783888084276,\n          \"updatedBy\": \"Hawkmoona\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Melee/Glaive Melee Kills grant a stack of 'Warlord's Sigil'. Maximum of 10 stacks. Finishers grant 3 stacks (as soon as their animation starts). \\n\\nWarlord's Sigil stacks decay one at a time every 4.75 seconds.\\n\\nWarlord's Sigil grants the following Melee Damage increases at 1|2|3|...|10 stacks:\\n67.5% | 122% | 166% | 202% | 228% | 249% | 265% | 278% | 289% | 300% Additional Base Melee Damage.\\n\\n\\nReaching or refreshing the duration of the 10th stack grants 1 Melee Ability Charge and 'Warlord's Fury Ready' for 8 seconds. The 10th stack's duration cannot be refreshed by Finishers.\\n\\nUsing any Melee while Warlord's Fury Ready is active will grant 'Warlord's Fury' for 10 seconds, granting the following benefits:\\n• 400% Additional Base Melee Damage\\n• 0.8x Melee animation duration\\n• 38.4x Melee ability regeneration speed\\n\\nWarlord's Sigil's stack count is reset to 0 once Warlord's Fury ends. While Warlord's Fury is active, gaining stacks of Warlord's Sigil is not possible. \\n\\nNot triggering Warlord's Fury will return the buff to Warlord's Sigil x10.\",\n      \"updatedAt\": \"2026-07-12T20:28:04.276Z\",\n      \"updatedBy\": \"Hawkmoona\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 2731901709,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1783888084276,\n          \"updatedBy\": \"Hawkmoona\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Melee/Glaive Melee Kills grant a stack of 'Warlord's Sigil'. Maximum of 10 stacks. Finishers grant 3 stacks (as soon as their animation starts). \\n\\nWarlord's Sigil stacks decay one at a time every 4.75 seconds.\\n\\nWarlord's Sigil grants the following Melee Damage increases at 1|2|3|...|10 stacks:\\n67.5% | 122% | 166% | 202% | 228% | 249% | 265% | 278% | 289% | 300% Additional Base Melee Damage.\\n\\n\\nReaching or refreshing the duration of the 10th stack grants 1 Melee Ability Charge and 'Warlord's Fury Ready' for 8 seconds. The 10th stack's duration cannot be refreshed by Finishers.\\n\\nUsing any Melee while Warlord's Fury Ready is active will grant 'Warlord's Fury' for 10 seconds, granting the following benefits:\\n• 400% Additional Base Melee Damage\\n• 20% decreased Melee Animation Duration\\n• 38.4x Melee ability regeneration speed\\n\\nWarlord's Sigil's stack count is reset to 0 once Warlord's Fury ends. While Warlord's Fury is active, gaining stacks of Warlord's Sigil is not possible. \\n\\nNot triggering Warlord's Fury will return the buff to Warlord's Sigil x10.\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "5f09241685e2448605697bf0f9700fab0baf1af7b273beea6f817b0fc70cd65b",
+   "afterSha256": "0907cfe060d54db7440f16270ab1e08a8d21f0ab8dad852989fabbf06b886a55",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/2859149211.json",
+   "hash": 2859149211,
+   "rows": [
+    "2859149211:9"
+   ],
+   "lines": [
+    9
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 2859149211,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1755792713826,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Kills with the weapon grant a Stack of Beacon Rounds for #e${6+#d} seconds. Maximum of 4 Stacks.\\n\\nScoring futher Hits with the weapon can extend the buff duration up to the maximum of 4 seconds. Buff can be activated while stowed.\\n\\nEach Stack grants increased projectile tracking. Projectile Tracking is only in effect while the Targeted Reticle is active.\\n\\nGrants the following while you have active Stacks:\\n• 15 Reload Speed\\n• 0.9x Reload Duration Multiplier\\n• 45% increased Projectile Tracking Cone size\\n\\nenhanced (\\nvar d = 1\\n#e Buff duration is increased by 1? second.\\n)\",\n      \"updatedAt\": \"2025-08-21T16:11:53.826Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 2859149211,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1755792713826,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Kills with the weapon grant a Stack of Beacon Rounds for #e${6+#d} seconds. Maximum of 4 Stacks.\\n\\nScoring futher Hits with the weapon can extend the buff duration up to the maximum of 4 seconds. Buff can be activated while stowed.\\n\\nEach Stack grants increased projectile tracking. Projectile Tracking is only in effect while the Targeted Reticle is active.\\n\\nGrants the following while you have active Stacks:\\n• 15 Reload Speed\\n• 10% decreased Reload Animation Duration\\n• 45% increased Projectile Tracking Cone size\\n\\nenhanced (\\nvar d = 1\\n#e Buff duration is increased by 1? second.\\n)\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "90d2e5f10a3a6f7846bbe8715cf461b018dd99015dbb559da6d7d70495dc9c6c",
+   "afterSha256": "08b088251ddfb5147d04ad5f917d156e2fba57a30332fdca8afd474d63ad6ab3",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/2869569095.json",
+   "hash": 2869569095,
+   "rows": [
+    "2869569095:3",
+    "2869569095:4"
+   ],
+   "lines": [
+    3,
+    4
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 2869569095,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1766597977520,\n          \"updatedBy\": \"Hawkmoona\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Grants the following while Crouched:\\n• #e${50+#d} Reload Speed\\n• 0.8x Reload Duration Multiplier\\n• 0.8x Ready/Stow Duration Multiplier\\n\\nPassively grants #e${20+#f} Ammo Generation stat. #g\\n\\nvar g = (50% more than 1 Ammo Generation armor mod)\\nenhanced (\\nvar d = 5\\nvar f = 10\\nvar g = (Equivalent of 2 Ammo Generation armor mods)\\n#e Grants 5 more Reload Speed and 10 more Ammo Generation stat.\\n)\",\n      \"updatedAt\": \"2025-12-24T17:39:37.520Z\",\n      \"updatedBy\": \"Hawkmoona\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 2869569095,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1766597977520,\n          \"updatedBy\": \"Hawkmoona\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Grants the following while Crouched:\\n• #e${50+#d} Reload Speed\\n• 20% decreased Reload Animation Duration\\n• 20% decreased Ready/Stow Animation Duration\\n\\nPassively grants #e${20+#f} Ammo Generation stat. #g\\n\\nvar g = (50% more than 1 Ammo Generation armor mod)\\nenhanced (\\nvar d = 5\\nvar f = 10\\nvar g = (Equivalent of 2 Ammo Generation armor mods)\\n#e Grants 5 more Reload Speed and 10 more Ammo Generation stat.\\n)\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "078693216277129d7759799105920418b0d1f87a2fa05cd95f03e556d6916495",
+   "afterSha256": "7d1efcab11cbe88356602af583455c848eb30a2ee9aa42e24d8ce1a547201562",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/3186078099.json",
+   "hash": 3186078099,
+   "rows": [
+    "3186078099:5"
+   ],
+   "lines": [
+    5
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 3186078099,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1731007145651,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Equipping multiple 2|3 Root of Nightmares weapons grants the following benefits:\\n• 3.33% | 10% increased damage against <pve The Dread, Lucent Hive, and Nezarec />\\n• 10 | 20 Handling\\n• 0 | 20 Reload Speed\\n• 0.95x Reload Duration Multiplier\\n\\n/*Affected enemies:\\n• The Dread, Lucent Hive, and Nezarec\\n• Enemy Players with their Super (or Transcendence?) active*/\",\n      \"updatedAt\": \"2024-11-07T19:19:05.651Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 3186078099,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1731007145651,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Equipping multiple 2|3 Root of Nightmares weapons grants the following benefits:\\n• 3.33% | 10% increased damage against <pve The Dread, Lucent Hive, and Nezarec />\\n• 10 | 20 Handling\\n• 0 | 20 Reload Speed\\n• 5% decreased Reload Animation Duration\\n\\n/*Affected enemies:\\n• The Dread, Lucent Hive, and Nezarec\\n• Enemy Players with their Super (or Transcendence?) active*/\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "3af0a57c4fb4db32aaa5272f0ff18f0f30335d1d44e77b588d8cf2fc9d5e3910",
+   "afterSha256": "a96f84605dbb302dbd46b899117e2614f5825308217734e5295cb0bd9cb3b058",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/3241194941.json",
+   "hash": 3241194941,
+   "rows": [
+    "3241194941:1"
+   ],
+   "lines": [
+    1
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 3241194941,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1783908218390,\n          \"updatedBy\": \"Hawkmoona\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Passively grants 40 Airborne Effectiveness, 50 Handling, and a 0.8x Ready/Stow Duration Multiplier to Submachine Guns (SMGs).\\n\\nGrants the following while holding an SMG:\\n• 30 Mobility\\n• 6.25% increased Sprint Speed\\n• 33% increased Slide Distance\\n• 33% decreased ADS Movement Speed Penalty (25%⁠🠚⁠16.75%)\\n\\n<title Refills [G_refill] /> the Magazine of SMGs 1 second after they are stowed, even if the SMG is re-equipped within this window.\\n\\nScoring SMG Hits on PVE Combatants grants a Stack of 'Damage Buff' for 1 second. Maximum of 20 stacks. Damage Buff grants 5% increased SMG damage per stack, capping out at 100%.\\n\\nBoss-Tier Enemies take 33% decreased damage from Peacekeeper-buffed shots.\",\n      \"updatedAt\": \"2026-07-13T02:03:38.390Z\",\n      \"updatedBy\": \"Hawkmoona\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 3241194941,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1783908218390,\n          \"updatedBy\": \"Hawkmoona\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Passively grants 40 Airborne Effectiveness, 50 Handling, and 20% decreased Ready/Stow Animation Duration to Submachine Guns (SMGs).\\n\\nGrants the following while holding an SMG:\\n• 30 Mobility\\n• 6.25% increased Sprint Speed\\n• 33% increased Slide Distance\\n• 33% decreased ADS Movement Speed Penalty (25%⁠🠚⁠16.75%)\\n\\n<title Refills [G_refill] /> the Magazine of SMGs 1 second after they are stowed, even if the SMG is re-equipped within this window.\\n\\nScoring SMG Hits on PVE Combatants grants a Stack of 'Damage Buff' for 1 second. Maximum of 20 stacks. Damage Buff grants 5% increased SMG damage per stack, capping out at 100%.\\n\\nBoss-Tier Enemies take 33% decreased damage from Peacekeeper-buffed shots.\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "34e2a43cca84274fbfb86550d317c9d057316476ac3602668cda3f27e1e35537",
+   "afterSha256": "4aad79551ec3ec74d00c339f2eb5d3b5e2b58dcc6f8460f7329b7e8eb5a419de",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/3268255645.json",
+   "hash": 3268255645,
+   "rows": [
+    "3268255645:4"
+   ],
+   "lines": [
+    4
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 3268255645,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1714215606975,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Scoring 4 Precision Hits within 3 seconds of each grants the following for 10 seconds:\\n• 40? Handling\\n• 30 Reload Speed\\n• 0.85x Reload Duration Multiplier\\n\\nActivating the buff on an <link Elite or Miniboss [#CombatantClassifications] /> or stunning a Champion marks them for 30 seconds. Mark duration cannot be refreshed.\\n\\nMarked enemies are highlighted for allies and take 20% increased damage from them. Damage increase stacks with everything.\\n\\nUpon marking a target for the first time, Aeon Allies not using Sect of Force receive 33.33% Grenade and Melee Ability Energy per second for 3 seconds.\",\n      \"updatedAt\": \"2024-04-27T11:00:06.975Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 3268255645,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1714215606975,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Scoring 4 Precision Hits within 3 seconds of each grants the following for 10 seconds:\\n• 40? Handling\\n• 30 Reload Speed\\n• 15% decreased Reload Animation Duration\\n\\nActivating the buff on an <link Elite or Miniboss [#CombatantClassifications] /> or stunning a Champion marks them for 30 seconds. Mark duration cannot be refreshed.\\n\\nMarked enemies are highlighted for allies and take 20% increased damage from them. Damage increase stacks with everything.\\n\\nUpon marking a target for the first time, Aeon Allies not using Sect of Force receive 33.33% Grenade and Melee Ability Energy per second for 3 seconds.\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "eb6145ee41969a066a3b36104901beccb55241f1093da7e4cca2304bc674b5e4",
+   "afterSha256": "e78b0660f6261c5730e2a98df44c8427689b17dcf28f90ef9ffe7fdb34df5b2d",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/3347978672.json",
+   "hash": 3347978672,
+   "rows": [
+    "3347978672:1"
+   ],
+   "lines": [
+    1
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 3347978672,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1766524687013,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Rifts and <solar/>Wells of Radiance you cast grant 100 Reload Speed and a 0.9x Reload Duration Multiplier to all weapons for you and allies inside them. Effect is tied to the rift, even if the exotic is removed.\\n\\n<bold Empowering /> Rifts and <solar/>Wells of Radiance you cast also grant 50% increased Damage Falloff Distance to Weapons.\\n\\n<primary/> Primary Weapons receive the following bonuses while hipfiring:\\n• 5 Range and 30? Stability\\n• 70% decreased Accuracy Cone Size\\n• 2 degrees increased Precision Aim Cone Angle\\n• 20% increased Aim Assist and Damage Falloff Distance\\n\\n<yellow DMT />, <yellow Last Word />, and <yellow Tommy's Matchbook /> are uniquely tuned and do not receive as significant of a benefit.\",\n      \"updatedAt\": \"2025-12-23T21:18:07.013Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 3347978672,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1766524687013,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Rifts and <solar/>Wells of Radiance you cast grant 100 Reload Speed and 10% decreased Reload Animation Duration to all weapons for you and allies inside them. Effect is tied to the rift, even if the exotic is removed.\\n\\n<bold Empowering /> Rifts and <solar/>Wells of Radiance you cast also grant 50% increased Damage Falloff Distance to Weapons.\\n\\n<primary/> Primary Weapons receive the following bonuses while hipfiring:\\n• 5 Range and 30? Stability\\n• 70% decreased Accuracy Cone Size\\n• 2 degrees increased Precision Aim Cone Angle\\n• 20% increased Aim Assist and Damage Falloff Distance\\n\\n<yellow DMT />, <yellow Last Word />, and <yellow Tommy's Matchbook /> are uniquely tuned and do not receive as significant of a benefit.\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "c423e62c3b6a6e9069f07bb6b0959d7da77aa1c007f3b4ce7ab454617c9da4c1",
+   "afterSha256": "04acead590c794ea54d8d0735bc7de6e43f2d916826f7bb7acc58408b4e0dcc0",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/3404929162.json",
+   "hash": 3404929162,
+   "rows": [
+    "3404929162:6"
+   ],
+   "lines": [
+    6
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 3404929162,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1729097156517,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Finishing a reload after having dealt damage with the weapon grants a Stack of Splicer Surge. Maximum of 3 Stacks.\\n\\nSplicer Surge grants the following at 1|2|3 Stacks:\\n• 10? | 20? | 45? Handling\\n• 10 | 20 | 45 Reload Speed\\n• 0.967x | 0.934x | 0.9x Reload Duration Multiplier\\n\\nStowing the weapon removes the buff.\",\n      \"updatedAt\": \"2024-10-16T16:45:56.517Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 3404929162,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1729097156517,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Finishing a reload after having dealt damage with the weapon grants a Stack of Splicer Surge. Maximum of 3 Stacks.\\n\\nSplicer Surge grants the following at 1|2|3 Stacks:\\n• 10? | 20? | 45? Handling\\n• 10 | 20 | 45 Reload Speed\\n• 3.3% | 6.6% | 10% decreased Reload Animation Duration\\n\\nStowing the weapon removes the buff.\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "64e9014e44168ad077dbfb6920ba98c5b8f4d0ed33cc612148fd0bb4e1869df2",
+   "afterSha256": "e74f905d1a4e65019a458c756ed22625e4b0e7f32e6889fd015eed95571f970b",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/4071163871.json",
+   "hash": 4071163871,
+   "rows": [
+    "4071163871:7"
+   ],
+   "lines": [
+    7
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 4071163871,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1722302390246,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Grants 1|2 Stacks while within 15 meters of 1|2+ enemies. \\n\\nBonuses at 1|2 Stacks:\\n• #e${15+#d}|#e${40+#d} Stability\\n• #e${18+#f}|#e${60+#g} Reload Speed\\n• #e${25+#g}|100 Handling\\n• 0.9x|0.81x Handling Animation Duration Multiplier\\n\\nenhanced (\\nvar d = 4\\nvar f = 1\\nvar g = 3\\n#e Grants 4? more stability when active as well as 1|3 more Reload Speed at 1|2 Stacks.\\n)\",\n      \"updatedAt\": \"2024-07-30T01:19:50.246Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 4071163871,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1722302390246,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Grants 1|2 Stacks while within 15 meters of 1|2+ enemies. \\n\\nBonuses at 1|2 Stacks:\\n• #e${15+#d}|#e${40+#d} Stability\\n• #e${18+#f}|#e${60+#g} Reload Speed\\n• #e${25+#g}|100 Handling\\n• 10%|19% decreased Handling Animation Duration\\n\\nenhanced (\\nvar d = 4\\nvar f = 1\\nvar g = 3\\n#e Grants 4? more stability when active as well as 1|3 more Reload Speed at 1|2 Stacks.\\n)\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "82ba09a78541e9086f2aec57a3094a4b4255f1351c5eb69e132f4df850f47029",
+   "afterSha256": "8f9e89791cfc9e66055be6d995e853d43398c381aa9ccbaedd8276e0feb398ce",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/4091460919.json",
+   "hash": 4091460919,
+   "rows": [
+    "4091460919:2"
+   ],
+   "lines": [
+    2
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 4091460919,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1767713361010,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"After not having exchanged damage for 1 second:\\nGrants 20 Handling, 40 Reload Speed, and a 0.95x Reload Duration Multiplier. Swords receive up to a 12.5% increase to Movement Speed instead.\\n\\nAfter not having exchanged damage for 2 seconds:\\nGrants 20 Handling, 40 Reload Speed, and a 5% decresed Reload Duration. Swords receive up to a 25% increase to Movement Speed instead.\\n\\nCan activate while stowed.\\n\\nExchanging damage refers to either dealing or receiving damage. Self-damage and environmental damage do not count.\",\n      \"updatedAt\": \"2026-01-06T15:29:21.010Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 4091460919,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1767713361010,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"After not having exchanged damage for 1 second:\\nGrants 20 Handling, 40 Reload Speed, and 5% decreased Reload Animation Duration. Swords receive up to a 12.5% increase to Movement Speed instead.\\n\\nAfter not having exchanged damage for 2 seconds:\\nGrants 20 Handling, 40 Reload Speed, and a 5% decresed Reload Duration. Swords receive up to a 25% increase to Movement Speed instead.\\n\\nCan activate while stowed.\\n\\nExchanging damage refers to either dealing or receiving damage. Self-damage and environmental damage do not count.\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "c71436a2c74d7a0ae3cebae1893787de636d7a4060a3a5a232df2ef83f5cc3c7",
+   "afterSha256": "8c98f9ec2f2078e3b1e4e186f77efc1a93fcb57872589ab3994ea64789deaa6e",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/4134353779.json",
+   "hash": 4134353779,
+   "rows": [
+    "4134353779:1"
+   ],
+   "lines": [
+    1
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 4134353779,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1711984535454,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Passively grants 30 Reload Speed with a 0.9x Reload Duration Multiplier.\\n\\nDecreases Magazine Size Stat by 30. (Equivalent to the \\\"inverse\\\" of Extended Mag)\",\n      \"updatedAt\": \"2024-04-01T15:15:35.454Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 4134353779,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1711984535454,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Passively grants 30 Reload Speed with 10% decreased Reload Animation Duration.\\n\\nDecreases Magazine Size Stat by 30. (Equivalent to the \\\"inverse\\\" of Extended Mag)\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "0319d6a52701cbac3f4292d605799d8f62d0d99babced207982a31c0030b1fe7",
+   "afterSha256": "5c47db18b944f83caacab7744f5b4e5ff3d37ac96ac3fab1f228966ca5af7460",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/4154828211.json",
+   "hash": 4154828211,
+   "rows": [
+    "4154828211:5"
+   ],
+   "lines": [
+    5
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 4154828211,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1723138551004,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Taking 20 damage grants a Stack of Bitterspite. Maximum of 5 Stacks.\\n\\nBenefits at 1|2|3|4|5 Stacks:\\n• 10 | 20 | 30 | 40 | 50 Reload Speed\\n• 0.97x | 0.96x | 0.95x | 0.92x | 0.9x Reload Duration Multiplier\\n\\nReloading the weapon consumes all Stacks.\",\n      \"updatedAt\": \"2024-08-08T17:35:51.004Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 4154828211,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1723138551004,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Taking 20 damage grants a Stack of Bitterspite. Maximum of 5 Stacks.\\n\\nBenefits at 1|2|3|4|5 Stacks:\\n• 10 | 20 | 30 | 40 | 50 Reload Speed\\n• 3% | 4% | 5% | 8% | 10% decreased Reload Animation Duration\\n\\nReloading the weapon consumes all Stacks.\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "9fc177ec6b3c7a81c01735ce301ee2b6e9951f71d2fba82a5e285a9e7eac4e68",
+   "afterSha256": "70e0027ff394e31d817b7a6961b3253908d4f71593354ae865728e601e090102",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/4208512216.json",
+   "hash": 4208512216,
+   "rows": [
+    "4208512216:4"
+   ],
+   "lines": [
+    4
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 4208512216,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1704196544348,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Using your Grenade Ability <title refills [G_refill] /> your readied weapon from reserves and grants the following stat bonuses for 15 seconds:\\n• 40? Handling\\n• 40 Reload Speed\\n• 0.925x Reload Duration Multiplier\\n• 30 Airborne Effectiveness\\n\\n4 second cooldown between Magazine Refills.\\t\\t\\t\",\n      \"updatedAt\": \"2024-01-02T11:55:44.348Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 4208512216,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1704196544348,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Using your Grenade Ability <title refills [G_refill] /> your readied weapon from reserves and grants the following stat bonuses for 15 seconds:\\n• 40? Handling\\n• 40 Reload Speed\\n• 7.5% decreased Reload Animation Duration\\n• 30 Airborne Effectiveness\\n\\n4 second cooldown between Magazine Refills.\\t\\t\\t\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "1bb52e1b7fd8899ba3030af22c96a98d67fff5d19acc487595b28da62225cc84",
+   "afterSha256": "8c58d16044a25d5ad97015fa67fdd3b16114194a4d807a882c7a623f09f3bf6f",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/489583097.json",
+   "hash": 489583097,
+   "rows": [
+    "489583097:17"
+   ],
+   "lines": [
+    17
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 489583097,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1739030847825,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Only usable while on the ground.\\n\\nGrants 20% Damage Resistance during the cast animation and keeps you crouched after. \\n\\nCreates a short, curved, see-through Barricade that blocks all projectiles fired at it.\\n\\nLasts 20 seconds, has 500 HP, has 90% Damage Resistance against non-Boss PVE Combatants, and ?% Damage Resistance against Bosses.\\n\\nEnemies that pass through the Barricade continuously receive ? non-lethal damage every ? seconds. PVE Combatants that pass through the Barricade are temporarily disoriented.\\n\\nBarricade taunts PVE Combatants that are in front of it and within ? meters.\\n\\nGrants the following benefits to you and allies while standing behind it:\\n• 10% increased Damage Falloff Distance\\n• 50% Flinch Resistance\\n• 30 Stability\\n• 100 Reload Speed with a 0.9x Reload Duration Multiplier\\n• 80% Splash Damage Resistance against PVE Combatants\",\n      \"updatedAt\": \"2025-02-08T16:07:27.825Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 489583097,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1739030847825,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Only usable while on the ground.\\n\\nGrants 20% Damage Resistance during the cast animation and keeps you crouched after. \\n\\nCreates a short, curved, see-through Barricade that blocks all projectiles fired at it.\\n\\nLasts 20 seconds, has 500 HP, has 90% Damage Resistance against non-Boss PVE Combatants, and ?% Damage Resistance against Bosses.\\n\\nEnemies that pass through the Barricade continuously receive ? non-lethal damage every ? seconds. PVE Combatants that pass through the Barricade are temporarily disoriented.\\n\\nBarricade taunts PVE Combatants that are in front of it and within ? meters.\\n\\nGrants the following benefits to you and allies while standing behind it:\\n• 10% increased Damage Falloff Distance\\n• 50% Flinch Resistance\\n• 30 Stability\\n• 100 Reload Speed with 10% decreased Reload Animation Duration\\n• 80% Splash Damage Resistance against PVE Combatants\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "d6392370b65b7f084d294ea6927f14428710e658a74211793d36c738a7a76504",
+   "afterSha256": "1207bfcd0b5f42a16298953193b414b58466dbe6474d8a0ce62ec5ccb68061be",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/509074078.json",
+   "hash": 509074078,
+   "rows": [
+    "509074078:1"
+   ],
+   "lines": [
+    1
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 509074078,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1722301723495,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Weapon Kills grant 100 Handling and a 0.825x Handling Animation Duration Multiplier to all weapons for #e${8.5+#d} seconds.\\n\\nAdditional kills while the perk is active refresh the duration to 6.5 seconds.\\n\\nenhanced (\\nvar d = 1\\n#e Initial Buff Duration is increased by 1 second.\\n)\",\n      \"updatedAt\": \"2024-07-30T01:08:43.495Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 509074078,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1722301723495,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Weapon Kills grant 100 Handling and 17.5% decreased Handling Animation Duration to all weapons for #e${8.5+#d} seconds.\\n\\nAdditional kills while the perk is active refresh the duration to 6.5 seconds.\\n\\nenhanced (\\nvar d = 1\\n#e Initial Buff Duration is increased by 1 second.\\n)\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "4c30718b8f09ebe10535d30a1f783da9995854ea7380b7f237a399c4983667fc",
+   "afterSha256": "de04d17978541a32182d7afcc27f3858b06b2942100e7031915151094ac26838",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/671806388.json",
+   "hash": 671806388,
+   "rows": [
+    "671806388:2"
+   ],
+   "lines": [
+    2
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 671806388,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1696775968205,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"While above 50% Magazine Capacity:\\n#e${50+#d} Reload Speed with a 0.95x Reload Duration Multiplier.\\n\\nenhanced (\\nvar d = 5\\n#e Reload Speed bonus is increased by 5.\\n)\",\n      \"updatedAt\": \"2023-10-08T14:39:28.205Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 671806388,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1696775968205,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"While above 50% Magazine Capacity:\\n#e${50+#d} Reload Speed with 5% decreased Reload Animation Duration.\\n\\nenhanced (\\nvar d = 5\\n#e Reload Speed bonus is increased by 5.\\n)\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "fa6bf2bc6e7cbcbe316283c658047ac212359288c659916b6b7df8e76e1542bf",
+   "afterSha256": "ab8e75c310791e8786f7f3a2091d1b133efc39fef686caaf8b1fa794dc2bc486",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/684456054.json",
+   "hash": 684456054,
+   "rows": [
+    "684456054:3",
+    "684456054:5"
+   ],
+   "lines": [
+    3,
+    5
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 684456054,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1721150275916,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Grants the following after sprinting for 1.5 seconds with the weapon readied:\\n• 20 Reload Speed\\n• 0.95x Reload Duration Multiplier\\n• ? Handling\\n• 0.95x Handling Animation Duration Multiplier\\n\\nSprinting refreshes the buff duration.\\n\\nBeing <arc/>Amplified removes the sprinting requirement and increases the Reload Speed stat bonus to 60.\\n\\nenhanced (\\n#e Buff duration is increased. Even stronger effect while <arc/>Amplified.\\n)\",\n      \"updatedAt\": \"2024-07-16T17:17:55.916Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 684456054,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1721150275916,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Grants the following after sprinting for 1.5 seconds with the weapon readied:\\n• 20 Reload Speed\\n• 5% decreased Reload Animation Duration\\n• ? Handling\\n• 5% decreased Handling Animation Duration\\n\\nSprinting refreshes the buff duration.\\n\\nBeing <arc/>Amplified removes the sprinting requirement and increases the Reload Speed stat bonus to 60.\\n\\nenhanced (\\n#e Buff duration is increased. Even stronger effect while <arc/>Amplified.\\n)\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "650f9dd351d80456d6b8d40ba9cb207b9c51e6430d856e7519b5956f06fb3620",
+   "afterSha256": "db37be919e67f2067296aaeae31849d0e03ce806544036e8f916cb80f284f403",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/706527188.json",
+   "hash": 706527188,
+   "rows": [
+    "706527188:1"
+   ],
+   "lines": [
+    1
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 706527188,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1712002736004,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Switching to the Weapon grants 100 Ready/Stow Handling and a 0.95x Ready Animation Duration Multiplier for 1 second.\\n\\nBuff is removed as soon as ADS input is pressed.\\n\\nenhanced (\\n#e Passively grants 5 Reload Speed.\\n)\",\n      \"updatedAt\": \"2024-04-01T20:18:56.004Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 706527188,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1712002736004,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Switching to the Weapon grants 100 Ready/Stow Handling and 5% decreased Ready Animation Duration for 1 second.\\n\\nBuff is removed as soon as ADS input is pressed.\\n\\nenhanced (\\n#e Passively grants 5 Reload Speed.\\n)\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "0febecb09dce2960664c111078ac5d2ca47e17678e18128bf2f8f50fbc4addb9",
+   "afterSha256": "46608645a0f17a4a6ace3bbaed84eb5bd4400a8e98f569cc61be489dc8c61aec",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/736000386.json",
+   "hash": 736000386,
+   "rows": [
+    "736000386:1"
+   ],
+   "lines": [
+    1
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 736000386,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1728491206891,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Passively decreases Hip-Fire Accuracy Cone Size by 30% and grants a 0.95x Ready Animation Duration Multiplier.\",\n      \"updatedAt\": \"2024-10-09T16:26:46.891Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 736000386,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1728491206891,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Passively decreases Hip-Fire Accuracy Cone Size by 30% and grants 5% decreased Ready Animation Duration.\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "8a2bfdf1f2ff7162373fec91a93226e95afc6afb2135ecc57a51862fc01521a1",
+   "afterSha256": "a72f3b4f7eb028b7bb7e7469912a9924d8698a428b4f39340dfea179cf437db4",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/908147344.json",
+   "hash": 908147344,
+   "rows": [
+    "908147344:4"
+   ],
+   "lines": [
+    4
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 908147344,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1722301582928,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Crouching grants the following benefits:\\n• Prevents Radar Ping when shooting\\n• ? Reload Speed\\n• 0.8x Reload Duration Multiplier\\n• 25% increased Hold Time\\n\\nenhanced (\\n#e Grants an additional ? Stability and Reload Speed while crouched.\\n)\",\n      \"updatedAt\": \"2024-07-30T01:06:22.928Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 908147344,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1722301582928,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Crouching grants the following benefits:\\n• Prevents Radar Ping when shooting\\n• ? Reload Speed\\n• 20% decreased Reload Animation Duration\\n• 25% increased Hold Time\\n\\nenhanced (\\n#e Grants an additional ? Stability and Reload Speed while crouched.\\n)\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "90f1b72542f9e56d163c41ccc728e0fa8698270be207f3475769ee69cb267f5b",
+   "afterSha256": "188a59b2393f6ee4ce7499768a4ad8dc1bcb2f49341b88d0cbe36de701a2c54f",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/967052942.json",
+   "hash": 967052942,
+   "rows": [
+    "967052942:3",
+    "967052942:4"
+   ],
+   "lines": [
+    3,
+    4
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 967052942,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1703073372511,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Grants the following to #element 1 second after readying them:\\n• 5|8|10 Aim Assist with 1|2|3 Mods equipped\\n• 0.9x|0.85x|0.8x Accuracy Cone Size\\n• 0.85x|0.75x|0.7x ADS Animation Duration Multiplier\\n\\nvar element = <arc/>Arc Weapons\",\n      \"updatedAt\": \"2023-12-20T11:56:12.511Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 967052942,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1703073372511,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"Grants the following to #element 1 second after readying them:\\n• 5|8|10 Aim Assist with 1|2|3 Mods equipped\\n• 10%|15%|20% decreased Accuracy Cone Size\\n• 15%|25%|30% decreased ADS Animation Duration\\n\\nvar element = <arc/>Arc Weapons\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "4aacc6da55671b9800ae3c5f8c6259fbaa6fc6c53ac87a2bd552ac029adaddb0",
+   "afterSha256": "c04b4c1f21042818c347e43046a4a60862092126f924be73c7506f89755be110",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  },
+  {
+   "path": "tooltips/972757866.json",
+   "hash": 972757866,
+   "rows": [
+    "972757866:3"
+   ],
+   "lines": [
+    3
+   ],
+   "before": "{\n  \"associated\": [],\n  \"hash\": 972757866,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1727528526915,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"<title Refills [G_refill] /> Magazine from reserves upon dropping to #e${30+#d}% Shield Health. Can activate while stowed.\\n\\nGrants 50 Handling and a 0.95x Ready/Stow Animation Duration Multiplier while at or below #e${30+#d}% Shield Health.\\n\\nBuff lingers for 1 second once the condition is no longer met.\\n\\nenhanced (\\nvar d = 5\\n#e Activates with 5?% more Shield Health remaining.\\n)\",\n      \"updatedAt\": \"2024-09-28T13:02:06.915Z\",\n      \"updatedBy\": \"Stardust\"\n    }\n  }\n}\n",
+   "after": "{\n  \"associated\": [],\n  \"hash\": 972757866,\n  \"legacy\": {\n    \"inLiveDatabase\": true,\n    \"lastUpload\": 1791495267470,\n    \"updateTracker\": {\n      \"descriptions\": {\n        \"en\": {\n          \"lastUpdate\": 1727528526915,\n          \"updatedBy\": \"Stardust\"\n        }\n      }\n    },\n    \"uploadToLive\": false,\n    \"uploadedBy\": \"Stardust\"\n  },\n  \"text\": {\n    \"en\": {\n      \"text\": \"<title Refills [G_refill] /> Magazine from reserves upon dropping to #e${30+#d}% Shield Health. Can activate while stowed.\\n\\nGrants 50 Handling and 5% decreased Ready/Stow Animation Duration while at or below #e${30+#d}% Shield Health.\\n\\nBuff lingers for 1 second once the condition is no longer met.\\n\\nenhanced (\\nvar d = 5\\n#e Activates with 5?% more Shield Health remaining.\\n)\",\n      \"updatedAt\": \"2026-11-11T22:42:23.000Z\",\n      \"updatedBy\": \"StardustD2\"\n    }\n  }\n}\n",
+   "beforeSha256": "d0d6d0a9055cd57a950eb3b86f240c0eaf3240cbf6f8d47e79c2c1c896ea7915",
+   "afterSha256": "111f70d5a53090c7a990ecf9466ee1d3119338c5dd68adea159efbb8d6b98fe4",
+   "jsonLines": [
+    20,
+    21,
+    22
+   ],
+   "fields": [
+    "text.en.text",
+    "text.en.updatedAt",
+    "text.en.updatedBy"
+   ]
+  }
+ ],
+ "dropped": []
+}
