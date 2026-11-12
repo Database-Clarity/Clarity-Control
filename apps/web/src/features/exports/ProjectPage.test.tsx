@@ -287,6 +287,37 @@ describe('ProjectPage state', () => {
     expect(q('#export-file-panel')!.hasAttribute('inert')).toBe(false);
   });
 
+  it('re-check 2 F1: a read sent before a save cannot replace its result', async () => {
+    await open('/exports/pj');
+    const before = project('pj', 'Project J', 1);
+    await resolveLoad(0, before);
+    await typeId('renamed');
+    await key(idField(), 'Enter');
+    await act(async () => navigate('/exports/pk'));
+    await resolveLoad(1, project('pk', 'Project K'));
+    await act(async () => navigate('/exports/pj'));
+    // The background read of the cached draft is held across the whole save.
+    expect(calls.load).toHaveLength(3);
+    await click(saveButton()!);
+    const config = structuredClone(calls.save[0]!.config) as ExportConfig;
+    await act(async () =>
+      calls.save[0]!.resolve({
+        kind: 'saved',
+        revision: 's'.repeat(40),
+        config,
+        commit: null,
+      } satisfies SaveOutcome),
+    );
+    await resolveLoad(2, before);
+    expect(tab('renamed')).toBeDefined();
+    expect(tab('a1')).toBeUndefined();
+    expect(saveButton()!.disabled).toBe(true);
+    // Read it again: the cache holds the saved config and revision, not the older read.
+    await act(async () => navigate('/exports/pk'));
+    await act(async () => navigate('/exports/pj'));
+    expect(tab('renamed')).toBeDefined();
+  });
+
   it('re-check F2: renaming an unsaved file keeps its tab and the URL follows', async () => {
     await open('/exports/pi');
     await resolveLoad(0, project('pi', 'Project I', 1));

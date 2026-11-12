@@ -112,7 +112,8 @@ function ProjectView({ id, scope }: { id: string; scope: string }) {
   const load = useCallback(
     async (keepEdits: boolean) => {
       const ticket = ++loads.current;
-      const latest = () => alive.current && ticket === loads.current;
+      // A save started since this read was sent makes it stale: the save's reply is newer.
+      const latest = () => alive.current && ticket === loads.current && !pendingSaves.has(scope);
       try {
         const project = await loadProject(id);
         if (!latest()) return;
@@ -141,6 +142,8 @@ function ProjectView({ id, scope }: { id: string; scope: string }) {
   // A save's reply (from this page instance or an earlier one of the same scope).
   const finishSave = useCallback(
     async (pending: Promise<SaveOutcome>) => {
+      // Reads still on their way predate this save: their replies must not replace its result.
+      loads.current += 1;
       setSave({ kind: 'saving' });
       const outcome = await pending;
       if (!alive.current) return;
