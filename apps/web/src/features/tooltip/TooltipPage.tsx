@@ -334,6 +334,7 @@ function TooltipWorkspace({
       column,
       user,
       markup: markupRow,
+      readOnly,
     });
     // Keep the real VariantWorkspace at the same child position across readiness.
     return (

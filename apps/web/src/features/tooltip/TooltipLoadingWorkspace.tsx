@@ -22,12 +22,14 @@ export function loadingWorkspace({
   column,
   user,
   markup,
+  readOnly,
 }: {
   hash: number;
   lang: Lang;
   column: ReturnType<typeof useShellColumn>;
   user: ReturnType<typeof useAuthStore.getState>['user'];
   markup: ReturnType<typeof useMarkupRow>;
+  readOnly: boolean;
 }) {
   const preview = (
     <PreviewColumn
@@ -51,6 +53,8 @@ export function loadingWorkspace({
   );
   const workspace = (
     <VariantWorkspace
+      initialPanel={readOnly ? 'preview' : undefined}
+      source={lang === 'en' ? undefined : pane('English')}
       header={
         <fieldset disabled style={{ display: 'contents', border: 0, margin: 0, padding: 0 }}>
           <EditorPaneHeader
@@ -86,9 +90,13 @@ export function loadingWorkspace({
         </section>
       }
       preview={column ? null : <div className={styles.inlinePreview}>{preview}</div>}
-      compendium={user?.role !== 'translator' ? pane('Compendium') : null}
+      compendium={!readOnly && user?.role !== 'translator' ? pane('Compendium') : null}
       reports={
-        seesReports(user) && (reportLanguages(user)?.includes(lang) ?? true)
+        !readOnly &&
+        hash > 3 &&
+        seesReports(user) &&
+        (reportLanguages(user)?.includes(lang) ?? true) &&
+        (lang !== 'en' || user?.role !== 'translator')
           ? { count: null, pane: pane('Reports') }
           : undefined
       }
