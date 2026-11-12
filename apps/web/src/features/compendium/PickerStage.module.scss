@@ -5,6 +5,8 @@
   width: min(76rem, calc(100vw - 2rem));
   max-width: 100%;
   max-height: calc(var(--app-h) - 2rem);
+  // Centred in what the on-screen keyboard leaves of the window (ui/global.scss).
+  bottom: var(--kb-lift);
   padding: 0;
   color: var(--mr-stage-text);
   background: var(--mr-panel);

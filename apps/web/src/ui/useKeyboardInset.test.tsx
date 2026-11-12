@@ -85,7 +85,6 @@ describe('the page keyboard mode (Gboard cursor swipe in Vivaldi)', () => {
     // would run under it on Android: they read --app-h (ui/global.scss) instead. min-height is fine.
     const allowed = new Set([
       'ui/global.scss', // --app-h itself
-      'features/navigation/Layout.module.scss:215', // the desktop editor frame (min-width: 701px)
       'features/editor/StatusBar.module.scss', // fallback of --visible-h, the visual viewport
     ]);
     const found: string[] = [];
@@ -107,6 +106,28 @@ describe('the page keyboard mode (Gboard cursor swipe in Vivaldi)', () => {
     };
     walk(src);
     expect(found).toEqual([]);
+  });
+
+  it('centres every modal dialog in what the keyboard leaves of the window', () => {
+    // A modal <dialog> centres in the layout viewport, which no longer shrinks for the keyboard:
+    // each one's stylesheet lifts its bottom edge by --kb-lift (tablets; phones fill the height).
+    const modal: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        const path = join(dir, name);
+        if (statSync(path).isDirectory()) walk(path);
+        else if (/\.tsx$/.test(name) && !name.includes('.test.')) {
+          const code = readFileSync(path, 'utf8');
+          if (!/\.showModal\(\)/.test(code)) continue;
+          const sheet = code.match(/import \w+ from '(\.\/[\w.]+\.module\.scss)'/)?.[1];
+          modal.push(relative(src, path).replaceAll('\\', '/'));
+          expect(sheet, path).toBeDefined();
+          expect(readFileSync(join(dir, sheet!), 'utf8'), path).toMatch(/bottom: var\(--kb-lift\)/);
+        }
+      }
+    };
+    walk(src);
+    expect(modal.sort()).toEqual(['features/compendium/PickerStage.tsx', 'ui/Dialog.tsx']);
   });
 });
 
