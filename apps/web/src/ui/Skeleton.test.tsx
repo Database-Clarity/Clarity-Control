@@ -395,7 +395,7 @@ it.each(['boundary', 'suspense'])(
       await act(async () => vi.advanceTimersByTime(50));
       await draw(2, false, false);
       expect(host.querySelector('[aria-hidden]')).not.toBeNull();
-      await act(async () => vi.advanceTimersByTime(350));
+      await act(async () => vi.advanceTimersByTime(skeletonMinimumMs - 50));
       expect(host.textContent).toBe('Ready 2');
     } finally {
       vi.useRealTimers();
@@ -424,7 +424,7 @@ it('shares the elapsed parent minimum with a first-load hook consumer', async ()
     await paint();
     await paint();
     await draw(false, true);
-    await act(async () => vi.advanceTimersByTime(400));
+    await act(async () => vi.advanceTimersByTime(skeletonMinimumMs));
     expect(host.querySelector('[aria-hidden]')).not.toBeNull();
     await act(async () => vi.advanceTimersByTime(50));
     await draw(false, false);
@@ -468,7 +468,7 @@ it('gives a later nested selection its own minimum while its parent stays mounte
     await act(async () => vi.advanceTimersByTime(50));
     await draw(2, false);
     expect(host.querySelector('[aria-hidden]')).not.toBeNull();
-    await act(async () => vi.advanceTimersByTime(350));
+    await act(async () => vi.advanceTimersByTime(skeletonMinimumMs - 50));
     expect(host.textContent).toBe('Ready 2');
   } finally {
     vi.useRealTimers();
@@ -499,7 +499,7 @@ it('gives a reload on the same boundary a fresh minimum', async () => {
     await act(async () => vi.advanceTimersByTime(50));
     await draw(false);
     expect(host.querySelector('[aria-hidden]')).not.toBeNull();
-    await act(async () => vi.advanceTimersByTime(350));
+    await act(async () => vi.advanceTimersByTime(skeletonMinimumMs - 50));
     expect(host.textContent).toBe('Ready');
   } finally {
     vi.useRealTimers();
