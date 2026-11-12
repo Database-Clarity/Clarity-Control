@@ -19,6 +19,18 @@ const change = (base = tooltip(), next = tooltip('mine')) => ({
 });
 
 describe('save permission matrix', () => {
+  it('returns server time after the commit on a non-cacheable cross-origin response', async () => {
+    const before = Date.now();
+    const response = await fixture.request('/save', 'POST', change());
+    const after = Date.now();
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result.savedAt).toBeGreaterThanOrEqual(before);
+    expect(result.savedAt).toBeLessThanOrEqual(after);
+    expect(result.commit).toBe(fixture.dataHead);
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+  });
+
   it('rejects stale alias drafts and creates with a clear canonical target and no writes', async () => {
     fixture.aliases[123] = { to: 456, kind: 'frame' };
     const response = await fixture.request('/save', 'POST', change());
@@ -37,7 +49,11 @@ describe('save permission matrix', () => {
     const response = await fixture.request('/save', 'POST', change(), id);
     expect(response.status).toBe(200);
     const result = await response.json();
-    expect(result).toEqual({ commit: fixture.dataHead, tooltips: [tooltip('mine')] });
+    expect(result).toEqual({
+      commit: fixture.dataHead,
+      tooltips: [tooltip('mine')],
+      savedAt: expect.any(Number),
+    });
     expect(fixture.commits[0]).toMatchObject({
       author: {
         name: config.users[String(id)].login,
