@@ -1,0 +1,286 @@
+{
+ "sha": "e760f3654e027b72c70bbc51c9c3fcbd8790228a",
+ "rule": "owner 2026-11-11: animation word added to every duration",
+ "rows": [
+  {
+   "id": "220689851:3",
+   "authoredFile": "tooltips/220689851.json",
+   "sourceLine": 3,
+   "before": "• 0.95x Reload Duration Multiplier",
+   "after": "• 5% decreased Reload Animation Duration"
+  },
+  {
+   "id": "220689851:4",
+   "authoredFile": "tooltips/220689851.json",
+   "sourceLine": 4,
+   "before": "• 0.9x Draw Time Multiplier",
+   "after": "• 10% decreased Draw Time"
+  },
+  {
+   "id": "247725512:8",
+   "authoredFile": "tooltips/247725512.json",
+   "sourceLine": 8,
+   "before": "• 0.99x|0.96x|0.95x|0.945x|0.92x Reload Duration Multiplier",
+   "after": "• 1%|4%|5%|5.5%|8% decreased Reload Animation Duration"
+  },
+  {
+   "id": "489583097:17",
+   "authoredFile": "tooltips/489583097.json",
+   "sourceLine": 17,
+   "before": "• 100 Reload Speed with a 0.9x Reload Duration Multiplier",
+   "after": "• 100 Reload Speed with 10% decreased Reload Animation Duration"
+  },
+  {
+   "id": "509074078:1",
+   "authoredFile": "tooltips/509074078.json",
+   "sourceLine": 1,
+   "before": "Weapon Kills grant 100 Handling and a 0.825x Handling Animation Duration Multiplier to all weapons for #e${8.5+#d} seconds.",
+   "after": "Weapon Kills grant 100 Handling and 17.5% decreased Handling Animation Duration to all weapons for #e${8.5+#d} seconds."
+  },
+  {
+   "id": "671806388:2",
+   "authoredFile": "tooltips/671806388.json",
+   "sourceLine": 2,
+   "before": "#e${50+#d} Reload Speed with a 0.95x Reload Duration Multiplier.",
+   "after": "#e${50+#d} Reload Speed with 5% decreased Reload Animation Duration."
+  },
+  {
+   "id": "684456054:3",
+   "authoredFile": "tooltips/684456054.json",
+   "sourceLine": 3,
+   "before": "• 0.95x Reload Duration Multiplier",
+   "after": "• 5% decreased Reload Animation Duration"
+  },
+  {
+   "id": "684456054:5",
+   "authoredFile": "tooltips/684456054.json",
+   "sourceLine": 5,
+   "before": "• 0.95x Handling Animation Duration Multiplier",
+   "after": "• 5% decreased Handling Animation Duration"
+  },
+  {
+   "id": "706527188:1",
+   "authoredFile": "tooltips/706527188.json",
+   "sourceLine": 1,
+   "before": "Switching to the Weapon grants 100 Ready/Stow Handling and a 0.95x Ready Animation Duration Multiplier for 1 second.",
+   "after": "Switching to the Weapon grants 100 Ready/Stow Handling and 5% decreased Ready Animation Duration for 1 second."
+  },
+  {
+   "id": "736000386:1",
+   "authoredFile": "tooltips/736000386.json",
+   "sourceLine": 1,
+   "before": "Passively decreases Hip-Fire Accuracy Cone Size by 30% and grants a 0.95x Ready Animation Duration Multiplier.",
+   "after": "Passively decreases Hip-Fire Accuracy Cone Size by 30% and grants 5% decreased Ready Animation Duration."
+  },
+  {
+   "id": "908147344:4",
+   "authoredFile": "tooltips/908147344.json",
+   "sourceLine": 4,
+   "before": "• 0.8x Reload Duration Multiplier",
+   "after": "• 20% decreased Reload Animation Duration"
+  },
+  {
+   "id": "967052942:3",
+   "authoredFile": "tooltips/967052942.json",
+   "sourceLine": 3,
+   "before": "• 0.9x|0.85x|0.8x Accuracy Cone Size",
+   "after": "• 10%|15%|20% decreased Accuracy Cone Size"
+  },
+  {
+   "id": "967052942:4",
+   "authoredFile": "tooltips/967052942.json",
+   "sourceLine": 4,
+   "before": "• 0.85x|0.75x|0.7x ADS Animation Duration Multiplier",
+   "after": "• 15%|25%|30% decreased ADS Animation Duration"
+  },
+  {
+   "id": "972757866:3",
+   "authoredFile": "tooltips/972757866.json",
+   "sourceLine": 3,
+   "before": "Grants 50 Handling and a 0.95x Ready/Stow Animation Duration Multiplier while at or below #e${30+#d}% Shield Health.",
+   "after": "Grants 50 Handling and 5% decreased Ready/Stow Animation Duration while at or below #e${30+#d}% Shield Health."
+  },
+  {
+   "id": "1125523126:3",
+   "authoredFile": "tooltips/1125523126.json",
+   "sourceLine": 3,
+   "before": "• 0.85x Reload Duration Multiplier",
+   "after": "• 15% decreased Reload Animation Duration"
+  },
+  {
+   "id": "1168162263:1",
+   "authoredFile": "tooltips/1168162263.json",
+   "sourceLine": 1,
+   "before": "Precision Kills grant 70 Reload Speed with a 0.9x decreased Reload Animation Duration for #e${6+#d} seconds.",
+   "after": "Precision Kills grant 70 Reload Speed with 10% decreased Reload Animation Duration for #e${6+#d} seconds."
+  },
+  {
+   "id": "1421772400:5",
+   "authoredFile": "tooltips/1421772400.json",
+   "sourceLine": 5,
+   "before": "• 0.8x Reload Duration Multiplier",
+   "after": "• 20% decreased Reload Animation Duration"
+  },
+  {
+   "id": "1431678320:3",
+   "authoredFile": "tooltips/1431678320.json",
+   "sourceLine": 3,
+   "before": "Reload Duration Multiplier scales from 0.9x at 50% capacity to 0.8x with an empty magazine.",
+   "after": "Reload Animation Duration decreases linearly from 10% at 50% capacity to 20% with an empty magazine."
+  },
+  {
+   "id": "1489048135:10",
+   "authoredFile": "tooltips/1489048135.json",
+   "sourceLine": 10,
+   "before": "• 0.98x|0.98x|0.975x|0.96x|0.945x Reload Duration Multiplier",
+   "after": "• 2%|2%|2.5%|4%|5.5% decreased Reload Animation Duration"
+  },
+  {
+   "id": "1583705720:5",
+   "authoredFile": "tooltips/1583705720.json",
+   "sourceLine": 5,
+   "before": "• 0.95x Reload Duration Multiplier",
+   "after": "• 5% decreased Reload Animation Duration"
+  },
+  {
+   "id": "1694242448:10",
+   "authoredFile": "tooltips/1694242448.json",
+   "sourceLine": 10,
+   "before": "• 0.6x Ready Animation Duration Multiplier",
+   "after": "• 40% decreased Ready Animation Duration"
+  },
+  {
+   "id": "1727069361:1",
+   "authoredFile": "tooltips/1727069361.json",
+   "sourceLine": 1,
+   "before": "Scoring a Melee Hit grants 15 Stability, 50 Reload Speed, and a 0.8x Reload Duration Multiplier for 5.25 seconds.",
+   "after": "Scoring a Melee Hit grants 15 Stability, 50 Reload Speed, and 20% decreased Reload Animation Duration for 5.25 seconds."
+  },
+  {
+   "id": "1821614984:3",
+   "authoredFile": "tooltips/1821614984.json",
+   "sourceLine": 3,
+   "before": "• 0.95x Ready Animation Duration Multiplier",
+   "after": "• 5% decreased Ready Animation Duration"
+  },
+  {
+   "id": "1878756191:6",
+   "authoredFile": "tooltips/1878756191.json",
+   "sourceLine": 6,
+   "before": "• 0.975x?|0.95x?|0.925x?|0.9x?|0.875x? Draw Time Multiplier",
+   "after": "• 2.5%?|5%?|7.5%?|10%?|12.5%? decreased Draw Time"
+  },
+  {
+   "id": "2059068466:1",
+   "authoredFile": "tooltips/2059068466.json",
+   "sourceLine": 1,
+   "before": "Grants a 0.8x|0.75x|0.7x Ready/Stow Animation Duration Multiplier to #element with 1|2|3 Mods equipped.",
+   "after": "Grants 20%|25%|30% decreased Ready/Stow Animation Duration to #element with 1|2|3 Mods equipped."
+  },
+  {
+   "id": "2437618208:3",
+   "authoredFile": "tooltips/2437618208.json",
+   "sourceLine": 3,
+   "before": "• 0.9x Reload Duration Multiplier",
+   "after": "• 10% decreased Reload Animation Duration"
+  },
+  {
+   "id": "2731901709:13",
+   "authoredFile": "tooltips/2731901709.json",
+   "sourceLine": 13,
+   "before": "• 0.8x Melee animation duration",
+   "after": "• 20% decreased Melee Animation Duration"
+  },
+  {
+   "id": "2859149211:9",
+   "authoredFile": "tooltips/2859149211.json",
+   "sourceLine": 9,
+   "before": "• 0.9x Reload Duration Multiplier",
+   "after": "• 10% decreased Reload Animation Duration"
+  },
+  {
+   "id": "2869569095:3",
+   "authoredFile": "tooltips/2869569095.json",
+   "sourceLine": 3,
+   "before": "• 0.8x Reload Duration Multiplier",
+   "after": "• 20% decreased Reload Animation Duration"
+  },
+  {
+   "id": "2869569095:4",
+   "authoredFile": "tooltips/2869569095.json",
+   "sourceLine": 4,
+   "before": "• 0.8x Ready/Stow Duration Multiplier",
+   "after": "• 20% decreased Ready/Stow Animation Duration"
+  },
+  {
+   "id": "3186078099:5",
+   "authoredFile": "tooltips/3186078099.json",
+   "sourceLine": 5,
+   "before": "• 0.95x Reload Duration Multiplier",
+   "after": "• 5% decreased Reload Animation Duration"
+  },
+  {
+   "id": "3241194941:1",
+   "authoredFile": "tooltips/3241194941.json",
+   "sourceLine": 1,
+   "before": "Passively grants 40 Airborne Effectiveness, 50 Handling, and a 0.8x Ready/Stow Duration Multiplier to Submachine Guns (SMGs).",
+   "after": "Passively grants 40 Airborne Effectiveness, 50 Handling, and 20% decreased Ready/Stow Animation Duration to Submachine Guns (SMGs)."
+  },
+  {
+   "id": "3268255645:4",
+   "authoredFile": "tooltips/3268255645.json",
+   "sourceLine": 4,
+   "before": "• 0.85x Reload Duration Multiplier",
+   "after": "• 15% decreased Reload Animation Duration"
+  },
+  {
+   "id": "3347978672:1",
+   "authoredFile": "tooltips/3347978672.json",
+   "sourceLine": 1,
+   "before": "Rifts and <solar/>Wells of Radiance you cast grant 100 Reload Speed and a 0.9x Reload Duration Multiplier to all weapons for you and allies inside them. Effect is tied to the rift, even if the exotic is removed.",
+   "after": "Rifts and <solar/>Wells of Radiance you cast grant 100 Reload Speed and 10% decreased Reload Animation Duration to all weapons for you and allies inside them. Effect is tied to the rift, even if the exotic is removed."
+  },
+  {
+   "id": "3404929162:6",
+   "authoredFile": "tooltips/3404929162.json",
+   "sourceLine": 6,
+   "before": "• 0.967x | 0.934x | 0.9x Reload Duration Multiplier",
+   "after": "• 3.3% | 6.6% | 10% decreased Reload Animation Duration"
+  },
+  {
+   "id": "4071163871:7",
+   "authoredFile": "tooltips/4071163871.json",
+   "sourceLine": 7,
+   "before": "• 0.9x|0.81x Handling Animation Duration Multiplier",
+   "after": "• 10%|19% decreased Handling Animation Duration"
+  },
+  {
+   "id": "4091460919:2",
+   "authoredFile": "tooltips/4091460919.json",
+   "sourceLine": 2,
+   "before": "Grants 20 Handling, 40 Reload Speed, and a 0.95x Reload Duration Multiplier. Swords receive up to a 12.5% increase to Movement Speed instead.",
+   "after": "Grants 20 Handling, 40 Reload Speed, and 5% decreased Reload Animation Duration. Swords receive up to a 12.5% increase to Movement Speed instead."
+  },
+  {
+   "id": "4134353779:1",
+   "authoredFile": "tooltips/4134353779.json",
+   "sourceLine": 1,
+   "before": "Passively grants 30 Reload Speed with a 0.9x Reload Duration Multiplier.",
+   "after": "Passively grants 30 Reload Speed with 10% decreased Reload Animation Duration."
+  },
+  {
+   "id": "4154828211:5",
+   "authoredFile": "tooltips/4154828211.json",
+   "sourceLine": 5,
+   "before": "• 0.97x | 0.96x | 0.95x | 0.92x | 0.9x Reload Duration Multiplier",
+   "after": "• 3% | 4% | 5% | 8% | 10% decreased Reload Animation Duration"
+  },
+  {
+   "id": "4208512216:4",
+   "authoredFile": "tooltips/4208512216.json",
+   "sourceLine": 4,
+   "before": "• 0.925x Reload Duration Multiplier",
+   "after": "• 7.5% decreased Reload Animation Duration"
+  }
+ ]
+}

@@ -12,7 +12,8 @@ function dependencies(overrides: { setSession?: (token: string) => void; pending
 describe('completeCallback', () => {
   it('stores the session and returns to the remembered route', () => {
     const deps = dependencies();
-    const outcome = completeCallback(new URLSearchParams('session=token'), deps);
+    const outcome = completeCallback(new URLSearchParams('session=token&client=nonce'), deps);
+    expect(deps.consumePendingSignIn).toHaveBeenCalledWith('nonce');
     expect(deps.setSession).toHaveBeenCalledWith('token');
     expect(outcome).toEqual({ kind: 'signed-in', to: '/t/12345?lang=de' });
     expect(JSON.stringify(outcome)).not.toContain('token');
@@ -33,7 +34,7 @@ describe('completeCallback', () => {
         throw new Error('quota');
       },
     });
-    const outcome = completeCallback(new URLSearchParams('session=token'), deps);
+    const outcome = completeCallback(new URLSearchParams('session=token&client=nonce'), deps);
     expect(outcome).toMatchObject({ kind: 'error' });
     expect(deps.takeReturnPath).not.toHaveBeenCalled();
   });

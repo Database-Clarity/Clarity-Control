@@ -126,7 +126,7 @@ function scheduleCatchUp() {
   catchUpFrame = frame;
 }
 let quiet: ReturnType<typeof setTimeout> | undefined;
-const holds = new Set<symbol>();
+const holds = new Map<symbol, () => void>();
 export function pulseStepping(land?: () => void, resume?: () => void) {
   const continuing = burst;
   if (!continuing) {
@@ -199,16 +199,20 @@ export function beginSteppingFrame() {
 /** Physical holds span the OS initial delay and arbitrary key-repeat intervals. */
 export function holdSteppingKey(key: string) {
   const token = Symbol(key);
-  holds.add(token);
-  pulseStepping();
-  const release = () => {
+  const detach = () => {
     if (!holds.delete(token)) return;
     window.removeEventListener('keyup', changed, true);
     window.removeEventListener('keydown', changed, true);
     window.removeEventListener('blur', release);
     document.removeEventListener('visibilitychange', release);
+  };
+  const release = () => {
+    if (!holds.has(token)) return;
+    detach();
     pulseStepping();
   };
+  holds.set(token, detach);
+  pulseStepping();
   const changed = (event: KeyboardEvent) => {
     if (
       (event.type === 'keyup' && event.key === key) ||
@@ -225,4 +229,22 @@ export function holdSteppingKey(key: string) {
   window.addEventListener('blur', release);
   document.addEventListener('visibilitychange', release);
   return release;
+}
+
+/** Dispose shared activity before tearing down its browser environment, without landing routes. */
+export function disposeSteppingActivity() {
+  for (const detach of holds.values()) detach();
+  burst = false;
+  for (const type of interactionEvents)
+    window.removeEventListener(type, catchEditorInteraction, true);
+  clearTimeout(quiet);
+  quiet = undefined;
+  cancelActivityFrame();
+  cancelCatchUp();
+  landLatest = undefined;
+  resumeLatest = undefined;
+  previousFrameWork = workspaceWork = 0;
+  lastInputAt = -Infinity;
+  fastInput = firstFrame = false;
+  useSteppingActivity.setState({ active: false, deferWorkspace: false, target: undefined });
 }
