@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
-import type { User } from '../../services/api';
+import type { MenuUser } from './links';
 import { BrandMark } from './Brand';
 import { DraftButton } from './DraftButton';
 import { AccountSheet, useIdentity } from './IdentityMenu';
@@ -32,7 +32,7 @@ export function PhoneHeader({
   hasFinder,
   overlay,
 }: {
-  user: Pick<User, 'role'> | null | undefined;
+  user: MenuUser | null | undefined;
   pathname: string;
   routeFor(to: string): string;
   title: string;
