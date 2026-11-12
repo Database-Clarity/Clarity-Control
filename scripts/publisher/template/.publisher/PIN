@@ -1,4 +1,7 @@
 {
-  "sourceSha": "e4e91566b2fea1715a0c448cd3f3384968b570ac",
-  "sha256": "1355ce47ad664d153a1bbae744a4ec2718d9888155431f8845fa8d8ef7f56cc9"
+  "sourceSha": "df5025dfb4184ad8b8d3d63b2ddd9677288ccdb3",
+  "sha256": "cdad752606f64329cd2603e2e684a918b232dae725f48ce0d4c0adda3a084a6d",
+  "capabilities": [
+    "elementTags"
+  ]
 }

@@ -20231,6 +20231,55 @@ function scanBaseEnhanced(text, allowEmpty = false) {
 }
 var unfinishedBaseEnhanced = (text) => scanBaseEnhanced(text).issues;
 
+// packages/core/src/markup/elementTags.ts
+var elementTagNames = ["kinetic", "arc", "solar", "void", "stasis", "strand"];
+var inlineTokens = /<.+?\/>/g;
+var taggedToken = new RegExp(`^<(${elementTagNames.join("|")}) ([^<|[\\]\\n]+) />$`);
+function elementTagToken(token) {
+  const match = taggedToken.exec(token);
+  if (!match || !match[2].trim()) return void 0;
+  return { element: match[1], text: match[2] };
+}
+function findElementTags(text) {
+  if (!text.includes(" />")) return [];
+  const found = [];
+  for (const match of text.matchAll(inlineTokens)) {
+    const tag = elementTagToken(match[0]);
+    if (tag) found.push({ ...tag, from: match.index, to: match.index + match[0].length });
+  }
+  return found;
+}
+function lowerElementTags(text) {
+  return lower(text, "", "");
+}
+var unsafeTint = /[#${}]|\/\*|\*\/|\/\/|[/*]$/;
+function lower(text, open2, close) {
+  const tags = findElementTags(text);
+  if (!tags.length) return text;
+  let lowered = "";
+  let at = 0;
+  for (const tag of tags) {
+    const [, lead, body, trail] = /^(\s*)([^]*?)(\s*)$/.exec(tag.text);
+    const [o, c] = unsafeTint.test(body) ? ["", ""] : [open2, close];
+    lowered += `${text.slice(at, tag.from)}<${tag.element}/>${lead}${o}${body}${c}${trail}`;
+    at = tag.to;
+  }
+  return lowered + text.slice(at);
+}
+var elementTextOpen = "\uE000";
+var elementTextClose = "\uE001";
+var elementTextMarkers = /[\uE000\uE001]/g;
+var marked = /* @__PURE__ */ new Map();
+function markElementTags(text) {
+  let result = marked.get(text);
+  if (result === void 0) {
+    result = lower(text, elementTextOpen, elementTextClose);
+    if (marked.size >= 256) marked.delete(marked.keys().next().value);
+    marked.set(text, result);
+  }
+  return result;
+}
+
 // packages/core/src/markup/syntax.ts
 var markupColors = ["blue", "green", "purple", "yellow", "center", "bold", "pve", "pvp"];
 var markupIcons = [
@@ -20344,28 +20393,92 @@ function markupStrayTags(text) {
   }
   return stray;
 }
-function spans(line, titles) {
-  return line.split(new RegExp(`(${inlineToken.source}|\u{1F845})`, "g")).filter(Boolean).flatMap((text) => {
-    if (text === "\u{1F845}") return [{ text, classNames: ["enhancedArrow"] }];
-    const wrapper2 = text.match(/<\w+/)?.[0].slice(1);
-    if (wrapper2 === void 0) return [{ text }];
-    if ([...markupColors, "background", "bold"].includes(wrapper2)) {
-      return [
-        { text: text.replace(new RegExp(`<${wrapper2} | />`, "g"), ""), classNames: [wrapper2] }
-      ];
+var elements = new Set(elementTagNames);
+var markedPart = new RegExp(`(${inlineToken.source}|\u{1F845}|[\uE000\uE001])`, "g");
+function trimMarked(text, start = true) {
+  if (!text.includes(elementTextOpen) && !text.includes(elementTextClose))
+    return start ? text.trim() : text.trimEnd();
+  const end = /[\s\uE000\uE001]*$/.exec(text)[0];
+  text = text.slice(0, text.length - end.length) + end.replace(/\s/g, "");
+  if (!start) return text;
+  const lead = /^[\s\uE000\uE001]*/.exec(text)[0];
+  return lead.replace(/\s/g, "") + text.slice(lead.length);
+}
+function markersPair(parts) {
+  let open2 = false;
+  for (const part of parts) {
+    if (part === elementTextOpen) {
+      if (open2) return false;
+      open2 = true;
+    } else if (part === elementTextClose) {
+      if (!open2) return false;
+      open2 = false;
     }
-    if ([...markupIcons, ...markupEmpty].includes(wrapper2)) return [{ classNames: [wrapper2] }];
-    const target = text.match(/\[.+\]/)?.[0].replace(/\[|\]/g, "");
-    const label = text.replace(/ \[.+\] \/>/g, "");
-    if (!target || !label) return [];
-    if (wrapper2 === "link")
-      return [{ text: label.replace("<link ", ""), link: target, classNames: ["link"] }];
-    if (wrapper2 === "title")
-      return [
-        { text: label.replace("<title ", ""), title: titles[target], classNames: ["title"] }
-      ];
-    return [];
-  });
+  }
+  return !open2;
+}
+function spans(line, titles) {
+  const parts = line.split(markedPart);
+  const tinting = parts.length > 1 && markersPair(parts);
+  let tint;
+  let lead = -1;
+  let closed;
+  const out = [];
+  const space = (span) => span.text !== void 0 && !span.classNames && !span.text.trim();
+  for (const part of parts) {
+    if (!part) continue;
+    if (part === elementTextOpen) {
+      if (!tinting) continue;
+      closed = void 0;
+      let at = out.length - 1;
+      while (at >= 0 && space(out[at])) at--;
+      const icon = out[at];
+      const element = icon && icon.text === void 0 ? icon.classNames?.[0] : void 0;
+      tint = element && elements.has(element) ? element : void 0;
+      lead = tint ? at + 1 : -1;
+      continue;
+    }
+    if (part === elementTextClose) {
+      const last = out.at(-1);
+      closed = tint && last?.classNames?.[0] === "elementText" ? last : void 0;
+      tint = void 0;
+      lead = -1;
+      continue;
+    }
+    const text = part.replace(elementTextMarkers, "");
+    if (!text) continue;
+    for (const span of lineSpans(text, titles)) {
+      if (tint && span.text !== void 0 && !span.classNames) {
+        const spaces = lead >= 0 ? out.splice(lead).map((s) => s.text).join("") : "";
+        lead = -1;
+        out.push({ text: spaces + span.text, classNames: ["elementText", tint] });
+      } else if (closed && space(span)) {
+        closed.text += span.text;
+      } else {
+        lead = -1;
+        out.push(span);
+      }
+      closed = void 0;
+    }
+  }
+  return out;
+}
+function lineSpans(text, titles) {
+  if (text === "\u{1F845}") return [{ text, classNames: ["enhancedArrow"] }];
+  const wrapper2 = text.match(/<\w+/)?.[0].slice(1);
+  if (wrapper2 === void 0) return [{ text }];
+  if ([...markupColors, "background", "bold"].includes(wrapper2)) {
+    return [{ text: text.replace(new RegExp(`<${wrapper2} | />`, "g"), ""), classNames: [wrapper2] }];
+  }
+  if ([...markupIcons, ...markupEmpty].includes(wrapper2)) return [{ classNames: [wrapper2] }];
+  const target = text.match(/\[.+\]/)?.[0].replace(/\[|\]/g, "");
+  const label = text.replace(/ \[.+\] \/>/g, "");
+  if (!target || !label) return [];
+  if (wrapper2 === "link")
+    return [{ text: label.replace("<link ", ""), link: target, classNames: ["link"] }];
+  if (wrapper2 === "title")
+    return [{ text: label.replace("<title ", ""), title: titles[target], classNames: ["title"] }];
+  return [];
 }
 function tableRow(line, titles) {
   const { classNames, cleanLine } = lineClasses(line, markupEmpty);
@@ -20385,11 +20498,13 @@ function tableRow(line, titles) {
         colSpan: colSpan ? Number(colSpan) : void 0,
         rowSpan: rowSpan ? -Number(rowSpan) : void 0,
         classNames: cell.match(/\|[bchr\d-]+/)?.[0].split("").filter((char) => classes[char]).map((char) => classes[char]),
-        cellContent: spans(cell.replace(/\|[bchr\d-]+|\|/, "").trim(), titles).flatMap((part) => {
-          if (!part.text?.trim() && !part.classNames?.some((name) => typeof name === "string"))
-            return [];
-          return [{ text: part.text, classNames: part.classNames, title: part.title }];
-        })
+        cellContent: spans(trimMarked(cell.replace(/\|[bchr\d-]+|\|/, "")), titles).flatMap(
+          (part) => {
+            if (!part.text?.trim() && !part.classNames?.some((name) => typeof name === "string"))
+              return [];
+            return [{ text: part.text, classNames: part.classNames, title: part.title }];
+          }
+        )
       };
     })
   };
@@ -20415,10 +20530,7 @@ function parseLines(text, titles) {
     return [
       {
         classNames,
-        linesContent: spans(
-          block.includes("<breakSpaces/>") ? cleanLine.trimEnd() : cleanLine.trim(),
-          titles
-        )
+        linesContent: spans(trimMarked(cleanLine, !block.includes("<breakSpaces/>")), titles)
       }
     ];
   });
@@ -20764,8 +20876,72 @@ function prepareMarkup(text, globals, diagnostics, onCondition) {
 }
 
 // packages/core/src/markup/parse.ts
+var reservedMarker = /[\uE000\uE001]/;
+var reservedMarkerMessage = "Remove the private-use character U+E000 or U+E001: the preview reserves it for element-tagged text.";
 function parseMarkup(text, globals = { variables: "", titles: "" }) {
+  let reserved = false;
+  let tagged = false;
+  const clean = (source) => {
+    if (!reservedMarker.test(source)) return source;
+    reserved = true;
+    return source.replace(elementTextMarkers, "");
+  };
+  const mark = (source) => {
+    source = clean(source);
+    const marked2 = markElementTags(source);
+    if (marked2 !== source) tagged = true;
+    return marked2;
+  };
+  const tinted = parseWith(text, globals, mark);
+  const parsed = tagged ? parseWith(text, globals, (source) => lowerElementTags(clean(source))) : tinted;
+  const lines = tagged && JSON.stringify(untinted(tinted.lines)) === JSON.stringify(untinted(parsed.lines)) ? tinted.lines : parsed.lines;
+  const diagnostics = parsed.diagnostics;
+  if (reserved) diagnostics.push({ severity: "error", message: reservedMarkerMessage });
+  return { lines, diagnostics };
+}
+function untinted(lines) {
+  const spans2 = (parts) => {
+    const out = [];
+    for (const part of parts) {
+      const span = part.classNames?.includes("elementText") ? { text: part.text } : part.title ? { ...part, title: untinted(part.title) } : part;
+      const last = out.at(-1);
+      const plain = (value2) => value2.text !== void 0 && Object.entries(value2).every(([key, field]) => key === "text" || field === void 0);
+      if (last && plain(last) && plain(span))
+        out[out.length - 1] = { text: last.text + span.text };
+      else out.push(span);
+    }
+    return out;
+  };
+  return lines.map((line) => ({
+    ...line,
+    ...line.linesContent && { linesContent: spans2(line.linesContent) },
+    ...line.table && {
+      table: line.table.map((row) => ({
+        ...row,
+        rowContent: row.rowContent?.map((cell) => ({
+          ...cell,
+          cellContent: spans2(cell.cellContent)
+        }))
+      }))
+    }
+  }));
+}
+function parseWith(text, globals, lower2) {
   const diagnostics = [];
+  text = lower2(text);
+  globals = {
+    ...globals,
+    variables: lower2(globals.variables),
+    titles: lower2(globals.titles),
+    ...globals.imports && {
+      imports: new Proxy(globals.imports, {
+        get(target, key, receiver) {
+          const value2 = Reflect.get(target, key, receiver);
+          return typeof value2 === "string" ? lower2(value2) : value2;
+        }
+      })
+    }
+  };
   const prepared = prepareMarkup(text, globals, diagnostics);
   const titleBodies = prepared.nativeTitles ? Object.entries(prepared.titles).map(
     ([name, content]) => prepared.nativeTitles[name] ? prepareNativeTitle(prepared.nativeTitles[name], globals) : prepareMarkup(content, globals, []).text
@@ -21549,6 +21725,9 @@ function applyRetiredEdits(text, edits) {
 
 // packages/core/src/validation/index.ts
 var emptyEnglishMessage = "English text must not be empty.";
+function elementTagMessage(tag, lowered) {
+  return `Element-tagged text "${tag}" can't be saved yet: apps would show only the icon. Write "${lowered}" for now.`;
+}
 function validateTextWithReads(text, lang, globals, requireEnglish, selfHash, aliases) {
   const imports = /* @__PURE__ */ new Map();
   const variables = /* @__PURE__ */ new Set();
@@ -21582,6 +21761,14 @@ function validateText(text, lang, globals = { variables: "", titles: "" }, requi
   }
   if (requireEnglish && lang === "en" && !text.trim()) {
     add("error", emptyEnglishMessage);
+  }
+  for (const tag of findElementTags(text)) {
+    issues.push({
+      severity: "error",
+      message: elementTagMessage(text.slice(tag.from, tag.to), `<${tag.element}/>${tag.text}`),
+      from: tag.from,
+      to: tag.to
+    });
   }
   for (const diagnostic of parseMarkup(text, globals).diagnostics) {
     if (diagnostic.message === baseEnhancedMessage && text.includes("{{")) {
@@ -21687,7 +21874,8 @@ function exportLegacy(tooltips, now, catalog, aliases = {}) {
       const translation = tooltip.text[language];
       if (!translation) continue;
       const exported = usesEnglishFallback(tooltip, language) && english ? english : translation;
-      editor[language] = { main: exported.text, secondary: exported.text };
+      const text = lowerElementTags(exported.text);
+      editor[language] = { main: text, secondary: text };
       const old = tooltip.legacy?.updateTracker?.descriptions[language];
       descriptions[language] = {
         lastUpdate: Date.parse(exported.updatedAt),
@@ -23205,6 +23393,10 @@ var reportSubmissionSchema = external_exports.object({
   request_id: external_exports.string().uuid(),
   withdraw_secret: external_exports.string().regex(/^[A-Za-z0-9_-]{32,128}$/),
   viewed_hash: external_exports.number().int().min(0).max(4294967295),
+  // Optional only so already-stored requests from older clients can still retry.
+  // The Worker requires both fields for every new report.
+  owner_hash: external_exports.number().int().min(0).max(4294967295).optional(),
+  variant: external_exports.string().regex(/^(base|enhanced|override:\d+)$/).optional(),
   lang: langSchema,
   seen_lang: langSchema.optional(),
   rev: external_exports.string().regex(/^[a-f0-9]{16}$/),
@@ -23276,6 +23468,13 @@ function stampUploads(entries, changed, livePerks, now, uploader) {
 import { setTimeout } from "node:timers/promises";
 var publishBackoff = () => setTimeout(3e4);
 var json2 = (v) => JSON.stringify(v, null, 2) + "\n";
+function unloweredEntry(entries) {
+  const strings = (value2) => typeof value2 === "string" ? [value2] : value2 && typeof value2 === "object" ? Object.values(value2).flatMap(strings) : [];
+  for (const [hash2, entry] of Object.entries(entries))
+    if (strings(entry).some((text) => /[\uE000\uE001]/.test(text) || findElementTags(text).length))
+      return hash2;
+  return void 0;
+}
 var dataRef = (branch) => `refs/heads/${branch}`;
 var paths = (id) => {
   publishOpIdSchema.parse(id);
@@ -23596,6 +23795,21 @@ var Publisher = class {
         return;
       }
       const now = this.options.now(), pushed = pushedSchema.parse(this.read(tree, "live/pushed.json"));
+      const exported = exportLegacy(tooltips, now, this.options.facts, this.options.aliases);
+      const unlowered = unloweredEntry(exported);
+      if (unlowered !== void 0) {
+        await this.record(
+          opId,
+          void 0,
+          void 0,
+          {
+            status: "rejected",
+            error: `The export of tooltip ${unlowered} still holds element-tagged text`
+          },
+          blob
+        );
+        return;
+      }
       const r = {
         opId,
         requestBlob: blob,
@@ -23606,7 +23820,7 @@ var Publisher = class {
         generatorSha: this.options.generatorSha,
         outcome: "published",
         entries,
-        exported: exportLegacy(tooltips, now, this.options.facts, this.options.aliases),
+        exported,
         changed: entries.filter((e) => pushed[e.hash] !== e.digest).map((e) => e.hash),
         requester: payload.requester,
         intentDigest: payload.intentDigest
