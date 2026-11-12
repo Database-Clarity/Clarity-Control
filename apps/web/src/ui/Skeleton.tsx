@@ -227,13 +227,17 @@ export function LoadingSkeleton({
     ? skeletonLineWidths(skeletonTextShape(text), width ?? 360, 16)
     : [92, 78, 85, 60];
   return (
-    <div ref={element} aria-busy="true">
+    <div ref={element} aria-busy="true" className={shape === 'finder' ? styles.finder : undefined}>
       <SkeletonStatus>{label}</SkeletonStatus>
       {visible && shape === 'editor' && (
         <div className={styles.editorGrid}>
           <SkeletonRegion>
             <SkeletonRows count={2} columns={[25, 50, 25]} rowHeight="1.75rem" />
-            <SkeletonRows count={18} maxRows={18} columns={[88]} rowHeight="1.5rem" />
+            <div className={styles.editorLines}>
+              {Array.from({ length: 18 }, (_, index) => (
+                <SkeletonLine key={index} width={[92, 78, 85, 60][index % 4]} />
+              ))}
+            </div>
           </SkeletonRegion>
           <SkeletonRegion className={styles.editorPane}>
             <SkeletonRows count={2} columns={[40, 35, 25]} rowHeight="1.75rem" />

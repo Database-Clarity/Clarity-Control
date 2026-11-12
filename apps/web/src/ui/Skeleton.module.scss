@@ -87,6 +87,9 @@
   gap: 1rem;
   height: calc(100dvh - var(--header-h, 37px) - 2rem);
   min-height: 16rem;
+  > * {
+    align-self: start;
+  }
 }
 .editorPane {
   display: none;
@@ -98,4 +101,13 @@
   .editorPane {
     display: block;
   }
+}
+
+.finder {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+}
+.editorLines {
+  line-height: 1.5rem;
 }
