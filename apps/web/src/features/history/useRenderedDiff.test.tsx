@@ -20,7 +20,7 @@ it.each([
   ['Same\n// Old comment', 'Same\n// New comment', 'comment'],
   ['Same\nenhanced (\nvar d = 1\nExtra\n)', 'Same\nenhanced (\nvar d = 2\nExtra\n)', 'enhanced'],
 ])(
-  'locates a markup-only %s change without a generic note on ordinary diffs',
+  'locates a source-only %s change without a generic note on ordinary diffs',
   async (before, after, kind) => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     const instances: AutoWorker[] = [];
@@ -37,10 +37,15 @@ it.each([
           this.onmessage?.({
             data: {
               id,
-              result: {
-                ...renderedDiff(before, after, globals),
-                sourceAnalysis: analyzeSourceOnly(before, after, globals, { budgetMs: 10000 }),
-              },
+              result: (() => {
+                const diff = renderedDiff(before, after, globals);
+                return {
+                  ...diff,
+                  sourceAnalysis: analyzeSourceOnly(before, after, globals, diff, {
+                    budgetMs: 10000,
+                  }),
+                };
+              })(),
             },
           }),
         );
@@ -56,7 +61,7 @@ it.each([
       const marker = [...host.querySelectorAll('[data-source-change]')].find((marker) =>
         marker.textContent?.toLowerCase().includes(kind.toLowerCase()),
       );
-      expect(marker?.textContent).toContain('Markup-only change');
+      expect(marker?.textContent).toContain('Source changed');
       expect(marker?.textContent).toContain(kind === 'enhanced' ? 'lines 2–5' : 'line 2');
       expect(host.querySelector('ins, del')).toBeNull();
       await act(async () =>

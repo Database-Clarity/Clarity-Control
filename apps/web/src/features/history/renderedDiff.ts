@@ -4,6 +4,8 @@ import { diffWords } from '../../ui/diff/diffWords';
 export interface DiffSpan extends MarkupSpan {
   diffKind?: 'insert' | 'delete';
 }
+/** A line whose structure token (break, spacer, line class, or table) changed. */
+export type DiffLine = MarkupLine & { diffKind?: 'insert' | 'delete' };
 
 /** Source ranges remain visible even when comments, variables, or equivalent tags render alike. */
 export function changedSourceLines(before: string, after: string): string | undefined {
@@ -38,8 +40,9 @@ export function renderedDiff(
   // directly instead of splitting, encoding, aligning, and recombining words.
   if (!precise || !before || !after) {
     const coarse = (text: string, diffKind: DiffSpan['diffKind']) => {
-      const lines = text ? parseMarkup(text, globals).lines : [];
+      const lines: DiffLine[] = text ? parseMarkup(text, globals).lines : [];
       for (const line of lines) {
+        line.diffKind = diffKind;
         for (const span of line.linesContent ?? []) (span as DiffSpan).diffKind = diffKind;
         for (const row of line.table ?? [])
           for (const cell of row.rowContent ?? [])
@@ -54,7 +57,8 @@ export function renderedDiff(
   }
   function side(text: string) {
     const keys: string[] = [];
-    const spans: DiffSpan[] = [];
+    // Word, icon, link, and title spans, plus one structure token per line, in render order.
+    const tokens: (DiffSpan | DiffLine)[] = [];
     const split = (parts: MarkupSpan[], context: unknown): DiffSpan[] =>
       parts.flatMap((part) => {
         const words =
@@ -63,30 +67,39 @@ export function renderedDiff(
             : (part.text.match(/\s+|[^\s]+/g) ?? []);
         return words.map((text) => {
           const span = { ...part, text };
-          spans.push(span);
+          tokens.push(span);
           // One whitespace-free diff token per rendered word, icon, link, or title.
           keys.push(encodeURIComponent(JSON.stringify([span, context])));
           return span;
         });
       });
-    const lines: MarkupLine[] = parseMarkup(text, globals).lines.map((line) => ({
-      ...line,
-      linesContent: line.linesContent && split(line.linesContent, line.classNames),
-      table: line.table?.map((row) => ({
+    const lines: DiffLine[] = parseMarkup(text, globals).lines.map((source) => {
+      const line: DiffLine = { ...source };
+      // Line breaks, spacer lines, line classes, and table identity are tokens too,
+      // so a structural edit is marked in the same stream as words.
+      tokens.push(line);
+      keys.push(
+        encodeURIComponent(
+          JSON.stringify(['¶', source.classNames, !!source.table, !!source.linesContent]),
+        ),
+      );
+      line.linesContent = source.linesContent && split(source.linesContent, source.classNames);
+      line.table = source.table?.map((row) => ({
         ...row,
         rowContent: row.rowContent?.map((cell) => ({
           ...cell,
           cellContent: split(cell.cellContent, [
-            line.classNames,
+            source.classNames,
             row.classNames,
             cell.classNames,
             cell.colSpan,
             cell.rowSpan,
           ]),
         })),
-      })),
-    }));
-    return { lines, spans, keys: keys.join(' ') };
+      }));
+      return line;
+    });
+    return { lines, tokens, keys: keys.join(' ') };
   }
   const left = side(before),
     right = side(after);
@@ -96,11 +109,11 @@ export function renderedDiff(
     const count = part.text.split(/\s+/).filter(Boolean).length;
     for (let i = 0; i < count; i++) {
       if (part.kind !== 'insert') {
-        if (part.kind === 'delete') left.spans[a].diffKind = 'delete';
+        if (part.kind === 'delete') left.tokens[a].diffKind = 'delete';
         a++;
       }
       if (part.kind !== 'delete') {
-        if (part.kind === 'insert') right.spans[b].diffKind = 'insert';
+        if (part.kind === 'insert') right.tokens[b].diffKind = 'insert';
         b++;
       }
     }

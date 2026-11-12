@@ -7,7 +7,7 @@ import { previewDrafts } from '../conflicts/previewDrafts';
 import { MarkupLines, PreviewSpan } from '../preview/MarkupRenderer';
 import preview from '../preview/TooltipPreview.module.scss';
 import styles from './RenderedWordDiff.module.scss';
-import type { DiffSpan } from './renderedDiff';
+import type { DiffLine, DiffSpan } from './renderedDiff';
 import type { SourceMarker } from './sourceOnlyChanges';
 import { useRenderedDiff } from './useRenderedDiff';
 
@@ -46,6 +46,13 @@ function Markers({ markers }: { markers: SourceMarker[] }) {
   ));
 }
 const diffParts = (parts: MarkupSpan[]) => <Parts parts={parts} />;
+// A changed line break, spacer, line class, or table is marked on the line itself.
+const diffLine = (line: MarkupLine) =>
+  (line as DiffLine).diffKind === 'insert'
+    ? styles.lineInsert
+    : (line as DiffLine).diffKind === 'delete'
+      ? styles.lineDelete
+      : undefined;
 const Body = memo(function Body({
   lines,
   lang,
@@ -60,6 +67,7 @@ const Body = memo(function Body({
       <MarkupLines
         lines={lines}
         renderParts={diffParts}
+        lineClass={diffLine}
         beforeLine={(index) => (
           <Markers markers={markers.filter((marker) => marker.position === index)} />
         )}
@@ -129,8 +137,8 @@ export function RenderedWordDiff({
     >
       {!!markers.length && (
         <p className={styles.sourceChange}>
-          {markers.length} markup-only {markers.length === 1 ? 'change' : 'changes'} · see the
-          located markers or Raw.
+          {markers.length} source {markers.length === 1 ? 'change' : 'changes'} flagged below · Raw
+          shows the markup
         </p>
       )}
       {!!sourceAnalysis?.unchecked && (

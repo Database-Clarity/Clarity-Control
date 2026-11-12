@@ -9,7 +9,8 @@ self.onmessage = (
     const result = renderedDiff(before, after, globals);
     self.postMessage({
       id,
-      result: { ...result, sourceAnalysis: analyzeSourceOnly(before, after, globals) },
+      // Accounting reads the same final diff the user sees, never a separate render.
+      result: { ...result, sourceAnalysis: analyzeSourceOnly(before, after, globals, result) },
     });
   } catch {
     self.postMessage({ id });

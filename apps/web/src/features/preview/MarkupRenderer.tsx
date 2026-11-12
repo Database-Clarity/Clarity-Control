@@ -104,12 +104,18 @@ const PreviewLine = memo(
   function PreviewLine({
     line,
     renderParts = normalParts,
+    extraClass,
   }: {
     line: MarkupLine;
     renderParts?: RenderParts;
+    extraClass?: string;
   }) {
+    // Without a decoration the preview's DOM stays exactly as before.
+    const className = extraClass
+      ? [classNames(line.classNames), extraClass].filter(Boolean).join(' ')
+      : classNames(line.classNames);
     return line.table ? (
-      <table className={classNames(line.classNames)}>
+      <table className={className}>
         <tbody>
           {line.table.map((row, rowIndex) => (
             <tr key={rowIndex} className={classNames(row.classNames)}>
@@ -128,11 +134,12 @@ const PreviewLine = memo(
         </tbody>
       </table>
     ) : (
-      <div className={classNames(line.classNames)}>{renderParts(line.linesContent ?? [])}</div>
+      <div className={className}>{renderParts(line.linesContent ?? [])}</div>
     );
   },
   (previous, next) =>
     previous.renderParts === next.renderParts &&
+    previous.extraClass === next.extraClass &&
     (previous.line === next.line || lineKey(previous.line) === lineKey(next.line)),
 );
 
@@ -146,18 +153,20 @@ export function MarkupLines({
   renderParts,
   beforeLine,
   afterLines,
+  lineClass,
 }: {
   lines: MarkupLine[];
   renderParts?: RenderParts;
   beforeLine?: (index: number) => ReactNode;
   afterLines?: ReactNode;
+  lineClass?: (line: MarkupLine) => string | undefined;
 }) {
   return (
     <>
       {lines.map((line, index) => (
         <Fragment key={index}>
           {beforeLine?.(index)}
-          <PreviewLine line={line} renderParts={renderParts} />
+          <PreviewLine line={line} renderParts={renderParts} extraClass={lineClass?.(line)} />
         </Fragment>
       ))}
       {afterLines}

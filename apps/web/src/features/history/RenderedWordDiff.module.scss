@@ -48,6 +48,17 @@
     background: var(--ins-bg);
     text-decoration: underline;
   }
+  // Structure changes: a gutter bar in the snippet's own padding, so text never moves.
+  .lineInsert,
+  .lineDelete {
+    margin-inline-start: -0.5rem;
+    padding-inline-start: 0.5rem;
+    min-height: 0.5rem;
+    box-shadow: inset 3px 0 0 var(--ins);
+  }
+  .lineDelete {
+    box-shadow: inset 3px 0 0 var(--del-text);
+  }
 }
 .toggle[role='switch'] {
   @include controls.button;
@@ -78,5 +89,10 @@
   ins,
   del {
     text-decoration: none;
+  }
+  // Every line of a one-sided diff is new or gone; the side heading already says so.
+  .lineInsert,
+  .lineDelete {
+    box-shadow: none;
   }
 }

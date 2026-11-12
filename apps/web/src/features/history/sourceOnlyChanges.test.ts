@@ -1,125 +1,293 @@
-import { expect, it } from 'vitest';
-import { parseMarkup } from '@clarity/core';
-import { analyzeSourceOnly } from './sourceOnlyChanges';
-const globals = { variables: '', titles: '' };
-const options = { budgetMs: 10000 };
-it.each([
-  ['enhanced (\nHidden old\n)', 'enhanced (\nHidden new\n)', 'enhanced'],
-  ['var unused = 1', 'var unused = 2', 'variable'],
-  ['// old comment', '// new comment', 'comment'],
-])('marks a hidden %s edit beside a visible word edit', (old, next, kind) => {
-  const before = `Old visible\n${old}`,
-    after = `New visible\n${next}`;
-  const result = analyzeSourceOnly(before, after, globals, options);
-  expect(
-    result.markers.some((marker) => marker.label.toLowerCase().includes(kind.toLowerCase())),
-  ).toBe(true);
-  expect(result.unchecked).toBe(0);
-});
-it('marks the intact hidden enhanced block on the never-pushed Adaptive Munitions side', () => {
-  const after =
-    'Hits against Barrier Champions.\n\nenhanced (\n#e The damage buff is increased by ~40%\n)';
-  const result = analyzeSourceOnly('', after, globals, options);
-  expect(
-    result.markers.some(
-      (marker) => marker.label.includes('enhanced') && marker.label.includes('not present'),
+import { describe, expect, it } from 'vitest';
+import { parseMarkup, type MarkupGlobals } from '@clarity/core';
+import { renderedDiff, type DiffLine, type DiffSpan } from './renderedDiff';
+import {
+  accountHunks,
+  analyzeSourceOnly,
+  sourceParts,
+  type HunkAccount,
+} from './sourceOnlyChanges';
+
+const globals: MarkupGlobals = { variables: '', titles: '' };
+const options = { budgetMs: 10000, maxParts: 1000 };
+
+/**
+ * Accounts against the real final diff and independently re-verifies every
+ * "shown" claim against that diff: each claimed token must be a distinct marked
+ * word or marked line structure on the claimed rendered line.
+ */
+function account(before: string, after: string, context = globals) {
+  const diff = renderedDiff(before, after, context);
+  const accounts = accountHunks(before, after, context, diff, options);
+  expect(accounts).toHaveLength(sourceParts(before, after).length);
+  const available = new Map<string, number>();
+  for (const side of ['before', 'after'] as const) {
+    const kind = side === 'before' ? 'delete' : 'insert';
+    diff[side].forEach((line: DiffLine, index) => {
+      const add = (word: string) =>
+        available.set(
+          `${side}|${index}|${word}`,
+          (available.get(`${side}|${index}|${word}`) ?? 0) + 1,
+        );
+      if (line.diffKind === kind) add('¶');
+      for (const span of (line.linesContent ?? []) as DiffSpan[])
+        if (span.diffKind === kind && !span.link && !span.title)
+          for (const word of span.text?.split(/\s+/).filter(Boolean) ?? []) add(word);
+    });
+  }
+  for (const entry of accounts)
+    if (entry.account === 'shown')
+      for (const [side, line, word] of entry.tokens) {
+        const key = `${side}|${line}|${word}`;
+        expect(available.get(key) ?? 0, `claimed ${key}`).toBeGreaterThan(0);
+        available.set(key, available.get(key)! - 1);
+      }
+  return { accounts, diff };
+}
+const count = (accounts: HunkAccount[], kind: HunkAccount['account']) =>
+  accounts.filter((entry) => entry.account === kind).length;
+const labels = (accounts: HunkAccount[]) =>
+  accounts.flatMap((entry) => (entry.account === 'marker' ? [entry.marker.label] : []));
+const both = (before: string, after: string) => [
+  [before, after],
+  [after, before],
+];
+
+describe('named repros, forward and reverse', () => {
+  it.each(both('var n = A B\n#n', 'var n = A\n#n B'))(
+    'cancelled edits that render identically are flagged: %j → %j',
+    (before, after) => {
+      const { accounts, diff } = account(before, after);
+      expect(JSON.stringify(diff.before)).not.toContain('diffKind');
+      expect(JSON.stringify(diff.after)).not.toContain('diffKind');
+      expect(accounts.length).toBeGreaterThanOrEqual(2);
+      expect(count(accounts, 'marker')).toBe(accounts.length);
+      expect(labels(accounts).some((label) => label.includes('Variable n changed'))).toBe(true);
+    },
+  );
+  it.each(both('var n = A B\n#n\nVisible Old', 'var n = A\n#n B\nVisible New'))(
+    'a visible edit elsewhere does not hide the cancelled ones: %j → %j',
+    (before, after) => {
+      const { accounts } = account(before, after);
+      const shown = accounts.filter((entry) => entry.account === 'shown');
+      expect(shown).toHaveLength(1);
+      expect(JSON.stringify(shown)).toMatch(/Old|New/);
+      expect(count(accounts, 'marker')).toBe(accounts.length - 1);
+    },
+  );
+  it.each(both('var n = A B\n#n\nX', 'var n = A\n#n B\nB'))(
+    'a cancelled word cannot claim the same word marked on another line: %j → %j',
+    (before, after) => {
+      const { accounts } = account(before, after);
+      const cancelled = sourceParts(before, after).findIndex(
+        (part) =>
+          part.kind === 'source' &&
+          `${before.slice(part.from, part.to)}${after.slice(part.nextFrom, part.nextTo)}`.trim() ===
+            'B' &&
+          before.slice(part.from, part.to) !== 'X' &&
+          after.slice(part.nextFrom, part.nextTo) !== 'X',
+      );
+      expect(cancelled).toBeGreaterThanOrEqual(0);
+      expect(accounts[cancelled].account).toBe('marker');
+    },
+  );
+  it.each(both('A\nB', 'A\n\nB'))(
+    'a production spacer line is a marked line in the final diff: %j → %j',
+    (before, after) => {
+      const { accounts, diff } = account(before, after);
+      expect(accounts).toHaveLength(1);
+      expect(accounts[0].account).toBe('shown');
+      const marked = [...diff.before, ...diff.after].filter((line: DiffLine) => line.diffKind);
+      expect(marked).toHaveLength(1);
+      expect(marked[0].classNames).toContain('spacer');
+    },
+  );
+  it.each([
+    ...both('A B', 'A\nB').map((pair) => [...pair, 'shown']),
+    // Collapsed blank lines and trimmed spaces render the same, so they are flagged.
+    ...both('A\n\nB', 'A\n\n\nB').map((pair) => [...pair, 'marker']),
+    ...both('A', 'A ').map((pair) => [...pair, 'marker']),
+  ])(
+    'line breaks and spacing are shown or flagged, never dropped: %j → %j',
+    (before, after, kind) => {
+      const { accounts } = account(before, after);
+      expect(accounts.length).toBeGreaterThan(0);
+      expect(count(accounts, kind as HunkAccount['account'])).toBe(accounts.length);
+    },
+  );
+  it.each([
+    ...both('var n = 1\n#n damage', 'var n = 2\nNew damage'),
+    ...both(
+      'title Detail (\nOld detail\n)\n<title Info [Detail] />',
+      'title Detail (\nNew detail\n)\nNew visible',
     ),
-  ).toBe(true);
-  expect(result.markers.some((marker) => marker.position > 0)).toBe(true);
+  ])('newly unused definitions keep their production label: %j → %j', (before, after) => {
+    const { accounts } = account(before, after);
+    expect(count(accounts, 'unchecked')).toBe(0);
+    expect(
+      labels(accounts).some((label) => /Variable n changed|Title Detail changed/.test(label)),
+    ).toBe(true);
+  });
+  it.each(both('var n = 1\n#n damage', 'var n = 2\n#n damage'))(
+    'a still-referenced variable change is visible in the diff: %j → %j',
+    (before, after) => {
+      const { accounts, diff } = account(before, after);
+      expect(count(accounts, 'unchecked')).toBe(0);
+      const marked = (lines: DiffLine[]) =>
+        lines
+          .flatMap((line) => (line.linesContent ?? []) as DiffSpan[])
+          .filter((span) => span.diffKind);
+      expect(marked(diff.before).map((span) => span.text)).toEqual([
+        before.includes('= 1') ? '1' : '2',
+      ]);
+      expect(marked(diff.after)).toHaveLength(1);
+    },
+  );
+  it.each([
+    ...both('Hits <arc/> targets', 'Hits <void/> targets'),
+    ...both('<pve Same text />', '<pvp Same text />'),
+    ...both('<pve/>Same line', '<bold/>Same line'),
+  ])('icon, tag, and tint changes are marked and accounted: %j → %j', (before, after) => {
+    const { accounts, diff } = account(before, after);
+    expect(count(accounts, 'unchecked')).toBe(0);
+    expect(count(accounts, 'marker')).toBeGreaterThan(0);
+    expect(JSON.stringify([diff.before, diff.after])).toContain('diffKind');
+  });
+  it('plain word edits need no marker', () => {
+    for (const [before, after] of [
+      ...both('Deals 20 damage', 'Deals 30 damage'),
+      ...both('<pve Deals 20 damage />', '<pve Deals 30 damage />'),
+      ...both('First\nSecond', 'First\nNew line\nSecond'),
+    ]) {
+      const { accounts } = account(before, after);
+      expect(count(accounts, 'shown')).toBe(accounts.length);
+    }
+  });
 });
-it('handles pure comments, one-sided inserts/deletes, and active enhanced variants', () => {
-  expect(
-    analyzeSourceOnly('//old', '//new', globals, options).markers.some((marker) =>
-      marker.label.includes('comment'),
-    ),
-  ).toBe(true);
-  expect(analyzeSourceOnly('', '//new', globals, options).markers.length).toBeGreaterThan(0);
-  expect(analyzeSourceOnly('//old', '', globals, options).markers.length).toBeGreaterThan(0);
-  const before = 'Same\nenhanced (\nOld\n)',
-    after = 'Same\nenhanced (\nNew\n)';
-  expect(
-    analyzeSourceOnly(
-      before,
-      after,
-      { ...globals, type: 'Weapon Trait Enhanced' },
-      options,
-    ).markers.some((marker) => marker.label.includes('enhanced')),
-  ).toBe(false);
+
+it('hidden comment, condition, and declaration edits are flagged with their kind', () => {
+  for (const [old, next, kind] of [
+    ['enhanced (\nHidden old\n)', 'enhanced (\nHidden new\n)', 'Enhanced'],
+    ['var unused = 1', 'var unused = 2', 'Variable unused changed'],
+    ['// old comment', '// new comment', 'Comment'],
+    ['title Unused (\nOld\n)', 'title Unused (\nNew\n)', 'Title Unused changed'],
+    ['export hidden Detail (\nOld\n)', 'export hidden Detail (\nNew\n)', 'Markup'],
+  ])
+    for (const [before, after] of both(`Old visible\n${old}`, `New visible\n${next}`)) {
+      const { accounts } = account(before, after);
+      expect(count(accounts, 'shown')).toBe(1);
+      expect(labels(accounts).some((label) => label.includes(kind))).toBe(true);
+    }
 });
+
 it('keeps classified markers and reports exactly the unchecked parts at either cap', () => {
   const before = Array.from({ length: 45 }, (_, i) => `// old ${i}\nSame ${i}`).join('\n');
   const after = before.replaceAll('old', 'new');
-  const all = analyzeSourceOnly(before, after, globals, { ...options, maxParts: 1000 });
-  const bounded = analyzeSourceOnly(before, after, globals, { ...options, maxParts: 40 });
+  const diff = renderedDiff(before, after, globals);
+  const all = analyzeSourceOnly(before, after, globals, diff, options);
+  const bounded = analyzeSourceOnly(before, after, globals, diff, { budgetMs: 10000 });
+  expect(all.unchecked).toBe(0);
   expect(bounded.markers).toHaveLength(40);
   expect(bounded.unchecked).toBe(all.markers.length - 40);
   let time = 0;
-  const timed = analyzeSourceOnly(before, after, globals, {
+  const timed = analyzeSourceOnly(before, after, globals, diff, {
     now: () => (time += 30),
     budgetMs: 50,
   });
   expect(timed.markers.length).toBeLessThan(all.markers.length);
-  expect(timed.unchecked).toBeGreaterThan(0);
+  expect(timed.markers.length + timed.unchecked).toBe(all.markers.length);
 });
+
 it('leaves the production render data byte-identical', () => {
   const text = 'Visible\nvar n = 2\nenhanced (\nHidden\n)';
   const saved = JSON.stringify(parseMarkup(text, globals));
-  analyzeSourceOnly('Old', text, globals, options);
+  analyzeSourceOnly('Old', text, globals, renderedDiff('Old', text, globals), options);
   expect(JSON.stringify(parseMarkup(text, globals))).toBe(saved);
 });
-it('retains source identity for malformed Unicode, and distinguishes a variable that renders', () => {
-  expect(
-    analyzeSourceOnly('// old \ud800', '// new \ud801', globals, options).markers.some((marker) =>
-      marker.label.includes('comment'),
-    ),
-  ).toBe(true);
-  expect(
-    analyzeSourceOnly(
-      'var n = 1\n#n damage',
-      'var n = 2\n#n damage',
-      globals,
-      options,
-    ).markers.some((marker) => marker.label.toLowerCase().includes('variable')),
-  ).toBe(false);
-});
-it.each([
-  ['{{Old}{Hidden old}}', '{{New}{Hidden new}}', globals],
-  [
-    'enhanced (\nOld\n// hidden old\n)',
-    'enhanced (\nNew\n// hidden new\n)',
-    { ...globals, type: 'Weapon Trait Enhanced' },
-  ],
-  ['', 'Visible\ntitle Unused (\nHidden\n)', globals],
-  ['', 'Visible\nexport hidden Detail (\nHidden\n)', globals],
-  ['Visible\ntitle Unused (\nHidden\n)', '', globals],
-  ['Visible\nexport hidden Detail (\nHidden\n)', '', globals],
-])('keeps mixed compound source edits explicitly unchecked: %s', (before, after, context) => {
-  const result = analyzeSourceOnly(before, after, context, options);
-  expect(result.unchecked).toBeGreaterThan(0);
-});
-it.each([
-  ['var n = 1\n#n damage', 'var n = 2\nNew damage', 'Variable n changed'],
-  [
-    'title Detail (\nOld detail\n)\n<title Info [Detail] />',
-    'title Detail (\nNew detail\n)\nNew visible',
-    'Title Detail changed',
-  ],
-])('checks both dependency contexts forward and reverse: %s', (before, after, label) => {
-  for (const [left, right] of [
-    [before, after],
-    [after, before],
-  ]) {
-    const result = analyzeSourceOnly(left, right, globals, options);
-    expect(result.markers.some((marker) => marker.label.includes(label))).toBe(true);
-    expect(result.unchecked).toBe(0);
+
+// Seeded random before/after pairs over text, variables, titles, comments, tags,
+// and blank lines. Every raw hunk must be shown (re-verified against the final
+// diff), flagged, or unchecked; a shown hunk must also change the rendering by
+// itself, on a rendered line it claimed.
+it('accounts for every hunk of seeded random edits, forward and reverse', () => {
+  let seed = 0x5eed1104;
+  const random = () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const pick = <T>(list: readonly T[]) => list[Math.floor(random() * list.length)];
+  const word = () => pick(['A', 'B', 'X', 'damage', 'Old', 'New', '20', '30', 'hits']);
+  const text = () => Array.from({ length: 1 + Math.floor(random() * 3) }, word).join(' ');
+  const line = () =>
+    pick([
+      text,
+      text,
+      () => '',
+      () => `var ${pick(['n', 'm'])} = ${text()}`,
+      () => `#${pick(['n', 'm'])} ${text()}`,
+      () => `${text()} #${pick(['n', 'm'])}`,
+      () => `// ${text()}`,
+      () => `${text()} // ${text()}`,
+      () => `title ${pick(['T', 'U'])} (\n${text()}\n)`,
+      () => `<title ${word()} [${pick(['T', 'U'])}] />`,
+      () => `<${pick(['pve', 'pvp', 'bold'])} ${text()} />`,
+      () => `${text()} <${pick(['arc', 'void', 'primary'])}/>`,
+      () => `<pve/>${text()}`,
+      () => `enhanced (\n${text()}\n)`,
+    ])();
+  const mutate = (lines: string[]) => {
+    const next = [...lines];
+    for (let edits = 1 + Math.floor(random() * 3); edits > 0; edits--) {
+      const at = Math.floor(random() * (next.length + 1));
+      const action = random();
+      if (action < 0.3 && next.length) next[Math.min(at, next.length - 1)] = line();
+      else if (action < 0.55) next.splice(at, 0, line());
+      else if (action < 0.7 && next.length) next.splice(Math.min(at, next.length - 1), 1);
+      else if (action < 0.85) next.splice(at, 0, '');
+      else if (next.length) {
+        const index = Math.min(at, next.length - 1);
+        next[index] = next[index].replace(/\b(A|B|X|Old|New|20|30)\b/, () => word());
+      }
+    }
+    return next;
+  };
+  let shownTotal = 0,
+    markerTotal = 0;
+  for (let pair = 0; pair < 250; pair++) {
+    const first = Array.from({ length: 1 + Math.floor(random() * 5) }, line);
+    const pairText = [first.join('\n'), mutate(first).join('\n')];
+    for (const [before, after] of both(pairText[0], pairText[1])) {
+      if (before === after) continue;
+      const { accounts } = account(before, after);
+      expect(count(accounts, 'unchecked')).toBe(0);
+      const parts = sourceParts(before, after);
+      const render = (text: string) => JSON.stringify(parseMarkup(text, globals).lines);
+      const rendered = [render(before), render(after)];
+      accounts.forEach((entry, index) => {
+        if (entry.account !== 'shown') return markerTotal++;
+        shownTotal++;
+        // A shown hunk has a rendered effect of its own, applied to the old
+        // text or reverted from the new one (a removed line's break shows only
+        // in the first; claims above are verified against the final diff).
+        const part = parts[index];
+        const applied =
+          before.slice(0, part.from) +
+          after.slice(part.nextFrom, part.nextTo) +
+          before.slice(part.to);
+        const reverted =
+          after.slice(0, part.nextFrom) +
+          before.slice(part.from, part.to) +
+          after.slice(part.nextTo);
+        expect(
+          render(applied) !== rendered[0] || render(reverted) !== rendered[1],
+          `${JSON.stringify(before)} → ${JSON.stringify(after)} part ${index}`,
+        ).toBe(true);
+      });
+    }
   }
-});
-it('marks a still-referenced variable as visible only after both renders change', () => {
-  const result = analyzeSourceOnly(
-    'var n = 1\n#n damage',
-    'var n = 2\n#n damage',
-    globals,
-    options,
-  );
-  expect(result).toEqual({ markers: [], unchecked: 0 });
+  // The generator must exercise both outcomes, or it proves nothing.
+  expect(shownTotal).toBeGreaterThan(50);
+  expect(markerTotal).toBeGreaterThan(50);
 });
