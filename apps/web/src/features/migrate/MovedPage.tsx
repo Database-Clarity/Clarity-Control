@@ -23,6 +23,7 @@ type View =
  */
 export function MovedPage() {
   const [view, setView] = useState<View>({ kind: 'checking' });
+  const [unreadable, setUnreadable] = useState<string[]>([]);
   const sent = useRef<Snapshot>();
   const sender = useRef<ReturnType<typeof startSender>>();
   const timer = useRef<number>();
@@ -34,6 +35,7 @@ export function MovedPage() {
     collectSnapshot(browserIO()).then(
       (collected) => {
         if (!live) return;
+        setUnreadable(collected.unreadable);
         const start = movedStart(collected);
         if (start.kind === 'redirect') window.location.replace(target);
         else if (start.kind === 'idle') setView({ kind: 'idle', drafts: start.drafts });
@@ -41,7 +43,7 @@ export function MovedPage() {
           setView({
             kind: 'error',
             message:
-              'Some drafts in this browser cannot be read, so nothing was moved or removed. Open the new editor yourself if you want to continue.',
+              'Some draft buckets cannot be read. You can move or export the readable drafts; unreadable buckets will stay here.',
             drafts: -1,
           });
       },
@@ -63,8 +65,7 @@ export function MovedPage() {
 
   const prepare = async (): Promise<string> => {
     const { snapshot, unreadable } = await collectSnapshot(browserIO());
-    if (unreadable.length)
-      throw new Error('Some local drafts cannot be read, so nothing was sent.');
+    setUnreadable(unreadable);
     sent.current = snapshot;
     const result = serializeSnapshot(snapshot, maxMessageChars);
     if (!result.ok || !result.text)
@@ -114,7 +115,7 @@ export function MovedPage() {
   const exportFile = async () => {
     try {
       const { snapshot, unreadable } = await collectSnapshot(browserIO());
-      if (unreadable.length) throw new Error('Some local drafts cannot be read.');
+      setUnreadable(unreadable);
       downloadSnapshot(snapshot, exportName());
     } catch (error) {
       setView({ kind: 'error', message: errorMessage(error), drafts: -1 });
@@ -140,6 +141,19 @@ export function MovedPage() {
   return (
     <section className={styles.page} aria-labelledby="moved-title">
       <h1 id="moved-title">The editor has moved</h1>
+      {unreadable.length > 0 && (
+        <aside aria-label="Unreadable draft buckets">
+          <p>
+            {unreadable.length} unreadable draft bucket{unreadable.length === 1 ? '' : 's'} will
+            stay untouched:
+          </p>
+          <ul>
+            {unreadable.map((bucket) => (
+              <li key={bucket}>{bucket}</li>
+            ))}
+          </ul>
+        </aside>
+      )}
       {view.kind === 'checking' && <p role="status">Checking for drafts in this browser…</p>}
       {view.kind === 'idle' && (
         <>
@@ -180,7 +194,7 @@ export function MovedPage() {
             {view.confirming ? (
               <>
                 <button type="button" className={styles.danger} onClick={() => void clear()}>
-                  Yes, remove the moved drafts here
+                  Yes, remove moved drafts
                 </button>
                 <button type="button" onClick={() => setView({ ...view, confirming: false })}>
                   Keep them

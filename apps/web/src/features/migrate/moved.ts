@@ -9,7 +9,7 @@ export type MovedStart =
  * nothing here to lose: no readable drafts AND nothing unreadable. Unreadable drafts stay put.
  */
 export function movedStart({ snapshot, unreadable }: Collected): MovedStart {
-  if (unreadable.length > 0) return { kind: 'unreadable' };
   const drafts = draftCount(snapshot);
+  if (drafts === 0 && unreadable.length > 0) return { kind: 'unreadable' };
   return drafts === 0 ? { kind: 'redirect' } : { kind: 'idle', drafts };
 }
