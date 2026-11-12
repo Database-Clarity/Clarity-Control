@@ -1,13 +1,11 @@
+import { langSchema, type Lang } from '../../../../../../packages/core/src/languages';
 import {
   displayRevision,
   displayText,
-  langSchema,
-  markupImports,
-  parseMarkup,
-  type Lang,
-  type MarkupGlobals,
-  type MarkupSpan,
-} from '@clarity/core';
+} from '../../../../../../packages/core/src/reports/displayText';
+import { markupImports } from '../../../../../../packages/core/src/markup/prepare';
+import { parseMarkup } from '../../../../../../packages/core/src/markup/parse';
+import type { MarkupGlobals, MarkupSpan } from '../../../../../../packages/core/src/markup/types';
 import {
   loadReportCatalog,
   loadReportTooltip,
@@ -18,12 +16,22 @@ import {
 
 /** The catalog is fetched once per page load; the picker, the form, and My reports share it. */
 let catalogPromise: Promise<ReportCatalog> | undefined;
-export function reportCatalog(): Promise<ReportCatalog> {
-  catalogPromise ??= loadReportCatalog().catch((error: unknown) => {
-    catalogPromise = undefined;
-    throw error;
-  });
+export function reportCatalog(fresh = false): Promise<ReportCatalog> {
+  if (!catalogPromise || fresh) {
+    const current = loadReportCatalog().catch((error: unknown) => {
+      if (catalogPromise === current) catalogPromise = undefined;
+      throw error;
+    });
+    catalogPromise = current;
+  }
   return catalogPromise;
+}
+
+/** Direct links resolve their identity from the live catalog before first paint. */
+export async function reportItemCatalog(viewed: number): Promise<ReportCatalog> {
+  if (!Number.isInteger(viewed) || viewed <= 3 || viewed > 0xffffffff)
+    return { v: 1, sourceCommit: '0'.repeat(40), items: {} };
+  return reportCatalog(true);
 }
 
 /** The global documents every tooltip may read: exports (1), variables (2), titles (3). */

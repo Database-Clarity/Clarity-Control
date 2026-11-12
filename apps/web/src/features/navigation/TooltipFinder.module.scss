@@ -103,7 +103,7 @@
   z-index: 40;
   min-width: 100%;
   width: max(100%, 22rem);
-  max-height: min(60dvh, 26rem);
+  max-height: min(calc(0.6 * var(--app-h)), 26rem);
   display: flex;
   flex-direction: column;
   @include controls.overlay-surface;
@@ -143,7 +143,7 @@
   &[data-windowed] {
     // Large lists already fill this bounded surface. Isolate changing row
     // contents from workspace size/layout without deferring their paint.
-    height: min(60dvh, 26rem);
+    height: min(calc(0.6 * var(--app-h)), 26rem);
     contain: strict;
   }
 }

@@ -12,7 +12,7 @@
   flex-direction: column;
   gap: 0.5rem;
   box-sizing: border-box;
-  height: calc(100dvh - var(--header-h, 37px) - 2 * var(--pad));
+  height: calc(var(--app-h) - var(--header-h, 37px) - 2 * var(--pad));
   min-height: 22rem;
   min-width: 0;
   // Layout follows the room the page has (window width and interface scale), not the viewport.

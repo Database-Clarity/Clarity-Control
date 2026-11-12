@@ -90,7 +90,7 @@ button.toggle {
 }
 
 .body {
-  max-height: min(50dvh, 22rem);
+  max-height: min(calc(0.5 * var(--app-h)), 22rem);
   overflow: auto;
   overscroll-behavior: contain;
   padding: 0.25rem 0.25rem 0.5rem;

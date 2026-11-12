@@ -65,7 +65,7 @@
     position: sticky;
     top: var(--header-h, 37px);
     align-self: start;
-    height: calc(100dvh - var(--header-h, 37px));
+    height: calc(var(--app-h) - var(--header-h, 37px));
     padding: 0.75rem;
   }
 }
@@ -212,7 +212,8 @@
 // Desktop editor: the window is the frame; the left column and the page scroll separately.
 @media (min-width: 701px) {
   .layout[data-fixed] {
-    height: 100dvh;
+    // A tablet's keyboard covers the frame's bottom: it ends above it (ui/global.scss).
+    height: var(--app-h);
     min-height: 0;
     overflow: hidden;
 

@@ -1,10 +1,11 @@
+import { appliedUiScale } from '../ui/uiScale';
 import { create } from 'zustand';
 import {
   defaultSyncedSettings,
-  stableStringify,
   syncedSettingsSchema,
   type SyncedSettings,
-} from '@clarity/core';
+} from '../../../../packages/core/src/settings';
+import { stableStringify } from '../../../../packages/core/src/contentHash';
 import { z } from 'zod';
 import {
   apiUrl,
@@ -256,11 +257,7 @@ let resizeBound = false;
  * `scale` times narrower, so a scale that would squeeze a tablet-width window below 701px is
  * limited to what fits (a phone window keeps the phone layout and is limited only by 260px).
  */
-export function appliedUiScale(scale: number, width: number): number {
-  if (scale <= 100) return scale;
-  const floor = width > 700 ? 710 : 260;
-  return Math.max(100, Math.min(scale, Math.floor((width / floor) * 100)));
-}
+export { appliedUiScale } from '../ui/uiScale';
 
 function applyScale() {
   const root = document.documentElement;

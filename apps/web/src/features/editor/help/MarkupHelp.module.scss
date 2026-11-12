@@ -51,10 +51,10 @@
   position: fixed;
   top: var(--help-top, auto);
   right: 0;
-  bottom: 0;
+  bottom: var(--kb-lift);
   left: 0;
   z-index: 60;
-  height: var(--help-height, min(85dvh, 44rem));
+  height: var(--help-height, min(calc(0.85 * var(--app-h)), 44rem));
   max-height: none;
   border: 0;
   border-top: 1px solid var(--pop-edge);

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import catalogSnapshot from './reportCatalogSnapshot.json';
 import {
   langSchema,
   reportSubmissionSchema,
@@ -98,15 +99,36 @@ const catalogItemSchema = z.object({
   langs: z.array(langSchema).max(13),
   variant: z.string().regex(/^(base|enhanced|override:\d+)$/),
 });
-const catalogSchema = z.object({
-  sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
-  // Validate the selected entry at use. Copying and validating every item on a
-  // cold public POST would put catalogue growth on the request's CPU budget.
-  items: z.custom<Record<string, unknown>>(
-    (value) => typeof value === 'object' && value !== null && !Array.isArray(value),
-  ),
-});
-let catalogCache: { key: string; until: number; data: z.infer<typeof catalogSchema> } | undefined;
+
+type Catalog = { sourceCommit: string } & ({ items: Record<string, unknown> } | { text: string });
+let catalogCache: { key: string; until: number; data: Catalog } | undefined;
+/** Exact-byte snapshot only; all other producer revisions retain full validation. */
+export async function parseReportCatalog(text: string): Promise<Catalog> {
+  return (await reportDigest(text)) === catalogSnapshot.sha256
+    ? { text, sourceCommit: catalogSnapshot.sourceCommit }
+    : parseCatalogEnvelope(text);
+}
+/** The same envelope checks as before, without cold schema evaluation or item traversal. */
+function parseCatalogEnvelope(text: string): Catalog {
+  const value: unknown = JSON.parse(text);
+  if (typeof value !== 'object' || value === null || Array.isArray(value))
+    throw new Error('Invalid report catalog');
+  const data = value as Record<string, unknown>;
+  if (
+    typeof data.sourceCommit !== 'string' ||
+    !/^[a-f0-9]{40}$/.test(data.sourceCommit) ||
+    typeof data.items !== 'object' ||
+    data.items === null ||
+    Array.isArray(data.items)
+  )
+    throw new Error('Invalid report catalog');
+  return { sourceCommit: data.sourceCommit, items: data.items as Record<string, unknown> };
+}
+export function reportCatalogEntry(catalog: Catalog, hash: number): unknown {
+  return 'text' in catalog
+    ? JSON.parse(new RegExp(`"${hash}":(\\{[^}]*\\})`).exec(catalog.text)?.[1] ?? 'null')
+    : catalog.items[hash];
+}
 let reportPermissionsCache:
   { key: string; until: number; users: Record<string, Access> } | undefined;
 async function catalog(env: Env) {
@@ -118,7 +140,10 @@ async function catalog(env: Env) {
       { signal: AbortSignal.timeout(5000) },
     );
     if (!response.ok) throw new Error('Catalog unavailable');
-    const data = catalogSchema.parse(await response.json(), { jitless: true });
+    const text = await response.text();
+    // Only an exact producer snapshot may skip whole-catalog JSON parsing. A changed,
+    // malformed, or differently serialized upstream always takes the original validator.
+    const data = await parseReportCatalog(text);
     catalogCache = { key, data, until: Date.now() + 300_000 };
     return data;
   } catch {
@@ -231,6 +256,11 @@ function limitStatements(db: ReportsDatabase, limits: Limit[]) {
     ),
   );
 }
+const turnstileResponseSchema = z.object({
+  success: z.boolean(),
+  hostname: z.string().optional(),
+  action: z.string().optional(),
+});
 async function turnstile(env: Env, token: string | undefined) {
   if (!env.TURNSTILE_SECRET || !token) throw new HttpError(400, 'Human check required');
   try {
@@ -239,13 +269,7 @@ async function turnstile(env: Env, token: string | undefined) {
       body: new URLSearchParams({ secret: env.TURNSTILE_SECRET, response: token }),
       signal: AbortSignal.timeout(5000),
     });
-    const data = z
-      .object({
-        success: z.boolean(),
-        hostname: z.string().optional(),
-        action: z.string().optional(),
-      })
-      .parse(await response.json());
+    const data = turnstileResponseSchema.parse(await response.json(), { jitless: true });
     const hosts = siteOrigins(env).map((s) => new URL(s).hostname);
     if (env.REPORTS_ALLOW_LOCALHOST === 'true') hosts.push('localhost');
     if (
@@ -287,15 +311,20 @@ async function submit(
   const access = await resolveAccess();
   const { limits, attempt } = await admission(request, env, db, user, access);
   const items = await catalog(env);
-  const selected = catalogItemSchema.safeParse(items.items[input.viewed_hash], { jitless: true });
+  if (items.sourceCommit !== input.data_commit)
+    throw new HttpError(409, 'Tooltip data changed; reload before sending');
+  const selected = catalogItemSchema.safeParse(reportCatalogEntry(items, input.viewed_hash), {
+    jitless: true,
+  });
   if (!selected.success) throw new HttpError(422, 'Unknown tooltip');
   const item = selected.data;
-  const lang = item.langs.includes(input.lang)
-    ? input.lang
-    : item.langs.includes('en')
-      ? 'en'
-      : null;
-  if (!lang) throw new HttpError(422, 'Tooltip has no reportable text');
+  // sourceCommit alone cannot fence generator-only owner/variant remappings.
+  // Never substitute a catalog identity for the one the reporter saw rendered.
+  if (item.owner !== input.owner_hash || item.variant !== input.variant)
+    throw new HttpError(409, 'Tooltip data changed; reload before sending');
+  const lang = input.lang;
+  if (!item.langs.includes(lang))
+    throw new HttpError(422, 'Tooltip has no reportable text in this language');
   if (!access) {
     // Reserve a human-check attempt before the external call. Failed checks
     // and races cannot repeatedly consume siteverify without spending a limit.

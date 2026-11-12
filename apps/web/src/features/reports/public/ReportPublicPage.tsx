@@ -1,13 +1,17 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { Link, useLocation, useParams, useRoutes } from 'react-router-dom';
 import { useAuthStore } from '../../../stores/auth';
 import { phoneQuery, useMedia } from '../../../ui/useMedia';
 import { Brand } from '../../navigation/Brand';
-import { IdentityMenu } from '../../navigation/IdentityMenu';
-import { MyReports } from './MyReports';
+import { ReportIdentityMenu } from './ReportIdentityMenu';
+const MyReports = lazy(() => import('./MyReports').then((m) => ({ default: m.MyReports })));
 import { ReportForm } from './ReportForm';
-import { ReportPicker } from './ReportPicker';
-import { ReportReceipt } from './ReportReceipt';
+const ReportPicker = lazy(() =>
+  import('./ReportPicker').then((m) => ({ default: m.ReportPicker })),
+);
+const ReportReceipt = lazy(() =>
+  import('./ReportReceipt').then((m) => ({ default: m.ReportReceipt })),
+);
 import styles from './ReportPage.module.scss';
 
 /** A new item gets a fresh form (its own draft, render, and human check). */
@@ -22,11 +26,20 @@ const useAccount = () => useAuthStore((state) => state.user?.login ?? '');
 export function ReceiptForReport() {
   const { id } = useParams();
   const account = useAccount();
-  return <ReportReceipt key={`${id}:${account}`} />;
+  return (
+    <Suspense fallback={<p role="status">Loading…</p>}>
+      <ReportReceipt key={`${id}:${account}`} />
+    </Suspense>
+  );
 }
 
 export function MyReportsForAccount() {
-  return <MyReports key={useAccount()} />;
+  const account = useAccount();
+  return (
+    <Suspense fallback={<p role="status">Loading…</p>}>
+      <MyReports key={account} />
+    </Suspense>
+  );
 }
 
 const routes = [
@@ -63,10 +76,12 @@ export function ReportPublicPage() {
         </Link>
         <span className={styles.title}>{title}</span>
         <span className={styles.headerEnd}>
-          <IdentityMenu />
+          <ReportIdentityMenu />
         </span>
       </header>
-      <main className={styles.main}>{element}</main>
+      <main className={styles.main}>
+        <Suspense fallback={<p role="status">Loading…</p>}>{element}</Suspense>
+      </main>
     </div>
   );
 }

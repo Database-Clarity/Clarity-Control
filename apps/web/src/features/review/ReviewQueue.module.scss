@@ -320,7 +320,7 @@
 
   // The phone sheet has no padding of its own: inset the filters, rows, and marks like the mock.
   .queue {
-    height: 70dvh;
+    height: calc(0.7 * var(--app-h));
     padding-inline: var(--page-x);
   }
 
