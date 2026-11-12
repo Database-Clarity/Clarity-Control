@@ -144,23 +144,6 @@ export const skeletonMinimumMs = 400;
 type SkeletonClock = MutableRefObject<number | undefined>;
 const SkeletonClockContext = createContext<SkeletonClock | undefined>(undefined);
 
-function useClockHandoff(clock: SkeletonClock, pending: boolean, visible: boolean) {
-  useLayoutEffect(() => {
-    if (pending || visible || clock.current === undefined) return;
-    // Newly mounted descendants get the completed parent's clock before it expires.
-    let second: number | undefined;
-    const first = requestAnimationFrame(() => {
-      second = requestAnimationFrame(() => {
-        clock.current = undefined;
-      });
-    });
-    return () => {
-      cancelAnimationFrame(first);
-      if (second !== undefined) cancelAnimationFrame(second);
-    };
-  }, [clock, pending, visible]);
-}
-
 /**
  * The one timing rule for every skeleton. Hosts remove obsolete content immediately. After a
  * step, if new content has not committed by the second frame the skeleton shows (first loads,
@@ -335,7 +318,8 @@ export function SkeletonBoundary({
     clockIdentity.current = identity;
   }
   const visible = useSkeletonVisible(pending && !error, identity, true, clock);
-  useClockHandoff(clock, pending && !error, visible);
+  // Keep the navigation's shown-at time for descendants that mount after a lazy
+  // import. Their own minimum must not restart after this boundary has finished.
   const holding = !error && (pending || visible);
   const content =
     typeof children === 'function' ? (
@@ -382,7 +366,6 @@ export function SkeletonSuspense({
   const clock = useRef(inherited?.current);
   const [pending, setPending] = useState(false);
   const visible = useSkeletonVisible(pending, label, true, clock);
-  useClockHandoff(clock, pending, visible);
   return (
     <SkeletonClockContext.Provider value={clock}>
       {(pending || visible) && <LoadingSkeleton label={label} shape={shape} visible={visible} />}

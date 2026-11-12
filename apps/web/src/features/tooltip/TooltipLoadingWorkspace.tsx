@@ -1,3 +1,4 @@
+import { seesReports, reportLanguages } from '../reports/pane/indexStore';
 import { VariantWorkspace } from './VariantWorkspace';
 import { EditorPaneHeader } from './EditorPaneHeader';
 import { ClarityEditor } from '../editor';
@@ -87,7 +88,7 @@ export function loadingWorkspace({
       preview={column ? null : <div className={styles.inlinePreview}>{preview}</div>}
       compendium={user?.role !== 'translator' ? pane('Compendium') : null}
       reports={
-        user?.role && user.role !== 'translator'
+        seesReports(user) && (reportLanguages(user)?.includes(lang) ?? true)
           ? { count: null, pane: pane('Reports') }
           : undefined
       }

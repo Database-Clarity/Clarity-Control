@@ -347,6 +347,7 @@ function LayoutContent() {
                 <Outlet />
               ) : (
                 <SkeletonBoundary
+                  identity={location.key}
                   pending={workspacePending}
                   error={!!error}
                   label={

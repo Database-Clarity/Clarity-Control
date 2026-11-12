@@ -253,6 +253,11 @@ it('hands a shown parent clock to nested boundaries instead of stacking minimums
     await draw(false, true);
     await act(async () => vi.advanceTimersByTime(skeletonMinimumMs - 100));
     expect(host.textContent).toBe('Inner');
+    // A slow lazy import can take more than two frames after its parent finishes.
+    // The navigation's clock must still reach boundaries mounted by that import.
+    await paint();
+    await paint();
+    await act(async () => vi.advanceTimersByTime(100));
     await paint();
     await paint();
     await draw(false, false);
