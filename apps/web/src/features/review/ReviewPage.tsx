@@ -349,33 +349,38 @@ export function ReviewPage() {
             <span className={styles.segment}>
               <b>{count.format(changeCount)}</b> {changeCount === 1 ? 'change' : 'changes'}
             </span>
+            {/* Each "·" stays with the segment after it, so a wrapped line never ends in one. */}
             {markerTotal > 0 && (
               <>
-                {' · '}
-                <Link
-                  to={{ search: markerSearch(searchParams) }}
-                  replace
-                  title="Alias-marker migration leftovers: saved content equals live"
-                  className={styles.segment}
-                  onClick={() => openMarkers()}
-                >
-                  {count.format(markerTotal)} marker-only
-                </Link>
+                {' '}
+                <span className={styles.segment}>
+                  {'· '}
+                  <Link
+                    to={{ search: markerSearch(searchParams) }}
+                    replace
+                    title="Alias-marker migration leftovers: saved content equals live"
+                    onClick={() => openMarkers()}
+                  >
+                    {count.format(markerTotal)} marker-only
+                  </Link>
+                </span>
               </>
-            )}
-            {' · '}
-            <span className={styles.segment}>{hashes.length} selected</span>
+            )}{' '}
+            <span className={styles.segment}>· {hashes.length} selected</span>
             {hashes.length > 0 && (
               <>
-                {' · '}
-                <button
-                  type="button"
-                  className={styles.textButton}
-                  disabled={pushing}
-                  onClick={clearSelection}
-                >
-                  Clear
-                </button>
+                {' '}
+                <span className={styles.segment}>
+                  {'· '}
+                  <button
+                    type="button"
+                    className={styles.textButton}
+                    disabled={pushing}
+                    onClick={clearSelection}
+                  >
+                    Clear
+                  </button>
+                </span>
               </>
             )}
           </p>

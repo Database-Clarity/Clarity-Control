@@ -1,9 +1,13 @@
+@use '../../data/variables' as theme;
+
 .tableWrapper {
   overflow-x: auto;
 }
 .table {
   width: 100%;
-  min-width: 42rem;
+  // No fixed minimum: at 768px and a large interface scale a 42rem table scrolled Remove out of
+  // view. The languages wrap instead (their cell keeps 13rem).
+  min-width: 0;
   border-collapse: collapse;
   overflow-wrap: normal;
   th,
@@ -27,10 +31,85 @@
 .languages {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 0.25rem 0.75rem;
   min-width: 13rem;
   label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
     white-space: nowrap;
+  }
+  // A plain box, not the page's padded field: the label row is the tap target.
+  input[type='checkbox'] {
+    width: 1rem;
+    height: 1rem;
+    min-width: 0;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+  }
+  small {
+    flex-basis: 100%;
+  }
+}
+
+@include theme.mobile-or-coarse {
+  .languages label {
+    min-height: var(--tap);
+  }
+}
+
+// Phones: one block per account instead of a sideways-scrolling table. The account, its role, and
+// Remove share the first line; the languages take the full width under them.
+@include theme.mobile {
+  .table {
+    min-width: 0;
+    thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+    tbody tr {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      align-items: start;
+      gap: 0.25rem 0.5rem;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid var(--box-edge);
+    }
+    th,
+    td {
+      display: block;
+      padding: 0;
+      border: 0;
+      min-width: 0;
+    }
+    tbody th a {
+      overflow-wrap: anywhere;
+    }
+    small {
+      margin-top: 0.125rem;
+    }
+    // The languages cell: last, full width.
+    td:nth-of-type(2) {
+      order: 1;
+      grid-column: 1 / -1;
+    }
+  }
+  .languages {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+    min-width: 0;
+    gap: 0 0.75rem;
+    label {
+      white-space: normal;
+    }
+    // "No translation languages assigned": its own full-width line under the grid.
+    small {
+      grid-column: 1 / -1;
+    }
   }
 }
 .add {

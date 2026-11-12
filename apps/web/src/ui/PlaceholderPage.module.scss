@@ -1,12 +1,10 @@
-@use '../data/variables' as theme;
-
 .page {
   max-width: 70rem;
   margin: 0 auto;
 }
 
 .eyebrow {
-  color: theme.$orange-color;
+  color: var(--warn);
   font-size: 0.75rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -14,12 +12,8 @@
 
 .panel {
   padding: 1.5rem;
-  background: hsl(240, 7%, 15%);
-  border: 1px solid theme.$button-border-color;
+  background: var(--box-bg);
+  border: 1px solid var(--box-edge);
   border-radius: 0.5rem;
   line-height: 1.65;
-}
-
-.note {
-  color: hsl(0, 0%, 72%);
 }
