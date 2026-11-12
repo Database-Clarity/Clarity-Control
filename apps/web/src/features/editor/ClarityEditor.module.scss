@@ -63,7 +63,7 @@
     // The text follows the interface scale and the Editor text size setting; only iOS gets the
     // 16px floor that stops its focus zoom. The gutter's width is better spent on text on a phone.
     :global(.cm-editor) {
-      min-height: max(13.75rem, 40dvh);
+      min-height: max(13.75rem, calc(0.4 * var(--app-h)));
       font-size: var(--editor-font-size, 1rem);
       @supports (-webkit-touch-callout: none) {
         font-size: max(16px, var(--editor-font-size, 1rem));

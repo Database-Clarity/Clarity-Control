@@ -13,7 +13,7 @@
   left: 1rem;
   box-sizing: border-box;
   width: min(30rem, calc(100vw - 1rem));
-  max-height: calc(100dvh - 2rem);
+  max-height: calc(var(--app-h) - 2rem);
   display: flex;
   flex-direction: column;
   @include controls.overlay-surface;

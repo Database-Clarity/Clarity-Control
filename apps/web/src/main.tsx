@@ -30,17 +30,22 @@ await new Promise<void>((resolve) => setTimeout(resolve, 0));
 await import('../../../packages/core/src/aliasGroups');
 await new Promise<void>((resolve) => setTimeout(resolve, 0));
 const { routes } = await import('./App');
-const [{ startPublisher }, { useSettingsStore }, { watchSystemTheme }] = await Promise.all([
-  import('./features/review/publisher'),
-  import('./stores/settings'),
-  import('./ui/theme'),
-]);
+const [{ startPublisher }, { useSettingsStore }, { watchSystemTheme }, { trackKeyboardInset }] =
+  await Promise.all([
+    import('./features/review/publisher'),
+    import('./stores/settings'),
+    import('./ui/theme'),
+    import('./ui/useKeyboardInset'),
+  ]);
 
 // Resumes stored publish operations on any page; does nothing unless VITE_PUBLISHER_ENABLED=1.
 startPublisher();
 
 // The theme is already applied (index.html, then the settings store); this only follows the OS.
 watchSystemTheme(() => useSettingsStore.getState().device.theme);
+
+// A touch device's keyboard covers part of the page: sheets and lists fit above it (--app-h).
+trackKeyboardInset();
 
 // A data router: the preview leave guard needs `useBlocker`, which the declarative router lacks.
 const router = createHashRouter(routes);

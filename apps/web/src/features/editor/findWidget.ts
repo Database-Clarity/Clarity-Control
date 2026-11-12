@@ -1,5 +1,6 @@
 import { StateEffect, StateField, type Extension } from '@codemirror/state';
 import { GlobalFindController } from './globalFind/controller';
+import { keyboardLift } from '../../ui/useKeyboardInset';
 import { globalFindHost } from './globalFind/host';
 import { EditorView, runScopeHandlers, type Panel, type ViewUpdate } from '@codemirror/view';
 import {
@@ -486,7 +487,7 @@ class FindWidget implements Panel {
           width: box.width,
           height: box.height,
           pad: { x: 0.875 * root, left: 0.5 * root, y: 0.25 * root },
-          view: window.innerHeight,
+          view: window.innerHeight - keyboardLift(),
           now: { side: this.dom.dataset.side === 'left' ? ('left' as const) : ('right' as const) },
         };
       },

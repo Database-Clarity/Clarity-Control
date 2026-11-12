@@ -8,6 +8,20 @@
   font-display: swap;
 }
 
+// The on-screen keyboard shrinks only the visual viewport (index.html sets no interactive-widget;
+// ui/useKeyboardInset.ts writes --kb-room, the keyboard's height, and --kb-inset, what it hides of
+// the layout viewport's bottom). Sheets and lists size from --app-h and bottom-anchored surfaces
+// lift by --kb-lift, so on Android they stay above the keyboard as they did while the page itself
+// shrank. iOS keeps its plain viewport sizes.
+:root {
+  --app-h: calc(100dvh - var(--kb-room, 0px));
+  --kb-lift: var(--kb-inset, 0px);
+  @supports (-webkit-touch-callout: none) {
+    --app-h: 100dvh;
+    --kb-lift: 0px;
+  }
+}
+
 :root {
   scrollbar-gutter: stable;
   overscroll-behavior-x: none;
