@@ -21401,12 +21401,13 @@ function tokenOccurrence(token, line, lineFrom, from, sourceToken = token) {
       edits: [{ from, to, insert: inner }]
     }
   ];
-  if (retiredColours.includes(name)) fixes.push({
-    id: "to-yellow",
-    label: "Change to yellow",
-    structural: false,
-    edits: [{ from, to, insert: `<yellow ${inner} />` }]
-  });
+  if (retiredColours.includes(name))
+    fixes.push({
+      id: "to-yellow",
+      label: "Change to yellow",
+      structural: false,
+      edits: [{ from, to, insert: `<yellow ${inner} />` }]
+    });
   return {
     kind: "wrapper",
     name,
@@ -21474,7 +21475,9 @@ function placementCandidates(source) {
           const content = item.kind === "wrapper" ? wrapper.exec(compact)?.[2] : void 0;
           if (item.kind === "wrapper" && content === void 0) return [];
           const contentAt = content === void 0 ? -1 : compact.indexOf(content, compact.indexOf(item.name) + item.name.length);
-          const deleted = positions.slice(item.from, item.to).filter((_, index) => contentAt < 0 || index < contentAt || index >= contentAt + content.length);
+          const deleted = positions.slice(item.from, item.to).filter(
+            (_, index) => contentAt < 0 || index < contentAt || index >= contentAt + content.length
+          );
           if (item.kind === "marker") {
             const lineStart = from === 0 || source[from - 1] === "\n";
             const lineEnd = to === source.length || source[to] === "\n";
@@ -21492,19 +21495,24 @@ function placementCandidates(source) {
         if (fix.id === "rows-to-lines") {
           const block = source.slice(editFrom, editTo);
           const lines = block.split("\n");
-          const edits = [{ from: editFrom, to: editFrom + lines[0].length + 1, insert: "" }];
+          const edits = [
+            { from: editFrom, to: editFrom + lines[0].length + 1, insert: "" }
+          ];
           let at = editFrom + lines[0].length + 1;
           for (const row of lines.slice(1, -1)) {
             const next = tableRowToLine(row);
             let prefix = 0;
-            while (prefix < row.length && prefix < next.length && row[prefix] === next[prefix]) prefix++;
+            while (prefix < row.length && prefix < next.length && row[prefix] === next[prefix])
+              prefix++;
             let suffix = 0;
-            while (suffix < row.length - prefix && suffix < next.length - prefix && row[row.length - 1 - suffix] === next[next.length - 1 - suffix]) suffix++;
-            if (row !== next) edits.push({
-              from: at + prefix,
-              to: at + row.length - suffix,
-              insert: next.slice(prefix, next.length - suffix)
-            });
+            while (suffix < row.length - prefix && suffix < next.length - prefix && row[row.length - 1 - suffix] === next[next.length - 1 - suffix])
+              suffix++;
+            if (row !== next)
+              edits.push({
+                from: at + prefix,
+                to: at + row.length - suffix,
+                insert: next.slice(prefix, next.length - suffix)
+              });
             at += row.length + 1;
           }
           edits.push({ from: at - 1, to: editTo, insert: "" });
@@ -21515,8 +21523,7 @@ function placementCandidates(source) {
     }));
     found.push({ ...item, from, to, source: token });
   };
-  for (const item of tableOccurrences(text, text))
-    mapOccurrence(item);
+  for (const item of tableOccurrences(text, text)) mapOccurrence(item);
   let lineFrom = 0;
   for (const line of text.split("\n")) {
     let clean = line;
@@ -21583,15 +21590,17 @@ function stripRetired(value2) {
     return merged;
   }
   if (value2 && typeof value2 === "object") {
-    return Object.fromEntries(Object.entries(value2).sort(([a], [b]) => a.localeCompare(b)).flatMap(([key, item]) => {
-      if (key === "classNames") {
-        const classes = (item ?? []).filter(
-          (name) => name && !retiredMarkers.includes(name)
-        );
-        return classes.length ? [[key, classes]] : [];
-      }
-      return item === void 0 ? [] : [[key, stripRetired(item)]];
-    }));
+    return Object.fromEntries(
+      Object.entries(value2).sort(([a], [b]) => a.localeCompare(b)).flatMap(([key, item]) => {
+        if (key === "classNames") {
+          const classes = (item ?? []).filter(
+            (name) => name && !retiredMarkers.includes(name)
+          );
+          return classes.length ? [[key, classes]] : [];
+        }
+        return item === void 0 ? [] : [[key, stripRetired(item)]];
+      })
+    );
   }
   return value2;
 }
@@ -21604,7 +21613,11 @@ function normalizedLines(lines) {
         ...index ? [{ text: " | " }] : [],
         ...cell.cellContent.map((span) => ({
           ...span,
-          classNames: [...row.classNames ?? [], ...cell.classNames ?? [], ...span.classNames ?? []]
+          classNames: [
+            ...row.classNames ?? [],
+            ...cell.classNames ?? [],
+            ...span.classNames ?? []
+          ]
         }))
       ])
     })).map(stripRetired);
@@ -21646,7 +21659,9 @@ function fallbackBlock(source, name, count) {
     at = to + 1;
   }
   const block = blocks.find(
-    ({ from, to }) => parserNames(parseMarkup(source.slice(0, from) + source.slice(to)).lines).filter((value2) => value2 === name).length < count
+    ({ from, to }) => parserNames(parseMarkup(source.slice(0, from) + source.slice(to)).lines).filter(
+      (value2) => value2 === name
+    ).length < count
   ) ?? blocks.find(({ from, to }) => source.slice(from, to).includes(name)) ?? blocks[0] ?? { from: 0, to: source.length };
   return { ...block, source: source.slice(block.from, block.to) };
 }
@@ -21656,17 +21671,23 @@ function findRetiredMarkup(source) {
   const found = [];
   for (const name of names) {
     const count = names.filter((value2) => value2 === name).length;
-    const index = candidates.findIndex((item) => item.name === name && parserNames(parseMarkup(source.slice(0, item.from) + source.slice(item.to)).lines).filter((value2) => value2 === name).length < count);
+    const index = candidates.findIndex(
+      (item) => item.name === name && parserNames(parseMarkup(source.slice(0, item.from) + source.slice(item.to)).lines).filter(
+        (value2) => value2 === name
+      ).length < count
+    );
     const candidate = index < 0 ? void 0 : candidates.splice(index, 1)[0];
-    found.push(candidate ?? {
-      kind: name === "table" ? "table" : "wrapper",
-      name,
-      token: noun(name),
-      ...fallbackBlock(source, name, count),
-      message: retired(noun(name), "Fix by hand: an exact source token could not be mapped."),
-      fixes: [],
-      refusalReason: "An exact source token could not be mapped."
-    });
+    found.push(
+      candidate ?? {
+        kind: name === "table" ? "table" : "wrapper",
+        name,
+        token: noun(name),
+        ...fallbackBlock(source, name, count),
+        message: retired(noun(name), "Fix by hand: an exact source token could not be mapped."),
+        fixes: [],
+        refusalReason: "An exact source token could not be mapped."
+      }
+    );
   }
   prepareMarkup(source, { variables: "", titles: "" }, [], (name, block) => {
     if (name === "enhanced") return;
@@ -21684,10 +21705,17 @@ function findRetiredMarkup(source) {
       from: rangeFrom,
       to: end,
       message: retired(`${name} ( \u2026 )`, "Keep its contents, or fix by hand."),
-      fixes: mapped ? [{ id: "keep-contents", label: "Keep contents", structural: true, edits: [
-        { from, to: openEnd + 1, insert: "" },
-        { from: closeFrom, to: end, insert: "" }
-      ] }] : []
+      fixes: mapped ? [
+        {
+          id: "keep-contents",
+          label: "Keep contents",
+          structural: true,
+          edits: [
+            { from, to: openEnd + 1, insert: "" },
+            { from: closeFrom, to: end, insert: "" }
+          ]
+        }
+      ] : []
     });
   });
   for (const occurrence of found) {
@@ -21725,9 +21753,6 @@ function applyRetiredEdits(text, edits) {
 
 // packages/core/src/validation/index.ts
 var emptyEnglishMessage = "English text must not be empty.";
-function elementTagMessage(tag, lowered) {
-  return `Element-tagged text "${tag}" can't be saved yet: apps would show only the icon. Write "${lowered}" for now.`;
-}
 function validateTextWithReads(text, lang, globals, requireEnglish, selfHash, aliases) {
   const imports = /* @__PURE__ */ new Map();
   const variables = /* @__PURE__ */ new Set();
@@ -21761,14 +21786,6 @@ function validateText(text, lang, globals = { variables: "", titles: "" }, requi
   }
   if (requireEnglish && lang === "en" && !text.trim()) {
     add("error", emptyEnglishMessage);
-  }
-  for (const tag of findElementTags(text)) {
-    issues.push({
-      severity: "error",
-      message: elementTagMessage(text.slice(tag.from, tag.to), `<${tag.element}/>${tag.text}`),
-      from: tag.from,
-      to: tag.to
-    });
   }
   for (const diagnostic of parseMarkup(text, globals).diagnostics) {
     if (diagnostic.message === baseEnhancedMessage && text.includes("{{")) {
