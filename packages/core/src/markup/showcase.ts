@@ -43,16 +43,17 @@ An empty variable writes nothing here: #optional
 <hunter/>Hunter class icon.
 <titan/>Titan class icon.
 <warlock/>Warlock class icon.
-<kinetic Kinetic-tagged text tints the whole phrase. />
-<arc Arc-tagged text tints the whole phrase. />
-<solar Solar-tagged text tints the whole phrase. />
-<void Void-tagged text tints the whole phrase. />
-<stasis Stasis-tagged text tints the whole phrase. />
-<strand Strand-tagged text tints the whole phrase. />
+<kinetic Kinetic-tagged text is tinted in the editor. />
+<arc Arc-tagged text is tinted in the editor. />
+<solar Solar-tagged text is tinted in the editor. />
+<void Void-tagged text is tinted in the editor. />
+<stasis Stasis-tagged text is tinted in the editor. />
+<strand Strand-tagged text is tinted in the editor. />
+Exports apply the icon settings without the text tint.
 enhanced (
 var d = 5
-#e This arrow marks an enhanced effect.
-An enhanced formula adds a bonus: #e\${10+#d}.
+Only enhanced perks show this section and its #e arrow.
+An enhanced formula adds 5 to the base 10: #e\${10+#d}.
 )
 export Showcase (
 An export shares this text with other tooltips.
