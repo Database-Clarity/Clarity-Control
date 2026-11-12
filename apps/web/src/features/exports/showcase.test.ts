@@ -4,9 +4,11 @@ import {
   markupSnippets,
   markupSymbols,
   markupTags,
+  markupTransforms,
   parseMarkup,
   showcaseGlobals,
   showcaseText,
+  type MarkupTransform,
 } from '@clarity/core';
 import { markupEntries } from '../editor/markupRow/entries';
 import { helpRows } from '../editor/help/reference';
@@ -32,9 +34,17 @@ function missing(entries: readonly { id: string; usage?: RegExp }[]) {
     .map(({ id }) => id);
 }
 
+const completionEntries = () => [
+  ...markupSnippets,
+  ...markupSymbols,
+  ...markupTags,
+  ...markupTransforms,
+  ...markupEntries({ variables: '', titles: '', allowBaseEnhanced: true }),
+];
+
 test('showcase covers the core, markup row, completion, and help registries', () => {
   const entries = markupEntries({ variables: '', titles: '', allowBaseEnhanced: true });
-  expect(missing([...markupSnippets, ...markupSymbols, ...markupTags, ...entries])).toEqual([]);
+  expect(missing(completionEntries())).toEqual([]);
   expect(
     missing(
       helpRows()
@@ -51,6 +61,16 @@ test('showcase covers the core, markup row, completion, and help registries', ()
     'synthetic-new-option',
   ]);
   expect(missing([{ id: 'synthetic-new-option' }])).toEqual(['synthetic-new-option']);
+});
+
+test('adding a transform to the real registry fails the same coverage guard', () => {
+  const registry = markupTransforms as MarkupTransform[];
+  registry.push({ ...registry[0]!, id: 'synthetic-new-transform', usage: /<new-option\/>/ });
+  try {
+    expect(missing(completionEntries())).toEqual(['synthetic-new-transform']);
+  } finally {
+    registry.pop();
+  }
 });
 
 test('standalone showcase parses with no diagnostics in base and enhanced previews', () => {

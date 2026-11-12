@@ -18,6 +18,7 @@ A title adds a definition on hover.
 <pvp [This text is PvP-only.] />
 <pve PvE: 10 /> <pvp [PvP: 5] />
 10 <pvp [5] /> is a value with a PvP override.
+Values per Stack: <pve 10|20|30 />. Pipes separate each Stack's value.
 {{This is the base text.}{This is the enhanced text.}}
 A variable supplies #amount; math doubles it to \${#amount * 2}.
 An empty variable writes nothing here: #optional

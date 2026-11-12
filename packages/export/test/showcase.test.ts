@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { showcaseId } from '@clarity/core/markup/showcase';
+import { showcaseGlobals, showcaseId, showcaseText } from '@clarity/core/markup/showcase';
 import {
   compile,
   decodeV1,
@@ -7,6 +7,7 @@ import {
   legacyPresets,
   newStyleFile,
   styles,
+  type LegacyInput,
 } from '../src/index.js';
 import { dataSchema, fileSchema } from '../src/config.js';
 import { fixtureInput } from './helpers.js';
@@ -22,6 +23,38 @@ test('absent setting stays absent, and new files are off', () => {
 });
 
 for (const style of styles) {
+  test(`${style}: showcase and a normal row compile identical descriptions`, () => {
+    const perk = (hash: number, main: string): LegacyInput['perks'][string] => ({
+      hash,
+      name: 'Example',
+      type: 'Weapon Trait Enhanced',
+      uploadedBy: 'test',
+      lastUpload: 1,
+      updateTracker: { descriptions: {} },
+      inLiveDatabase: true,
+      uploadToLive: true,
+      editor: { en: { main, secondary: '' } },
+    });
+    const sameText: LegacyInput = {
+      perks: {
+        1: perk(1, ''),
+        2: perk(2, showcaseGlobals.variables),
+        3: perk(3, showcaseGlobals.titles),
+        100: perk(100, showcaseText),
+      },
+    };
+    const file = newStyleFile('example', style);
+    file.data.categories = ['example'];
+    file.data.includeShowcase = true;
+    const plan = compile(sameText, file, {
+      catalog: {
+        items: { 100: { categoryId: 'example' } },
+        categories: [{ id: 'example' }],
+      },
+    });
+    expect(Object.keys(plan.expanded!)).toEqual(['100', showcaseId]);
+    expect(plan.expanded![showcaseId].descriptions).toEqual(plan.expanded!['100'].descriptions);
+  });
   test(`${style}: opt-in adds exactly one reserved entry, with fixed output bytes`, async () => {
     const file = newStyleFile('example', style);
     const before = compile(input, file, { catalog });
