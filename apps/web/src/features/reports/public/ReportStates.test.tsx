@@ -51,6 +51,7 @@ const tooltipShown = () => host.querySelector('[data-line]') !== null;
 
 beforeEach(() => {
   vi.resetModules();
+  vi.stubEnv('VITE_API_URL', '');
   mount.mockReset();
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   host = document.createElement('div');
@@ -75,7 +76,7 @@ afterEach(() => {
 /** Serves the catalog, tooltip files, and public anchors; `api` answers Worker calls. */
 function stubFetch(api: (url: string, init?: RequestInit) => Promise<Response> | Response) {
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url.includes('report-items.json')) return json(catalog);
+    if (url.includes('report-items.json') || url.includes('/report-catalog/')) return json(catalog);
     const file = /\/tooltips\/(\d+)\.json$/.exec(url);
     if (file) return json(file[1] === '100' ? tooltip : globalsFile);
     if (url.includes('/reports/public')) return json([]);
@@ -229,7 +230,8 @@ describe('receipt and My reports scope', () => {
       if (url.endsWith('/reports/r/r-aaaaaaaa') || url.endsWith('/reports/r/r-bbbbbbbb'))
         return json({ status: 'open', closed_note: null });
       if (url.endsWith('/view')) return json({}, 404);
-      if (url.includes('report-items.json')) return json(catalog);
+      if (url.includes('report-items.json') || url.includes('/report-catalog/'))
+        return json(catalog);
       if (url.endsWith('/reports/mine'))
         return json([
           {
@@ -258,7 +260,10 @@ describe('receipt and My reports scope', () => {
       { initialEntries: ['/report/r/r-aaaaaaaa?w=secret-a-000000000000000000000000000000'] },
     );
     await act(async () => root.render(<RouterProvider router={router} />));
-    await flush();
+    await until(
+      () => fetch.mock.calls.some(([url]) => String(url).endsWith('/view')),
+      'the first receipt',
+    );
     await act(async () => router.navigate('/report/r/r-bbbbbbbb'));
     await flush();
     const views = fetch.mock.calls.filter(([url]) => String(url).endsWith('/view'));
@@ -271,7 +276,7 @@ describe('receipt and My reports scope', () => {
       useAuthStore.setState({ user: { login: 'alice' } as never, loading: false }),
     );
     await act(async () => router.navigate('/report/mine'));
-    await flush();
+    await until(() => host.textContent?.includes('A only') ?? false, 'the account’s reports');
     expect(host.textContent).toContain('A only');
     fetch.mockImplementation(async (url: string) =>
       url.endsWith('/reports/mine') ? json({ error: 'Down' }, 503) : json(catalog),

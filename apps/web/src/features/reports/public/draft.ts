@@ -1,4 +1,8 @@
-import { resolveReportAnchor, type ReportAnchor, type ReportSubmission } from '@clarity/core';
+import { resolveReportAnchor } from '../../../../../../packages/core/src/reports/displayText';
+import type {
+  ReportAnchor,
+  ReportSubmission,
+} from '../../../../../../packages/core/src/reports/schemas';
 import type { RenderLine } from './tooltipRender';
 
 export type ReportCategory = ReportSubmission['category'];

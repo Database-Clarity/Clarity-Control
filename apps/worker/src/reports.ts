@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import catalogSnapshot from './reportCatalogSnapshot.json';
 import {
   langSchema,
   reportSubmissionSchema,
@@ -106,7 +107,19 @@ const catalogSchema = z.object({
     (value) => typeof value === 'object' && value !== null && !Array.isArray(value),
   ),
 });
-let catalogCache: { key: string; until: number; data: z.infer<typeof catalogSchema> } | undefined;
+type Catalog = { items: Record<string, unknown> } | { text: string };
+let catalogCache: { key: string; until: number; data: Catalog } | undefined;
+/** Exact-byte snapshot only; all other producer revisions retain full validation. */
+export async function parseReportCatalog(text: string): Promise<Catalog> {
+  return (await reportDigest(text)) === catalogSnapshot.sha256
+    ? { text }
+    : catalogSchema.parse(JSON.parse(text), { jitless: true });
+}
+export function reportCatalogEntry(catalog: Catalog, hash: number): unknown {
+  return 'text' in catalog
+    ? JSON.parse(new RegExp(`"${hash}":(\\{[^}]*\\})`).exec(catalog.text)?.[1] ?? 'null')
+    : catalog.items[hash];
+}
 let reportPermissionsCache:
   { key: string; until: number; users: Record<string, Access> } | undefined;
 async function catalog(env: Env) {
@@ -118,7 +131,10 @@ async function catalog(env: Env) {
       { signal: AbortSignal.timeout(5000) },
     );
     if (!response.ok) throw new Error('Catalog unavailable');
-    const data = catalogSchema.parse(await response.json(), { jitless: true });
+    const text = await response.text();
+    // Only an exact producer snapshot may skip whole-catalog JSON parsing. A changed,
+    // malformed, or differently serialized upstream always takes the original validator.
+    const data = await parseReportCatalog(text);
     catalogCache = { key, data, until: Date.now() + 300_000 };
     return data;
   } catch {
@@ -287,7 +303,9 @@ async function submit(
   const access = await resolveAccess();
   const { limits, attempt } = await admission(request, env, db, user, access);
   const items = await catalog(env);
-  const selected = catalogItemSchema.safeParse(items.items[input.viewed_hash], { jitless: true });
+  const selected = catalogItemSchema.safeParse(reportCatalogEntry(items, input.viewed_hash), {
+    jitless: true,
+  });
   if (!selected.success) throw new HttpError(422, 'Unknown tooltip');
   const item = selected.data;
   const lang = item.langs.includes(input.lang)

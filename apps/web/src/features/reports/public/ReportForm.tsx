@@ -1,10 +1,10 @@
+import { languages } from '../../../../../../packages/core/src/languages';
 import {
-  languages,
   reportSubmissionSchema,
   reportVideoSchema,
   reportVideoHosts,
   type ReportSubmission,
-} from '@clarity/core';
+} from '../../../../../../packages/core/src/reports/schemas';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { languageLabel } from '../../../languageLabels';
@@ -54,7 +54,7 @@ import { maxScreenshots, prepareScreenshot, ScreenshotError, type Screenshot } f
 import {
   lineAt,
   loadReportRender,
-  reportCatalog,
+  reportItemCatalog,
   type RenderLine,
   type ReportRender,
 } from './tooltipRender';
@@ -142,7 +142,7 @@ export function ReportForm() {
         ? current
         : { kind: 'loading' },
     );
-    reportCatalog()
+    reportItemCatalog(viewed)
       .then((catalog) => loadReportRender(viewed, requestedLang, catalog))
       .then(
         (next) => {

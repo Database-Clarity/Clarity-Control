@@ -1,11 +1,7 @@
-import {
-  hashSchema,
-  langSchema,
-  syncedSettingsSchema,
-  tooltipSchema,
-  type SyncedSettings,
-  type Tooltip,
-} from '@clarity/core';
+import { hashSchema } from '../../../../packages/core/src/legacy';
+import { langSchema } from '../../../../packages/core/src/languages';
+import { syncedSettingsSchema, type SyncedSettings } from '../../../../packages/core/src/settings';
+import { tooltipSchema, type Tooltip } from '../../../../packages/core/src/schemas';
 import { z } from 'zod';
 
 export const apiUrl = import.meta.env.VITE_API_URL?.trim().replace(/\/+$/, '') || undefined;
