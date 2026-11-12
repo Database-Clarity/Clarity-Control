@@ -1,4 +1,9 @@
-import { compendiumTabId, setBonusCell } from '@clarity/core';
+import {
+  compendiumIdentifiers,
+  compendiumTabId,
+  normaliseCompendiumName,
+  setBonusCell,
+} from '@clarity/core';
 import { type CompendiumData } from '@clarity/core';
 import type { ReviewSample } from './reviewCategories';
 import { confirmCompendiumSelection } from './selection';
@@ -92,4 +97,72 @@ export function inferredSiphonDecision(
         ruleId: 'armor-siphon-family',
         reason: `Siphon family recognized, but the generic Helmet source is ${matches.length === 0 ? 'missing' : matches.length > 1 ? 'ambiguous' : 'not a verified weapon/Orb description'}.`,
       };
+}
+
+// Exotic Class Item perks are shared by all three class items (owner 2026-11-12: their
+// own category). The perk name is the identity: one exact row in the Exotic Class tab.
+// Root ruling 2026-11-12: the sheet's optional "the" in "Spirit of the X" also links, only
+// when that stem is unique in the tab and no other class item perk shares it.
+const spiritStem = (name: string) =>
+  /^Spirit of /i.test(name)
+    ? normaliseCompendiumName(name.replace(/^Spirit of (?:the )?/i, ''))
+    : undefined;
+export function inferredClassItemPerkDecision(
+  entry: ReviewSample,
+  source: CompendiumData,
+  // Names of the other class item perks in the category; a shared stem keeps a proposal.
+  others: readonly string[] = [],
+): Partial<GuidedDecision> | undefined {
+  if (entry.category !== 'armor-trait-exotic-class-item') return;
+  const gid = compendiumTabId('Exotic Class');
+  const rows = source.tabs
+    .filter((tab) => tab.gid === gid)
+    .flatMap((tab) => tab.rows.map((row) => ({ tab, row })));
+  const name = normaliseCompendiumName(entry.name);
+  const exact = rows.filter(({ row }) =>
+    compendiumIdentifiers(row.name).some(
+      (identifier) => normaliseCompendiumName(identifier) === name,
+    ),
+  );
+  const stem = spiritStem(entry.name);
+  const article = exact.length
+    ? []
+    : rows.filter(
+        ({ row }) =>
+          stem !== undefined &&
+          compendiumIdentifiers(row.name).some((identifier) => spiritStem(identifier) === stem),
+      );
+  const matches = exact.length ? exact : article;
+  const link = matches.length === 1 && confirmCompendiumSelection(matches[0], source);
+  if (!link || link.parts)
+    return {
+      action: 'owner',
+      confidence: 'unresolved',
+      ruleId: 'exotic-class-item-perk',
+      reason: `Class item perk: ${matches.length > 1 ? `${matches.length} Exotic Class rows share this name` : matches.length ? 'source cell does not resolve uniquely' : 'no Exotic Class row has this name'}; pick the source manually.`,
+    };
+  const row = matches[0].row;
+  return exact.length
+    ? {
+        action: 'link',
+        confidence: 'high',
+        ruleId: 'exotic-class-item-perk',
+        link: { ...link, snapshotAt: source.fetchedAt },
+        reason: `Exact unique perk name in Exotic Class, ${row.section ?? 'row'} ${row.rowIndex}.`,
+      }
+    : others.some((other) => spiritStem(other) === stem)
+      ? {
+          action: 'link',
+          confidence: 'medium',
+          ruleId: 'exotic-class-item-article',
+          link: { ...link, snapshotAt: source.fetchedAt },
+          reason: `Sheet name "${row.name}" differs only by "the", but another class item perk shares the stem. Confirm the source.`,
+        }
+      : {
+          action: 'link',
+          confidence: 'high',
+          ruleId: 'exotic-class-item-article',
+          link: { ...link, snapshotAt: source.fetchedAt },
+          reason: `Sheet name "${row.name}" differs only by "the"; stem unique in Exotic Class and among class item perks.`,
+        };
 }
