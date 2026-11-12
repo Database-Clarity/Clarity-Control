@@ -8,6 +8,7 @@ import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { createRevisionCache } from './revisions';
+import { skeletonMinimumMs } from '../../ui/Skeleton';
 
 const getHistory = vi.fn();
 const getVersion = vi.fn();
@@ -41,8 +42,8 @@ let host: HTMLDivElement;
 let root: Root;
 const paintRows = () =>
   act(async () => {
-    if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(410);
-    else await new Promise((resolve) => setTimeout(resolve, 410));
+    if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(skeletonMinimumMs + 10);
+    else await new Promise((resolve) => setTimeout(resolve, skeletonMinimumMs + 10));
   });
 const originals = {
   data: useDataStore.getState(),
@@ -475,7 +476,7 @@ it('keeps fallback skeletons visible for the shared minimum after classification
     });
     expect(host.querySelector('[data-history-pending]')).not.toBeNull();
     expect(host.querySelector('ol li > button')).toBeNull();
-    await act(async () => vi.advanceTimersByTimeAsync(399));
+    await act(async () => vi.advanceTimersByTimeAsync(skeletonMinimumMs - 1));
     expect(host.querySelector('ol li > button')).toBeNull();
     await act(async () => vi.advanceTimersByTimeAsync(1));
     expect(host.querySelector('ol li > button')).not.toBeNull();
