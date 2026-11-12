@@ -1,6 +1,10 @@
 import changedSourceEvidence from './changedSourceEvidence.json';
 import { compendiumTabId } from '@clarity/core';
-import { inferredSiphonDecision, inferredSetBonusDecision } from './safeSourceRules';
+import {
+  inferredClassItemPerkDecision,
+  inferredSiphonDecision,
+  inferredSetBonusDecision,
+} from './safeSourceRules';
 import {
   combineCompendiumMatches,
   compendiumIdentifiers,
@@ -336,6 +340,12 @@ export function* guidedDecisionSteps(
         };
       const setBonus = inferredSetBonusDecision(entry, source);
       if (setBonus) return { ...result, ...setBonus };
+      const classItemPerk = inferredClassItemPerkDecision(
+        entry,
+        source,
+        category?.entries.filter((other) => other.hash !== hash).map((other) => other.name),
+      );
+      if (classItemPerk) return { ...result, ...classItemPerk };
       const manifestDecision =
         !entry.scopeRestored &&
         entry.classification?.categoryId !== 'attachment-effect' &&
