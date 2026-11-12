@@ -395,8 +395,8 @@ export function accountHunks(
       ? 'not present'
       : from === to
         ? `at line ${sourceLine(text, from)}`
-        : startLine(text, from) === sourceLine(text, Math.max(from, to - 1))
-          ? `line ${startLine(text, from)}`
+        : startLine(text, from) >= sourceLine(text, Math.max(from, to - 1))
+          ? `line ${sourceLine(text, Math.max(from, to - 1))}`
           : `lines ${startLine(text, from)}–${sourceLine(text, to - 1)}`;
 
   const accounts: HunkAccount[] = [];
@@ -462,16 +462,16 @@ export function accountHunks(
         ? (overlapping('after', part.nextFrom, part.nextTo) ??
           overlapping('before', part.from, part.to))
         : undefined;
-    const label = provable
-      ? needed.before.length || needed.after.length
+    const label = !(old + next).trim()
+      ? 'Line break or spacing'
+      : provable
         ? 'Text'
-        : 'Line break or spacing'
-      : (definition?.label ??
-        (part.kind === 'source'
-          ? 'Markup'
-          : part.kind === 'base/enhanced'
-            ? 'Base/enhanced pair'
-            : part.kind[0].toUpperCase() + part.kind.slice(1)));
+        : (definition?.label ??
+          (part.kind === 'source'
+            ? 'Markup'
+            : part.kind === 'base/enhanced'
+              ? 'Base/enhanced pair'
+              : part.kind[0].toUpperCase() + part.kind.slice(1)));
     accounts.push({
       account: 'marker',
       marker: {

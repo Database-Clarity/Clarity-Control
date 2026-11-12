@@ -75,14 +75,6 @@ export function renderedDiff(
       });
     const lines: DiffLine[] = parseMarkup(text, globals).lines.map((source) => {
       const line: DiffLine = { ...source };
-      // Line breaks, spacer lines, line classes, and table identity are tokens too,
-      // so a structural edit is marked in the same stream as words.
-      tokens.push(line);
-      keys.push(
-        encodeURIComponent(
-          JSON.stringify(['¶', source.classNames, !!source.table, !!source.linesContent]),
-        ),
-      );
       line.linesContent = source.linesContent && split(source.linesContent, source.classNames);
       line.table = source.table?.map((row) => ({
         ...row,
@@ -97,6 +89,15 @@ export function renderedDiff(
           ]),
         })),
       }));
+      // Each line ends with a structure token (break, spacer, line class, or table),
+      // so a structural edit is marked in the same stream as words, on the line
+      // it creates or removes.
+      tokens.push(line);
+      keys.push(
+        encodeURIComponent(
+          JSON.stringify(['¶', source.classNames, !!source.table, !!source.linesContent]),
+        ),
+      );
       return line;
     });
     return { lines, tokens, keys: keys.join(' ') };
