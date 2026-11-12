@@ -3,8 +3,8 @@ import {
   Suspense,
   createContext,
   useContext,
-  type MutableRefObject,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -141,16 +141,16 @@ export function skeletonLineWidths(
 
 /** Once shown, a skeleton stays at least this long (ms), so it never only flashes. */
 export const skeletonMinimumMs = 400;
-type SkeletonClock = MutableRefObject<number | undefined>;
+type SkeletonClock = { current: number | undefined; identity: unknown };
 const SkeletonClockContext = createContext<SkeletonClock | undefined>(undefined);
 
 /**
  * The one timing rule for every skeleton. Hosts remove obsolete content immediately. After a
  * step, if new content has not committed by the second frame the skeleton shows (first loads,
  * with nothing to keep, show it at once). Once shown it stays at least `skeletonMinimumMs` before
- * the content swaps in. A step to another entry (`identity`) during that time starts over for the
- * new entry: ready by its second frame, it shows directly; otherwise the skeleton (already on
- * screen, so nothing flashes) starts a fresh minimum. Waits never stack. While this returns true
+ * the content swaps in. A new root boundary identity starts a navigation clock; nested consumers
+ * share that clock, including consumers mounted after a lazy import. A superseded entry is
+ * discarded immediately, and a warm entry ready by its second frame shows directly. While this returns true
  * the host shows the skeleton instead of content, even if `pending` already turned false.
  */
 export function useSkeletonVisible(
@@ -160,14 +160,19 @@ export function useSkeletonVisible(
   clock?: SkeletonClock,
 ) {
   const inherited = useContext(SkeletonClockContext);
+  const activeClock = clock ?? inherited;
   const [visible, setVisible] = useState(pending && !hasContent);
-  const shownAt = useRef<number | undefined>(visible ? Date.now() : undefined);
+  const shownAt = useRef<number | undefined>(
+    visible ? (activeClock?.current ?? Date.now()) : undefined,
+  );
   const shownFor = useRef(identity);
+  const shownClock = useRef(activeClock);
   useLayoutEffect(() => {
     const show = () => {
-      shownAt.current = inherited?.current ?? Date.now();
-      if (clock) clock.current = shownAt.current;
+      shownAt.current = activeClock?.current ?? Date.now();
+      if (activeClock) activeClock.current = shownAt.current;
       shownFor.current = identity;
+      shownClock.current = activeClock;
       setVisible(true);
     };
     const hide = () => {
@@ -187,22 +192,26 @@ export function useSkeletonVisible(
     };
     let timer: ReturnType<typeof setTimeout> | undefined;
     if (visible) {
-      if (shownFor.current !== identity) {
+      if (shownFor.current !== identity || shownClock.current !== activeClock) {
         // A new entry during the minimum: start over for it.
         shownFor.current = identity;
+        shownClock.current = activeClock;
         shownAt.current = undefined;
       }
       if (shownAt.current === undefined) {
         if (!pending) hide();
         else
           afterTwoFrames(() => {
-            shownAt.current = inherited?.current ?? Date.now();
-            if (clock) clock.current = shownAt.current;
+            shownAt.current = activeClock?.current ?? Date.now();
+            if (activeClock) activeClock.current = shownAt.current;
           });
-      } else if (!pending) {
-        const left = shownAt.current + skeletonMinimumMs - Date.now();
-        if (left <= 0) hide();
-        else timer = setTimeout(hide, left);
+      } else {
+        if (activeClock && activeClock.current === undefined) activeClock.current = shownAt.current;
+        if (!pending) {
+          const left = shownAt.current + skeletonMinimumMs - Date.now();
+          if (left <= 0) hide();
+          else timer = setTimeout(hide, left);
+        }
       }
     } else if (pending) {
       if (!hasContent) show();
@@ -214,7 +223,7 @@ export function useSkeletonVisible(
       if (second !== undefined) cancelAnimationFrame(second);
       if (timer !== undefined) clearTimeout(timer);
     };
-  }, [pending, identity, hasContent, visible, inherited, clock]);
+  }, [pending, identity, hasContent, visible, activeClock]);
   return visible || (pending && !hasContent);
 }
 
@@ -311,12 +320,8 @@ export function SkeletonBoundary({
   children?: ReactNode | ((pending: boolean) => ReactNode);
 }) {
   const inherited = useContext(SkeletonClockContext);
-  const clock = useRef(inherited?.current);
-  const clockIdentity = useRef(identity);
-  if (clockIdentity.current !== identity) {
-    clock.current = undefined;
-    clockIdentity.current = identity;
-  }
+  const ownClock = useMemo<SkeletonClock>(() => ({ current: undefined, identity }), [identity]);
+  const clock = inherited ?? ownClock;
   const visible = useSkeletonVisible(pending && !error, identity, true, clock);
   // Keep the navigation's shown-at time for descendants that mount after a lazy
   // import. Their own minimum must not restart after this boundary has finished.
@@ -363,7 +368,8 @@ export function SkeletonSuspense({
   shape?: LoadingShape;
 }) {
   const inherited = useContext(SkeletonClockContext);
-  const clock = useRef(inherited?.current);
+  const ownClock = useMemo<SkeletonClock>(() => ({ current: undefined, identity: label }), [label]);
+  const clock = inherited ?? ownClock;
   const [pending, setPending] = useState(false);
   const visible = useSkeletonVisible(pending, label, true, clock);
   return (

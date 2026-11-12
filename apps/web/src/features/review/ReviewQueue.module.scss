@@ -96,28 +96,6 @@
   inset-inline: 0;
   contain: strict;
   pointer-events: none;
-  animation: opening-pulse 0.9s ease-in-out infinite alternate;
-
-  svg {
-    display: block;
-    fill: var(--text2);
-    opacity: 0.25;
-  }
-}
-
-@keyframes opening-pulse {
-  from {
-    opacity: 0.5;
-  }
-  to {
-    opacity: 0.85;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .openingRows {
-    animation: none;
-  }
 }
 
 .list {

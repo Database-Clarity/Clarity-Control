@@ -1,7 +1,12 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { VirtualList } from '../../ui/VirtualList';
-import { useSkeletonVisible } from '../../ui/Skeleton';
+import {
+  SkeletonRegion,
+  SkeletonRows,
+  SkeletonStatus,
+  useSkeletonVisible,
+} from '../../ui/Skeleton';
 import { touchQuery, useMedia } from '../../ui/useMedia';
 import { useScaleFactor } from '../../ui/usePaneDivider';
 import { useSettingsStore } from '../../stores/settings';
@@ -227,45 +232,49 @@ export function CompendiumQueue() {
           {error}
         </p>
       ) : rows === null || showSkeleton ? (
-        <div className={styles.skeleton} role="status" aria-label="Loading the review queue">
-          {Array.from({ length: 12 }, (_, index) => (
-            <span key={index} style={{ width: `${55 + ((index * 17) % 35)}%` }} />
-          ))}
+        <div className={styles.skeleton} aria-busy="true">
+          <SkeletonStatus>Loading the review queue</SkeletonStatus>
+          <SkeletonRegion>
+            <SkeletonRows
+              count={12}
+              maxRows={12}
+              columns={[75, 25]}
+              rowHeight={`${touch ? touchRem : 2}rem`}
+            />
+          </SkeletonRegion>
         </div>
       ) : model.items.length === 0 ? (
         noMatches
       ) : (
         <>
           {model.visible === 0 && filtersActive && noMatches}
-        <VirtualList
-          className={styles.list}
-          role="tree"
-          label="Entries to review"
-          items={model.items}
-          heightRem={itemHeight}
-          itemKey={itemKey}
-          reveal={revealIndex !== undefined && revealIndex >= 0 ? revealIndex : undefined}
-          groupStart={groupStart}
-          activeDescendant={selected === undefined ? undefined : queueRowId(selected)}
-          stickyFor={(item) =>
-            item.type === 'header' ? (
-              <Header item={item} onToggle={toggleGroup} />
-            ) : null
-          }
-          renderItem={(item) =>
-            item.type === 'header' ? (
-              <Header item={item} onToggle={toggleGroup} />
-            ) : (
-              <Row
-                row={item.row}
-                pinned={item.pinned}
-                selected={item.row.hash === selected}
-                onSelect={select}
-                onReinclude={reinclude}
-              />
-            )
-          }
-        />
+          <VirtualList
+            className={styles.list}
+            role="tree"
+            label="Entries to review"
+            items={model.items}
+            heightRem={itemHeight}
+            itemKey={itemKey}
+            reveal={revealIndex !== undefined && revealIndex >= 0 ? revealIndex : undefined}
+            groupStart={groupStart}
+            activeDescendant={selected === undefined ? undefined : queueRowId(selected)}
+            stickyFor={(item) =>
+              item.type === 'header' ? <Header item={item} onToggle={toggleGroup} /> : null
+            }
+            renderItem={(item) =>
+              item.type === 'header' ? (
+                <Header item={item} onToggle={toggleGroup} />
+              ) : (
+                <Row
+                  row={item.row}
+                  pinned={item.pinned}
+                  selected={item.row.hash === selected}
+                  onSelect={select}
+                  onReinclude={reinclude}
+                />
+              )
+            }
+          />
         </>
       )}
     </nav>
