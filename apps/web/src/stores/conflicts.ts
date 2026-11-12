@@ -177,11 +177,12 @@ export function createConflictStore(deps: ConflictDeps) {
     const unresolvedRows = (session: ConflictSession) =>
       Object.values(session.rows).filter((choice) => choice === null).length;
     /** Drops sessions whose conflict is over: no marker blocks, no open rows, or no draft left. */
-    function prune() {
+    function prune(onlyHash?: number) {
       const { sessions } = get();
       const { drafts, pending, external, readStartedAt } = deps.drafts.getState();
       let next = sessions;
       for (const session of Object.values(sessions)) {
+        if (onlyHash !== undefined && session.hash !== onlyHash) continue;
         const draft = drafts[session.hash];
         // Our pending/external flags cannot describe another tab's writes. A snapshot
         // read before publication cannot prove that an imported session is finished.
@@ -200,6 +201,38 @@ export function createConflictStore(deps: ConflictDeps) {
         delete next[session.hash];
       }
       if (next !== sessions) commit(next);
+    }
+
+    function refreshSessions(onlyHash?: number) {
+      const { scope } = get();
+      if (scope === null) return;
+      const stored = readSessions(deps.storage(), scope);
+      // Storage is authoritative for deletions. Only local edits not yet stored are kept.
+      const sessions: Record<number, ConflictSession> = {};
+      for (const [key, session] of Object.entries(get().sessions)) {
+        if (onlyHash !== undefined && Number(key) !== onlyHash) {
+          sessions[Number(key)] = session;
+          continue;
+        }
+        if (dirtySessions.has(Number(key))) sessions[Number(key)] = session;
+        else if (stored[Number(key)]?.storedAt !== session.storedAt)
+          observedDrafts.delete(Number(key));
+      }
+      for (const [key, session] of Object.entries(stored)) {
+        if (onlyHash !== undefined && Number(key) !== onlyHash) continue;
+        const mine = get().sessions[Number(key)];
+        if (!mine) {
+          sessions[Number(key)] = session;
+          continue;
+        }
+        const rows = { ...session.rows };
+        for (const [field, choice] of Object.entries(mine.rows))
+          if (choice !== null || !(field in rows)) rows[field] = choice;
+        sessions[Number(key)] = { ...mine, rows, storedAt: session.storedAt };
+      }
+      // Reading another tab's sessions is not a local edit and must not write them back.
+      set({ sessions });
+      prune(onlyHash);
     }
 
     return {
@@ -255,7 +288,7 @@ export function createConflictStore(deps: ConflictDeps) {
       },
       choose(hash, field, choice) {
         // A stale Compare view must not answer a question already resolved in another tab.
-        get().refresh();
+        refreshSessions(hash);
         const session = get().sessions[hash];
         if (!session || !(field in session.rows)) return;
         observedDrafts.add(hash);
@@ -287,30 +320,7 @@ export function createConflictStore(deps: ConflictDeps) {
         prune();
       },
       refresh() {
-        const { scope } = get();
-        if (scope === null) return;
-        const stored = readSessions(deps.storage(), scope);
-        // Storage is authoritative for deletions. Only local edits not yet stored are kept.
-        const sessions: Record<number, ConflictSession> = {};
-        for (const [key, session] of Object.entries(get().sessions)) {
-          if (dirtySessions.has(Number(key))) sessions[Number(key)] = session;
-          else if (stored[Number(key)]?.storedAt !== session.storedAt)
-            observedDrafts.delete(Number(key));
-        }
-        for (const [key, session] of Object.entries(stored)) {
-          const mine = get().sessions[Number(key)];
-          if (!mine) {
-            sessions[Number(key)] = session;
-            continue;
-          }
-          const rows = { ...session.rows };
-          for (const [field, choice] of Object.entries(mine.rows))
-            if (choice !== null || !(field in rows)) rows[field] = choice;
-          sessions[Number(key)] = { ...mine, rows, storedAt: session.storedAt };
-        }
-        // Reading another tab's sessions is not a local edit and must not write them back.
-        set({ sessions });
-        prune();
+        refreshSessions();
       },
       open() {
         return openConflicts(deps.drafts.getState().drafts, rowCounts(get().sessions));

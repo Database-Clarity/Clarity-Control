@@ -53,6 +53,29 @@ afterEach(() => {
 });
 
 describe('cross-tab conflict session race regressions', () => {
+  it('answering one session does not import or prune another tabs unread legacy session', async () => {
+    const drafts = createDraftStore({ read: async () => ({}), write: async () => {} });
+    await drafts.getState().activate('1');
+    const conflicts = conflictsFor(drafts);
+    conflicts.getState().begin([{ hash: 123, base, head: null, next: mine, fields: ['$exists'] }]);
+    await drafts.getState().flush();
+    const other = {
+      hash: 789,
+      base: null,
+      head: { ...head, hash: 789 },
+      mine: { ...mine, hash: 789 },
+      rows: { $exists: null },
+    };
+    memory.setItem(conflictSessionKey('1', 789), JSON.stringify(other));
+    expect(conflicts.getState().sessions[123]?.rows.$exists).toBeNull();
+    conflicts.getState().choose(123, '$exists', 'theirs');
+    expect(drafts.getState().drafts[123]).toBeUndefined();
+    expect(JSON.parse(memory.getItem(conflictSessionKey('1', 789))!)).toEqual(other);
+    drafts.setState({ external: true });
+    conflicts.getState().refresh();
+    expect(conflicts.getState().sessions[789]?.rows.$exists).toBeNull();
+  });
+
   it.each(['pending', 'failed', 'signed-out', 'pending-failed'] as const)(
     'retains unpublished choices and their drafts across an account switch (%s)',
     async (mode) => {
