@@ -59,3 +59,42 @@ it('warns for hidden previews, other modes, and failed renders, and clears after
   edit(1);
   expect(count).toBe(0);
 });
+
+it('preserves a stalled revision deadline across unrelated edits and acknowledgements', () => {
+  mount();
+  edit(1);
+  const stalled = usePreviewReviewStore.getState().entries[10]!;
+  for (let revision = 1; revision <= 5; revision++) {
+    act(() => vi.advanceTimersByTime(100));
+    act(() =>
+      usePreviewReviewStore.setState({
+        entries: {
+          10: stalled,
+          20: { canonical: 20, dirty: revision, reviewed: revision },
+        },
+      }),
+    );
+    expect(count).toBe(revision < 3 ? 0 : 1);
+  }
+});
+it('preserves the deadline when an older render is acknowledged without showing the latest edit', () => {
+  mount();
+  edit(3);
+  act(() => vi.advanceTimersByTime(100));
+  edit(3, 1);
+  act(() => vi.advanceTimersByTime(150));
+  expect(count).toBe(1);
+  edit(3, 2);
+  expect(count).toBe(1);
+  edit(3, 3);
+  expect(count).toBe(0);
+});
+it('cancels every pending deadline on unmount', () => {
+  mount();
+  edit(1);
+  act(() => root.unmount());
+  expect(vi.getTimerCount()).toBe(0);
+  root = createRoot(host);
+  act(() => root.render(<Probe />));
+  expect(count).toBe(0);
+});
