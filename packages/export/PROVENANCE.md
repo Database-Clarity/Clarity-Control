@@ -70,6 +70,12 @@ its own lockfile) wrote for three inputs; the `parity-*.test.ts` tests fail on a
 - (iii) `test/fixtures/legacy-input.json`: every symbol, title, link, weapon section, alias kind,
   set bonus, element tag, math use, nested import, and global.
 
+Decided exception (owner 2026-11-11): `buildLegacy` renames the set-bonus type to
+`Armor Set Bonus` before the converter runs (`src/setBonus.ts`; nothing in `src/converter/`
+changed), and `bungieIdentical` can also compare a set bonus with its sandbox perk text. The
+pinned hashes stay the held converter's; `test/set-bonus.test.ts` checks the converter copy
+against them and lists the exact diff.
+
 Bungie-identical lists for (i) and (ii) come from manifest `245114.26.10.13.2000-1-bnet.66137`
 (`test/fixtures/legacy-identical.json`). With that manifest, the 7 deployed files for input (i)
 are also byte-identical to Live-Clarity-Database `live` `039cfbc4732c33573568b28cc6335dd3332a9296`,

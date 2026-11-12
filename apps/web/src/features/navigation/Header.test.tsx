@@ -154,6 +154,7 @@ describe('workspace tabs and More', () => {
       'Lost text',
       'Archive',
       'Management',
+      'Exports',
     ]);
     expect(more.getAttribute('aria-expanded')).toBe('true');
     expect(document.activeElement).toBe(items[0]);
@@ -161,12 +162,12 @@ describe('workspace tabs and More', () => {
     expect(document.activeElement).toBe(items[1]);
     await key(items[1], 'ArrowUp');
     await key(items[0], 'ArrowUp');
-    expect(document.activeElement).toBe(items[3]);
-    await key(items[3], 'Home');
+    expect(document.activeElement).toBe(items[4]);
+    await key(items[4], 'Home');
     expect(document.activeElement).toBe(items[0]);
     await key(items[0], 'End');
-    expect(document.activeElement).toBe(items[3]);
-    await key(items[3], 'Escape');
+    expect(document.activeElement).toBe(items[4]);
+    await key(items[4], 'Escape');
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement).toBe(more);
   });
@@ -201,7 +202,7 @@ describe('workspace tabs and More', () => {
     await click(q('nav[aria-label="Workspaces"] button'));
     expect(
       [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent),
-    ).toEqual(['Translations', 'Bungie drift', 'Lost text', 'Archive', 'Management']);
+    ).toEqual(['Translations', 'Bungie drift', 'Lost text', 'Archive', 'Management', 'Exports']);
   });
 
   it('promotes Bungie drift, then Management, to tabs only on wide screens', async () => {
@@ -239,7 +240,7 @@ describe('workspace tabs and More', () => {
     await click(q('nav[aria-label="Workspaces"] button'));
     expect(
       [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent),
-    ).toEqual(['Lost text', 'Archive']);
+    ).toEqual(['Lost text', 'Archive', 'Exports']);
     // Editors have no Management: Drift alone moves up.
     await act(async () => root.unmount());
     root = createRoot(host);

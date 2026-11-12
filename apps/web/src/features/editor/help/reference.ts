@@ -329,7 +329,7 @@ let built: HelpRow[] | null = null;
 export function helpRows(): readonly HelpRow[] {
   if (built) return built;
   const entries = new Map(
-    markupEntries(helpGlobals)
+    markupEntries({ ...helpGlobals, allowBaseEnhanced: true })
       .filter((entry) => entry.help)
       .map((entry) => [entry.id, entry]),
   );

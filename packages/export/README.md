@@ -6,8 +6,9 @@ It builds two kinds of file:
 
 - **Legacy files**: the eight formats the old converter made (`clarity`, `dim`, `crayon`,
   `foundry`, `lightGG`, `braytech`, `vaultZero`, `clarityV2`), byte for byte the same as the
-  held converter. The code in `src/converter/` is a copy of that converter (MIT, see
-  `PROVENANCE.md` for where it came from and every change).
+  held converter, except for armour set bonuses (see "Set bonuses" below). The code in
+  `src/converter/` is a copy of that converter (MIT, see `PROVENANCE.md` for where it came from
+  and every change).
 - **Format v1 files**: what a project's config asks for (which tooltips, languages, and keys, and
   how each symbol looks), in a smaller shape. See "Configurable files" below.
 
@@ -47,18 +48,36 @@ write(build.versions.name, build.versions.bytes);
   the next `versions.json` too.
 - **`nextVersions(previous)`** adds 0.0001 to `descriptions` (`2.0625` becomes `2.0626`), keeps
   any other keys, and writes the file as before (one-space indent, no newline at the end).
-- **`bungieIdentical(input, inventoryItems)`** lists the tooltips whose English text is exactly
-  Bungie's own description (from the manifest's `DestinyInventoryItemDefinition`). Most presets
+- **`bungieIdentical(input, inventoryItems, sandboxPerks?)`** lists the tooltips whose English
+  text is exactly Bungie's own description (from the manifest's `DestinyInventoryItemDefinition`;
+  for a set bonus also `DestinySandboxPerkDefinition`, when `sandboxPerks` is given). Most presets
   leave those out; `crayon` and `vaultZero` keep them. Without `identical`, nothing is left out
   for this reason.
 - **`legacyPresets`**, **`deployedLegacyPresets`**, and **`legacyFileName(preset)`** give the
   preset names and their file names with the exact case (`lightGG.json`, `vaultZero.json`).
 
+## Set bonuses
+
+Armour set bonuses (owner 2026-11-11: "Set bonuses should definitely be added to legacy outputs,
+the rest probably not") are tooltips keyed by their sandbox perk hash, in the generator category
+`armor-set-bonus`. They have no plug, so apps look them up by the sandbox perk hash of the set's
+`setPerks`. The legacy files write them like any other entry, with two differences from the held
+converter, the decided cut-over exception of G-PARITY:
+
+- their `type` is the legacy type name `Armor Set Bonus` (in the presets that write `type`);
+- a set bonus whose text is Bungie's sandbox perk text counts as Bungie-identical (pass
+  `sandboxPerks` to `bungieIdentical`).
+
+Other sandbox perks stay out of the legacy files: their alias entries are skipped, as before.
+Until cut-over the editor does not push set bonuses live (`isHeldSetBonus` in core), so the files
+built by the held converter never contain them.
+
 ## Checks
 
 - `test/parity-*.test.ts` build every preset from three inputs (the published file, the editor
   data, and a fixture with every markup feature) and compare each file's sha256 with the held
-  converter's. Any byte change fails. If a change is meant to alter the output, it is a decision
+  converter's. Any byte change fails. `test/set-bonus.test.ts` lists the set-bonus diff exactly
+  (fixture and real data) and checks every other byte. If a change is meant to alter the output, it is a decision
   for the owner, and the hashes are updated in the same change with the reason.
 - `test/engine.test.ts` covers one failing file next to working ones, `versions.json`, the safe
   math, and that nothing in this package runs text as code.
@@ -144,3 +163,26 @@ const items = decodeV1(await (await fetch(url)).json());
 
 Apps can poll `/<project>/index.json` (`projectIndex`), about 1 KB, which lists each file's
 sha256, size, and last update, and download a file only when its sha256 changes.
+
+## Building the site and the old URLs
+
+Two Node scripts, bundled into `dist/` and installed as `.exports/` on the `converter` branch
+(`INSTALL.md`), run in the workflows in `workflows/` (spec section 3):
+
+- **`legacy-job.mjs run`** builds the seven old-URL files from the current `converter` head, keeps
+  a failed or frozen file's old bytes from `live`, bumps `versions.json`, pushes `live` (only when
+  the input is newer than the last deploy and `live` did not move), and writes the publish pin to
+  `export-pins` in two phases (`pending/<pinId>.json`, then `pins/<liveCommit>.json` and
+  `pins/latest.json`). It promotes a landed pending pin at its start. `legacy-job.mjs vocab`
+  captures the vocabulary baseline (`exports/legacy-vocab.json`) that freezes a file on a breaking
+  change.
+- **`build-site.mjs locate`** finds the served Pages deployment (or zero deployments: bootstrap);
+  **`build-site.mjs build`** builds every project from the effective pin into a folder: each file
+  in a killable child process (20 s, two at a time, 10 min budget, nothing new after 8 min, least
+  recently built first), legacy-preset files copied from `live` at the pin, failed or skipped files
+  carried from the served deployment (sha256-checked), plus `_headers`, `<project>/index.json`,
+  `changelog.json`, and `_build/` (manifest, status, notices, and the preview snapshot). The
+  workflow then deploys the folder in one Pages deployment.
+
+`test/site/` runs every case through these scripts against local bare repositories and a
+simulated Pages project (no network).

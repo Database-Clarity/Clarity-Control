@@ -1,6 +1,7 @@
 import { globalDefinitions, globalTypes, type GlobalDefinition } from '../globals/model';
 import {
   classifyItem,
+  listingCategoryId,
   derivedCategories,
   isSetSelector,
   manifestArtifacts,
@@ -53,7 +54,7 @@ export function classifiedCategory(
   data: EditorData,
 ): Category | undefined {
   if (!item) return undefined;
-  const id = classifyItem(item, data.bundle.tooltips[item.hash])?.categoryId ?? item.categoryId;
+  const id = listingCategoryId(item, classifyItem(item, data.bundle.tooltips[item.hash]));
   // An id the catalog does not know is listed under its own "Other: <id>" section.
   return (
     data.categories.find((category) => category.id === id) ??
@@ -535,8 +536,8 @@ export function navigationGroups(
           matchingAliases.has(item.hash)),
     );
   const classifiedItems = items.map((item): ListedItem => {
-    const c = classifyItem(item, data.bundle.tooltips[item.hash]);
-    return listedItem(c ? { ...item, categoryId: c.categoryId } : item, data);
+    const id = listingCategoryId(item, classifyItem(item, data.bundle.tooltips[item.hash]));
+    return listedItem(id === item.categoryId ? item : { ...item, categoryId: id }, data);
   });
   const categories = [
     ...data.categories.filter((category) => !(category.id in exoticWeaponKinds)),

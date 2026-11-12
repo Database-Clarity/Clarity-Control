@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react';
+import { picker } from './finderPicker.testUtils';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -179,9 +180,7 @@ describe('exotic armour in the finder', () => {
   it('deep links to a perk hash still open it, shown under its piece name', async () => {
     await mount('/t/101');
     expect(field().value).toBe('Contraverse Hold');
-    expect(host.querySelector<HTMLSelectElement>('select')!.selectedOptions[0].textContent).toBe(
-      'Exotic Armor Perks',
-    );
+    expect(picker(host, 'Category')!.title).toBe('Exotic Armor Perks');
     await act(async () => root.render(null));
     await mount('/t/4');
     expect(field().value).toBe('Aeon Safe/Soul/Swift · Sect of Insight');
@@ -195,7 +194,7 @@ describe('exotic armour in the finder', () => {
     // A set's rows name the pieces once and keep each perk on the right; the slash list is the
     // shared mark, so the small text does not repeat it.
     const aeon = options().filter((option) => option.textContent?.startsWith('Aeon'));
-    expect(aeon.map((option) => option.querySelector('span:nth-child(2)')!.textContent)).toEqual([
+    expect(aeon.map((option) => option.querySelector('[class*=name]')!.textContent)).toEqual([
       'Aeon Safe/Soul/Swift',
       'Aeon Safe/Soul/Swift',
     ]);
@@ -212,7 +211,7 @@ describe('exotic armour in the finder', () => {
       field().dispatchEvent(new Event('input', { bubbles: true }));
     });
     expect(
-      options().map((option) => option.querySelector('span:nth-child(2)')!.textContent),
+      options().map((option) => option.querySelector('[class*=name]')!.textContent),
     ).toEqual(['Praxic Vestment']);
     await act(async () =>
       field().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),

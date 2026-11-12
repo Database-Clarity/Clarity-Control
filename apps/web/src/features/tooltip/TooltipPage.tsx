@@ -1,3 +1,4 @@
+import type { ScopedMarkupGlobals } from '../editor/markupScope';
 import { useGlobalDefinition } from '../globals/useGlobals';
 import { GlobalUsages, GlobalUsageCount } from '../globals/GlobalsPage';
 import { archiveCategoryLabel, archivedItemFor } from '../archive/archive';
@@ -14,6 +15,9 @@ import {
   useState,
 } from 'react';
 import { flushSync } from 'react-dom';
+import { isolateHistory } from '@codemirror/commands';
+import { Transaction } from '@codemirror/state';
+import { EditorView } from '@codemirror/view';
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { translationQueue, type Lang, type MarkupGlobals, type Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
@@ -56,6 +60,8 @@ import { ManifestTextRow } from '../manifest/ManifestTextRow';
 import { PanelRow } from '../../ui/PanelRow';
 import { languageLabel } from '../../languageLabels';
 import { editorAccess } from './access';
+import { canPushLive } from '../auth/permissions';
+import { DraftLoader, WithEditorDraft } from './DraftLoader';
 import { defaultLanguage, withLanguage } from './language';
 import { requireEnglish } from './requireEnglish';
 import { LanguageSummary } from './LanguageSummary';
@@ -66,7 +72,12 @@ import { categoryDisplay } from '../../services/categoryLabels';
 import { TranslationSource } from './TranslationSource';
 import { VariantWorkspace } from './VariantWorkspace';
 import { CompendiumPanel } from '../compendium/CompendiumPanel';
-import { editableOverrides, enhancedRender, previewedVariants } from './variants';
+import {
+  categoriesWithEnhanced,
+  editableOverrides,
+  enhancedRender,
+  previewedVariants,
+} from './variants';
 import { groupedPerks } from './grouping';
 import styles from './TooltipPage.module.scss';
 import {
@@ -249,10 +260,11 @@ function TooltipWorkspace({
   }, [data, shown, lang]);
   // One globals object per type, so renders that share a type share the object (and its parse).
   const typedGlobals = useMemo(() => {
-    const cache = new Map<string | undefined, MarkupGlobals>();
-    return (type: string | undefined) => {
-      let globals = cache.get(type);
-      if (!globals) cache.set(type, (globals = { ...sharedGlobals, type }));
+    const cache = new Map<string, ScopedMarkupGlobals>();
+    return (type: string | undefined, allowBaseEnhanced: boolean) => {
+      const key = `${type}:${allowBaseEnhanced}`;
+      let globals = cache.get(key);
+      if (!globals) cache.set(key, (globals = { ...sharedGlobals, type, allowBaseEnhanced }));
       return globals;
     };
   }, [sharedGlobals]);
@@ -271,13 +283,6 @@ function TooltipWorkspace({
   // shown there; without one (a phone, or the page on its own) they stay inline in the page.
   const column = useShellColumn();
   const showPreview = column?.show;
-  const reviewCanonical = data ? canonicalHash(hashOverride ?? Number(parameter), data) : undefined;
-  const unpreviewed = usePreviewReviewStore(
-    (state) =>
-      Object.values(state.entries).filter(
-        (entry) => entry.canonical === reviewCanonical && entry.dirty > entry.reviewed,
-      ).length,
-  );
   // "Show preview" from the leave guard opens the column. A view that already shows the unseen
   // edits (Base, Enhanced, or Compare, which shows both) is left as it is; otherwise it moves to
   // Base, or to Enhanced for an override with unseen edits.
@@ -333,7 +338,13 @@ function TooltipWorkspace({
   const legacyOf = (variant: number) =>
     data.categories.find((category) => category.id === archivedItemFor(variant, data)?.categoryId)
       ?.legacyType;
-  const globalsFor = (variant: number): MarkupGlobals => typedGlobals(legacyOf(variant));
+  const globalsFor = (variant: number): ScopedMarkupGlobals =>
+    typedGlobals(
+      legacyOf(variant),
+      categoriesWithEnhanced(data).has(
+        data.items[variant]?.categoryId ?? archivedItemFor(variant, data)?.categoryId ?? '',
+      ),
+    );
   const textOf = (variant: number) =>
     (drafts[variant]?.next ?? tooltipFor(variant, data)).text[lang]?.text ?? '';
   // The base is the one the draft started from (as in save validation), not the live catalogue.
@@ -485,7 +496,11 @@ function TooltipWorkspace({
   // The editor's status bar tells how many edits the preview has not shown yet, and offers it.
   const previewStatus = column
     ? {
-        unpreviewed,
+        review: {
+          canonical,
+          scheduled: previewedHashes(mode, hash, selectedView),
+          visible: !column.collapsed && !suspended,
+        },
         collapsed: column.collapsed,
         onShow: () => {
           const host = usePreviewReviewStore.getState().host;
@@ -528,36 +543,81 @@ function TooltipWorkspace({
     />
   );
 
+  // An agent-written draft for an empty English tooltip: editors and maintainers only.
+  const draftable =
+    !readOnly &&
+    !selectedGlobal &&
+    !suspended &&
+    lang === 'en' &&
+    access.reason === null &&
+    canPushLive(user) &&
+    activeHash > 3 &&
+    !/\S/.test(activeBase.text.en?.text ?? '') &&
+    !/\S/.test(textOf(activeHash));
+  /** Loading is a typed-in edit: one undo step in the editor, then the normal draft and save flow. */
+  const loadDraft = (text: string) => {
+    const root = document.querySelector<HTMLElement>(
+      `.cm-editor[data-tooltip-hash="${activeHash}"]`,
+    );
+    const editor = root && EditorView.findFromDOM(root);
+    if (editor && !editor.state.readOnly) {
+      editor.dispatch({
+        changes: { from: 0, to: editor.state.doc.length, insert: text },
+        selection: { anchor: 0 },
+        annotations: [isolateHistory.of('full'), Transaction.userEvent.of('input.paste')],
+        scrollIntoView: true,
+      });
+      editor.focus();
+    } else edit(activeBase, 'en', text, user?.login ?? 'local draft');
+  };
+
   const header = (
-    <EditorPaneHeader
-      lang={lang}
-      onLanguage={changeLanguage}
-      draft={!readOnly && Boolean(drafts[activeHash])}
-      saving={saving}
-      onDiscard={() => discard(activeHash)}
-      reason={pausedOnPhone ? null : access.reason}
-      switchTo={access.switchTo}
-      onSwitch={changeLanguage}
-      overrides={overrideTargets}
-      activeOverride={
-        activeVariant === null ? undefined : { hash: activeVariant, name: nameOf(activeVariant) }
-      }
-      markup={
-        access.reason === null ? { open: markupRow.open, toggle: markupRow.toggle } : undefined
-      }
-      onEditOverride={(variant) => setPicked({ hash, at: pickedAt, variant })}
-      onBack={() => setPicked({ hash, at: pickedAt, variant: null })}
-      grouped={grouped}
-      queue={queue && <QueueControl hash={hash} context={queue} />}
-      queueBack={
-        queue
-          ? {
-              to: queuePath(queue, user),
-              label: queueSummary(queue, languageLabel, (id) => categoryDisplay(id).label),
-            }
-          : undefined
-      }
-    />
+    <WithEditorDraft hash={activeHash} enabled={draftable}>
+      {(draft) => (
+        <EditorPaneHeader
+          lang={lang}
+          onLanguage={changeLanguage}
+          draft={!readOnly && Boolean(drafts[activeHash])}
+          saving={saving}
+          onDiscard={() => discard(activeHash)}
+          reason={pausedOnPhone ? null : access.reason}
+          switchTo={access.switchTo}
+          onSwitch={changeLanguage}
+          overrides={overrideTargets}
+          activeOverride={
+            activeVariant === null
+              ? undefined
+              : { hash: activeVariant, name: nameOf(activeVariant) }
+          }
+          markup={
+            access.reason === null ? { open: markupRow.open, toggle: markupRow.toggle } : undefined
+          }
+          onEditOverride={(variant) => setPicked({ hash, at: pickedAt, variant })}
+          onBack={() => setPicked({ hash, at: pickedAt, variant: null })}
+          grouped={grouped}
+          draftLoader={
+            draft && (
+              <DraftLoader
+                draft={draft}
+                name={nameOf(activeHash)}
+                categoryLabel={baseCategory?.label}
+                globals={globalsFor(activeHash)}
+                onLoad={loadDraft}
+              />
+            )
+          }
+          queue={queue && <QueueControl hash={hash} context={queue} />}
+          queueBack={
+            queue
+              ? {
+                  to: queuePath(queue, user),
+                  label: queueSummary(queue, languageLabel, (id) => categoryDisplay(id).label),
+                }
+              : undefined
+          }
+        />
+      )}
+    </WithEditorDraft>
   );
 
   return (
@@ -576,6 +636,7 @@ function TooltipWorkspace({
         source={
           lang === 'en' ? undefined : (
             <TranslationSource
+              hash={activeHash}
               key={`${activeHash}:${lang}`}
               text={activeTooltip.text.en?.text}
               diff={

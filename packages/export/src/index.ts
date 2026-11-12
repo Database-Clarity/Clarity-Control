@@ -14,6 +14,7 @@ export {
   type LegacyOptions,
   type LegacyPreset,
   type LegacyVersions,
+  type SandboxPerks,
 } from './legacy.js';
 
 // Configurable exports: config schema 1, the compiler, and format v1 (README.md, "Format v1").
@@ -47,8 +48,12 @@ export type { OutLine, OutSpan } from './v1/transform.js';
 export {
   filePath,
   projectIndex,
+  type FileNotice,
   type FileOutcome,
   type IndexFile,
   type ProjectIndex,
 } from './v1/project.js';
 export { decodeV1 } from '../decoder/decode-v1.mjs';
+
+// Vocabulary check (spec section 5): marker sets of an output file.
+export { markerChange, markerSet, outputTokens, type MarkerChange } from './v1/markers.js';

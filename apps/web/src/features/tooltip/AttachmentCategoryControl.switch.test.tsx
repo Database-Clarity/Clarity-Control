@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AttachmentCategoryControl, setTooltipCategory } from './AttachmentCategoryControl';
 import { useAuthStore } from '../../stores/auth';
 import { useDraftStore } from '../../stores/drafts';
 import { useSaveState } from '../../services/save/state';
 import type { Tooltip } from '@clarity/core';
 import fixture from '../compendium/fixtures/triage.json';
+import census from '../compendium/fixtures/stat-only-census.json';
 
 vi.mock('../../services/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../services/api')>()),
@@ -139,9 +140,10 @@ it('classifies a native effect with the weapon-attachment override as an exclude
 });
 it('shows a two-way switch with both labels', async () => {
   await render(empty);
-  expect(buttons().map((b) => b.textContent)).toEqual([
-    'Stat-only Parts (no tooltip)',
-    'Parts with Effects (needs tooltip)',
+  expect(buttons().map((b) => b.textContent)).toEqual(['No tooltip', 'Needs tooltip']);
+  expect(buttons().map((b) => b.title)).toEqual([
+    'No tooltip: listed in Stat-only Parts',
+    'Needs tooltip: listed in Parts with Effects',
   ]);
   expect(buttons()[0].getAttribute('aria-pressed')).toBe('true');
 });
@@ -178,7 +180,7 @@ it('warns before demoting a tooltip with authored text, and cancel does nothing'
   await act(async () => buttons()[0].click());
   await act(async () =>
     buttons()
-      .find((b) => b.textContent?.startsWith('Move to'))!
+      .find((b) => b.textContent === 'Confirm: no tooltip')!
       .click(),
   );
   const [, change] = update.mock.calls.at(-1)!;
@@ -194,4 +196,60 @@ it('disables the switch for trial/translator/anonymous', async () => {
     expect(buttons().every((b) => b.disabled)).toBe(true);
   }
   expect(update).not.toHaveBeenCalled();
+});
+describe('a stat-only part whose tooltip text makes it need a tooltip', () => {
+  // Tempered Truss Rod (live record): the manifest rule says stat-only; text says it needs a tooltip.
+  const rod = census.items['5699512'] as never as typeof item;
+  const blank: Tooltip = { hash: rod.hash, text: {}, associated: [] };
+  const text: Tooltip = { ...withText, hash: rod.hash };
+  const show = (base: Tooltip) =>
+    act(async () => root.render(<AttachmentCategoryControl base={base} item={rod} />));
+  const state = () => ({
+    pressed: buttons().map((b) => b.getAttribute('aria-pressed')),
+    disabled: buttons().map((b) => b.disabled),
+    hint: host.querySelector('small')!.textContent,
+  });
+  const needsTooltip = {
+    pressed: ['false', 'true'],
+    disabled: [true, false],
+    hint: 'This part has tooltip text, so it needs a tooltip; remove the text to mark it stat-only.',
+  };
+  it('promoted while blank, then given its first text: stays switchable, never locked', async () => {
+    const promoted = promoteTooltip(blank, rod);
+    draftOf({ ...promoted, text: text.text });
+    await show(blank);
+    expect(state()).toEqual(needsTooltip);
+    // Saved and reloaded: the same state, still not an independent identity.
+    useDraftStore.setState({ drafts: {} });
+    await show(JSON.parse(JSON.stringify({ ...promoted, text: text.text })) as Tooltip);
+    expect(state()).toEqual(needsTooltip);
+    // Deleting the text again re-enables No tooltip, which removes the override byte-identically.
+    draftOf(promoted);
+    await show(blank);
+    expect(state().disabled).toEqual([false, false]);
+    await act(async () => buttons()[0].click());
+    const [, demote] = update.mock.calls.at(-1)!;
+    expect(JSON.stringify(demote(promoted))).toBe(JSON.stringify(blank));
+  });
+  it('with text and no override: No tooltip is disabled and writes nothing', async () => {
+    await show(text);
+    expect(state()).toEqual(needsTooltip);
+    await act(async () => buttons()[0].click());
+    expect(update).not.toHaveBeenCalled();
+    expect(host.querySelector('[role=alert]')).toBeNull();
+    // The last text deleted: plain stat-only again, both buttons usable.
+    draftOf(blank);
+    await show(text);
+    expect(state().pressed).toEqual(['true', 'false']);
+    expect(state().disabled).toEqual([false, false]);
+  });
+});
+it('titles say where an exotic part is listed', async () => {
+  const tang = census.items['3514694513'] as never as typeof item;
+  const base: Tooltip = { hash: tang.hash, text: {}, associated: [] };
+  await act(async () => root.render(<AttachmentCategoryControl base={base} item={tang} />));
+  expect(buttons().map((b) => b.title)).toEqual([
+    'No tooltip: listed under its exotic weapon',
+    'Needs tooltip: listed under its exotic weapon',
+  ]);
 });

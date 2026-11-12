@@ -219,6 +219,9 @@
 }
 
 .preview {
+  &[data-inactive] {
+    visibility: hidden;
+  }
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
@@ -231,6 +234,8 @@
 }
 
 .previewText {
+  width: 8rem;
+  font-variant-numeric: tabular-nums;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

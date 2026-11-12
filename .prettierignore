@@ -6,3 +6,4 @@ package-lock.json
 .agents/
 .github/workflows/worker.yml
 **/.wrangler/**
+scripts/mult-write/evidence/

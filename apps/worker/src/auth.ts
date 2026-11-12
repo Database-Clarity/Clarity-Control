@@ -9,8 +9,13 @@ const expiry = z
   .refine((value) => value > Math.floor(Date.now() / 1000));
 const identitySchema = z.object({ id: z.number().int().positive(), login: z.string().min(1) });
 const sessionSchema = identitySchema.extend({ purpose: z.literal('session'), exp: expiry });
+const clientSchema = z
+  .string()
+  .length(36)
+  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 const stateSchema = z.object({
   purpose: z.literal('oauth'),
+  client: clientSchema.optional(),
   exp: expiry,
   nonce: z.string().min(1),
   /** Allow-listed site origin that started sign-in; absent = the primary `SITE_URL` (legacy state). */
@@ -52,13 +57,21 @@ function stateCookie(env: Env, value: string, maxAge: number): string {
 }
 
 export async function login(request: Request, env: Env): Promise<Response> {
-  const requested = new URL(request.url).searchParams.get('site');
+  const parameters = new URL(request.url).searchParams;
+  const requested = parameters.get('site');
+  const client = parameters.get('client');
+  if (
+    parameters.getAll('client').length > 1 ||
+    (client !== null && !clientSchema.safeParse(client).success)
+  )
+    throw new HttpError(400, 'Invalid sign-in client nonce');
   // No `site` (or the primary origin) keeps today's state and return target exactly.
   if (requested !== null && !siteOrigins(env).includes(requested))
     throw new HttpError(400, 'Sign-in return site is not allowed');
   const state = await signToken(
     {
       purpose: 'oauth',
+      ...(client !== null ? { client } : {}),
       exp: Math.floor(Date.now() / 1000) + 600,
       nonce: base64url(crypto.getRandomValues(new Uint8Array(24))),
       ...(requested !== null && requested !== env.SITE_ORIGIN ? { site: requested } : {}),
@@ -73,6 +86,7 @@ export async function login(request: Request, env: Env): Promise<Response> {
     status: 302,
     headers: {
       Location: url.href,
+      ...(client !== null ? { 'Referrer-Policy': 'no-referrer' } : {}),
       'Set-Cookie': stateCookie(env, state, 600),
       'Cache-Control': 'no-store',
     },
@@ -138,7 +152,7 @@ export async function callback(request: Request, env: Env): Promise<Response> {
   );
   if (destination.origin !== (claims.site ?? env.SITE_ORIGIN))
     throw new Error('SITE_URL must use SITE_ORIGIN');
-  destination.hash = `/auth/callback?session=${encodeURIComponent(session)}`;
+  destination.hash = `/auth/callback?session=${encodeURIComponent(session)}${claims.client === undefined ? '' : `&client=${encodeURIComponent(claims.client)}`}`;
   return new Response(null, {
     status: 302,
     headers: {
