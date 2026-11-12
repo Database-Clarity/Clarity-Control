@@ -82,3 +82,31 @@
 .error {
   color: var(--danger);
 }
+
+.buckets {
+  margin-top: 0.75rem;
+  color: var(--editor-text2, inherit);
+}
+.buckets p {
+  margin-bottom: 0;
+}
+.buckets ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+@media (max-width: 480px) {
+  .actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .actions button,
+  .actions a,
+  .file {
+    min-width: 0;
+    max-width: 100%;
+    white-space: normal;
+    justify-content: center;
+    text-align: center;
+  }
+}
