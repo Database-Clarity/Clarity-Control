@@ -94,7 +94,9 @@ export const ReadingTooltip = memo(function ReadingTooltip({
     typeof (HTMLElement.prototype as { showPopover?: unknown }).showPopover === 'function';
   return (
     <div
-      className={[styles.snippet, nativePopovers ? styles.reading : ''].filter(Boolean).join(' ')}
+      className={[styles.snippet, styles.reading, nativePopovers ? styles.containedReading : '']
+        .filter(Boolean)
+        .join(' ')}
       lang={markupLanguage(lang)}
     >
       <Lines lines={parsed.lines} />

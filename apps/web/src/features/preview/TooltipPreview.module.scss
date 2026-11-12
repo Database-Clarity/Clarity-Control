@@ -114,8 +114,12 @@ $name-floor: $name-size * 0.75;
     sans-serif;
   overflow-wrap: anywhere;
 }
-// Native top-layer popovers keep term definitions outside this layout boundary.
 .reading {
+  font-size: 0.875rem;
+  margin-block: 0.5rem;
+}
+// Native top-layer popovers keep term definitions outside this layout boundary.
+.containedReading {
   contain: layout style;
 }
 .associated {
