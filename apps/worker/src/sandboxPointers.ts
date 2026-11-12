@@ -134,7 +134,8 @@ export async function sandboxPointersRoute(
     const problems: string[] = [];
     for (const [hash, pick] of Object.entries(input.picks)) {
       const kept = current.pointers[hash];
-      const changed = !kept || ('to' in pick ? !('to' in kept) || kept.to !== pick.to : 'to' in kept);
+      const changed =
+        !kept || ('to' in pick ? !('to' in kept) || kept.to !== pick.to : 'to' in kept);
       // An unchanged pick stays valid as stored (owner: a pick keeps working after its set changes).
       if (!changed) continue;
       if (!Object.hasOwn(conflicts, hash)) {
@@ -153,9 +154,9 @@ export async function sandboxPointersRoute(
       const kept = current.pointers[hash];
       return 'to' in pick && !(kept && 'to' in kept && kept.to === pick.to);
     });
-    const targets = [
-      ...new Set(changedTo.map(([, pick]) => ('to' in pick ? pick.to : 0))),
-    ].filter((hash) => !checkedTargets.has(hash));
+    const targets = [...new Set(changedTo.map(([, pick]) => ('to' in pick ? pick.to : 0)))].filter(
+      (hash) => !checkedTargets.has(hash),
+    );
     const ownHashes = changedTo.map(([hash]) => hash);
     if (targets.length || ownHashes.length) {
       const files = await github.files(

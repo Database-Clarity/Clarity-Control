@@ -120,7 +120,11 @@ export class Publisher {
     const raw = this.read<unknown>(tree, sandboxPointersPath);
     if (raw === undefined) return this.options.aliases;
     const pointers = sandboxPointersSchema.parse(raw);
-    return mergeSandboxPointers(this.options.aliases, this.options.sandboxConflicts ?? {}, pointers);
+    return mergeSandboxPointers(
+      this.options.aliases,
+      this.options.sandboxConflicts ?? {},
+      pointers,
+    );
   }
   /** Check direct association targets at the drain snapshot, without walking their drafts. */
   checkAssociatedDescriptions(

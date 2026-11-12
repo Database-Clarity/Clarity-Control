@@ -157,8 +157,7 @@ describe('sandbox picks route', () => {
 });
 
 describe('picks in the live export', () => {
-  const pushTooltip = async (hashes: number[]) =>
-    fixture.request('/push-live', 'POST', { hashes });
+  const pushTooltip = async (hashes: number[]) => fixture.request('/push-live', 'POST', { hashes });
 
   it('writes a sandbox stub for a pick, none for "no tooltip", and digests with the merge', async () => {
     await put({ 700: { to: 123 }, 701: { none: true } });

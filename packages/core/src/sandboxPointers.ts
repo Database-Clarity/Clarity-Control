@@ -71,7 +71,8 @@ export function sandboxPointerProblem(
   to: number,
   aliases: Aliases,
   conflicts: SandboxConflicts,
-  pointers: SandboxPointers['pointers'],
+  /** Every pick (stored or staged) by sandbox hash; only the keys are read. */
+  pointers: Readonly<Record<string, unknown>>,
 ): string | null {
   if (!Object.hasOwn(conflicts, hash)) return 'is no longer a shared sandbox perk';
   if (Object.hasOwn(aliases, hash)) return 'already has a generator tooltip pointer';

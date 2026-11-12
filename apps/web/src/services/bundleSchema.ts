@@ -1,4 +1,9 @@
-import { permissionsSchema, pushedSchema, sandboxPointersSchema, tooltipSchema } from '@clarity/core';
+import {
+  permissionsSchema,
+  pushedSchema,
+  sandboxPointersSchema,
+  tooltipSchema,
+} from '@clarity/core';
 import { z } from 'zod';
 
 export const bundleSchema = z.object({
