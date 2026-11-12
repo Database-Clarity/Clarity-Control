@@ -227,18 +227,22 @@ export function LoadingSkeleton({
     <div ref={element} aria-busy="true">
       <SkeletonStatus>{label}</SkeletonStatus>
       {visible && (
-        <SkeletonRegion>
+        <SkeletonRegion
+          style={shape === 'page' ? ({ '--gap-y': '0.375rem' } as CSSProperties) : undefined}
+        >
           {shape === 'page' && (
             <>
               <SkeletonLine width={30} />
               <SkeletonBlock height="8rem" />
+              <SkeletonBlock height="8rem" />
+              <SkeletonLine width={42} />
             </>
           )}
           {shape === 'text' ? (
             widths.map((width, index) => <SkeletonLine key={index} width={width} />)
-          ) : (
-            <SkeletonRows count={count} columns={shape === 'page' ? [30, 70] : [65, 35]} />
-          )}
+          ) : shape === 'rows' ? (
+            <SkeletonRows count={Math.max(1, count)} columns={[60, 25, 15]} />
+          ) : null}
         </SkeletonRegion>
       )}
     </div>
