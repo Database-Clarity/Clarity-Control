@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { EditorData } from '../../stores/data';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { TooltipPreview } from '../preview/TooltipPreview';
-import { editorName, exoticPiece, listName, navigationGroups } from './catalog';
+import { editorName, exoticPiece, listName, navigationGroups, sharesAllOwners } from './catalog';
 import { presentCategories } from '../../services/categoryLabels';
 import { TooltipNavigation } from './TooltipNavigation';
 import { exoticArmourRowIcon } from './groupIcons';
@@ -176,6 +176,16 @@ describe('exotic class items', () => {
         .find((entry) => entry.id === 'armor-trait-exotic')!
         .items.some((entry) => entry.hash === 30),
     ).toBe(false);
+  });
+
+  it('drops the per-row shared mark only where every entry has the same owners', () => {
+    const other = { ...spirit, hash: 31, name: 'Spirit of the Star-Eater' };
+    expect(sharesAllOwners([spirit, other] as never)).toBe(true);
+    expect(sharesAllOwners([spirit, { ...other, owners: [266021826, 2273643087] }] as never)).toBe(
+      false,
+    );
+    expect(sharesAllOwners([spirit] as never)).toBe(false);
+    expect(sharesAllOwners([data.items[101], data.items[102]])).toBe(false);
   });
 
   it('keeps the perk name and the perk icon', () => {
