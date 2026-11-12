@@ -8,6 +8,7 @@ import type { EditorData } from '../../stores/data';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { TooltipPreview } from '../preview/TooltipPreview';
 import { editorName, exoticPiece, listName, navigationGroups } from './catalog';
+import { presentCategories } from '../../services/categoryLabels';
 import { TooltipNavigation } from './TooltipNavigation';
 import { exoticArmourRowIcon } from './groupIcons';
 import armourIcons from './exotic-armor-icons.json';
@@ -131,6 +132,55 @@ describe('exotic armour row icons', () => {
       ownerNames: { 11: 'Unlisted Piece', 12: 'Unlisted Piece' },
     });
     expect(exoticArmourRowIcon(missing as never)).toBe('');
+  });
+});
+
+describe('exotic class items', () => {
+  // Generator shape (v2 f9a3a36): every class item perk is on all three class items.
+  const spirit = {
+    ...perk(30, 'Spirit of the Swarm', {
+      icon: '/common/destiny2_content/icons/spirit-30.png',
+      owners: [266021826, 2273643087, 2809120022],
+      ownerNames: { 266021826: 'Stoicism', 2273643087: 'Solipsism', 2809120022: 'Relativism' },
+    }),
+    categoryId: 'armor-trait-exotic-class-item',
+  };
+  const withClassItems = {
+    ...data,
+    categories: presentCategories([
+      ...data.categories,
+      {
+        id: 'armor-trait-exotic-class-item',
+        label: 'Exotic Class Item Perks',
+        group: 'Armor',
+        order: 11,
+      },
+    ]),
+    items: { ...data.items, 30: spirit },
+  } as unknown as EditorData;
+  const sections = () => navigationGroups(withClassItems, '').flatMap((group) => group.sections);
+
+  it('lists every class item perk in its own category, after Exotic Armor', () => {
+    const ids = sections().map((section) => section.id);
+    expect(ids.indexOf('armor-trait-exotic-class-item')).toBe(
+      ids.indexOf('armor-trait-exotic') + 1,
+    );
+    const section = sections().find((entry) => entry.id === 'armor-trait-exotic-class-item')!;
+    expect(section.label).toBe('Exotic Class Items');
+    expect(section.grouping).toBeUndefined();
+    expect(section.items.map((entry) => [entry.hash, entry.name])).toEqual([
+      [30, 'Spirit of the Swarm'],
+    ]);
+    expect(
+      sections()
+        .find((entry) => entry.id === 'armor-trait-exotic')!
+        .items.some((entry) => entry.hash === 30),
+    ).toBe(false);
+  });
+
+  it('keeps the perk name and the perk icon', () => {
+    expect(editorName(spirit as never)).toBe('Spirit of the Swarm');
+    expect(exoticArmourRowIcon(spirit as never)).toBeUndefined();
   });
 });
 

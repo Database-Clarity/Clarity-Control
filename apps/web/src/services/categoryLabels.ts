@@ -95,6 +95,13 @@ export const categorySpecs: Readonly<Record<string, CategorySpec>> = {
   'attachment-effect': spec('Weapons', 155, 'Parts with Effects', 'Attachment Effects'),
 
   'armor-trait-exotic': spec('Armor', 200, 'Exotic Armor', 'Armor Trait Exotic'),
+  // The generator's own category (perks of the three exotic class items, each on all three).
+  'armor-trait-exotic-class-item': spec(
+    'Armor',
+    201,
+    'Exotic Class Items',
+    'Exotic Class Item Perks',
+  ),
   'armor-mod-general': spec('Armor', 220, 'Armor Mods', 'Armor Mod General'),
   // Editor-derived (see itemClassification): armour mods that only change armour stats.
   'armor-mod-stat': spec('Armor', 221, 'Stat-only Armor Mods', 'Armor Stat Mods'),
