@@ -14,6 +14,8 @@ import {
 } from 'react';
 import type { User } from '../../../services/api';
 import { errorMessage } from '../../../services/http';
+import { exactDate } from '../../../services/format/date';
+import { useSyncedSettings } from '../../../stores/settings';
 import { Dialog } from '../../../ui/Dialog';
 import { Popover } from '../../../ui/Popover';
 import { RightPane, RightPaneHeader } from '../../../ui/RightPane';
@@ -657,6 +659,7 @@ function ReportRow({
   numberOf(n: number): number | undefined;
   onSelect(): void;
 }) {
+  const settings = useSyncedSettings();
   const variant =
     report.variant === 'base' ? null : report.variant === 'enhanced' ? 'Enhanced' : 'Override';
   const source = safeLink(report.source_url);
@@ -687,7 +690,7 @@ function ReportRow({
           <span className={styles.meta}>seen in {languageLabel(report.seen_lang as Lang)}</span>
         )}
         <span className={styles.right}>
-          <span className={styles.meta} title={new Date(report.created_at * 1000).toLocaleString()}>
+          <span className={styles.meta} title={exactDate(report.created_at * 1000, settings)}>
             {age(report.created_at)}
           </span>
           <Trust report={report} />

@@ -101,6 +101,7 @@ export async function fetchReportsIndex(
   { unchanged: true } | { unchanged: false; etag: string | undefined; index: ReportsIndex }
 > {
   const response = await apiRequest('/reports/index', {
+    method: 'GET',
     cache: 'no-store',
     headers: etag ? { 'If-None-Match': etag } : undefined,
   });
