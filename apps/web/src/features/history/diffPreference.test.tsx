@@ -32,14 +32,14 @@ it('defaults to rendered, synchronizes switches, and remembers Raw across remoun
     );
     expect(host.querySelector('pre')).toBeNull();
     expect(host.querySelector('del')?.textContent).toBe('Old');
-    const switches = host.querySelectorAll<HTMLInputElement>('[role="switch"]');
-    expect(switches[0].checked).toBe(false);
+    const switches = host.querySelectorAll<HTMLButtonElement>('[role="switch"]');
+    expect(switches[0].getAttribute('aria-checked')).toBe('false');
     await act(async () => switches[0].click());
-    expect(switches[1].checked).toBe(true);
+    expect(switches[1].getAttribute('aria-checked')).toBe('true');
     expect(host.querySelector('pre')?.textContent).toBe('<pve Old />');
     await act(async () => root.render(null));
     await act(async () => root.render(diff));
-    expect(host.querySelector<HTMLInputElement>('[role="switch"]')?.checked).toBe(true);
+    expect(host.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('true');
     await act(async () => host.querySelector<HTMLInputElement>('[role="switch"]')!.click());
     expect(host.querySelector('pre')).toBeNull();
     expect(host.querySelector('ins')?.textContent).toBe('New');
@@ -51,7 +51,7 @@ it('defaults to rendered, synchronizes switches, and remembers Raw across remoun
       clear: () => {},
     });
     await act(async () => host.querySelector<HTMLInputElement>('[role="switch"]')!.click());
-    expect(host.querySelector<HTMLInputElement>('[role="switch"]')?.checked).toBe(true);
+    expect(host.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('true');
     expect(host.querySelector('pre')?.textContent).toBe('<pve Old />');
     await act(async () => host.querySelector<HTMLInputElement>('[role="switch"]')!.click());
   } finally {

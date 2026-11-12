@@ -7,7 +7,7 @@ import { previewDrafts } from '../conflicts/previewDrafts';
 import { classNames, PreviewSpan } from '../preview/MarkupRenderer';
 import preview from '../preview/TooltipPreview.module.scss';
 import styles from './RenderedWordDiff.module.scss';
-import { changedSourceLines, type DiffSpan } from './renderedDiff';
+import { sourceOnlyChangeLabel, type DiffSpan } from './renderedDiff';
 import { useRenderedDiff } from './useRenderedDiff';
 
 function Parts({ parts }: { parts: MarkupSpan[] }) {
@@ -75,11 +75,15 @@ export function RenderedWordDiff({
   after,
   lang,
   hash,
+  working = false,
+  responsive = false,
 }: {
   before: string;
   after: string;
   lang: Lang;
   hash: number;
+  working?: boolean;
+  responsive?: boolean;
 }) {
   const data = useDataStore((state) => state.data);
   // Read when the comparison receives a source snapshot; do not subscribe this
@@ -102,23 +106,49 @@ export function RenderedWordDiff({
     };
   }, [lang, hash, data, drafts]);
   const { result, busy } = useRenderedDiff(before, after, globals);
+  const sourceOnly = useMemo(
+    () =>
+      before !== after &&
+      !busy &&
+      ![...result.before, ...result.after].some((line) =>
+        [
+          ...(line.linesContent ?? []),
+          ...(line.table?.flatMap(
+            (row) => row.rowContent?.flatMap((cell) => cell.cellContent) ?? [],
+          ) ?? []),
+        ].some((part) => !!(part as DiffSpan).diffKind),
+      ),
+    [before, after, busy, result],
+  );
+  const side = (text: string, lines: MarkupLine[]) =>
+    text && lines.length ? (
+      <Body lines={lines} lang={lang} />
+    ) : (
+      <div className={`${preview.snippet} ${styles.body}`}>
+        <span className={styles.missing}>{text ? '(no rendered text)' : '(not present)'}</span>
+      </div>
+    );
   return (
-    <div className={styles.diff} aria-busy={busy || undefined}>
-      {before !== after && (
-        <p className={styles.sourceChange} data-source-change>
-          {changedSourceLines(before, after)}
-        </p>
-      )}
+    <div
+      className={`${styles.diff} ${responsive ? styles.responsive : ''}`}
+      aria-busy={busy || undefined}
+      data-one-sided={!before || !after || undefined}
+    >
       <div className={styles.sides}>
         <div>
-          <strong>Previous / live</strong>
-          <Body lines={result.before} lang={lang} />
+          <strong>{working ? 'Saved' : 'Previous / live'}</strong>
+          {side(before, result.before)}
         </div>
         <div>
-          <strong>Current</strong>
-          <Body lines={result.after} lang={lang} />
+          <strong>{working ? 'Unsaved' : 'Current'}</strong>
+          {side(after, result.after)}
         </div>
       </div>
+      {sourceOnly && (
+        <p className={styles.sourceChange} data-source-change>
+          {sourceOnlyChangeLabel(before, after)}
+        </p>
+      )}
     </div>
   );
 }

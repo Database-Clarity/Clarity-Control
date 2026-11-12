@@ -8,6 +8,48 @@ import { editorData, english } from '../../services/save/fixtures.testSupport';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 
+it.each([
+  ['Same\nvar unused = 1', 'Same\nvar unused = 2', 'variable'],
+  ['Same', 'Same\nvar unused = 1', 'variable'],
+  ['Same\n// Old comment', 'Same\n// New comment', 'comment'],
+  [
+    'Same\nenhanced (\nvar d = 1\nExtra\n)',
+    'Same\nenhanced (\nvar d = 2\nExtra\n)',
+    'enhanced block',
+  ],
+])(
+  'locates a markup-only %s change without a generic note on ordinary diffs',
+  async (before, after, kind) => {
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+    const host = document.createElement('div'),
+      root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(<RenderedWordDiff before={before} after={after} lang="en" hash={10} />),
+      );
+      const marker = host.querySelector('[data-source-change]');
+      expect(marker?.textContent).toContain(`Markup-only change · ${kind}`);
+      expect(marker?.textContent).toContain(kind === 'enhanced block' ? 'line 3' : 'line 2');
+      expect(host.querySelector('ins, del')).toBeNull();
+      await act(async () =>
+        root.render(<RenderedWordDiff before="Old" after="New" lang="en" hash={10} />),
+      );
+      expect(host.querySelector('[data-source-change]')).toBeNull();
+      await act(async () =>
+        root.render(<RenderedWordDiff before="" after="New" lang="en" hash={10} working />),
+      );
+      expect(host.textContent).toContain('(not present)');
+      expect([...host.querySelectorAll('strong')].map((x) => x.textContent)).toEqual([
+        'Saved',
+        'Unsaved',
+      ]);
+      expect(host.querySelector('[data-source-change]')).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  },
+);
+
 it('renders long content immediately, ignores obsolete worker replies, and retains content on failure', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   const requests: { id: number; before: string; after: string }[] = [];

@@ -117,6 +117,11 @@ describe('working diff (changes since the last save)', () => {
     expect(diffWords).not.toHaveBeenCalled();
 
     act(() => changes().click());
+    const raw = panel()?.querySelector('[aria-label="Raw diff"]');
+    expect(raw).not.toBeNull();
+    expect(raw?.closest('[data-overlay-scroll]')).toBeNull();
+    expect(panel()?.textContent).toContain('Saved');
+    expect(panel()?.textContent).toContain('Unsaved');
     expect(panel()?.querySelector('ins')?.textContent).toBe(' One. Two. Three.');
     const opened = diffWords.mock.calls.length;
     expect(opened).toBeGreaterThan(0);

@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { TooltipDiff } from '../history/TooltipDiff';
+import { RawDiffToggle } from '../history/RawDiffToggle';
+import { useRawDiff } from '../history/diffPreference';
 import { Overlay } from './StatusBar';
 import { hasWorkingChanges, inView, type WorkingDiffSource } from './workingDiff';
 import styles from './WorkingDiffPanel.module.scss';
@@ -35,6 +37,8 @@ export function WorkingDiffPanel({
   onClose(): void;
 }) {
   const { saved, current } = source;
+  const [sourceView] = useRawDiff();
+  const openedRaw = useRef(sourceView);
   const [shown, setShown] = useState(source);
   const stale = shown.saved !== saved || shown.current !== current;
   const latest = useRef(source);
@@ -57,11 +61,15 @@ export function WorkingDiffPanel({
   // view never scrolls by itself while you type. A large text is compared in a worker, so wait
   // for that result (aria-busy) before looking for the change.
   useLayoutEffect(() => {
+    // Rendered comparisons open with both side headings visible. Raw keeps the
+    // existing first-change reveal; its source columns are a separate view.
+    if (!openedRaw.current) return;
     const element = body.current;
     const scroller = element?.closest<HTMLElement>('[data-overlay-scroll]');
     if (!element || !scroller) return;
     const reveal = () => {
-      const mark = element.querySelector('ins, del') ?? element.querySelector('[data-source-change]');
+      const mark =
+        element.querySelector('ins, del') ?? element.querySelector('[data-source-change]');
       if (!mark) return;
       const top = mark.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
       if (top > scroller.clientHeight * 0.6) scroller.scrollTop += top - scroller.clientHeight / 3;
@@ -84,6 +92,8 @@ export function WorkingDiffPanel({
           current={inView(shown.current, lang)}
           item={shown.item}
           raw={false}
+          working
+          responsive
         />
       ) : (
         <p className={styles.none}>No changes since the last save.</p>
@@ -95,9 +105,12 @@ export function WorkingDiffPanel({
       id="editor-panel-diff"
       label="Changes since the last save"
       heading={
-        <>
-          Unsaved changes <span aria-hidden="true">·</span> {languageLabel(lang)}
-        </>
+        <span className={styles.heading}>
+          <span className={styles.caption}>
+            Unsaved changes <span aria-hidden="true">·</span> {languageLabel(lang)}
+          </span>
+          <RawDiffToggle />
+        </span>
       }
       onClose={onClose}
     >

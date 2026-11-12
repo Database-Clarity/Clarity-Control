@@ -5,6 +5,46 @@ export interface DiffSpan extends MarkupSpan {
   diffKind?: 'insert' | 'delete';
 }
 
+/** A distinct, located marker for edits that the active renderer cannot show. */
+export function sourceOnlyChangeLabel(before: string, after: string): string {
+  const a = before ? before.split('\n') : [],
+    b = after ? after.split('\n') : [];
+  let start = 0,
+    endA = a.length,
+    endB = b.length;
+  while (start < endA && start < endB && a[start] === b[start]) start++;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+    endA--;
+    endB--;
+  }
+  const context = (lines: string[], end: number) => {
+    let enhanced = false;
+    for (const line of lines.slice(0, end)) {
+      if (/^\s*enhanced\s*\(/.test(line)) enhanced = true;
+      else if (/^\s*\)\s*$/.test(line)) enhanced = false;
+    }
+    return enhanced;
+  };
+  const changed = [...a.slice(start, endA), ...b.slice(start, endB)].join('\n');
+  const kind =
+    context(a, start + 1) || context(b, start + 1) || /^\s*enhanced\s*\(/m.test(changed)
+      ? 'enhanced block'
+      : /^\s*var\s/m.test(changed)
+        ? 'variable'
+        : /^\s*(\/\/|\/\*)/m.test(changed)
+          ? 'comment'
+          : 'source';
+  const range = (lines: string[], end: number) =>
+    !lines.length
+      ? 'not present'
+      : end <= start
+        ? `after line ${start}`
+        : end === start + 1
+          ? `line ${end}`
+          : `lines ${start + 1}–${end}`;
+  return `Markup-only change · ${kind} · previous ${range(a, endA)}; current ${range(b, endB)}. Rendered output is unchanged; use Raw to inspect.`;
+}
+
 /** Source ranges remain visible even when comments, variables, or equivalent tags render alike. */
 export function changedSourceLines(before: string, after: string): string | undefined {
   if (before === after) return;
