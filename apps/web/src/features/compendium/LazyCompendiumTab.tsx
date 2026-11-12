@@ -1,4 +1,5 @@
-import { Component, Suspense, lazy, useState, type ComponentType, type ReactNode } from 'react';
+import { SkeletonSuspense } from '../../ui/Skeleton';
+import { Component, lazy, useState, type ComponentType, type ReactNode } from 'react';
 
 const loadPage = () =>
   import('./CompendiumTab').then((module) => ({ default: module.CompendiumTab }));
@@ -38,9 +39,9 @@ export function LazyCompendiumTab({
         setAttempt((value) => value + 1);
       }}
     >
-      <Suspense fallback={<p role="status">Loading the Compendium tab…</p>}>
+      <SkeletonSuspense label="Loading the Compendium tab…">
         <Page />
-      </Suspense>
+      </SkeletonSuspense>
     </LoadBoundary>
   );
 }

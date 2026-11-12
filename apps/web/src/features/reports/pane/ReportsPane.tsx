@@ -1,3 +1,4 @@
+import { LoadingSkeleton, useSkeletonVisible } from '../../../ui/Skeleton';
 import { displayRevision, displayText, type Lang, type MarkupGlobals } from '@clarity/core';
 import {
   createContext,
@@ -424,6 +425,7 @@ function ReportsBody({
   const listId = useId();
   const maintainer = user.role === 'maintainer';
   const loadingFirst = wanted && !reports && !entry?.error;
+  const reportsSkeleton = useSkeletonVisible(loadingFirst && settled, `${hash}:${lang}`, true);
   return (
     <DisplayContext.Provider value={display ? { displays: display, base: hash } : null}>
       <div className={styles.body}>
@@ -450,10 +452,13 @@ function ReportsBody({
         {indexFailed && count === null && !reports && (
           <p className={styles.muted}>Report counts are unavailable right now.</p>
         )}
-        {loadingFirst && settled && (
-          <p className={styles.muted} role="status">
-            Loading reports…
-          </p>
+        {!entry?.error && ((loadingFirst && settled) || reportsSkeleton) && (
+          <LoadingSkeleton
+            label="Loading reports…"
+            shape="rows"
+            count={count ?? 3}
+            visible={reportsSkeleton}
+          />
         )}
         {!settled && !reports && count !== null && count > 0 && (
           <p className={styles.empty}>
@@ -471,7 +476,10 @@ function ReportsBody({
           aria-activedescendant={selected ? `${listId}-${selected.id}` : undefined}
           tabIndex={shown.length ? 0 : -1}
           onKeyDown={onListKey}
-          hidden={!shown.length}
+          hidden={!shown.length || (!entry?.error && (loadingFirst || reportsSkeleton))}
+          style={
+            !entry?.error && (loadingFirst || reportsSkeleton) ? { display: 'none' } : undefined
+          }
         >
           {shown.map((report, index) => (
             <ReportRow

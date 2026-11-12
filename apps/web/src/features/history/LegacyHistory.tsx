@@ -1,3 +1,4 @@
+import { SkeletonBoundary } from '../../ui/Skeleton';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Tooltip } from '@clarity/core';
 import {
@@ -92,35 +93,41 @@ export function LegacyHistorySection({
     <section aria-label="Published before migration" className={styles.historySection}>
       <h4>Published before migration</h4>
       {notice && <p role="status">{notice}</p>}
-      {error ? (
-        <p>
-          Published history is unavailable offline or could not be loaded.{' '}
-          <button
-            type="button"
-            onClick={() => {
-              intent.current = true;
-              setAttempt((n) => n + 1);
-            }}
-          >
-            Retry published history
-          </button>
-        </p>
-      ) : history === undefined ? (
-        <p role="status">Loading published history...</p>
-      ) : history === null ? (
-        <p>No published history available for this tooltip.</p>
-      ) : (
-        history.lanes.map((lane) => (
-          <Lane
-            key={`${hash}-${lane.sourceHash}`}
-            lane={lane}
-            current={current}
-            canRestore={canRestore && lane.verified}
-            translator={translator}
-            onRestore={onRestore}
-          />
-        ))
-      )}
+      <SkeletonBoundary
+        pending={history === undefined}
+        error={!!error}
+        identity={hash}
+        label="Loading published history..."
+        shape="rows"
+      >
+        {error ? (
+          <p>
+            Published history is unavailable offline or could not be loaded.{' '}
+            <button
+              type="button"
+              onClick={() => {
+                intent.current = true;
+                setAttempt((n) => n + 1);
+              }}
+            >
+              Retry published history
+            </button>
+          </p>
+        ) : history == null ? (
+          <p>No published history available for this tooltip.</p>
+        ) : (
+          history.lanes.map((lane) => (
+            <Lane
+              key={`${hash}-${lane.sourceHash}`}
+              lane={lane}
+              current={current}
+              canRestore={canRestore && lane.verified}
+              translator={translator}
+              onRestore={onRestore}
+            />
+          ))
+        )}
+      </SkeletonBoundary>
     </section>
   );
 }

@@ -85,6 +85,7 @@ async function waitForReview() {
     expect(host.textContent).not.toContain('Comparing publishable content...');
     expect(host.querySelector('article[aria-busy=true]')).toBeNull();
     expect(button('Refresh')).toBeDefined();
+    expect(host.textContent).not.toContain('Loading saved changes…');
   });
 }
 async function waitForPush() {
@@ -309,9 +310,11 @@ it('keeps main controls usable while the sidebar links warm', async () => {
     expect(host.querySelector('fieldset')).toBeNull();
     expect(host.textContent).toContain('Loading sidebar…');
     await act(async () =>
-      host.querySelector<HTMLInputElement>(
-        'section[aria-label="Selected change"] input[type=checkbox]:not([role=switch])',
-      )!.click(),
+      host
+        .querySelector<HTMLInputElement>(
+          'section[aria-label="Selected change"] input[type=checkbox]:not([role=switch])',
+        )!
+        .click(),
     );
     expect(host.textContent).toContain('1 selected');
     await act(async () =>
@@ -538,7 +541,7 @@ it('discards older same-item search responses, and aborts the comparison on unmo
     await act(async () => requests[1].resolve('Older search comparison'));
     await act(async () => requests[0].resolve('Original comparison'));
     const detail = host.querySelector('[aria-label="Selected change"]')!;
-    expect(detail.textContent).toContain('Current search comparison');
+    await waitFor(() => expect(detail.textContent).toContain('Current search comparison'));
     expect(detail.textContent).not.toContain('Older search comparison');
     expect(detail.textContent).not.toContain('Original comparison');
     await act(async () => router.navigate('/review?hash=20'));

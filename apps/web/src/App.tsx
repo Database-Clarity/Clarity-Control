@@ -1,3 +1,4 @@
+import { LoadingSkeleton, useSkeletonVisible } from './ui/Skeleton';
 import { Navigate, useLocation, useRoutes, type RouteObject } from 'react-router-dom';
 import { LazyCompendiumTab } from './features/compendium/LazyCompendiumTab';
 import { useDataStore } from './stores/data';
@@ -166,7 +167,11 @@ function RetiredCompendiumRoute() {
 function StartPage() {
   const data = useDataStore((state) => state.data);
   const { user, loading } = useAuthStore();
-  if (loading) return <p role="status">Loading your workspace...</p>;
+  const loadingSkeleton = useSkeletonVisible(loading, 'Loading your workspace...', true);
+  if (loading || loadingSkeleton)
+    return (
+      <LoadingSkeleton label="Loading your workspace..." shape="page" visible={loadingSkeleton} />
+    );
   if (user?.role === 'translator') return <Navigate to="/translations" replace />;
   // Export partners land on their project (spec section 8).
   if (!user?.role && user?.projects?.length) return <Navigate to="/exports" replace />;

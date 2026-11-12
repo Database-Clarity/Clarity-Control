@@ -1,3 +1,4 @@
+import { LoadingSkeleton, useSkeletonVisible } from '../../ui/Skeleton';
 // A project page (spec section 8): header row (name, file tabs, Save, build status, copy URL),
 // config on the left and the preview on the right; one column with Config | Preview tabs on
 // phones and at 768. The URL holds the file tab (`file`), the preview pick (`pick`), and the
@@ -272,6 +273,7 @@ function ProjectView({ id, scope }: { id: string; scope: string }) {
     void finishSave(startSave(scope, id, state));
   };
 
+  const loadingSkeleton = useSkeletonVisible(!state, 'Loading project…', true);
   if (loaded.kind === 'error' && !state)
     return (
       <section className={styles.listPage}>
@@ -291,7 +293,8 @@ function ProjectView({ id, scope }: { id: string; scope: string }) {
         <Link to="/exports">All projects</Link>
       </section>
     );
-  if (!state) return <p role="status">Loading project…</p>;
+  if (!state || loadingSkeleton)
+    return <LoadingSkeleton label="Loading project…" shape="page" visible={loadingSkeleton} />;
 
   const cooling = save.kind === 'cooldown' ? Math.max(0, Math.ceil((save.until - now) / 1000)) : 0;
   const path = file ? `${id}/v${file.formatVersion}/${file.id}.json` : null;

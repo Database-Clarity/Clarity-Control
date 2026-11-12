@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
-import { act, createElement } from 'react';
+import { act, createElement, lazy } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  SkeletonBoundary,
+  SkeletonSuspense,
   SkeletonLine,
   SkeletonRegion,
   SkeletonRows,
@@ -168,4 +170,57 @@ it('bounds table rows to the cached viewport capacity and hides all bars from ac
   );
   expect(host.firstElementChild?.getAttribute('aria-hidden')).toBe('true');
   expect(host.firstElementChild?.children).toHaveLength(4);
+});
+
+it('removes old content immediately, skips fast-load shimmer, and exposes errors immediately', async () => {
+  const render = (pending: boolean, identity: number, error = false) =>
+    act(async () =>
+      root.render(
+        createElement(
+          SkeletonBoundary,
+          { pending, identity, error, label: 'Loading item' },
+          createElement('p', null, error ? 'Failed' : `Item ${identity}`),
+        ),
+      ),
+    );
+  await render(false, 1);
+  expect(host.textContent).toBe('Item 1');
+  await render(true, 2);
+  expect(host.textContent).not.toContain('Item 1');
+  expect(host.querySelector('[aria-hidden]')).toBeNull();
+  await frame();
+  await render(false, 2);
+  expect(host.textContent).toBe('Item 2');
+  await render(true, 3);
+  await frame();
+  await frame();
+  expect(host.querySelector('[aria-hidden]')).not.toBeNull();
+  await render(false, 3, true);
+  expect(host.textContent).toBe('Failed');
+});
+
+it('keeps resolved children behind the shown skeleton until its minimum elapses', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+  try {
+    let resolve!: (value: { default: () => React.ReactElement }) => void;
+    const Page = lazy(
+      () =>
+        new Promise<{ default: () => React.ReactElement }>((done) => {
+          resolve = done;
+        }),
+    );
+    await act(async () =>
+      root.render(createElement(SkeletonSuspense, { label: 'Loading page', children: createElement(Page) })),
+    );
+    await frame();
+    await frame();
+    await act(async () => resolve({ default: () => createElement('p', null, 'Ready') }));
+    expect(host.querySelector('[hidden]')?.textContent).toBe('Ready');
+    expect(host.querySelector('[aria-hidden]')).not.toBeNull();
+    await act(async () => vi.advanceTimersByTime(skeletonMinimumMs));
+    expect(host.querySelector('[hidden]')).toBeNull();
+    expect(host.textContent).toBe('Ready');
+  } finally {
+    vi.useRealTimers();
+  }
 });

@@ -1,3 +1,4 @@
+import { SkeletonBoundary } from '../../ui/Skeleton';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { apiUrl } from '../../services/api';
@@ -424,108 +425,117 @@ export function ReviewPage() {
         {pushError && <p role="alert">{pushError}</p>}
         {notice && <p role="status">{notice}</p>}
         {publisher && canPush(user) && <PublishActivity queue={data?.bundle.publishQueue} />}
-        {loading ? (
-          <p role="status">Comparing publishable content...</p>
-        ) : !entries.length ? (
-          <p className={styles.note}>No saved changes are waiting to go live.</p>
-        ) : !current && !view.contentCount && view.markerCount ? (
-          <p className={styles.note}>
-            {changeCount
-              ? 'No changes made by a person match these filters.'
-              : 'No changes made by a person are waiting to go live.'}{' '}
-            <Link to={{ search: markerSearch(searchParams) }} replace onClick={() => openMarkers()}>
-              Show the {count.format(view.markerCount)} marker-only leftovers
-            </Link>
-          </p>
-        ) : !ordered.length ? (
-          <section className={styles.empty}>
-            <p>No saved changes match these filters.</p>
-            <button
-              type="button"
-              data-perf-navigation="true"
-              onClick={() =>
-                setSearchParams(filterParams(searchParams, entries, '', ''), { replace: true })
-              }
-            >
-              Clear filters
-            </button>
-          </section>
-        ) : (
-          current && (
-            <>
-              <div className={styles.identity}>
-                <span className={styles.identityText}>
-                  <span className={styles.muted}>{current.category}</span>
-                  <span className={styles.sep} aria-hidden="true">
-                    ·
+        <SkeletonBoundary
+          pending={loading}
+          error={!!error}
+          label="Comparing publishable content..."
+          shape="rows"
+        >
+          {!entries.length ? (
+            <p className={styles.note}>No saved changes are waiting to go live.</p>
+          ) : !current && !view.contentCount && view.markerCount ? (
+            <p className={styles.note}>
+              {changeCount
+                ? 'No changes made by a person match these filters.'
+                : 'No changes made by a person are waiting to go live.'}{' '}
+              <Link
+                to={{ search: markerSearch(searchParams) }}
+                replace
+                onClick={() => openMarkers()}
+              >
+                Show the {count.format(view.markerCount)} marker-only leftovers
+              </Link>
+            </p>
+          ) : !ordered.length ? (
+            <section className={styles.empty}>
+              <p>No saved changes match these filters.</p>
+              <button
+                type="button"
+                data-perf-navigation="true"
+                onClick={() =>
+                  setSearchParams(filterParams(searchParams, entries, '', ''), { replace: true })
+                }
+              >
+                Clear filters
+              </button>
+            </section>
+          ) : (
+            current && (
+              <>
+                <div className={styles.identity}>
+                  <span className={styles.identityText}>
+                    <span className={styles.muted}>{current.category}</span>
+                    <span className={styles.sep} aria-hidden="true">
+                      ·
+                    </span>
+                    <h2 title={current.name}>{current.name}</h2>
+                    <span className={`${styles.muted} ${styles.hash}`}>{current.tooltip.hash}</span>
+                    {marks.map((mark) => (
+                      <small key={mark} className={styles.mark} data-mark={mark}>
+                        {mark}
+                      </small>
+                    ))}
                   </span>
-                  <h2 title={current.name}>{current.name}</h2>
-                  <span className={`${styles.muted} ${styles.hash}`}>{current.tooltip.hash}</span>
-                  {marks.map((mark) => (
-                    <small key={mark} className={styles.mark} data-mark={mark}>
-                      {mark}
-                    </small>
-                  ))}
-                </span>
-                {/* Phones: one joined stepper `‹ 1 of 140 ›` right of the name. */}
-                <span className={styles.stepper} role="group" aria-label="Step through changes">
-                  <button
-                    type="button"
-                    className={styles.step}
-                    aria-label="Previous change"
-                    disabled={previous === index || pushing}
-                    data-perf-navigation="true"
-                    onClick={() => selectIndex((value) => stepRow(view, value, -1))}
-                  >
-                    ‹
-                  </button>
-                  <span className={styles.stepPosition}>{position.replace(' / ', ' of ')}</span>
-                  <button
-                    type="button"
-                    className={styles.step}
-                    aria-label="Next change"
-                    disabled={next === index || pushing}
-                    data-perf-navigation="true"
-                    onClick={() => selectIndex((value) => stepRow(view, value, 1))}
-                  >
-                    ›
-                  </button>
-                </span>
-                <span className={styles.identityEnd}>
-                  <span className={styles.muted}>{position}</span>
-                  <Link to={`/t/${current.tooltip.hash}`}>Open in editor ↗</Link>
-                </span>
-              </div>
-              {markerView && (
-                <p className={styles.markerNote} role="note">
-                  Marker-only: an alias-marker migration leftover. The saved content equals the live
-                  version, so this is not a change a person made. A data task clears these; group
-                  select never includes them.
-                </p>
-              )}
-              {current.unpublishable && <p className={styles.note}>{current.unpublishable}</p>}
-              {liveAvailable ? (
-                <ReviewDetail
-                  key={current.tooltip.hash}
-                  entry={current}
-                  included={selected.has(current.tooltip.hash)}
-                  selectionLocked={locked}
-                  onInclude={toggleRow}
-                />
-              ) : (
-                <label className={styles.include}>
-                  <input
-                    type="checkbox"
-                    checked={selected.has(current.tooltip.hash)}
-                    disabled={locked}
-                    onChange={() => toggleRow(current.tooltip.hash)}
-                  />{' '}
-                  Include in publish <kbd>Space</kbd>
-                </label>
-              )}
-            </>
-          )
-        )}
+                  {/* Phones: one joined stepper `‹ 1 of 140 ›` right of the name. */}
+                  <span className={styles.stepper} role="group" aria-label="Step through changes">
+                    <button
+                      type="button"
+                      className={styles.step}
+                      aria-label="Previous change"
+                      disabled={previous === index || pushing}
+                      data-perf-navigation="true"
+                      onClick={() => selectIndex((value) => stepRow(view, value, -1))}
+                    >
+                      ‹
+                    </button>
+                    <span className={styles.stepPosition}>{position.replace(' / ', ' of ')}</span>
+                    <button
+                      type="button"
+                      className={styles.step}
+                      aria-label="Next change"
+                      disabled={next === index || pushing}
+                      data-perf-navigation="true"
+                      onClick={() => selectIndex((value) => stepRow(view, value, 1))}
+                    >
+                      ›
+                    </button>
+                  </span>
+                  <span className={styles.identityEnd}>
+                    <span className={styles.muted}>{position}</span>
+                    <Link to={`/t/${current.tooltip.hash}`}>Open in editor ↗</Link>
+                  </span>
+                </div>
+                {markerView && (
+                  <p className={styles.markerNote} role="note">
+                    Marker-only: an alias-marker migration leftover. The saved content equals the
+                    live version, so this is not a change a person made. A data task clears these;
+                    group select never includes them.
+                  </p>
+                )}
+                {current.unpublishable && <p className={styles.note}>{current.unpublishable}</p>}
+                {liveAvailable ? (
+                  <ReviewDetail
+                    key={current.tooltip.hash}
+                    entry={current}
+                    included={selected.has(current.tooltip.hash)}
+                    selectionLocked={locked}
+                    onInclude={toggleRow}
+                  />
+                ) : (
+                  <label className={styles.include}>
+                    <input
+                      type="checkbox"
+                      checked={selected.has(current.tooltip.hash)}
+                      disabled={locked}
+                      onChange={() => toggleRow(current.tooltip.hash)}
+                    />{' '}
+                    Include in publish <kbd>Space</kbd>
+                  </label>
+                )}
+              </>
+            )
+          )}
+        </SkeletonBoundary>
       </article>
     </>
   );

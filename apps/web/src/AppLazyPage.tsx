@@ -1,4 +1,5 @@
-import { Component, Suspense, lazy, useState, type ComponentType, type ReactNode } from 'react';
+import { SkeletonSuspense } from './ui/Skeleton';
+import { Component, lazy, useState, type ComponentType, type ReactNode } from 'react';
 import { loadedWorkspacePage } from './workspacePreload';
 
 class LoadBoundary extends Component<{ children: ReactNode; retry(): void }, { failed: boolean }> {
@@ -32,9 +33,9 @@ export function AppLazyPage({ load }: { load: () => Promise<{ default: Component
         setAttempt((value) => value + 1);
       }}
     >
-      <Suspense fallback={<p role="status">Loading page…</p>}>
+      <SkeletonSuspense label="Loading page…">
         <Page />
-      </Suspense>
+      </SkeletonSuspense>
     </LoadBoundary>
   );
 }

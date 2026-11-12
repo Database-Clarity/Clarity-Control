@@ -1,3 +1,4 @@
+import { SkeletonBoundary } from '../../ui/Skeleton';
 import { memo, useEffect, useState } from 'react';
 import { getHistory, type HistoryCommit } from '../../services/history';
 import { CommitAuthor } from '../history/CommitAuthor';
@@ -161,33 +162,35 @@ export const ReviewDetail = memo(function ReviewDetail({
           </button>
         </p>
       )}
-      {!live && !error && (
-        <div role="status" aria-label="Loading last pushed text" className={styles.liveSkeleton}>
-          <span className={styles.readyStatus}>Loading last pushed text...</span>
-          <div aria-hidden="true">
-            <span />
-            <span />
-            <span />
-          </div>
-        </div>
-      )}
-      {live && (
-        <>
-          {!live.pushedHash && !summary && <p>No recorded live version. All saved text is new.</p>}
-          <div className={styles.liveDiff}>
-            <TooltipDiff
-              before={live.tooltip}
-              current={entry.tooltip}
-              item={reviewItem}
-              responsive
-            />
-          </div>
-          {notice && <p role="status">{notice}</p>}
-          {user?.role === 'translator' && (
-            <p>Only your assigned translation languages will be loaded.</p>
-          )}
-        </>
-      )}
+      <SkeletonBoundary
+        pending={!live}
+        error={!!error}
+        identity={entry.tooltip.hash}
+        label="Loading last pushed text..."
+        text={Object.values(entry.tooltip.text)
+          .map((value) => value?.text ?? '')
+          .join('\n')}
+      >
+        {live && (
+          <>
+            {!live.pushedHash && !summary && (
+              <p>No recorded live version. All saved text is new.</p>
+            )}
+            <div className={styles.liveDiff}>
+              <TooltipDiff
+                before={live.tooltip}
+                current={entry.tooltip}
+                item={reviewItem}
+                responsive
+              />
+            </div>
+            {notice && <p role="status">{notice}</p>}
+            {user?.role === 'translator' && (
+              <p>Only your assigned translation languages will be loaded.</p>
+            )}
+          </>
+        )}
+      </SkeletonBoundary>
       <div className={styles.actions}>
         <label className={styles.include}>
           <input

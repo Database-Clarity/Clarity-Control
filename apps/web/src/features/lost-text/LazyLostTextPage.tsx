@@ -1,4 +1,5 @@
-import { Component, Suspense, lazy, useState, type ComponentType, type ReactNode } from 'react';
+import { SkeletonSuspense } from '../../ui/Skeleton';
+import { Component, lazy, useState, type ComponentType, type ReactNode } from 'react';
 
 const loadPage = () =>
   import('./LostTextPage').then((module) => ({ default: module.LostTextPage }));
@@ -38,9 +39,9 @@ export function LazyLostTextPage({
         setAttempt((value) => value + 1);
       }}
     >
-      <Suspense fallback={<p role="status">Loading Lost Text…</p>}>
+      <SkeletonSuspense label="Loading Lost Text…">
         <Page />
-      </Suspense>
+      </SkeletonSuspense>
     </LoadBoundary>
   );
 }

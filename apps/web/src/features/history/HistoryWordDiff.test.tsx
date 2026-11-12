@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { HistoryWordDiff } from './HistoryWordDiff';
 
-it('moves large diffs to a worker, preserves text immediately and ignores obsolete results', async () => {
+it('moves large diffs to a worker, hides provisional output and ignores obsolete results', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   const messages: { id: number; before: string; after: string }[] = [];
   const instances: FakeWorker[] = [];
@@ -28,8 +28,8 @@ it('moves large diffs to a worker, preserves text immediately and ignores obsole
     await act(async () => root.render(<HistoryWordDiff before={before} after={after} />));
     expect(messages).toHaveLength(1);
     expect(host.querySelector('[aria-busy="true"]')).not.toBeNull();
-    expect(host.querySelector('del')?.textContent).toBe(before);
-    expect(host.querySelector('ins')?.textContent).toBe(after);
+    expect(host.querySelector('del')).toBeNull();
+    expect(host.querySelector('ins')).toBeNull();
     await act(async () => root.render(<HistoryWordDiff before="same" after="same" />));
     await act(async () =>
       instances[0].onmessage?.({

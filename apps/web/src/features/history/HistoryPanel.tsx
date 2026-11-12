@@ -1,3 +1,4 @@
+import { LoadingSkeleton } from '../../ui/Skeleton';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Lang, Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
@@ -128,6 +129,7 @@ function HistoryContent({
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
+  const loadingSkeleton = useSkeletonVisible(loading && !error, cache, true);
   const [notice, setNotice] = useState<string>();
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
@@ -297,7 +299,12 @@ function HistoryContent({
         </p>
       )}
       {classifying && <p role="status">Checking revision scope...</p>}
+      {!error && (loading || loadingSkeleton) && (
+        <LoadingSkeleton label="Loading commits..." shape="rows" visible={loadingSkeleton} />
+      )}
       <ol
+        hidden={!error && (loading || loadingSkeleton)}
+        style={!error && (loading || loadingSkeleton) ? { display: 'none' } : undefined}
         className={styles.commits}
         aria-busy={
           loading ||
@@ -326,7 +333,7 @@ function HistoryContent({
           <li ref={sentinel} aria-hidden="true" data-history-more="true" />
         )}
       </ol>
-      {loading && <p role="status">Loading commits...</p>}
+
       {!loading &&
         !classifying &&
         (!commits.length || knownRange) &&

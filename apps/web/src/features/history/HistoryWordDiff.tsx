@@ -1,3 +1,4 @@
+import { SkeletonBoundary } from '../../ui/Skeleton';
 import { useEffect, useState } from 'react';
 import { diffWords, type WordChange } from '../../ui/diff';
 import styles from '../../ui/diff/WordDiff.module.scss';
@@ -58,23 +59,30 @@ export function HistoryWordDiff({ before, after }: { before: string; after: stri
     (computed?.key === key ? computed.parts : undefined) ??
     (large ? coarse(before, after) : diffWords(before, after));
   return (
-    <div
-      className={styles.diff}
-      aria-busy={
-        (large && typeof Worker !== 'undefined' && !cached && computed?.key !== key) || undefined
-      }
-      aria-label="Word diff: removed text struck through, added text underlined"
+    <SkeletonBoundary
+      pending={large && typeof Worker !== 'undefined' && !cached && computed?.key !== key}
+      identity={key}
+      label="Preparing word diff…"
+      text={after || before}
     >
-      {parts.map((part, index) =>
-        part.kind === 'delete' ? (
-          <del key={index}>{part.text}</del>
-        ) : part.kind === 'insert' ? (
-          <ins key={index}>{part.text}</ins>
-        ) : (
-          <span key={index}>{part.text}</span>
-        ),
-      )}
-      {!before && !after && <span>No text</span>}
-    </div>
+      <div
+        className={styles.diff}
+        aria-busy={
+          (large && typeof Worker !== 'undefined' && !cached && computed?.key !== key) || undefined
+        }
+        aria-label="Word diff: removed text struck through, added text underlined"
+      >
+        {parts.map((part, index) =>
+          part.kind === 'delete' ? (
+            <del key={index}>{part.text}</del>
+          ) : part.kind === 'insert' ? (
+            <ins key={index}>{part.text}</ins>
+          ) : (
+            <span key={index}>{part.text}</span>
+          ),
+        )}
+        {!before && !after && <span>No text</span>}
+      </div>
+    </SkeletonBoundary>
   );
 }

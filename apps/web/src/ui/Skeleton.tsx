@@ -1,10 +1,22 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useElementWidth } from './useElementWidth';
+import {
+  Suspense,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import { flushSync } from 'react-dom';
 import styles from './Skeleton.module.scss';
 
 export function SkeletonStatus({ children }: { children: ReactNode }) {
   return (
-    <span className={styles.status} role="status">
+    <span
+      className={styles.status}
+      role="status"
+      aria-label={typeof children === 'string' ? children.replace(/[.…]+$/, '') : undefined}
+    >
       {children}
     </span>
   );
@@ -128,8 +140,8 @@ export function skeletonLineWidths(
 export const skeletonMinimumMs = 400;
 
 /**
- * The one timing rule for every skeleton. Previous content is kept for at most two frames after a
- * step; if the new content has not committed by the second frame the skeleton shows (first loads,
+ * The one timing rule for every skeleton. Hosts remove obsolete content immediately. After a
+ * step, if new content has not committed by the second frame the skeleton shows (first loads,
  * with nothing to keep, show it at once). Once shown it stays at least `skeletonMinimumMs` before
  * the content swaps in. A step to another entry (`identity`) during that time starts over for the
  * new entry: ready by its second frame, it shows directly; otherwise the skeleton (already on
@@ -150,12 +162,15 @@ export function useSkeletonVisible(pending: boolean, identity: unknown, hasConte
       shownAt.current = undefined;
       setVisible(false);
     };
+    let active = true;
     let first: number | undefined;
     let second: number | undefined;
     // Two frames for this entry, then the skeleton (and its minimum) belong to it.
     const afterTwoFrames = (then: () => void) => {
       first = requestAnimationFrame(() => {
-        second = requestAnimationFrame(() => flushSync(then));
+        second = requestAnimationFrame(() => {
+          if (active) flushSync(then);
+        });
       });
     };
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -178,10 +193,117 @@ export function useSkeletonVisible(pending: boolean, identity: unknown, hasConte
       else afterTwoFrames(show);
     }
     return () => {
+      active = false;
       if (first !== undefined) cancelAnimationFrame(first);
       if (second !== undefined) cancelAnimationFrame(second);
       if (timer !== undefined) clearTimeout(timer);
     };
   }, [pending, identity, hasContent, visible]);
   return visible || (pending && !hasContent);
+}
+
+export type LoadingShape = 'page' | 'rows' | 'text';
+
+/** Content-shaped placeholder; status copy remains available to assistive technology. */
+export function LoadingSkeleton({
+  label,
+  shape = 'text',
+  count = 3,
+  text,
+  visible = true,
+}: {
+  label: string;
+  shape?: LoadingShape;
+  count?: number;
+  text?: string;
+  visible?: boolean;
+}) {
+  const element = useRef<HTMLDivElement>(null);
+  const width = useElementWidth(element);
+  const widths = text
+    ? skeletonLineWidths(skeletonTextShape(text), width ?? 360, 16)
+    : [92, 78, 85, 60];
+  return (
+    <div ref={element} aria-busy="true">
+      <SkeletonStatus>{label}</SkeletonStatus>
+      {visible && (
+        <SkeletonRegion>
+          {shape === 'page' && (
+            <>
+              <SkeletonLine width={30} />
+              <SkeletonBlock height="8rem" />
+            </>
+          )}
+          {shape === 'text' ? (
+            widths.map((width, index) => <SkeletonLine key={index} width={width} />)
+          ) : (
+            <SkeletonRows count={count} columns={shape === 'page' ? [30, 70] : [65, 35]} />
+          )}
+        </SkeletonRegion>
+      )}
+    </div>
+  );
+}
+
+/** Always mount this boundary, including after the request resolves, to honour the minimum. */
+export function SkeletonBoundary({
+  pending,
+  identity = 'content',
+  error = false,
+  label,
+  shape,
+  count,
+  text,
+  children,
+}: {
+  pending: boolean;
+  identity?: unknown;
+  error?: boolean;
+  label: string;
+  shape?: LoadingShape;
+  count?: number;
+  text?: string;
+  children?: ReactNode;
+}) {
+  const visible = useSkeletonVisible(pending && !error, identity, true);
+  if (error) return children;
+  return pending || visible ? (
+    <LoadingSkeleton label={label} shape={shape} count={count} text={text} visible={visible} />
+  ) : (
+    children
+  );
+}
+
+function PendingCommit({
+  pending,
+  onChange,
+  children,
+}: {
+  pending: boolean;
+  onChange: (pending: boolean) => void;
+  children?: ReactNode;
+}) {
+  useLayoutEffect(() => onChange(pending), [pending, onChange]);
+  return children;
+}
+
+/** Keep the resolved subtree mounted while the shared minimum finishes. */
+export function SkeletonSuspense({ label, children }: { label: string; children: ReactNode }) {
+  const [pending, setPending] = useState(false);
+  const visible = useSkeletonVisible(pending, label, true);
+  return (
+    <>
+      {(pending || visible) && <LoadingSkeleton label={label} shape="page" visible={visible} />}
+      <div
+        hidden={pending || visible}
+        style={pending || visible ? undefined : { display: 'contents' }}
+      >
+        <Suspense fallback={<PendingCommit pending onChange={setPending} />}>
+          <PendingCommit pending={false} onChange={setPending}>
+            {children}
+          </PendingCommit>
+        </Suspense>
+      </div>
+    </>
+  );
 }

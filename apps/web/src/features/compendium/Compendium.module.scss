@@ -539,26 +539,6 @@
 .warning {
   color: var(--warn);
 }
-.spinner {
-  display: inline-block;
-  width: 0.8rem;
-  height: 0.8rem;
-  margin-right: 0.4rem;
-  border: 2px solid currentColor;
-  border-right-color: transparent;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .spinner {
-    animation: none;
-  }
-}
 @media (max-width: 700px) {
   .comparison {
     grid-template-columns: minmax(0, 1fr);

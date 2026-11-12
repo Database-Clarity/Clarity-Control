@@ -1,3 +1,4 @@
+import { SkeletonBoundary } from '../../ui/Skeleton';
 import { memo, useEffect, useState } from 'react';
 import { languageLabel } from '../../languageLabels';
 import { languages, stableStringify, type TooltipValidationIssue } from '@clarity/core';
@@ -50,7 +51,12 @@ export function SaveSummary({
       {changes.slice(0, visible).map((change) => (
         <SaveChange key={change.hash} change={change} data={data} />
       ))}
-      {visible < changes.length && <p role="status">Preparing save summary...</p>}
+      <SkeletonBoundary
+        pending={visible < changes.length}
+        label="Preparing save summary..."
+        shape="rows"
+        count={Math.max(1, Math.min(3, changes.length - visible))}
+      />
     </>
   );
 }
