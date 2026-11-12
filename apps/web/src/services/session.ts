@@ -6,29 +6,62 @@ const changed = 'clarity-session-changed';
 // Matches the Worker's OAuth state lifetime.
 const pendingWindowMs = 10 * 60 * 1000;
 
-/**
- * Called when this browser starts sign-in. Besides the remember-me choice it records a random
- * one-time marker in this tab's sessionStorage (it survives the GitHub round trip), so
- * #/auth/callback is only honoured when this tab asked for it. A forged link cannot set it.
- */
-export function rememberSignIn(remember: boolean): void {
+const noncePattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+/** Prepare an actual link, including modifier-click and context-menu navigation to a new tab. */
+export function rememberSignIn(remember: boolean): string {
+  const now = Date.now();
+  const pending: { key: string; at: number }[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key?.startsWith(`${pendingKey}:`)) continue;
+    let at = 0;
+    try {
+      at = JSON.parse(localStorage.getItem(key) ?? '').at;
+    } catch {
+      /* prune invalid entries */
+    }
+    pending.push({ key, at });
+  }
+  pending.sort((a, b) => b.at - a.at);
+  for (const [index, entry] of pending.entries()) {
+    if (
+      !Number.isFinite(entry.at) ||
+      entry.at > now ||
+      now - entry.at > pendingWindowMs ||
+      index >= 31
+    )
+      localStorage.removeItem(entry.key);
+  }
+  const nonce = crypto.randomUUID();
+  localStorage.setItem(`${pendingKey}:${nonce}`, JSON.stringify({ at: now, remember }));
   sessionStorage.setItem(preferenceKey, String(remember));
-  sessionStorage.setItem(pendingKey, `${Date.now()}.${crypto.randomUUID()}`);
+  return nonce;
 }
 
-/** One-time check for a sign-in this tab started. Always clears the marker; touches no session. */
-export function consumePendingSignIn(): boolean {
-  let marker: string | null = null;
+/** Exact, expiring, one-time browser binding; unrelated pending sign-ins confer no authority. */
+export function consumePendingSignIn(nonce: string | null): boolean {
+  if (!nonce || nonce.length !== 36 || !noncePattern.test(nonce)) return false;
   try {
-    marker = sessionStorage.getItem(pendingKey);
-    sessionStorage.removeItem(pendingKey);
+    const key = `${pendingKey}:${nonce}`;
+    const marker = localStorage.getItem(key);
+    localStorage.removeItem(key);
+    if (!marker) return false;
+    const { at, remember } = JSON.parse(marker);
+    const now = Date.now();
+    if (
+      !Number.isFinite(at) ||
+      at > now ||
+      now - at > pendingWindowMs ||
+      typeof remember !== 'boolean'
+    )
+      return false;
+    // The callback may be in a different tab; carry its own remember-me choice with the nonce.
+    sessionStorage.setItem(preferenceKey, String(remember));
+    return true;
   } catch {
     return false;
   }
-  const started = Number(marker?.split('.')[0]);
-  return (
-    Number.isFinite(started) && started <= Date.now() && Date.now() - started <= pendingWindowMs
-  );
 }
 
 // The Worker signs payload.signature tokens with a fixed 30-day expiry.
