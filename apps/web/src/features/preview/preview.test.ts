@@ -46,3 +46,25 @@ test('preview preserves nested titles, tables and safe link behavior', () => {
   expect(html).toContain('href="https://example.com"');
   expect(html).not.toContain('href="javascript:');
 });
+
+test('preview draws element-tagged text as the icon, then the tinted text, with no second icon', () => {
+  const render = (text: string) =>
+    renderToStaticMarkup(
+      createElement(TooltipPreview, {
+        text,
+        lang: 'en',
+        name: 'Perk',
+        globals: { variables: '', titles: '' },
+      }),
+    );
+  const tagged = render('Gain <solar Scorch /> stacks.');
+  const lowered = render('Gain <solar/>Scorch stacks.');
+  const icon = /<span class="([^"]*solar[^"]*)"><span><\/span><\/span>/;
+  const text = /<span class="([^"]*)"><span>Scorch<\/span><\/span>/;
+  // The icon span is the same as the lowered form's; the text span carries the tint classes.
+  expect(tagged.match(icon)?.[1]).toBe(lowered.match(icon)?.[1]);
+  const tint = tagged.match(text)?.[1].split(' ') ?? [];
+  expect(tint).toHaveLength(2);
+  expect(tint).toContain(lowered.match(icon)?.[1]);
+  expect(tagged).not.toContain('&lt;solar');
+});

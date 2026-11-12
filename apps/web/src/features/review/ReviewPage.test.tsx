@@ -308,7 +308,11 @@ it('keeps main controls usable while the sidebar links warm', async () => {
     expect(host.querySelector('article')!.getAttribute('aria-busy')).toBe('false');
     expect(host.querySelector('fieldset')).toBeNull();
     expect(host.textContent).toContain('Loading sidebar…');
-    await act(async () => host.querySelector<HTMLInputElement>('input[type=checkbox]')!.click());
+    await act(async () =>
+      host.querySelector<HTMLInputElement>(
+        'section[aria-label="Selected change"] input[type=checkbox]:not([role=switch])',
+      )!.click(),
+    );
     expect(host.textContent).toContain('1 selected');
     await act(async () =>
       document.body.dispatchEvent(

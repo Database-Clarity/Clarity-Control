@@ -9,8 +9,8 @@ import { WORKING_DIFF_DELAY } from './WorkingDiffPanel';
 import { hasWorkingChanges, inView } from './workingDiff';
 
 const diffWords = vi.hoisted(() => vi.fn());
-vi.mock('../../ui/diff', async (original) => {
-  const actual = await original<typeof import('../../ui/diff')>();
+vi.mock('../../ui/diff/diffWords', async (original) => {
+  const actual = await original<typeof import('../../ui/diff/diffWords')>();
   diffWords.mockImplementation(actual.diffWords);
   return { ...actual, diffWords };
 });
@@ -117,6 +117,11 @@ describe('working diff (changes since the last save)', () => {
     expect(diffWords).not.toHaveBeenCalled();
 
     act(() => changes().click());
+    const raw = panel()?.querySelector('[aria-label="Raw diff"]');
+    expect(raw).not.toBeNull();
+    expect(raw?.closest('[data-overlay-scroll]')).toBeNull();
+    expect(panel()?.textContent).toContain('Saved');
+    expect(panel()?.textContent).toContain('Unsaved');
     expect(panel()?.querySelector('ins')?.textContent).toBe(' One. Two. Three.');
     const opened = diffWords.mock.calls.length;
     expect(opened).toBeGreaterThan(0);

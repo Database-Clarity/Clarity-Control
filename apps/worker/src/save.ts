@@ -10,6 +10,7 @@ import {
   type Tooltip,
 } from '@clarity/core';
 import { loadAliases } from './catalog.js';
+import { refuseElementTags } from './elementTags.js';
 import { RefRace, type GitHub } from './github.js';
 import { body, HttpError, json } from './http.js';
 import { checkEdit, permissions, requireAccess } from './permissions.js';
@@ -94,6 +95,7 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
         continue;
       }
       checkEdit(access, head, merged);
+      refuseElementTags(merged);
       tooltips.push(merged);
       // Per-tooltip hints avoid attributing another item in a batch to this file.
       // Display only: permissions and the committed payload are unchanged.

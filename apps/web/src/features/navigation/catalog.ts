@@ -397,6 +397,26 @@ function weaponOwnerIds(data: EditorData): Map<string, number> {
   return ids;
 }
 
+const commonOwners = new WeakMap<readonly Item[], boolean>();
+/**
+ * Every entry of a list is owned by the same two or more items (Exotic Class Items: each perk is
+ * on all three class items), so a per-row "shared perk" mark would say nothing. Data-driven: a
+ * list whose owners differ keeps the mark.
+ */
+export function sharesAllOwners(items: readonly Item[]): boolean {
+  const cached = commonOwners.get(items);
+  if (cached !== undefined) return cached;
+  const key = (item: Item) => [...new Set(item.owners ?? [])].sort((a, b) => a - b).join(',');
+  const first = items[0] && key(items[0]);
+  const result =
+    items.length > 1 &&
+    !!first &&
+    first.includes(',') &&
+    items.every((item) => key(item) === first);
+  commonOwners.set(items, result);
+  return result;
+}
+
 const groupedSections = new WeakMap<CategorySection, GroupedSection | undefined>();
 export function groupedSection(
   section: CategorySection,

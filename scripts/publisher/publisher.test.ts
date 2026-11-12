@@ -1109,10 +1109,11 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
   );
   it('fixed-now golden matches guarded pushLive byte for byte and pushed map', async () => {
     // Retain the afa1e8e stamp oracle; re-pin push.ts for its reviewed native refusal
-    // and budget checks, the link-only empty-description guard, and the set-bonus hold.
+    // and budget checks, the link-only empty-description guard, the set-bonus hold, and the
+    // element-tag export hold (refusals only; untagged pushes write the same bytes).
     // The written, pair-free golden still matches byte for byte; empty refusals are tested above.
     for (const [path, expected] of [
-      ['apps/worker/src/push.ts', 'e180a24fadc74f8979d94dcab9ec2867b417569d'],
+      ['apps/worker/src/push.ts', '4626df0d0027564185449224c387dfcd97184f90'],
       ['apps/worker/src/stamp.ts', 'debdbefc1657c970f27b1304e4c8ea509c54b4a1'],
     ]) {
       const content = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
