@@ -38,6 +38,169 @@ afterEach(() => {
 });
 
 describe('cross-tab conflict session race regressions', () => {
+  it.each(['pending', 'failed', 'signed-out', 'pending-failed'] as const)(
+    'retains unpublished choices and their drafts across an account switch (%s)',
+    async (mode) => {
+      const buckets = new Map<string, Drafts>();
+      let finish!: () => void;
+      const waiting = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      let fail = mode === 'failed' || mode === 'pending-failed';
+      const bucket = (id: string): import('../services/draftStorage').DraftStorage => ({
+        read: async () => structuredClone(buckets.get(id) ?? {}),
+        write: async (drafts) => {
+          if (mode !== 'failed') await waiting;
+          if (fail) throw new Error('Quota');
+          buckets.set(id, structuredClone(drafts));
+        },
+      });
+      const drafts = createDraftStore({ ...bucket('signed-out'), forUser: bucket });
+      await drafts.getState().activate('A');
+      const conflicts = conflictsFor(drafts);
+      conflicts
+        .getState()
+        .begin([{ hash: 123, base: null, head, next: mine, fields: ['$exists'] }]);
+      if (mode === 'failed') await drafts.getState().flush();
+      const switching = drafts.getState().activate(mode === 'signed-out' ? null : 'B');
+      finish();
+      await switching;
+      expect(conflicts.getState().sessions).toEqual({});
+      expect(memory.getItem(conflictSessionKey('B', 123))).toBeNull();
+      expect(memory.getItem(conflictSessionKey('signed-out', 123))).toBeNull();
+      if (mode === 'failed' || mode === 'pending-failed')
+        expect(drafts.getState().previousAccountError).toContain('Quota');
+      else expect(memory.getItem(conflictSessionKey('A', 123))).not.toBeNull();
+      await drafts.getState().activate('A');
+      expect(drafts.getState().drafts[123]?.next).toEqual(mine);
+      expect(conflicts.getState().sessions[123]?.rows.$exists).toBeNull();
+      fail = false;
+      drafts.getState().retry();
+      await drafts.getState().flush();
+      expect(memory.getItem(conflictSessionKey('A', 123))).not.toBeNull();
+    },
+  );
+
+  it('Keep mine reconciles an imported session deleted elsewhere on its next storage read', async () => {
+    let time = 10;
+    vi.spyOn(Date, 'now').mockImplementation(() => time);
+    memory.setItem(
+      conflictSessionKey('1', 123),
+      JSON.stringify({
+        hash: 123,
+        base: null,
+        head,
+        mine,
+        rows: { $exists: null },
+        storedAt: 20,
+      }),
+    );
+    const drafts = createDraftStore({ read: async () => ({}), write: async () => {} });
+    await drafts.getState().activate('1');
+    const conflicts = conflictsFor(drafts);
+    expect(conflicts.getState().sessions[123]).toBeDefined();
+    memory.removeItem(conflictSessionKey('1', 123));
+    time = 30;
+    await drafts.getState().keepMine();
+    expect(conflicts.getState().sessions).toEqual({});
+    conflicts.getState().choose(123, '$exists', 'mine');
+    expect(drafts.getState().drafts).toEqual({});
+    expect(memory.getItem(conflictSessionKey('1', 123))).toBeNull();
+  });
+
+  it('binds pending publication to A through an A to B to A switch', async () => {
+    let finish!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const disk = new Map<string, Drafts>();
+    const bucket = (id: string): import('../services/draftStorage').DraftStorage => ({
+      read: async () => structuredClone(disk.get(id) ?? {}),
+      write: async (drafts) => {
+        await waiting;
+        disk.set(id, structuredClone(drafts));
+      },
+    });
+    const drafts = createDraftStore({ ...bucket('signed-out'), forUser: bucket });
+    await drafts.getState().activate('A');
+    const conflicts = conflictsFor(drafts);
+    conflicts.getState().begin([{ hash: 123, base: null, head, next: mine, fields: ['$exists'] }]);
+    const toB = drafts.getState().activate('B');
+    const toA = drafts.getState().activate('A');
+    finish();
+    await Promise.all([toB, toA]);
+    expect(conflicts.getState().sessions[123]?.rows.$exists).toBeNull();
+    expect(drafts.getState().drafts[123]?.next).toEqual(mine);
+    expect(memory.getItem(conflictSessionKey('B', 123))).toBeNull();
+  });
+
+  it('a stale tab cannot answer and resurrect a session another tab resolved', async () => {
+    memory.setItem(
+      conflictSessionKey('1', 123),
+      JSON.stringify({
+        hash: 123,
+        base: null,
+        head,
+        mine,
+        rows: { $exists: null },
+        storedAt: 20,
+      }),
+    );
+    const drafts = createDraftStore({
+      read: async () => ({ 123: { base, next: mine } }),
+      write: async () => {},
+    });
+    await drafts.getState().activate('1');
+    const conflicts = conflictsFor(drafts);
+    memory.removeItem(conflictSessionKey('1', 123));
+    conflicts.getState().choose(123, '$exists', 'theirs');
+    expect(drafts.getState().drafts[123]?.next).toEqual(mine);
+    expect(conflicts.getState().sessions).toEqual({});
+    expect(memory.getItem(conflictSessionKey('1', 123))).toBeNull();
+  });
+
+  it('retains a session when localStorage quota fails across an account switch', async () => {
+    const disk = new Map<string, Drafts>();
+    const bucket = (id: string): import('../services/draftStorage').DraftStorage => ({
+      read: async () => structuredClone(disk.get(id) ?? {}),
+      write: async (drafts) => {
+        disk.set(id, structuredClone(drafts));
+      },
+    });
+    const drafts = createDraftStore({ ...bucket('signed-out'), forUser: bucket });
+    await drafts.getState().activate('A');
+    const conflicts = conflictsFor(drafts);
+    const fail = vi.spyOn(memory, 'setItem').mockImplementation(() => {
+      throw new Error('Quota');
+    });
+    conflicts.getState().begin([{ hash: 123, base: null, head, next: mine, fields: ['$exists'] }]);
+    await drafts.getState().flush();
+    await drafts.getState().activate('B');
+    expect(drafts.getState().previousAccountError).toBeTruthy();
+    fail.mockRestore();
+    await drafts.getState().activate('A');
+    expect(conflicts.getState().sessions[123]?.rows.$exists).toBeNull();
+    expect(drafts.getState().drafts[123]?.next).toEqual(mine);
+    expect(memory.getItem(conflictSessionKey('A', 123))).not.toBeNull();
+  });
+
+  it('keeps two tabs on different accounts isolated for the same hash', async () => {
+    const aDrafts = createDraftStore({ read: async () => ({}), write: async () => {} });
+    const bDrafts = createDraftStore({ read: async () => ({}), write: async () => {} });
+    await Promise.all([aDrafts.getState().activate('A'), bDrafts.getState().activate('B')]);
+    const a = conflictsFor(aDrafts);
+    const b = conflictsFor(bDrafts);
+    a.getState().begin([{ hash: 123, base: null, head, next: mine, fields: ['$exists'] }]);
+    b.getState().begin([{ hash: 123, base: null, head, next: t('B mine'), fields: ['$exists'] }]);
+    await Promise.all([aDrafts.getState().flush(), bDrafts.getState().flush()]);
+    a.getState().choose(123, '$exists', 'theirs');
+    b.getState().refresh();
+    expect(b.getState().sessions[123]?.rows.$exists).toBeNull();
+    expect(bDrafts.getState().drafts[123]?.next.text.en?.text).toBe('B mine');
+    expect(memory.getItem(conflictSessionKey('A', 123))).toBeNull();
+    expect(memory.getItem(conflictSessionKey('B', 123))).not.toBeNull();
+  });
+
   it('a tab starting while the other tab draft write is in flight keeps its session', () => {
     // Reviewer probe: this tab's settled flags say nothing about the writer's draft.
     useDraftStore.setState({

@@ -48,6 +48,8 @@ interface DraftState {
   keepMine(): Promise<void>;
   /** Calls back after a draft is deliberately discarded (not when it is saved or reverted). */
   onDiscard(listener: (hash: number) => void): () => void;
+  /** Runs after a bound account write, before it is considered safely stored. */
+  onStored(listener: (owner: string | null, drafts: Drafts) => void): () => void;
   retry(): void;
   flush(): Promise<void>;
 }
@@ -85,21 +87,30 @@ export function createDraftStore(storage: DraftStorage) {
     }
   };
   const discardListeners = new Set<(hash: number) => void>();
+  const storedListeners = new Set<(owner: string | null, drafts: Drafts) => void>();
+  // Keep failed snapshots in this tab until their account can retry them. A switch must
+  // not turn a failed write into a successful read of an older disk snapshot.
+  const unsaved = new Map<string | null, { drafts: Drafts; error: string | null }>();
   return create<DraftState>((set, get) => {
     function persist(drafts: Drafts) {
       // Bind the bucket now: a later account switch must never redirect this write.
       const destination = target;
       const writer = owner;
       const writerGeneration = generation;
+      const recovery = { drafts, error: null as string | null };
+      unsaved.set(writer, recovery);
       set((state) => ({ pending: state.pending + 1 }));
       queue = queue.then(async () => {
         try {
           await destination.write(drafts);
+          for (const listener of storedListeners) listener(writer, drafts);
+          if (unsaved.get(writer) === recovery) unsaved.delete(writer);
           if (writerGeneration === generation) set({ error: null, stored: drafts });
         } catch (error) {
+          recovery.error = `Drafts are NOT safely stored: ${errorMessage(error).replace(/\.+$/, '')}. Keep this tab open and retry.`;
           if (writerGeneration === generation)
             set({
-              error: `Drafts are NOT safely stored: ${errorMessage(error).replace(/\.+$/, '')}. Keep this tab open and retry.`,
+              error: recovery.error,
             });
           else
             set({
@@ -136,10 +147,11 @@ export function createDraftStore(storage: DraftStorage) {
           .then(
             async (drafts) => {
               if (mine !== generation) return;
+              const recovery = unsaved.get(owner);
               set({
-                drafts,
+                drafts: recovery?.drafts ?? drafts,
                 hydrated: true,
-                error: null,
+                error: recovery?.error ?? null,
                 external: false,
                 stored: drafts,
                 readStartedAt,
@@ -169,6 +181,10 @@ export function createDraftStore(storage: DraftStorage) {
       activate(userId) {
         const next = userId === null ? null : String(userId);
         if (next === owner) return get().hydrate();
+        if (get().error && unsaved.has(owner))
+          set({
+            previousAccountError: `The last edit of your previous account${owner ? ` (${owner})` : ''} was NOT stored: ${get().error} Sign back in to it and check your drafts.`,
+          });
         owner = next;
         generation++;
         target = bucket(next);
@@ -336,9 +352,10 @@ export function createDraftStore(storage: DraftStorage) {
           if (mine !== generation) return;
           try {
             // Reading refreshes the compare-and-set baseline, so this tab's write replaces theirs.
+            const readStartedAt = Date.now();
             const theirs = await target.read();
             if (mine !== generation) return;
-            set({ external: false, stored: theirs });
+            set({ external: false, stored: theirs, readStartedAt });
             persist(get().drafts);
           } catch (error) {
             if (mine === generation)
@@ -352,6 +369,10 @@ export function createDraftStore(storage: DraftStorage) {
       onDiscard(listener) {
         discardListeners.add(listener);
         return () => void discardListeners.delete(listener);
+      },
+      onStored(listener) {
+        storedListeners.add(listener);
+        return () => void storedListeners.delete(listener);
       },
       retry() {
         if (!get().hydrated) throw new Error('Drafts must finish recovery before retrying storage');

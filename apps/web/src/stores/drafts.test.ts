@@ -387,4 +387,42 @@ describe('drafts belong to one account', () => {
     store.getState().dismissPreviousAccountError();
     expect(store.getState().previousAccountError).toBeNull();
   });
+
+  it('restores the latest failed snapshot on return, and clears recovery after retry', async () => {
+    const { storage } = buckets();
+    let fail = true;
+    const account = storage.forUser!('1');
+    const store = createDraftStore({
+      ...storage,
+      forUser: (id) =>
+        id === '1'
+          ? {
+              ...account,
+              write: async (drafts) => {
+                if (fail) throw new Error('quota');
+                await account.write(drafts);
+              },
+            }
+          : storage.forUser!(id),
+    });
+    await store.getState().activate(1);
+    store.getState().edit(base, 'en', 'first', 'alice');
+    store.getState().edit(base, 'en', 'latest', 'alice');
+    await store.getState().flush();
+    await store.getState().activate(2);
+    expect(store.getState().drafts).toEqual({});
+    expect(store.getState().previousAccountError).toContain('quota');
+    await store.getState().activate(1);
+    expect(store.getState().drafts[10]?.next.text.en?.text).toBe('latest');
+    expect(store.getState().error).toContain('quota');
+    fail = false;
+    store.getState().retry();
+    await store.getState().flush();
+    expect(store.getState().error).toBeNull();
+    await store.getState().activate(2);
+    // A later storage snapshot must be authoritative once recovery has been stored.
+    await account.write({});
+    await store.getState().activate(1);
+    expect(store.getState().drafts).toEqual({});
+  });
 });
