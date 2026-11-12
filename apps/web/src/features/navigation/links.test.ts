@@ -18,6 +18,8 @@ describe('workspaceMenu', () => {
       '/archive',
       '/globals',
       '/management',
+      '/exports',
+      '/tooltips',
     ]);
   });
 
@@ -26,7 +28,7 @@ describe('workspaceMenu', () => {
       'maintainer',
       {
         primary: ['/', '/review', '/compendium', '/translations'],
-        more: ['/drift', '/lost-text', '/archive', '/management'],
+        more: ['/drift', '/lost-text', '/archive', '/management', '/exports'],
       },
     ],
     [
@@ -41,6 +43,15 @@ describe('workspaceMenu', () => {
     [null, { primary: ['/'], more: [] }],
   ] as const)('role %s sees %j', (role, expected) => {
     expect(split({ role })).toEqual(expected);
+  });
+
+  it('gives export partners their project and the published tooltips only', () => {
+    expect(split({ role: null, projects: ['dim'] })).toEqual({
+      primary: ['/exports', '/tooltips'],
+      more: [],
+    });
+    // An editing role decides; being a partner too adds nothing.
+    expect(split({ role: 'editor', projects: ['dim'] }).primary).toContain('/');
   });
 
   it('gives signed-out, loading and role-less visitors the read-only Editor only', () => {

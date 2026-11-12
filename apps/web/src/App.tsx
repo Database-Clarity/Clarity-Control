@@ -43,6 +43,17 @@ const AdminPage = () => <AppLazyPage load={loadAdminPage} />;
 const loadMigratePage = () =>
   import('./features/migrate/MigratePage').then((module) => ({ default: module.MigratePage }));
 const MigratePage = () => <AppLazyPage load={loadMigratePage} />;
+// Export pages (spec section 8): their own lazy chunks, never preloaded with the workspaces, so
+// the editor's initial graph does not grow.
+const loadExportsPage = () =>
+  import('./features/exports/ExportsPage').then((module) => ({ default: module.ExportsPage }));
+const ExportsPage = () => <AppLazyPage load={loadExportsPage} />;
+const loadExportProjectPage = () =>
+  import('./features/exports/ProjectPage').then((module) => ({ default: module.ProjectPage }));
+const ExportProjectPage = () => <AppLazyPage load={loadExportProjectPage} />;
+const loadPublishedTooltipsPage = () =>
+  import('./features/exports/TooltipsPage').then((module) => ({ default: module.TooltipsPage }));
+const PublishedTooltipsPage = () => <AppLazyPage load={loadPublishedTooltipsPage} />;
 const ReportPage = () => (
   <AppLazyPage load={() => import('./features/reports/public/ReportPublicPage')} />
 );
@@ -118,6 +129,9 @@ export const routes: RouteObject[] = [
         handle: { preload: loadGlobalDetailPage },
       },
       { path: 'management', element: <AdminPage />, handle: { preload: loadAdminPage } },
+      { path: 'exports', element: <ExportsPage /> },
+      { path: 'exports/:project', element: <ExportProjectPage /> },
+      { path: 'tooltips', element: <PublishedTooltipsPage /> },
       { path: 'settings', element: <SettingsRedirect /> },
       {
         path: '*',
@@ -154,6 +168,8 @@ function StartPage() {
   const { user, loading } = useAuthStore();
   if (loading) return <p role="status">Loading your workspace...</p>;
   if (user?.role === 'translator') return <Navigate to="/translations" replace />;
+  // Export partners land on their project (spec section 8).
+  if (!user?.role && user?.projects?.length) return <Navigate to="/exports" replace />;
   const first = data && navigationGroups(data, '')[0]?.sections[0]?.items[0];
   return first ? <Navigate to={`/t/${first.hash}`} replace /> : <p>No tooltips available.</p>;
 }
