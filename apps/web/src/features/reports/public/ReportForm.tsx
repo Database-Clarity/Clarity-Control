@@ -1,11 +1,6 @@
 import { SkeletonBoundary } from '../../../ui/Skeleton';
-import { languages } from '../../../../../../packages/core/src/languages';
-import {
-  reportSubmissionSchema,
-  reportVideoSchema,
-  reportVideoHosts,
-  type ReportSubmission,
-} from '../../../../../../packages/core/src/reports/schemas';
+import { languages } from '../../../../../../packages/core/src/languageCodes';
+import type { ReportSubmission } from '../../../../../../packages/core/src/reports/schemas';
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { languageLabel } from '../../../languageLabels';
@@ -13,13 +8,11 @@ import { categorySpecs } from '../../../services/categoryLabels';
 import {
   publicAnchors,
   ReportApiError,
-  submitReport,
-  uploadScreenshot,
   waitText,
   type PublicAnchor,
 } from '../../../services/reports';
 import { useAuthStore } from '../../../stores/auth';
-import { apiUrl } from '../../../services/api';
+import { apiUrl } from '../../../services/apiAuth';
 import { AnnotatedTooltip, type LineKey } from './AnnotatedTooltip';
 import {
   anchorFor,
@@ -61,6 +54,21 @@ import {
   type ReportRender,
 } from './tooltipRender';
 import styles from './ReportPage.module.scss';
+
+type SendClient = typeof import('./sendClient');
+let sendClient: SendClient | undefined;
+let sendClientLoad: Promise<SendClient> | undefined;
+/** Send's schemas and calls, loaded once (a failed load is retried by the next call). */
+function loadSendClient(): Promise<SendClient> {
+  sendClientLoad ??= import('./sendClient').then(
+    (client) => (sendClient = client),
+    (error: unknown) => {
+      sendClientLoad = undefined;
+      throw error;
+    },
+  );
+  return sendClientLoad;
+}
 
 type Load =
   | { kind: 'loading' }
@@ -452,7 +460,10 @@ export function ReportForm() {
   };
 
   /** Field errors in screen order; the first one is focused. */
-  const validate = (payload: Omit<ReportSubmission, 'turnstile'>): Record<string, string> => {
+  const validate = (
+    client: SendClient,
+    payload: Omit<ReportSubmission, 'turnstile'>,
+  ): Record<string, string> => {
     const found: Record<string, string> = {};
     if (!draft.notes.length)
       found.tooltip = coarse()
@@ -469,17 +480,17 @@ export function ReportForm() {
     });
     draft.links.forEach((link, index) => {
       if (!link.trim()) return;
-      const parsed = reportVideoSchema.safeParse(link.trim());
+      const parsed = client.reportVideoSchema.safeParse(link.trim());
       if (!parsed.success)
         found[`link-${index}`] = /discord/i.test(link)
           ? 'Discord links expire after a day; use YouTube, Twitch clips, Streamable, or imgur.'
-          : `Use a link from ${reportVideoHosts.join(', ')}.`;
+          : `Use a link from ${client.reportVideoHosts.join(', ')}.`;
     });
     if (draft.source.trim() && !/^https:\/\/\S+$/.test(draft.source.trim()))
       found.source = 'Use an https:// link.';
     if (Object.keys(found).length) return found;
     // The shared schema is the final word (lengths, control and bidi characters).
-    const result = reportSubmissionSchema.safeParse(payload);
+    const result = client.reportSubmissionSchema.safeParse(payload);
     if (!result.success)
       for (const issue of result.error.issues) {
         const [field, index] = issue.path;
@@ -589,8 +600,31 @@ export function ReportForm() {
     }
   };
 
+  // Send's code arrives once there is something to send, before the reporter presses Send.
+  useEffect(() => {
+    if (render && !isEmptyDraft(draft)) loadSendClient().catch(() => undefined);
+  }, [render, draft]);
+  const waitingForClient = useRef(false);
+
   const send = async () => {
     if (!render || busyRef.current) return;
+    const client = sendClient;
+    if (!client) {
+      // Sent before the prefetch finished (or it failed): load it, then send with the latest form.
+      if (waitingForClient.current) return;
+      waitingForClient.current = true;
+      try {
+        await loadSendClient();
+      } catch {
+        if (alive.current)
+          setNotice('The report could not be sent. Check your connection and try again.');
+        return;
+      } finally {
+        waitingForClient.current = false;
+      }
+      if (alive.current) await sendRef.current();
+      return;
+    }
     setNotice(null);
     const anchors = draft.notes.map((note) =>
       note.mark ? anchorFor(render.display, render.rev, render.lines, note.mark) : null,
@@ -633,7 +667,7 @@ export function ReportForm() {
       request_id: capability.requestId,
       withdraw_secret: capability.secret,
     };
-    const found = validate(payload as Omit<ReportSubmission, 'turnstile'>);
+    const found = validate(client, payload as Omit<ReportSubmission, 'turnstile'>);
     setErrors(found);
     if (Object.keys(found).length) return focusError(found);
     busyRef.current = true;
@@ -664,14 +698,17 @@ export function ReportForm() {
     }
     setPhase('sending');
     try {
-      const result = await submitReport({ ...payload, ...(token ? { turnstile: token } : {}) });
+      const result = await client.submitReport({
+        ...payload,
+        ...(token ? { turnstile: token } : {}),
+      });
       rememberSecret(result.id, capability.secret);
       const uploads: string[] = [];
       if (user && screenshots.length) {
         setPhase('uploading');
         for (const [index, shot] of screenshots.entries()) {
           try {
-            await uploadScreenshot(result.id, capability.requestId, shot.blob);
+            await client.uploadScreenshot(result.id, capability.requestId, shot.blob);
           } catch (error) {
             uploads.push(
               `Screenshot ${index + 1}: ${error instanceof ReportApiError ? error.message : 'not uploaded'}.`,
@@ -744,6 +781,8 @@ export function ReportForm() {
       if (refused) setDraft((current) => ({ ...current, pending: undefined }));
     }
   };
+  const sendRef = useRef(send);
+  sendRef.current = send;
 
   const hint = useMemo(
     () =>
