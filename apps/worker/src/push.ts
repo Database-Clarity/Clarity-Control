@@ -1,5 +1,6 @@
 import { refuseBaseEnhanced } from './baseEnhanced.js';
 import { refuseHeldSetBonuses } from './setBonusHold.js';
+import { refuseTaggedEntries, refuseTaggedExport } from './elementTags.js';
 import { z } from 'zod';
 import {
   publishableHash,
@@ -105,7 +106,8 @@ async function loadAtHead(
     }
   }
   refuseHeldSetBonuses(tooltips, facts);
-  await refuseBaseEnhanced(github, head, canonicalHashes, aliases, tooltips);
+  const documents = await refuseBaseEnhanced(github, head, canonicalHashes, aliases, tooltips);
+  refuseTaggedExport(canonicalHashes, documents, aliases);
   // A malformed marker is reported by the marker step below; here it just means "all changed".
   const pushed =
     pushedSchema.safeParse((await github.requiredFile('live/pushed.json', head)).value).data ?? {};
@@ -160,6 +162,7 @@ export async function pushLive(
     const live = liveSchema.parse(file.value);
     const now = Date.now();
     const entries = exportLegacy(tooltips, now, facts, aliases);
+    refuseTaggedEntries(entries);
     stampUploads(entries, changed, live.perks, now, user.login);
     try {
       liveCommit = await github.putLive(
